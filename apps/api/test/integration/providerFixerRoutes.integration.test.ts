@@ -118,6 +118,8 @@ describe("Provider Fixer admin routes", () => {
     expect(previewBody.operation.matchCount).toBe(1);
     expect(previewBody.operation.preview.evidenceSample[0]?.candidateSymbol).toBe("005930.KS");
     expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("verified");
+    const bossSend = vi.fn().mockResolvedValue("job-005930-quote-first");
+    app.boss = { send: bossSend } as never;
 
     const blocked = await app.inject({
       method: "POST",
@@ -142,6 +144,17 @@ describe("Provider Fixer admin routes", () => {
     expect(execute.statusCode).toBe(200);
     expect(execute.json()).toMatchObject({ result: { applied: 1, skipped: 0, scanned: 1 } });
     expect(verifyResolvedSymbol).toHaveBeenCalledWith("005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(bossSend).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "005930",
+        marketCode: "KR",
+        trigger: "admin_rerun",
+        resolverMode: "quote_first",
+        providerOperationId: previewBody.operation.id,
+      }),
+      expect.objectContaining({ singletonKey: "005930:KR:quote_first", priority: 10 }),
+    );
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toMatchObject({
@@ -213,6 +226,16 @@ describe("Provider Fixer admin routes", () => {
       previewExpiresAt: "2026-06-03T00:00:00.000Z",
       matchCount: 1,
     });
+
+    const operationsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/provider-fixer/operations?providerId=yahoo-finance-kr&page=1&limit=10",
+      headers,
+    });
+    expect(operationsResponse.statusCode).toBe(200);
+    expect(operationsResponse.json().operations).toContainEqual(
+      expect.objectContaining({ id: expired.id, canExecute: false }),
+    );
 
     const expiredResponse = await app.inject({
       method: "POST",

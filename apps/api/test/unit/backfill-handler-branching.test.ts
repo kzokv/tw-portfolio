@@ -143,6 +143,116 @@ describe("backfill handler trigger branching", () => {
     });
   });
 
+  it("logs lifecycle entries for operation-backed provider fixer jobs", async () => {
+    const deps = createDeps();
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-1",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "running",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-1",
+      }) as never,
+    ]);
+
+    expect(providerOperationLogger.getProviderOperation).toHaveBeenCalledWith("provider-op-1");
+    expect(providerOperationLogger.createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "provider-op-1",
+      phase: "running",
+      level: "info",
+      message: expect.stringContaining("job_started"),
+      context: expect.objectContaining({
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        ticker: "2330",
+        trigger: "admin_rerun",
+      }),
+    }));
+    expect(providerOperationLogger.createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "provider-op-1",
+      phase: "running",
+      level: "info",
+      message: expect.stringContaining("job_completed"),
+      context: expect.objectContaining({ barsCount: 1, dividendsCount: 1 }),
+    }));
+  });
+
+  it("requeues operation-backed jobs while the provider operation is paused", async () => {
+    const deps = createDeps();
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-paused",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "paused",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-paused",
+      }, 0, 3, 10) as never,
+    ]);
+
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      expect.objectContaining({ providerOperationId: "provider-op-paused" }),
+      expect.objectContaining({ startAfter: 60, singletonKey: "2330:TW", priority: 10 }),
+    );
+    expect(deps.provider.fetchBars).not.toHaveBeenCalled();
+    expect(providerOperationLogger.createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "provider-op-paused",
+      phase: "paused",
+      message: expect.stringContaining("job_deferred_paused_operation"),
+    }));
+  });
+
+  it("drops operation-backed jobs when the provider operation is cancelled", async () => {
+    const deps = createDeps();
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-cancelled",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "cancelled",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-cancelled",
+      }) as never,
+    ]);
+
+    expect(deps.boss.send).not.toHaveBeenCalled();
+    expect(deps.provider.fetchBars).not.toHaveBeenCalled();
+    expect(providerOperationLogger.createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "provider-op-cancelled",
+      phase: "cancelled",
+      message: expect.stringContaining("job_cancelled"),
+    }));
+  });
+
   it("keeps daily refresh failures out of backfill status transitions and notifies monitoring users on the last retry", async () => {
     const deps = createDeps();
     deps.provider.fetchBars.mockRejectedValue(new Error("FinMind outage"));

@@ -4,7 +4,13 @@ import type { BackfillStatus, MarketCode } from "@vakwen/domain";
 import { MARKET_CODES } from "@vakwen/shared-types";
 import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
-import type { CatalogInstrument, CatalogSyncResult, DelistingRecord } from "../../persistence/types.js";
+import type {
+  CatalogInstrument,
+  CatalogSyncResult,
+  DelistingRecord,
+  ProviderOperationPhase,
+  ProviderOperationRecord,
+} from "../../persistence/types.js";
 import type { InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { historyStartFor, RateLimitedError, type MarketDataResolverMode } from "./types.js";
 import { buildCatalogInstruments } from "./catalogSync.js";
@@ -38,6 +44,7 @@ export interface BackfillJobData {
   includeDividends?: boolean;
   resolverMode?: MarketDataResolverMode;
   batchId?: string;
+  providerOperationId?: string;
 }
 
 // KZO-185: validation gate at the handler entry. Parsed BEFORE the existing
@@ -57,7 +64,26 @@ export const BackfillJobDataSchema = z.object({
   includeDividends: z.boolean().optional(),
   resolverMode: z.enum(["chart_probe_v1", "quote_first"]).optional(),
   batchId: z.string().optional(),
+  providerOperationId: z.string().optional(),
 }) satisfies z.ZodType<BackfillJobData>;
+
+export interface ProviderOperationJobLogger {
+  getProviderOperation(id: string): Promise<ProviderOperationRecord | null>;
+  updateProviderOperation(input: {
+    id: string;
+    phase?: ProviderOperationPhase;
+    metadata?: Record<string, unknown> | null;
+    completedAt?: string | null;
+    cancelledAt?: string | null;
+  }): Promise<ProviderOperationRecord>;
+  createProviderOperationLog(input: {
+    operationId: string;
+    phase: ProviderOperationPhase;
+    level: "info" | "warning" | "error";
+    message: string;
+    context?: Record<string, unknown> | null;
+  }): Promise<unknown>;
+}
 
 export interface BackfillWorkerDeps {
   pool: Pool;
@@ -118,6 +144,7 @@ export interface BackfillWorkerDeps {
    * Provider classes themselves stay pure (no health side effects).
    */
   providerHealth?: ProviderHealthService;
+  providerOperationLogger?: ProviderOperationJobLogger;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }
 
@@ -173,6 +200,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     onBatchComplete,
     onBarsUpserted,
     providerHealth,
+    providerOperationLogger,
     log,
   } = deps;
 
@@ -195,6 +223,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       includeBars = true,
       includeDividends = true,
       batchId,
+      providerOperationId,
     } = data;
     // KZO-170 D13: truncate caller-supplied `startDate` to the per-market provider boundary.
     // The TW provider serves bars from 1994-10-01; the US provider serves from 2019-06-01
@@ -240,6 +269,82 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     // outcomes. Computed once per job — the market is stable across the
     // bars/dividends/metadata calls.
     const healthProviderId = providerIdForMarket(market);
+
+    async function recordOperationLog(
+      phase: ProviderOperationPhase,
+      level: "info" | "warning" | "error",
+      message: string,
+      context: Record<string, unknown> = {},
+    ): Promise<void> {
+      if (!providerOperationId || !providerOperationLogger) return;
+      try {
+        await providerOperationLogger.createProviderOperationLog({
+          operationId: providerOperationId,
+          phase,
+          level,
+          message,
+          context: {
+            providerId: healthProviderId,
+            marketCode: market,
+            ticker,
+            trigger,
+            batchId,
+            resolverMode,
+            jobId: job.id,
+            ...context,
+          },
+        });
+      } catch (logErr) {
+        log.warn(
+          { err: logErr, providerOperationId, ticker, marketCode: market },
+          "provider_operation_job_log_failed",
+        );
+      }
+    }
+
+    async function assertOperationCanRun(): Promise<boolean> {
+      if (!providerOperationId || !providerOperationLogger) return true;
+      const operation = await providerOperationLogger.getProviderOperation(providerOperationId);
+      if (!operation) {
+        await recordOperationLog(
+          "failed",
+          "error",
+          `job_aborted_missing_operation provider=${healthProviderId} market=${market} ticker=${ticker}`,
+        );
+        return false;
+      }
+      if (operation.phase === "cancelled") {
+        await recordOperationLog(
+          "cancelled",
+          "warning",
+          `job_cancelled provider=${operation.providerId} market=${operation.marketCode} ticker=${ticker}`,
+        );
+        return false;
+      }
+      if (operation.phase === "paused") {
+        const id = await boss.send(BACKFILL_QUEUE, data, {
+          startAfter: 60,
+          singletonKey: getBackfillSingletonKey(ticker, market, resolverMode),
+          priority: job.priority ?? 0,
+        });
+        await recordOperationLog(
+          "paused",
+          "warning",
+          `job_deferred_paused_operation provider=${operation.providerId} market=${operation.marketCode} ticker=${ticker}`,
+          { requeuedJobId: id, delaySec: 60 },
+        );
+        return false;
+      }
+      if (!["running", "staged"].includes(operation.phase)) {
+        await recordOperationLog(
+          operation.phase,
+          "warning",
+          `job_skipped_inactive_operation provider=${operation.providerId} market=${operation.marketCode} ticker=${ticker} phase=${operation.phase}`,
+        );
+        return false;
+      }
+      return true;
+    }
 
     async function safeRecordOutcome(outcome: ProviderOutcome): Promise<void> {
       if (!providerHealth) return;
@@ -303,6 +408,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     const catalogProvider = catalogRegistry.get(market);
 
     try {
+      if (!(await assertOperationCanRun())) return;
+      await recordOperationLog(
+        "running",
+        "info",
+        `job_started provider=${healthProviderId} market=${market} ticker=${ticker}`,
+        { startDate: effectiveStartDate, endDate },
+      );
       // KZO-163 HIGH-1 + KZO-172 + KZO-189 + KZO-190: pre-reserve rate-limit slots for
       // every call this invocation will make. Three independent slot decisions:
       //   - `includeBars` → 1 slot for `fetchBars`
@@ -357,7 +469,10 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             onBarsUpserted(upsertedMarket, [...dates]);
           }
         }
-        log.info({ ticker, barsCount }, "backfill_bars_upserted");
+        log.info(
+          { ticker, marketCode: market, providerId: healthProviderId, batchId, providerOperationId, barsCount },
+          "backfill_bars_upserted",
+        );
       }
 
       // Fetch dividend events from the provider
@@ -374,7 +489,10 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             .map((dividend) => ({ ...dividend, marketCode: market }));
           // Write dividend events (dividend failure → log warning, don't fail job)
           dividendsCount = await upsertDividendEvents(pool, dividends);
-          log.info({ ticker, dividendsCount }, "backfill_dividends_upserted");
+          log.info(
+            { ticker, marketCode: market, providerId: healthProviderId, batchId, providerOperationId, dividendsCount },
+            "backfill_dividends_upserted",
+          );
         } catch (divErr) {
           // KZO-163: must not let the warn-and-continue path swallow RateLimitedError.
           // The outer catch reschedules; re-throw here so it gets there.
@@ -511,6 +629,12 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           log,
         );
       }
+      await recordOperationLog(
+        "running",
+        "info",
+        `job_completed provider=${healthProviderId} market=${market} ticker=${ticker} bars=${barsCount} dividends=${dividendsCount}`,
+        { barsCount, dividendsCount },
+      );
     } catch (err) {
       // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
       // so the job effectively pauses until the limiter releases.
@@ -527,6 +651,12 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
       const isLastRetry = job.retryCount >= job.retryLimit;
       const reason = err instanceof Error ? err.message : String(err);
+      await recordOperationLog(
+        isLastRetry ? "failed" : "running",
+        isLastRetry ? "error" : "warning",
+        `job_failed provider=${healthProviderId} market=${market} ticker=${ticker} last_retry=${isLastRetry}`,
+        { reason, retryCount: job.retryCount, retryLimit: job.retryLimit },
+      );
 
       // KZO-177: record provider error outcome. Classification falls back to
       // "other" when the message doesn't match a known shape. The handler

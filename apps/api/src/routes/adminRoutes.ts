@@ -710,6 +710,9 @@ function providerFixerOperationToDto(
   const matchCount = operation.matchCount ?? 0;
   const dangerous = matchCount >= guardrails.dangerousMatchThreshold;
   const token = stringField(metadata.previewTokenDisplay) ?? operation.id;
+  const previewExpired = operation.previewExpiresAt
+    ? new Date(operation.previewExpiresAt).getTime() <= Date.now()
+    : false;
   const confirmationText =
     stringField(metadata.confirmationText) ?? (dangerous ? `EXECUTE ${matchCount}` : null);
   const sample = evidenceSampleFromOperation(operation);
@@ -735,7 +738,7 @@ function providerFixerOperationToDto(
       acknowledgementLabel: "I understand this can write provider rows",
       evidenceSample: sample,
     },
-    canExecute: operation.phase === "preview" || operation.phase === "staged",
+    canExecute: (operation.phase === "preview" || operation.phase === "staged") && !previewExpired,
     canPause: operation.phase === "running",
     canResume: operation.phase === "paused",
     canCancel: operation.phase === "preview" || operation.phase === "staged" || operation.phase === "running" || operation.phase === "paused",
@@ -942,6 +945,7 @@ async function enqueueProviderFixerBackfills(
       marketCode: "KR",
       trigger: "admin_rerun",
       resolverMode: operation.resolverMode ?? "quote_first",
+      providerOperationId: operation.id,
     } satisfies BackfillJobData;
     const jobId = await app.boss.send(
       BACKFILL_QUEUE,
@@ -1101,7 +1105,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!existing) throw routeError(404, "provider_operation_not_found", "Provider operation not found");
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     const operationDto = providerFixerOperationToDto(existing, guardrails);
-    if (!operationDto.canExecute) {
+    if (existing.phase !== "preview" && existing.phase !== "staged") {
       throw routeError(400, "provider_operation_not_executable", "Selected operation cannot be executed");
     }
     assertProviderFixerPreviewToken(existing, body.previewToken);

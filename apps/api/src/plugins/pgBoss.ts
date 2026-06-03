@@ -108,6 +108,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     // KZO-177: feed provider outcomes (success/error/rate_limit) into the
     // health aggregator. Decorated by `registerProviderHealth(app)` in app.ts.
     providerHealth: app.providerHealth,
+    providerOperationLogger: app.persistence,
     log: app.log,
   };
 
