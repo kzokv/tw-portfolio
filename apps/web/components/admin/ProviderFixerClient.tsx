@@ -78,6 +78,7 @@ const t = {
 };
 
 const noop = () => undefined;
+const PROVIDER_FIXER_PATH = "/admin/provider-fixer";
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   diagnose: "bg-slate-100 text-slate-700",
@@ -136,6 +137,14 @@ function scopeSummary(operation: ProviderFixerDashboardOperationDto): string {
   return parts.join(" / ");
 }
 
+function providerFixerUrl(input: { providerId: string; resolverMode: string; errorCode: string }): string {
+  const params = new URLSearchParams();
+  params.set("providerId", input.providerId);
+  params.set("resolverMode", input.resolverMode);
+  params.set("errorCode", input.errorCode);
+  return `${PROVIDER_FIXER_PATH}?${params.toString()}`;
+}
+
 export function ProviderFixerClient({
   summary,
   guardrails,
@@ -161,6 +170,25 @@ export function ProviderFixerClient({
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  function applyFilter(next: {
+    providerId?: string;
+    resolverMode?: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
+    errorCode?: string;
+  }): void {
+    const nextProviderId = next.providerId ?? providerId;
+    const nextResolverMode = next.resolverMode ?? resolverMode;
+    const nextErrorCode = next.errorCode ?? errorCode;
+    setProviderId(nextProviderId);
+    setResolverMode(nextResolverMode);
+    setErrorCode(nextErrorCode);
+    router.push(providerFixerUrl({
+      providerId: nextProviderId,
+      resolverMode: nextResolverMode,
+      errorCode: nextErrorCode,
+    }));
+    router.refresh();
+  }
 
   useEffect(() => {
     if (selectedOperationId) {
@@ -248,7 +276,7 @@ export function ProviderFixerClient({
         <Button
           size="sm"
           variant={row.providerId === providerId ? "default" : "secondary"}
-          onClick={() => setProviderId(row.providerId)}
+          onClick={() => applyFilter({ providerId: row.providerId, errorCode: row.errorCode })}
           data-testid={`provider-fixer-diagnose-${row.providerId}`}
         >
           Diagnose
@@ -388,7 +416,9 @@ export function ProviderFixerClient({
               <select
                 className="h-10 rounded-lg border border-input bg-background px-3 text-foreground"
                 value={resolverMode}
-                onChange={(event) => setResolverMode(event.target.value as ProviderFixerDashboardDiagnosticsDto["resolverMode"])}
+                onChange={(event) => applyFilter({
+                  resolverMode: event.target.value as ProviderFixerDashboardDiagnosticsDto["resolverMode"],
+                })}
                 data-testid="provider-fixer-mode-select"
               >
                 <option value="quote_first">quote_first (safe default)</option>
@@ -400,7 +430,11 @@ export function ProviderFixerClient({
               <select
                 className="h-10 rounded-lg border border-input bg-background px-3 text-foreground"
                 value={providerId}
-                onChange={(event) => setProviderId(event.target.value)}
+                onChange={(event) => {
+                  const selectedProviderId = event.target.value;
+                  const selectedRow = diagnostics.rows.find((row) => row.providerId === selectedProviderId);
+                  applyFilter({ providerId: selectedProviderId, errorCode: selectedRow?.errorCode });
+                }}
                 data-testid="provider-fixer-provider-select"
               >
                 {diagnostics.rows.map((row) => (
@@ -415,7 +449,7 @@ export function ProviderFixerClient({
               <select
                 className="h-10 rounded-lg border border-input bg-background px-3 text-foreground"
                 value={errorCode}
-                onChange={(event) => setErrorCode(event.target.value)}
+                onChange={(event) => applyFilter({ errorCode: event.target.value })}
                 data-testid="provider-fixer-error-code-select"
               >
                 <option value={errorCode}>{errorCode}</option>

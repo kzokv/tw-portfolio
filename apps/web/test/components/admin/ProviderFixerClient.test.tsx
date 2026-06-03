@@ -10,9 +10,10 @@ import type {
 } from "@vakwen/shared-types";
 
 const mockRefresh = vi.fn();
+const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: mockRefresh }),
+  useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
 }));
 
 import { ProviderFixerClient } from "../../../components/admin/ProviderFixerClient";
@@ -175,6 +176,7 @@ describe("ProviderFixerClient", () => {
 
   beforeEach(() => {
     mockRefresh.mockReset();
+    mockPush.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -198,6 +200,23 @@ describe("ProviderFixerClient", () => {
     expect(document.querySelector("[data-testid='provider-fixer-log-pflog-1']")?.textContent ?? "").toMatch(
       /preview_token=PF-UNSAFE-OK/i,
     );
+  });
+
+  it("diagnoses a provider row by syncing the URL-backed scope and refreshing", () => {
+    renderClient(root);
+
+    const diagnoseButton = document.querySelector(
+      "[data-testid='provider-fixer-diagnose-finmind-tw']",
+    ) as HTMLButtonElement | null;
+
+    act(() => {
+      diagnoseButton?.click();
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/provider-fixer?providerId=finmind-tw&resolverMode=quote_first&errorCode=provider_symbol_unresolved",
+    );
+    expect(mockRefresh).toHaveBeenCalled();
   });
 
   it("keeps dangerous execution disabled until checkbox and typed confirmation are satisfied", () => {

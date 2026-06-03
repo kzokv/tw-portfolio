@@ -148,7 +148,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
 
   private async quoteRaw(symbol: string): Promise<YahooQuoteResult> {
     this.consumeOne();
-    const quote = this.client.quote as unknown as (
+    const quote = this.client.quote.bind(this.client) as unknown as (
       symbol: string,
       queryOptions?: Record<string, unknown>,
       moduleOptions?: { validateResult?: boolean },
@@ -158,7 +158,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
 
   private async chartRaw(symbol: string, options: Record<string, unknown>): Promise<YahooChartResult> {
     this.consumeOne();
-    const chart = this.client.chart as unknown as (
+    const chart = this.client.chart.bind(this.client) as unknown as (
       symbol: string,
       queryOptions: Record<string, unknown>,
       moduleOptions?: { validateResult?: boolean },
@@ -168,7 +168,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
 
   private async searchRaw(query: string): Promise<YahooSearchResult> {
     this.consumeOne();
-    const search = this.client.search as unknown as (
+    const search = this.client.search.bind(this.client) as unknown as (
       query: string,
       queryOptions: Record<string, unknown>,
       moduleOptions?: { validateResult?: boolean },

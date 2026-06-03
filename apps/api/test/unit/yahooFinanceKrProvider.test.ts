@@ -21,12 +21,21 @@ function makeSdkStub(): SdkStub {
 
 vi.mock("yahoo-finance2", () => {
   class FakeYahooFinance {
-    chart = (...args: unknown[]) =>
-      (activeSdkStub!.chart as unknown as (...a: unknown[]) => unknown)(...args);
-    quote = (...args: unknown[]) =>
-      (activeSdkStub!.quote as unknown as (...a: unknown[]) => unknown)(...args);
-    search = (...args: unknown[]) =>
-      (activeSdkStub!.search as unknown as (...a: unknown[]) => unknown)(...args);
+    private forward(method: keyof SdkStub, args: unknown[]) {
+      return (activeSdkStub![method] as unknown as (...a: unknown[]) => unknown)(...args);
+    }
+
+    chart(...args: unknown[]) {
+      return this.forward("chart", args);
+    }
+
+    quote(...args: unknown[]) {
+      return this.forward("quote", args);
+    }
+
+    search(...args: unknown[]) {
+      return this.forward("search", args);
+    }
   }
   return { default: FakeYahooFinance };
 });
