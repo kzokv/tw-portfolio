@@ -10,6 +10,7 @@ vi.mock("@vakwen/config", async (importOriginal) => {
 
 const { buildApp } = await import("../../src/app.js");
 const { signSessionCookie } = await import("../../src/auth/googleOAuth.js");
+const { RateLimitedError } = await import("../../src/services/market-data/types.js");
 
 type BuiltApp = Awaited<ReturnType<typeof buildApp>>;
 
@@ -163,6 +164,20 @@ describe("Provider Fixer admin routes", () => {
       verifiedByUserId: admin.userId,
     });
 
+    const refreshedPreview = await app.inject({
+      method: "POST",
+      url: "/admin/provider-fixer/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(refreshedPreview.statusCode).toBe(201);
+    expect(refreshedPreview.json()).toMatchObject({ operation: { matchCount: 0 } });
+
     const logs = await app.inject({
       method: "GET",
       url: `/admin/provider-fixer/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
@@ -212,6 +227,71 @@ describe("Provider Fixer admin routes", () => {
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toBeNull();
+  });
+
+  it("auto-pauses provider fixer execution when Yahoo verification is rate limited", async () => {
+    verifyResolvedSymbol
+      .mockResolvedValueOnce({
+        verified: true,
+        checkedSymbol: "005930.KS",
+        resolverMode: "quote_first",
+      })
+      .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }));
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/provider-fixer/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/provider-fixer/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: {
+        previewToken: previewBody.operation.preview.token,
+        acknowledged: true,
+      },
+    });
+
+    expect(execute.statusCode).toBe(503);
+    expect(execute.json()).toMatchObject({ error: "provider_rate_limited" });
+    await expect(app.persistence.getProviderOperation(previewBody.operation.id)).resolves.toMatchObject({
+      phase: "paused",
+      metadata: expect.objectContaining({
+        autoPauseFailureCount: 1,
+        failureName: "RateLimitedError",
+        msUntilAvailable: 30_000,
+      }),
+    });
+
+    const logs = await app.inject({
+      method: "GET",
+      url: `/admin/provider-fixer/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
+      headers,
+    });
+    expect(logs.statusCode).toBe(200);
+    const logsBody = logs.json() as { total: number; items: Array<{ phase: string; message: string }> };
+    expect(logsBody.total).toBe(3);
+    expect(logsBody.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phase: "paused",
+          message: expect.stringContaining("execute_auto_paused_rate_limited"),
+        }),
+      ]),
+    );
   });
 
   it("rejects expired preview tokens and concurrent active executions for the same provider market", async () => {

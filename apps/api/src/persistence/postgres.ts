@@ -12347,30 +12347,45 @@ export class PostgresPersistence implements Persistence {
     let i = 1;
 
     if (options.providerId) {
-      where.push(`provider_id = $${i++}`);
+      where.push(`e.provider_id = $${i++}`);
       params.push(options.providerId);
     }
     if (options.marketCode) {
-      where.push(`COALESCE(context->>'marketCode', '') = $${i++}`);
+      where.push(`COALESCE(e.context->>'marketCode', '') = $${i++}`);
       params.push(options.marketCode);
     }
     if (options.errorMessageLike) {
-      where.push(`COALESCE(error_message, '') ILIKE $${i++}`);
+      where.push(`COALESCE(e.error_message, '') ILIKE $${i++}`);
       params.push(`%${options.errorMessageLike}%`);
+    }
+    if (options.excludeResolvedMappings && options.providerId && options.marketCode) {
+      where.push(`
+        NOT EXISTS (
+          SELECT 1
+            FROM market_data.provider_resolution_mappings prm
+           WHERE prm.provider_id = e.provider_id
+             AND prm.market_code = $${i++}
+             AND prm.source_symbol = UPPER(TRIM(COALESCE(
+               e.context->>'ticker',
+               e.context->>'symbol',
+               regexp_replace(COALESCE(e.error_message, ''), '^.*: ', '')
+             )))
+        )`);
+      params.push(options.marketCode);
     }
 
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const countResult = await this.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
-         FROM market_data.provider_error_trail
+         FROM market_data.provider_error_trail e
          ${whereClause}`,
       params,
     );
     const rowsResult = await this.pool.query<ProviderErrorTrailRowSql>(
-      `SELECT id, provider_id, occurred_at, error_class, error_message, context
-         FROM market_data.provider_error_trail
+      `SELECT e.id, e.provider_id, e.occurred_at, e.error_class, e.error_message, e.context
+         FROM market_data.provider_error_trail e
          ${whereClause}
-         ORDER BY occurred_at DESC
+         ORDER BY e.occurred_at DESC
          LIMIT $${i++}
          OFFSET $${i++}`,
       [...params, limit, offset],
