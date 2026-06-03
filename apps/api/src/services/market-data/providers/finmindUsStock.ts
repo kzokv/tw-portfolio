@@ -8,6 +8,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
@@ -192,7 +193,12 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
     return body.data;
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.assertCanConsume();
     const rows = await this.fetchDataset<FinMindUsPriceRow>("USStockPrice", ticker, startDate, endDate);
     return rows.map((r) => ({
@@ -215,7 +221,12 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
    * ingestion via an alternate provider (Yahoo Finance / Alpha Vantage / manual entry).
    * Replay-position-history invariant 5 is a no-op when the dividend set is empty.
    */
-  async fetchDividends(_ticker: string, _startDate?: string, _endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    _ticker: string,
+    _startDate?: string,
+    _endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     return [];
   }
 

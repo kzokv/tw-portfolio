@@ -60,7 +60,7 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
   - `AdminSidebar.tsx` — nav items (`adminNavItems`); add entry for every new admin subpage
   - `AdminAuditLogClient.tsx` — audit log viewer with `ACTION_LABELS` + `ACTION_CATEGORIES`
   - `AdminSettingsClient.tsx` — app config settings (KZO-142); toggle + number input for `repairCooldownMinutes`
-  - `AdminProvidersClient.tsx` — provider health table (desktop) + card grid (mobile); dual-layout with `-card-` testid prefix convention (KZO-177)
+  - `AdminProvidersClient.tsx` — provider health table with single-DOM `DataTable` desktop/mobile rendering; shared provider testids stay unique because only one variant is mounted
 
 ## Patterns
 - API calls live in `features/*/services/` (not in components)

@@ -5,6 +5,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 
 /**
@@ -131,7 +132,12 @@ export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider,
     this.calls.push({ method: "reserveCapacity", n });
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.calls.push({
       method: "fetchBars",
       ticker,
@@ -147,7 +153,12 @@ export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider,
    * KZO-170: returns empty — mirrors the real provider exactly. KZO-187 will own
    * US dividend mock fixtures when an alternate provider lands.
    */
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     this.calls.push({
       method: "fetchDividends",
       ticker,

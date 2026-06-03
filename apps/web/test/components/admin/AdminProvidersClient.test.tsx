@@ -194,6 +194,35 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
     ).toBe("yahoo-finance-au");
   });
 
+  it("(b'') KR provider popover has resolver guardrail copy", async () => {
+    act(() =>
+      root.render(
+        <AdminProvidersClient
+          providers={[
+            buildProvider({
+              providerId: "yahoo-finance-kr",
+              rerunCooldownMs: 30 * 60 * 1000,
+            }),
+          ]}
+        />,
+      ),
+    );
+
+    click("provider-help-trigger-yahoo-finance-kr");
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const content = document.querySelector(
+      "[data-testid='provider-help-popover-yahoo-finance-kr']",
+    );
+    expect(content, "KR provider popover content present").not.toBeNull();
+    const text = content?.textContent ?? "";
+    expect(text).toMatch(/quote-first/i);
+    expect(text).toMatch(/chart_probe_v1/i);
+    expect(text).toMatch(/cooldown 30 min/i);
+  });
+
   it("(d) 429 with Retry-After header → countdown honors header value (NOT rerunCooldownMs)", async () => {
     // Server says "you may retry in 30 seconds" via Retry-After. Even though
     // the AU configured cooldown is 30 minutes, the UI must honor the
@@ -279,5 +308,135 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
     const m = label.match(/(\d+)\s*s/);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(60);
+  });
+
+  it("(e) renders KR resolver controls only on yahoo-finance-kr", () => {
+    act(() =>
+      root.render(
+        <AdminProvidersClient
+          providers={[
+            buildProvider({
+              providerId: "yahoo-finance-kr",
+              status: "healthy",
+              lastManualRerunAt: null,
+            }),
+            buildProvider({
+              providerId: "frankfurter",
+              status: "healthy",
+              lastManualRerunAt: null,
+            }),
+          ]}
+        />,)
+    );
+
+    expect(
+      document.querySelector("[data-testid='provider-resolver-mode-yahoo-finance-kr']"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("[data-testid='provider-resolver-mode-frankfurter']"),
+    ).toBeNull();
+  });
+
+  it("(f) posts resolverMode when KR resolver mode is quote_first", async () => {
+    mockPostJson.mockResolvedValue({ status: "queued" });
+
+    act(() =>
+      root.render(
+        <AdminProvidersClient
+          providers={[
+            buildProvider({
+              providerId: "yahoo-finance-kr",
+              status: "healthy",
+              lastManualRerunAt: null,
+            }),
+            buildProvider({ providerId: "finmind-tw", status: "healthy", lastManualRerunAt: null }),
+          ]}
+        />,
+      ),
+    );
+
+    const select = document.querySelector(
+      "[data-testid='provider-resolver-mode-yahoo-finance-kr']",
+    ) as HTMLSelectElement | null;
+    if (!select) throw new Error("resolver mode select missing");
+
+    act(() => {
+      select.value = "quote_first";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    click("provider-rerun-btn-yahoo-finance-kr");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPostJson).toHaveBeenCalledTimes(1);
+    const [url, body] = mockPostJson.mock.calls[0] as [string, Record<string, unknown>];
+    expect(url).toBe("/admin/providers/yahoo-finance-kr/rerun");
+    expect(body).toMatchObject({ resolverMode: "quote_first" });
+  });
+
+  it("(g) blocks chart_probe_v1 rerun until acknowledgment is checked", async () => {
+    mockPostJson.mockResolvedValue({ status: "queued" });
+
+    act(() =>
+      root.render(
+        <AdminProvidersClient
+          providers={[
+            buildProvider({
+              providerId: "yahoo-finance-kr",
+              status: "healthy",
+              lastManualRerunAt: null,
+            }),
+            buildProvider({ providerId: "finmind-tw", status: "healthy", lastManualRerunAt: null }),
+          ]}
+        />,
+      ),
+    );
+
+    const select = document.querySelector(
+      "[data-testid='provider-resolver-mode-yahoo-finance-kr']",
+    ) as HTMLSelectElement | null;
+    if (!select) throw new Error("resolver mode select missing");
+
+    act(() => {
+      select.value = "chart_probe_v1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const rerunButton = document.querySelector(
+      "[data-testid='provider-rerun-btn-yahoo-finance-kr']",
+    ) as HTMLButtonElement | null;
+    if (!rerunButton) throw new Error("rerun button missing");
+
+    expect(rerunButton.disabled).toBe(true);
+    click("provider-rerun-btn-yahoo-finance-kr");
+    expect(mockPostJson).not.toHaveBeenCalled();
+
+    const ackCheckbox = document.querySelector(
+      "[data-testid='provider-resolver-ack-yahoo-finance-kr']",
+    ) as HTMLInputElement | null;
+    if (!ackCheckbox) throw new Error("acknowledgment checkbox missing");
+
+    act(() => {
+      // Some test environments only propagate checkbox state transitions via click.
+      ackCheckbox.click();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    click("provider-rerun-btn-yahoo-finance-kr");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPostJson).toHaveBeenCalledTimes(1);
+    const [url, body] = mockPostJson.mock.calls[0] as [string, Record<string, unknown>];
+    expect(url).toBe("/admin/providers/yahoo-finance-kr/rerun");
+    expect(body).toMatchObject({ resolverMode: "chart_probe_v1", resolverModeRiskAccepted: true });
   });
 });

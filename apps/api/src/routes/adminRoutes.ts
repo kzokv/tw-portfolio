@@ -84,6 +84,13 @@ const fxRefreshBodySchema = z
     }
   });
 
+const adminProviderRerunBodySchema = z
+  .object({
+    resolverMode: z.enum(["chart_probe_v1", "quote_first"]).optional(),
+    resolverModeRiskAccepted: z.boolean().optional(),
+  })
+  .strict();
+
 /**
  * KZO-198: a Tier 1 plain field accepts an integer within `APP_CONFIG_BOUNDS`,
  * or `null` to clear the override (falls back to env). Single source of truth
@@ -1017,6 +1024,32 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     if (!existing) {
       throw routeError(404, "provider_not_found", "Unknown provider id");
     }
+    const body = adminProviderRerunBodySchema.parse(req.body ?? {});
+
+    if ((body.resolverMode || body.resolverModeRiskAccepted !== undefined) && providerId !== "yahoo-finance-kr") {
+      throw routeError(
+        400,
+        "resolver_mode_provider_mismatch",
+        "resolverMode is only supported for yahoo-finance-kr",
+      );
+    }
+
+    const effectiveKrResolverMode =
+      providerId === "yahoo-finance-kr" ? body.resolverMode ?? "quote_first" : undefined;
+    if (body.resolverModeRiskAccepted !== undefined && effectiveKrResolverMode !== "chart_probe_v1") {
+      throw routeError(
+        400,
+        "resolver_mode_risk_acceptance_unexpected",
+        "resolverModeRiskAccepted is only valid with chart_probe_v1",
+      );
+    }
+    if (effectiveKrResolverMode === "chart_probe_v1" && body.resolverModeRiskAccepted !== true) {
+      throw routeError(
+        400,
+        "resolver_mode_risk_acceptance_required",
+        "chart_probe_v1 requires explicit resolverModeRiskAccepted=true",
+      );
+    }
 
     // (3) cooldown per provider — read live (KZO-198: DB override → env).
     // KZO-197/KR — per-provider cooldown dispatch. Yahoo market reruns read
@@ -1029,6 +1062,18 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         reply.header("Retry-After", String(retryAfterSec));
         throw routeError(429, "rate_limit_exceeded", "Re-run cooldown active for this provider");
       }
+    }
+
+    if (providerId === "yahoo-finance-kr" && effectiveKrResolverMode) {
+      app.log.info(
+        {
+          providerId,
+          resolverMode: effectiveKrResolverMode,
+          resolverModeRiskAccepted: body.resolverModeRiskAccepted === true,
+          marketAwareHint: "KR",
+        },
+        "provider_health_rerun_diagnostic_request",
+      );
     }
 
     // (4) queue dispatch — checked LAST so auth/404/cooldown branches fire
@@ -1152,10 +1197,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
             enqueueAuCatalogBarsBackfill(app.boss, app.persistence, app.log, {
               trigger: "admin_rerun",
               marketCode: "KR",
+              resolverMode: effectiveKrResolverMode,
             }),
             enqueueDailyRefresh(app.boss, app.persistence, app.log, {
               marketFilter: "KR",
               trigger: "admin_rerun",
+              resolverMode: effectiveKrResolverMode,
             }),
           ])
         : [
@@ -1189,6 +1236,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       tickerCount,
       jobId,
     };
+    if (providerId === "yahoo-finance-kr" && effectiveKrResolverMode) {
+      auditMetadata.resolverMode = effectiveKrResolverMode;
+      auditMetadata.resolverModeRiskAccepted = body.resolverModeRiskAccepted === true;
+    }
     if (marketCatalogBackfill !== null) {
       auditMetadata.catalogBackfill = marketCatalogBackfill;
     }

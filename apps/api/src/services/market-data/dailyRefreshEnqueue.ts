@@ -37,6 +37,7 @@ export interface EnqueueDailyRefreshOptions {
    * downstream workers can distinguish operator-initiated runs from cron.
    */
   trigger?: BackfillJobData["trigger"];
+  resolverMode?: BackfillJobData["resolverMode"];
 }
 
 export async function enqueueDailyRefresh(
@@ -68,7 +69,14 @@ export async function enqueueDailyRefresh(
     filtered.map(({ ticker, marketCode }) =>
       boss.send(
         BACKFILL_QUEUE,
-        { ticker, marketCode: marketCode as BackfillJobData["marketCode"], trigger, startDate, batchId } satisfies BackfillJobData,
+        {
+          ticker,
+          marketCode: marketCode as BackfillJobData["marketCode"],
+          trigger,
+          startDate,
+          batchId,
+          ...(options.resolverMode ? { resolverMode: options.resolverMode } : {}),
+        } satisfies BackfillJobData,
         // KZO-198: read live (DB override → env).
         { priority: getEffectiveDailyRefreshPriority(), singletonKey: `${ticker}:${marketCode}` },
       ),

@@ -210,7 +210,10 @@ export function buildMarketDataRegistry(
   const yahooKrLimiter = new RateLimiter(env.YAHOO_KR_RATE_LIMIT_PER_MINUTE, 60_000);
   const yahooKrProvider: MarketDataProvider & InstrumentCatalogProvider = env.KR_PROVIDER_MOCK
     ? new MockYahooFinanceKrMarketDataProvider()
-    : new YahooFinanceKrMarketDataProvider({ rateLimiter: yahooKrLimiter });
+    : new YahooFinanceKrMarketDataProvider({
+        rateLimiter: yahooKrLimiter,
+        resolverMode: env.YAHOO_KR_RESOLVER_MODE,
+      });
   emit(
     "yahoo-finance-kr",
     env.KR_PROVIDER_MOCK ? "mock_forced_by_env" : "real",

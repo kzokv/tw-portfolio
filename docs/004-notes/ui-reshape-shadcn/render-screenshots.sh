@@ -51,6 +51,8 @@ shots=(
   "38-admin-providers-dark.png|mockup-202605151232-admin-providers.html?theme=dark|1440,900"
   "39-admin-audit-log-light.png|mockup-202605151233-admin-audit-log.html|1440,900"
   "40-admin-audit-log-dark.png|mockup-202605151233-admin-audit-log.html?theme=dark|1440,900"
+  "41-admin-provider-fixer-light.png|mockup-2026060209-admin-provider-fixer.html|1440,900"
+  "42-admin-provider-fixer-dark.png|mockup-2026060209-admin-provider-fixer.html?theme=dark|1440,900"
 )
 
 for entry in "${shots[@]}"; do

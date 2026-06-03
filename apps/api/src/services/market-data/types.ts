@@ -76,6 +76,12 @@ export interface DividendRecord {
   sourceId?: string;
 }
 
+export type MarketDataResolverMode = "chart_probe_v1" | "quote_first";
+
+export interface MarketDataFetchOptions {
+  resolverMode?: MarketDataResolverMode;
+}
+
 /** Raw instrument info from FinMind TaiwanStockInfo dataset. */
 export interface RawInstrumentInfo {
   ticker: string;
@@ -108,8 +114,18 @@ export interface MarketDataProvider {
    * implementations of the same logical provider, observable via the configured branch).
    */
   readonly providerId: string;
-  fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]>;
-  fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]>;
+  fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]>;
+  fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]>;
   /**
    * Pre-flight check that the provider's rate limiter can accommodate `n` requests in this
    * worker invocation. Throws `RateLimitedError` (with `msUntilAvailable` sized for `n` slots)

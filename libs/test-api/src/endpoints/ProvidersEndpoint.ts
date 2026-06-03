@@ -18,6 +18,11 @@ export interface ProviderHealthSeedInput {
   lastDownNotificationAt?: string | null;
 }
 
+export interface ProviderRerunRequestBody {
+  resolverMode?: "chart_probe_v1" | "quote_first";
+  resolverModeRiskAccepted?: boolean;
+}
+
 /**
  * KZO-177 — AAA endpoint for the admin provider-health surface +
  * test-only seed route.
@@ -26,11 +31,15 @@ export class ProvidersEndpoint extends BaseEndpoint {
   list = (headers?: Record<string, string>): Promise<APIResponse> =>
     this.request.get(apiUrl("/admin/providers"), headers ? { headers } : {});
 
-  rerun = (providerId: string, headers?: Record<string, string>): Promise<APIResponse> =>
+  rerun = (
+    providerId: string,
+    body: ProviderRerunRequestBody = {},
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
     this.request.post(
       apiUrl(`/admin/providers/${encodeURIComponent(providerId)}/rerun`),
       {
-        data: {},
+        data: body,
         ...(headers ? { headers } : {}),
       },
     );

@@ -83,6 +83,9 @@
 - `smooth-page-performance-boundaries.md` — Authenticated page loads keep `AppShell` lightweight, route primary reads page-owned, enrichment deferred, hot reads instrumented, and portfolio-context reads based on `contextUserId`. Promoted from the deployed shared-portfolio performance incident.
 - 2026-06-02 addendum — route-primary payloads may seed AppShell account/fee-profile config to avoid duplicate first-paint fetches, but seeded shell/route data and command/search indexes must refresh or clear on shared-owner context switches.
 
+## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
+- `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.
+
 ## Promoted to .claude/rules/ (ui-enhancement, 2026-05-14)
 - `agent-team-workflow.md` (addendum) — Architect (and Dispatcher) first-action-on-wake = re-poll inbox+TaskList+state.json, always; 5-stall canonical anti-pattern from ui-enhancement original architect; respawn with pre-baked triage is the canonical recovery
 - `agent-team-workflow.md` (addendum) — Holistic audit pattern at 3rd-strike same-class findings; iter-5 audit caught 7 defensive sites including critical `listUserAccountIds` data-loss path that spot-fix-only would have missed

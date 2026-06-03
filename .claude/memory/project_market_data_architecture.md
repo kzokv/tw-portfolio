@@ -99,7 +99,7 @@ Two new tables in `market_data` schema:
 Key files:
 - `apps/api/src/services/market-data/providerHealth.ts` — `computeStatus()`, `recordOutcome()`, `claimProviderDownNotificationSlot()` (CAS via conditional UPDATE WHERE)
 - `apps/api/src/routes/adminRoutes.ts` — `GET /admin/providers` recomputes status at read time via `computeStatus()` + trading calendar
-- `apps/web/components/admin/AdminProvidersClient.tsx` — dual-layout: table (≥lg) + card grid (<lg); distinct `-card-` testid prefix required per `.claude/rules/responsive-dual-layout-testid-prefixes.md`
+- `apps/web/components/admin/AdminProvidersClient.tsx` — single-DOM `DataTable` provider health table/card rendering; provider testids are shared across responsive variants because only one variant is mounted
 - `apps/web/components/portfolio/HoldingsTable.tsx` — stale-data freshness badges (`current` / `stale_amber` / `stale_red`) sourced from `dashboardFreshness.ts`
 - `apps/api/src/services/dashboardFreshness.ts` — `enrichHoldingsWithFreshness()` uses `getLatestBarDatesByTickerMarket` (composite `${ticker}:${marketCode}` keys via unnest Postgres query)
 

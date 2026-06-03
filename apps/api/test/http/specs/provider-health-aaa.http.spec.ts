@@ -16,7 +16,12 @@
  *   R1 — admin rerun finmind-tw → 202 + audit log entry
  *   R2 — admin rerun frankfurter (FX path) → 202
  *   R3 — cooldown 429 + Retry-After header
+ *   R4 — KR rerun with `resolverMode` payload is accepted (204? 202)
+ *   R4b — invalid `resolverMode` payload is rejected
+ *   R4c — chart_probe_v1 requires explicit risk acceptance
+ *   R4d — resolverMode is rejected for non-KR providers
  *   R5 — non-admin rerun: 403
+ *   R6 — anonymous: 401
  *   R7 — unknown provider id: 404 with body.error
  *   R9 — body.error carries the code (per service-error-pattern.md)
  */
@@ -231,7 +236,192 @@ test.describe("POST /admin/providers/:providerId/rerun", () => {
     await adminApi.assert.errorCodeIs(body, "rate_limit_exceeded");
   });
 
-  test("[R5 non-admin]: viewer 403", async ({ request, providersApi, adminApi }) => {
+  test("[R4 kr quote_first]: custom resolver mode is accepted for yahoo-finance-kr", async ({
+    request,
+    providersApi,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "providers-rerun-kr-mode-sub",
+      email: "providers-rerun-kr-mode@example.com",
+      name: "Providers Rerun KR Mode",
+      role: "admin",
+    });
+    await providersApi.actions.seedProviderHealthStatus({
+      providerId: "yahoo-finance-kr",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const response = await providersApi.actions.rerunForCookie(
+      admin.cookieHeader,
+      "yahoo-finance-kr",
+      { resolverMode: "quote_first" },
+    );
+    await providersApi.assert.statusIs(response, 202);
+
+    const auditResponse = await adminApi.actions.listAuditLogForCookie(admin.cookieHeader, {
+      action: ["provider_health_rerun"],
+      actorUserId: admin.userId,
+    });
+    await adminApi.assert.statusIs(auditResponse, 200);
+    const auditBody = await adminApi.arrange.auditLogBody(auditResponse);
+    const entry = auditBody.items.find(
+      (e) =>
+        e.action === "provider_health_rerun" &&
+        (e.metadata as { providerId?: string }).providerId === "yahoo-finance-kr",
+    );
+    await adminApi.assert.mxAssertDefined(entry, "provider_health_rerun audit entry");
+    await adminApi.assert.mxAssertEqual(
+      (entry!.metadata as { resolverMode?: string }).resolverMode,
+      "quote_first",
+      "resolverMode audit metadata",
+    );
+  });
+
+  test("[R4b kr chart_probe accepted]: repair resolver requires explicit risk acceptance", async ({
+    request,
+    providersApi,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "providers-rerun-kr-chart-probe-sub",
+      email: "providers-rerun-kr-chart-probe@example.com",
+      name: "Providers Rerun KR Chart Probe",
+      role: "admin",
+    });
+    await providersApi.actions.seedProviderHealthStatus({
+      providerId: "yahoo-finance-kr",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const response = await providersApi.actions.rerunForCookie(
+      admin.cookieHeader,
+      "yahoo-finance-kr",
+      { resolverMode: "chart_probe_v1", resolverModeRiskAccepted: true },
+    );
+    await providersApi.assert.statusIs(response, 202);
+
+    const auditResponse = await adminApi.actions.listAuditLogForCookie(admin.cookieHeader, {
+      action: ["provider_health_rerun"],
+      actorUserId: admin.userId,
+    });
+    await adminApi.assert.statusIs(auditResponse, 200);
+    const auditBody = await adminApi.arrange.auditLogBody(auditResponse);
+    const entry = auditBody.items.find(
+      (e) =>
+        e.action === "provider_health_rerun" &&
+        (e.metadata as { providerId?: string }).providerId === "yahoo-finance-kr",
+    );
+    await adminApi.assert.mxAssertDefined(entry, "provider_health_rerun audit entry");
+    await adminApi.assert.mxAssertEqual(
+      (entry!.metadata as { resolverMode?: string }).resolverMode,
+      "chart_probe_v1",
+      "resolverMode audit metadata",
+    );
+    await adminApi.assert.mxAssertEqual(
+      (entry!.metadata as { resolverModeRiskAccepted?: boolean }).resolverModeRiskAccepted,
+      true,
+      "resolverModeRiskAccepted audit metadata",
+    );
+  });
+
+  test("[R4c kr chart_probe missing acceptance]: rejects dangerous repair mode without guardrail", async ({
+    request,
+    providersApi,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "providers-rerun-kr-chart-probe-missing-ack-sub",
+      email: "providers-rerun-kr-chart-probe-missing-ack@example.com",
+      name: "Providers Rerun KR Chart Probe Missing Ack",
+      role: "admin",
+    });
+    await providersApi.actions.seedProviderHealthStatus({
+      providerId: "yahoo-finance-kr",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const response = await providersApi.actions.rerunForCookie(
+      admin.cookieHeader,
+      "yahoo-finance-kr",
+      { resolverMode: "chart_probe_v1" },
+    );
+    await providersApi.assert.statusIs(response, 400);
+
+    const body = await adminApi.arrange.errorBody(response);
+    await adminApi.assert.errorCodeIs(body, "resolver_mode_risk_acceptance_required");
+  });
+
+  test("[R4d non-kr resolver payload]: rejects resolver mode outside yahoo-finance-kr", async ({
+    request,
+    providersApi,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "providers-rerun-non-kr-mode-sub",
+      email: "providers-rerun-non-kr-mode@example.com",
+      name: "Providers Rerun Non KR Mode",
+      role: "admin",
+    });
+    await providersApi.actions.seedProviderHealthStatus({
+      providerId: "finmind-tw",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const response = await providersApi.actions.rerunForCookie(
+      admin.cookieHeader,
+      "finmind-tw",
+      { resolverMode: "quote_first" },
+    );
+    await providersApi.assert.statusIs(response, 400);
+
+    const body = await adminApi.arrange.errorBody(response);
+    await adminApi.assert.errorCodeIs(body, "resolver_mode_provider_mismatch");
+  });
+
+  test("[R4e kr invalid resolver mode]: rejects payload outside schema", async ({
+    request,
+    providersApi,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "providers-rerun-kr-mode-invalid-sub",
+      email: "providers-rerun-kr-mode-invalid@example.com",
+      name: "Providers Rerun KR Mode Invalid",
+      role: "admin",
+    });
+    await providersApi.actions.seedProviderHealthStatus({
+      providerId: "yahoo-finance-kr",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const response = await providersApi.actions.rerunForCookie(
+      admin.cookieHeader,
+      "yahoo-finance-kr",
+      { resolverMode: "chart-typo" as unknown as "chart_probe_v1" | "quote_first" },
+    );
+    await providersApi.assert.statusIs(response, 400);
+
+    const body = await adminApi.arrange.errorBody(response);
+    await adminApi.assert.mxAssertTruthy(
+      (body as { error?: string; code?: string }).error === "validation_error" ||
+        (body as { error?: { code?: string } })?.error?.code === "bad_request" ||
+        (body as { code?: string }).code === "bad_request",
+      "bad request for invalid resolver mode",
+    );
+  });
+
+  test("[R6 non-admin]: viewer 403", async ({ request, providersApi, adminApi }) => {
     const member = await createOauthSession(request, {
       sub: "providers-rerun-member-sub",
       email: "providers-rerun-member@example.com",

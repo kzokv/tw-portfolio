@@ -7,19 +7,20 @@ import { BACKFILL_QUEUE } from "./backfillWorker.js";
 import { getEffectiveDailyRefreshPriority } from "../appConfig/backfill.js";
 
 /**
- * KZO-197 — AU catalog warm-up producer. Reads the AU subset of
- * `market_data.instruments` whose `bars_backfill_status` is `pending` or
+ * KZO-197/KR — catalog warm-up producer. Originally AU-only; now accepts an
+ * optional market override for KR resolver repair. It reads the market subset
+ * of `market_data.instruments` whose `bars_backfill_status` is `pending` or
  * `failed` (and not delisted), and enqueues one `BACKFILL_QUEUE` job per
- * (ticker, 'AU') pair.
+ * (ticker, marketCode) pair.
  *
  * Producer contract:
- *   - `marketCode: 'AU'` literal — Zod schema at the worker entry validates.
+ *   - `marketCode` defaults to `'AU'`; optional override is used for KR.
  *   - **`startDate` is OMITTED** — the worker resolves
- *     `historyStartFor('AU') = 1988-01-28`. Yahoo per-ticker truncation makes
- *     full-history requests safe (returns the available subrange).
- *   - `singletonKey: \`${ticker}:AU\`` per
+ *     `historyStartFor(marketCode)`. Yahoo per-ticker truncation makes
+ *     full-history requests safe for AU/KR (returns the available subrange).
+ *   - `singletonKey: \`${ticker}:${marketCode}\`` per
  *     `.claude/rules/pgboss-composite-singleton-key.md` — composite key prevents
- *     a same-ticker AU warm-up from colliding with a sibling US/TW backfill.
+ *     a same-ticker market warm-up from colliding with sibling-market backfills.
  *   - `priority` from `getEffectiveDailyRefreshPriority()` (Tier 2 admin lever).
  *   - `trigger: 'admin_rerun'` (only the admin Re-run-now route calls this; the
  *     param is forwarded so future callers — e.g. the deferred KZO-203
@@ -30,7 +31,7 @@ import { getEffectiveDailyRefreshPriority } from "../appConfig/backfill.js";
  *     dispatch but return `{tickerCount: 0, batchId: null}` so the route still
  *     stamps the audit + cooldown.
  *
- * Disjoint with `enqueueDailyRefresh({marketFilter:'AU'})` by definition:
+ * Disjoint with `enqueueDailyRefresh({marketFilter})` by definition:
  * the catalog warm-up only enumerates `(pending,failed)` rows, while the
  * monitored refresh only enumerates `ready` + monitored rows. Same-ticker
  * collisions across the two paths can't happen because the status filter is
@@ -47,16 +48,20 @@ export async function enqueueAuCatalogBarsBackfill(
     createRefreshBatch?: Persistence["createRefreshBatch"];
   },
   log: { info: (...args: unknown[]) => void },
-  options: { trigger: BackfillJobData["trigger"]; marketCode?: MarketCode },
+  options: {
+    trigger: BackfillJobData["trigger"];
+    marketCode?: MarketCode;
+    resolverMode?: BackfillJobData["resolverMode"];
+  },
 ): Promise<{ tickerCount: number; batchId: string | null }> {
   const marketCode = options.marketCode ?? "AU";
-  const candidates = marketCode === "AU" || !persistence.listCatalogBarsBackfillCandidates
+  const candidates = marketCode === "AU"
     ? await persistence.listAuCatalogBarsBackfillCandidates()
-    : await persistence.listCatalogBarsBackfillCandidates(marketCode);
+    : await requireCatalogBarsBackfillCandidates(persistence, marketCode);
   if (candidates.length === 0) {
     log.info(
       { trigger: options.trigger, marketCode },
-      "au_catalog_bars_backfill_skipped_empty",
+      "catalog_bars_backfill_skipped_empty",
     );
     return { tickerCount: 0, batchId: null };
   }
@@ -68,7 +73,7 @@ export async function enqueueAuCatalogBarsBackfill(
   if (boss === null) {
     log.info(
       { trigger: options.trigger, marketCode, candidateCount: candidates.length },
-      "au_catalog_bars_backfill_skipped_no_boss",
+      "catalog_bars_backfill_skipped_no_boss",
     );
     return { tickerCount: 0, batchId: null };
   }
@@ -93,9 +98,10 @@ export async function enqueueAuCatalogBarsBackfill(
           marketCode,
           trigger: options.trigger,
           batchId,
+          ...(options.resolverMode ? { resolverMode: options.resolverMode } : {}),
           includeBars: true,
           includeDividends: true,
-          // startDate intentionally omitted — worker resolves historyStartFor('AU').
+          // startDate intentionally omitted — worker resolves historyStartFor(marketCode).
         } satisfies BackfillJobData,
         {
           priority: getEffectiveDailyRefreshPriority(),
@@ -107,8 +113,20 @@ export async function enqueueAuCatalogBarsBackfill(
 
   log.info(
     { tickerCount: candidates.length, batchId, trigger: options.trigger, marketCode },
-    "au_catalog_bars_backfill_enqueued",
+    "catalog_bars_backfill_enqueued",
   );
 
   return { tickerCount: candidates.length, batchId };
+}
+
+function requireCatalogBarsBackfillCandidates(
+  persistence: {
+    listCatalogBarsBackfillCandidates?: Persistence["listCatalogBarsBackfillCandidates"];
+  },
+  marketCode: MarketCode,
+): Promise<Array<{ ticker: string; marketCode: MarketCode }>> {
+  if (!persistence.listCatalogBarsBackfillCandidates) {
+    throw new Error("listCatalogBarsBackfillCandidates is required for non-AU catalog warm-up");
+  }
+  return persistence.listCatalogBarsBackfillCandidates(marketCode);
 }
