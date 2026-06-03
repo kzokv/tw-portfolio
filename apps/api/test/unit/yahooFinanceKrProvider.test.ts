@@ -251,6 +251,73 @@ describe("YahooFinanceKrMarketDataProvider — real provider against mocked yaho
     expect(bars[0]).toMatchObject({ ticker: "035900", close: 5050, sourceId: "yahoo-finance-kr" });
   });
 
+  it("chart_probe_v1 bypasses quote-first cache and re-probes suffixes", async () => {
+    activeSdkStub!.quote.mockResolvedValueOnce({
+      symbol: "035900.KS",
+      currency: "KRW",
+      exchange: "KSC",
+      shortName: "Cached KOSPI Resolution",
+      quoteType: "EQUITY",
+    });
+    activeSdkStub!.chart.mockResolvedValueOnce({
+      quotes: [
+        {
+          date: new Date("2024-01-02T06:30:00Z"),
+          open: 1000,
+          high: 1010,
+          low: 990,
+          close: 1005,
+          volume: 100,
+        },
+      ],
+      events: { dividends: [] },
+    });
+    activeSdkStub!.chart.mockResolvedValueOnce({ quotes: [], events: { dividends: [] } });
+    activeSdkStub!.chart.mockResolvedValueOnce({
+      quotes: [
+        {
+          date: new Date("2024-01-03T06:30:00Z"),
+          open: 5000,
+          high: 5100,
+          low: 4900,
+          close: 5050,
+          volume: 12345,
+        },
+      ],
+      events: { dividends: [] },
+    });
+    activeSdkStub!.chart.mockResolvedValueOnce({
+      quotes: [
+        {
+          date: new Date("2024-01-03T06:30:00Z"),
+          open: 5000,
+          high: 5100,
+          low: 4900,
+          close: 5050,
+          volume: 12345,
+        },
+      ],
+      events: { dividends: [] },
+    });
+
+    const provider = await makeProvider();
+
+    await provider.fetchBars("035900", "2024-01-01", "2024-01-02");
+    const bars = await provider.fetchBars("035900", "2024-01-01", "2024-01-04", {
+      resolverMode: "chart_probe_v1",
+    });
+
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(1);
+    expect(activeSdkStub!.chart.mock.calls.map((call) => call[0])).toEqual([
+      "035900.KS",
+      "035900.KS",
+      "035900.KQ",
+      "035900.KQ",
+    ]);
+    expect(bars).toHaveLength(1);
+    expect(bars[0]).toMatchObject({ ticker: "035900", close: 5050, sourceId: "yahoo-finance-kr" });
+  });
+
   it("reserveCapacity uses unresolved-symbol worst-case slots", async () => {
     const provider = await makeProvider(2);
     expect(() => provider.reserveCapacity(1)).toThrow(RateLimitedError);

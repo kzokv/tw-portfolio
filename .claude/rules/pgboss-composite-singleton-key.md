@@ -1,10 +1,12 @@
 # Pgboss Producer Convention: Composite SingletonKey `${ticker}:${marketCode}`
 
-Every producer that enqueues to the `finmind-backfill` queue (or any analogous market-data queue) must use a composite `singletonKey` of the form `` `${ticker}:${marketCode}` `` — never a bare `ticker`.
+Every producer that enqueues to the `finmind-backfill` queue (or any analogous market-data queue) must use `getBackfillSingletonKey(ticker, marketCode, resolverMode)` — never a bare `ticker`. The normal key is `` `${ticker}:${marketCode}` ``; KR repair jobs with an explicit resolver mode append the mode, e.g. `` `005930:KR:chart_probe_v1` ``.
 
 ## Why composite
 
 Cross-listed tickers exist post-KZO-169: `BHP/AU` and `BHP/US` share the same `ticker` string but route through different market-data providers. With `singletonKey: ticker`, the second `boss.send` for `BHP` would be silently dropped as a duplicate by pg-boss's singleton policy — the user would see a successful enqueue response but the job would never run. Composite-keyed sends keep the two markets in distinct singleton slots.
+
+KZO-197 adds a second collision class for Korean repair jobs: an acknowledged `chart_probe_v1` repair for `005930/KR` must not collapse into an existing/default `quote_first` job. The canonical helper appends resolver mode only for KR jobs that explicitly carry one.
 
 The same reasoning applies to any future cross-listed instrument expansion (HK, JP, SG) and to any new queue whose payload shape is `(ticker, marketCode, …)`.
 
@@ -20,7 +22,7 @@ await boss.send(BACKFILL_QUEUE, { ticker, marketCode, ... }, {
 
 // ✅ Correct
 await boss.send(BACKFILL_QUEUE, { ticker, marketCode, ... }, {
-  singletonKey: `${ticker}:${marketCode}`,
+  singletonKey: getBackfillSingletonKey(ticker, marketCode, data.resolverMode),
 });
 ```
 
@@ -28,7 +30,7 @@ Same convention applies to the worker's self-reschedule path:
 
 ```ts
 // In rescheduleAfterRateLimit (or any worker-internal re-enqueue)
-const singletonKey = `${data.ticker}:${data.marketCode}`;
+const singletonKey = getBackfillSingletonKey(data.ticker, data.marketCode, data.resolverMode);
 await boss.send(BACKFILL_QUEUE, data, { startAfter, singletonKey, priority });
 ```
 
@@ -52,7 +54,7 @@ When adding a new producer to `finmind-backfill` (or extending any analogous mar
 
 1. Grep `boss.send(BACKFILL_QUEUE` (or the relevant constant) for every existing call site.
 2. Confirm each existing site uses the composite key — they're the precedent.
-3. New site uses the composite key too.
+3. New site uses `getBackfillSingletonKey(...)` too.
 4. If your producer sources tickers from a walker / persistence query, confirm the source preserves `marketCode` (e.g. `getAllMonitoredTickers` returns `{ticker, marketCode}[]`, not `string[]`). Per-ticker `getInstrument(ticker)` lookups silently pick the wrong market for cross-listed cases — avoid.
 5. The Zod schema that the worker uses to parse incoming jobs must require `marketCode` (no `?? "TW"` fallback). Companion: `.claude/rules/typed-transient-error-catch-audit.md`.
 
@@ -64,11 +66,12 @@ Promoted from KZO-185 auto-memory after the convention propagated to four produc
 
 - `apps/api/src/services/market-data/dailyRefreshEnqueue.ts` — daily-refresh cron producer
 - `apps/api/src/routes/registerRoutes.ts` — `/portfolio/snapshots/generate` and `/portfolio/recompute/confirm` auto-trigger producers; `/monitored-tickers` PUT producer; `/backfill/retry` and `/backfill/repair` producers
+- `apps/api/src/services/market-data/backfillWorker.ts:getBackfillSingletonKey` — canonical market/resolver singleton-key helper
 - `apps/api/src/services/market-data/backfillWorker.ts:rescheduleAfterRateLimit` — worker self-reschedule
 
 ## How to apply
 
-- Any time a new `boss.send` call to `BACKFILL_QUEUE` (or any future per-market queue) is added: use the composite key.
+- Any time a new `boss.send` call to `BACKFILL_QUEUE` (or any future per-market queue) is added: use `getBackfillSingletonKey(...)`.
 - Any time a service or walker emits a "set of (ticker, marketCode) pairs to enqueue": key the in-memory collector on the composite string, never on bare `ticker`.
-- Pre-PR check: `grep -nE "boss\.send\(BACKFILL_QUEUE" apps/api/src` — every match should have `singletonKey: \`${...}:${...}\`` in the options object.
+- Pre-PR check: `grep -nE "boss\.send\(BACKFILL_QUEUE" apps/api/src` — every match should use `getBackfillSingletonKey(...)` unless it is demonstrably not a per-ticker market-data enqueue.
 - When adding a new market (HK, JP, SG, etc.): the convention extends without code changes — `${ticker}:${marketCode}` covers it as long as the producer stamps the correct `marketCode`.
