@@ -14,6 +14,15 @@ import type { ProviderErrorClass } from "../../persistence/types.js";
 
 export const BACKFILL_QUEUE = "finmind-backfill";
 
+export function getBackfillSingletonKey(
+  ticker: string,
+  marketCode: MarketCode,
+  resolverMode?: MarketDataResolverMode,
+): string {
+  const baseKey = `${ticker}:${marketCode}`;
+  return marketCode === "KR" && resolverMode ? `${baseKey}:${resolverMode}` : baseKey;
+}
+
 export interface BackfillJobData {
   ticker: string;
   // KZO-185: required after producer audit. Producers (snapshots/generate
@@ -247,9 +256,9 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     async function rescheduleAfterRateLimit(err: RateLimitedError): Promise<void> {
       const delaySec = err.retryAfterSeconds;
       log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
-      // KZO-169 (G3): singletonKey is composite `${ticker}:${marketCode}` so
-      // BHP/AU and BHP/US don't share a slot.
-      const singletonKey = `${ticker}:${market}`;
+      // KZO-169/KZO-197: singletonKey scopes by market and KR resolver mode so
+      // cross-market and acknowledged KR repair reruns don't collapse.
+      const singletonKey = getBackfillSingletonKey(ticker, market, resolverMode);
       // KZO-185: enqueue the parsed (validated) payload, not raw `job.data`.
       const id = await boss.send(BACKFILL_QUEUE, data, {
         startAfter: delaySec,

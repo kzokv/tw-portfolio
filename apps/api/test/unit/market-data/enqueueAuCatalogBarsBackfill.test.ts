@@ -170,7 +170,7 @@ describe("enqueueAuCatalogBarsBackfill (KZO-197)", () => {
         resolverMode: "quote_first",
         batchId: "batch-kr-001",
       }),
-      expect.objectContaining({ singletonKey: "005930:KR" }),
+      expect.objectContaining({ singletonKey: "005930:KR:quote_first" }),
     );
   });
 

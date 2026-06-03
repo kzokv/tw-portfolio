@@ -102,7 +102,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   readonly absenceDetectionEnabled = false;
   private readonly rateLimiter: RateLimiter;
   private readonly client: InstanceType<typeof YahooFinance>;
-  private readonly symbolCache = new Map<string, string>();
+  private readonly quoteFirstSymbolCache = new Map<string, string>();
   private readonly resolverMode: YahooKrResolverMode;
 
   constructor(config: YahooFinanceKrMarketDataProviderConfig) {
@@ -182,11 +182,8 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     options: MarketDataFetchOptions = {},
   ): Promise<string> {
     const bare = this.getBareTicker(ticker);
-    const cached = this.symbolCache.get(bare);
-    if (cached) return cached;
-
-    const candidates = this.getResolverCandidates(ticker);
     const resolverMode = options.resolverMode ?? this.resolverMode;
+    const candidates = this.getResolverCandidates(ticker);
     if (resolverMode === "chart_probe_v1") {
       for (const symbol of candidates) {
         try {
@@ -195,7 +192,6 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
             interval: "1d",
           });
           if (chart.quotes.length > 0) {
-            this.symbolCache.set(bare, symbol);
             return symbol;
           }
         } catch (err) {
@@ -206,11 +202,14 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     }
 
     // Legacy fallback path (quote-first): keep existing gate behavior.
+    const cached = this.quoteFirstSymbolCache.get(bare);
+    if (cached) return cached;
+
     for (const symbol of candidates) {
       try {
         const quote = await this.quoteRaw(symbol);
         if (isKrYahooQuote(symbol, quote)) {
-          this.symbolCache.set(bare, symbol);
+          this.quoteFirstSymbolCache.set(bare, symbol);
           return symbol;
         }
       } catch (err) {
@@ -222,7 +221,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
 
   private async resolveYahooQuote(ticker: string): Promise<{ symbol: string; quote: YahooQuoteResult }> {
     const bare = this.getBareTicker(ticker);
-    const cached = this.symbolCache.get(bare);
+    const cached = this.quoteFirstSymbolCache.get(bare);
     if (cached) {
       const quote = await this.quoteRaw(cached);
       if (isKrYahooQuote(cached, quote)) return { symbol: cached, quote };
@@ -233,7 +232,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
       try {
         const quote = await this.quoteRaw(symbol);
         if (isKrYahooQuote(symbol, quote)) {
-          this.symbolCache.set(bare, symbol);
+          this.quoteFirstSymbolCache.set(bare, symbol);
           return { symbol, quote };
         }
       } catch (err) {
