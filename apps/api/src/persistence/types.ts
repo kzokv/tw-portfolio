@@ -17,7 +17,7 @@ import type {
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
-import type { FxRate } from "../services/market-data/types.js";
+import type { FxRate, MarketDataResolverMode } from "../services/market-data/types.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -60,6 +60,11 @@ export type AppConfigPlainField =
   | "providerRerunCooldownMs"
   // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
   | "yahooAuRerunCooldownMs"
+  | "providerFixerDangerousMatchThreshold"
+  | "providerFixerPreviewSampleLimit"
+  | "providerFixerUiPageSize"
+  | "providerFixerAutoPauseFailuresPerMinute"
+  | "providerFixerPreviewTokenTtlMinutes"
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
@@ -108,6 +113,11 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   providerRerunCooldownMs: "provider_rerun_cooldown_ms",
   // KZO-197 — yahoo-finance-au rerun cooldown override.
   yahooAuRerunCooldownMs: "yahoo_au_rerun_cooldown_ms",
+  providerFixerDangerousMatchThreshold: "provider_fixer_dangerous_match_threshold",
+  providerFixerPreviewSampleLimit: "provider_fixer_preview_sample_limit",
+  providerFixerUiPageSize: "provider_fixer_ui_page_size",
+  providerFixerAutoPauseFailuresPerMinute: "provider_fixer_auto_pause_failures_per_minute",
+  providerFixerPreviewTokenTtlMinutes: "provider_fixer_preview_token_ttl_minutes",
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
@@ -222,6 +232,7 @@ export type AuditLogAction =
   | "fx_transfer_updated"
   | "fx_transfer_reversed"
   | "provider_health_rerun"
+  | "provider_fixer_operation"
   // KZO-195 — admin overrides for absence-based delisting detection.
   | "instrument_undelete"
   | "instrument_exclusion_toggle"
@@ -816,6 +827,8 @@ export interface InstrumentRow extends InstrumentRef {
   delistedAt?: string;
   lastRepairAt?: string;
   statusReason?: string;
+  catalogExchangeRaw?: string | null;
+  catalogMicCode?: string | null;
   barsBackfillStatus: BackfillStatus;
   verificationStatus: VerificationStatus;
   verificationNote?: string;
@@ -836,6 +849,8 @@ export interface CatalogInstrument {
   // hardcoded `'TW'` at the SQL layer (`array_fill('TW'::text, ...)`); the stamp
   // now comes from the catalog source.
   marketCode: import("@vakwen/domain").MarketCode;
+  catalogExchangeRaw?: string | null;
+  catalogMicCode?: string | null;
 }
 
 /**
@@ -1076,6 +1091,168 @@ export interface ProviderErrorTrailInput {
   errorClass: ProviderErrorClass;
   errorMessage?: string | null;
   context?: Record<string, unknown> | null;
+}
+
+export type ProviderOperationPhase =
+  | "diagnose"
+  | "preview"
+  | "staged"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ProviderOperationLogLevel = "info" | "warning" | "error";
+
+export interface ProviderOperationRecord {
+  id: string;
+  providerId: string;
+  marketCode: MarketCode;
+  operationType: string;
+  phase: ProviderOperationPhase;
+  errorCode: string | null;
+  resolverMode: MarketDataResolverMode | null;
+  scopeQuery: string | null;
+  snapshotHash: string | null;
+  previewTokenHash: string | null;
+  previewExpiresAt: string | null;
+  matchCount: number | null;
+  sample: unknown[] | null;
+  metadata: Record<string, unknown> | null;
+  legacyBatchId: string | null;
+  actorUserId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProviderOperationInput {
+  id?: string;
+  providerId: string;
+  marketCode: MarketCode;
+  operationType: string;
+  phase: ProviderOperationPhase;
+  errorCode?: string | null;
+  resolverMode?: MarketDataResolverMode | null;
+  scopeQuery?: string | null;
+  snapshotHash?: string | null;
+  previewTokenHash?: string | null;
+  previewExpiresAt?: string | null;
+  matchCount?: number | null;
+  sample?: unknown[] | null;
+  metadata?: Record<string, unknown> | null;
+  legacyBatchId?: string | null;
+  actorUserId?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+}
+
+export interface UpdateProviderOperationInput {
+  id: string;
+  phase?: ProviderOperationPhase;
+  errorCode?: string | null;
+  resolverMode?: MarketDataResolverMode | null;
+  scopeQuery?: string | null;
+  snapshotHash?: string | null;
+  previewTokenHash?: string | null;
+  previewExpiresAt?: string | null;
+  matchCount?: number | null;
+  sample?: unknown[] | null;
+  metadata?: Record<string, unknown> | null;
+  legacyBatchId?: string | null;
+  actorUserId?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+}
+
+export interface ListProviderOperationsOptions {
+  providerId?: string;
+  marketCode?: MarketCode;
+  phases?: ProviderOperationPhase[];
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderOperationsResult {
+  items: ProviderOperationRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderOperationLogRecord {
+  id: number;
+  operationId: string;
+  phase: ProviderOperationPhase;
+  level: ProviderOperationLogLevel;
+  message: string;
+  context: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface CreateProviderOperationLogInput {
+  operationId: string;
+  phase: ProviderOperationPhase;
+  level: ProviderOperationLogLevel;
+  message: string;
+  context?: Record<string, unknown> | null;
+}
+
+export interface ListProviderOperationLogsOptions {
+  operationId: string;
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderOperationLogsResult {
+  items: ProviderOperationLogRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderResolutionMappingRecord {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  resolvedSymbol: string;
+  resolverMode: MarketDataResolverMode | null;
+  evidence: Record<string, unknown> | null;
+  verifiedAt: string;
+  verifiedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertProviderResolutionMappingInput {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  resolvedSymbol: string;
+  resolverMode?: MarketDataResolverMode | null;
+  evidence?: Record<string, unknown> | null;
+  verifiedAt?: string;
+  verifiedByUserId?: string | null;
+}
+
+export interface ListProviderErrorTrailOptions {
+  providerId?: string;
+  marketCode?: MarketCode;
+  errorMessageLike?: string;
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderErrorTrailResult {
+  items: ProviderErrorTrailRow[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
@@ -1648,6 +1825,11 @@ export interface Persistence {
     providerRerunCooldownMs: number | null;
     /** KZO-197 — yahoo-finance-au rerun cooldown override (ms). NULL = use Env.YAHOO_AU_RERUN_COOLDOWN_MS (30 min default). */
     yahooAuRerunCooldownMs: number | null;
+    providerFixerDangerousMatchThreshold: number | null;
+    providerFixerPreviewSampleLimit: number | null;
+    providerFixerUiPageSize: number | null;
+    providerFixerAutoPauseFailuresPerMinute: number | null;
+    providerFixerPreviewTokenTtlMinutes: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -2155,11 +2337,27 @@ export interface Persistence {
   computeErrorCount7d(providerId: string): Promise<number>;
   /** Count error trail rows where error_class = 'rate_limit' within the last 24 hours. */
   computeRateLimitCount24h(providerId: string): Promise<number>;
+  listProviderErrorTrailPage(options: ListProviderErrorTrailOptions): Promise<ListProviderErrorTrailResult>;
   /**
    * Delete error trail rows older than `olderThanDays` days. Memory backend
    * may behave as a no-op (returns 0). Returns the number of rows deleted.
    */
   pruneOldProviderErrorTrail(olderThanDays: number): Promise<number>;
+  createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord>;
+  updateProviderOperation(input: UpdateProviderOperationInput): Promise<ProviderOperationRecord>;
+  getProviderOperation(id: string): Promise<ProviderOperationRecord | null>;
+  listProviderOperations(options: ListProviderOperationsOptions): Promise<ListProviderOperationsResult>;
+  hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean>;
+  createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord>;
+  listProviderOperationLogs(options: ListProviderOperationLogsOptions): Promise<ListProviderOperationLogsResult>;
+  getProviderResolutionMapping(
+    providerId: string,
+    marketCode: MarketCode,
+    sourceSymbol: string,
+  ): Promise<ProviderResolutionMappingRecord | null>;
+  upsertProviderResolutionMapping(
+    input: UpsertProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord>;
   /** Return user IDs of all active admins (role='admin', not deactivated/deleted). */
   listAdminUserIds(): Promise<string[]>;
 }

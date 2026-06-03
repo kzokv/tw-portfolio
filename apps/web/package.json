@@ -7,7 +7,7 @@
     "dev": "next dev -p ${WEB_PORT:-3000}",
     "build": "npx next build --webpack && cp -r .next/static .next/standalone/apps/web/.next/static",
     "start": "[ -f ../../.env.local ] && set -a && . ../../.env.local && set +a; NODE_ENV=production PORT=${WEB_PORT:-3333} node .next/standalone/apps/web/server.js",
-    "test": "vitest run",
+    "test": "vitest run test/components test/app && vitest run test/features test/hooks test/lib test/proxy.test.ts",
     "test:e2e:bypass:mem": "NEXT_PUBLIC_AUTH_MODE=dev_bypass NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}} npm run build -w @vakwen/config -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/web && npx playwright test --config=tests/e2e/playwright.config.ts",
     "test:e2e:oauth:mem": "NEXT_PUBLIC_AUTH_MODE=oauth NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}} npm run build -w @vakwen/config -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/web && [ -f ../../.env.local ] && set -a && . ../../.env.local && set +a; npx playwright test --config=tests/e2e/playwright.oauth.config.ts",
     "test:e2e:ci:bypass:mem": "NEXT_PUBLIC_AUTH_MODE=dev_bypass NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}} npm run build -w @vakwen/config -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/web && npx playwright test --config=tests/e2e/playwright.config.ts --reporter=junit",

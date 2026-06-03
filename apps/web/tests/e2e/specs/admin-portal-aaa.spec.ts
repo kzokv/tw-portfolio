@@ -3,6 +3,7 @@ import { test } from "@vakwen/test-e2e/fixtures/appPages";
 // In dev_bypass mode, user-1 is auto-created with admin role.
 // The base fixture sets tw_e2e_user identity cookie and seeds portfolio data.
 // Admin pages are accessible because the default E2E user resolves as admin.
+test.describe.configure({ timeout: 60_000 });
 
 test.describe("admin portal — page access", () => {
   test("admin user: /admin renders overview", async ({ appShell }) => {

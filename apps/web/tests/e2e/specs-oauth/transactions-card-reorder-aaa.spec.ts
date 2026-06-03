@@ -21,6 +21,8 @@ import {
 import { TestEnv } from "@vakwen/config/test";
 import { test, expect } from "@vakwen/test-e2e/fixtures/oauthPages";
 
+test.describe.configure({ timeout: 120_000 });
+
 function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;
 }

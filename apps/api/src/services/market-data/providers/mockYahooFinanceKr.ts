@@ -6,6 +6,7 @@ import type {
   MarketDataProvider,
   InstrumentCatalogProvider,
   MarketDataFetchOptions,
+  ProviderSymbolVerificationResult,
 } from "../types.js";
 
 interface MockKrTickerSpec {
@@ -138,6 +139,24 @@ export class MockYahooFinanceKrMarketDataProvider implements MarketDataProvider,
       stockDividendPerShare: 0,
       sourceId: "yahoo-finance-kr",
     }));
+  }
+
+  async verifyResolvedSymbol(
+    ticker: string,
+    candidateSymbol: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<ProviderSymbolVerificationResult> {
+    const bareTicker = stripKrSuffix(ticker);
+    const symbol = candidateSymbol.trim().toUpperCase();
+    this.calls.push({ method: "verifyResolvedSymbol", ticker: bareTicker });
+    const spec = MOCK_KR_TICKERS.find((t) => t.ticker === bareTicker);
+    const verified = spec?.yahooSymbol === symbol;
+    return {
+      verified,
+      checkedSymbol: symbol,
+      resolverMode: options?.resolverMode ?? "quote_first",
+      ...(verified ? {} : { reason: "mock_symbol_not_found" }),
+    };
   }
 
   async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {

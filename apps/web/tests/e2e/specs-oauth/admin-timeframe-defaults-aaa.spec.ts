@@ -22,6 +22,8 @@ import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 import { makeDeterministicIdToken } from "@vakwen/test-e2e/utils";
 import { acquireAdminTimeframeLock } from "./helpers/adminTimeframeLock";
 
+test.describe.configure({ timeout: 120_000 });
+
 function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;
 }

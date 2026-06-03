@@ -132,12 +132,25 @@ import type {
   AppendAiTransactionDraftEventInput,
   ApproveMcpOAuthAuthorizationRequestInput,
   ApproveMcpOAuthAuthorizationRequestResult,
+  CreateProviderOperationInput,
+  CreateProviderOperationLogInput,
+  ListProviderErrorTrailOptions,
+  ListProviderErrorTrailResult,
+  ListProviderOperationLogsOptions,
+  ListProviderOperationLogsResult,
+  ListProviderOperationsOptions,
+  ListProviderOperationsResult,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthStatus,
   ProviderHealthUpsert,
   ProviderErrorClass,
+  ProviderOperationLogRecord,
+  ProviderOperationPhase,
+  ProviderOperationRecord,
+  ProviderOperationLogLevel,
+  ProviderResolutionMappingRecord,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -148,6 +161,8 @@ import type {
   SaveAiTransactionDraftUnsupportedItemInput,
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
+  UpdateProviderOperationInput,
+  UpsertProviderResolutionMappingInput,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -9784,6 +9799,8 @@ export class PostgresPersistence implements Persistence {
       is_provisional: boolean;
       type_raw: string | null;
       industry_category_raw: string | null;
+      catalog_exchange_raw: string | null;
+      catalog_mic_code: string | null;
       finmind_date: string | null;
       delisted_at: string | null;
       status_reason: string | null;
@@ -9796,7 +9813,7 @@ export class PostgresPersistence implements Persistence {
       updated_at: string;
     }>(
       `SELECT ticker, instrument_type, market_code, name, is_provisional,
-              type_raw, industry_category_raw, finmind_date,
+              type_raw, industry_category_raw, catalog_exchange_raw, catalog_mic_code, finmind_date,
               delisted_at::text, status_reason,
               bars_backfill_status, last_synced_at::text, last_repair_at::text,
               verification_status, verification_note,
@@ -9818,6 +9835,8 @@ export class PostgresPersistence implements Persistence {
       lastSyncedAt: r.last_synced_at ?? undefined,
       typeRaw: r.type_raw ?? undefined,
       industryCategoryRaw: r.industry_category_raw ?? undefined,
+      catalogExchangeRaw: r.catalog_exchange_raw ?? null,
+      catalogMicCode: r.catalog_mic_code ?? null,
       finmindDate: r.finmind_date ?? undefined,
       delistedAt: r.delisted_at ?? undefined,
       statusReason: r.status_reason ?? undefined,
@@ -9882,6 +9901,11 @@ export class PostgresPersistence implements Persistence {
     providerErrorTrailRetentionDays: number | null;
     providerRerunCooldownMs: number | null;
     yahooAuRerunCooldownMs: number | null;
+    providerFixerDangerousMatchThreshold: number | null;
+    providerFixerPreviewSampleLimit: number | null;
+    providerFixerUiPageSize: number | null;
+    providerFixerAutoPauseFailuresPerMinute: number | null;
+    providerFixerPreviewTokenTtlMinutes: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -9919,6 +9943,11 @@ export class PostgresPersistence implements Persistence {
       provider_error_trail_retention_days: number | null;
       provider_rerun_cooldown_ms: number | string | null;
       yahoo_au_rerun_cooldown_ms: number | string | null;
+      provider_fixer_dangerous_match_threshold: number | null;
+      provider_fixer_preview_sample_limit: number | null;
+      provider_fixer_ui_page_size: number | null;
+      provider_fixer_auto_pause_failures_per_minute: number | null;
+      provider_fixer_preview_token_ttl_minutes: number | null;
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
@@ -9947,6 +9976,9 @@ export class PostgresPersistence implements Persistence {
          invite_status_window_ms, invite_status_limit,
          provider_down_notification_suppression_ms, provider_error_trail_retention_days, provider_rerun_cooldown_ms,
          yahoo_au_rerun_cooldown_ms,
+         provider_fixer_dangerous_match_threshold, provider_fixer_preview_sample_limit,
+         provider_fixer_ui_page_size, provider_fixer_auto_pause_failures_per_minute,
+         provider_fixer_preview_token_ttl_minutes,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
@@ -9977,6 +10009,11 @@ export class PostgresPersistence implements Persistence {
         providerErrorTrailRetentionDays: null,
         providerRerunCooldownMs: null,
         yahooAuRerunCooldownMs: null,
+        providerFixerDangerousMatchThreshold: null,
+        providerFixerPreviewSampleLimit: null,
+        providerFixerUiPageSize: null,
+        providerFixerAutoPauseFailuresPerMinute: null,
+        providerFixerPreviewTokenTtlMinutes: null,
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
@@ -10022,6 +10059,11 @@ export class PostgresPersistence implements Persistence {
       providerErrorTrailRetentionDays: row.provider_error_trail_retention_days,
       providerRerunCooldownMs: num(row.provider_rerun_cooldown_ms),
       yahooAuRerunCooldownMs: num(row.yahoo_au_rerun_cooldown_ms),
+      providerFixerDangerousMatchThreshold: row.provider_fixer_dangerous_match_threshold,
+      providerFixerPreviewSampleLimit: row.provider_fixer_preview_sample_limit,
+      providerFixerUiPageSize: row.provider_fixer_ui_page_size,
+      providerFixerAutoPauseFailuresPerMinute: row.provider_fixer_auto_pause_failures_per_minute,
+      providerFixerPreviewTokenTtlMinutes: row.provider_fixer_preview_token_ttl_minutes,
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
@@ -10276,6 +10318,8 @@ export class PostgresPersistence implements Persistence {
         // `array_fill('TW'::text, ...)`. Required-field on `CatalogInstrument` post-KZO-170,
         // so the source of truth is the catalog row's `marketCode`.
         const marketCodes: string[] = [];
+        const catalogExchangeRaws: (string | null)[] = [];
+        const catalogMicCodes: (string | null)[] = [];
 
         for (const inst of instruments) {
           tickers.push(inst.ticker);
@@ -10285,15 +10329,19 @@ export class PostgresPersistence implements Persistence {
           finmindDates.push(inst.finmindDate);
           instrumentTypes.push(inst.instrumentType);
           marketCodes.push(inst.marketCode);
+          catalogExchangeRaws.push(inst.catalogExchangeRaw ?? null);
+          catalogMicCodes.push(inst.catalogMicCode ?? null);
           presentTickers.push(inst.ticker);
         }
 
         const result = await client.query(
           `INSERT INTO market_data.instruments
-            (ticker, name, type_raw, industry_category_raw, finmind_date, instrument_type, market_code, is_provisional, updated_at)
+            (ticker, name, type_raw, industry_category_raw, finmind_date, instrument_type, market_code,
+             catalog_exchange_raw, catalog_mic_code, is_provisional, updated_at)
           SELECT * FROM unnest(
             $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
             $8::text[],
+            $9::text[], $10::text[],
             array_fill(FALSE::boolean, ARRAY[$7::int]),
             array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$7::int])
           )
@@ -10306,9 +10354,22 @@ export class PostgresPersistence implements Persistence {
             industry_category_raw = EXCLUDED.industry_category_raw,
             finmind_date = EXCLUDED.finmind_date,
             instrument_type = EXCLUDED.instrument_type,
+            catalog_exchange_raw = EXCLUDED.catalog_exchange_raw,
+            catalog_mic_code = EXCLUDED.catalog_mic_code,
             is_provisional = FALSE,
             updated_at = CURRENT_TIMESTAMP`,
-          [tickers, names, typeRaws, industryCategoryRaws, finmindDates, instrumentTypes, instruments.length, marketCodes],
+          [
+            tickers,
+            names,
+            typeRaws,
+            industryCategoryRaws,
+            finmindDates,
+            instrumentTypes,
+            instruments.length,
+            marketCodes,
+            catalogExchangeRaws,
+            catalogMicCodes,
+          ],
         );
         upserted = result.rowCount ?? 0;
       }
@@ -12275,6 +12336,340 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
+  async listProviderErrorTrailPage(
+    options: ListProviderErrorTrailOptions,
+  ): Promise<ListProviderErrorTrailResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+
+    if (options.providerId) {
+      where.push(`provider_id = $${i++}`);
+      params.push(options.providerId);
+    }
+    if (options.marketCode) {
+      where.push(`COALESCE(context->>'marketCode', '') = $${i++}`);
+      params.push(options.marketCode);
+    }
+    if (options.errorMessageLike) {
+      where.push(`COALESCE(error_message, '') ILIKE $${i++}`);
+      params.push(`%${options.errorMessageLike}%`);
+    }
+
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_error_trail
+         ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query<ProviderErrorTrailRowSql>(
+      `SELECT id, provider_id, occurred_at, error_class, error_message, context
+         FROM market_data.provider_error_trail
+         ${whereClause}
+         ORDER BY occurred_at DESC
+         LIMIT $${i++}
+         OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+
+    return {
+      items: rowsResult.rows.map(mapProviderErrorTrailRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {
+    const id = input.id ?? randomUUID();
+    const result = await this.pool.query<ProviderOperationRowSql>(
+      `INSERT INTO market_data.provider_operations
+         (id, provider_id, market_code, operation_type, phase, error_code, resolver_mode, scope_query,
+          snapshot_hash, preview_token_hash, preview_expires_at, match_count, sample, metadata,
+          legacy_batch_id, actor_user_id, started_at, completed_at, cancelled_at)
+       VALUES
+         ($1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13::jsonb, $14::jsonb,
+          $15, $16, $17, $18, $19)
+       RETURNING id, provider_id, market_code, operation_type, phase, error_code, resolver_mode, scope_query,
+                 snapshot_hash, preview_token_hash, preview_expires_at, match_count, sample, metadata,
+                 legacy_batch_id, actor_user_id, started_at, completed_at, cancelled_at, created_at, updated_at`,
+      [
+        id,
+        input.providerId,
+        input.marketCode,
+        input.operationType,
+        input.phase,
+        input.errorCode ?? null,
+        input.resolverMode ?? null,
+        input.scopeQuery ?? null,
+        input.snapshotHash ?? null,
+        input.previewTokenHash ?? null,
+        input.previewExpiresAt ?? null,
+        input.matchCount ?? null,
+        input.sample ? JSON.stringify(input.sample) : null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        input.legacyBatchId ?? null,
+        input.actorUserId ?? null,
+        input.startedAt ?? null,
+        input.completedAt ?? null,
+        input.cancelledAt ?? null,
+      ],
+    );
+    return mapProviderOperationRow(result.rows[0]!);
+  }
+
+  async updateProviderOperation(input: UpdateProviderOperationInput): Promise<ProviderOperationRecord> {
+    const sets: string[] = [];
+    const params: unknown[] = [input.id];
+    let i = 2;
+    if (input.phase !== undefined) {
+      sets.push(`phase = $${i++}`);
+      params.push(input.phase);
+    }
+    if (input.errorCode !== undefined) {
+      sets.push(`error_code = $${i++}`);
+      params.push(input.errorCode);
+    }
+    if (input.resolverMode !== undefined) {
+      sets.push(`resolver_mode = $${i++}`);
+      params.push(input.resolverMode);
+    }
+    if (input.scopeQuery !== undefined) {
+      sets.push(`scope_query = $${i++}`);
+      params.push(input.scopeQuery);
+    }
+    if (input.snapshotHash !== undefined) {
+      sets.push(`snapshot_hash = $${i++}`);
+      params.push(input.snapshotHash);
+    }
+    if (input.previewTokenHash !== undefined) {
+      sets.push(`preview_token_hash = $${i++}`);
+      params.push(input.previewTokenHash);
+    }
+    if (input.previewExpiresAt !== undefined) {
+      sets.push(`preview_expires_at = $${i++}`);
+      params.push(input.previewExpiresAt);
+    }
+    if (input.matchCount !== undefined) {
+      sets.push(`match_count = $${i++}`);
+      params.push(input.matchCount);
+    }
+    if (input.sample !== undefined) {
+      sets.push(`sample = $${i++}::jsonb`);
+      params.push(input.sample ? JSON.stringify(input.sample) : null);
+    }
+    if (input.metadata !== undefined) {
+      sets.push(`metadata = $${i++}::jsonb`);
+      params.push(input.metadata ? JSON.stringify(input.metadata) : null);
+    }
+    if (input.legacyBatchId !== undefined) {
+      sets.push(`legacy_batch_id = $${i++}`);
+      params.push(input.legacyBatchId);
+    }
+    if (input.actorUserId !== undefined) {
+      sets.push(`actor_user_id = $${i++}`);
+      params.push(input.actorUserId);
+    }
+    if (input.startedAt !== undefined) {
+      sets.push(`started_at = $${i++}`);
+      params.push(input.startedAt);
+    }
+    if (input.completedAt !== undefined) {
+      sets.push(`completed_at = $${i++}`);
+      params.push(input.completedAt);
+    }
+    if (input.cancelledAt !== undefined) {
+      sets.push(`cancelled_at = $${i++}`);
+      params.push(input.cancelledAt);
+    }
+    if (sets.length === 0) {
+      const existing = await this.getProviderOperation(input.id);
+      if (!existing) throw new Error(`provider_operation_not_found: ${input.id}`);
+      return existing;
+    }
+    sets.push(`updated_at = NOW()`);
+    const result = await this.pool.query<ProviderOperationRowSql>(
+      `UPDATE market_data.provider_operations
+          SET ${sets.join(", ")}
+        WHERE id = $1
+        RETURNING id, provider_id, market_code, operation_type, phase, error_code, resolver_mode, scope_query,
+                  snapshot_hash, preview_token_hash, preview_expires_at, match_count, sample, metadata,
+                  legacy_batch_id, actor_user_id, started_at, completed_at, cancelled_at, created_at, updated_at`,
+      params,
+    );
+    if (!result.rows[0]) throw new Error(`provider_operation_not_found: ${input.id}`);
+    return mapProviderOperationRow(result.rows[0]);
+  }
+
+  async getProviderOperation(id: string): Promise<ProviderOperationRecord | null> {
+    const result = await this.pool.query<ProviderOperationRowSql>(
+      `SELECT id, provider_id, market_code, operation_type, phase, error_code, resolver_mode, scope_query,
+              snapshot_hash, preview_token_hash, preview_expires_at, match_count, sample, metadata,
+              legacy_batch_id, actor_user_id, started_at, completed_at, cancelled_at, created_at, updated_at
+         FROM market_data.provider_operations
+        WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ? mapProviderOperationRow(result.rows[0]) : null;
+  }
+
+  async listProviderOperations(
+    options: ListProviderOperationsOptions,
+  ): Promise<ListProviderOperationsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (options.providerId) {
+      where.push(`provider_id = $${i++}`);
+      params.push(options.providerId);
+    }
+    if (options.marketCode) {
+      where.push(`market_code = $${i++}`);
+      params.push(options.marketCode);
+    }
+    if (options.phases && options.phases.length > 0) {
+      where.push(`phase = ANY($${i++}::text[])`);
+      params.push(options.phases);
+    }
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_operations
+         ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query<ProviderOperationRowSql>(
+      `SELECT id, provider_id, market_code, operation_type, phase, error_code, resolver_mode, scope_query,
+              snapshot_hash, preview_token_hash, preview_expires_at, match_count, sample, metadata,
+              legacy_batch_id, actor_user_id, started_at, completed_at, cancelled_at, created_at, updated_at
+         FROM market_data.provider_operations
+         ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT $${i++}
+         OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderOperationRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean> {
+    const result = await this.pool.query<{ exists: boolean }>(
+      `SELECT EXISTS(
+         SELECT 1
+           FROM market_data.provider_operations
+          WHERE provider_id = $1
+            AND market_code = $2
+            AND phase IN ('staged', 'running', 'paused')
+       ) AS exists`,
+      [providerId, marketCode],
+    );
+    return result.rows[0]?.exists === true;
+  }
+
+  async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {
+    const result = await this.pool.query<ProviderOperationLogRowSql>(
+      `INSERT INTO market_data.provider_operation_logs
+         (operation_id, phase, level, message, context)
+       VALUES ($1, $2, $3, $4, $5::jsonb)
+       RETURNING id, operation_id, phase, level, message, context, created_at`,
+      [input.operationId, input.phase, input.level, input.message, input.context ? JSON.stringify(input.context) : null],
+    );
+    return mapProviderOperationLogRow(result.rows[0]!);
+  }
+
+  async listProviderOperationLogs(
+    options: ListProviderOperationLogsOptions,
+  ): Promise<ListProviderOperationLogsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_operation_logs
+        WHERE operation_id = $1`,
+      [options.operationId],
+    );
+    const rowsResult = await this.pool.query<ProviderOperationLogRowSql>(
+      `SELECT id, operation_id, phase, level, message, context, created_at
+         FROM market_data.provider_operation_logs
+        WHERE operation_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        OFFSET $3`,
+      [options.operationId, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderOperationLogRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async getProviderResolutionMapping(
+    providerId: string,
+    marketCode: MarketCode,
+    sourceSymbol: string,
+  ): Promise<ProviderResolutionMappingRecord | null> {
+    const result = await this.pool.query<ProviderResolutionMappingRowSql>(
+      `SELECT provider_id, market_code, source_symbol, resolved_symbol, resolver_mode, evidence,
+              verified_at, verified_by_user_id, created_at, updated_at
+         FROM market_data.provider_resolution_mappings
+        WHERE provider_id = $1
+          AND market_code = $2
+          AND source_symbol = $3`,
+      [providerId, marketCode, sourceSymbol.trim().toUpperCase()],
+    );
+    return result.rows[0] ? mapProviderResolutionMappingRow(result.rows[0]) : null;
+  }
+
+  async upsertProviderResolutionMapping(
+    input: UpsertProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const resolvedSymbol = input.resolvedSymbol.trim().toUpperCase();
+    const verifiedAt = input.verifiedAt ?? new Date().toISOString();
+    const result = await this.pool.query<ProviderResolutionMappingRowSql>(
+      `INSERT INTO market_data.provider_resolution_mappings
+         (provider_id, market_code, source_symbol, resolved_symbol, resolver_mode, evidence,
+          verified_at, verified_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+       ON CONFLICT (provider_id, market_code, source_symbol) DO UPDATE SET
+         resolved_symbol = EXCLUDED.resolved_symbol,
+         resolver_mode = EXCLUDED.resolver_mode,
+         evidence = EXCLUDED.evidence,
+         verified_at = EXCLUDED.verified_at,
+         verified_by_user_id = EXCLUDED.verified_by_user_id,
+         updated_at = NOW()
+       RETURNING provider_id, market_code, source_symbol, resolved_symbol, resolver_mode, evidence,
+                 verified_at, verified_by_user_id, created_at, updated_at`,
+      [
+        input.providerId,
+        input.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+        input.resolverMode ?? null,
+        input.evidence ? JSON.stringify(input.evidence) : null,
+        verifiedAt,
+        input.verifiedByUserId ?? null,
+      ],
+    );
+    return mapProviderResolutionMappingRow(result.rows[0]!);
+  }
+
   async listAdminUserIds(): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       `SELECT id FROM users
@@ -12306,6 +12701,53 @@ interface ProviderErrorTrailRowSql {
   context: Record<string, unknown> | null;
 }
 
+interface ProviderOperationRowSql {
+  id: string;
+  provider_id: string;
+  market_code: string;
+  operation_type: string;
+  phase: string;
+  error_code: string | null;
+  resolver_mode: string | null;
+  scope_query: string | null;
+  snapshot_hash: string | null;
+  preview_token_hash: string | null;
+  preview_expires_at: string | null;
+  match_count: number | string | null;
+  sample: unknown[] | null;
+  metadata: Record<string, unknown> | null;
+  legacy_batch_id: string | null;
+  actor_user_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProviderOperationLogRowSql {
+  id: string | number;
+  operation_id: string;
+  phase: string;
+  level: string;
+  message: string;
+  context: Record<string, unknown> | null;
+  created_at: string;
+}
+
+interface ProviderResolutionMappingRowSql {
+  provider_id: string;
+  market_code: string;
+  source_symbol: string;
+  resolved_symbol: string;
+  resolver_mode: string | null;
+  evidence: Record<string, unknown> | null;
+  verified_at: string;
+  verified_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function mapProviderHealthRow(row: ProviderHealthRowSql): ProviderHealthRow {
   return {
     providerId: row.provider_id,
@@ -12331,6 +12773,59 @@ function mapProviderErrorTrailRow(row: ProviderErrorTrailRowSql): ProviderErrorT
     errorClass: row.error_class as ProviderErrorClass,
     errorMessage: row.error_message,
     context: row.context,
+  };
+}
+
+function mapProviderOperationRow(row: ProviderOperationRowSql): ProviderOperationRecord {
+  return {
+    id: row.id,
+    providerId: row.provider_id,
+    marketCode: row.market_code as MarketCode,
+    operationType: row.operation_type,
+    phase: row.phase as ProviderOperationPhase,
+    errorCode: row.error_code,
+    resolverMode: row.resolver_mode as ProviderOperationRecord["resolverMode"],
+    scopeQuery: row.scope_query,
+    snapshotHash: row.snapshot_hash,
+    previewTokenHash: row.preview_token_hash,
+    previewExpiresAt: row.preview_expires_at ? new Date(row.preview_expires_at).toISOString() : null,
+    matchCount: row.match_count == null ? null : Number(row.match_count),
+    sample: row.sample,
+    metadata: row.metadata,
+    legacyBatchId: row.legacy_batch_id,
+    actorUserId: row.actor_user_id,
+    startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    cancelledAt: row.cancelled_at ? new Date(row.cancelled_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapProviderOperationLogRow(row: ProviderOperationLogRowSql): ProviderOperationLogRecord {
+  return {
+    id: typeof row.id === "string" ? parseInt(row.id, 10) : row.id,
+    operationId: row.operation_id,
+    phase: row.phase as ProviderOperationPhase,
+    level: row.level as ProviderOperationLogLevel,
+    message: row.message,
+    context: row.context,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapProviderResolutionMappingRow(row: ProviderResolutionMappingRowSql): ProviderResolutionMappingRecord {
+  return {
+    providerId: row.provider_id,
+    marketCode: row.market_code as MarketCode,
+    sourceSymbol: row.source_symbol,
+    resolvedSymbol: row.resolved_symbol,
+    resolverMode: row.resolver_mode as ProviderResolutionMappingRecord["resolverMode"],
+    evidence: row.evidence,
+    verifiedAt: new Date(row.verified_at).toISOString(),
+    verifiedByUserId: row.verified_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 

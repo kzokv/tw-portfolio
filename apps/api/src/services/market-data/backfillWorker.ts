@@ -255,7 +255,18 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
     async function rescheduleAfterRateLimit(err: RateLimitedError): Promise<void> {
       const delaySec = err.retryAfterSeconds;
-      log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
+      log.info(
+        {
+          ticker,
+          marketCode: market,
+          providerId: healthProviderId,
+          trigger,
+          batchId,
+          delaySec,
+          ...(resolverMode ? { resolverMode } : {}),
+        },
+        "backfill_rate_limited: rescheduling",
+      );
       // KZO-169/KZO-197: singletonKey scopes by market and KR resolver mode so
       // cross-market and acknowledged KR repair reruns don't collapse.
       const singletonKey = getBackfillSingletonKey(ticker, market, resolverMode);
@@ -268,7 +279,18 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // KZO-163 MEDIUM-2: singleton policy returns null when an existing job already covers
       // this ticker. Log so we can see drops without throwing — the existing job will run.
       if (id === null) {
-        log.warn({ ticker, trigger, delaySec }, "backfill_rate_limit_reschedule_dropped: existing singleton covers this ticker");
+        log.warn(
+          {
+            ticker,
+            marketCode: market,
+            providerId: healthProviderId,
+            trigger,
+            batchId,
+            delaySec,
+            ...(resolverMode ? { resolverMode } : {}),
+          },
+          "backfill_rate_limit_reschedule_dropped: existing singleton covers this ticker",
+        );
       }
     }
 
@@ -315,7 +337,10 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         log.info(
           {
             ticker,
+            marketCode: market,
+            providerId: healthProviderId,
             trigger,
+            batchId,
             startDate: effectiveStartDate,
             endDate,
             ...(resolverMode ? { resolverMode } : {}),

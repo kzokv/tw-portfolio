@@ -41,6 +41,11 @@ export function fakePersistenceWithAppConfig(
     providerRerunCooldownMs: null,
     // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
     yahooAuRerunCooldownMs: null,
+    providerFixerDangerousMatchThreshold: null,
+    providerFixerPreviewSampleLimit: null,
+    providerFixerUiPageSize: null,
+    providerFixerAutoPauseFailuresPerMinute: null,
+    providerFixerPreviewTokenTtlMinutes: null,
     backfillRetryLimit: null,
     backfillRetryDelaySeconds: null,
     backfillFinmind402RetryMs: null,

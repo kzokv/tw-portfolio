@@ -614,6 +614,17 @@ const ADMIN_ROUTE_KEYS = new Set([
   // KZO-177: provider health admin surface.
   "GET /admin/providers",
   "POST /admin/providers/:providerId/rerun",
+  "GET /admin/provider-fixer/summary",
+  "GET /admin/provider-fixer/diagnostics",
+  "GET /admin/provider-fixer/operations",
+  "GET /admin/provider-fixer/logs",
+  "POST /admin/provider-fixer/preview",
+  "POST /admin/provider-fixer/stage",
+  "POST /admin/provider-fixer/execute",
+  "POST /admin/provider-fixer/operations/:operationId/execute",
+  "POST /admin/provider-fixer/operations/:operationId/pause",
+  "POST /admin/provider-fixer/operations/:operationId/resume",
+  "POST /admin/provider-fixer/operations/:operationId/cancel",
   // KZO-195: admin instruments listing + overrides.
   "GET /admin/instruments",
   "POST /admin/instruments/:ticker/:marketCode/undelete",
