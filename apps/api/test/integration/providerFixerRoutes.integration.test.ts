@@ -775,6 +775,73 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("reruns mapped provider backfills through provider operation outcomes", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn().mockResolvedValue("job-rerun-005930");
+    app.boss = { send: bossSend } as never;
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "original-op" },
+      verifiedByUserId: admin.userId,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/mappings/rerun",
+      headers,
+      payload: {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolverMode: "quote_first",
+        acknowledged: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json() as { operation: { id: string; phase: string }; result: { status: string } };
+    expect(body).toMatchObject({ operation: { phase: "running" }, result: { status: "started" } });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(body.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "005930",
+        marketCode: "KR",
+        trigger: "admin_rerun",
+        resolverMode: "quote_first",
+        providerOperationId: body.operation.id,
+      }),
+      expect.objectContaining({ singletonKey: "005930:KR:quote_first", priority: 10 }),
+    );
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${body.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1 },
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "005930",
+          providerSymbol: "005930.KS",
+          action: "rerun_backfill",
+          state: "succeeded",
+        }),
+      ],
+    });
+    await expect(
+      app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
+    ).resolves.toMatchObject({ resolvedSymbol: "005930.KS" });
+  });
+
   it("updates unresolved item lifecycle state with provider-scoped audit metadata", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };

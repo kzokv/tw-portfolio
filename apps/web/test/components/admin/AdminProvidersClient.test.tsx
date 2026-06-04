@@ -808,6 +808,18 @@ describe("AdminProvidersClient", () => {
       },
     );
 
+    click("provider-console-mapping-rerun-005930");
+    await act(async () => undefined);
+    expect(mockPostJson).toHaveBeenLastCalledWith(
+      "/admin/providers/yahoo-finance-kr/mappings/rerun",
+      {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolverMode: "quote_first",
+        acknowledged: true,
+      },
+    );
+
     click("provider-console-mapping-revert-open-005930");
     expect(document.body.textContent ?? "").toMatch(/Revert durable mapping/i);
     const executeRevert = document.querySelector(
