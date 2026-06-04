@@ -427,6 +427,14 @@ function click(testId: string) {
   });
 }
 
+function findElementByText(selector: string, text: string): HTMLElement {
+  const element = Array.from(document.querySelectorAll(selector)).find((candidate) =>
+    candidate.textContent?.trim().includes(text),
+  ) as HTMLElement | undefined;
+  if (!element) throw new Error(`element not found by text: ${text}`);
+  return element;
+}
+
 function updateInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   act(() => {
@@ -472,6 +480,12 @@ describe("AdminProvidersClient", () => {
     );
     expect(document.querySelector("[data-testid='provider-status-badge-yahoo-finance-kr']")?.textContent ?? "").toMatch(
       /awaiting action/i,
+    );
+    expect(document.querySelector("[data-testid='provider-status-badge-yahoo-finance-kr']")?.getAttribute("title") ?? "").toMatch(
+      /guarded admin decision/i,
+    );
+    expect(document.querySelector("[data-testid='provider-console-refresh']")?.getAttribute("title") ?? "").toMatch(
+      /does not call the upstream provider/i,
     );
     expect(document.querySelector("[data-testid='provider-console-subtab-fixer']")?.getAttribute("title") ?? "").toMatch(
       /renew, repair, and rerun/i,
@@ -555,10 +569,32 @@ describe("AdminProvidersClient", () => {
       checkbox?.click();
     });
     expect(executeButton?.disabled).toBe(true);
+    expect(executeButton?.getAttribute("title") ?? "").toMatch(/typed phrase/i);
 
     if (input) updateInputValue(input, "EXECUTE 1842");
 
     expect(executeButton?.disabled).toBe(false);
+    expect(executeButton?.getAttribute("title") ?? "").toMatch(/guarded operation preview/i);
+  });
+
+  it("explains fixer actions and resolver modes with contextual help", () => {
+    renderClient(root, { initialTab: "fixer" });
+
+    expect(findElementByText("span", "Quote-first").getAttribute("title") ?? "").toMatch(
+      /checks quote metadata before chart calls/i,
+    );
+    expect(findElementByText("span", "Chart-probe").getAttribute("title") ?? "").toMatch(
+      /costs more provider budget/i,
+    );
+    expect(findElementByText("button", "Renew evidence").getAttribute("title") ?? "").toMatch(
+      /does not write mappings, bars, or resolved data/i,
+    );
+    expect(findElementByText("button", "Preview repair").getAttribute("title") ?? "").toMatch(
+      /guarded preview before writing durable provider-symbol mappings/i,
+    );
+    expect(findElementByText("button", "Rerun disabled").getAttribute("title") ?? "").toMatch(
+      /resolved items or durable provider mappings/i,
+    );
   });
 
   it("refreshes API-backed state without an upstream provider action", () => {
@@ -674,6 +710,9 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/raw\/system diagnostics/i);
     expect(document.body.textContent ?? "").toMatch(/preview purge/i);
     expect(document.body.textContent ?? "").toMatch(/only removes raw provider error trail rows/i);
+    expect(findElementByText("button", "Preview purge").getAttribute("title") ?? "").toMatch(
+      /preview eligible raw provider logs/i,
+    );
   });
 
   it("navigates provider tab changes through provider-scoped server data", () => {

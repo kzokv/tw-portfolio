@@ -168,6 +168,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added URL-backed operation selection so the Operations tab reloads durable outcomes for the selected operation; added selected-operation details with phase, progress, budget state, and links to logs/unresolved views.
 - 2026-06-04: Added URL-backed Operations pagination so operation summaries re-query provider-scoped API pages while preserving the selected operation.
 - 2026-06-04: Added mobile provider selector plus unresolved bottom action bar for repair/ignore/unsupported row actions.
+- 2026-06-04: Added contextual help for provider status, Refresh, Renew, Repair, Rerun, quote-first, chart-probe, guarded execute, Purge, Unsupported, Ignore, Reopen, and disabled action states.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
@@ -188,7 +189,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [x] Build logs purge preview modal and provider-scoped Activity timeline.
 - [x] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.
 - [ ] Add mobile provider selector, mobile cards, bottom action bar, disabled action reasons, and full-screen destructive preview sheets.
-- [ ] Add concise contextual help/tooltips for Repair, Renew, Rerun, Purge, quote-first, chart-probe, awaiting action, unsupported actions, and disabled states.
+- [x] Add concise contextual help/tooltips for Repair, Renew, Rerun, Purge, quote-first, chart-probe, awaiting action, unsupported actions, and disabled states.
 - [ ] Add DB/API/worker tests for unresolved dedupe, incident recurrence, operations, outcomes, queueing, rate-limit pause/resume, stale operations, guardrails, settings validation, purge, and KR mapping.
 - [ ] Add web unit tests for provider console UI states, action enablement, tooltips/help copy, mobile variants, and settings validation.
 - [ ] Run `/aaa` to add or update E2E tests covering provider console navigation, unresolved table, repair flow, dangerous preview, operations progress, purge guardrail, and mobile action sheet.

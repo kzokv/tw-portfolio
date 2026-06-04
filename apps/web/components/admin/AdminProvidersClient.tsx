@@ -150,6 +150,32 @@ const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   cancelled: "bg-slate-200 text-slate-700",
 };
 
+const actionHelp = {
+  refresh:
+    "Reload provider-console state from the API. This does not call the upstream provider or write data.",
+  renew:
+    "Refresh resolver evidence and candidates. Renew does not write mappings, bars, or resolved data.",
+  repair:
+    "Create a guarded preview before writing durable provider-symbol mappings for unresolved rows.",
+  rerun:
+    "Fetch fresh provider data only for rows that are already resolved or durably mapped.",
+  purge:
+    "Preview eligible raw provider logs before deleting provider_error_trail and provider_operation_logs rows only.",
+  markUnsupported:
+    "Mark this instrument unsupported for this provider with durable evidence instead of retrying it endlessly.",
+  ignore:
+    "Hide this unresolved item from active fixer work without marking it resolved or unsupported.",
+  reopen:
+    "Move this unresolved item back to active so it can be repaired again.",
+} as const;
+
+const resolverModeHelp = {
+  quote_first:
+    "Quote-first checks quote metadata before chart calls. It is the cheaper default and only writes after guarded preview execution.",
+  chart_probe_v1:
+    "Chart-probe verifies chart/backfill readiness with chart requests. It costs more provider budget and is useful when quote evidence is ambiguous.",
+} as const;
+
 function formatNumber(value: number): string {
   return value.toLocaleString();
 }
@@ -164,6 +190,13 @@ function statusCopy(status: ProviderHealthStatus): string {
   if (status === "degraded") return "Degraded";
   if (status === "down") return "Down";
   return "Awaiting action";
+}
+
+function statusHelp(status: ProviderHealthStatus): string {
+  if (status === "healthy") return "Healthy: provider checks are passing and no admin fixer action is currently required.";
+  if (status === "degraded") return "Degraded: provider is reachable, but errors, backlog, incidents, or rate limits need attention.";
+  if (status === "down") return "Down: provider checks are failing or unavailable; repair work should wait until connectivity recovers.";
+  return "Awaiting action: provider is reachable, but a guarded admin decision is required before fixer writes continue.";
 }
 
 function statusRank(status: ProviderHealthStatus): number {
@@ -212,6 +245,7 @@ function StatusBadge({ status, providerId }: { status: ProviderHealthStatus; pro
         status === "awaiting" && "bg-violet-100 text-violet-800 ring-1 ring-violet-200",
       )}
       data-testid={`provider-status-badge-${providerId}`}
+      title={statusHelp(status)}
     >
       <span
         className={cn(
@@ -657,13 +691,13 @@ export function AdminProvidersClient({
               </label>
             </div>
             <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-              <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh">
+              <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh" title={actionHelp.refresh}>
                 Refresh data
               </Button>
-              <Button variant="secondary" disabled={!capability.supportsRenew} title={renewDisabledReason ?? "Refresh evidence and candidates without writing mappings or bars."}>
+              <Button variant="secondary" disabled={!capability.supportsRenew} title={renewDisabledReason ?? actionHelp.renew}>
                 Renew evidence
               </Button>
-              <Button onClick={previewRepair} disabled={!capability.supportsRepair || busyAction !== null} title={repairDisabledReason ?? "Bind provider symbols for unresolved instruments."}>
+              <Button onClick={previewRepair} disabled={!capability.supportsRepair || busyAction !== null} title={repairDisabledReason ?? actionHelp.repair}>
                 Repair selected
               </Button>
             </div>
@@ -966,8 +1000,8 @@ function UnresolvedTab({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary">Export</Button>
-          <Button disabled={!capability.supportsRepair} onClick={onPreviewRepair}>Repair selected</Button>
+          <Button variant="secondary" title="Export the currently filtered unresolved rows for offline review.">Export</Button>
+          <Button disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair selected</Button>
         </div>
       </div>
       <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px_220px_160px]">
@@ -1016,15 +1050,15 @@ function UnresolvedTab({
                 <SettingReadout label="Evidence" value={row.evidence ?? "-"} />
               </dl>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary">Renew</Button>
-                <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
+                <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
+                <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
                 <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
                 {row.item && row.item.state !== "active" ? (
                   <Button
                     size="sm"
                     variant="secondary"
                     disabled={!canReopen || busyAction !== null}
-                    title="Move this unresolved item back to active so it can be repaired again."
+                    title={actionHelp.reopen}
                     onClick={() => row.item ? onSetState(row.item, "active") : undefined}
                   >
                     Reopen
@@ -1035,7 +1069,7 @@ function UnresolvedTab({
                       size="sm"
                       variant="secondary"
                       disabled={!row.item || !canMarkUnsupported || busyAction !== null}
-                      title={row.item ? "Mark this instrument as unsupported for this provider." : lifecycleUnavailable}
+                      title={row.item ? actionHelp.markUnsupported : lifecycleUnavailable}
                       onClick={() => row.item ? onSetState(row.item, "unsupported") : undefined}
                     >
                       Unsupported
@@ -1044,7 +1078,7 @@ function UnresolvedTab({
                       size="sm"
                       variant="secondary"
                       disabled={!row.item || !canIgnore || busyAction !== null}
-                      title={row.item ? "Hide this unresolved item without marking it resolved." : lifecycleUnavailable}
+                      title={row.item ? actionHelp.ignore : lifecycleUnavailable}
                       onClick={() => row.item ? onSetState(row.item, "ignored") : undefined}
                     >
                       Ignore
@@ -1085,15 +1119,15 @@ function UnresolvedTab({
                 <td className="px-3 py-3">{row.evidence ?? row.note}</td>
                 <td className="px-3 py-3">
                   <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="secondary">Renew</Button>
-                    <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
+                    <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
+                    <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
                     <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
                     {row.item && row.item.state !== "active" ? (
                       <Button
                         size="sm"
                         variant="secondary"
                         disabled={!canReopen || busyAction !== null}
-                        title="Move this unresolved item back to active so it can be repaired again."
+                        title={actionHelp.reopen}
                         onClick={() => row.item ? onSetState(row.item, "active") : undefined}
                         data-testid={`provider-console-unresolved-reopen-${row.sourceSymbol}`}
                       >
@@ -1105,7 +1139,7 @@ function UnresolvedTab({
                           size="sm"
                           variant="secondary"
                           disabled={!row.item || !canMarkUnsupported || busyAction !== null}
-                          title={row.item ? "Mark this instrument as unsupported for this provider." : lifecycleUnavailable}
+                          title={row.item ? actionHelp.markUnsupported : lifecycleUnavailable}
                           onClick={() => row.item ? onSetState(row.item, "unsupported") : undefined}
                           data-testid={`provider-console-unresolved-unsupported-${row.sourceSymbol}`}
                         >
@@ -1115,7 +1149,7 @@ function UnresolvedTab({
                           size="sm"
                           variant="secondary"
                           disabled={!row.item || !canIgnore || busyAction !== null}
-                          title={row.item ? "Hide this unresolved item without marking it resolved." : lifecycleUnavailable}
+                          title={row.item ? actionHelp.ignore : lifecycleUnavailable}
                           onClick={() => row.item ? onSetState(row.item, "ignored") : undefined}
                           data-testid={`provider-console-unresolved-ignore-${row.sourceSymbol}`}
                         >
@@ -1147,12 +1181,12 @@ function UnresolvedTab({
               <p className="truncate text-xs font-semibold text-foreground">{formatNumber(rows.length)} visible unresolved</p>
               <p className="truncate text-[11px] text-muted-foreground">{selectedProviderId}</p>
             </div>
-            <Button size="sm" disabled={!capability.supportsRepair} onClick={onPreviewRepair}>Repair</Button>
+            <Button size="sm" disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
             <Button
               size="sm"
               variant="secondary"
               disabled={!firstDurableRow || !canIgnore || busyAction !== null}
-              title={firstDurableRow ? "Ignore the first selected durable unresolved row." : lifecycleUnavailable}
+              title={firstDurableRow ? actionHelp.ignore : lifecycleUnavailable}
               onClick={() => firstDurableRow ? onSetState(firstDurableRow, "ignored") : undefined}
             >
               Ignore
@@ -1161,7 +1195,7 @@ function UnresolvedTab({
               size="sm"
               variant="secondary"
               disabled={!firstDurableRow || !canMarkUnsupported || busyAction !== null}
-              title={firstDurableRow ? "Mark the first selected durable unresolved row as unsupported." : lifecycleUnavailable}
+              title={firstDurableRow ? actionHelp.markUnsupported : lifecycleUnavailable}
               onClick={() => firstDurableRow ? onSetState(firstDurableRow, "unsupported") : undefined}
             >
               Unsupported
@@ -1229,8 +1263,18 @@ function FixerTab({
           </div>
           {capability.supportsResolverModes ? (
             <div className="inline-flex overflow-hidden rounded-lg border border-border text-sm">
-              <span className={cn("px-3 py-2", diagnostics.resolverMode === "quote_first" ? "bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>Quote-first</span>
-              <span className={cn("border-l border-border px-3 py-2", diagnostics.resolverMode === "chart_probe_v1" ? "bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>Chart-probe</span>
+              <span
+                className={cn("px-3 py-2", diagnostics.resolverMode === "quote_first" ? "bg-emerald-50 text-emerald-700" : "text-muted-foreground")}
+                title={resolverModeHelp.quote_first}
+              >
+                Quote-first
+              </span>
+              <span
+                className={cn("border-l border-border px-3 py-2", diagnostics.resolverMode === "chart_probe_v1" ? "bg-emerald-50 text-emerald-700" : "text-muted-foreground")}
+                title={resolverModeHelp.chart_probe_v1}
+              >
+                Chart-probe
+              </span>
             </div>
           ) : null}
         </div>
@@ -1240,9 +1284,9 @@ function FixerTab({
           <Metric label="Preview sample" value={formatNumber(guardrails.previewSampleLimit)} detail="Rows shown before dangerous execution." />
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <ActionPanel title="Renew" body="Refresh evidence and candidates; does not write mappings or bars." enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" />
-          <ActionPanel title="Repair" body="Bind provider symbols for unresolved instruments." enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
-          <ActionPanel title="Rerun" body="Fetch fresh provider data for already resolved mappings." enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
+          <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" />
+          <ActionPanel title="Repair" body={actionHelp.repair} enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
+          <ActionPanel title="Rerun" body={actionHelp.rerun} enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
         </div>
         {actionError ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{actionError}</p> : null}
       </Card>
@@ -1286,8 +1330,8 @@ function FixerTab({
                 </label>
               ) : null}
               <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="secondary" onClick={onPreviewRepair}>Refresh preview</Button>
-                <Button disabled={executeDisabled} onClick={onExecute} data-testid="provider-console-execute-button">Execute operation</Button>
+                <Button variant="secondary" onClick={onPreviewRepair} title="Refresh the preview snapshot before executing; execution still requires matching confirmation.">Refresh preview</Button>
+                <Button disabled={executeDisabled} onClick={onExecute} data-testid="provider-console-execute-button" title={executeDisabled ? "Execution stays disabled until the checkbox and typed phrase match the current preview." : "Execute the current guarded operation preview."}>Execute operation</Button>
               </div>
             </>
           ) : null}
@@ -1605,7 +1649,7 @@ function LogsTab({
           <h3 className="text-xl font-semibold text-foreground">Logs</h3>
           <p className="mt-1 text-sm text-muted-foreground">Raw/system diagnostics for {selectedProviderId}. Purge only removes raw provider error trail rows and provider operation logs.</p>
         </div>
-        <Button variant="destructive" disabled={busyAction === "purge-preview"} onClick={onPreviewPurge}>Preview purge</Button>
+        <Button variant="destructive" disabled={busyAction === "purge-preview"} onClick={onPreviewPurge} title={actionHelp.purge}>Preview purge</Button>
       </div>
       {purgePreview ? (
         <div className="space-y-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4">
@@ -1628,8 +1672,9 @@ function LogsTab({
               value={purgeConfirmation}
               onChange={(event) => onPurgeConfirmationChange(event.target.value)}
               placeholder={purgePreview.confirmationText}
+              title="Typed confirmation must exactly match the purge preview phrase."
             />
-            <Button variant="destructive" disabled={!purgeReady} onClick={onExecutePurge}>Execute purge</Button>
+            <Button variant="destructive" disabled={!purgeReady} onClick={onExecutePurge} title={purgeReady ? "Delete only the eligible raw provider logs in this preview." : "Execute purge is disabled until the typed confirmation matches the preview phrase."}>Execute purge</Button>
           </div>
         </div>
       ) : null}
@@ -1761,11 +1806,11 @@ function SettingReadout({ label, value }: { label: string; value: string }) {
 function HelpList() {
   return (
     <dl className="mt-3 space-y-3 text-sm">
-      <SettingReadout label="Repair" value="Bind provider symbols for unresolved instruments." />
-      <SettingReadout label="Renew" value="Refresh evidence and candidates; no mappings or bars." />
-      <SettingReadout label="Rerun" value="Fetch fresh provider data for already resolved mappings." />
-      <SettingReadout label="Quote-first" value="Try quote metadata before chart calls; cheaper default." />
-      <SettingReadout label="Chart-probe" value="Use chart requests to verify backfill readiness; costs more budget." />
+      <SettingReadout label="Repair" value={actionHelp.repair} />
+      <SettingReadout label="Renew" value={actionHelp.renew} />
+      <SettingReadout label="Rerun" value={actionHelp.rerun} />
+      <SettingReadout label="Quote-first" value={resolverModeHelp.quote_first} />
+      <SettingReadout label="Chart-probe" value={resolverModeHelp.chart_probe_v1} />
     </dl>
   );
 }
@@ -1788,10 +1833,10 @@ function ActionPanel({
   busy?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4" title={enabled ? body : disabledReason}>
       <h4 className="font-semibold text-foreground">{title}</h4>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
-      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={onClick} title={!enabled ? disabledReason : undefined}>
+      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={onClick} title={enabled ? body : disabledReason}>
         {actionLabel}
       </Button>
       {!enabled ? <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p> : null}
