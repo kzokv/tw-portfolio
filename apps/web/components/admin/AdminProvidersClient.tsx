@@ -57,6 +57,8 @@ interface AdminProvidersClientProps {
   unresolvedPage: number;
   unresolvedLimit: number;
   unresolvedTotal: number;
+  initialUnresolvedState?: ProviderUnresolvedItemDto["state"];
+  initialUnresolvedSearch?: string;
   incidents: ProviderIncidentDto[];
   incidentsPage: number;
   incidentsLimit: number;
@@ -260,6 +262,8 @@ export function AdminProvidersClient({
   unresolvedPage,
   unresolvedLimit,
   unresolvedTotal,
+  initialUnresolvedState = "active",
+  initialUnresolvedSearch = "",
   incidents,
   incidentsPage,
   incidentsLimit,
@@ -447,6 +451,24 @@ export function AdminProvidersClient({
         state,
       }),
     );
+  }
+
+  function applyUnresolvedFilters(next: {
+    state?: ProviderUnresolvedItemDto["state"];
+    search?: string;
+    page?: number;
+  }): void {
+    const params = new URLSearchParams({
+      providerId: selectedProviderId,
+      tab: "unresolved",
+      resolverMode: diagnostics.resolverMode,
+      errorCode: fallbackDiagnosis?.errorCode ?? diagnostics.errorCode,
+      unresolvedState: next.state ?? initialUnresolvedState,
+      unresolvedPage: String(next.page ?? 1),
+    });
+    const search = next.search ?? initialUnresolvedSearch;
+    if (search.trim()) params.set("unresolvedSearch", search.trim());
+    router.push(`/admin/providers?${params.toString()}`);
   }
 
   function previewLogPurge(): void {
@@ -646,11 +668,14 @@ export function AdminProvidersClient({
             unresolvedPage={unresolvedPage}
             unresolvedLimit={unresolvedLimit}
             unresolvedTotal={unresolvedTotal}
+            initialState={initialUnresolvedState}
+            initialSearch={initialUnresolvedSearch}
             currentPreview={currentPreview}
             capability={capability}
             rerunDisabledReason={rerunDisabledReason}
             onPreviewRepair={previewRepair}
             onSetState={updateUnresolvedItemState}
+            onApplyFilters={applyUnresolvedFilters}
             busyAction={busyAction}
           />
         ) : null}
@@ -827,11 +852,14 @@ function UnresolvedTab({
   unresolvedPage,
   unresolvedLimit,
   unresolvedTotal,
+  initialState,
+  initialSearch,
   currentPreview,
   capability,
   rerunDisabledReason,
   onPreviewRepair,
   onSetState,
+  onApplyFilters,
   busyAction,
 }: {
   selectedProviderId: string;
@@ -840,13 +868,18 @@ function UnresolvedTab({
   unresolvedPage: number;
   unresolvedLimit: number;
   unresolvedTotal: number;
+  initialState: ProviderUnresolvedItemDto["state"];
+  initialSearch: string;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   capability: ProviderOperationCapabilityDto;
   rerunDisabledReason: string;
   onPreviewRepair: () => void;
   onSetState: (item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored") => void;
+  onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; page?: number }) => void;
   busyAction: string | null;
 }) {
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
   const evidence = currentPreview?.evidenceSample ?? [];
   const rows = unresolvedItems.length > 0
     ? unresolvedItems.map((item) => ({
@@ -890,10 +923,31 @@ function UnresolvedTab({
         </div>
       </div>
       <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px_220px_160px]">
-        <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-muted-foreground">Search symbol, provider symbol, instrument id</div>
-        <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">State: active</div>
+        <input
+          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onApplyFilters({ state: stateInput, search: searchInput, page: 1 });
+          }}
+          placeholder="Search symbol, provider symbol, error"
+          data-testid="provider-console-unresolved-search"
+        />
+        <select
+          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          value={stateInput}
+          onChange={(event) => setStateInput(event.target.value as ProviderUnresolvedItemDto["state"])}
+          data-testid="provider-console-unresolved-state"
+        >
+          <option value="active">State: active</option>
+          <option value="resolved">State: resolved</option>
+          <option value="unsupported">State: unsupported</option>
+          <option value="ignored">State: ignored</option>
+        </select>
         <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Error: {diagnosis?.errorCode ?? "all"}</div>
-        <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Provider: {selectedProviderId}</div>
+        <Button variant="secondary" onClick={() => onApplyFilters({ state: stateInput, search: searchInput, page: 1 })} data-testid="provider-console-unresolved-apply">
+          Apply filters
+        </Button>
       </div>
       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800" data-testid="provider-console-selection-banner">
         <strong>{formatNumber(Math.min(rows.length, 3))} rows selected.</strong> Select all {formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} matching rows for bulk repair.
@@ -1029,7 +1083,12 @@ function UnresolvedTab({
           </tbody>
         </table>
       </div>
-      <Pagination page={unresolvedPage} limit={unresolvedLimit} total={unresolvedTotal} onPageChange={() => undefined} />
+      <Pagination
+        page={unresolvedPage}
+        limit={unresolvedLimit}
+        total={unresolvedTotal}
+        onPageChange={(page) => onApplyFilters({ state: stateInput, search: searchInput, page })}
+      />
     </Card>
   );
 }
