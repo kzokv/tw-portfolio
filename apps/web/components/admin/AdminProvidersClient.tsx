@@ -640,6 +640,21 @@ export function AdminProvidersClient({
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Provider-owned health, unresolved instruments, fixer actions, operations, activity, logs, and mappings.
               </p>
+              <label className="mt-3 grid gap-1 text-sm text-muted-foreground lg:hidden">
+                <span>Provider</span>
+                <select
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+                  value={selectedProviderId}
+                  onChange={(event) => selectProvider(event.target.value)}
+                  data-testid="provider-console-mobile-provider-select"
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.providerId} value={provider.providerId}>
+                      {provider.providerId} - {statusCopy(provider.status)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
               <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh">
@@ -940,6 +955,7 @@ function UnresolvedTab({
   const canIgnore = actionSupported(capability, "ignore_unresolved");
   const canReopen = actionSupported(capability, "reopen_unresolved");
   const lifecycleUnavailable = "Available for durable unresolved rows only.";
+  const firstDurableRow = rows.find((row) => row.item)?.item ?? null;
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1121,6 +1137,38 @@ function UnresolvedTab({
         total={unresolvedTotal}
         onPageChange={(page) => onApplyFilters({ state: stateInput, search: searchInput, page })}
       />
+      {rows.length > 0 ? (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-4 py-3 shadow-2xl backdrop-blur sm:hidden"
+          data-testid="provider-console-mobile-bottom-actions"
+        >
+          <div className="mx-auto flex max-w-md items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-foreground">{formatNumber(rows.length)} visible unresolved</p>
+              <p className="truncate text-[11px] text-muted-foreground">{selectedProviderId}</p>
+            </div>
+            <Button size="sm" disabled={!capability.supportsRepair} onClick={onPreviewRepair}>Repair</Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!firstDurableRow || !canIgnore || busyAction !== null}
+              title={firstDurableRow ? "Ignore the first selected durable unresolved row." : lifecycleUnavailable}
+              onClick={() => firstDurableRow ? onSetState(firstDurableRow, "ignored") : undefined}
+            >
+              Ignore
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!firstDurableRow || !canMarkUnsupported || busyAction !== null}
+              title={firstDurableRow ? "Mark the first selected durable unresolved row as unsupported." : lifecycleUnavailable}
+              onClick={() => firstDurableRow ? onSetState(firstDurableRow, "unsupported") : undefined}
+            >
+              Unsupported
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }
