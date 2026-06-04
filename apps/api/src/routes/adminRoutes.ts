@@ -968,25 +968,36 @@ function assertProviderFixerPreviewToken(operation: ProviderOperationRecord, pre
   }
 }
 
-async function assertNoOtherProviderFixerExecution(
+async function assertNoOtherProviderOperationExecution(
   app: FastifyInstance,
-  operation: ProviderOperationRecord,
+  scope: { providerId: string; marketCode: MarketCode; operationId?: string | null },
 ): Promise<void> {
   const active = await app.persistence.listProviderOperations({
-    providerId: operation.providerId,
-    marketCode: operation.marketCode,
+    providerId: scope.providerId,
+    marketCode: scope.marketCode,
     phases: ["staged", "running", "paused"],
     page: 1,
     limit: 50,
   });
-  const other = active.items.find((row) => row.id !== operation.id);
+  const other = active.items.find((row) => row.id !== scope.operationId);
   if (other) {
     throw routeError(
       409,
       "provider_fixer_active_execution_exists",
-      "Another Provider Fixer execution is already active for this provider and market",
+      "Another provider operation is already active for this provider and market",
     );
   }
+}
+
+async function assertNoOtherProviderFixerExecution(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+): Promise<void> {
+  return assertNoOtherProviderOperationExecution(app, {
+    providerId: operation.providerId,
+    marketCode: operation.marketCode,
+    operationId: operation.id,
+  });
 }
 
 async function pauseStaleProviderOperations(
@@ -2529,6 +2540,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode });
     const firstPage = await app.persistence.listProviderErrorTrailPage({
       providerId,
       marketCode,
@@ -2886,6 +2898,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!mapping) {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
+    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
@@ -2968,6 +2981,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
@@ -3049,6 +3063,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
@@ -3313,6 +3328,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         existing.operationType !== "repair_mapping"
       ) {
         throw routeError(400, "provider_operation_resume_not_supported", "Resume is not supported for this provider operation type");
+      }
+      if (action === "resume") {
+        await assertNoOtherProviderOperationExecution(app, {
+          providerId: existing.providerId,
+          marketCode: existing.marketCode,
+          operationId: existing.id,
+        });
       }
       const updated = await app.persistence.updateProviderOperation({
         id: operationId,
