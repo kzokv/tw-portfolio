@@ -6,9 +6,8 @@
 //
 // Per scope-grill lock in `docs/004-notes/ui-reshape-shadcn/scope-todo-202605171244-phase-4.md`:
 //   - 4 card-stack tables at <sm: TransactionHistory, RecentTransactionsCard,
-//     AdminProviders, DividendReview. All emit the same `*-row-{id}` /
-//     `provider-row-{id}` testid in both renderings; useIsSmallScreen ensures
-//     only one variant is in DOM at any viewport.
+//     DividendReview. Historical AdminProviders table/card coverage moved to
+//     the provider console rail, which now emits `provider-console-tab-{id}`.
 //   - 5 scroll-only tables (Holdings, AdminInstruments, CashLedger,
 //     NhiRollup, SourceComposition): scroll + sticky-first-column at narrow
 //     viewports. Their `*-table` testid is in DOM at all viewports.
