@@ -1909,6 +1909,80 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     });
   }
 
+  app.post("/providers/:providerId/operations/:operationId/retry", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId, operationId } = providerConsoleOperationParamsSchema.parse(req.params);
+    const existing = await app.persistence.getProviderOperation(operationId);
+    if (!existing || existing.providerId !== providerId) {
+      throw routeError(404, "provider_operation_not_found", "Provider operation not found for this provider");
+    }
+    if (!["paused", "failed", "cancelled", "completed"].includes(existing.phase)) {
+      throw routeError(400, "provider_operation_not_retryable", "Selected operation cannot be retried yet");
+    }
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const matchCount = existing.matchCount ?? 0;
+    const dangerous = matchCount >= guardrails.dangerousMatchThreshold;
+    const token = newProviderFixerToken();
+    const retryAttempt = (numberField(asRecord(existing.metadata)?.retryAttempt) ?? 0) + 1;
+    const operation = await app.persistence.createProviderOperation({
+      providerId: existing.providerId,
+      marketCode: existing.marketCode,
+      operationType: existing.operationType,
+      phase: "preview",
+      errorCode: existing.errorCode,
+      resolverMode: existing.resolverMode,
+      scopeQuery: existing.scopeQuery,
+      snapshotHash: hashProviderFixerToken(`${existing.id}:retry:${retryAttempt}:${Date.now()}`).slice(0, 12),
+      previewTokenHash: hashProviderFixerToken(token),
+      previewExpiresAt: new Date(Date.now() + guardrails.previewTokenTtlSeconds * 1000).toISOString(),
+      matchCount,
+      sample: existing.sample,
+      metadata: {
+        previewTokenDisplay: token,
+        confirmationText: dangerous ? `EXECUTE ${matchCount}` : null,
+        retryOfOperationId: existing.id,
+        retryAttempt,
+        effectiveRateCapPerMinute: numberField(asRecord(existing.metadata)?.effectiveRateCapPerMinute) ?? 250,
+        autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
+      },
+      actorUserId: sessionUserId,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "preview",
+      level: "info",
+      message: `retry_created provider=${operation.providerId} market=${operation.marketCode} retry_of=${existing.id}`,
+      context: {
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        retryOfOperationId: existing.id,
+        retryAttempt,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "retry",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        retryOfOperationId: existing.id,
+        retryAttempt,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: operation.phase,
+      retryOfOperationId: existing.id,
+    });
+    reply.code(201);
+    return { operation: providerFixerOperationToDto(operation, guardrails), retryOfOperationId: existing.id };
+  });
+
   async function listProviderOperations(
     req: FastifyRequest,
     providerIdOverride?: string,
