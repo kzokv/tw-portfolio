@@ -173,6 +173,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Completed operation-details navigation by linking selected operations to logs, incidents, and unresolved views alongside durable outcomes/progress/budget state and operation controls.
 - 2026-06-04: Refactored provider operation completion into a reusable background helper and fixed Resume so paused operations restart completion work instead of only flipping phase to `running`; added integration coverage for rate-limit pause -> resume -> completed mapping.
 - 2026-06-04: Completed dense unresolved table controls with server-backed sort, URL-preserved sort/filter/page state, explicit select-all-matching UX, and a recently-resolved shortcut.
+- 2026-06-04: Improved Mappings tab rows with durable evidence summaries, linked unresolved/operation context, and visible Reverify/Revert affordances with guardrail explanations; backend write routes for those actions remain in operation-engine scope.
 - Remaining high-risk work is still backend-heavy: durable queueing, budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
