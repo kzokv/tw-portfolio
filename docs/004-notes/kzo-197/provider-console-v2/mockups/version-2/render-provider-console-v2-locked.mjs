@@ -17,20 +17,23 @@ const mobile = { width: 390, height: 1280 };
 const screenshots = [
   ["01-provider-console-overview-desktop.png", "overview", desktop],
   ["02-provider-tabs-capabilities-desktop.png", "provider-tabs-capabilities", desktop],
-  ["03-unresolved-instruments-desktop.png", "unresolved", desktop],
-  ["04-fixer-normal-actions-desktop.png", "fixer", desktop],
-  ["05-dangerous-preview-desktop.png", "dangerous-preview", desktop],
-  ["06-operations-running-sse-desktop.png", "operations", desktop],
-  ["07-operation-outcomes-desktop.png", "operation-outcomes", desktop],
-  ["08-incidents-activity-logs-desktop.png", "incidents-activity-logs", desktop],
-  ["09-logs-purge-preview-desktop.png", "logs-purge-preview", desktop],
-  ["10-kr-mappings-desktop.png", "mappings", desktop],
-  ["11-settings-provider-budgets-desktop.png", "settings", desktopTall],
-  ["12-settings-retention-desktop.png", "settings-retention", desktop],
-  ["13-mobile-provider-overview.png", "mobile-overview", mobile],
-  ["14-mobile-unresolved.png", "mobile-unresolved", mobile],
-  ["15-mobile-operation-progress.png", "mobile-operations", mobile],
-  ["16-mobile-dangerous-preview.png", "mobile-dangerous-preview", mobile]
+  ["03-provider-fixer-coverage-desktop.png", "provider-fixer-coverage", desktopTall],
+  ["04-unresolved-instruments-desktop.png", "unresolved", desktop],
+  ["05-fixer-normal-actions-desktop.png", "fixer", desktop],
+  ["06-dangerous-preview-desktop.png", "dangerous-preview", desktop],
+  ["07-operations-running-sse-desktop.png", "operations", desktop],
+  ["08-operations-queued-desktop.png", "operations-queued", desktop],
+  ["09-operation-outcomes-desktop.png", "operation-outcomes", desktop],
+  ["10-incidents-activity-logs-desktop.png", "incidents-activity-logs", desktop],
+  ["11-logs-purge-preview-desktop.png", "logs-purge-preview", desktop],
+  ["12-kr-mappings-desktop.png", "mappings", desktop],
+  ["13-settings-provider-budgets-desktop.png", "settings", desktopTall],
+  ["14-settings-retention-desktop.png", "settings-retention", desktop],
+  ["15-mobile-provider-overview.png", "mobile-overview", mobile],
+  ["16-mobile-provider-switcher.png", "mobile-provider-switcher", mobile],
+  ["17-mobile-unresolved.png", "mobile-unresolved", mobile],
+  ["18-mobile-operation-progress.png", "mobile-operations", mobile],
+  ["19-mobile-dangerous-preview.png", "mobile-dangerous-preview", mobile]
 ];
 
 await fs.mkdir(outDir, { recursive: true });
