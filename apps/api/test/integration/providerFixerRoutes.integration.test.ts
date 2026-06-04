@@ -514,6 +514,49 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("renews provider evidence through background operation outcomes without writing mappings", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/renew",
+      headers,
+      payload: {
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json() as { operation: { id: string; phase: string }; result: { status: string } };
+    expect(body).toMatchObject({ operation: { phase: "running" }, result: { status: "started" } });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(body.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+    expect(verifyResolvedSymbol).toHaveBeenCalledWith("005930", "005930.KS", { resolverMode: "quote_first" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${body.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1 },
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "005930",
+          action: "renew_evidence",
+          state: "succeeded",
+        }),
+      ],
+    });
+    await expect(
+      app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
+    ).resolves.toBeNull();
+  });
+
   it("reverifies durable provider mappings through provider operation outcomes", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
