@@ -86,6 +86,7 @@ describe("Provider Fixer admin routes", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (app) await app.close();
   });
 
@@ -842,6 +843,64 @@ describe("Provider Fixer admin routes", () => {
         retryOfOperationId: expired.id,
         retryAttempt: 1,
       }),
+    });
+  });
+
+  it("auto-pauses stale running provider operations before console summaries are returned", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-04T00:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "stale-running-provider-op",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "running",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      resolverMode: "quote_first",
+      scopeQuery: "yahoo-finance-kr:yahoo_finance_kr_symbol_unresolved",
+      snapshotHash: "stale-snapshot",
+      previewTokenHash: "stale-token",
+      previewExpiresAt: "2026-06-04T01:00:00.000Z",
+      matchCount: 42,
+      sample: [],
+      metadata: { progressPercent: 25 },
+      actorUserId: admin.userId,
+      startedAt: "2026-06-04T00:00:00.000Z",
+    });
+
+    vi.setSystemTime(new Date("2026-06-04T00:16:01.000Z"));
+    const summary = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations/summary",
+      headers,
+    });
+
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toMatchObject({
+      summary: {
+        activeOperationsCount: 1,
+        runningOperationsCount: 0,
+      },
+    });
+    await expect(app.persistence.getProviderOperation("stale-running-provider-op")).resolves.toMatchObject({
+      phase: "paused",
+      metadata: expect.objectContaining({
+        progressPercent: 25,
+        pauseReason: "stale_operation",
+        staleHeartbeatMinutes: 15,
+      }),
+    });
+    const logs = await app.persistence.listProviderOperationLogs({
+      operationId: "stale-running-provider-op",
+      page: 1,
+      limit: 10,
+    });
+    expect(logs.items[0]).toMatchObject({
+      phase: "paused",
+      level: "warning",
+      message: expect.stringContaining("auto_paused_stale_operation"),
     });
   });
 
