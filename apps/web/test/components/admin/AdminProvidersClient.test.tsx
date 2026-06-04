@@ -435,6 +435,14 @@ function updateInputValue(input: HTMLInputElement, value: string) {
   });
 }
 
+function updateSelectValue(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 describe("AdminProvidersClient", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -500,6 +508,21 @@ describe("AdminProvidersClient", () => {
       },
     );
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it("applies unresolved filters through provider-scoped URL state", () => {
+    renderClient(root, { initialTab: "unresolved" });
+
+    const search = document.querySelector("[data-testid='provider-console-unresolved-search']") as HTMLInputElement | null;
+    const state = document.querySelector("[data-testid='provider-console-unresolved-state']") as HTMLSelectElement | null;
+    if (!search || !state) throw new Error("expected unresolved filters");
+    updateInputValue(search, "005930");
+    updateSelectValue(state, "ignored");
+    click("provider-console-unresolved-apply");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=ignored&unresolvedPage=1&unresolvedSearch=005930",
+    );
   });
 
   it("shows reopen for non-active unresolved rows", () => {
