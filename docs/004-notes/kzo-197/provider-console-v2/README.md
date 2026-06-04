@@ -8,6 +8,7 @@ Version 2 retires the standalone Provider Fixer concept before rollout and repla
 - `mockups/provider-console-v2-mockup.html` - deterministic HTML mockup used for screenshots.
 - `mockups/render-provider-console-v2.mjs` - Playwright renderer for all v2 screenshots.
 - `mockups/screenshots/` - rendered desktop and mobile screenshots.
+- `mockups/version-2/` - current locked-in mockup version with expanded desktop/mobile screenshots.
 
 ## Mockup Screenshots
 
@@ -27,4 +28,31 @@ Regenerate from repo root:
 
 ```bash
 node docs/004-notes/kzo-197/provider-console-v2/mockups/render-provider-console-v2.mjs
+```
+
+## Locked Version 2 Screenshots
+
+Current review set: `mockups/version-2/screenshots/`.
+
+- `01-provider-console-overview-desktop.png`
+- `02-provider-tabs-capabilities-desktop.png`
+- `03-unresolved-instruments-desktop.png`
+- `04-fixer-normal-actions-desktop.png`
+- `05-dangerous-preview-desktop.png`
+- `06-operations-running-sse-desktop.png`
+- `07-operation-outcomes-desktop.png`
+- `08-incidents-activity-logs-desktop.png`
+- `09-logs-purge-preview-desktop.png`
+- `10-kr-mappings-desktop.png`
+- `11-settings-provider-budgets-desktop.png`
+- `12-settings-retention-desktop.png`
+- `13-mobile-provider-overview.png`
+- `14-mobile-unresolved.png`
+- `15-mobile-operation-progress.png`
+- `16-mobile-dangerous-preview.png`
+
+Regenerate the locked version:
+
+```bash
+node docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/render-provider-console-v2-locked.mjs
 ```

@@ -1,0 +1,1973 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KZO-197 Provider Console V2 Locked Mockups</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f5f7fb;
+    --panel: #ffffff;
+    --panel-2: #f9fbfd;
+    --text: #172033;
+    --muted: #667085;
+    --line: #d9e0ea;
+    --line-strong: #c7d0dd;
+    --blue: #2663eb;
+    --blue-soft: #eef4ff;
+    --green: #16855a;
+    --green-soft: #eaf8f1;
+    --amber: #b46200;
+    --amber-soft: #fff5df;
+    --red: #bf2934;
+    --red-soft: #fff0f1;
+    --slate: #344054;
+    --slate-soft: #eef1f6;
+    --violet: #6840c6;
+    --violet-soft: #f3efff;
+    --shadow: 0 16px 44px rgba(27, 38, 54, 0.13);
+    --radius: 8px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    letter-spacing: 0;
+    overflow-x: hidden;
+  }
+
+  button, input, select { font: inherit; }
+  button { cursor: default; }
+  .mono { font-family: var(--mono); }
+
+  .app {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 286px minmax(0, 1fr);
+  }
+
+  .rail {
+    min-height: 100vh;
+    border-right: 1px solid var(--line);
+    background: #fbfcfe;
+    padding: 18px 14px;
+  }
+
+  .rail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+
+  .rail-title {
+    font-weight: 720;
+    font-size: 17px;
+  }
+
+  .mini-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 6px;
+    color: var(--slate);
+    font-weight: 700;
+  }
+
+  .provider-group {
+    margin: 16px 0 8px;
+  }
+
+  .group-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 7px;
+    color: #596579;
+    font-size: 11px;
+    font-weight: 760;
+    text-transform: uppercase;
+  }
+
+  .budget-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #344054;
+    font-size: 11px;
+    font-weight: 650;
+    text-transform: none;
+    background: var(--slate-soft);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 7px;
+  }
+
+  .provider-card {
+    display: block;
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: var(--radius);
+    margin: 4px 0;
+    padding: 10px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .provider-card.active {
+    background: var(--panel);
+    border-color: var(--line-strong);
+    box-shadow: 0 4px 14px rgba(30, 41, 59, 0.07);
+  }
+
+  .provider-card .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .provider-name {
+    font-weight: 720;
+    line-height: 1.2;
+  }
+
+  .provider-meta {
+    margin-top: 6px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .main {
+    padding: 20px 24px 34px;
+    min-width: 0;
+  }
+
+  .mobile-top {
+    display: none;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+
+  .breadcrumb {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 26px;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  h2 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    line-height: 1.25;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 6px;
+    min-height: 34px;
+    padding: 7px 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  .btn.primary {
+    background: #1f56d5;
+    color: white;
+    border-color: #1f56d5;
+  }
+
+  .btn.warning {
+    background: #9d3b00;
+    color: white;
+    border-color: #9d3b00;
+  }
+
+  .btn.danger {
+    background: var(--red);
+    color: white;
+    border-color: var(--red);
+  }
+
+  .btn.ghost {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .btn.disabled,
+  .btn:disabled {
+    color: #98a2b3;
+    background: #f2f4f7;
+    border-color: var(--line);
+  }
+
+  .help-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    display: inline-grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 760;
+    background: white;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 16px;
+    overflow: auto;
+  }
+
+  .tab {
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    padding: 11px 12px 10px;
+    font-weight: 680;
+    white-space: nowrap;
+  }
+
+  .tab.active {
+    color: var(--blue);
+    border-bottom-color: var(--blue);
+  }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 720;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .healthy { color: var(--green); background: var(--green-soft); border-color: #bfe9d3; }
+  .degraded { color: var(--amber); background: var(--amber-soft); border-color: #f6d7a5; }
+  .down { color: var(--red); background: var(--red-soft); border-color: #fac2c6; }
+  .awaiting { color: var(--violet); background: var(--violet-soft); border-color: #d8c9fb; }
+  .neutral { color: var(--slate); background: var(--slate-soft); border-color: var(--line); }
+  .info { color: #175cd3; background: var(--blue-soft); border-color: #c7d7fe; }
+
+  .layout-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 14px;
+  }
+
+  .three-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .two-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px;
+    min-width: 0;
+  }
+
+  .panel.tight { padding: 0; overflow: hidden; }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .metric {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+
+  .metric .label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 680;
+  }
+
+  .metric .value {
+    margin-top: 5px;
+    font-size: 24px;
+    font-weight: 760;
+  }
+
+  .metric .sub {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .reason-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .reason {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 9px;
+    background: var(--panel-2);
+  }
+
+  .reason .mark {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    margin-top: 2px;
+    background: var(--amber);
+  }
+
+  .reason.red .mark { background: var(--red); }
+  .reason.blue .mark { background: var(--blue); }
+  .reason strong { display: block; margin-bottom: 2px; }
+
+  .budget-bar {
+    height: 8px;
+    background: #edf1f7;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .budget-bar span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #2f6fed, #1a9a6e);
+  }
+
+  .filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .field {
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 6px;
+    min-height: 34px;
+    padding: 7px 10px;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 140px;
+  }
+
+  .field.grow { flex: 1; min-width: 220px; }
+
+  .table-wrap {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: white;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th {
+    background: #f7f9fc;
+    color: #5c6678;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  td {
+    padding: 10px;
+    border-bottom: 1px solid #edf0f5;
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: 0; }
+
+  .symbol {
+    font-family: var(--mono);
+    font-weight: 760;
+    color: #111827;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .tiny {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .selection-banner {
+    border: 1px solid #b8c7fb;
+    background: var(--blue-soft);
+    color: #1849a9;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+
+  .action-cell {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .mini-btn {
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-weight: 680;
+    white-space: nowrap;
+  }
+
+  .mini-btn.disabled {
+    background: #f2f4f7;
+    color: #98a2b3;
+  }
+
+  .tooltip-note {
+    display: inline-block;
+    margin-top: 4px;
+    color: #7a8598;
+    font-size: 11px;
+  }
+
+  .mode-control {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+    background: white;
+  }
+
+  .mode-control span {
+    padding: 7px 10px;
+    border-right: 1px solid var(--line);
+    font-weight: 680;
+    color: var(--muted);
+  }
+
+  .mode-control span.active {
+    background: #ecfdf4;
+    color: #067647;
+  }
+
+  .mode-control span:last-child { border-right: 0; }
+
+  .operation-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px;
+    background: var(--panel);
+    display: grid;
+    gap: 10px;
+  }
+
+  .progress {
+    height: 10px;
+    background: #edf1f7;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .progress span {
+    display: block;
+    height: 100%;
+    background: #1f56d5;
+  }
+
+  .counts {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .count-box {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px;
+    background: var(--panel-2);
+  }
+
+  .count-box strong {
+    display: block;
+    font-size: 18px;
+  }
+
+  .timeline {
+    display: grid;
+    gap: 10px;
+  }
+
+  .timeline-row {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid #edf0f5;
+  }
+
+  .timeline-row:last-child { border-bottom: 0; }
+
+  .timeline-row strong,
+  .timeline-row p,
+  .symbol,
+  .mono {
+    overflow-wrap: anywhere;
+  }
+
+  .notice {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+    border: 1px solid #b8c7fb;
+    background: #f2f6ff;
+    color: #1849a9;
+    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    z-index: 20;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.36);
+    display: flex;
+    justify-content: flex-end;
+    align-items: stretch;
+    z-index: 30;
+  }
+
+  .drawer {
+    width: 520px;
+    background: white;
+    box-shadow: var(--shadow);
+    padding: 20px;
+    overflow: auto;
+  }
+
+  .danger-box {
+    border: 1px solid #f4b6bc;
+    background: var(--red-soft);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .phrase {
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: #fbfcfe;
+    padding: 9px 10px;
+    font-family: var(--mono);
+    color: #111827;
+  }
+
+  .settings-shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    border-right: 1px solid var(--line);
+    background: #fbfcfe;
+    padding: 20px 14px;
+  }
+
+  .settings-nav button {
+    width: 100%;
+    text-align: left;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 7px;
+    padding: 10px;
+    margin: 2px 0;
+    color: var(--muted);
+    font-weight: 680;
+  }
+
+  .settings-nav button.active {
+    color: var(--blue);
+    background: var(--blue-soft);
+    border-color: #c7d7fe;
+  }
+
+  .setting-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 20px;
+    padding: 14px 0;
+    border-bottom: 1px solid #edf0f5;
+  }
+
+  .setting-row:last-child { border-bottom: 0; }
+
+  .mobile-list {
+    display: none;
+  }
+
+  .mobile-card {
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: var(--radius);
+    padding: 12px;
+    display: grid;
+    gap: 9px;
+  }
+
+  .bottom-bar {
+    display: none;
+  }
+
+  @media (max-width: 820px) {
+    .app {
+      display: block;
+      min-height: 100vh;
+    }
+
+    .rail {
+      display: none;
+    }
+
+    .main {
+      padding: 12px 12px 88px;
+    }
+
+    .mobile-top {
+      display: block;
+      background: #fbfcfe;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .mobile-provider-button {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      background: white;
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-weight: 720;
+    }
+
+    .topbar {
+      display: block;
+      margin-top: 12px;
+    }
+
+    h1 {
+      font-size: 20px;
+    }
+
+    .topbar .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      justify-content: stretch;
+      margin-top: 10px;
+      overflow: visible;
+      flex-wrap: initial;
+    }
+
+    .topbar .actions .btn {
+      justify-content: center;
+      white-space: normal;
+      min-width: 0;
+    }
+
+    .topbar .actions .btn.primary {
+      grid-column: 1 / -1;
+    }
+
+    .tabs {
+      margin-left: -12px;
+      margin-right: -12px;
+      padding-left: 12px;
+    }
+
+    .layout-grid,
+    .three-grid,
+    .two-grid,
+    .counts,
+    .settings-shell,
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .desktop-table {
+      display: none;
+    }
+
+    .mobile-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .selection-banner {
+      align-items: flex-start;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .notice {
+      left: 12px;
+      right: 12px;
+      width: auto;
+      bottom: 72px;
+    }
+
+    .bottom-bar {
+      display: flex;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      background: white;
+      border-top: 1px solid var(--line);
+      padding: 10px 12px;
+      gap: 8px;
+    }
+
+    .bottom-bar .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .modal-backdrop {
+      align-items: flex-end;
+      justify-content: stretch;
+    }
+
+    .drawer {
+      width: 100%;
+      max-height: 92vh;
+      border-radius: 14px 14px 0 0;
+    }
+
+    .drawer h1 {
+      font-size: 22px;
+    }
+
+    .drawer .two-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .drawer .timeline-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+
+    .settings-nav {
+      display: none;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const selectedProvider = "yahoo-finance-kr";
+
+const providerGroups = [
+  {
+    label: "KR market data",
+    budget: "Twelve shared 6/8 per min",
+    providers: [
+      { id: "twelve-data-kr", label: "Twelve Data KR", status: "degraded", unresolved: "1,942", incidents: 2, ops: 1 },
+      { id: "yahoo-finance-kr", label: "Yahoo Finance KR", status: "awaiting", unresolved: "27,212", incidents: 3, ops: 2 }
+    ]
+  },
+  {
+    label: "TW market data",
+    budget: "FinMind shared 418/600 per hr",
+    providers: [
+      { id: "finmind-tw", label: "FinMind TW", status: "degraded", unresolved: "328", incidents: 1, ops: 0 }
+    ]
+  },
+  {
+    label: "US market data",
+    budget: "FinMind shared 418/600 per hr",
+    providers: [
+      { id: "finmind-us", label: "FinMind US", status: "degraded", unresolved: "96", incidents: 1, ops: 0 }
+    ]
+  },
+  {
+    label: "AU market data",
+    budget: "mixed budgets",
+    providers: [
+      { id: "twelve-data-au", label: "Twelve Data AU", status: "healthy", unresolved: "0", incidents: 0, ops: 0 },
+      { id: "yahoo-finance-au", label: "Yahoo Finance AU", status: "healthy", unresolved: "0", incidents: 0, ops: 0 },
+      { id: "asx-gics-csv", label: "ASX GICS CSV", status: "healthy", unresolved: "0", incidents: 0, ops: 0 }
+    ]
+  },
+  {
+    label: "FX",
+    budget: "internal pacing",
+    providers: [
+      { id: "frankfurter", label: "Frankfurter", status: "healthy", unresolved: "0", incidents: 0, ops: 0 }
+    ]
+  }
+];
+
+const tabs = [
+  "Overview",
+  "Unresolved instruments",
+  "Fixer",
+  "Operations",
+  "Incidents",
+  "Activity",
+  "Logs",
+  "Mappings"
+];
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[ch]));
+}
+
+function statusLabel(status) {
+  return {
+    healthy: "Healthy",
+    degraded: "Degraded",
+    down: "Down",
+    awaiting: "Awaiting action",
+    info: "Info",
+    neutral: "Resolved"
+  }[status] || status;
+}
+
+function statusBadge(status, text) {
+  return `<span class="status ${esc(status)}">${esc(text || statusLabel(status))}</span>`;
+}
+
+function providerRail() {
+  return `
+    <aside class="rail">
+      <div class="rail-head">
+        <div>
+          <div class="rail-title">Providers</div>
+          <div class="tiny">Operations console</div>
+        </div>
+        <span class="mini-icon">R</span>
+      </div>
+      ${providerGroups.map((group) => `
+        <section class="provider-group">
+          <div class="group-label">
+            <span>${esc(group.label)}</span>
+            <span class="budget-pill">${esc(group.budget)}</span>
+          </div>
+          ${group.providers.map((provider) => `
+            <button class="provider-card ${provider.id === selectedProvider ? "active" : ""}">
+              <span class="top">
+                <span class="provider-name">${esc(provider.label)}</span>
+                ${statusBadge(provider.status, statusLabel(provider.status))}
+              </span>
+              <span class="provider-meta">
+                <span>${esc(provider.unresolved)} unresolved</span>
+                <span>${provider.incidents} incidents</span>
+                <span>${provider.ops} ops</span>
+              </span>
+            </button>
+          `).join("")}
+        </section>
+      `).join("")}
+    </aside>
+  `;
+}
+
+function tabBar(active) {
+  return `
+    <nav class="tabs" aria-label="Provider sections">
+      ${tabs.map((tab) => `<button class="tab ${tab === active ? "active" : ""}">${esc(tab)}</button>`).join("")}
+    </nav>
+  `;
+}
+
+function shell(activeTab, content, options = {}) {
+  const title = options.title || "Yahoo Finance KR";
+  const subtitle = options.subtitle || "Provider is reachable, but resolver repair needs admin confirmation.";
+  return `
+    <div class="app">
+      ${providerRail()}
+      <div>
+        <div class="mobile-top">
+          <button class="mobile-provider-button">
+            <span>Yahoo Finance KR</span>
+            <span>${statusBadge("awaiting", "Awaiting action")}</span>
+          </button>
+          <div class="tiny" style="margin-top: 7px;">27,212 unresolved - 3 incidents - 2 active ops</div>
+        </div>
+        <main class="main">
+          <div class="topbar">
+            <div>
+              <div class="breadcrumb">Admin / Provider console / yahoo-finance-kr</div>
+              <h1>${esc(title)}</h1>
+              <p>${esc(subtitle)}</p>
+            </div>
+            <div class="actions">
+              <button class="btn">Refresh data</button>
+              <button class="btn">Renew evidence <span class="help-dot">?</span></button>
+              <button class="btn primary">Repair selected</button>
+            </div>
+          </div>
+          ${tabBar(activeTab)}
+          ${content}
+        </main>
+        ${options.notice ? `<div class="notice"><strong>${esc(options.notice.title)}</strong><br>${esc(options.notice.body)}</div>` : ""}
+        ${options.bottomBar || ""}
+        ${options.overlay || ""}
+      </div>
+    </div>
+  `;
+}
+
+function overview() {
+  return shell("Overview", `
+    <section class="three-grid">
+      <div class="metric">
+        <div class="label">Health</div>
+        <div class="value" style="font-size: 20px;">${statusBadge("awaiting", "Awaiting action")}</div>
+        <div class="sub">Reachable, but admin confirmation is required.</div>
+      </div>
+      <div class="metric">
+        <div class="label">Active unresolved</div>
+        <div class="value">27,212</div>
+        <div class="sub">From provider_unresolved_items, not raw logs.</div>
+      </div>
+      <div class="metric">
+        <div class="label">Shared budget pressure</div>
+        <div class="value">47%</div>
+        <div class="sub">Operation budget 48 per min, upstream cap 60 per min.</div>
+      </div>
+    </section>
+
+    <section class="layout-grid" style="margin-top: 14px;">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Why this status?</h2>
+            <p>Health combines provider availability, incidents, unresolved backlog, and operation state.</p>
+          </div>
+          <button class="btn">View activity</button>
+        </div>
+        <div class="reason-list">
+          <div class="reason">
+            <span class="mark"></span>
+            <div><strong>High unresolved backlog</strong><span class="tiny">27,212 active unresolved KR symbols are above the critical threshold of 10,000.</span></div>
+          </div>
+          <div class="reason blue">
+            <span class="mark"></span>
+            <div><strong>Candidate mappings need confirmation</strong><span class="tiny">1,248 items have strict single-candidate evidence. Repair requires admin confirmation.</span></div>
+          </div>
+          <div class="reason red">
+            <span class="mark"></span>
+            <div><strong>One stale operation was normalized</strong><span class="tiny">Old HTTP-executed operation moved to paused_error with stale_worker reason.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h2>Provider budget</h2>
+        <div class="budget-bar"><span style="width:47%"></span></div>
+        <div class="tiny" style="margin-top:8px;">28 of 60 upstream requests used this minute.</div>
+        <div style="height:12px"></div>
+        <h3>Effective settings</h3>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">Operation</span><strong>48 requests per min</strong></div>
+          <div class="timeline-row"><span class="tiny">Small write</span><strong>100 items max</strong></div>
+          <div class="timeline-row"><span class="tiny">Resolver</span><strong>Quote-first, chart fallback</strong></div>
+          <div class="timeline-row"><span class="tiny">Auto-renew</span><strong>Enabled under budget</strong></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" style="margin-top:14px;">
+      <div class="panel-head">
+        <div>
+          <h2>Next work</h2>
+          <p>Actions are scoped to this provider and explain why they are enabled or disabled.</p>
+        </div>
+      </div>
+      <div class="three-grid">
+        <div class="operation-card">
+          <h3>Renew evidence</h3>
+          <p>Refresh candidates without writing mappings or bars.</p>
+          <button class="btn">Start renew</button>
+        </div>
+        <div class="operation-card">
+          <h3>Repair mappings</h3>
+          <p>1,248 strict candidates can be repaired after preview.</p>
+          <button class="btn primary">Preview repair</button>
+        </div>
+        <div class="operation-card">
+          <h3>Rerun backfill</h3>
+          <p>Disabled until selected rows are resolved or mapped.</p>
+          <button class="btn disabled">Rerun disabled <span class="help-dot">?</span></button>
+        </div>
+      </div>
+    </section>
+  `, { notice: { title: "Refresh complete", body: "Provider console data refreshed from API. No upstream provider calls were made." } });
+}
+
+function providerTabsCapabilities() {
+  return shell("Overview", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Provider-owned tabs and actions</h2>
+          <p>Every provider keeps the same tab set. Unsupported actions stay visible with provider-specific reasons.</p>
+        </div>
+        <button class="btn">Open Admin Settings</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Health basis</th>
+              <th>Renew</th>
+              <th>Repair</th>
+              <th>Rerun</th>
+              <th>Mappings</th>
+              <th>Purge logs</th>
+              <th>Budget model</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Yahoo Finance KR</strong><div class="tiny mono">yahoo-finance-kr</div></td><td>${statusBadge("awaiting", "Awaiting action")}</td><td>Evidence refresh</td><td>KR resolver mappings</td><td>Resolved rows only</td><td>Durable KR bindings</td><td>Typed phrase</td><td>Provider cap, 48/60 per min</td></tr>
+            <tr><td><strong>Twelve Data KR</strong><div class="tiny mono">twelve-data-kr</div></td><td>${statusBadge("degraded", "Degraded")}</td><td>Catalog/evidence refresh</td><td>Unsupported marker only</td><td>Plan-limited bars</td><td>Read evidence</td><td>Typed phrase</td><td>Shared Twelve Data cap, 6/8 per min</td></tr>
+            <tr><td><strong>FinMind TW / US</strong><div class="tiny mono">finmind-tw, finmind-us</div></td><td>${statusBadge("degraded", "Degraded")}</td><td>Retry provider evidence</td><td>Provider-specific fixes</td><td>Mapped instruments</td><td>Unsupported</td><td>Typed phrase</td><td>Shared FinMind cap, 480/600 per hour</td></tr>
+            <tr><td><strong>Frankfurter</strong><div class="tiny mono">frankfurter</div></td><td>${statusBadge("healthy", "Healthy")}</td><td>FX refresh</td><td>Unsupported</td><td>Known FX pairs</td><td>Unsupported</td><td>Typed phrase</td><td>Provider cap below upstream policy</td></tr>
+            <tr><td><strong>ASX GICS CSV</strong><div class="tiny mono">asx-gics-csv</div></td><td>${statusBadge("healthy", "Healthy")}</td><td>CSV refresh</td><td>Unsupported</td><td>Latest CSV import</td><td>Unsupported</td><td>Typed phrase</td><td>CSV import pacing, singleton queue</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="three-grid" style="margin-top:14px;">
+      <div class="metric"><div class="label">Visible but disabled</div><div class="value">Yes</div><div class="sub">Tabs/actions explain the capability gap instead of disappearing.</div></div>
+      <div class="metric"><div class="label">Source of truth</div><div class="value" style="font-size:20px;">API</div><div class="sub">UI prevalidates, API enforces budgets and guardrails.</div></div>
+      <div class="metric"><div class="label">Live updates</div><div class="value" style="font-size:20px;">SSE + refetch</div><div class="sub">SSE invalidates views; persisted counters remain authoritative.</div></div>
+    </section>
+  `, {
+    title: "Provider capability matrix",
+    subtitle: "Locked provider-console model across Yahoo, Twelve Data, FinMind, Frankfurter, and ASX GICS CSV."
+  });
+}
+
+function unresolvedRows() {
+  return [
+    ["KR-005930", "005930", "KOSPI", "candidate_found", "005930.KS", "quote-first strict", "126"],
+    ["KR-035720", "035720", "KOSPI", "candidate_found", "035720.KS", "quote-first strict", "84"],
+    ["KR-247540", "247540", "KOSDAQ", "candidate_found", "247540.KQ", "chart fallback", "42"],
+    ["KR-000660", "000660", "KOSPI", "unresolved", "-", "no Yahoo quote", "117"],
+    ["KR-999999", "999999", "KOSDAQ", "unsupported", "-", "no valid symbol exists", "9"]
+  ];
+}
+
+function unresolvedTable() {
+  return `
+    <div class="table-wrap desktop-table">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" checked></th>
+            <th>Catalog identity</th>
+            <th>Source symbol</th>
+            <th>Market</th>
+            <th>State</th>
+            <th>Candidate</th>
+            <th>Evidence</th>
+            <th>Occurrences</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${unresolvedRows().map((row, idx) => `
+            <tr>
+              <td><input type="checkbox" ${idx < 3 ? "checked" : ""}></td>
+              <td><span class="symbol">${esc(row[0])}</span><div class="tiny">Twelve Data catalog row</div></td>
+              <td><span class="symbol">${esc(row[1])}</span></td>
+              <td>${esc(row[2])}</td>
+              <td>${stateBadge(row[3])}</td>
+              <td><span class="symbol">${esc(row[4])}</span></td>
+              <td>${esc(row[5])}</td>
+              <td>${esc(row[6])}</td>
+              <td>
+                <div class="action-cell">
+                  <button class="mini-btn">Renew</button>
+                  <button class="mini-btn">Repair</button>
+                  <button class="mini-btn disabled">Rerun</button>
+                </div>
+                <span class="tooltip-note">Rerun requires resolved mapping.</span>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function stateBadge(state) {
+  const map = {
+    unresolved: ["degraded", "Unresolved"],
+    candidate_found: ["info", "Candidate found"],
+    resolved: ["healthy", "Resolved"],
+    rejected: ["down", "Rejected"],
+    ignored: ["neutral", "Ignored"],
+    unsupported: ["neutral", "Unsupported"]
+  };
+  const pair = map[state] || ["neutral", state];
+  return statusBadge(pair[0], pair[1]);
+}
+
+function mobileUnresolvedCards() {
+  return `
+    <div class="mobile-list">
+      ${unresolvedRows().slice(0, 4).map((row, idx) => `
+        <div class="mobile-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">
+            <div>
+              <div class="symbol">${esc(row[1])}</div>
+              <div class="tiny">${esc(row[0])} - ${esc(row[2])}</div>
+            </div>
+            ${stateBadge(row[3])}
+          </div>
+          <div class="two-grid">
+            <div><div class="tiny">Candidate</div><strong class="mono">${esc(row[4])}</strong></div>
+            <div><div class="tiny">Occurrences</div><strong>${esc(row[6])}</strong></div>
+          </div>
+          <div class="tiny">${esc(row[5])}</div>
+          <div class="actions" style="justify-content:flex-start;margin:0;">
+            <button class="mini-btn">Renew</button>
+            <button class="mini-btn">Repair</button>
+            <button class="mini-btn disabled">Rerun</button>
+          </div>
+          <div class="tooltip-note">Rerun is disabled until this item is resolved or mapped.</div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function unresolved() {
+  return shell("Unresolved instruments", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Unique unresolved instruments</h2>
+          <p>Rows are durable unresolved items. Expand a row to inspect raw occurrences and logs.</p>
+        </div>
+        <div class="actions">
+          <button class="btn">Export</button>
+          <button class="btn primary">Repair selected</button>
+        </div>
+      </div>
+      <div class="filters">
+        <div class="field grow">Search symbol, provider symbol, instrument id</div>
+        <div class="field">State: active</div>
+        <div class="field">Error: symbol unresolved</div>
+        <div class="field">Market: KR</div>
+        <div class="field">Resolver: any</div>
+      </div>
+      <div class="selection-banner">
+        <div><strong>3 rows selected.</strong> Select all 1,248 matching strict candidates for bulk repair.</div>
+        <button class="btn primary">Select all matching</button>
+      </div>
+      ${unresolvedTable()}
+      ${mobileUnresolvedCards()}
+    </section>
+  `, {
+    bottomBar: `<div class="bottom-bar"><button class="btn">Renew</button><button class="btn primary">Repair</button><button class="btn disabled">Rerun</button></div>`
+  });
+}
+
+function fixer() {
+  return shell("Fixer", `
+    <section class="layout-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Resolver repair</h2>
+            <p>Fixer actions belong to this provider. No duplicated error code selector.</p>
+          </div>
+          <div class="mode-control" aria-label="Resolver strategy">
+            <span class="active">Quote-first</span>
+            <span>Chart-probe</span>
+          </div>
+        </div>
+        <div class="three-grid">
+          <div class="metric">
+            <div class="label">Strict candidates</div>
+            <div class="value">1,248</div>
+            <div class="sub">Eligible for guarded Repair.</div>
+          </div>
+          <div class="metric">
+            <div class="label">Ambiguous</div>
+            <div class="value">312</div>
+            <div class="sub">Needs manual candidate selection.</div>
+          </div>
+          <div class="metric">
+            <div class="label">Unsupported</div>
+            <div class="value">42</div>
+            <div class="sub">Filtered out of active unresolved counts.</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="operation-card">
+          <div class="panel-head" style="margin:0;">
+            <div>
+              <h3>Safe repair selection</h3>
+              <p>42 selected items are below the small-operation threshold of 100.</p>
+            </div>
+            ${statusBadge("info", "Checkbox guardrail")}
+          </div>
+          <div class="two-grid">
+            <div class="reason blue"><span class="mark"></span><div><strong>Repair</strong><span class="tiny">Writes durable Yahoo KR mappings and queues rerun for resolved rows.</span></div></div>
+            <div class="reason"><span class="mark"></span><div><strong>Renew</strong><span class="tiny">Refreshes evidence only. No mappings or bars are written.</span></div></div>
+          </div>
+          <div class="actions" style="justify-content:flex-start;">
+            <button class="btn">Renew selected</button>
+            <button class="btn primary">Repair selected</button>
+            <button class="btn disabled">Rerun selected <span class="help-dot">?</span></button>
+          </div>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2>Operation boundary</h2>
+        <div class="reason blue">
+          <span class="mark"></span>
+          <div>
+            <strong>No staged operation visible</strong>
+            <span class="tiny">The current selected scope is small and not destructive. The operation will still run through the engine and create outcomes.</span>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+        <h3>Action help</h3>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">Repair</span><strong>Bind provider symbols.</strong></div>
+          <div class="timeline-row"><span class="tiny">Renew</span><strong>Refresh evidence only.</strong></div>
+          <div class="timeline-row"><span class="tiny">Rerun</span><strong>Fetch data after mapping.</strong></div>
+          <div class="timeline-row"><span class="tiny">Chart-probe</span><strong>Costs more budget.</strong></div>
+        </div>
+      </aside>
+    </section>
+  `);
+}
+
+function dangerousPreviewOverlay() {
+  return `
+    <div class="modal-backdrop">
+      <aside class="drawer">
+        <div class="panel-head">
+          <div>
+            <div class="breadcrumb">Dangerous operation preview</div>
+            <h1>Repair all matching Yahoo KR mappings</h1>
+            <p>Review scope before executing. No preview token is shown in the primary UI.</p>
+          </div>
+        </div>
+        <div class="danger-box">
+          <strong>Bulk write action</strong>
+          <span>1,248 unresolved items will be repaired if the snapshot is still current at execute time.</span>
+        </div>
+        <div style="height:14px"></div>
+        <div class="two-grid">
+          <div class="metric"><div class="label">Provider</div><div class="value" style="font-size:18px;">Yahoo KR</div><div class="sub">yahoo-finance-kr</div></div>
+          <div class="metric"><div class="label">Action</div><div class="value" style="font-size:18px;">Repair mapping</div><div class="sub">Writes durable provider mappings.</div></div>
+          <div class="metric"><div class="label">Estimated API calls</div><div class="value">1,248</div><div class="sub">Operation budget 48 per min.</div></div>
+          <div class="metric"><div class="label">Estimated enqueues</div><div class="value">1,248</div><div class="sub">Rerun backfill after mapping.</div></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="panel">
+          <h2>Frozen scope</h2>
+          <div class="timeline">
+            <div class="timeline-row"><span class="tiny">Filters</span><strong>state=candidate_found, error=yahoo_finance_kr_symbol_unresolved, confidence=strict</strong></div>
+            <div class="timeline-row"><span class="tiny">Match count</span><strong>1,248</strong></div>
+            <div class="timeline-row"><span class="tiny">Snapshot hash</span><strong class="mono">75bb7c7a...f19a</strong></div>
+            <div class="timeline-row"><span class="tiny">Phrase</span><strong class="mono">REPAIR YAHOO KR 1248</strong></div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <label class="reason blue" style="display:grid;">
+          <span class="mark"></span>
+          <span><strong>I understand this writes mappings and enqueues reruns.</strong><span class="tiny"> Completed rows will not roll back if the operation is cancelled.</span></span>
+        </label>
+        <div style="height:10px"></div>
+        <div class="phrase">REPAIR YAHOO KR 1248</div>
+        <div class="actions" style="margin-top:16px;">
+          <button class="btn">Refresh preview</button>
+          <button class="btn danger">Execute operation</button>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function dangerousPreview() {
+  return shell("Unresolved instruments", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Unique unresolved instruments</h2>
+          <p>Bulk select all matching is active. Execute opens a guarded preview.</p>
+        </div>
+      </div>
+      <div class="selection-banner">
+        <div><strong>All 1,248 matching rows selected.</strong> Preview required before bulk Repair.</div>
+        <button class="btn warning">Preview bulk repair</button>
+      </div>
+      ${unresolvedTable()}
+    </section>
+  `, { overlay: dangerousPreviewOverlay() });
+}
+
+function operations() {
+  return shell("Operations", `
+    <section class="layout-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Active operation</h2>
+            <p>SSE is connected. Persisted counters remain the source of truth.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">Pause</button>
+            <button class="btn">Cancel</button>
+          </div>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <h3>Repair 1,248 Yahoo KR strict mappings</h3>
+              <div class="tiny mono">operation 63c31e77-9b3e-4f1f-8b1b-15aa3d960a0a</div>
+            </div>
+            ${statusBadge("info", "Running")}
+          </div>
+          <div class="progress"><span style="width:42%"></span></div>
+          <div class="tiny">523 processed of 1,248 total. Last heartbeat 6 seconds ago.</div>
+          <div class="counts">
+            <div class="count-box"><span class="tiny">Succeeded</span><strong>491</strong></div>
+            <div class="count-box"><span class="tiny">Failed</span><strong>12</strong></div>
+            <div class="count-box"><span class="tiny">Skipped</span><strong>20</strong></div>
+            <div class="count-box"><span class="tiny">Remaining</span><strong>725</strong></div>
+            <div class="count-box"><span class="tiny">Enqueued</span><strong>491</strong></div>
+            <div class="count-box"><span class="tiny">API calls</span><strong>544</strong></div>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <h3>Renew ambiguous candidates</h3>
+              <div class="tiny mono">operation 71c8e4d1-d9af-426b-b3cb-97a9f9168278</div>
+            </div>
+            ${statusBadge("degraded", "Paused rate limit")}
+          </div>
+          <div class="progress"><span style="width:71%"></span></div>
+          <div class="tiny">Waiting for provider budget. Auto-resumes at 11:49:00.</div>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2>Queue and budget</h2>
+        <div class="budget-bar"><span style="width:82%"></span></div>
+        <div class="tiny" style="margin-top:8px;">Yahoo KR operation budget: 48 per min. Queue position: active.</div>
+        <div style="height:12px"></div>
+        <h3>Phase semantics</h3>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">Manual pause</span><strong>Never auto-resumes.</strong></div>
+          <div class="timeline-row"><span class="tiny">Rate limit</span><strong>Auto-resumes at retry time.</strong></div>
+          <div class="timeline-row"><span class="tiny">Cancel</span><strong>Terminal; completed rows remain.</strong></div>
+        </div>
+      </aside>
+    </section>
+  `);
+}
+
+function operationOutcomes() {
+  return shell("Operations", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Operation item outcomes</h2>
+          <p>This table answers which instruments were processed, skipped, failed, or are still pending.</p>
+        </div>
+        <div class="actions">
+          <button class="btn">Retry selected failures</button>
+          <button class="btn">Open linked incident</button>
+        </div>
+      </div>
+      <div class="filters">
+        <div class="field">Outcome: all</div>
+        <div class="field">Retryable: yes</div>
+        <div class="field grow">Search operation item</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Outcome</th>
+              <th>Source symbol</th>
+              <th>Provider symbol</th>
+              <th>Action taken</th>
+              <th>Error summary</th>
+              <th>Linked unresolved item</th>
+              <th>Retry</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>${statusBadge("healthy", "Succeeded")}</td><td class="symbol">005930</td><td class="symbol">005930.KS</td><td>Mapping written, backfill enqueued</td><td class="muted">-</td><td class="mono">KR-005930</td><td><button class="mini-btn disabled">No retry</button></td></tr>
+            <tr><td>${statusBadge("healthy", "Succeeded")}</td><td class="symbol">035720</td><td class="symbol">035720.KS</td><td>Mapping written, backfill enqueued</td><td class="muted">-</td><td class="mono">KR-035720</td><td><button class="mini-btn disabled">No retry</button></td></tr>
+            <tr><td>${statusBadge("degraded", "Failed")}</td><td class="symbol">000660</td><td class="symbol">000660.KS</td><td>Quote validation</td><td>Yahoo quote returned no regularMarketPrice</td><td class="mono">KR-000660</td><td><button class="mini-btn">Retry</button></td></tr>
+            <tr><td>${statusBadge("neutral", "Skipped")}</td><td class="symbol">999999</td><td class="symbol">-</td><td>Unsupported marker</td><td>Instrument type unsupported by provider</td><td class="mono">KR-999999</td><td><button class="mini-btn">Reopen</button></td></tr>
+            <tr><td>${statusBadge("info", "Pending")}</td><td class="symbol">247540</td><td class="symbol">247540.KQ</td><td>Waiting for budget</td><td class="muted">-</td><td class="mono">KR-247540</td><td><button class="mini-btn disabled">Pending</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `);
+}
+
+function incidentsActivityLogs() {
+  return shell("Activity", `
+    <section class="three-grid">
+      <div class="panel">
+        <h2>Incidents</h2>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:8px;">${statusBadge("degraded", "Open")}<span class="tiny">owner optional</span></div>
+          <h3>Yahoo KR resolver backlog above threshold</h3>
+          <p>Linked to 27,212 unresolved items and 2 operations.</p>
+          <button class="btn">Open incident</button>
+        </div>
+        <div style="height:10px"></div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:8px;">${statusBadge("awaiting", "Acknowledged")}<span class="tiny">recurs in 14d</span></div>
+          <h3>Ignored rows have new activity</h3>
+          <p>12 ignored instruments received fresh occurrences.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Activity</h2>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">11:42</span><div><strong>Operation progress</strong><p>Repair processed 523 of 1,248 rows.</p></div></div>
+          <div class="timeline-row"><span class="tiny">11:38</span><div><strong>Unresolved resolved</strong><p>005930 mapped to 005930.KS by operation.</p></div></div>
+          <div class="timeline-row"><span class="tiny">11:31</span><div><strong>Incident reopened</strong><p>Resolver errors recurred within the 14 day window.</p></div></div>
+          <div class="timeline-row"><span class="tiny">11:25</span><div><strong>Settings changed</strong><p>Yahoo KR operation budget set to 48 per min.</p></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Logs</h2>
+            <p>Raw diagnostics with purge guardrails.</p>
+          </div>
+          <button class="btn danger">Purge logs</button>
+        </div>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">error</span><div><strong>symbol_unresolved</strong><p class="mono">providerId=yahoo-finance-kr sourceSymbol=000660</p></div></div>
+          <div class="timeline-row"><span class="tiny">warn</span><div><strong>rate_limit_wait</strong><p class="mono">retryAt=2026-06-04T11:49:00</p></div></div>
+          <div class="timeline-row"><span class="tiny">info</span><div><strong>operation_outcome</strong><p class="mono">outcome=succeeded sourceSymbol=005930</p></div></div>
+        </div>
+      </div>
+    </section>
+  `);
+}
+
+function purgeLogsOverlay() {
+  return `
+    <div class="modal-backdrop">
+      <aside class="drawer">
+        <div class="panel-head">
+          <div>
+            <div class="breadcrumb">Logs / Purge preview</div>
+            <h1>Purge Yahoo KR raw logs</h1>
+            <p>Only raw provider error trail and provider operation logs are eligible. Durable operational records remain.</p>
+          </div>
+        </div>
+        <div class="danger-box">
+          <strong>Destructive log action</strong>
+          <span>18,420 provider error-trail rows and 2,118 provider operation-log rows match the selected retention window.</span>
+        </div>
+        <div style="height:14px"></div>
+        <section class="panel">
+          <h2>What will be deleted</h2>
+          <div class="timeline">
+            <div class="timeline-row"><span class="tiny">Provider</span><strong>yahoo-finance-kr</strong></div>
+            <div class="timeline-row"><span class="tiny">Window</span><strong>Older than 30 days</strong></div>
+            <div class="timeline-row"><span class="tiny">Tables</span><strong>provider_error_trail, provider_operation_logs</strong></div>
+            <div class="timeline-row"><span class="tiny">Phrase</span><strong class="mono">PURGE YAHOO KR LOGS 20438</strong></div>
+          </div>
+        </section>
+        <div style="height:14px"></div>
+        <section class="panel">
+          <h2>What stays intact</h2>
+          <div class="two-grid">
+            <div class="field">Incidents</div>
+            <div class="field">Unresolved items</div>
+            <div class="field">Mappings</div>
+            <div class="field">Operation summaries</div>
+            <div class="field">Audit logs</div>
+            <div class="field">pg-boss history</div>
+          </div>
+        </section>
+        <div style="height:14px"></div>
+        <div class="phrase">PURGE YAHOO KR LOGS 20438</div>
+        <div class="actions" style="margin-top:16px;">
+          <button class="btn">Cancel</button>
+          <button class="btn danger">Execute purge</button>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function logsPurgePreview() {
+  return shell("Logs", `
+    <section class="layout-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Provider logs</h2>
+            <p>Raw/system records are searchable, exportable, and purgeable with typed confirmation.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">Export logs</button>
+            <button class="btn danger">Preview purge</button>
+          </div>
+        </div>
+        <div class="filters">
+          <div class="field">Type: error trail + operation logs</div>
+          <div class="field">Age: older than 30 days</div>
+          <div class="field grow">Search symbol, operation id, error code</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Time</th><th>Type</th><th>Severity</th><th>Message</th><th>Linked record</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>2026-05-01 04:17</td><td>error trail</td><td>${statusBadge("degraded", "Warn")}</td><td>symbol_unresolved sourceSymbol=000660</td><td class="mono">item KR-000660</td></tr>
+              <tr><td>2026-05-01 04:22</td><td>operation log</td><td>${statusBadge("info", "Info")}</td><td>operation queued for resolver repair</td><td class="mono">op 63c31e77</td></tr>
+              <tr><td>2026-05-01 04:29</td><td>operation log</td><td>${statusBadge("degraded", "Warn")}</td><td>paused_rate_limit retryAt=2026-05-01T04:30:00</td><td class="mono">op 63c31e77</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2>Purge policy</h2>
+        <div class="reason red"><span class="mark"></span><div><strong>Typed phrase required</strong><span class="tiny">Bulk purge is always a dangerous operation.</span></div></div>
+        <div style="height:12px"></div>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">Preview</span><strong>Stores filters, counts, and snapshot hash.</strong></div>
+          <div class="timeline-row"><span class="tiny">Execute</span><strong>Fails if snapshot changed materially.</strong></div>
+          <div class="timeline-row"><span class="tiny">Audit</span><strong>Admin id, phrase, counts, and filters are retained.</strong></div>
+        </div>
+      </aside>
+    </section>
+  `, { overlay: purgeLogsOverlay() });
+}
+
+function mappings() {
+  return shell("Mappings", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>KR resolver mappings</h2>
+          <p>Durable bindings from Twelve Data catalog identity to Yahoo Finance KR provider symbol.</p>
+        </div>
+        <div class="actions">
+          <button class="btn">Reverify selected</button>
+          <button class="btn danger">Revert mapping</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Source catalog</th>
+              <th>Source symbol</th>
+              <th>Market</th>
+              <th>Yahoo symbol</th>
+              <th>Resolver mode</th>
+              <th>Evidence</th>
+              <th>Verified</th>
+              <th>Links</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">td:KR-005930</td><td class="symbol">005930</td><td>KOSPI / XKRX</td><td class="symbol">005930.KS</td><td>quote-first</td><td>quote strict, chart ok</td><td>2026-06-04 11:38</td><td>item KR-005930<br>op 63c31e77</td><td><div class="action-cell"><button class="mini-btn">Reverify</button><button class="mini-btn">Revert</button></div></td></tr>
+            <tr><td class="mono">td:KR-247540</td><td class="symbol">247540</td><td>KOSDAQ / XKOS</td><td class="symbol">247540.KQ</td><td>chart-probe</td><td>quote weak, chart ok</td><td>2026-06-04 11:41</td><td>item KR-247540<br>op 63c31e77</td><td><div class="action-cell"><button class="mini-btn">Reverify</button><button class="mini-btn">Revert</button></div></td></tr>
+            <tr><td class="mono">td:KR-035720</td><td class="symbol">035720</td><td>KOSPI / XKRX</td><td class="symbol">035720.KS</td><td>quote-first</td><td>single strict candidate</td><td>2026-06-04 11:39</td><td>item KR-035720<br>op 63c31e77</td><td><div class="action-cell"><button class="mini-btn">Reverify</button><button class="mini-btn">Revert</button></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="height:12px"></div>
+      <div class="reason blue">
+        <span class="mark"></span>
+        <div><strong>Why 005930 is not enough</strong><span class="tiny">The durable mapping stores the Twelve Data catalog identity and market evidence separately from the Yahoo provider symbol, so KOSPI and KOSDAQ suffixes remain auditable.</span></div>
+      </div>
+    </section>
+  `);
+}
+
+function settings() {
+  return `
+    <div class="settings-shell">
+      <aside class="settings-nav">
+        <div class="rail-title" style="margin-bottom:14px;">Admin Settings</div>
+        <button>Profile</button>
+        <button>Notifications</button>
+        <button>Provider health</button>
+        <button>Rate limits</button>
+        <button class="active">Provider operations</button>
+        <button>Security</button>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <div class="breadcrumb">Admin / Settings</div>
+            <h1>Provider operations</h1>
+            <p>Guardrails, operation pacing, auto-renew, incident recurrence, and retention.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">Reset section</button>
+            <button class="btn primary">Save settings</button>
+          </div>
+        </div>
+        <section class="panel">
+          <h2>Global guardrails</h2>
+          <div class="setting-row">
+            <div><h3>Small operation max items</h3><p>Above this threshold, writes require preview plus typed phrase.</p></div>
+            <div class="field">100</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Preview sample limit</h3><p>Number of unresolved rows shown in dangerous-operation preview.</p></div>
+            <div class="field">50</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Incident recurrence window</h3><p>Errors within this window reopen the existing incident.</p></div>
+            <div class="field">14 days</div>
+          </div>
+        </section>
+        <section class="panel" style="margin-top:14px;">
+          <h2>Shared budget groups</h2>
+          <div class="setting-row">
+            <div><h3>FinMind shared operation budget</h3><p>Applies to finmind-tw and finmind-us. Effective upstream budget is 600 per hour.</p></div>
+            <div class="field">480 per hour</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Twelve Data shared operation budget</h3><p>Applies to twelve-data-au and twelve-data-kr. Editable value must stay below 8 per minute.</p></div>
+            <div class="field">6 per minute</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Yahoo Finance KR operation budget</h3><p>Effective upstream budget is 60 per minute. UI and API reject values 60 or above.</p></div>
+            <div class="field">48 per minute</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Yahoo Finance AU operation budget</h3><p>Applies to yahoo-finance-au reruns and renewals. Must be greater than 0 and below the upstream budget.</p></div>
+            <div class="field">48 per minute</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>Frankfurter operation budget</h3><p>Applies to FX refresh and rerun operations. API rejects values above the configured provider ceiling.</p></div>
+            <div class="field">90 per minute</div>
+          </div>
+          <div class="setting-row">
+            <div><h3>ASX GICS CSV pacing</h3><p>CSV refresh stays singleton-queued. This cap controls admin-triggered refresh frequency, not row-by-row resolver repair.</p></div>
+            <div class="field">6 per hour</div>
+          </div>
+        </section>
+        <section class="panel" style="margin-top:14px;">
+          <h2>Retention</h2>
+          <div class="two-grid">
+            <div class="field">Operation summaries: 365 days</div>
+            <div class="field">Operation logs: 30 days</div>
+            <div class="field">Incidents: 365 days</div>
+            <div class="field">Resolved unresolved items: 180 days</div>
+          </div>
+        </section>
+      </main>
+    </div>
+  `;
+}
+
+function settingsRetention() {
+  return `
+    <div class="settings-shell">
+      <aside class="settings-nav">
+        <div class="rail-title" style="margin-bottom:14px;">Admin Settings</div>
+        <button>Profile</button>
+        <button>Notifications</button>
+        <button>Provider health</button>
+        <button>Rate limits</button>
+        <button class="active">Provider operations</button>
+        <button>Security</button>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <div class="breadcrumb">Admin / Settings / Provider operations</div>
+            <h1>Retention and cleanup</h1>
+            <p>Retention settings separate purgeable logs from durable provider state.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">Reset retention</button>
+            <button class="btn primary">Save settings</button>
+          </div>
+        </div>
+        <section class="layout-grid">
+          <div class="panel">
+            <h2>Retention windows</h2>
+            <div class="setting-row">
+              <div><h3>Operation summaries</h3><p>Keep operation headers, final counts, initiator, scope, and links for auditability.</p></div>
+              <div class="field">365 days</div>
+            </div>
+            <div class="setting-row">
+              <div><h3>Operation logs</h3><p>Raw step logs are purgeable and retained separately from item outcomes.</p></div>
+              <div class="field">30 days</div>
+            </div>
+            <div class="setting-row">
+              <div><h3>Incidents</h3><p>Lifecycle history for open, acknowledged, resolved, and ignored incidents.</p></div>
+              <div class="field">365 days</div>
+            </div>
+            <div class="setting-row">
+              <div><h3>Resolved unresolved items</h3><p>Resolved rows stay inspectable before they age out of the unresolved table.</p></div>
+              <div class="field">180 days</div>
+            </div>
+          </div>
+          <aside class="panel">
+            <h2>Purge boundaries</h2>
+            <div class="danger-box">
+              <strong>Purge is limited</strong>
+              <span>Admin purge can remove raw provider error trails and provider operation logs only.</span>
+            </div>
+            <div style="height:12px"></div>
+            <div class="timeline">
+              <div class="timeline-row"><span class="tiny">Cannot purge</span><strong>Audit logs, incidents, mappings, unresolved items.</strong></div>
+              <div class="timeline-row"><span class="tiny">Guardrail</span><strong>Preview plus typed phrase for every purge.</strong></div>
+              <div class="timeline-row"><span class="tiny">Feedback</span><strong>Notification shows accepted job, counts, and next refresh.</strong></div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  `;
+}
+
+function mobileDangerous() {
+  return shell("Unresolved instruments", `
+    <section class="panel">
+      <div class="selection-banner">
+        <div><strong>All 1,248 matching rows selected.</strong> Preview required before bulk Repair.</div>
+      </div>
+      ${mobileUnresolvedCards()}
+    </section>
+  `, {
+    overlay: dangerousPreviewOverlay(),
+    bottomBar: `<div class="bottom-bar"><button class="btn">Cancel</button><button class="btn danger">Execute</button></div>`
+  });
+}
+
+function mobileOverview() {
+  return shell("Overview", `
+    <section class="panel">
+      <div class="three-grid">
+        <div class="metric">
+          <div class="label">Health</div>
+          <div class="value" style="font-size:20px;">${statusBadge("awaiting", "Awaiting action")}</div>
+          <div class="sub">Reachable, resolver repair needs confirmation.</div>
+        </div>
+        <div class="metric">
+          <div class="label">Active unresolved</div>
+          <div class="value">27,212</div>
+          <div class="sub">Durable unresolved rows.</div>
+        </div>
+        <div class="metric">
+          <div class="label">Provider budget</div>
+          <div class="value">47%</div>
+          <div class="sub">28 of 60 upstream requests used.</div>
+        </div>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:12px;">
+      <h2>Provider actions</h2>
+      <div class="mobile-list" style="display:grid;">
+        <div class="mobile-card"><strong>Renew evidence</strong><span class="tiny">Refresh candidates without writes.</span><button class="btn">Start renew</button></div>
+        <div class="mobile-card"><strong>Repair mappings</strong><span class="tiny">Preview and confirm before writing provider mappings.</span><button class="btn primary">Preview repair</button></div>
+        <div class="mobile-card"><strong>Rerun backfill</strong><span class="tiny">Disabled until selected rows are resolved or mapped.</span><button class="btn disabled">Rerun disabled</button></div>
+      </div>
+    </section>
+  `, {
+    title: "Yahoo Finance KR",
+    subtitle: "Mobile provider overview with status, budget, and action help.",
+    bottomBar: `<div class="bottom-bar"><button class="btn">Renew</button><button class="btn primary">Repair</button></div>`
+  });
+}
+
+function mobileOperations() {
+  return shell("Operations", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Running operation</h2>
+          <p>SSE connected. Counts refresh from persisted outcomes.</p>
+        </div>
+      </div>
+      <div class="operation-card">
+        <div style="display:flex;justify-content:space-between;gap:12px;">
+          <div>
+            <h3>Repair strict KR mappings</h3>
+            <div class="tiny mono">63c31e77-9b3e-4f1f-8b1b-15aa3d960a0a</div>
+          </div>
+          ${statusBadge("info", "Running")}
+        </div>
+        <div class="progress"><span style="width:42%"></span></div>
+        <div class="tiny">523 processed of 1,248 total. Last heartbeat 6 seconds ago.</div>
+        <div class="counts">
+          <div class="count-box"><span class="tiny">Succeeded</span><strong>491</strong></div>
+          <div class="count-box"><span class="tiny">Failed</span><strong>12</strong></div>
+          <div class="count-box"><span class="tiny">Skipped</span><strong>20</strong></div>
+          <div class="count-box"><span class="tiny">Remaining</span><strong>725</strong></div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="reason">
+        <span class="mark"></span>
+        <div><strong>Rate-limit behavior</strong><span class="tiny">Paused-rate-limit operations auto-resume. Manual pause does not.</span></div>
+      </div>
+    </section>
+  `, {
+    bottomBar: `<div class="bottom-bar"><button class="btn">Pause</button><button class="btn danger">Cancel</button></div>`
+  });
+}
+
+const screens = {
+  overview,
+  "provider-tabs-capabilities": providerTabsCapabilities,
+  unresolved,
+  fixer,
+  "dangerous-preview": dangerousPreview,
+  operations,
+  "operation-outcomes": operationOutcomes,
+  "incidents-activity-logs": incidentsActivityLogs,
+  "logs-purge-preview": logsPurgePreview,
+  mappings,
+  settings,
+  "settings-retention": settingsRetention,
+  "mobile-overview": mobileOverview,
+  "mobile-unresolved": unresolved,
+  "mobile-operations": mobileOperations,
+  "mobile-dangerous-preview": mobileDangerous
+};
+
+const screen = new URLSearchParams(window.location.search).get("screen") || "overview";
+document.getElementById("app").innerHTML = (screens[screen] || overview)();
+</script>
+</body>
+</html>
