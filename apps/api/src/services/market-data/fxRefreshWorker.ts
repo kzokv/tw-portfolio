@@ -92,6 +92,7 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
       // is a no-op for an empty array). Keeps the provider from hitting Frankfurter with
       // an invalid `from > to` query.
       if (window.startDate <= window.endDate) {
+        fxProvider.reserveCapacity(normalized.bases.length);
         for (const base of normalized.bases) {
           const rows = await fxProvider.fetchRatesForBase(base, window.startDate, window.endDate, STORED_QUOTES);
           for (const r of rows) {

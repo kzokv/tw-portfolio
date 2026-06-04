@@ -333,6 +333,59 @@ describe("Provider Fixer admin routes", () => {
     expect(mismatchedExecute.statusCode).toBe(404);
   });
 
+  it("enforces provider operation rate caps against configured upstream budgets", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const settings = await app.inject({ method: "GET", url: "/admin/settings", headers });
+    expect(settings.statusCode).toBe(200);
+    const body = settings.json() as {
+      bounds: {
+        yahooKrProviderRateLimitPerMinute: { max: number };
+        frankfurterProviderRateLimitPerMinute: { max: number };
+        asxGicsProviderRateLimitPerHour: { max: number };
+      };
+      effectiveYahooKrProviderRateLimitPerMinute: number;
+      effectiveFrankfurterProviderRateLimitPerMinute: number;
+      effectiveAsxGicsProviderRateLimitPerHour: number;
+    };
+    expect(body.bounds.yahooKrProviderRateLimitPerMinute.max).toBeLessThan(body.effectiveYahooKrProviderRateLimitPerMinute);
+    expect(body.bounds.frankfurterProviderRateLimitPerMinute.max).toBeLessThan(body.effectiveFrankfurterProviderRateLimitPerMinute);
+    expect(body.bounds.asxGicsProviderRateLimitPerHour.max).toBeLessThan(body.effectiveAsxGicsProviderRateLimitPerHour);
+
+    const rejected = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { yahooKrProviderRateLimitPerMinute: body.bounds.yahooKrProviderRateLimitPerMinute.max + 1 },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: "provider_rate_budget_exceeded" });
+
+    const rejectedAsx = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { asxGicsProviderRateLimitPerHour: body.bounds.asxGicsProviderRateLimitPerHour.max + 1 },
+    });
+    expect(rejectedAsx.statusCode).toBe(400);
+    expect(rejectedAsx.json()).toMatchObject({ error: "provider_rate_budget_exceeded" });
+
+    const accepted = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { yahooKrProviderRateLimitPerMinute: 1, frankfurterProviderRateLimitPerMinute: 1 },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toMatchObject({
+      yahooKrProviderRateLimitPerMinute: 1,
+      effectiveYahooKrProviderRateLimitPerMinute: 1,
+      frankfurterProviderRateLimitPerMinute: 1,
+      effectiveFrankfurterProviderRateLimitPerMinute: 1,
+    });
+  });
+
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
     verifyResolvedSymbol.mockResolvedValue({
       verified: false,

@@ -3703,6 +3703,12 @@ export class MemoryPersistence implements Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    finmindProviderRateLimitPerHour: number | null;
+    twelveDataProviderRateLimitPerMinute: number | null;
+    yahooAuProviderRateLimitPerMinute: number | null;
+    yahooKrProviderRateLimitPerMinute: number | null;
+    frankfurterProviderRateLimitPerMinute: number | null;
+    asxGicsProviderRateLimitPerHour: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -3749,6 +3755,12 @@ export class MemoryPersistence implements Persistence {
       providerFixerUiPageSize: p.providerFixerUiPageSize ?? null,
       providerFixerAutoPauseFailuresPerMinute: p.providerFixerAutoPauseFailuresPerMinute ?? null,
       providerFixerPreviewTokenTtlMinutes: p.providerFixerPreviewTokenTtlMinutes ?? null,
+      finmindProviderRateLimitPerHour: p.finmindProviderRateLimitPerHour ?? null,
+      twelveDataProviderRateLimitPerMinute: p.twelveDataProviderRateLimitPerMinute ?? null,
+      yahooAuProviderRateLimitPerMinute: p.yahooAuProviderRateLimitPerMinute ?? null,
+      yahooKrProviderRateLimitPerMinute: p.yahooKrProviderRateLimitPerMinute ?? null,
+      frankfurterProviderRateLimitPerMinute: p.frankfurterProviderRateLimitPerMinute ?? null,
+      asxGicsProviderRateLimitPerHour: p.asxGicsProviderRateLimitPerHour ?? null,
       backfillRetryLimit: p.backfillRetryLimit ?? null,
       backfillRetryDelaySeconds: p.backfillRetryDelaySeconds ?? null,
       backfillFinmind402RetryMs: p.backfillFinmind402RetryMs ?? null,

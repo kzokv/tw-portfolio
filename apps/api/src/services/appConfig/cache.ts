@@ -51,6 +51,12 @@ export interface AppConfigCacheEntry {
   providerFixerUiPageSize: number | null;
   providerFixerAutoPauseFailuresPerMinute: number | null;
   providerFixerPreviewTokenTtlMinutes: number | null;
+  finmindProviderRateLimitPerHour: number | null;
+  twelveDataProviderRateLimitPerMinute: number | null;
+  yahooAuProviderRateLimitPerMinute: number | null;
+  yahooKrProviderRateLimitPerMinute: number | null;
+  frankfurterProviderRateLimitPerMinute: number | null;
+  asxGicsProviderRateLimitPerHour: number | null;
 
   // Tier 1 / 2 — backfill
   backfillRetryLimit: number | null;

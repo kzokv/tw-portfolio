@@ -10,13 +10,19 @@ interface TimestampedRequest {
 }
 
 export class RateLimiter {
-  private readonly budget: number;
+  private readonly budget: number | (() => number);
   private readonly windowMs: number;
   private requests: TimestampedRequest[] = [];
 
-  constructor(budget: number = 600, windowMs: number = WINDOW_MS) {
+  constructor(budget: number | (() => number) = 600, windowMs: number = WINDOW_MS) {
     this.budget = budget;
     this.windowMs = windowMs;
+  }
+
+  private currentBudget(): number {
+    const budget = typeof this.budget === "function" ? this.budget() : this.budget;
+    if (!Number.isFinite(budget)) return 1;
+    return Math.max(1, Math.floor(budget));
   }
 
   private evictExpired(now: number): void {
@@ -28,7 +34,7 @@ export class RateLimiter {
   canConsume(n: number): boolean {
     const now = Date.now();
     this.evictExpired(now);
-    return this.requests.length + n <= this.budget;
+    return this.requests.length + n <= this.currentBudget();
   }
 
   /** Decrement budget by N requests. Call only after canConsume(n) returns true. */
@@ -45,7 +51,7 @@ export class RateLimiter {
     const now = Date.now();
     this.evictExpired(now);
 
-    const available = this.budget - this.requests.length;
+    const available = this.currentBudget() - this.requests.length;
     if (available >= n) return 0;
 
     // Need to wait for oldest requests to expire

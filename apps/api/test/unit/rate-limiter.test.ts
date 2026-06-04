@@ -97,4 +97,20 @@ describe("RateLimiter", () => {
       expect(defaultLimiter.canConsume(601)).toBe(false);
     });
   });
+
+  describe("dynamic budget", () => {
+    it("uses the latest budget callback value for subsequent checks", () => {
+      let budget = 3;
+      const dynamicLimiter = new RateLimiter(() => budget, 1000);
+
+      dynamicLimiter.consume(2);
+      expect(dynamicLimiter.canConsume(1)).toBe(true);
+
+      budget = 2;
+      expect(dynamicLimiter.canConsume(1)).toBe(false);
+
+      budget = 4;
+      expect(dynamicLimiter.canConsume(2)).toBe(true);
+    });
+  });
 });

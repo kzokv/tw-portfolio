@@ -35,6 +35,9 @@ function envWith(overrides: Partial<EnvConfig>): EnvConfig {
     TWELVE_DATA_RATE_LIMIT_PER_MINUTE: 8,
     AU_CATALOG_PROVIDER_MOCK: true,
     KR_CATALOG_PROVIDER_MOCK: true,
+    FRANKFURTER_BASE_URL: "https://api.frankfurter.dev/v2",
+    FRANKFURTER_RATE_LIMIT_PER_MINUTE: 120,
+    ASX_GICS_RATE_LIMIT_PER_HOUR: 6,
   };
   return { ...base, ...overrides } as EnvConfig;
 }

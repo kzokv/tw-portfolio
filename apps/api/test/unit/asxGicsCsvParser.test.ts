@@ -31,10 +31,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  AsxGicsCatalogProvider,
   parseAsxGicsCsv,
   AsxGicsParseError,
   type RawAsxGicsRow,
 } from "../../src/services/market-data/providers/asxGicsCatalog.js";
+import { RateLimiter } from "../../src/services/market-data/rateLimiter.js";
+import { RateLimitedError } from "../../src/services/market-data/types.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(
@@ -251,5 +254,18 @@ describe("KZO-196 — parseAsxGicsCsv", () => {
         gicsIndustryGroup: "Capital Goods",
       });
     });
+  });
+});
+
+describe("KZO-197 — AsxGicsCatalogProvider operation pacing", () => {
+  it("throws RateLimitedError before fetching when the injected limiter is exhausted", async () => {
+    const limiter = new RateLimiter(1, 60_000);
+    limiter.consume(1);
+    const provider = new AsxGicsCatalogProvider({
+      csvUrl: "https://example.invalid/ASXListedCompanies.csv",
+      rateLimiter: limiter,
+    });
+
+    await expect(provider.fetchGicsCatalog()).rejects.toThrow(RateLimitedError);
   });
 });

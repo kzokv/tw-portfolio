@@ -23,12 +23,13 @@
  * generic transient errors and route to the per-stage log lines documented
  * in the scope-todo.
  *
- * Per `.claude/rules/typed-transient-error-catch-audit.md`: the worker that
- * consumes this provider MUST re-throw `RateLimitedError` first if any
- * future change introduces upstream rate-limiting. The current ASX feed has
- * no documented quota, so no `RateLimiter` is wired here.
+ * The current ASX feed has no documented quota, but the app applies an
+ * admin-configurable defensive operation budget to manual and scheduled CSV
+ * refreshes. The worker re-throws `RateLimitedError` first.
  */
 import { parse as csvParseSync } from "csv-parse/sync";
+import type { RateLimiter } from "../rateLimiter.js";
+import { RateLimitedError } from "../types.js";
 
 const DEFAULT_CSV_URL =
   "https://www.asx.com.au/asx/research/ASXListedCompanies.csv";
@@ -162,19 +163,32 @@ export interface AsxGicsCatalogProviderConfig {
   csvUrl?: string;
   /** HTTP request timeout (ms). Defaults to 30s — ASX CSV is ~150KB, comfortably fast. */
   timeoutMs?: number;
+  /** Defensive admin-configurable pacing for the upstream CSV fetch. */
+  rateLimiter?: RateLimiter;
 }
 
 export class AsxGicsCatalogProvider implements AsxGicsProvider {
   readonly providerId = "asx-gics-csv";
   private readonly csvUrl: string;
   private readonly timeoutMs: number;
+  private readonly rateLimiter: RateLimiter | null;
 
   constructor(config: AsxGicsCatalogProviderConfig = {}) {
     this.csvUrl = config.csvUrl ?? DEFAULT_CSV_URL;
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.rateLimiter = config.rateLimiter ?? null;
+  }
+
+  private consumeOne(): void {
+    if (!this.rateLimiter) return;
+    if (!this.rateLimiter.canConsume(1)) {
+      throw new RateLimitedError({ msUntilAvailable: this.rateLimiter.msUntilAvailable(1) });
+    }
+    this.rateLimiter.consume(1);
   }
 
   async fetchGicsCatalog(): Promise<RawAsxGicsRow[]> {
+    this.consumeOne();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let res: Response;
