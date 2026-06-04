@@ -12,6 +12,8 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
   ProviderFixerDashboardSummaryResponse,
+  ProviderUnresolvedItemDto,
+  ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
@@ -928,6 +930,14 @@ async function executeProviderFixerMappings(
     if (page * limit >= rows.total || rows.items.length === 0) break;
     page += 1;
   }
+  if (mappedTickers.length > 0) {
+    await app.persistence.resolveProviderUnresolvedItems({
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbols: mappedTickers,
+      operationId: operation.id,
+    });
+  }
   return { applied, skipped, scanned, mappedTickers };
 }
 
@@ -1097,6 +1107,52 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   app.get("/providers/:providerId/diagnostics", (req) => {
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
     return loadProviderDiagnostics(req, providerId);
+  });
+
+  app.get("/providers/:providerId/unresolved", async (req): Promise<ProviderUnresolvedItemsResponse> => {
+    requireAdminRole(req);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const query = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        state: z.enum(["active", "resolved", "unsupported", "ignored"]).default("active"),
+        errorCode: providerFixerErrorCodeSchema.optional(),
+        search: z.string().trim().max(120).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const result = await app.persistence.listProviderUnresolvedItems({
+      providerId,
+      marketCode: query.marketCode,
+      state: query.state,
+      errorCode: query.errorCode,
+      search: query.search,
+      page: query.page,
+      limit: query.limit,
+    });
+    return {
+      items: result.items.map((item) => ({
+        providerId: item.providerId,
+        marketCode: item.marketCode as ProviderUnresolvedItemDto["marketCode"],
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+        providerSymbol: item.providerSymbol,
+        state: item.state,
+        severity: item.severity,
+        occurrenceCount: item.occurrenceCount,
+        firstSeenAt: item.firstSeenAt,
+        lastSeenAt: item.lastSeenAt,
+        lastErrorTrailId: item.lastErrorTrailId,
+        evidence: item.evidence,
+        resolvedAt: item.resolvedAt,
+        resolvedByOperationId: item.resolvedByOperationId,
+        updatedAt: item.updatedAt,
+      })),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
   });
 
   app.post("/provider-fixer/preview", (req, reply) => createProviderOperationPreview(req, reply));

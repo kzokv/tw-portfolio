@@ -8,12 +8,14 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatusDto,
+  ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 
 const mockRefresh = vi.fn();
+const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: mockRefresh }),
+  useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
 }));
 
 import { AdminProvidersClient } from "../../../components/admin/AdminProvidersClient";
@@ -150,6 +152,28 @@ function buildLogs(): ProviderFixerDashboardLogEntryDto[] {
   ];
 }
 
+function buildUnresolvedItems(): ProviderUnresolvedItemDto[] {
+  return [
+    {
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+      state: "active",
+      severity: "warning",
+      occurrenceCount: 4,
+      firstSeenAt: "2026-06-02T14:00:00.000Z",
+      lastSeenAt: "2026-06-02T14:42:11.000Z",
+      lastErrorTrailId: 44,
+      evidence: { exchange: "KOSPI" },
+      resolvedAt: null,
+      resolvedByOperationId: null,
+      updatedAt: "2026-06-02T14:42:11.000Z",
+    },
+  ];
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -171,6 +195,10 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
         summary={buildSummary()}
         guardrails={buildGuardrails()}
         diagnostics={buildDiagnostics()}
+        unresolvedItems={buildUnresolvedItems()}
+        unresolvedPage={1}
+        unresolvedLimit={10}
+        unresolvedTotal={1}
         stagedOperation={operations[0] ?? null}
         operations={operations}
         operationsPage={1}
@@ -208,6 +236,7 @@ describe("AdminProvidersClient", () => {
 
   beforeEach(() => {
     mockRefresh.mockReset();
+    mockPush.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -242,8 +271,9 @@ describe("AdminProvidersClient", () => {
     click("provider-console-subtab-unresolved");
 
     const selection = document.querySelector("[data-testid='provider-console-selection-banner']");
-    expect(selection?.textContent ?? "").toMatch(/select all 1,120 matching rows/i);
-    expect(document.body.textContent ?? "").toMatch(/005930\.KS/i);
+    expect(selection?.textContent ?? "").toMatch(/select all 1 matching rows/i);
+    expect(document.body.textContent ?? "").toMatch(/005930/i);
+    expect(document.body.textContent ?? "").toMatch(/4 occurrences/i);
     expect(document.body.textContent ?? "").toMatch(/rerun requires resolved mapping/i);
   });
 
@@ -282,5 +312,13 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
       /reloading console state from the api/i,
     );
+  });
+
+  it("navigates provider tab changes through provider-scoped server data", () => {
+    renderClient(root);
+
+    click("provider-console-tab-finmind-tw");
+
+    expect(mockPush).toHaveBeenCalledWith("/admin/providers?providerId=finmind-tw&tab=unresolved");
   });
 });

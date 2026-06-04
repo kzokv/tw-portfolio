@@ -127,7 +127,8 @@ The comprehensive mockup set is in `mockups/screenshots/`.
 - 2026-06-04: Started the web replacement slice: `/admin/providers` now fetches provider health plus fixer summary/diagnostics/operations/logs, renders the grouped provider rail and provider-owned subtabs, removes the unshipped `/admin/provider-fixer` page route, and updates provider-console unit/E2E expectations.
 - 2026-06-04: Added direct tab/help titles, notification-aware Refresh data feedback, disabled Rerun reasons, and dangerous-operation confirmation controls in the provider console shell.
 - 2026-06-04: Added provider-scoped operation adapters for summary, diagnostics, preview, execute, pause/resume/cancel, operation listing, and logs under `/admin/providers/:providerId/*`; `/admin/providers` no longer calls `/admin/provider-fixer/*`.
-- Remaining high-risk work is still backend-heavy: durable unresolved items/incidents/outcomes, full provider-scoped APIs for unresolved rows/incidents/activity/mappings/purge, background operation engine, KR resolver binding, provider settings, purge preview, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added durable `provider_unresolved_items`, error-trail normalization at write time, provider-scoped unresolved-list API, and UI table wiring so active/resolved rows are no longer preview-only.
+- Remaining high-risk work is still backend-heavy: durable incidents/outcomes, full provider-scoped APIs for incidents/activity/mappings/purge, background operation engine, KR resolver binding, provider settings, purge preview, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [ ] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.

@@ -4,6 +4,7 @@ import type {
   ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationsResponse,
   ProviderFixerDashboardSummaryResponse,
+  ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import { AdminProvidersClient } from "../../../components/admin/AdminProvidersClient";
@@ -65,9 +66,12 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   ]);
 
   const pageLimit = summaryData.guardrails.uiPageSize;
-  const [diagnosticsData, operationsData, logsData] = await Promise.all([
+  const [diagnosticsData, unresolvedData, operationsData, logsData] = await Promise.all([
     getJson<ProviderFixerDashboardDiagnosticsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/diagnostics?resolverMode=${encodeURIComponent(resolverMode)}&errorCode=${encodeURIComponent(errorCode)}`,
+    ),
+    getJson<ProviderUnresolvedItemsResponse>(
+      `/admin/providers/${encodeURIComponent(providerId)}/unresolved?state=active&page=1&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardOperationsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/operations?page=1&limit=${pageLimit}`,
@@ -91,6 +95,10 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       summary={summaryData.summary}
       guardrails={summaryData.guardrails}
       diagnostics={diagnosticsData.diagnostics}
+      unresolvedItems={unresolvedData.items}
+      unresolvedPage={unresolvedData.page}
+      unresolvedLimit={unresolvedData.limit}
+      unresolvedTotal={unresolvedData.total}
       stagedOperation={operationsData.stagedOperation}
       operations={operations}
       operationsPage={operationsData.page}
