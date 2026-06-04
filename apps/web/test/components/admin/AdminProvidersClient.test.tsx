@@ -683,4 +683,23 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith("/admin/providers?providerId=finmind-tw&tab=unresolved");
   });
+
+  it("offers mobile provider selection and unresolved bottom actions", async () => {
+    renderClient(root, { initialTab: "unresolved" });
+
+    const providerSelect = document.querySelector("[data-testid='provider-console-mobile-provider-select']") as HTMLSelectElement | null;
+    expect(providerSelect).not.toBeNull();
+    expect(document.querySelector("[data-testid='provider-console-mobile-bottom-actions']")?.textContent ?? "").toMatch(/visible unresolved/i);
+
+    click("provider-console-unresolved-ignore-005930");
+    await act(async () => undefined);
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/unresolved/state",
+      expect.objectContaining({ sourceSymbol: "005930", state: "ignored" }),
+    );
+
+    if (!providerSelect) throw new Error("expected provider select");
+    updateSelectValue(providerSelect, "finmind-tw");
+    expect(mockPush).toHaveBeenCalledWith("/admin/providers?providerId=finmind-tw&tab=unresolved");
+  });
 });
