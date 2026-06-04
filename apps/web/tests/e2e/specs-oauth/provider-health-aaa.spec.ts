@@ -232,7 +232,7 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
       `fixer remains within /admin/providers (got: ${page.url()})`,
     );
     await appShell.assert.mxAssertTruthy(
-      /repair, renew, and rerun are scoped/i.test((await page.locator("main").textContent()) ?? ""),
+      /repair, renew, and rerun are scoped/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
       "provider-owned Fixer tab explains scoped actions",
     );
   });
@@ -255,7 +255,7 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
     await page.getByTestId("provider-console-page").waitFor({ state: "visible" });
     await page.getByTestId("provider-console-subtab-fixer").waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
-      /rerun requires resolved items or durable provider mappings/i.test((await page.locator("main").textContent()) ?? ""),
+      /rerun requires resolved items or durable provider mappings/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
       "rerun disabled reason is visible",
     );
     await appShell.assert.mxAssertTruthy(
@@ -352,7 +352,7 @@ test.describe.serial("KZO-197 — admin /admin/providers (awaiting + provider co
     await page.waitForLoadState("load");
 
     await page.getByTestId("provider-console-subtab-fixer").click();
-    const text = (await page.locator("main").textContent()) ?? "";
+    const text = (await page.getByTestId("provider-console-page").textContent()) ?? "";
     await appShell.assert.mxAssertTruthy(
       /repair, renew, and rerun are scoped/i.test(text),
       `fixer tab explains provider-scoped actions (got: ${text})`,
@@ -446,7 +446,7 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
     await page.getByTestId("provider-console-subtab-logs").click();
 
     await appShell.assert.mxAssertTruthy(
-      /logs/i.test((await page.locator("main").textContent()) ?? ""),
+      /logs/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
       "logs subtab renders inside provider console",
     );
   });
@@ -485,6 +485,105 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
     await appShell.assert.mxAssertTruthy(
       /finmind-tw/i.test((await page.getByTestId("provider-console-title").textContent()) ?? ""),
       "provider rail remains usable in narrow viewport",
+    );
+  });
+
+  test("[providers-console-E]: unresolved table exposes filters and select-all matching", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+    );
+    await page.waitForLoadState("load");
+
+    await page.getByTestId("provider-console-unresolved-search").waitFor({ state: "visible" });
+    await page.getByTestId("provider-console-unresolved-search").fill("005930");
+    await page.getByTestId("provider-console-unresolved-state").selectOption("resolved");
+    await page.getByTestId("provider-console-unresolved-sort").selectOption("updated_desc");
+    await page.getByTestId("provider-console-unresolved-apply").click();
+
+    await appShell.assert.mxAssertTruthy(
+      /unresolvedState=resolved/.test(page.url()),
+      `unresolved filter state is reflected in URL (got: ${page.url()})`,
+    );
+
+    await page.getByTestId("provider-console-select-all-matching").click();
+    await appShell.assert.mxAssertTruthy(
+      /all matching rows/i.test((await page.getByTestId("provider-console-selection-banner").textContent()) ?? ""),
+      "select-all matching explains the filtered bulk scope",
+    );
+  });
+
+  test("[providers-console-F]: fixer repair preview keeps execute guarded", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=fixer&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+    );
+    await page.waitForLoadState("load");
+
+    await page.getByRole("button", { name: /preview repair/i }).click();
+    await page.getByTestId("provider-console-operation-panel").waitFor({ state: "visible" });
+
+    const execute = page.getByTestId("provider-console-execute-button");
+    await appShell.assert.mxAssertTruthy(
+      await execute.isDisabled(),
+      "execute remains disabled before guardrail acknowledgement",
+    );
+    await appShell.assert.mxAssertTruthy(
+      /operation preview/i.test((await page.getByTestId("provider-console-operation-panel").textContent()) ?? ""),
+      "repair preview renders as a staged provider operation",
+    );
+  });
+
+  test("[providers-console-G]: operations and logs expose progress and purge preview", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute("/admin/providers?providerId=yahoo-finance-kr&tab=operations");
+    await page.waitForLoadState("load");
+
+    await page.getByTestId("provider-console-operations-table").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      /live progress|operation details|operation item outcomes/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
+      "operations tab exposes progress and durable outcome surfaces",
+    );
+
+    await page.getByTestId("provider-console-subtab-logs").click();
+    await page.getByRole("button", { name: /preview purge/i }).click();
+    await page.getByRole("heading", { name: /purge preview/i }).waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      /purge preview/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
+      "logs tab opens purge preview inside provider console",
+    );
+    await appShell.assert.mxAssertTruthy(
+      await page.getByRole("button", { name: /execute purge/i }).isDisabled(),
+      "purge execution is disabled until typed confirmation matches",
+    );
+  });
+
+  test("[providers-console-H]: mobile provider selector routes provider-owned views", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await appShell.actions.navigateToRoute("/admin/providers?providerId=yahoo-finance-kr&tab=unresolved");
+    await page.waitForLoadState("load");
+
+    const selector = page.getByTestId("provider-console-mobile-provider-select");
+    await selector.waitFor({ state: "visible" });
+    await selector.selectOption("finmind-tw");
+    await page.waitForURL(/providerId=finmind-tw/);
+
+    await appShell.assert.mxAssertTruthy(
+      /providerId=finmind-tw/.test(page.url()),
+      `mobile provider selector preserves provider-console routing (got: ${page.url()})`,
     );
   });
 });
