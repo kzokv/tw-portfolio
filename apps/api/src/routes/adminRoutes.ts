@@ -16,6 +16,8 @@ import type {
   ProviderIncidentsResponse,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomesResponse,
+  ProviderResolutionMappingDto,
+  ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
@@ -1464,6 +1466,43 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         createdAt: incident.createdAt,
         updatedAt: incident.updatedAt,
       },
+    };
+  });
+
+  app.get("/providers/:providerId/mappings", async (req): Promise<ProviderResolutionMappingsResponse> => {
+    requireAdminRole(req);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const query = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        search: z.string().trim().max(120).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const result = await app.persistence.listProviderResolutionMappings({
+      providerId,
+      marketCode: query.marketCode,
+      search: query.search,
+      page: query.page,
+      limit: query.limit,
+    });
+    return {
+      items: result.items.map((mapping): ProviderResolutionMappingDto => ({
+        providerId: mapping.providerId,
+        marketCode: mapping.marketCode as ProviderResolutionMappingDto["marketCode"],
+        sourceSymbol: mapping.sourceSymbol,
+        resolvedSymbol: mapping.resolvedSymbol,
+        resolverMode: mapping.resolverMode as ProviderResolutionMappingDto["resolverMode"],
+        evidence: mapping.evidence,
+        verifiedAt: mapping.verifiedAt,
+        verifiedByUserId: mapping.verifiedByUserId,
+        createdAt: mapping.createdAt,
+        updatedAt: mapping.updatedAt,
+      })),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
     };
   });
 
