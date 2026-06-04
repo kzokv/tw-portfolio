@@ -531,6 +531,32 @@ export function AdminProvidersClient({
     );
   }
 
+  function openMappingUnresolved(mapping: ProviderResolutionMappingDto): void {
+    const params = new URLSearchParams({
+      providerId: mapping.providerId,
+      tab: "unresolved",
+      resolverMode: diagnostics.resolverMode,
+      errorCode: diagnostics.errorCode,
+      unresolvedState: "active",
+      unresolvedSearch: mapping.sourceSymbol,
+      unresolvedPage: "1",
+    });
+    router.push(`/admin/providers?${params.toString()}`);
+  }
+
+  function openMappingOperation(mapping: ProviderResolutionMappingDto): void {
+    const operationId = mappingLinkedOperation(mapping.evidence);
+    if (!operationId) return;
+    const params = new URLSearchParams({
+      providerId: mapping.providerId,
+      tab: "operations",
+      resolverMode: diagnostics.resolverMode,
+      errorCode: diagnostics.errorCode,
+      operationId,
+    });
+    router.push(`/admin/providers?${params.toString()}`);
+  }
+
   function applyUnresolvedFilters(next: {
     state?: ProviderUnresolvedItemDto["state"];
     search?: string;
@@ -898,6 +924,8 @@ export function AdminProvidersClient({
             evidenceColumns={evidenceColumns}
             onReverifyMapping={reverifyMapping}
             onRevertMapping={revertMapping}
+            onOpenUnresolvedMapping={openMappingUnresolved}
+            onOpenMappingOperation={openMappingOperation}
             busyAction={busyAction}
           />
         ) : null}
@@ -1817,6 +1845,8 @@ function MappingsTab({
   evidenceColumns,
   onReverifyMapping,
   onRevertMapping,
+  onOpenUnresolvedMapping,
+  onOpenMappingOperation,
   busyAction,
 }: {
   selectedProviderId: string;
@@ -1829,6 +1859,8 @@ function MappingsTab({
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
   onReverifyMapping: (mapping: ProviderResolutionMappingDto) => void;
   onRevertMapping: (mapping: ProviderResolutionMappingDto, typedConfirmation: string) => void;
+  onOpenUnresolvedMapping: (mapping: ProviderResolutionMappingDto) => void;
+  onOpenMappingOperation: (mapping: ProviderResolutionMappingDto) => void;
   busyAction: string | null;
 }) {
   const evidenceRows = currentPreview?.evidenceSample ?? [];
@@ -1866,6 +1898,7 @@ function MappingsTab({
                     const phrase = `REVERT ${mapping.sourceSymbol}`;
                     const revertOpen = revertTarget === key;
                     const revertReady = revertConfirmation.trim() === phrase;
+                    const linkedOperationId = mappingLinkedOperation(mapping.evidence);
                     return (
                       <Fragment key={key}>
                         <tr className="border-t border-border">
@@ -1880,8 +1913,30 @@ function MappingsTab({
                             {mappingEvidenceSummary(mapping.evidence)}
                           </td>
                           <td className="px-3 py-3 text-xs text-muted-foreground">
-                            <div>Unresolved: {mapping.sourceSymbol}</div>
-                            <div>Operation: {mappingLinkedOperation(mapping.evidence) ?? "not linked"}</div>
+                            <button
+                              type="button"
+                              className="font-mono text-blue-700 underline-offset-2 hover:underline"
+                              onClick={() => onOpenUnresolvedMapping(mapping)}
+                              title="Open the unresolved instruments tab filtered to this source symbol."
+                              data-testid={`provider-console-mapping-unresolved-link-${mapping.sourceSymbol}`}
+                            >
+                              Unresolved: {mapping.sourceSymbol}
+                            </button>
+                            <div>
+                              {linkedOperationId ? (
+                                <button
+                                  type="button"
+                                  className="font-mono text-blue-700 underline-offset-2 hover:underline"
+                                  onClick={() => onOpenMappingOperation(mapping)}
+                                  title="Open the operation that created or last verified this mapping."
+                                  data-testid={`provider-console-mapping-operation-link-${mapping.sourceSymbol}`}
+                                >
+                                  Operation: {linkedOperationId}
+                                </button>
+                              ) : (
+                                "Operation: not linked"
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-end gap-2">
