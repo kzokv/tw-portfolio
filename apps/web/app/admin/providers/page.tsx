@@ -59,19 +59,21 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
 
   const [providersData, summaryData] = await Promise.all([
     getJson<AdminProvidersResponse>("/admin/providers"),
-    getJson<ProviderFixerDashboardSummaryResponse>("/admin/provider-fixer/summary"),
+    getJson<ProviderFixerDashboardSummaryResponse>(
+      `/admin/providers/${encodeURIComponent(providerId)}/operations/summary`,
+    ),
   ]);
 
   const pageLimit = summaryData.guardrails.uiPageSize;
   const [diagnosticsData, operationsData, logsData] = await Promise.all([
     getJson<ProviderFixerDashboardDiagnosticsResponse>(
-      `/admin/provider-fixer/diagnostics?providerId=${encodeURIComponent(providerId)}&resolverMode=${encodeURIComponent(resolverMode)}&errorCode=${encodeURIComponent(errorCode)}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/diagnostics?resolverMode=${encodeURIComponent(resolverMode)}&errorCode=${encodeURIComponent(errorCode)}`,
     ),
     getJson<ProviderFixerDashboardOperationsResponse>(
-      `/admin/provider-fixer/operations?providerId=${encodeURIComponent(providerId)}&page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/operations?page=1&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardLogsResponse>(
-      `/admin/provider-fixer/logs?providerId=${encodeURIComponent(providerId)}&page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/logs?page=1&limit=${pageLimit}`,
     ),
   ]);
 

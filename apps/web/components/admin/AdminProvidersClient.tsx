@@ -370,8 +370,7 @@ export function AdminProvidersClient({
     const row = fallbackDiagnosis;
     if (!row) return;
     void runAction("preview", () =>
-      postJson("/admin/provider-fixer/preview", {
-        providerId: selectedProviderId,
+      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/preview`, {
         resolverMode: diagnostics.resolverMode,
         errorCode: row.errorCode,
       }),
@@ -381,7 +380,7 @@ export function AdminProvidersClient({
   function executeSelectedOperation(): void {
     if (!selectedOperation || !currentPreview) return;
     void runAction("execute", () =>
-      postJson(`/admin/provider-fixer/operations/${encodeURIComponent(selectedOperation.id)}/execute`, {
+      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/${encodeURIComponent(selectedOperation.id)}/execute`, {
         previewToken: currentPreview.token,
         acknowledged: confirmationChecked,
         typedConfirmation: typedConfirmation.trim(),
@@ -390,7 +389,9 @@ export function AdminProvidersClient({
   }
 
   function mutateOperation(operationId: string, action: "pause" | "resume" | "cancel"): void {
-    void runAction(action, () => postJson(`/admin/provider-fixer/operations/${encodeURIComponent(operationId)}/${action}`, {}));
+    void runAction(action, () =>
+      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/${encodeURIComponent(operationId)}/${action}`, {}),
+    );
   }
 
   const operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[] = [

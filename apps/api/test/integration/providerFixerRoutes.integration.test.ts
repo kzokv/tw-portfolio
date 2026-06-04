@@ -187,6 +187,82 @@ describe("Provider Fixer admin routes", () => {
     expect(logs.json()).toMatchObject({ total: 3 });
   });
 
+  it("serves provider-scoped operation adapters and rejects cross-provider operation control", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const summary = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations/summary",
+      headers,
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toMatchObject({ summary: { guardrailsEnabled: true } });
+
+    const diagnostics = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/diagnostics?resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+      headers,
+    });
+    expect(diagnostics.statusCode).toBe(200);
+    expect(diagnostics.json()).toMatchObject({
+      diagnostics: {
+        providerId: "yahoo-finance-kr",
+        rows: expect.arrayContaining([
+          expect.objectContaining({ providerId: "yahoo-finance-kr", unresolvedCount: 1 }),
+        ]),
+      },
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(preview.statusCode).toBe(201);
+    const previewBody = preview.json() as {
+      operation: { id: string; matchCount: number; preview: { token: string } };
+    };
+    expect(previewBody.operation.matchCount).toBe(1);
+
+    const operations = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations?page=1&limit=10",
+      headers,
+    });
+    expect(operations.statusCode).toBe(200);
+    expect(operations.json()).toMatchObject({
+      stagedOperation: { id: previewBody.operation.id, providerId: "yahoo-finance-kr" },
+      operations: [expect.objectContaining({ id: previewBody.operation.id })],
+    });
+
+    const logs = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/logs?page=1&limit=10",
+      headers,
+    });
+    expect(logs.statusCode).toBe(200);
+    expect(logs.json()).toMatchObject({
+      items: [expect.objectContaining({ operationId: previewBody.operation.id })],
+    });
+
+    const mismatchedExecute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/finmind-tw/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: {
+        previewToken: previewBody.operation.preview.token,
+        acknowledged: true,
+      },
+    });
+    expect(mismatchedExecute.statusCode).toBe(404);
+  });
+
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
     verifyResolvedSymbol.mockResolvedValue({
       verified: false,
@@ -345,7 +421,7 @@ describe("Provider Fixer admin routes", () => {
       marketCode: "KR",
       operationType: "resolver_repair",
       phase: "preview",
-      previewExpiresAt: "2026-06-03T23:59:00.000Z",
+      previewExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       matchCount: 1,
     });
     const concurrentResponse = await app.inject({

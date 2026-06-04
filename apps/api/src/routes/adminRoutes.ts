@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type {
   AiConnectorPolicySettingsDto,
@@ -967,42 +967,62 @@ async function enqueueProviderFixerBackfills(
 }
 
 function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
-  app.get("/provider-fixer/summary", async (req): Promise<ProviderFixerDashboardSummaryResponse> => {
+  const providerConsoleParamsSchema = z.object({
+    providerId: providerFixerProviderSchema,
+  });
+  const providerConsoleOperationParamsSchema = providerConsoleParamsSchema.extend({
+    operationId: z.string().trim().min(1).max(120),
+  });
+
+  async function loadProviderOperationSummary(req: FastifyRequest): Promise<ProviderFixerDashboardSummaryResponse> {
     requireAdminRole(req);
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     return providerFixerSummary(app, guardrails);
-  });
+  }
 
-  app.get("/provider-fixer/diagnostics", async (req): Promise<ProviderFixerDashboardDiagnosticsResponse> => {
+  async function loadProviderDiagnostics(
+    req: FastifyRequest,
+    providerIdOverride?: string,
+  ): Promise<ProviderFixerDashboardDiagnosticsResponse> {
     requireAdminRole(req);
     const query = z
       .object({
-        providerId: providerFixerProviderSchema.default("yahoo-finance-kr"),
+        providerId: providerIdOverride
+          ? providerFixerProviderSchema.optional()
+          : providerFixerProviderSchema.default("yahoo-finance-kr"),
         marketCode: providerFixerMarketCodeSchema.optional(),
         resolverMode: providerFixerResolverModeSchema.default("quote_first"),
         errorCode: providerFixerErrorCodeSchema.default("yahoo_finance_kr_symbol_unresolved"),
       })
       .parse(req.query ?? {});
+    const providerId = providerIdOverride ?? query.providerId ?? "yahoo-finance-kr";
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     return providerFixerDiagnostics(
       app,
       guardrails,
-      query.providerId,
-      providerFixerMarketCode(query.providerId, query.marketCode),
+      providerId,
+      providerFixerMarketCode(providerId, query.marketCode),
       query.resolverMode,
       query.errorCode,
     );
-  });
+  }
 
-  app.post("/provider-fixer/preview", async (req, reply) => {
+  async function createProviderOperationPreview(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    providerIdOverride?: string,
+  ) {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const body = providerFixerPreviewBodySchema.parse(req.body ?? {});
+    const body = providerIdOverride
+      ? providerFixerPreviewBodySchema.partial({ providerId: true }).parse(req.body ?? {})
+      : providerFixerPreviewBodySchema.parse(req.body ?? {});
+    const providerId = providerIdOverride ?? body.providerId ?? "yahoo-finance-kr";
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
-    const marketCode = providerFixerMarketCode(body.providerId, body.marketCode);
+    const marketCode = providerFixerMarketCode(providerId, body.marketCode);
     const { sample, total } = await buildProviderFixerEvidenceSample(
       app,
-      body.providerId,
+      providerId,
       marketCode,
       body.errorCode,
       body.resolverMode,
@@ -1013,14 +1033,14 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const confirmationText = dangerous ? `EXECUTE ${total}` : null;
     const now = Date.now();
     const operation = await app.persistence.createProviderOperation({
-      providerId: body.providerId,
+      providerId,
       marketCode,
       operationType: "resolver_repair",
       phase: "preview",
       errorCode: body.errorCode,
       resolverMode: body.resolverMode,
-      scopeQuery: `${body.providerId}:${marketCode}:${body.errorCode}`,
-      snapshotHash: hashProviderFixerToken(`${body.providerId}:${marketCode}:${body.errorCode}:${total}:${now}`).slice(0, 12),
+      scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${marketCode}:${body.errorCode}:${total}:${now}`).slice(0, 12),
       previewTokenHash: hashProviderFixerToken(token),
       previewExpiresAt: new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString(),
       matchCount: total,
@@ -1037,9 +1057,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       operationId: operation.id,
       phase: "preview",
       level: total > 0 ? "info" : "warning",
-      message: `preview provider=${body.providerId} market=${marketCode} error_code=${body.errorCode} matched=${total} sample=${sample.length}`,
+      message: `preview provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${total} sample=${sample.length}`,
       context: {
-        providerId: body.providerId,
+        providerId,
         marketCode,
         errorCode: body.errorCode,
         resolverMode: body.resolverMode,
@@ -1053,7 +1073,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       metadata: {
         operationId: operation.id,
         action: "preview",
-        providerId: body.providerId,
+        providerId,
         marketCode,
         errorCode: body.errorCode,
         resolverMode: body.resolverMode,
@@ -1063,6 +1083,27 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     });
     reply.code(201);
     return { operation: providerFixerOperationToDto(operation, guardrails) };
+  }
+
+  app.get("/provider-fixer/summary", loadProviderOperationSummary);
+
+  app.get("/providers/:providerId/operations/summary", async (req) => {
+    providerConsoleParamsSchema.parse(req.params);
+    return loadProviderOperationSummary(req);
+  });
+
+  app.get("/provider-fixer/diagnostics", (req) => loadProviderDiagnostics(req));
+
+  app.get("/providers/:providerId/diagnostics", (req) => {
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    return loadProviderDiagnostics(req, providerId);
+  });
+
+  app.post("/provider-fixer/preview", (req, reply) => createProviderOperationPreview(req, reply));
+
+  app.post("/providers/:providerId/operations/preview", (req, reply) => {
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    return createProviderOperationPreview(req, reply, providerId);
   });
 
   app.post("/provider-fixer/stage", async (req) => {
@@ -1100,11 +1141,15 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     req: FastifyRequest,
     operationId: string,
     body: z.infer<typeof providerFixerOperationBodySchema>,
+    providerIdOverride?: string,
   ) {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
     const existing = await app.persistence.getProviderOperation(operationId);
     if (!existing) throw routeError(404, "provider_operation_not_found", "Provider operation not found");
+    if (providerIdOverride && existing.providerId !== providerIdOverride) {
+      throw routeError(404, "provider_operation_not_found", "Provider operation not found for this provider");
+    }
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     const operationDto = providerFixerOperationToDto(existing, guardrails);
     if (existing.phase !== "preview" && existing.phase !== "staged") {
@@ -1237,6 +1282,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     return executeProviderFixerOperation(req, params.operationId, { ...body, operationId: params.operationId });
   });
 
+  app.post("/providers/:providerId/operations/:operationId/execute", async (req) => {
+    const params = providerConsoleOperationParamsSchema.parse(req.params);
+    const body = providerFixerOperationBodySchema.partial({ operationId: true }).parse(req.body ?? {});
+    return executeProviderFixerOperation(req, params.operationId, { ...body, operationId: params.operationId }, params.providerId);
+  });
+
   for (const [action, from, to] of [
     ["pause", "running", "paused"],
     ["resume", "paused", "running"],
@@ -1274,9 +1325,47 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       });
       return { operation: providerFixerOperationToDto(updated, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
     });
+
+    app.post(`/providers/:providerId/operations/:operationId/${action}`, async (req) => {
+      requireAdminRole(req);
+      const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+      const { providerId, operationId } = providerConsoleOperationParamsSchema.parse(req.params);
+      const existing = await app.persistence.getProviderOperation(operationId);
+      if (!existing || existing.providerId !== providerId) {
+        throw routeError(404, "provider_operation_not_found", "Provider operation not found for this provider");
+      }
+      if (from && existing.phase !== from) {
+        throw routeError(400, `provider_operation_not_${action}able`, `Selected operation cannot be ${action}d`);
+      }
+      if (action === "cancel" && !["preview", "staged", "running", "paused"].includes(existing.phase)) {
+        throw routeError(400, "provider_operation_not_cancellable", "Selected operation cannot be cancelled");
+      }
+      const updated = await app.persistence.updateProviderOperation({
+        id: operationId,
+        phase: to,
+        ...(action === "cancel" ? { cancelledAt: new Date().toISOString() } : {}),
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId,
+        phase: to,
+        level: action === "resume" ? "info" : "warning",
+        message: `${action}d provider=${updated.providerId} market=${updated.marketCode}`,
+        context: { providerId: updated.providerId, marketCode: updated.marketCode },
+      });
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "provider_fixer_operation",
+        ipAddress,
+        metadata: { operationId, action, providerId: updated.providerId, marketCode: updated.marketCode },
+      });
+      return { operation: providerFixerOperationToDto(updated, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+    });
   }
 
-  app.get("/provider-fixer/operations", async (req): Promise<ProviderFixerDashboardOperationsResponse> => {
+  async function listProviderOperations(
+    req: FastifyRequest,
+    providerIdOverride?: string,
+  ): Promise<ProviderFixerDashboardOperationsResponse> {
     requireAdminRole(req);
     const query = z
       .object({
@@ -1287,8 +1376,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         limit: z.coerce.number().int().min(1).max(200).default(25),
       })
       .parse(req.query ?? {});
+    const providerId = providerIdOverride ?? query.providerId;
     const result = await app.persistence.listProviderOperations({
-      providerId: query.providerId,
+      providerId,
       marketCode: query.marketCode,
       phases: query.phase ? [query.phase as ProviderOperationPhase] : undefined,
       page: query.page,
@@ -1304,9 +1394,19 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       page: result.page,
       limit: result.limit,
     };
+  }
+
+  app.get("/provider-fixer/operations", (req) => listProviderOperations(req));
+
+  app.get("/providers/:providerId/operations", (req) => {
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    return listProviderOperations(req, providerId);
   });
 
-  app.get("/provider-fixer/logs", async (req): Promise<ProviderFixerDashboardLogsResponse> => {
+  async function listProviderLogs(
+    req: FastifyRequest,
+    providerIdOverride?: string,
+  ): Promise<ProviderFixerDashboardLogsResponse> {
     requireAdminRole(req);
     const query = z
       .object({
@@ -1317,10 +1417,11 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         limit: z.coerce.number().int().min(1).max(200).default(25),
       })
       .parse(req.query ?? {});
+    const providerId = providerIdOverride ?? query.providerId;
     const operationIds = query.operationId
       ? [query.operationId]
       : (await app.persistence.listProviderOperations({
-          providerId: query.providerId,
+          providerId,
           marketCode: query.marketCode,
           page: 1,
           limit: Math.max(query.limit, 25),
@@ -1344,6 +1445,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       page: query.page,
       limit: query.limit,
     };
+  }
+
+  app.get("/provider-fixer/logs", (req) => listProviderLogs(req));
+
+  app.get("/providers/:providerId/logs", (req) => {
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    return listProviderLogs(req, providerId);
   });
 }
 
