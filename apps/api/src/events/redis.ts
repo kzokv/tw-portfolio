@@ -1,4 +1,5 @@
 import { createClient, type RedisClientType } from "redis";
+import { buildRedisSocketOptions } from "../lib/redisClientOptions.js";
 import type { EventBus, EventHandler, Unsubscribe } from "./types.js";
 
 export interface RedisEventBusOptions {
@@ -11,8 +12,14 @@ export class RedisEventBus implements EventBus {
   private readonly handlers = new Map<string, Set<EventHandler>>();
 
   constructor(private readonly options: RedisEventBusOptions) {
-    this.publisher = createClient({ url: options.redisUrl });
-    this.subscriber = createClient({ url: options.redisUrl });
+    this.publisher = createClient({
+      url: options.redisUrl,
+      socket: buildRedisSocketOptions(),
+    });
+    this.subscriber = createClient({
+      url: options.redisUrl,
+      socket: buildRedisSocketOptions(),
+    });
 
     this.subscriber.on("error", (err) => {
       console.error("[RedisEventBus] subscriber error:", err);

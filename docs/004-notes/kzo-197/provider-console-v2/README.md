@@ -36,20 +36,23 @@ Current review set: `mockups/version-2/screenshots/`.
 
 - `01-provider-console-overview-desktop.png`
 - `02-provider-tabs-capabilities-desktop.png`
-- `03-unresolved-instruments-desktop.png`
-- `04-fixer-normal-actions-desktop.png`
-- `05-dangerous-preview-desktop.png`
-- `06-operations-running-sse-desktop.png`
-- `07-operation-outcomes-desktop.png`
-- `08-incidents-activity-logs-desktop.png`
-- `09-logs-purge-preview-desktop.png`
-- `10-kr-mappings-desktop.png`
-- `11-settings-provider-budgets-desktop.png`
-- `12-settings-retention-desktop.png`
-- `13-mobile-provider-overview.png`
-- `14-mobile-unresolved.png`
-- `15-mobile-operation-progress.png`
-- `16-mobile-dangerous-preview.png`
+- `03-provider-fixer-coverage-desktop.png`
+- `04-unresolved-instruments-desktop.png`
+- `05-fixer-normal-actions-desktop.png`
+- `06-dangerous-preview-desktop.png`
+- `07-operations-running-sse-desktop.png`
+- `08-operations-queued-desktop.png`
+- `09-operation-outcomes-desktop.png`
+- `10-incidents-activity-logs-desktop.png`
+- `11-logs-purge-preview-desktop.png`
+- `12-kr-mappings-desktop.png`
+- `13-settings-provider-budgets-desktop.png`
+- `14-settings-retention-desktop.png`
+- `15-mobile-provider-overview.png`
+- `16-mobile-provider-switcher.png`
+- `17-mobile-unresolved.png`
+- `18-mobile-operation-progress.png`
+- `19-mobile-dangerous-preview.png`
 
 Regenerate the locked version:
 

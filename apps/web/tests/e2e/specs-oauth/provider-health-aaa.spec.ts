@@ -503,6 +503,7 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
     await page.getByTestId("provider-console-unresolved-state").selectOption("resolved");
     await page.getByTestId("provider-console-unresolved-sort").selectOption("updated_desc");
     await page.getByTestId("provider-console-unresolved-apply").click();
+    await page.waitForURL(/unresolvedState=resolved/);
 
     await appShell.assert.mxAssertTruthy(
       /unresolvedState=resolved/.test(page.url()),

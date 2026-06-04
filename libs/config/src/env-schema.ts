@@ -221,9 +221,12 @@ export const envSchema = z.object({
   // operators can tighten/loosen via `app_config.user_preferences_max_bytes`.
   USER_PREFERENCES_MAX_BYTES: z.coerce.number().int().positive().default(8192),
 
-  // KZO-199 Tier 3 — env-only Postgres pool sizes (restart-required).
+  // KZO-199 Tier 3 — env-only Postgres pool settings (restart-required).
   POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(20),
   BACKFILL_POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(2),
+  POSTGRES_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  REDIS_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  REDIS_RECONNECT_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
