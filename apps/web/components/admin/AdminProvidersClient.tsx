@@ -146,6 +146,7 @@ const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   diagnose: "bg-slate-100 text-slate-700",
   preview: "bg-sky-100 text-sky-700",
   staged: "bg-amber-100 text-amber-800",
+  queued: "bg-slate-100 text-slate-800",
   running: "bg-emerald-100 text-emerald-800",
   paused: "bg-orange-100 text-orange-800",
   completed: "bg-emerald-100 text-emerald-800",
@@ -394,6 +395,7 @@ export function AdminProvidersClient({
   const progressOperation =
     providerOperations.find((operation) => operation.phase === "running")
     ?? providerOperations.find((operation) => operation.phase === "paused")
+    ?? providerOperations.find((operation) => operation.phase === "queued")
     ?? selectedOperation;
   const currentPreview = selectedOperation?.preview ?? null;
   const typedConfirmationRequired = currentPreview?.confirmationMode === "typed";
@@ -731,7 +733,7 @@ export function AdminProvidersClient({
             {group.providers.map((provider) => {
               const diagnosis = diagnostics.rows.find((row) => row.providerId === provider.providerId);
               const activeOperationCount = operations.filter((operation) =>
-                operation.providerId === provider.providerId && ["preview", "staged", "running", "paused"].includes(operation.phase)
+                operation.providerId === provider.providerId && ["preview", "staged", "queued", "running", "paused"].includes(operation.phase)
               ).length;
               return (
                 <button
@@ -883,6 +885,10 @@ export function AdminProvidersClient({
             onRenewEvidence={renewEvidence}
             onPreviewRepair={previewRepair}
             onExecute={executeSelectedOperation}
+            onControlOperation={(action) => {
+              if (!selectedOperation) return;
+              mutateOperation(selectedOperation.id, action);
+            }}
           />
         ) : null}
 
@@ -1410,6 +1416,7 @@ function FixerTab({
   onRenewEvidence,
   onPreviewRepair,
   onExecute,
+  onControlOperation,
 }: {
   selectedProviderId: string;
   diagnostics: ProviderFixerDashboardDiagnosticsDto;
@@ -1432,8 +1439,9 @@ function FixerTab({
   onRenewEvidence: () => void;
   onPreviewRepair: () => void;
   onExecute: () => void;
+  onControlOperation: (action: "pause" | "resume" | "cancel") => void;
 }) {
-  const stagedVisible = !!selectedOperation && (selectedOperation.phase === "preview" || selectedOperation.phase === "staged" || selectedOperation.phase === "running" || selectedOperation.phase === "paused");
+  const stagedVisible = !!selectedOperation && (selectedOperation.phase === "preview" || selectedOperation.phase === "staged" || selectedOperation.phase === "queued" || selectedOperation.phase === "running" || selectedOperation.phase === "paused");
   const dangerousPreviewSheet = stagedVisible && selectedOperation?.dangerous;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1499,9 +1507,39 @@ function FixerTab({
               <h3 className="text-xl font-semibold text-foreground">Operation preview</h3>
               <p className="mt-1 text-sm text-muted-foreground">Dangerous work uses snapshot and confirmation guardrails.</p>
             </div>
-            <span className={cn("rounded-full px-2 py-1 text-xs font-semibold", selectedOperation?.dangerous ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700")}>
-              {selectedOperation?.dangerous ? "Dangerous" : "Small write"}
-            </span>
+            <div className="flex flex-wrap justify-end gap-2">
+              <span className={cn("rounded-full px-2 py-1 text-xs font-semibold", phaseTone[selectedOperation.phase])}>
+                {selectedOperation.phase}
+              </span>
+              <span className={cn("rounded-full px-2 py-1 text-xs font-semibold", selectedOperation.dangerous ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700")}>
+                {selectedOperation.dangerous ? "Dangerous" : "Small write"}
+              </span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-foreground">Operation state</p>
+                <p className="text-muted-foreground">
+                  {selectedOperation.phase === "queued"
+                    ? "Accepted and waiting behind active provider work. Progress remains zero until the operation starts."
+                    : `${operationProgress(selectedOperation)}% progress from durable operation outcomes.`}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedOperation.canPause ? (
+                  <Button size="sm" variant="secondary" onClick={() => onControlOperation("pause")}>Pause</Button>
+                ) : null}
+                {selectedOperation.canResume ? (
+                  <Button size="sm" variant="secondary" onClick={() => onControlOperation("resume")}>Resume</Button>
+                ) : null}
+                {selectedOperation.canCancel ? (
+                  <Button size="sm" variant="outline" className="border-rose-200 text-rose-700" onClick={() => onControlOperation("cancel")}>
+                    {selectedOperation.phase === "queued" ? "Cancel queued" : "Cancel"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           </div>
           {currentPreview ? (
             <>
@@ -1542,7 +1580,7 @@ function FixerTab({
         <Card className="px-4 py-4 hover:translate-y-0">
           <h3 className="text-xl font-semibold text-foreground">No staged operation</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            This section appears only after a repair preview is created or an operation is running, paused, completed, or failed.
+            This section appears only after a repair preview is created or an operation is queued, running, or paused.
           </p>
         </Card>
       )}
