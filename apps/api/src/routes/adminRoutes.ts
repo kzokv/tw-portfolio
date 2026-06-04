@@ -985,6 +985,41 @@ async function refreshProviderOperationProgressFromOutcomes(
   });
 }
 
+async function returnCancelledProviderOperationIfCancelled(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  },
+  message: string,
+  result: Record<string, unknown>,
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> } | null> {
+  const current = await app.persistence.getProviderOperation(operation.id);
+  if (current?.phase !== "cancelled") return null;
+  const refreshed = await refreshProviderOperationProgressFromOutcomes(app, current.id) ?? current;
+  await app.persistence.createProviderOperationLog({
+    operationId: refreshed.id,
+    phase: "cancelled",
+    level: "warning",
+    message,
+    context: {
+      providerId: refreshed.providerId,
+      marketCode: refreshed.marketCode,
+      ...result,
+    },
+  });
+  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+    operationId: refreshed.id,
+    providerId: refreshed.providerId,
+    phase: refreshed.phase,
+  });
+  return {
+    operation: providerFixerOperationToDto(refreshed, context.guardrails),
+    result: { status: "cancelled", ...result },
+  };
+}
+
 function assertProviderFixerPreviewToken(operation: ProviderOperationRecord, previewToken: string | undefined): void {
   if (operation.previewExpiresAt && new Date(operation.previewExpiresAt).getTime() <= Date.now()) {
     throw routeError(400, "provider_fixer_preview_token_expired", "Preview token has expired; run preview again");
@@ -1363,7 +1398,23 @@ async function completeProviderFixerOperation(
   let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
   try {
     result = await executeProviderFixerMappings(app, operation, context.actorUserId);
+    const cancelled = await returnCancelledProviderOperationIfCancelled(
+      app,
+      operation,
+      context,
+      `execute_cancelled provider=${operation.providerId} market=${operation.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned}`,
+      { ...result, backfills: { enqueued: 0, skippedExisting: 0 } },
+    );
+    if (cancelled) return cancelled;
     backfills = await enqueueProviderFixerBackfills(app, operation, result.mappedTickers);
+    const cancelledAfterBackfills = await returnCancelledProviderOperationIfCancelled(
+      app,
+      operation,
+      context,
+      `execute_cancelled provider=${operation.providerId} market=${operation.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
+      { ...result, backfills },
+    );
+    if (cancelledAfterBackfills) return cancelledAfterBackfills;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Provider fixer execution failed";
     const isRateLimited = err instanceof RateLimitedError;
