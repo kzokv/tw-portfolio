@@ -325,6 +325,48 @@ describe("Provider Fixer admin routes", () => {
   it("serves provider-scoped operation adapters and rejects cross-provider operation control", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "twelve-data-kr",
+      status: "degraded",
+      lastFailedRun: new Date().toISOString(),
+    });
+
+    const providers = await app.inject({
+      method: "GET",
+      url: "/admin/providers",
+      headers,
+    });
+    expect(providers.statusCode).toBe(200);
+    expect(providers.json()).toMatchObject({
+      providers: expect.arrayContaining([
+        expect.objectContaining({ providerId: "yahoo-finance-kr" }),
+        expect.objectContaining({ providerId: "twelve-data-kr" }),
+      ]),
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          providerId: "yahoo-finance-kr",
+          supportsMappings: true,
+          supportsRepair: true,
+          supportsRerun: true,
+          actions: expect.arrayContaining([
+            expect.objectContaining({ action: "repair_mapping", supported: true, guardrail: "typed_preview" }),
+          ]),
+        }),
+        expect.objectContaining({
+          providerId: "twelve-data-kr",
+          supportsMappings: false,
+          supportsRepair: false,
+          supportsRerun: false,
+          actions: expect.arrayContaining([
+            expect.objectContaining({
+              action: "rerun_backfill",
+              supported: false,
+              reason: "Twelve Data free-plan KR bars are plan-limited, so rerun is not available through this provider.",
+            }),
+          ]),
+        }),
+      ]),
+    });
 
     const summary = await app.inject({
       method: "GET",

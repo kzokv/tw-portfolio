@@ -1865,8 +1865,41 @@ export interface ProviderHealthStatusDto {
   recentErrors: ProviderErrorTrailEntryDto[];
 }
 
+export const PROVIDER_OPERATION_ACTIONS = [
+  "renew_evidence",
+  "repair_mapping",
+  "rerun_backfill",
+  "reverify_mapping",
+  "revert_mapping",
+  "purge_logs",
+  "normalize_errors",
+  "refresh_health",
+] as const;
+
+export type ProviderOperationAction = (typeof PROVIDER_OPERATION_ACTIONS)[number];
+export type ProviderOperationGuardrailLevel = "none" | "checkbox" | "typed_preview";
+
+export interface ProviderOperationActionCapabilityDto {
+  action: ProviderOperationAction;
+  supported: boolean;
+  guardrail: ProviderOperationGuardrailLevel;
+  reason: string | null;
+}
+
+export interface ProviderOperationCapabilityDto {
+  providerId: string;
+  supportsMappings: boolean;
+  supportsRepair: boolean;
+  supportsRenew: boolean;
+  supportsRerun: boolean;
+  supportsResolverModes: boolean;
+  emptyMappingReason: string;
+  actions: ProviderOperationActionCapabilityDto[];
+}
+
 export interface AdminProvidersResponse {
   providers: ProviderHealthStatusDto[];
+  capabilities: ProviderOperationCapabilityDto[];
 }
 
 // ── Provider fixer dashboard (web-facing slice) ────────────────────────────
