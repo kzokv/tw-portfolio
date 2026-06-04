@@ -159,7 +159,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added idempotent incident backfill from historical `provider_error_trail` rows using the same durable incident-key semantics as the runtime normalizer.
 - 2026-06-04: Extracted central provider-error normalization service shared by Postgres and memory persistence, covering durable incidents and unresolved worklist rows from raw provider errors.
 - 2026-06-04: Added shared provider-operation action taxonomy plus API-backed provider capability registry; `/admin/providers` now returns supported/disabled actions and guardrail levels for Yahoo, FinMind, Twelve Data, Frankfurter, and ASX GICS CSV, and the UI consumes those reasons instead of a hardcoded local map.
-- 2026-06-04: Started the provider operation engine transition: provider-scoped Execute now validates guardrails, marks the operation `running`, returns `202`, completes KR repair work in the background, persists durable outcomes/progress, and emits provider-operation SSE invalidation events. The legacy unshipped fixer execute route remains synchronous until that route is removed.
+- 2026-06-04: Started the provider operation engine transition: provider-scoped Execute now validates guardrails, marks the operation `running`, returns `202`, completes KR repair work in the background, persists durable outcomes/progress, and emits provider-operation SSE invalidation events.
+- 2026-06-04: Removed remaining `/admin/provider-fixer/*` API handlers and auth allowlist entries; provider operations are now exposed only through `/admin/providers/:providerId/*` plus the unified provider console.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
@@ -169,7 +170,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [ ] Implement provider operation engine with background execution, row outcomes, pause/resume/cancel/retry, stale operation cleanup, queueing, budget pacing, and SSE emission.
 - [x] Add API-authoritative Provider operations settings validation for guardrails, budgets, thresholds, retention, and auto-renew.
 - [ ] Add provider-scoped API routes under `/admin/providers/:providerId/*` for console, unresolved items, incidents, activity, logs, mappings, operation preview, operation execute, operation control, and purge.
-- [ ] Remove the unshipped `/admin/provider-fixer` UI route and old fixer-only assumptions.
+- [x] Remove the unshipped `/admin/provider-fixer` UI route and old fixer-only assumptions.
 - [ ] Implement KR resolver binding: Twelve Data catalog identity plus market evidence to verified Yahoo Finance KR provider symbol.
 - [ ] Update Yahoo Finance KR provider to consult durable mappings before fallback probing.
 - [ ] Implement Renew, Repair, Rerun, Reverify, Revert, Unsupported, Ignore, Reopen, and Purge flows through the operation engine where writes occur.

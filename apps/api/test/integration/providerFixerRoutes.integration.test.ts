@@ -23,9 +23,9 @@ const testOAuthConfig = {
 const SESSION_COOKIE_NAME = "g_auth_session";
 
 async function createAdmin(app: BuiltApp): Promise<{ userId: string; cookie: string }> {
-  const { userId } = await app.persistence.resolveOrCreateUser("google", "provider-fixer-admin", {
-    email: "provider-fixer-admin@example.com",
-    name: "Provider Fixer Admin",
+  const { userId } = await app.persistence.resolveOrCreateUser("google", "provider-console-admin", {
+    email: "provider-console-admin@example.com",
+    name: "Provider Console Admin",
   });
   await app.persistence.changeUserRole(userId, "admin", { actorUserId: "system" });
   const user = await app.persistence.getAuthUserById(userId);
@@ -95,7 +95,7 @@ describe("Provider Fixer admin routes", () => {
 
     const preview = await app.inject({
       method: "POST",
-      url: "/admin/provider-fixer/preview",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
       headers,
       payload: {
         providerId: "yahoo-finance-kr",
@@ -185,7 +185,7 @@ describe("Provider Fixer admin routes", () => {
 
     const blocked = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${previewBody.operation.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
       headers,
       payload: {
         previewToken: previewBody.operation.preview.token,
@@ -196,15 +196,19 @@ describe("Provider Fixer admin routes", () => {
 
     const execute = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${previewBody.operation.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
       headers,
       payload: {
         previewToken: previewBody.operation.preview.token,
         acknowledged: true,
       },
     });
-    expect(execute.statusCode).toBe(200);
-    expect(execute.json()).toMatchObject({ result: { applied: 1, skipped: 0, scanned: 1 } });
+    expect(execute.statusCode).toBe(202);
+    expect(execute.json()).toMatchObject({ result: { status: "started" }, operation: { phase: "running" } });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
     const outcomes = await app.inject({
       method: "GET",
       url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
@@ -301,7 +305,7 @@ describe("Provider Fixer admin routes", () => {
 
     const refreshedPreview = await app.inject({
       method: "POST",
-      url: "/admin/provider-fixer/preview",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
       headers,
       payload: {
         providerId: "yahoo-finance-kr",
@@ -315,7 +319,7 @@ describe("Provider Fixer admin routes", () => {
 
     const logs = await app.inject({
       method: "GET",
-      url: `/admin/provider-fixer/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
+      url: `/admin/providers/yahoo-finance-kr/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
       headers,
     });
     expect(logs.statusCode).toBe(200);
@@ -612,7 +616,7 @@ describe("Provider Fixer admin routes", () => {
 
     const preview = await app.inject({
       method: "POST",
-      url: "/admin/provider-fixer/preview",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
       headers,
       payload: {
         providerId: "yahoo-finance-kr",
@@ -628,15 +632,19 @@ describe("Provider Fixer admin routes", () => {
 
     const execute = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${previewBody.operation.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
       headers,
       payload: {
         previewToken: previewBody.operation.preview.token,
         acknowledged: true,
       },
     });
-    expect(execute.statusCode).toBe(200);
-    expect(execute.json()).toMatchObject({ result: { applied: 0, skipped: 1, scanned: 1 } });
+    expect(execute.statusCode).toBe(202);
+    expect(execute.json()).toMatchObject({ result: { status: "started" }, operation: { phase: "running" } });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
     const outcomes = await app.inject({
       method: "GET",
       url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
@@ -665,7 +673,7 @@ describe("Provider Fixer admin routes", () => {
 
     const preview = await app.inject({
       method: "POST",
-      url: "/admin/provider-fixer/preview",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
       headers,
       payload: {
         providerId: "yahoo-finance-kr",
@@ -680,7 +688,7 @@ describe("Provider Fixer admin routes", () => {
 
     const execute = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${previewBody.operation.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
       headers,
       payload: {
         previewToken: previewBody.operation.preview.token,
@@ -688,8 +696,12 @@ describe("Provider Fixer admin routes", () => {
       },
     });
 
-    expect(execute.statusCode).toBe(503);
-    expect(execute.json()).toMatchObject({ error: "provider_rate_limited" });
+    expect(execute.statusCode).toBe(202);
+    expect(execute.json()).toMatchObject({ result: { status: "started" }, operation: { phase: "running" } });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("paused");
+    });
     const outcomes = await app.inject({
       method: "GET",
       url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
@@ -704,6 +716,7 @@ describe("Provider Fixer admin routes", () => {
       phase: "paused",
       metadata: expect.objectContaining({
         autoPauseFailureCount: 1,
+        pauseReason: "paused_rate_limit",
         failureName: "RateLimitedError",
         msUntilAvailable: 30_000,
       }),
@@ -711,7 +724,7 @@ describe("Provider Fixer admin routes", () => {
 
     const logs = await app.inject({
       method: "GET",
-      url: `/admin/provider-fixer/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
+      url: `/admin/providers/yahoo-finance-kr/logs?operationId=${encodeURIComponent(previewBody.operation.id)}`,
       headers,
     });
     expect(logs.statusCode).toBe(200);
@@ -731,7 +744,7 @@ describe("Provider Fixer admin routes", () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const expired = await app.persistence.createProviderOperation({
-      id: "expired-provider-fixer-op",
+      id: "expired-provider-console-op",
       providerId: "yahoo-finance-kr",
       marketCode: "KR",
       operationType: "resolver_repair",
@@ -742,7 +755,7 @@ describe("Provider Fixer admin routes", () => {
 
     const operationsResponse = await app.inject({
       method: "GET",
-      url: "/admin/provider-fixer/operations?providerId=yahoo-finance-kr&page=1&limit=10",
+      url: "/admin/providers/yahoo-finance-kr/operations?providerId=yahoo-finance-kr&page=1&limit=10",
       headers,
     });
     expect(operationsResponse.statusCode).toBe(200);
@@ -752,7 +765,7 @@ describe("Provider Fixer admin routes", () => {
 
     const expiredResponse = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${expired.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${expired.id}/execute`,
       headers,
       payload: { acknowledged: true },
     });
@@ -765,7 +778,7 @@ describe("Provider Fixer admin routes", () => {
       cancelledAt: new Date().toISOString(),
     });
     await app.persistence.createProviderOperation({
-      id: "active-provider-fixer-op",
+      id: "active-provider-console-op",
       providerId: "yahoo-finance-kr",
       marketCode: "KR",
       operationType: "resolver_repair",
@@ -773,7 +786,7 @@ describe("Provider Fixer admin routes", () => {
       matchCount: 1,
     });
     const candidate = await app.persistence.createProviderOperation({
-      id: "candidate-provider-fixer-op",
+      id: "candidate-provider-console-op",
       providerId: "yahoo-finance-kr",
       marketCode: "KR",
       operationType: "resolver_repair",
@@ -783,7 +796,7 @@ describe("Provider Fixer admin routes", () => {
     });
     const concurrentResponse = await app.inject({
       method: "POST",
-      url: `/admin/provider-fixer/operations/${candidate.id}/execute`,
+      url: `/admin/providers/yahoo-finance-kr/operations/${candidate.id}/execute`,
       headers,
       payload: { acknowledged: true },
     });
