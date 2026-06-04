@@ -154,7 +154,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added durable `provider_incidents`, provider-scoped incident list API, error-trail-to-incident normalization, Incidents tab table, and incident lifecycle actions (`open`, `acknowledged`, `resolved`, `ignored`) with admin audit metadata and SSE invalidation.
 - 2026-06-04: Added provider-scoped durable mappings API plus Mappings tab data wiring so verified KR provider-symbol bindings are inspectable outside operation previews.
 - 2026-06-04: Added provider-scoped Activity API and timeline wiring composed from incidents, operations, logs, unresolved rows, and mappings.
-- Remaining high-risk work is still backend-heavy: provider-scoped purge preview/execute, background operation engine, deeper KR resolver binding/provider consult path, provider settings, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added provider-scoped log purge preview/execute with typed confirmation, snapshot-change guard, audit metadata, and strict deletion boundaries for provider error trail + operation logs only.
+- Remaining high-risk work is still backend-heavy: background operation engine, deeper KR resolver binding/provider consult path, provider settings, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [ ] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
