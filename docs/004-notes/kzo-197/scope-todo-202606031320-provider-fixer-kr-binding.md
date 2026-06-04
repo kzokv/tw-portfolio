@@ -7,7 +7,7 @@ required_reading:
   - docs/004-notes/kzo-197/scope-todo-202605091500-locked.md
   - docs/004-notes/ui-reshape-shadcn/mockup-2026060209-admin-provider-fixer.html
   - docs/004-notes/ui-reshape-shadcn/screenshots/41-admin-provider-fixer-light.png
-superseded_by: null
+superseded_by: docs/004-notes/kzo-197/provider-console-v2/scope-todo-202606041144-provider-console-v2.md
 ---
 
 # Todo: Provider Fixer Guardrails + KR Binding
