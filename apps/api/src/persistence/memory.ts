@@ -5426,7 +5426,7 @@ export class MemoryPersistence implements Persistence {
         }
         return true;
       })
-      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id - a.id);
     const offset = (page - 1) * limit;
     return {
       items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),

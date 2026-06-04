@@ -12493,7 +12493,7 @@ export class PostgresPersistence implements Persistence {
       `SELECT e.id, e.provider_id, e.occurred_at, e.error_class, e.error_message, e.context
          FROM market_data.provider_error_trail e
          ${whereClause}
-         ORDER BY e.occurred_at DESC
+         ORDER BY e.occurred_at DESC, e.id DESC
          LIMIT $${i++}
          OFFSET $${i++}`,
       [...params, limit, offset],
