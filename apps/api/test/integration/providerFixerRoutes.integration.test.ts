@@ -819,13 +819,14 @@ describe("Provider Fixer admin routes", () => {
     expect(retry.statusCode).toBe(201);
     const retryBody = retry.json() as {
       retryOfOperationId: string;
-      operation: { id: string; phase: string; canExecute: boolean; preview: { token: string } };
+      operation: { id: string; phase: string; canExecute: boolean; canRetry: boolean; preview: { token: string } };
     };
     expect(retryBody).toMatchObject({
       retryOfOperationId: expired.id,
       operation: {
         phase: "preview",
         canExecute: true,
+        canRetry: false,
       },
     });
     expect(retryBody.operation.id).not.toBe(expired.id);
