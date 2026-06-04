@@ -92,6 +92,7 @@ import {
   computeStatus,
   type ProviderId,
 } from "../services/market-data/providerHealth.js";
+import { listProviderOperationCapabilities } from "../services/market-data/providerOperationCapabilities.js";
 import {
   impersonationClearCookieString,
   impersonationSetCookieString,
@@ -2764,7 +2765,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         };
       }),
     );
-    return { providers };
+    return {
+      providers,
+      capabilities: listProviderOperationCapabilities(providers.map((provider) => provider.providerId)),
+    };
   });
 
   // POST /admin/providers/:providerId/rerun — admin "Re-run now" button.

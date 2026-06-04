@@ -10,6 +10,7 @@ import type {
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatusDto,
   ProviderIncidentDto,
+  ProviderOperationCapabilityDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
   ProviderResolutionMappingDto,
@@ -277,6 +278,64 @@ function buildActivityItems(): ProviderActivityItemDto[] {
   ];
 }
 
+function buildCapabilities(): ProviderOperationCapabilityDto[] {
+  return [
+    {
+      providerId: "yahoo-finance-kr",
+      supportsMappings: true,
+      supportsRepair: true,
+      supportsRenew: true,
+      supportsRerun: true,
+      supportsResolverModes: true,
+      emptyMappingReason: "No durable KR mappings have been verified yet.",
+      actions: [
+        { action: "renew_evidence", supported: true, guardrail: "checkbox", reason: null },
+        { action: "repair_mapping", supported: true, guardrail: "typed_preview", reason: null },
+        { action: "rerun_backfill", supported: true, guardrail: "checkbox", reason: null },
+        { action: "reverify_mapping", supported: true, guardrail: "checkbox", reason: null },
+        { action: "revert_mapping", supported: true, guardrail: "typed_preview", reason: null },
+        { action: "purge_logs", supported: true, guardrail: "typed_preview", reason: null },
+        { action: "normalize_errors", supported: true, guardrail: "checkbox", reason: null },
+        { action: "refresh_health", supported: true, guardrail: "none", reason: null },
+      ],
+    },
+    {
+      providerId: "finmind-tw",
+      supportsMappings: false,
+      supportsRepair: false,
+      supportsRenew: true,
+      supportsRerun: true,
+      supportsResolverModes: false,
+      emptyMappingReason: "FinMind TW has no provider-symbol mapping resolver yet.",
+      actions: [
+        { action: "renew_evidence", supported: true, guardrail: "checkbox", reason: null },
+        {
+          action: "repair_mapping",
+          supported: false,
+          guardrail: "none",
+          reason: "Repair is unavailable because this provider has no mapping resolver.",
+        },
+        { action: "rerun_backfill", supported: true, guardrail: "checkbox", reason: null },
+        {
+          action: "reverify_mapping",
+          supported: false,
+          guardrail: "none",
+          reason: "Reverify is unavailable because this provider has no durable mappings.",
+        },
+        {
+          action: "revert_mapping",
+          supported: false,
+          guardrail: "none",
+          reason: "Revert is unavailable because this provider has no durable mappings.",
+        },
+        { action: "purge_logs", supported: true, guardrail: "typed_preview", reason: null },
+        { action: "normalize_errors", supported: true, guardrail: "checkbox", reason: null },
+        { action: "refresh_health", supported: true, guardrail: "none", reason: null },
+      ],
+    },
+  ];
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -293,6 +352,7 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
             rateLimitCount24h: 0,
           }),
         ]}
+        capabilities={buildCapabilities()}
         initialProviderId="yahoo-finance-kr"
         initialTab="overview"
         summary={buildSummary()}

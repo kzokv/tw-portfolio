@@ -14,6 +14,8 @@ import type {
   ProviderIncidentDto,
   ProviderLogPurgePreviewDto,
   ProviderLogPurgePreviewResponse,
+  ProviderOperationAction,
+  ProviderOperationCapabilityDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
   ProviderResolutionMappingDto,
@@ -45,6 +47,7 @@ interface ProviderGroup {
 
 interface AdminProvidersClientProps {
   providers: ProviderHealthStatusDto[];
+  capabilities?: ProviderOperationCapabilityDto[];
   initialProviderId?: string;
   initialTab?: ProviderConsoleTab;
   summary: ProviderFixerDashboardSummaryDto;
@@ -93,87 +96,44 @@ const tabLabels: Array<{ id: ProviderConsoleTab; label: string; help: string }> 
   { id: "mappings", label: "Mappings", help: "Durable provider-symbol mappings and binding evidence where the provider supports them." },
 ];
 
-const providerCapabilities: Record<string, {
-  supportsMappings: boolean;
-  supportsRepair: boolean;
-  supportsRenew: boolean;
-  supportsRerun: boolean;
-  supportsResolverModes: boolean;
-  emptyMappingReason: string;
-}> = {
-  "yahoo-finance-kr": {
-    supportsMappings: true,
-    supportsRepair: true,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: true,
-    emptyMappingReason: "No durable KR mappings have been verified yet.",
-  },
-  "yahoo-finance-au": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: false,
-    emptyMappingReason: "Yahoo Finance AU does not use durable symbol mappings in this console.",
-  },
-  "finmind-tw": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: false,
-    emptyMappingReason: "FinMind TW has no provider-symbol mapping resolver yet.",
-  },
-  "finmind-us": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: false,
-    emptyMappingReason: "FinMind US has no provider-symbol mapping resolver yet.",
-  },
-  "twelve-data-kr": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: false,
-    supportsResolverModes: false,
-    emptyMappingReason: "Twelve Data KR is catalog evidence for KR bindings; Yahoo KR owns the durable provider mapping.",
-  },
-  "twelve-data-au": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: false,
-    supportsResolverModes: false,
-    emptyMappingReason: "Twelve Data AU is catalog metadata only in this console.",
-  },
-  frankfurter: {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: false,
-    emptyMappingReason: "Frankfurter refreshes FX rates and does not use symbol mappings.",
-  },
-  "asx-gics-csv": {
-    supportsMappings: false,
-    supportsRepair: false,
-    supportsRenew: true,
-    supportsRerun: true,
-    supportsResolverModes: false,
-    emptyMappingReason: "ASX GICS CSV enriches catalog classifications and does not use provider-symbol mappings.",
-  },
-};
-
-const defaultCapability = {
+const defaultCapability: ProviderOperationCapabilityDto = {
+  providerId: "unknown",
   supportsMappings: false,
   supportsRepair: false,
   supportsRenew: true,
   supportsRerun: false,
   supportsResolverModes: false,
   emptyMappingReason: "This provider does not expose durable mappings yet.",
+  actions: [
+    { action: "renew_evidence", supported: true, guardrail: "checkbox", reason: null },
+    {
+      action: "repair_mapping",
+      supported: false,
+      guardrail: "none",
+      reason: "Repair is unavailable because this provider has no mapping resolver.",
+    },
+    {
+      action: "rerun_backfill",
+      supported: false,
+      guardrail: "none",
+      reason: "Rerun is unavailable for this provider or provider plan.",
+    },
+    {
+      action: "reverify_mapping",
+      supported: false,
+      guardrail: "none",
+      reason: "Reverify is unavailable because this provider has no durable mappings.",
+    },
+    {
+      action: "revert_mapping",
+      supported: false,
+      guardrail: "none",
+      reason: "Revert is unavailable because this provider has no durable mappings.",
+    },
+    { action: "purge_logs", supported: true, guardrail: "typed_preview", reason: null },
+    { action: "normalize_errors", supported: true, guardrail: "checkbox", reason: null },
+    { action: "refresh_health", supported: true, guardrail: "none", reason: null },
+  ],
 };
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
@@ -274,15 +234,19 @@ function operationPreviewSummary(operation: ProviderFixerDashboardOperationDto):
   return `${formatNumber(operation.preview.sampleCount)} sample / ${formatNumber(operation.preview.matchCount)} matching`;
 }
 
-function disabledReason(action: "repair" | "rerun", supportsAction: boolean): string | null {
-  if (!supportsAction && action === "repair") return "Repair is unavailable because this provider has no mapping resolver.";
-  if (!supportsAction && action === "rerun") return "Rerun is unavailable for this provider or plan.";
-  if (action === "rerun") return "Rerun requires resolved items or durable provider mappings.";
-  return null;
+function actionDisabledReason(
+  capability: ProviderOperationCapabilityDto,
+  action: ProviderOperationAction,
+  fallback: string,
+): string | null {
+  const actionCapability = capability.actions.find((item) => item.action === action);
+  if (actionCapability?.supported) return null;
+  return actionCapability?.reason ?? fallback;
 }
 
 export function AdminProvidersClient({
   providers,
+  capabilities = [],
   initialProviderId,
   initialTab,
   summary,
@@ -337,7 +301,21 @@ export function AdminProvidersClient({
   const [logPurgeConfirmation, setLogPurgeConfirmation] = useState("");
 
   const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId) ?? providers[0] ?? null;
-  const capability = providerCapabilities[selectedProviderId] ?? defaultCapability;
+  const capability =
+    capabilities.find((item) => item.providerId === selectedProviderId)
+    ?? { ...defaultCapability, providerId: selectedProviderId };
+  const renewDisabledReason = actionDisabledReason(capability, "renew_evidence", "Renew is unavailable for this provider.");
+  const repairDisabledReason = actionDisabledReason(
+    capability,
+    "repair_mapping",
+    "Repair is unavailable because this provider has no mapping resolver.",
+  );
+  const rerunProviderDisabledReason = actionDisabledReason(
+    capability,
+    "rerun_backfill",
+    "Rerun is unavailable for this provider or provider plan.",
+  );
+  const rerunDisabledReason = rerunProviderDisabledReason ?? "Rerun requires resolved items or durable provider mappings.";
   const providerDiagnostics = diagnostics.rows.filter((row) => row.providerId === selectedProviderId);
   const fallbackDiagnosis = providerDiagnostics[0] ?? diagnostics.rows[0] ?? null;
   const providerOperations = operations.filter((operation) => operation.providerId === selectedProviderId);
@@ -589,10 +567,10 @@ export function AdminProvidersClient({
               <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh">
                 Refresh data
               </Button>
-              <Button variant="secondary" disabled={!capability.supportsRenew} title={!capability.supportsRenew ? "Renew is not supported by this provider." : "Refresh evidence and candidates without writing mappings or bars."}>
+              <Button variant="secondary" disabled={!capability.supportsRenew} title={renewDisabledReason ?? "Refresh evidence and candidates without writing mappings or bars."}>
                 Renew evidence
               </Button>
-              <Button onClick={previewRepair} disabled={!capability.supportsRepair || busyAction !== null} title={disabledReason("repair", capability.supportsRepair) ?? "Bind provider symbols for unresolved instruments."}>
+              <Button onClick={previewRepair} disabled={!capability.supportsRepair || busyAction !== null} title={repairDisabledReason ?? "Bind provider symbols for unresolved instruments."}>
                 Repair selected
               </Button>
             </div>
@@ -641,6 +619,7 @@ export function AdminProvidersClient({
             unresolvedTotal={unresolvedTotal}
             currentPreview={currentPreview}
             capability={capability}
+            rerunDisabledReason={rerunDisabledReason}
             onPreviewRepair={previewRepair}
           />
         ) : null}
@@ -652,6 +631,9 @@ export function AdminProvidersClient({
             diagnosis={fallbackDiagnosis}
             guardrails={guardrails}
             capability={capability}
+            renewDisabledReason={renewDisabledReason}
+            repairDisabledReason={repairDisabledReason}
+            rerunDisabledReason={rerunDisabledReason}
             currentPreview={currentPreview}
             selectedOperation={selectedOperation}
             confirmationChecked={confirmationChecked}
@@ -762,7 +744,7 @@ function OverviewTab({
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
   summary: ProviderFixerDashboardSummaryDto;
   guardrails: ProviderFixerDashboardGuardrailSettingsDto;
-  capability: typeof defaultCapability;
+  capability: ProviderOperationCapabilityDto;
   onViewUnresolved: () => void;
 }) {
   return (
@@ -816,6 +798,7 @@ function UnresolvedTab({
   unresolvedTotal,
   currentPreview,
   capability,
+  rerunDisabledReason,
   onPreviewRepair,
 }: {
   selectedProviderId: string;
@@ -825,7 +808,8 @@ function UnresolvedTab({
   unresolvedLimit: number;
   unresolvedTotal: number;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
-  capability: typeof defaultCapability;
+  capability: ProviderOperationCapabilityDto;
+  rerunDisabledReason: string;
   onPreviewRepair: () => void;
 }) {
   const evidence = currentPreview?.evidenceSample ?? [];
@@ -891,7 +875,7 @@ function UnresolvedTab({
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="secondary">Renew</Button>
                 <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
-                <Button size="sm" variant="secondary" disabled title={disabledReason("rerun", capability.supportsRerun) ?? undefined}>Rerun</Button>
+                <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">Rerun is disabled until this item is resolved or mapped.</p>
             </article>
@@ -928,7 +912,7 @@ function UnresolvedTab({
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="secondary">Renew</Button>
                     <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
-                    <Button size="sm" variant="secondary" disabled title={disabledReason("rerun", capability.supportsRerun) ?? undefined}>Rerun</Button>
+                    <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
                   </div>
                   <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
                 </td>
@@ -948,6 +932,9 @@ function FixerTab({
   diagnosis,
   guardrails,
   capability,
+  renewDisabledReason,
+  repairDisabledReason,
+  rerunDisabledReason,
   currentPreview,
   selectedOperation,
   confirmationChecked,
@@ -965,7 +952,10 @@ function FixerTab({
   diagnostics: ProviderFixerDashboardDiagnosticsDto;
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
   guardrails: ProviderFixerDashboardGuardrailSettingsDto;
-  capability: typeof defaultCapability;
+  capability: ProviderOperationCapabilityDto;
+  renewDisabledReason: string | null;
+  repairDisabledReason: string | null;
+  rerunDisabledReason: string;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   selectedOperation: ProviderFixerDashboardOperationDto | null;
   confirmationChecked: boolean;
@@ -1003,9 +993,9 @@ function FixerTab({
           <Metric label="Preview sample" value={formatNumber(guardrails.previewSampleLimit)} detail="Rows shown before dangerous execution." />
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <ActionPanel title="Renew" body="Refresh evidence and candidates; does not write mappings or bars." enabled={capability.supportsRenew} disabledReason="Renew is unavailable for this provider." actionLabel="Renew evidence" />
-          <ActionPanel title="Repair" body="Bind provider symbols for unresolved instruments." enabled={capability.supportsRepair} disabledReason={disabledReason("repair", capability.supportsRepair) ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
-          <ActionPanel title="Rerun" body="Fetch fresh provider data for already resolved mappings." enabled={false} disabledReason={disabledReason("rerun", capability.supportsRerun) ?? ""} actionLabel="Rerun disabled" />
+          <ActionPanel title="Renew" body="Refresh evidence and candidates; does not write mappings or bars." enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" />
+          <ActionPanel title="Repair" body="Bind provider symbols for unresolved instruments." enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
+          <ActionPanel title="Rerun" body="Fetch fresh provider data for already resolved mappings." enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
         </div>
         {actionError ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{actionError}</p> : null}
       </Card>
@@ -1384,7 +1374,7 @@ function MappingsTab({
   evidenceColumns,
 }: {
   selectedProviderId: string;
-  capability: typeof defaultCapability;
+  capability: ProviderOperationCapabilityDto;
   mappings: ProviderResolutionMappingDto[];
   page: number;
   limit: number;
