@@ -10,6 +10,7 @@ import type {
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatus,
   ProviderHealthStatusDto,
+  ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -42,6 +43,10 @@ interface AdminProvidersClientProps {
   summary: ProviderFixerDashboardSummaryDto;
   guardrails: ProviderFixerDashboardGuardrailSettingsDto;
   diagnostics: ProviderFixerDashboardDiagnosticsDto;
+  unresolvedItems: ProviderUnresolvedItemDto[];
+  unresolvedPage: number;
+  unresolvedLimit: number;
+  unresolvedTotal: number;
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   operationsPage: number;
@@ -259,6 +264,10 @@ export function AdminProvidersClient({
   summary,
   guardrails,
   diagnostics,
+  unresolvedItems,
+  unresolvedPage,
+  unresolvedLimit,
+  unresolvedTotal,
   stagedOperation,
   operations,
   operationsPage,
@@ -289,11 +298,11 @@ export function AdminProvidersClient({
   const providerDiagnostics = diagnostics.rows.filter((row) => row.providerId === selectedProviderId);
   const fallbackDiagnosis = providerDiagnostics[0] ?? diagnostics.rows[0] ?? null;
   const providerOperations = operations.filter((operation) => operation.providerId === selectedProviderId);
+  const providerStagedOperation = stagedOperation?.providerId === selectedProviderId ? stagedOperation : null;
   const selectedOperation =
     providerOperations.find((operation) => operation.id === selectedOperationId)
-    ?? stagedOperation
+    ?? providerStagedOperation
     ?? providerOperations[0]
-    ?? operations[0]
     ?? null;
   const progressOperation =
     providerOperations.find((operation) => operation.phase === "running")
@@ -314,8 +323,8 @@ export function AdminProvidersClient({
 
   useEffect(() => {
     if (providerOperations.some((operation) => operation.id === selectedOperationId)) return;
-    setSelectedOperationId(stagedOperation?.id ?? providerOperations[0]?.id ?? operations[0]?.id ?? "");
-  }, [operations, providerOperations, selectedOperationId, stagedOperation]);
+    setSelectedOperationId(providerStagedOperation?.id ?? providerOperations[0]?.id ?? "");
+  }, [providerOperations, providerStagedOperation, selectedOperationId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -336,12 +345,14 @@ export function AdminProvidersClient({
   });
 
   function selectProvider(providerId: string): void {
+    const row = diagnostics.rows.find((item) => item.providerId === providerId);
+    const nextTab: ProviderConsoleTab = row && row.unresolvedCount > 0 ? "unresolved" : activeTab;
     setSelectedProviderId(providerId);
     setSelectedOperationId("");
     setConfirmationChecked(false);
     setTypedConfirmation("");
-    const row = diagnostics.rows.find((item) => item.providerId === providerId);
-    setActiveTab(row && row.unresolvedCount > 0 ? "unresolved" : "overview");
+    setActiveTab(nextTab);
+    router.push(`/admin/providers?providerId=${encodeURIComponent(providerId)}&tab=${encodeURIComponent(nextTab)}`);
   }
 
   function refreshData(): void {
@@ -549,6 +560,10 @@ export function AdminProvidersClient({
           <UnresolvedTab
             selectedProviderId={selectedProviderId}
             diagnosis={fallbackDiagnosis}
+            unresolvedItems={unresolvedItems.filter((item) => item.providerId === selectedProviderId)}
+            unresolvedPage={unresolvedPage}
+            unresolvedLimit={unresolvedLimit}
+            unresolvedTotal={unresolvedTotal}
             currentPreview={currentPreview}
             capability={capability}
             onPreviewRepair={previewRepair}
@@ -691,24 +706,53 @@ function OverviewTab({
 function UnresolvedTab({
   selectedProviderId,
   diagnosis,
+  unresolvedItems,
+  unresolvedPage,
+  unresolvedLimit,
+  unresolvedTotal,
   currentPreview,
   capability,
   onPreviewRepair,
 }: {
   selectedProviderId: string;
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
+  unresolvedItems: ProviderUnresolvedItemDto[];
+  unresolvedPage: number;
+  unresolvedLimit: number;
+  unresolvedTotal: number;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   capability: typeof defaultCapability;
   onPreviewRepair: () => void;
 }) {
   const evidence = currentPreview?.evidenceSample ?? [];
+  const rows = unresolvedItems.length > 0
+    ? unresolvedItems.map((item) => ({
+        key: `${item.providerId}-${item.marketCode}-${item.errorCode}-${item.sourceSymbol}`,
+        sourceSymbol: item.sourceSymbol,
+        providerSymbol: item.providerSymbol ?? item.sourceSymbol,
+        candidateSymbol: null as string | null,
+        state: item.state,
+        stateLabel: item.state,
+        evidence: `${item.occurrenceCount} occurrences; last seen ${formatTimestamp(item.lastSeenAt)}`,
+        note: item.errorCode,
+      }))
+    : evidence.map((item) => ({
+        key: `${selectedProviderId}-${item.symbol}-${item.providerSymbol}`,
+        sourceSymbol: item.symbol,
+        providerSymbol: item.providerSymbol,
+        candidateSymbol: item.candidateSymbol,
+        state: "active",
+        stateLabel: item.verificationStatus === "verified" ? "candidate found" : item.verificationStatus,
+        evidence: item.exchangeHint ?? item.note,
+        note: item.note,
+      }));
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h3 className="text-xl font-semibold text-foreground">Unique unresolved instruments</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Provider-scoped unresolved rows. Current branch uses fixer evidence samples until durable unresolved item rows are fully migrated.
+            Provider-scoped durable unresolved rows. Preview evidence appears only when no durable rows are available for this provider.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -723,22 +767,22 @@ function UnresolvedTab({
         <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Provider: {selectedProviderId}</div>
       </div>
       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800" data-testid="provider-console-selection-banner">
-        <strong>{formatNumber(Math.min(evidence.length, 3))} rows selected.</strong> Select all {formatNumber(diagnosis?.unresolvedCount ?? 0)} matching rows for bulk repair.
+        <strong>{formatNumber(Math.min(rows.length, 3))} rows selected.</strong> Select all {formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} matching rows for bulk repair.
       </div>
-      {evidence.length > 0 ? (
+      {rows.length > 0 ? (
         <div className="grid gap-3 sm:hidden">
-          {evidence.map((row) => (
-            <article key={`${row.symbol}-${row.providerSymbol}`} className="rounded-xl border border-border bg-card p-4">
+          {rows.map((row) => (
+            <article key={row.key} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-mono font-semibold text-foreground">{row.symbol}</p>
+                  <p className="font-mono font-semibold text-foreground">{row.sourceSymbol}</p>
                   <p className="text-xs text-muted-foreground">{row.providerSymbol}</p>
                 </div>
-                <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.verificationStatus}</span>
+                <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.stateLabel}</span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 <SettingReadout label="Candidate" value={row.candidateSymbol ?? "-"} />
-                <SettingReadout label="Evidence" value={row.exchangeHint ?? "-"} />
+                <SettingReadout label="Evidence" value={row.evidence ?? "-"} />
               </dl>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="secondary">Renew</Button>
@@ -751,7 +795,7 @@ function UnresolvedTab({
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
-          Run Renew or Repair preview to load unresolved evidence samples for this provider.
+          No active durable unresolved rows found for this provider. Run Renew to refresh evidence or check Logs for raw occurrences.
         </div>
       )}
       <div className="hidden overflow-hidden rounded-xl border border-border sm:block">
@@ -768,14 +812,14 @@ function UnresolvedTab({
             </tr>
           </thead>
           <tbody>
-            {(evidence.length > 0 ? evidence : [{ symbol: "005930", providerSymbol: "005930", candidateSymbol: "005930.KS", verificationStatus: "pending", exchangeHint: "Twelve Data catalog hint", note: "" }]).map((row) => (
-              <tr key={`${row.symbol}-${row.providerSymbol}`} className="border-t border-border">
-                <td className="px-3 py-3"><input type="checkbox" defaultChecked aria-label={`Select ${row.symbol}`} /></td>
-                <td className="px-3 py-3 font-mono font-semibold">{row.symbol}</td>
+            {rows.map((row) => (
+              <tr key={row.key} className="border-t border-border">
+                <td className="px-3 py-3"><input type="checkbox" defaultChecked aria-label={`Select ${row.sourceSymbol}`} /></td>
+                <td className="px-3 py-3 font-mono font-semibold">{row.sourceSymbol}</td>
                 <td className="px-3 py-3 font-mono">{row.providerSymbol}</td>
                 <td className="px-3 py-3 font-mono">{row.candidateSymbol ?? "-"}</td>
-                <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">Candidate found</span></td>
-                <td className="px-3 py-3">{row.exchangeHint ?? row.note}</td>
+                <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.stateLabel}</span></td>
+                <td className="px-3 py-3">{row.evidence ?? row.note}</td>
                 <td className="px-3 py-3">
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="secondary">Renew</Button>
@@ -789,6 +833,7 @@ function UnresolvedTab({
           </tbody>
         </table>
       </div>
+      <Pagination page={unresolvedPage} limit={unresolvedLimit} total={unresolvedTotal} onPageChange={() => undefined} />
     </Card>
   );
 }

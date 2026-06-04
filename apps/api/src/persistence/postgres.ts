@@ -140,6 +140,8 @@ import type {
   ListProviderOperationLogsResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
+  ListProviderUnresolvedItemsOptions,
+  ListProviderUnresolvedItemsResult,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
@@ -151,6 +153,7 @@ import type {
   ProviderOperationRecord,
   ProviderOperationLogLevel,
   ProviderResolutionMappingRecord,
+  ProviderUnresolvedItemRecord,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -162,6 +165,7 @@ import type {
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
+  UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
   UserRole,
 } from "./types.js";
@@ -12272,7 +12276,25 @@ export class PostgresPersistence implements Persistence {
         input.context ? JSON.stringify(input.context) : null,
       ],
     );
-    return mapProviderErrorTrailRow(result.rows[0]!);
+    const row = mapProviderErrorTrailRow(result.rows[0]!);
+    if (row.errorClass !== "rate_limit") {
+      const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
+      if (sourceSymbol) {
+        await this.upsertProviderUnresolvedItem({
+          providerId: row.providerId,
+          marketCode: inferProviderMarketCode(row.providerId, row.context),
+          errorCode: inferProviderErrorCode(row.errorClass, row.errorMessage),
+          sourceSymbol,
+          providerSymbol:
+            typeof row.context?.providerSymbol === "string"
+              ? row.context.providerSymbol.toUpperCase()
+              : sourceSymbol,
+          lastErrorTrailId: row.id,
+          evidence: { context: row.context, errorMessage: row.errorMessage },
+        });
+      }
+    }
+    return row;
   }
 
   async getRecentProviderErrors(
@@ -12397,6 +12419,119 @@ export class PostgresPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const result = await this.pool.query<ProviderUnresolvedItemRowSql>(
+      `INSERT INTO market_data.provider_unresolved_items
+         (provider_id, market_code, error_code, source_symbol, provider_symbol, severity, last_error_trail_id, evidence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (provider_id, market_code, error_code, source_symbol) DO UPDATE
+       SET provider_symbol = COALESCE(EXCLUDED.provider_symbol, market_data.provider_unresolved_items.provider_symbol),
+           state = 'active',
+           severity = EXCLUDED.severity,
+           occurrence_count = market_data.provider_unresolved_items.occurrence_count + 1,
+           last_seen_at = NOW(),
+           last_error_trail_id = COALESCE(EXCLUDED.last_error_trail_id, market_data.provider_unresolved_items.last_error_trail_id),
+           evidence = COALESCE(market_data.provider_unresolved_items.evidence, '{}'::jsonb) || COALESCE(EXCLUDED.evidence, '{}'::jsonb),
+           resolved_at = NULL,
+           resolved_by_operation_id = NULL,
+           updated_at = NOW()
+       RETURNING provider_id, market_code, error_code, source_symbol, provider_symbol, state, severity,
+                 occurrence_count, first_seen_at, last_seen_at, last_error_trail_id, evidence,
+                 resolved_at, resolved_by_operation_id, updated_at`,
+      [
+        input.providerId,
+        input.marketCode,
+        input.errorCode,
+        sourceSymbol,
+        input.providerSymbol ?? sourceSymbol,
+        input.severity ?? "warning",
+        input.lastErrorTrailId ?? null,
+        input.evidence ? JSON.stringify(input.evidence) : null,
+      ],
+    );
+    return mapProviderUnresolvedItemRow(result.rows[0]!);
+  }
+
+  async listProviderUnresolvedItems(
+    options: ListProviderUnresolvedItemsOptions,
+  ): Promise<ListProviderUnresolvedItemsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (options.providerId) {
+      where.push(`provider_id = $${i++}`);
+      params.push(options.providerId);
+    }
+    if (options.marketCode) {
+      where.push(`market_code = $${i++}`);
+      params.push(options.marketCode);
+    }
+    if (options.state) {
+      where.push(`state = $${i++}`);
+      params.push(options.state);
+    }
+    if (options.errorCode) {
+      where.push(`error_code = $${i++}`);
+      params.push(options.errorCode);
+    }
+    if (options.search?.trim()) {
+      where.push(`(source_symbol ILIKE $${i} OR COALESCE(provider_symbol, '') ILIKE $${i} OR error_code ILIKE $${i})`);
+      params.push(`%${options.search.trim()}%`);
+      i++;
+    }
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_unresolved_items
+         ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query<ProviderUnresolvedItemRowSql>(
+      `SELECT provider_id, market_code, error_code, source_symbol, provider_symbol, state, severity,
+              occurrence_count, first_seen_at, last_seen_at, last_error_trail_id, evidence,
+              resolved_at, resolved_by_operation_id, updated_at
+         FROM market_data.provider_unresolved_items
+         ${whereClause}
+         ORDER BY last_seen_at DESC
+         LIMIT $${i++}
+         OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderUnresolvedItemRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async resolveProviderUnresolvedItems(input: {
+    providerId: string;
+    marketCode: MarketCode;
+    sourceSymbols: string[];
+    operationId?: string | null;
+  }): Promise<number> {
+    const sourceSymbols = input.sourceSymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean);
+    if (sourceSymbols.length === 0) return 0;
+    const result = await this.pool.query(
+      `UPDATE market_data.provider_unresolved_items
+          SET state = 'resolved',
+              resolved_at = NOW(),
+              resolved_by_operation_id = $4,
+              updated_at = NOW()
+        WHERE provider_id = $1
+          AND market_code = $2
+          AND source_symbol = ANY($3::text[])
+          AND state = 'active'`,
+      [input.providerId, input.marketCode, sourceSymbols, input.operationId ?? null],
+    );
+    return result.rowCount ?? 0;
   }
 
   async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {
@@ -12716,6 +12851,24 @@ interface ProviderErrorTrailRowSql {
   context: Record<string, unknown> | null;
 }
 
+interface ProviderUnresolvedItemRowSql {
+  provider_id: string;
+  market_code: string;
+  error_code: string;
+  source_symbol: string;
+  provider_symbol: string | null;
+  state: string;
+  severity: string;
+  occurrence_count: number | string;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_error_trail_id: string | number | null;
+  evidence: Record<string, unknown> | null;
+  resolved_at: string | null;
+  resolved_by_operation_id: string | null;
+  updated_at: string;
+}
+
 interface ProviderOperationRowSql {
   id: string;
   provider_id: string;
@@ -12789,6 +12942,58 @@ function mapProviderErrorTrailRow(row: ProviderErrorTrailRowSql): ProviderErrorT
     errorMessage: row.error_message,
     context: row.context,
   };
+}
+
+function mapProviderUnresolvedItemRow(row: ProviderUnresolvedItemRowSql): ProviderUnresolvedItemRecord {
+  return {
+    providerId: row.provider_id,
+    marketCode: row.market_code as MarketCode,
+    errorCode: row.error_code,
+    sourceSymbol: row.source_symbol,
+    providerSymbol: row.provider_symbol,
+    state: row.state as ProviderUnresolvedItemRecord["state"],
+    severity: row.severity as ProviderUnresolvedItemRecord["severity"],
+    occurrenceCount: Number(row.occurrence_count),
+    firstSeenAt: new Date(row.first_seen_at).toISOString(),
+    lastSeenAt: new Date(row.last_seen_at).toISOString(),
+    lastErrorTrailId: row.last_error_trail_id == null
+      ? null
+      : typeof row.last_error_trail_id === "string"
+        ? parseInt(row.last_error_trail_id, 10)
+        : row.last_error_trail_id,
+    evidence: row.evidence,
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : null,
+    resolvedByOperationId: row.resolved_by_operation_id,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function inferProviderMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode {
+  const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+    return contextMarket;
+  }
+  if (providerId.endsWith("-tw")) return "TW";
+  if (providerId.endsWith("-us")) return "US";
+  if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
+  return "KR";
+}
+
+function inferProviderErrorCode(errorClass: string, errorMessage: string | null): string {
+  const message = errorMessage ?? "";
+  if (message.includes("yahoo_finance_kr_symbol_unresolved")) return "yahoo_finance_kr_symbol_unresolved";
+  if (message.includes("provider_symbol_unresolved")) return "provider_symbol_unresolved";
+  return errorClass;
+}
+
+function extractProviderUnresolvedSymbol(context: Record<string, unknown> | null, errorMessage: string | null): string | null {
+  const raw =
+    (typeof context?.ticker === "string" && context.ticker)
+    || (typeof context?.symbol === "string" && context.symbol)
+    || (typeof context?.providerSymbol === "string" && context.providerSymbol)
+    || (errorMessage?.match(/:\s*([A-Z0-9][A-Z0-9.-]{1,20})\s*$/i)?.[1] ?? null);
+  const symbol = raw?.trim().toUpperCase();
+  return symbol && symbol.length > 0 ? symbol : null;
 }
 
 function mapProviderOperationRow(row: ProviderOperationRowSql): ProviderOperationRecord {

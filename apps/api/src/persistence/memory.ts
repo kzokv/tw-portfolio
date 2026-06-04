@@ -113,6 +113,8 @@ import type {
   ListProviderOperationLogsResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
+  ListProviderUnresolvedItemsOptions,
+  ListProviderUnresolvedItemsResult,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
@@ -120,6 +122,7 @@ import type {
   ProviderOperationLogRecord,
   ProviderOperationRecord,
   ProviderResolutionMappingRecord,
+  ProviderUnresolvedItemRecord,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -131,6 +134,7 @@ import type {
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
+  UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
   UserRole,
 } from "./types.js";
@@ -340,6 +344,43 @@ function tickerFundamentalsKey(ticker: string, marketCode: MarketCode): string {
   return `${ticker}|${marketCode}`;
 }
 
+function inferProviderMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode {
+  const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+    return contextMarket;
+  }
+  if (providerId.endsWith("-tw")) return "TW";
+  if (providerId.endsWith("-us")) return "US";
+  if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
+  return "KR";
+}
+
+function inferProviderErrorCode(errorClass: string, errorMessage: string | null): string {
+  const message = errorMessage ?? "";
+  if (message.includes("yahoo_finance_kr_symbol_unresolved")) return "yahoo_finance_kr_symbol_unresolved";
+  if (message.includes("provider_symbol_unresolved")) return "provider_symbol_unresolved";
+  return errorClass;
+}
+
+function extractProviderUnresolvedSymbol(context: Record<string, unknown> | null, errorMessage: string | null): string | null {
+  const raw =
+    (typeof context?.ticker === "string" && context.ticker)
+    || (typeof context?.symbol === "string" && context.symbol)
+    || (typeof context?.providerSymbol === "string" && context.providerSymbol)
+    || (errorMessage?.match(/:\s*([A-Z0-9][A-Z0-9.-]{1,20})\s*$/i)?.[1] ?? null);
+  const symbol = raw?.trim().toUpperCase();
+  return symbol && symbol.length > 0 ? symbol : null;
+}
+
+function providerUnresolvedItemKey(
+  providerId: string,
+  marketCode: MarketCode,
+  errorCode: string,
+  sourceSymbol: string,
+): string {
+  return `${providerId}:${marketCode}:${errorCode}:${sourceSymbol.toUpperCase()}`;
+}
+
 function mapMemoryTickerFundamentals(
   row: MemoryTickerFundamentalsRecord,
 ): PersistedTickerFundamentalsRecord {
@@ -459,6 +500,7 @@ export class MemoryPersistence implements Persistence {
   /** KZO-177: provider error trail rows; auto-incrementing id stamped at insert. */
   private readonly providerErrorTrail: ProviderErrorTrailRow[] = [];
   private _providerErrorTrailNextId = 1;
+  private readonly providerUnresolvedItems = new Map<string, ProviderUnresolvedItemRecord>();
   private readonly providerOperations = new Map<string, ProviderOperationRecord>();
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
   private _providerOperationLogNextId = 1;
@@ -5236,6 +5278,23 @@ export class MemoryPersistence implements Persistence {
       context: input.context ?? null,
     };
     this.providerErrorTrail.push(row);
+    if (row.errorClass !== "rate_limit") {
+      const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
+      if (sourceSymbol) {
+        await this.upsertProviderUnresolvedItem({
+          providerId: row.providerId,
+          marketCode: inferProviderMarketCode(row.providerId, row.context),
+          errorCode: inferProviderErrorCode(row.errorClass, row.errorMessage),
+          sourceSymbol,
+          providerSymbol:
+            typeof row.context?.providerSymbol === "string"
+              ? row.context.providerSymbol.toUpperCase()
+              : sourceSymbol,
+          lastErrorTrailId: row.id,
+          evidence: { context: row.context, errorMessage: row.errorMessage },
+        });
+      }
+    }
     return { ...row };
   }
 
@@ -5329,6 +5388,98 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord> {
+    const now = new Date().toISOString();
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const key = providerUnresolvedItemKey(input.providerId, input.marketCode, input.errorCode, sourceSymbol);
+    const existing = this.providerUnresolvedItems.get(key);
+    const row: ProviderUnresolvedItemRecord = existing
+      ? {
+          ...existing,
+          providerSymbol: input.providerSymbol ?? existing.providerSymbol,
+          state: "active",
+          severity: input.severity ?? existing.severity,
+          occurrenceCount: existing.occurrenceCount + 1,
+          lastSeenAt: now,
+          lastErrorTrailId: input.lastErrorTrailId ?? existing.lastErrorTrailId,
+          evidence: { ...(existing.evidence ?? {}), ...(input.evidence ?? {}) },
+          resolvedAt: null,
+          resolvedByOperationId: null,
+          updatedAt: now,
+        }
+      : {
+          providerId: input.providerId,
+          marketCode: input.marketCode,
+          errorCode: input.errorCode,
+          sourceSymbol,
+          providerSymbol: input.providerSymbol ?? sourceSymbol,
+          state: "active",
+          severity: input.severity ?? "warning",
+          occurrenceCount: 1,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          lastErrorTrailId: input.lastErrorTrailId ?? null,
+          evidence: input.evidence ?? null,
+          resolvedAt: null,
+          resolvedByOperationId: null,
+          updatedAt: now,
+        };
+    this.providerUnresolvedItems.set(key, row);
+    return { ...row, evidence: row.evidence ? { ...row.evidence } : null };
+  }
+
+  async listProviderUnresolvedItems(
+    options: ListProviderUnresolvedItemsOptions,
+  ): Promise<ListProviderUnresolvedItemsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const search = options.search?.trim().toUpperCase();
+    const filtered = [...this.providerUnresolvedItems.values()]
+      .filter((row) => {
+        if (options.providerId && row.providerId !== options.providerId) return false;
+        if (options.marketCode && row.marketCode !== options.marketCode) return false;
+        if (options.state && row.state !== options.state) return false;
+        if (options.errorCode && row.errorCode !== options.errorCode) return false;
+        if (search && !`${row.sourceSymbol} ${row.providerSymbol ?? ""} ${row.errorCode}`.toUpperCase().includes(search)) return false;
+        return true;
+      })
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({
+        ...row,
+        evidence: row.evidence ? { ...row.evidence } : null,
+      })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async resolveProviderUnresolvedItems(input: {
+    providerId: string;
+    marketCode: MarketCode;
+    sourceSymbols: string[];
+    operationId?: string | null;
+  }): Promise<number> {
+    const now = new Date().toISOString();
+    const symbols = new Set(input.sourceSymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean));
+    let updated = 0;
+    for (const [key, row] of this.providerUnresolvedItems.entries()) {
+      if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
+      if (!symbols.has(row.sourceSymbol)) continue;
+      this.providerUnresolvedItems.set(key, {
+        ...row,
+        state: "resolved",
+        resolvedAt: now,
+        resolvedByOperationId: input.operationId ?? null,
+        updatedAt: now,
+      });
+      updated++;
+    }
+    return updated;
   }
 
   async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {
