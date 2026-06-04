@@ -738,6 +738,52 @@ function numberField(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+async function reserveProviderOperationBudget(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  requestCount = 1,
+): Promise<void> {
+  const latest = await app.persistence.getProviderOperation(operation.id);
+  const metadata = asRecord(latest?.metadata) ?? asRecord(operation.metadata) ?? {};
+  const capPerMinute = numberField(metadata.effectiveRateCapPerMinute) ?? 250;
+  const safeCapPerMinute = Math.max(0.01, capPerMinute);
+  const windowMs = safeCapPerMinute >= 1 ? 60_000 : Math.ceil(60_000 / safeCapPerMinute);
+  const capPerWindow = Math.max(1, Math.floor(safeCapPerMinute >= 1 ? safeCapPerMinute : 1));
+  const now = Date.now();
+  const startedAtRaw = stringField(metadata.operationBudgetWindowStartedAt);
+  const startedAtMs = startedAtRaw ? Date.parse(startedAtRaw) : NaN;
+  const windowStartedAt = Number.isFinite(startedAtMs) && now - startedAtMs < windowMs ? startedAtMs : now;
+  const consumed = windowStartedAt === startedAtMs ? Math.max(0, Math.floor(numberField(metadata.operationBudgetConsumed) ?? 0)) : 0;
+
+  if (consumed + requestCount > capPerWindow) {
+    const msUntilAvailable = Math.max(1, windowStartedAt + windowMs - now);
+    await app.persistence.updateProviderOperation({
+      id: operation.id,
+      metadata: {
+        ...metadata,
+        operationBudgetConsumed: consumed,
+        operationBudgetWindowStartedAt: new Date(windowStartedAt).toISOString(),
+        operationBudgetWindowMs: windowMs,
+        operationBudgetCapPerWindow: capPerWindow,
+        operationBudgetPausedUntil: new Date(now + msUntilAvailable).toISOString(),
+      },
+    });
+    throw new RateLimitedError({ msUntilAvailable });
+  }
+
+  await app.persistence.updateProviderOperation({
+    id: operation.id,
+    metadata: {
+      ...metadata,
+      operationBudgetConsumed: consumed + requestCount,
+      operationBudgetWindowStartedAt: new Date(windowStartedAt).toISOString(),
+      operationBudgetWindowMs: windowMs,
+      operationBudgetCapPerWindow: capPerWindow,
+      operationBudgetPausedUntil: null,
+    },
+  });
+}
+
 function hashProviderFixerToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -763,7 +809,7 @@ async function buildProviderFixerEvidenceRow(
   providerId: string,
   marketCode: MarketCode,
   row: ProviderErrorTrailRow,
-  options: { resolverMode?: MarketDataResolverMode; verifyCandidate?: boolean } = {},
+  options: { resolverMode?: MarketDataResolverMode; verifyCandidate?: boolean; operationBudget?: ProviderOperationRecord } = {},
 ): Promise<ProviderFixerDashboardEvidenceSampleDto | null> {
   const ticker = extractProviderFixerTicker(row);
   if (!ticker) return null;
@@ -797,6 +843,9 @@ async function buildProviderFixerEvidenceRow(
 
   let verificationNote: string | null = null;
   if (candidateSymbol && options.verifyCandidate) {
+    if (options.operationBudget) {
+      await reserveProviderOperationBudget(app, options.operationBudget, 1);
+    }
     const verification = await verifyProviderFixerCandidate(
       app,
       providerId,
@@ -1269,6 +1318,7 @@ async function executeProviderFixerMappings(
         evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
           resolverMode: operation.resolverMode ?? "quote_first",
           verifyCandidate: true,
+          operationBudget: operation,
         });
       } catch (err) {
         const isRateLimited = err instanceof RateLimitedError;
@@ -1420,12 +1470,13 @@ async function completeProviderFixerOperation(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Provider fixer execution failed";
     const isRateLimited = err instanceof RateLimitedError;
+    const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? asRecord(operation.metadata) ?? {};
     const interrupted = await app.persistence.updateProviderOperation({
       id: operation.id,
       phase: isRateLimited ? "paused" : "failed",
       completedAt: isRateLimited ? null : new Date().toISOString(),
       metadata: {
-        ...(asRecord(operation.metadata) ?? {}),
+        ...latestMetadata,
         progressPercent: 0,
         pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
         autoPauseFailureCount: isRateLimited ? 1 : undefined,
@@ -1581,6 +1632,7 @@ async function renewProviderFixerEvidence(
         evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
           resolverMode: operation.resolverMode ?? "quote_first",
           verifyCandidate: true,
+          operationBudget: operation,
         });
       } catch (err) {
         const isRateLimited = err instanceof RateLimitedError;
@@ -1655,12 +1707,13 @@ async function completeProviderRenewEvidenceOperation(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Provider evidence renewal failed.";
     const isRateLimited = err instanceof RateLimitedError;
+    const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? asRecord(operation.metadata) ?? {};
     const interrupted = await app.persistence.updateProviderOperation({
       id: operation.id,
       phase: isRateLimited ? "paused" : "failed",
       completedAt: isRateLimited ? null : new Date().toISOString(),
       metadata: {
-        ...(asRecord(operation.metadata) ?? {}),
+        ...latestMetadata,
         progressPercent: 0,
         pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
         failureReason: message,
@@ -2079,6 +2132,7 @@ async function completeProviderMappingReverifyOperation(
 
   try {
     const mapping = await app.persistence.getProviderResolutionMapping(operation.providerId, operation.marketCode, sourceSymbol);
+    await reserveProviderOperationBudget(app, operation, 1);
     const verification = await verifyProviderFixerCandidate(
       app,
       operation.providerId,
@@ -2222,6 +2276,7 @@ async function completeProviderMappingReverifyOperation(
   } catch (err) {
     const isRateLimited = err instanceof RateLimitedError;
     const message = err instanceof Error ? err.message : "Provider mapping reverify failed.";
+    const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? metadata;
     await app.persistence.upsertProviderOperationOutcome({
       operationId: operation.id,
       providerId: operation.providerId,
@@ -2238,7 +2293,7 @@ async function completeProviderMappingReverifyOperation(
       phase: isRateLimited ? "paused" : "failed",
       completedAt: isRateLimited ? null : new Date().toISOString(),
       metadata: {
-        ...metadata,
+        ...latestMetadata,
         progressPercent: 100,
         pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
         failureReason: message,
@@ -2941,21 +2996,125 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       })
       .strict()
       .parse(req.body ?? {});
-    const item = await app.persistence.updateProviderUnresolvedItemState({
+    const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    const startedAt = new Date().toISOString();
+    const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
+      operationType: action,
+      phase: "running",
       errorCode: body.errorCode,
-      sourceSymbol: body.sourceSymbol,
-      state: body.state,
+      scopeQuery: `${providerId}:unresolved:${action}:${body.sourceSymbol}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${body.errorCode}:${body.sourceSymbol}:${body.state}`).slice(0, 12),
+      previewTokenHash: null,
+      previewExpiresAt: null,
+      matchCount: 1,
+      sample: [],
+      metadata: {
+        sourceSymbol: body.sourceSymbol,
+        targetState: body.state,
+        reason: body.reason ?? null,
+        progressPercent: 0,
+      },
       actorUserId: sessionUserId,
-      reason: body.reason ?? null,
+      startedAt,
     });
-    const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    let item: Awaited<ReturnType<typeof app.persistence.updateProviderUnresolvedItemState>>;
+    try {
+      item = await app.persistence.updateProviderUnresolvedItemState({
+        providerId,
+        marketCode: body.marketCode,
+        errorCode: body.errorCode,
+        sourceSymbol: body.sourceSymbol,
+        state: body.state,
+        actorUserId: sessionUserId,
+        reason: body.reason ?? null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Provider unresolved lifecycle update failed.";
+      const failed = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        metadata: {
+          ...(asRecord(operation.metadata) ?? {}),
+          progressPercent: 100,
+          failureReason: message,
+          failureName: err instanceof Error ? err.name : "UnknownError",
+        },
+      });
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId,
+        marketCode: body.marketCode,
+        sourceSymbol: body.sourceSymbol,
+        providerSymbol: body.sourceSymbol,
+        action,
+        state: "failed",
+        message,
+        errorCode: "provider_unresolved_state_update_failed",
+        evidence: { targetState: body.state, reason: body.reason ?? null },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: operation.id,
+        phase: failed.phase,
+        level: "error",
+        message: `${action}_failed provider=${providerId} market=${body.marketCode} source_symbol=${body.sourceSymbol} reason=${message}`,
+        context: { providerId, marketCode: body.marketCode, errorCode: body.errorCode, sourceSymbol: body.sourceSymbol, errorMessage: message },
+      });
+      await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+        operationId: operation.id,
+        providerId,
+        phase: failed.phase,
+      });
+      throw err;
+    }
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId,
+      marketCode: item.marketCode,
+      sourceSymbol: item.sourceSymbol,
+      providerSymbol: item.providerSymbol,
+      action,
+      state: "succeeded",
+      message: `Set unresolved item ${item.sourceSymbol} to ${item.state}.`,
+      evidence: { targetState: item.state, reason: body.reason ?? null },
+    });
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        completedState: item.state,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: completed.phase,
+      level: item.state === "unsupported" ? "warning" : "info",
+      message: `${action}_completed provider=${providerId} market=${item.marketCode} source_symbol=${item.sourceSymbol} state=${item.state}`,
+      context: { providerId, marketCode: item.marketCode, errorCode: item.errorCode, sourceSymbol: item.sourceSymbol, state: item.state, reason: body.reason ?? null },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: completed.phase,
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_progress", {
+      operationId: operation.id,
+      providerId,
+      processed: 1,
+      total: 1,
+      progressPercent: 100,
+    });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
       action: "provider_fixer_operation",
       ipAddress,
       metadata: {
+        operationId: operation.id,
         action,
         providerId,
         marketCode: item.marketCode,
@@ -4032,6 +4191,21 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       phase: running.phase,
     });
     const deleted = await app.persistence.purgeProviderLogs(providerId);
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: running.id,
+      providerId,
+      marketCode: running.marketCode,
+      sourceSymbol: "provider_logs",
+      providerSymbol: providerId,
+      action: "purge_logs",
+      state: "succeeded",
+      message: `Purged ${deleted.errorTrailCount} provider error rows and ${deleted.operationLogCount} operation log rows.`,
+      evidence: {
+        errorTrailDeleted: deleted.errorTrailCount,
+        operationLogDeleted: deleted.operationLogCount,
+        boundary: "provider_error_trail and provider_operation_logs only",
+      },
+    });
     const completed = await app.persistence.updateProviderOperation({
       id: running.id,
       phase: "completed",
@@ -4041,6 +4215,18 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         progressPercent: 100,
         errorTrailDeleted: deleted.errorTrailCount,
         operationLogDeleted: deleted.operationLogCount,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: completed.id,
+      phase: completed.phase,
+      level: "warning",
+      message: `purge_logs_completed provider=${providerId} error_trail_deleted=${deleted.errorTrailCount} operation_logs_deleted=${deleted.operationLogCount}`,
+      context: {
+        providerId,
+        errorTrailDeleted: deleted.errorTrailCount,
+        operationLogDeleted: deleted.operationLogCount,
+        boundary: "provider_error_trail and provider_operation_logs only",
       },
     });
     await app.persistence.appendAuditLog({
@@ -4059,6 +4245,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       operationId: completed.id,
       phase: completed.phase,
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_progress", {
+      operationId: completed.id,
+      providerId,
+      processed: 1,
+      total: 1,
+      progressPercent: 100,
     });
     return {
       operationId: completed.id,
