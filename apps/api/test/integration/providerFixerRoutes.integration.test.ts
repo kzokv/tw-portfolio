@@ -462,6 +462,70 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("persists provider operation settings and rejects inverted health thresholds", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const accepted = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: {
+        providerOperationAutoRenewIntervalMinutes: 45,
+        providerIncidentRecurrenceWindowMinutes: 20,
+        providerHealthWarningUnresolvedThreshold: 500,
+        providerHealthCriticalUnresolvedThreshold: 5_000,
+        providerOperationStaleHeartbeatMinutes: 10,
+        providerOperationSummaryRetentionDays: 120,
+        providerOperationLogRetentionDays: 45,
+        providerIncidentRetentionDays: 240,
+        providerResolvedItemRetentionDays: 60,
+      },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toMatchObject({
+      providerOperationAutoRenewIntervalMinutes: 45,
+      effectiveProviderOperationAutoRenewIntervalMinutes: 45,
+      providerIncidentRecurrenceWindowMinutes: 20,
+      effectiveProviderIncidentRecurrenceWindowMinutes: 20,
+      providerHealthWarningUnresolvedThreshold: 500,
+      effectiveProviderHealthWarningUnresolvedThreshold: 500,
+      providerHealthCriticalUnresolvedThreshold: 5_000,
+      effectiveProviderHealthCriticalUnresolvedThreshold: 5_000,
+      providerOperationStaleHeartbeatMinutes: 10,
+      effectiveProviderOperationStaleHeartbeatMinutes: 10,
+      providerOperationSummaryRetentionDays: 120,
+      effectiveProviderOperationSummaryRetentionDays: 120,
+      providerOperationLogRetentionDays: 45,
+      effectiveProviderOperationLogRetentionDays: 45,
+      providerIncidentRetentionDays: 240,
+      effectiveProviderIncidentRetentionDays: 240,
+      providerResolvedItemRetentionDays: 60,
+      effectiveProviderResolvedItemRetentionDays: 60,
+    });
+
+    const rejected = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { providerHealthWarningUnresolvedThreshold: 6_000 },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: "provider_health_threshold_order_invalid" });
+
+    const clearedCritical = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { providerHealthCriticalUnresolvedThreshold: null },
+    });
+    expect(clearedCritical.statusCode).toBe(200);
+    expect(clearedCritical.json()).toMatchObject({
+      providerHealthCriticalUnresolvedThreshold: null,
+      effectiveProviderHealthCriticalUnresolvedThreshold: 10_000,
+    });
+  });
+
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
     verifyResolvedSymbol.mockResolvedValue({
       verified: false,

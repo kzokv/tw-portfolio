@@ -3754,6 +3754,15 @@ export class MemoryPersistence implements Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    providerOperationAutoRenewIntervalMinutes: number | null;
+    providerIncidentRecurrenceWindowMinutes: number | null;
+    providerHealthWarningUnresolvedThreshold: number | null;
+    providerHealthCriticalUnresolvedThreshold: number | null;
+    providerOperationStaleHeartbeatMinutes: number | null;
+    providerOperationSummaryRetentionDays: number | null;
+    providerOperationLogRetentionDays: number | null;
+    providerIncidentRetentionDays: number | null;
+    providerResolvedItemRetentionDays: number | null;
     finmindProviderRateLimitPerHour: number | null;
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;
@@ -3806,6 +3815,15 @@ export class MemoryPersistence implements Persistence {
       providerFixerUiPageSize: p.providerFixerUiPageSize ?? null,
       providerFixerAutoPauseFailuresPerMinute: p.providerFixerAutoPauseFailuresPerMinute ?? null,
       providerFixerPreviewTokenTtlMinutes: p.providerFixerPreviewTokenTtlMinutes ?? null,
+      providerOperationAutoRenewIntervalMinutes: p.providerOperationAutoRenewIntervalMinutes ?? null,
+      providerIncidentRecurrenceWindowMinutes: p.providerIncidentRecurrenceWindowMinutes ?? null,
+      providerHealthWarningUnresolvedThreshold: p.providerHealthWarningUnresolvedThreshold ?? null,
+      providerHealthCriticalUnresolvedThreshold: p.providerHealthCriticalUnresolvedThreshold ?? null,
+      providerOperationStaleHeartbeatMinutes: p.providerOperationStaleHeartbeatMinutes ?? null,
+      providerOperationSummaryRetentionDays: p.providerOperationSummaryRetentionDays ?? null,
+      providerOperationLogRetentionDays: p.providerOperationLogRetentionDays ?? null,
+      providerIncidentRetentionDays: p.providerIncidentRetentionDays ?? null,
+      providerResolvedItemRetentionDays: p.providerResolvedItemRetentionDays ?? null,
       finmindProviderRateLimitPerHour: p.finmindProviderRateLimitPerHour ?? null,
       twelveDataProviderRateLimitPerMinute: p.twelveDataProviderRateLimitPerMinute ?? null,
       yahooAuProviderRateLimitPerMinute: p.yahooAuProviderRateLimitPerMinute ?? null,

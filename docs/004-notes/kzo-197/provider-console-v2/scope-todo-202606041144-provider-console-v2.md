@@ -155,14 +155,15 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added provider-scoped durable mappings API plus Mappings tab data wiring so verified KR provider-symbol bindings are inspectable outside operation previews.
 - 2026-06-04: Added provider-scoped Activity API and timeline wiring composed from incidents, operations, logs, unresolved rows, and mappings.
 - 2026-06-04: Added provider-scoped log purge preview/execute with typed confirmation, snapshot-change guard, audit metadata, and strict deletion boundaries for provider error trail + operation logs only.
-- Remaining high-risk work is still backend-heavy: background operation engine, deeper KR resolver binding/provider consult path, provider settings, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added API-authoritative Provider operations settings for auto-renew cadence, incident recurrence, unresolved health thresholds, stale heartbeat, operation/log/incident/resolved-item retention, threshold-order validation, migration-backed persistence, and Admin Settings UI controls.
+- Remaining high-risk work is still backend-heavy: background operation engine, central provider-error normalization, incident backfill, capability registry/taxonomy, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [ ] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
 - [ ] Add central provider-error normalization service and wire item-scoped provider error writers/workers to it.
 - [ ] Add provider capability registry and shared operation taxonomy.
 - [ ] Implement provider operation engine with background execution, row outcomes, pause/resume/cancel/retry, stale operation cleanup, queueing, budget pacing, and SSE emission.
-- [ ] Add API-authoritative Provider operations settings validation for guardrails, budgets, thresholds, retention, and auto-renew.
+- [x] Add API-authoritative Provider operations settings validation for guardrails, budgets, thresholds, retention, and auto-renew.
 - [ ] Add provider-scoped API routes under `/admin/providers/:providerId/*` for console, unresolved items, incidents, activity, logs, mappings, operation preview, operation execute, operation control, and purge.
 - [ ] Remove the unshipped `/admin/provider-fixer` UI route and old fixer-only assumptions.
 - [ ] Implement KR resolver binding: Twelve Data catalog identity plus market evidence to verified Yahoo Finance KR provider symbol.
@@ -173,7 +174,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [ ] Build operation details with durable item outcomes, progress, budget state, pause/resume/cancel/retry, and links to incidents/unresolved items/logs.
 - [ ] Build mappings tab with evidence, reverify, revert mapping, linked unresolved item, linked operation, and unsupported empty states for providers without mappings.
 - [ ] Build logs purge preview modal and provider-scoped Activity timeline.
-- [ ] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.
+- [x] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.
 - [ ] Add mobile provider selector, mobile cards, bottom action bar, disabled action reasons, and full-screen destructive preview sheets.
 - [ ] Add concise contextual help/tooltips for Repair, Renew, Rerun, Purge, quote-first, chart-probe, awaiting action, unsupported actions, and disabled states.
 - [ ] Add DB/API/worker tests for unresolved dedupe, incident recurrence, operations, outcomes, queueing, rate-limit pause/resume, stale operations, guardrails, settings validation, purge, and KR mapping.

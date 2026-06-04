@@ -61,7 +61,7 @@ const DEFAULT_TAB: TabSlug = "rate-limits";
 const TAB_LABELS: Record<TabSlug, string> = {
   "rate-limits": "Rate limits",
   "sharing": "Sharing",
-  "provider-health": "Provider health",
+  "provider-health": "Provider operations",
   "backfill-repair": "Backfill & repair",
   "catalog-metadata": "Catalog & metadata",
   "display-defaults": "Display defaults",
@@ -72,7 +72,7 @@ const TAB_LABELS: Record<TabSlug, string> = {
 const TAB_DESCRIPTIONS: Record<TabSlug, string> = {
   "rate-limits": "Traffic windows, budgets, and request throttles.",
   "sharing": "Public-link caps and anonymous share guardrails.",
-  "provider-health": "Provider cooldowns, retention, and alert suppression.",
+  "provider-health": "Guardrails, operation pacing, health thresholds, and retention.",
   "backfill-repair": "Repair retries and backfill pacing defaults.",
   "catalog-metadata": "Catalog absence thresholds and metadata enrichment mode.",
   "display-defaults": "New-account display defaults and dashboard timeframes.",
@@ -107,6 +107,7 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Traffic windows, budgets, and request throttles.": "流量視窗、配額與請求節流。",
   "Public-link caps and anonymous share guardrails.": "公開連結上限與匿名分享防護。",
   "Provider cooldowns, retention, and alert suppression.": "資料提供者冷卻時間、保留期限與警示抑制。",
+  "Guardrails, operation pacing, health thresholds, and retention.": "防護、作業節奏、健康門檻與保留期限。",
   "Repair retries and backfill pacing defaults.": "修復重試與回補節奏預設值。",
   "Catalog absence thresholds and metadata enrichment mode.": "目錄缺席門檻與中繼資料補全模式。",
   "New-account display defaults and dashboard timeframes.": "新帳戶顯示預設值與儀表板時間範圍。",
@@ -159,6 +160,27 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Failure rate that auto-pauses a running provider operation.": "正在執行的資料提供者作業達到此失敗率時會自動暫停。",
   "Preview token TTL": "預覽權杖有效時間",
   "Minutes before a provider operation preview token expires.": "資料提供者作業預覽權杖到期前的分鐘數。",
+  "Provider operation automation": "資料提供者作業自動化",
+  "Auto-renew interval": "自動更新間隔",
+  "Cadence for refreshing unresolved evidence without writing mappings or bars.": "刷新未解決證據的頻率，不會寫入映射或價格列。",
+  "Incident recurrence window": "事件重複歸併視窗",
+  "Repeated provider errors inside this window update the existing incident instead of creating a new one.": "此視窗內重複的資料提供者錯誤會更新既有事件，而不是建立新事件。",
+  "Provider health thresholds": "資料提供者健康門檻",
+  "Warning unresolved threshold": "警告未解決門檻",
+  "Active unresolved item count that moves provider health to warning.": "使資料提供者健康度進入警告狀態的啟用中未解決項目數。",
+  "Critical unresolved threshold": "嚴重未解決門檻",
+  "Active unresolved item count that moves provider health to critical. Must stay above the warning threshold.": "使資料提供者健康度進入嚴重狀態的啟用中未解決項目數。必須高於警告門檻。",
+  "Stale operation heartbeat": "作業心跳逾時",
+  "Running operation age without progress before it is treated as stale in the admin console.": "執行中作業未進展多久後，在管理主控台中視為過期。",
+  "Provider retention": "資料提供者保留期限",
+  "Operation summary retention": "作業摘要保留",
+  "Days to keep completed provider operation summaries before retention cleanup.": "保留已完成資料提供者作業摘要的天數，之後由保留清理移除。",
+  "Operation log retention": "作業記錄保留",
+  "Days to keep provider operation logs before retention cleanup or guarded purge.": "保留資料提供者作業記錄的天數，之後由保留清理或受防護清除移除。",
+  "Incident retention": "事件保留",
+  "Days to keep resolved or ignored provider incidents.": "保留已解決或已忽略資料提供者事件的天數。",
+  "Resolved item retention": "已解決項目保留",
+  "Days to keep resolved unresolved-item records for audit and recently resolved views.": "為稽核與最近已解決檢視保留已解決未解決項目記錄的天數。",
   "Provider operation budgets": "資料提供者作業配額",
   "FinMind shared hourly cap": "FinMind 共用每小時上限",
   "Shared TW/US provider budget. Must stay below the configured upstream FinMind budget.": "TW/US 共用資料提供者配額。必須低於已設定的 FinMind 上游配額。",
@@ -1169,6 +1191,114 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 unit="min"
                 inputTestId="admin-settings-input-providerFixerPreviewTokenTtlMinutes"
                 onSave={(v) => patchAppConfigField("providerFixerPreviewTokenTtlMinutes", v)}
+              />
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-semibold text-slate-900">{t("Provider operation automation")}</h3>
+              </div>
+              <NumericOverrideRow
+                fieldKey="providerOperationAutoRenewIntervalMinutes"
+                label={t("Auto-renew interval")}
+                description={t("Cadence for refreshing unresolved evidence without writing mappings or bars.")}
+                override={config.providerOperationAutoRenewIntervalMinutes}
+                effective={config.effectiveProviderOperationAutoRenewIntervalMinutes}
+                bounds={config.bounds.providerOperationAutoRenewIntervalMinutes}
+                unit="min"
+                inputTestId="admin-settings-input-providerOperationAutoRenewIntervalMinutes"
+                onSave={(v) => patchAppConfigField("providerOperationAutoRenewIntervalMinutes", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerIncidentRecurrenceWindowMinutes"
+                label={t("Incident recurrence window")}
+                description={t("Repeated provider errors inside this window update the existing incident instead of creating a new one.")}
+                override={config.providerIncidentRecurrenceWindowMinutes}
+                effective={config.effectiveProviderIncidentRecurrenceWindowMinutes}
+                bounds={config.bounds.providerIncidentRecurrenceWindowMinutes}
+                unit="min"
+                inputTestId="admin-settings-input-providerIncidentRecurrenceWindowMinutes"
+                onSave={(v) => patchAppConfigField("providerIncidentRecurrenceWindowMinutes", v)}
+              />
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-semibold text-slate-900">{t("Provider health thresholds")}</h3>
+              </div>
+              <NumericOverrideRow
+                fieldKey="providerHealthWarningUnresolvedThreshold"
+                label={t("Warning unresolved threshold")}
+                description={t("Active unresolved item count that moves provider health to warning.")}
+                override={config.providerHealthWarningUnresolvedThreshold}
+                effective={config.effectiveProviderHealthWarningUnresolvedThreshold}
+                bounds={config.bounds.providerHealthWarningUnresolvedThreshold}
+                unit="items"
+                inputTestId="admin-settings-input-providerHealthWarningUnresolvedThreshold"
+                onSave={(v) => patchAppConfigField("providerHealthWarningUnresolvedThreshold", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerHealthCriticalUnresolvedThreshold"
+                label={t("Critical unresolved threshold")}
+                description={t("Active unresolved item count that moves provider health to critical. Must stay above the warning threshold.")}
+                override={config.providerHealthCriticalUnresolvedThreshold}
+                effective={config.effectiveProviderHealthCriticalUnresolvedThreshold}
+                bounds={config.bounds.providerHealthCriticalUnresolvedThreshold}
+                unit="items"
+                inputTestId="admin-settings-input-providerHealthCriticalUnresolvedThreshold"
+                onSave={(v) => patchAppConfigField("providerHealthCriticalUnresolvedThreshold", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerOperationStaleHeartbeatMinutes"
+                label={t("Stale operation heartbeat")}
+                description={t("Running operation age without progress before it is treated as stale in the admin console.")}
+                override={config.providerOperationStaleHeartbeatMinutes}
+                effective={config.effectiveProviderOperationStaleHeartbeatMinutes}
+                bounds={config.bounds.providerOperationStaleHeartbeatMinutes}
+                unit="min"
+                inputTestId="admin-settings-input-providerOperationStaleHeartbeatMinutes"
+                onSave={(v) => patchAppConfigField("providerOperationStaleHeartbeatMinutes", v)}
+              />
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-semibold text-slate-900">{t("Provider retention")}</h3>
+              </div>
+              <NumericOverrideRow
+                fieldKey="providerOperationSummaryRetentionDays"
+                label={t("Operation summary retention")}
+                description={t("Days to keep completed provider operation summaries before retention cleanup.")}
+                override={config.providerOperationSummaryRetentionDays}
+                effective={config.effectiveProviderOperationSummaryRetentionDays}
+                bounds={config.bounds.providerOperationSummaryRetentionDays}
+                unit="days"
+                inputTestId="admin-settings-input-providerOperationSummaryRetentionDays"
+                onSave={(v) => patchAppConfigField("providerOperationSummaryRetentionDays", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerOperationLogRetentionDays"
+                label={t("Operation log retention")}
+                description={t("Days to keep provider operation logs before retention cleanup or guarded purge.")}
+                override={config.providerOperationLogRetentionDays}
+                effective={config.effectiveProviderOperationLogRetentionDays}
+                bounds={config.bounds.providerOperationLogRetentionDays}
+                unit="days"
+                inputTestId="admin-settings-input-providerOperationLogRetentionDays"
+                onSave={(v) => patchAppConfigField("providerOperationLogRetentionDays", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerIncidentRetentionDays"
+                label={t("Incident retention")}
+                description={t("Days to keep resolved or ignored provider incidents.")}
+                override={config.providerIncidentRetentionDays}
+                effective={config.effectiveProviderIncidentRetentionDays}
+                bounds={config.bounds.providerIncidentRetentionDays}
+                unit="days"
+                inputTestId="admin-settings-input-providerIncidentRetentionDays"
+                onSave={(v) => patchAppConfigField("providerIncidentRetentionDays", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="providerResolvedItemRetentionDays"
+                label={t("Resolved item retention")}
+                description={t("Days to keep resolved unresolved-item records for audit and recently resolved views.")}
+                override={config.providerResolvedItemRetentionDays}
+                effective={config.effectiveProviderResolvedItemRetentionDays}
+                bounds={config.bounds.providerResolvedItemRetentionDays}
+                unit="days"
+                inputTestId="admin-settings-input-providerResolvedItemRetentionDays"
+                onSave={(v) => patchAppConfigField("providerResolvedItemRetentionDays", v)}
               />
               <div className="border-t border-slate-200 pt-5">
                 <h3 className="text-sm font-semibold text-slate-900">{t("Provider operation budgets")}</h3>

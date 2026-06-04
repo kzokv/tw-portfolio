@@ -65,6 +65,15 @@ export type AppConfigPlainField =
   | "providerFixerUiPageSize"
   | "providerFixerAutoPauseFailuresPerMinute"
   | "providerFixerPreviewTokenTtlMinutes"
+  | "providerOperationAutoRenewIntervalMinutes"
+  | "providerIncidentRecurrenceWindowMinutes"
+  | "providerHealthWarningUnresolvedThreshold"
+  | "providerHealthCriticalUnresolvedThreshold"
+  | "providerOperationStaleHeartbeatMinutes"
+  | "providerOperationSummaryRetentionDays"
+  | "providerOperationLogRetentionDays"
+  | "providerIncidentRetentionDays"
+  | "providerResolvedItemRetentionDays"
   | "finmindProviderRateLimitPerHour"
   | "twelveDataProviderRateLimitPerMinute"
   | "yahooAuProviderRateLimitPerMinute"
@@ -124,6 +133,15 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   providerFixerUiPageSize: "provider_fixer_ui_page_size",
   providerFixerAutoPauseFailuresPerMinute: "provider_fixer_auto_pause_failures_per_minute",
   providerFixerPreviewTokenTtlMinutes: "provider_fixer_preview_token_ttl_minutes",
+  providerOperationAutoRenewIntervalMinutes: "provider_operation_auto_renew_interval_minutes",
+  providerIncidentRecurrenceWindowMinutes: "provider_incident_recurrence_window_minutes",
+  providerHealthWarningUnresolvedThreshold: "provider_health_warning_unresolved_threshold",
+  providerHealthCriticalUnresolvedThreshold: "provider_health_critical_unresolved_threshold",
+  providerOperationStaleHeartbeatMinutes: "provider_operation_stale_heartbeat_minutes",
+  providerOperationSummaryRetentionDays: "provider_operation_summary_retention_days",
+  providerOperationLogRetentionDays: "provider_operation_log_retention_days",
+  providerIncidentRetentionDays: "provider_incident_retention_days",
+  providerResolvedItemRetentionDays: "provider_resolved_item_retention_days",
   finmindProviderRateLimitPerHour: "finmind_provider_rate_limit_per_hour",
   twelveDataProviderRateLimitPerMinute: "twelve_data_provider_rate_limit_per_minute",
   yahooAuProviderRateLimitPerMinute: "yahoo_au_provider_rate_limit_per_minute",
@@ -2051,6 +2069,15 @@ export interface Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    providerOperationAutoRenewIntervalMinutes: number | null;
+    providerIncidentRecurrenceWindowMinutes: number | null;
+    providerHealthWarningUnresolvedThreshold: number | null;
+    providerHealthCriticalUnresolvedThreshold: number | null;
+    providerOperationStaleHeartbeatMinutes: number | null;
+    providerOperationSummaryRetentionDays: number | null;
+    providerOperationLogRetentionDays: number | null;
+    providerIncidentRetentionDays: number | null;
+    providerResolvedItemRetentionDays: number | null;
     finmindProviderRateLimitPerHour: number | null;
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;

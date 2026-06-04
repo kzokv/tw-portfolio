@@ -258,6 +258,15 @@ export const patchAdminSettingsSchema = z
     providerFixerUiPageSize: plainBoundedField("providerFixerUiPageSize"),
     providerFixerAutoPauseFailuresPerMinute: plainBoundedField("providerFixerAutoPauseFailuresPerMinute"),
     providerFixerPreviewTokenTtlMinutes: plainBoundedField("providerFixerPreviewTokenTtlMinutes"),
+    providerOperationAutoRenewIntervalMinutes: plainBoundedField("providerOperationAutoRenewIntervalMinutes"),
+    providerIncidentRecurrenceWindowMinutes: plainBoundedField("providerIncidentRecurrenceWindowMinutes"),
+    providerHealthWarningUnresolvedThreshold: plainBoundedField("providerHealthWarningUnresolvedThreshold"),
+    providerHealthCriticalUnresolvedThreshold: plainBoundedField("providerHealthCriticalUnresolvedThreshold"),
+    providerOperationStaleHeartbeatMinutes: plainBoundedField("providerOperationStaleHeartbeatMinutes"),
+    providerOperationSummaryRetentionDays: plainBoundedField("providerOperationSummaryRetentionDays"),
+    providerOperationLogRetentionDays: plainBoundedField("providerOperationLogRetentionDays"),
+    providerIncidentRetentionDays: plainBoundedField("providerIncidentRetentionDays"),
+    providerResolvedItemRetentionDays: plainBoundedField("providerResolvedItemRetentionDays"),
     finmindProviderRateLimitPerHour: plainBoundedField("finmindProviderRateLimitPerHour"),
     twelveDataProviderRateLimitPerMinute: plainBoundedField("twelveDataProviderRateLimitPerMinute"),
     yahooAuProviderRateLimitPerMinute: plainBoundedField("yahooAuProviderRateLimitPerMinute"),
@@ -327,6 +336,15 @@ const TIER1_PLAIN_FIELDS = [
   "providerFixerUiPageSize",
   "providerFixerAutoPauseFailuresPerMinute",
   "providerFixerPreviewTokenTtlMinutes",
+  "providerOperationAutoRenewIntervalMinutes",
+  "providerIncidentRecurrenceWindowMinutes",
+  "providerHealthWarningUnresolvedThreshold",
+  "providerHealthCriticalUnresolvedThreshold",
+  "providerOperationStaleHeartbeatMinutes",
+  "providerOperationSummaryRetentionDays",
+  "providerOperationLogRetentionDays",
+  "providerIncidentRetentionDays",
+  "providerResolvedItemRetentionDays",
   "finmindProviderRateLimitPerHour",
   "twelveDataProviderRateLimitPerMinute",
   "yahooAuProviderRateLimitPerMinute",
@@ -423,6 +441,27 @@ function assertProviderRateBudgetOverrides(body: z.infer<typeof patchAdminSettin
   }
 }
 
+function assertProviderHealthThresholdOverrides(
+  body: z.infer<typeof patchAdminSettingsSchema>,
+  current: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
+): void {
+  const hasWarningPatch = Object.prototype.hasOwnProperty.call(body, "providerHealthWarningUnresolvedThreshold");
+  const hasCriticalPatch = Object.prototype.hasOwnProperty.call(body, "providerHealthCriticalUnresolvedThreshold");
+  const nextWarning = hasWarningPatch
+    ? body.providerHealthWarningUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthWarningUnresolvedThreshold
+    : current.providerHealthWarningUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthWarningUnresolvedThreshold;
+  const nextCritical = hasCriticalPatch
+    ? body.providerHealthCriticalUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthCriticalUnresolvedThreshold
+    : current.providerHealthCriticalUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthCriticalUnresolvedThreshold;
+  if (nextWarning >= nextCritical) {
+    throw routeError(
+      400,
+      "provider_health_threshold_order_invalid",
+      "providerHealthWarningUnresolvedThreshold must be below providerHealthCriticalUnresolvedThreshold.",
+    );
+  }
+}
+
 /**
  * KZO-198 Fix 3 — derive `AppConfigDto` directly from the freshly-fetched
  * row + env, NOT from `getEffective*()` resolvers (which read from the TTL
@@ -486,6 +525,33 @@ function buildAppConfigDtoFromRow(
     providerFixerPreviewTokenTtlMinutes: row.providerFixerPreviewTokenTtlMinutes,
     effectiveProviderFixerPreviewTokenTtlMinutes:
       row.providerFixerPreviewTokenTtlMinutes ?? PROVIDER_FIXER_DEFAULTS.previewTokenTtlMinutes,
+    providerOperationAutoRenewIntervalMinutes: row.providerOperationAutoRenewIntervalMinutes,
+    effectiveProviderOperationAutoRenewIntervalMinutes:
+      row.providerOperationAutoRenewIntervalMinutes ?? PROVIDER_FIXER_DEFAULTS.autoRenewIntervalMinutes,
+    providerIncidentRecurrenceWindowMinutes: row.providerIncidentRecurrenceWindowMinutes,
+    effectiveProviderIncidentRecurrenceWindowMinutes:
+      row.providerIncidentRecurrenceWindowMinutes ?? PROVIDER_FIXER_DEFAULTS.incidentRecurrenceWindowMinutes,
+    providerHealthWarningUnresolvedThreshold: row.providerHealthWarningUnresolvedThreshold,
+    effectiveProviderHealthWarningUnresolvedThreshold:
+      row.providerHealthWarningUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthWarningUnresolvedThreshold,
+    providerHealthCriticalUnresolvedThreshold: row.providerHealthCriticalUnresolvedThreshold,
+    effectiveProviderHealthCriticalUnresolvedThreshold:
+      row.providerHealthCriticalUnresolvedThreshold ?? PROVIDER_FIXER_DEFAULTS.healthCriticalUnresolvedThreshold,
+    providerOperationStaleHeartbeatMinutes: row.providerOperationStaleHeartbeatMinutes,
+    effectiveProviderOperationStaleHeartbeatMinutes:
+      row.providerOperationStaleHeartbeatMinutes ?? PROVIDER_FIXER_DEFAULTS.staleHeartbeatMinutes,
+    providerOperationSummaryRetentionDays: row.providerOperationSummaryRetentionDays,
+    effectiveProviderOperationSummaryRetentionDays:
+      row.providerOperationSummaryRetentionDays ?? PROVIDER_FIXER_DEFAULTS.operationSummaryRetentionDays,
+    providerOperationLogRetentionDays: row.providerOperationLogRetentionDays,
+    effectiveProviderOperationLogRetentionDays:
+      row.providerOperationLogRetentionDays ?? PROVIDER_FIXER_DEFAULTS.operationLogRetentionDays,
+    providerIncidentRetentionDays: row.providerIncidentRetentionDays,
+    effectiveProviderIncidentRetentionDays:
+      row.providerIncidentRetentionDays ?? PROVIDER_FIXER_DEFAULTS.incidentRetentionDays,
+    providerResolvedItemRetentionDays: row.providerResolvedItemRetentionDays,
+    effectiveProviderResolvedItemRetentionDays:
+      row.providerResolvedItemRetentionDays ?? PROVIDER_FIXER_DEFAULTS.resolvedItemRetentionDays,
     finmindProviderRateLimitPerHour: row.finmindProviderRateLimitPerHour,
     effectiveFinmindProviderRateLimitPerHour:
       row.finmindProviderRateLimitPerHour ?? Env.FINMIND_RATE_LIMIT_PER_HOUR,
@@ -2382,6 +2448,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     assertProviderRateBudgetOverrides(body);
 
     const current = await app.persistence.getAppConfig();
+    assertProviderHealthThresholdOverrides(body, current);
 
     // KZO-159 (158A): diff each tracked field independently — a PATCH may
     // carry one, the other, both, or neither. `undefined` means "no change",
