@@ -802,6 +802,46 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(concurrentResponse.statusCode).toBe(409);
     expect(concurrentResponse.json()).toMatchObject({ error: "provider_fixer_active_execution_exists" });
+
+    const activeRetry = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${candidate.id}/retry`,
+      headers,
+    });
+    expect(activeRetry.statusCode).toBe(400);
+    expect(activeRetry.json()).toMatchObject({ error: "provider_operation_not_retryable" });
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${expired.id}/retry`,
+      headers,
+    });
+    expect(retry.statusCode).toBe(201);
+    const retryBody = retry.json() as {
+      retryOfOperationId: string;
+      operation: { id: string; phase: string; canExecute: boolean; preview: { token: string } };
+    };
+    expect(retryBody).toMatchObject({
+      retryOfOperationId: expired.id,
+      operation: {
+        phase: "preview",
+        canExecute: true,
+      },
+    });
+    expect(retryBody.operation.id).not.toBe(expired.id);
+    expect(retryBody.operation.preview.token).toBeTruthy();
+    await expect(app.persistence.getProviderOperation(expired.id)).resolves.toMatchObject({
+      id: expired.id,
+      phase: "cancelled",
+    });
+    await expect(app.persistence.getProviderOperation(retryBody.operation.id)).resolves.toMatchObject({
+      providerId: "yahoo-finance-kr",
+      phase: "preview",
+      metadata: expect.objectContaining({
+        retryOfOperationId: expired.id,
+        retryAttempt: 1,
+      }),
+    });
   });
 
   it("previews and executes provider log purge with typed guardrails", async () => {
