@@ -37,6 +37,8 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     YAHOO_KR_RATE_LIMIT_PER_MINUTE: 60,
     FX_PROVIDER_MOCK: true,
     FRANKFURTER_BASE_URL: "https://api.frankfurter.dev/v2",
+    FRANKFURTER_RATE_LIMIT_PER_MINUTE: 120,
+    ASX_GICS_RATE_LIMIT_PER_HOUR: 6,
     ...overrides,
   };
 }

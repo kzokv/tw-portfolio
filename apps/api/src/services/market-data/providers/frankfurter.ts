@@ -1,4 +1,6 @@
 import type { FxRate, FxRateProvider } from "../types.js";
+import { RateLimitedError } from "../types.js";
+import type { RateLimiter } from "../rateLimiter.js";
 
 /**
  * KZO-164 contract for Frankfurter v2's `/v2/rates` endpoint: a flat array of per-day
@@ -16,33 +18,41 @@ interface FrankfurterRateRow {
 
 export interface FrankfurterFxRateProviderConfig {
   baseUrl: string;
+  rateLimiter?: RateLimiter;
 }
 
 /**
  * Frankfurter v2 FX-rate provider. Frankfurter's default-blend route is the sole FX
  * provider for KZO-164 (covers TWD via CBC, AUD via RBA, USD via ECB+others; no quotas).
  *
- * Stamps every returned `FxRate` with `source: 'frankfurter'`. `reserveCapacity` is a
- * no-op because Frankfurter has no rate limit. Errors map to plain `Error` (no typed
- * `RateLimitedError`) — there is no rate-limit branching for FX. Worker rethrows let
- * pg-boss apply its retry policy.
+ * Stamps every returned `FxRate` with `source: 'frankfurter'`. Frankfurter has no
+ * published quota, but the app applies an admin-configurable defensive operation
+ * budget so manual refreshes and cron backfills share the same pacing contract.
  */
 export class FrankfurterFxRateProvider implements FxRateProvider {
   /** KZO-170 D14: stable provider identity for log enrichment. */
   readonly providerId = "frankfurter";
   private readonly baseUrl: string;
+  private readonly rateLimiter: RateLimiter | null;
 
   constructor(config: FrankfurterFxRateProviderConfig) {
     this.baseUrl = config.baseUrl;
+    this.rateLimiter = config.rateLimiter ?? null;
   }
 
-  /**
-   * No-op: Frankfurter has no quota. Method exists so call sites can treat all
-   * providers uniformly per the `FxRateProvider` contract (mirrors
-   * `MockFinMindMarketDataProvider`).
-   */
-  reserveCapacity(_n: number): void {
-    // intentional no-op
+  reserveCapacity(n: number): void {
+    if (!this.rateLimiter) return;
+    if (!this.rateLimiter.canConsume(n)) {
+      throw new RateLimitedError({ msUntilAvailable: this.rateLimiter.msUntilAvailable(n) });
+    }
+  }
+
+  private consumeOne(): void {
+    if (!this.rateLimiter) return;
+    if (!this.rateLimiter.canConsume(1)) {
+      throw new RateLimitedError({ msUntilAvailable: this.rateLimiter.msUntilAvailable(1) });
+    }
+    this.rateLimiter.consume(1);
   }
 
   async fetchRatesForBase(
@@ -51,6 +61,7 @@ export class FrankfurterFxRateProvider implements FxRateProvider {
     toDate: string,
     quotes?: readonly string[],
   ): Promise<FxRate[]> {
+    this.consumeOne();
     const params = new URLSearchParams({
       base,
       from: fromDate,

@@ -6,11 +6,13 @@
  *  - Response parsing: array [{date, base, quote, rate}] → FxRate[]
  *  - Optional quotes filter applied client-side
  *  - source: 'frankfurter' stamped on every result
- *  - Error mapping for non-2xx and JSON-parse failures → plain Error (NOT RateLimitedError)
- *  - reserveCapacity(n) is a no-op — does not throw
+ *  - Error mapping for non-2xx and JSON-parse failures → plain Error
+ *  - reserveCapacity(n) is a no-op when no limiter is injected
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FrankfurterFxRateProvider } from "../../src/services/market-data/providers/frankfurter.js";
+import { RateLimiter } from "../../src/services/market-data/rateLimiter.js";
+import { RateLimitedError } from "../../src/services/market-data/types.js";
 
 const BASE_URL = "https://api.frankfurter.dev/v2";
 
@@ -162,7 +164,7 @@ describe("FrankfurterFxRateProvider — optional quotes filter", () => {
 });
 
 describe("FrankfurterFxRateProvider — error handling", () => {
-  it("throws plain Error on 4xx (not RateLimitedError — Frankfurter has no rate limit)", async () => {
+  it("throws plain Error on 4xx when the upstream response is non-2xx", async () => {
     vi.stubGlobal("fetch", makeFetch(404, { error: "Not Found" }));
 
     const provider = new FrankfurterFxRateProvider({ baseUrl: BASE_URL });
@@ -215,13 +217,22 @@ describe("FrankfurterFxRateProvider — error handling", () => {
 });
 
 describe("FrankfurterFxRateProvider — reserveCapacity", () => {
-  it("is a no-op — does not throw for n=0", () => {
+  it("is a no-op without an injected limiter — does not throw for n=0", () => {
     const provider = new FrankfurterFxRateProvider({ baseUrl: BASE_URL });
     expect(() => provider.reserveCapacity(0)).not.toThrow();
   });
 
-  it("is a no-op — does not throw for n=100", () => {
+  it("is a no-op without an injected limiter — does not throw for n=100", () => {
     const provider = new FrankfurterFxRateProvider({ baseUrl: BASE_URL });
     expect(() => provider.reserveCapacity(100)).not.toThrow();
+  });
+
+  it("throws RateLimitedError when an injected limiter cannot reserve enough slots", () => {
+    const provider = new FrankfurterFxRateProvider({
+      baseUrl: BASE_URL,
+      rateLimiter: new RateLimiter(1, 60_000),
+    });
+
+    expect(() => provider.reserveCapacity(2)).toThrow(RateLimitedError);
   });
 });

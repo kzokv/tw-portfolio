@@ -159,6 +159,19 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Failure rate that auto-pauses a running provider operation.": "正在執行的資料提供者作業達到此失敗率時會自動暫停。",
   "Preview token TTL": "預覽權杖有效時間",
   "Minutes before a provider operation preview token expires.": "資料提供者作業預覽權杖到期前的分鐘數。",
+  "Provider operation budgets": "資料提供者作業配額",
+  "FinMind shared hourly cap": "FinMind 共用每小時上限",
+  "Shared TW/US provider budget. Must stay below the configured upstream FinMind budget.": "TW/US 共用資料提供者配額。必須低於已設定的 FinMind 上游配額。",
+  "Twelve Data shared per-minute cap": "Twelve Data 共用每分鐘上限",
+  "Shared AU/KR catalog budget. Must stay below the configured upstream Twelve Data budget.": "AU/KR 目錄共用配額。必須低於已設定的 Twelve Data 上游配額。",
+  "Yahoo AU per-minute cap": "Yahoo 澳洲每分鐘上限",
+  "Yahoo Finance AU operation budget. Must stay below the configured upstream budget.": "Yahoo Finance 澳洲作業配額。必須低於已設定的上游配額。",
+  "Yahoo KR per-minute cap": "Yahoo 韓國每分鐘上限",
+  "Yahoo Finance KR operation budget. Must stay below the configured upstream budget.": "Yahoo Finance 韓國作業配額。必須低於已設定的上游配額。",
+  "Frankfurter per-minute cap": "Frankfurter 每分鐘上限",
+  "Frankfurter FX refresh operation budget. Must stay below the configured provider ceiling.": "Frankfurter 匯率更新作業配額。必須低於已設定的資料提供者上限。",
+  "ASX GICS hourly cap": "ASX GICS 每小時上限",
+  "ASX GICS CSV refresh pacing. Must stay below the configured provider ceiling.": "ASX GICS CSV 更新節奏。必須低於已設定的資料提供者上限。",
   "Repair cooldown": "修復冷卻時間",
   "Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.": "同一代號兩次修復之間的最短等待時間（分鐘）。關閉時使用環境預設值。",
   "Cooldown": "冷卻時間",
@@ -1156,6 +1169,75 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 unit="min"
                 inputTestId="admin-settings-input-providerFixerPreviewTokenTtlMinutes"
                 onSave={(v) => patchAppConfigField("providerFixerPreviewTokenTtlMinutes", v)}
+              />
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-semibold text-slate-900">{t("Provider operation budgets")}</h3>
+              </div>
+              <NumericOverrideRow
+                fieldKey="finmindProviderRateLimitPerHour"
+                label={t("FinMind shared hourly cap")}
+                description={t("Shared TW/US provider budget. Must stay below the configured upstream FinMind budget.")}
+                override={config.finmindProviderRateLimitPerHour}
+                effective={config.effectiveFinmindProviderRateLimitPerHour}
+                bounds={config.bounds.finmindProviderRateLimitPerHour}
+                unit="/hr"
+                inputTestId="admin-settings-input-finmindProviderRateLimitPerHour"
+                onSave={(v) => patchAppConfigField("finmindProviderRateLimitPerHour", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="twelveDataProviderRateLimitPerMinute"
+                label={t("Twelve Data shared per-minute cap")}
+                description={t("Shared AU/KR catalog budget. Must stay below the configured upstream Twelve Data budget.")}
+                override={config.twelveDataProviderRateLimitPerMinute}
+                effective={config.effectiveTwelveDataProviderRateLimitPerMinute}
+                bounds={config.bounds.twelveDataProviderRateLimitPerMinute}
+                unit="/min"
+                inputTestId="admin-settings-input-twelveDataProviderRateLimitPerMinute"
+                onSave={(v) => patchAppConfigField("twelveDataProviderRateLimitPerMinute", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="yahooAuProviderRateLimitPerMinute"
+                label={t("Yahoo AU per-minute cap")}
+                description={t("Yahoo Finance AU operation budget. Must stay below the configured upstream budget.")}
+                override={config.yahooAuProviderRateLimitPerMinute}
+                effective={config.effectiveYahooAuProviderRateLimitPerMinute}
+                bounds={config.bounds.yahooAuProviderRateLimitPerMinute}
+                unit="/min"
+                inputTestId="admin-settings-input-yahooAuProviderRateLimitPerMinute"
+                onSave={(v) => patchAppConfigField("yahooAuProviderRateLimitPerMinute", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="yahooKrProviderRateLimitPerMinute"
+                label={t("Yahoo KR per-minute cap")}
+                description={t("Yahoo Finance KR operation budget. Must stay below the configured upstream budget.")}
+                override={config.yahooKrProviderRateLimitPerMinute}
+                effective={config.effectiveYahooKrProviderRateLimitPerMinute}
+                bounds={config.bounds.yahooKrProviderRateLimitPerMinute}
+                unit="/min"
+                inputTestId="admin-settings-input-yahooKrProviderRateLimitPerMinute"
+                onSave={(v) => patchAppConfigField("yahooKrProviderRateLimitPerMinute", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="frankfurterProviderRateLimitPerMinute"
+                label={t("Frankfurter per-minute cap")}
+                description={t("Frankfurter FX refresh operation budget. Must stay below the configured provider ceiling.")}
+                override={config.frankfurterProviderRateLimitPerMinute}
+                effective={config.effectiveFrankfurterProviderRateLimitPerMinute}
+                bounds={config.bounds.frankfurterProviderRateLimitPerMinute}
+                unit="/min"
+                inputTestId="admin-settings-input-frankfurterProviderRateLimitPerMinute"
+                onSave={(v) => patchAppConfigField("frankfurterProviderRateLimitPerMinute", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="asxGicsProviderRateLimitPerHour"
+                label={t("ASX GICS hourly cap")}
+                description={t("ASX GICS CSV refresh pacing. Must stay below the configured provider ceiling.")}
+                override={config.asxGicsProviderRateLimitPerHour}
+                effective={config.effectiveAsxGicsProviderRateLimitPerHour}
+                bounds={config.bounds.asxGicsProviderRateLimitPerHour}
+                unit="/hr"
+                inputTestId="admin-settings-input-asxGicsProviderRateLimitPerHour"
+                onSave={(v) => patchAppConfigField("asxGicsProviderRateLimitPerHour", v)}
               />
             </div>
           </Card>

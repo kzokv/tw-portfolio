@@ -65,6 +65,12 @@ export type AppConfigPlainField =
   | "providerFixerUiPageSize"
   | "providerFixerAutoPauseFailuresPerMinute"
   | "providerFixerPreviewTokenTtlMinutes"
+  | "finmindProviderRateLimitPerHour"
+  | "twelveDataProviderRateLimitPerMinute"
+  | "yahooAuProviderRateLimitPerMinute"
+  | "yahooKrProviderRateLimitPerMinute"
+  | "frankfurterProviderRateLimitPerMinute"
+  | "asxGicsProviderRateLimitPerHour"
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
@@ -118,6 +124,12 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   providerFixerUiPageSize: "provider_fixer_ui_page_size",
   providerFixerAutoPauseFailuresPerMinute: "provider_fixer_auto_pause_failures_per_minute",
   providerFixerPreviewTokenTtlMinutes: "provider_fixer_preview_token_ttl_minutes",
+  finmindProviderRateLimitPerHour: "finmind_provider_rate_limit_per_hour",
+  twelveDataProviderRateLimitPerMinute: "twelve_data_provider_rate_limit_per_minute",
+  yahooAuProviderRateLimitPerMinute: "yahoo_au_provider_rate_limit_per_minute",
+  yahooKrProviderRateLimitPerMinute: "yahoo_kr_provider_rate_limit_per_minute",
+  frankfurterProviderRateLimitPerMinute: "frankfurter_provider_rate_limit_per_minute",
+  asxGicsProviderRateLimitPerHour: "asx_gics_provider_rate_limit_per_hour",
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
@@ -1951,6 +1963,12 @@ export interface Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    finmindProviderRateLimitPerHour: number | null;
+    twelveDataProviderRateLimitPerMinute: number | null;
+    yahooAuProviderRateLimitPerMinute: number | null;
+    yahooKrProviderRateLimitPerMinute: number | null;
+    frankfurterProviderRateLimitPerMinute: number | null;
+    asxGicsProviderRateLimitPerHour: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;

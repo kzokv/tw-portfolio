@@ -38,6 +38,12 @@ export const APP_CONFIG_BOUNDS = {
   providerFixerUiPageSize: { min: 5, max: 200 },
   providerFixerAutoPauseFailuresPerMinute: { min: 1, max: 10_000 },
   providerFixerPreviewTokenTtlMinutes: { min: 1, max: 120 },
+  finmindProviderRateLimitPerHour: { min: 1, max: 100_000 },
+  twelveDataProviderRateLimitPerMinute: { min: 1, max: 10_000 },
+  yahooAuProviderRateLimitPerMinute: { min: 1, max: 10_000 },
+  yahooKrProviderRateLimitPerMinute: { min: 1, max: 10_000 },
+  frankfurterProviderRateLimitPerMinute: { min: 1, max: 10_000 },
+  asxGicsProviderRateLimitPerHour: { min: 1, max: 10_000 },
 
   // Tier 1 — backfill (UI-editable subset)
   backfillRetryLimit: { min: 0, max: 10 },
