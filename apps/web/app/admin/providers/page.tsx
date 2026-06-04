@@ -126,6 +126,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   return (
     <AdminProvidersClient
       providers={providersData.providers}
+      capabilities={providersData.capabilities}
       initialProviderId={providerId}
       initialTab={initialTab}
       summary={summaryData.summary}

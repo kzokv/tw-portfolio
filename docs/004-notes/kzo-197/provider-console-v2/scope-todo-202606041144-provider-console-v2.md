@@ -158,12 +158,13 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added API-authoritative Provider operations settings for auto-renew cadence, incident recurrence, unresolved health thresholds, stale heartbeat, operation/log/incident/resolved-item retention, threshold-order validation, migration-backed persistence, and Admin Settings UI controls.
 - 2026-06-04: Added idempotent incident backfill from historical `provider_error_trail` rows using the same durable incident-key semantics as the runtime normalizer.
 - 2026-06-04: Extracted central provider-error normalization service shared by Postgres and memory persistence, covering durable incidents and unresolved worklist rows from raw provider errors.
-- Remaining high-risk work is still backend-heavy: background operation engine, capability registry/taxonomy, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added shared provider-operation action taxonomy plus API-backed provider capability registry; `/admin/providers` now returns supported/disabled actions and guardrail levels for Yahoo, FinMind, Twelve Data, Frankfurter, and ASX GICS CSV, and the UI consumes those reasons instead of a hardcoded local map.
+- Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
 - [x] Add central provider-error normalization service and wire item-scoped provider error writers/workers to it.
-- [ ] Add provider capability registry and shared operation taxonomy.
+- [x] Add provider capability registry and shared operation taxonomy.
 - [ ] Implement provider operation engine with background execution, row outcomes, pause/resume/cancel/retry, stale operation cleanup, queueing, budget pacing, and SSE emission.
 - [x] Add API-authoritative Provider operations settings validation for guardrails, budgets, thresholds, retention, and auto-renew.
 - [ ] Add provider-scoped API routes under `/admin/providers/:providerId/*` for console, unresolved items, incidents, activity, logs, mappings, operation preview, operation execute, operation control, and purge.
