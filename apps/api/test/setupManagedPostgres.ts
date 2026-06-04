@@ -18,6 +18,7 @@ function isConnectionTimeout(error: unknown): boolean {
       "code" in error &&
       error.code === "ETIMEDOUT") ||
     message.includes("Connection terminated due to connection timeout") ||
+    message.includes("timeout exceeded when trying to connect") ||
     message.includes("Connection terminated unexpectedly")
   );
 }
