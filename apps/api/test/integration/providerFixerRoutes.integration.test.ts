@@ -157,6 +157,29 @@ describe("Provider Fixer admin routes", () => {
         }),
       ],
     });
+    const incidentId = (incidentsBeforeExecute.json() as { items: Array<{ id: string }> }).items[0]!.id;
+    const acknowledgeIncident = await app.inject({
+      method: "PATCH",
+      url: `/admin/providers/yahoo-finance-kr/incidents/${encodeURIComponent(incidentId)}`,
+      headers,
+      payload: { status: "acknowledged" },
+    });
+    expect(acknowledgeIncident.statusCode).toBe(200);
+    expect(acknowledgeIncident.json()).toMatchObject({
+      incident: {
+        id: incidentId,
+        providerId: "yahoo-finance-kr",
+        status: "acknowledged",
+        acknowledgedByUserId: admin.userId,
+      },
+    });
+    const acknowledgedIncidents = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/incidents?status=acknowledged&page=1&limit=10",
+      headers,
+    });
+    expect(acknowledgedIncidents.statusCode).toBe(200);
+    expect(acknowledgedIncidents.json()).toMatchObject({ total: 1 });
     const bossSend = vi.fn().mockResolvedValue("job-005930-quote-first");
     app.boss = { send: bossSend } as never;
 

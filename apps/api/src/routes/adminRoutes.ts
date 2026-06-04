@@ -1403,6 +1403,70 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     };
   });
 
+  app.patch("/providers/:providerId/incidents/:incidentId", async (req): Promise<{ incident: ProviderIncidentDto }> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const { incidentId } = z.object({ incidentId: z.string().trim().min(1).max(120) }).parse(req.params);
+    const body = z
+      .object({
+        status: z.enum(["open", "acknowledged", "resolved", "ignored"]),
+      })
+      .parse(req.body);
+    const incident = await app.persistence.updateProviderIncidentStatus({
+      providerId,
+      incidentId,
+      status: body.status,
+      actorUserId: sessionUserId,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      metadata: {
+        targetType: "provider_incident",
+        targetId: incident.id,
+        providerId,
+        incidentId: incident.id,
+        incidentKey: incident.incidentKey,
+        status: body.status,
+      },
+      ipAddress,
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_incident_changed", {
+      providerId,
+      incidentId: incident.id,
+      status: incident.status,
+    });
+    return {
+      incident: {
+        id: incident.id,
+        providerId: incident.providerId,
+        marketCode: incident.marketCode as ProviderIncidentDto["marketCode"],
+        incidentKey: incident.incidentKey,
+        status: incident.status,
+        severity: incident.severity,
+        title: incident.title,
+        summary: incident.summary,
+        errorClass: incident.errorClass,
+        errorCode: incident.errorCode,
+        occurrenceCount: incident.occurrenceCount,
+        firstSeenAt: incident.firstSeenAt,
+        lastSeenAt: incident.lastSeenAt,
+        lastErrorTrailId: incident.lastErrorTrailId,
+        linkedOperationId: incident.linkedOperationId,
+        metadata: incident.metadata,
+        acknowledgedAt: incident.acknowledgedAt,
+        acknowledgedByUserId: incident.acknowledgedByUserId,
+        resolvedAt: incident.resolvedAt,
+        resolvedByUserId: incident.resolvedByUserId,
+        ignoredAt: incident.ignoredAt,
+        ignoredByUserId: incident.ignoredByUserId,
+        createdAt: incident.createdAt,
+        updatedAt: incident.updatedAt,
+      },
+    };
+  });
+
   app.post("/provider-fixer/preview", (req, reply) => createProviderOperationPreview(req, reply));
 
   app.post("/providers/:providerId/operations/preview", (req, reply) => {
