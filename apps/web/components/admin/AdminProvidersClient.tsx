@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ProviderActivityItemDto,
@@ -1085,6 +1085,40 @@ function UnresolvedTab({
   const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
   const [sortInput, setSortInput] = useState<ProviderUnresolvedSort>(initialSort);
   const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const stateInputRef = useRef<HTMLSelectElement>(null);
+  const sortInputRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    setSearchInput(initialSearch);
+  }, [initialSearch]);
+
+  useEffect(() => {
+    setStateInput(initialState);
+  }, [initialState]);
+
+  useEffect(() => {
+    setSortInput(initialSort);
+  }, [initialSort]);
+
+  const readCurrentFilters = () => {
+    const stateValue = stateInputRef.current?.value;
+    const sortValue = sortInputRef.current?.value;
+    return {
+      search: searchInputRef.current?.value ?? searchInput,
+      state: stateValue === "resolved" || stateValue === "unsupported" || stateValue === "ignored" || stateValue === "active"
+        ? stateValue
+        : stateInput,
+      sort: sortValue === "updated_desc" || sortValue === "source_symbol_asc" || sortValue === "occurrence_count_desc" || sortValue === "last_seen_desc"
+        ? sortValue
+        : sortInput,
+    };
+  };
+
+  const applyCurrentFilters = (page = 1) => {
+    onApplyFilters({ ...readCurrentFilters(), page });
+  };
+
   const evidence = currentPreview?.evidenceSample ?? [];
   const rows = unresolvedItems.length > 0
     ? unresolvedItems.map((item) => ({
@@ -1137,16 +1171,18 @@ function UnresolvedTab({
       </div>
       <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_190px_220px_150px]">
         <input
+          ref={searchInputRef}
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page: 1 });
+            if (event.key === "Enter") applyCurrentFilters();
           }}
           placeholder="Search symbol, provider symbol, error"
           data-testid="provider-console-unresolved-search"
         />
         <select
+          ref={stateInputRef}
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={stateInput}
           onChange={(event) => setStateInput(event.target.value as ProviderUnresolvedItemDto["state"])}
@@ -1158,6 +1194,7 @@ function UnresolvedTab({
           <option value="ignored">State: ignored</option>
         </select>
         <select
+          ref={sortInputRef}
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={sortInput}
           onChange={(event) => setSortInput(event.target.value as ProviderUnresolvedSort)}
@@ -1169,7 +1206,7 @@ function UnresolvedTab({
           <option value="source_symbol_asc">Sort: source symbol</option>
         </select>
         <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Error: {diagnosis?.errorCode ?? "all"}</div>
-        <Button variant="secondary" onClick={() => onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page: 1 })} data-testid="provider-console-unresolved-apply">
+        <Button variant="secondary" onClick={() => applyCurrentFilters()} data-testid="provider-console-unresolved-apply">
           Apply filters
         </Button>
       </div>
@@ -1356,7 +1393,7 @@ function UnresolvedTab({
         page={unresolvedPage}
         limit={unresolvedLimit}
         total={unresolvedTotal}
-        onPageChange={(page) => onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page })}
+        onPageChange={(page) => applyCurrentFilters(page)}
       />
       {rows.length > 0 ? (
         <div

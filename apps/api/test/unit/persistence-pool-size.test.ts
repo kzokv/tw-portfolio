@@ -8,13 +8,17 @@
 // `apps/api/src/persistence/postgres.ts` line ~318: `max: 20` → `max: Env.POSTGRES_POOL_MAX`
 // `apps/api/src/plugins/pgBoss.ts` line ~44: `max: 2` → `max: Env.BACKFILL_POSTGRES_POOL_MAX`
 
-const mockPoolCalls: Array<{ max?: number; connectionString?: string }> = [];
+const mockPoolCalls: Array<{ max?: number; connectionString?: string; connectionTimeoutMillis?: number }> = [];
 const mockPgBossPoolCalls: Array<{ max?: number; connectionString?: string }> = [];
+const mockRedisClientCalls: Array<{
+  url?: string;
+  socket?: { connectTimeout?: number; reconnectStrategy?: (retries: number) => number | false };
+}> = [];
 
 vi.mock("pg", async (importOriginal) => {
   const original = await importOriginal<typeof import("pg")>();
   class MockPool {
-    constructor(opts: { max?: number; connectionString?: string }) {
+    constructor(opts: { max?: number; connectionString?: string; connectionTimeoutMillis?: number }) {
       mockPoolCalls.push(opts);
     }
     connect() { return Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => {} }); }
@@ -44,6 +48,18 @@ vi.mock("pg-boss", async () => {
   return { PgBoss: MockPgBoss, default: MockPgBoss };
 });
 
+vi.mock("redis", async () => ({
+  createClient: (opts: { url?: string; socket?: { connectTimeout?: number; reconnectStrategy?: (retries: number) => number | false } }) => {
+    mockRedisClientCalls.push(opts);
+    return {
+      isOpen: false,
+      connect: () => Promise.resolve(),
+      quit: () => Promise.resolve(),
+      on: () => undefined,
+    };
+  },
+}));
+
 // Spy on the pg package imported by pgBoss — pgBoss constructs its own pool.
 // We intercept at the `pg.Pool` layer already mocked above.
 // The pgBoss plugin does: `new pg.Pool({ connectionString, max: 2, ... })`.
@@ -53,6 +69,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CUSTOM_POOL_MAX = 7;
 const CUSTOM_BACKFILL_POOL_MAX = 3;
+const CUSTOM_CONNECTION_TIMEOUT_MS = 45_000;
+const CUSTOM_REDIS_CONNECTION_TIMEOUT_MS = 46_000;
+const CUSTOM_REDIS_RECONNECT_MAX_RETRIES = 2;
 
 vi.mock("@vakwen/config", async (importOriginal) => {
   const original = await importOriginal<typeof import("@vakwen/config")>();
@@ -62,6 +81,9 @@ vi.mock("@vakwen/config", async (importOriginal) => {
       ...original.Env,
       POSTGRES_POOL_MAX: CUSTOM_POOL_MAX,
       BACKFILL_POSTGRES_POOL_MAX: CUSTOM_BACKFILL_POOL_MAX,
+      POSTGRES_CONNECTION_TIMEOUT_MS: CUSTOM_CONNECTION_TIMEOUT_MS,
+      REDIS_CONNECTION_TIMEOUT_MS: CUSTOM_REDIS_CONNECTION_TIMEOUT_MS,
+      REDIS_RECONNECT_MAX_RETRIES: CUSTOM_REDIS_RECONNECT_MAX_RETRIES,
       getDatabaseUrl: () => "postgresql://localhost:5432/test",
       getRedisUrl: () => "redis://localhost:6379",
     },
@@ -71,6 +93,7 @@ vi.mock("@vakwen/config", async (importOriginal) => {
 describe("PostgresPersistence pool size reads Env.POSTGRES_POOL_MAX", () => {
   beforeEach(() => {
     mockPoolCalls.length = 0;
+    mockRedisClientCalls.length = 0;
   });
 
   it("passes Env.POSTGRES_POOL_MAX to pg.Pool constructor", async () => {
@@ -87,6 +110,36 @@ describe("PostgresPersistence pool size reads Env.POSTGRES_POOL_MAX", () => {
     const mainPool = mockPoolCalls.find((c) => c.max === CUSTOM_POOL_MAX);
     expect(mainPool).toBeDefined();
     expect(mainPool?.max).toBe(CUSTOM_POOL_MAX);
+  }, 15_000);
+
+  it("passes Env.POSTGRES_CONNECTION_TIMEOUT_MS to pg.Pool constructor", async () => {
+    const { PostgresPersistence } = await import(
+      "../../src/persistence/postgres.js"
+    );
+    new PostgresPersistence({
+      databaseUrl: "postgresql://localhost:5432/test",
+      redisUrl: "redis://localhost:6379",
+    });
+
+    const mainPool = mockPoolCalls.find((c) => c.max === CUSTOM_POOL_MAX);
+    expect(mainPool?.connectionTimeoutMillis).toBe(CUSTOM_CONNECTION_TIMEOUT_MS);
+  }, 15_000);
+
+  it("passes Env.REDIS_CONNECTION_TIMEOUT_MS to the Redis client", async () => {
+    const { PostgresPersistence } = await import(
+      "../../src/persistence/postgres.js"
+    );
+    new PostgresPersistence({
+      databaseUrl: "postgresql://localhost:5432/test",
+      redisUrl: "redis://localhost:6379",
+    });
+
+    expect(mockRedisClientCalls[0]?.socket?.connectTimeout).toBe(
+      CUSTOM_REDIS_CONNECTION_TIMEOUT_MS,
+    );
+    expect(mockRedisClientCalls[0]?.socket?.reconnectStrategy?.(0)).toBe(250);
+    expect(mockRedisClientCalls[0]?.socket?.reconnectStrategy?.(1)).toBe(500);
+    expect(mockRedisClientCalls[0]?.socket?.reconnectStrategy?.(2)).toBe(false);
   }, 15_000);
 });
 

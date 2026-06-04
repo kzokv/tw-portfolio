@@ -7,6 +7,7 @@ COMPOSE_PROJECT="${CI_COMPOSE_PROJECT:-vakwen-ci-integration}"
 CI_DB_PORT="${CI_DB_PORT:-15432}"
 CI_REDIS_PORT="${CI_REDIS_PORT:-16379}"
 CI_DB_NAME="${CI_DB_NAME:-vakwen_ci}"
+CI_DB_CONNECT_TIMEOUT_SECONDS="${CI_DB_CONNECT_TIMEOUT_SECONDS:-10}"
 KEEP_CI_STACK="${KEEP_CI_STACK:-0}"
 
 INTEGRATION_CI_MODE=""
@@ -174,7 +175,7 @@ host_reachable_on_ci_ports() {
 
 wait_for_host_ports() {
   local host="$1"
-  local attempts="${CI_HOST_PORT_PROBE_ATTEMPTS:-30}"
+  local attempts="${CI_HOST_PORT_PROBE_ATTEMPTS:-120}"
   local sleep_seconds="${CI_HOST_PORT_PROBE_INTERVAL_SECONDS:-1}"
   local i
 
@@ -248,9 +249,12 @@ resolve_host_mode_target() {
   local gateway_candidate
   local candidate
   local candidates_display
+  local attempts
+  local sleep_seconds
+  local i
 
   if [ -n "${CI_TEST_HOST:-}" ]; then
-    if host_reachable_on_ci_ports "$CI_TEST_HOST"; then
+    if wait_for_host_ports "$CI_TEST_HOST"; then
       echo "$CI_TEST_HOST"
       return
     fi
@@ -262,19 +266,24 @@ EOF
   fi
 
   HOST_CANDIDATES=()
+  append_candidate_host "localhost"
+
   docker_host_candidate="$(resolve_host_from_docker_host || true)"
   append_candidate_host "$docker_host_candidate"
 
   gateway_candidate="$(resolve_default_gateway_host || true)"
   append_candidate_host "$gateway_candidate"
 
-  append_candidate_host "localhost"
-
-  for candidate in "${HOST_CANDIDATES[@]:-}"; do
-    if host_reachable_on_ci_ports "$candidate"; then
-      echo "$candidate"
-      return
-    fi
+  attempts="${CI_HOST_PORT_PROBE_ATTEMPTS:-120}"
+  sleep_seconds="${CI_HOST_PORT_PROBE_INTERVAL_SECONDS:-1}"
+  for ((i=1; i<=attempts; i++)); do
+    for candidate in "${HOST_CANDIDATES[@]:-}"; do
+      if host_reachable_on_ci_ports "$candidate"; then
+        echo "$candidate"
+        return
+      fi
+    done
+    sleep "$sleep_seconds"
   done
 
   candidates_display="<none>"
@@ -368,7 +377,10 @@ EOF
   log_ci "Running integration tests (test host: $TEST_HOST, db: $CI_DB_PORT, redis: $CI_REDIS_PORT)..."
   VAKWEN_MANAGED_CI_STACK=1 \
   RUN_POSTGRES_INTEGRATION=1 \
-  POSTGRES_TEST_DB_URL="postgres://app:app@${TEST_HOST}:${CI_DB_PORT}/${CI_DB_NAME}" \
+  POSTGRES_CONNECTION_TIMEOUT_MS="$((CI_DB_CONNECT_TIMEOUT_SECONDS * 1000))" \
+  REDIS_CONNECTION_TIMEOUT_MS="$((CI_DB_CONNECT_TIMEOUT_SECONDS * 1000))" \
+  POSTGRES_PERSISTENCE_SKIP_REDIS_INIT=1 \
+  POSTGRES_TEST_DB_URL="postgres://app:app@${TEST_HOST}:${CI_DB_PORT}/${CI_DB_NAME}?connect_timeout=${CI_DB_CONNECT_TIMEOUT_SECONDS}" \
   POSTGRES_TEST_REDIS_URL="redis://${TEST_HOST}:${CI_REDIS_PORT}" \
   npm run test:integration:full -w apps/api
 }

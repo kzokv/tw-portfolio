@@ -552,8 +552,9 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
   - This is common on Linux VM/containerized routing paths where `host.docker.internal` resolves, but mapped ports become reachable moments later.
   - Without polling, a single immediate probe can fail even though the stack becomes reachable shortly after.
   - Poll behavior is tunable with:
-    - `CI_HOST_PORT_PROBE_ATTEMPTS` (default `30`)
+    - `CI_HOST_PORT_PROBE_ATTEMPTS` (default `120`)
     - `CI_HOST_PORT_PROBE_INTERVAL_SECONDS` (default `1`)
+  - The managed harness also sets bounded Postgres/Redis connection timeouts from `CI_DB_CONNECT_TIMEOUT_SECONDS` and skips eager Redis init for direct `PostgresPersistence` setup. Redis-dependent paths still connect lazily with the same bounded timeout/retry behavior.
 
 - **Isolation**:
   - CI stack uses non-conflicting ports by default:
@@ -566,9 +567,9 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
     - Intended for host shells, including guest VM shells that can access a Docker daemon.
     - Resolution order:
       1. `CI_TEST_HOST` (if set)
-      2. `DOCKER_HOST` TCP host (if present)
-      3. OS default gateway (`route` on Darwin, `ip route` on Linux)
-      4. `localhost`
+      2. `localhost`
+      3. `DOCKER_HOST` TCP host (if present)
+      4. OS default gateway (`route` on Darwin, `ip route` on Linux)
     - The script probes both DB/Redis ports and fails fast with `CI_TEST_HOST=<host-ip-or-dns>` guidance when no candidate is reachable.
     - Guest VM note: `localhost` usually points at the guest itself, not the physical host running Docker.
   - `test:integration:full:container`:
@@ -2709,12 +2710,15 @@ KZO-199 extends the KZO-198 Tier A pattern to cover seven Tier B operational con
 
 All columns are nullable and additive — backward compatible with prior API images.
 
-Two Tier 3 (env-only, restart-required) pool-size env vars are also added:
+Five Tier 3 (env-only, restart-required) Postgres/Redis pool/timing env vars are also added:
 
 | Env var | Default | Wired to |
 |---|---|---|
 | `POSTGRES_POOL_MAX` | `20` | Main Postgres connection pool (`PostgresPersistence` constructor) |
 | `BACKFILL_POSTGRES_POOL_MAX` | `2` | pg-boss Postgres pool (`plugins/pgBoss.ts`) |
+| `POSTGRES_CONNECTION_TIMEOUT_MS` | `10000` | Main Postgres connection timeout (`PostgresPersistence` constructor) |
+| `REDIS_CONNECTION_TIMEOUT_MS` | `10000` | Redis socket connection timeout (`PostgresPersistence` and `RedisEventBus`) |
+| `REDIS_RECONNECT_MAX_RETRIES` | `3` | Max Redis socket reconnect retries before surfacing failure |
 
 ### Admin UI — Sharing tab
 
@@ -2753,11 +2757,13 @@ See §22 "Tier 2 SQL escape hatch → KZO-199 Tier 2 fields" for the SQL update 
 
 ### Pool-size tuning
 
-Both pool-size env vars are **restart-required** — they are read once at startup, not per-request. The safe defaults (20 and 2) match the previous hardcoded values; no action is required on deploy.
+These Postgres/Redis env vars are **restart-required** — they are read once at startup, not per-request. The safe pool defaults (20 and 2) match the previous hardcoded values, both connection timeout defaults remain 10 seconds, and Redis retries are bounded to 3 attempts; no action is required on deploy.
+
+The managed Postgres integration harness sets `POSTGRES_CONNECTION_TIMEOUT_MS` and `REDIS_CONNECTION_TIMEOUT_MS` from `CI_DB_CONNECT_TIMEOUT_SECONDS` (default: 10 seconds) and applies the Postgres value to direct test-created `pg.Pool` instances as well as `PostgresPersistence`. Direct test pools also retry transient connection-acquisition timeouts through the Vitest managed-Postgres setup hook. Host-mode detection polls all candidate Docker-published addresses round-robin so an unreachable first candidate does not stall startup before the reachable gateway/localhost address is selected. The managed Postgres Vitest gate runs with one worker because several integration specs reset schemas and create direct pools; the normal memory-backed API suite remains capped at four workers.
 
 To tune:
 
-1. Set `POSTGRES_POOL_MAX` and/or `BACKFILL_POSTGRES_POOL_MAX` in the deployment environment.
+1. Set `POSTGRES_POOL_MAX`, `BACKFILL_POSTGRES_POOL_MAX`, `POSTGRES_CONNECTION_TIMEOUT_MS`, `REDIS_CONNECTION_TIMEOUT_MS`, and/or `REDIS_RECONNECT_MAX_RETRIES` in the deployment environment.
 2. Restart the API service.
 3. Verify the pool size via `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'vakwen%';`
 
@@ -2777,7 +2783,7 @@ The default tab (no `?tab` query) is `rate-limits`. All existing per-field knobs
 
 - Migration 052 is additive (`ADD COLUMN IF NOT EXISTS ... NULL`). Rollback per-column: `UPDATE app_config SET <col> = NULL WHERE id = 1;` restores env-fallback immediately. Full schema rollback: `ALTER TABLE app_config DROP COLUMN IF EXISTS anonymous_share_token_cap, DROP COLUMN IF EXISTS anonymous_share_rate_limit_max, DROP COLUMN IF EXISTS anonymous_share_rate_limit_window_ms, DROP COLUMN IF EXISTS anonymous_share_token_retention_ms, DROP COLUMN IF EXISTS user_preferences_max_bytes;`
 - Reverting the API image restores the flat settings page layout; the 5 new columns are ignored by older images.
-- Pool-size env vars: removing `POSTGRES_POOL_MAX` / `BACKFILL_POSTGRES_POOL_MAX` restores the schema defaults (20 / 2) after a restart.
+- Postgres/Redis pool/timing env vars: removing `POSTGRES_POOL_MAX`, `BACKFILL_POSTGRES_POOL_MAX`, `POSTGRES_CONNECTION_TIMEOUT_MS`, `REDIS_CONNECTION_TIMEOUT_MS`, or `REDIS_RECONNECT_MAX_RETRIES` restores the schema defaults (20 / 2 / 10000 / 10000 / 3) after a restart.
 
 ---
 
