@@ -11,6 +11,7 @@ import type {
   ProviderIncidentDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
+  ProviderResolutionMappingDto,
   ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 
@@ -244,6 +245,23 @@ function buildIncidents(): ProviderIncidentDto[] {
   ];
 }
 
+function buildMappings(): ProviderResolutionMappingDto[] {
+  return [
+    {
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { candidate: "005930.KS" },
+      verifiedAt: "2026-06-02T14:42:12.000Z",
+      verifiedByUserId: "admin-1",
+      createdAt: "2026-06-02T14:42:12.000Z",
+      updatedAt: "2026-06-02T14:42:12.000Z",
+    },
+  ];
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -273,6 +291,10 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
         incidentsPage={1}
         incidentsLimit={10}
         incidentsTotal={1}
+        mappings={buildMappings()}
+        mappingsPage={1}
+        mappingsLimit={10}
+        mappingsTotal={1}
         stagedOperation={operations[0] ?? null}
         operations={operations}
         operationsPage={1}

@@ -240,6 +240,24 @@ describe("Provider Fixer admin routes", () => {
       resolvedSymbol: "005930.KS",
       verifiedByUserId: admin.userId,
     });
+    const mappings = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/mappings?page=1&limit=10",
+      headers,
+    });
+    expect(mappings.statusCode).toBe(200);
+    expect(mappings.json()).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          sourceSymbol: "005930",
+          resolvedSymbol: "005930.KS",
+          resolverMode: "quote_first",
+        }),
+      ],
+    });
     const activeAfterExecute = await app.inject({
       method: "GET",
       url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&page=1&limit=10",

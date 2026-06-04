@@ -2089,6 +2089,26 @@ export interface ProviderOperationOutcomesResponse {
   limit: number;
 }
 
+export interface ProviderResolutionMappingDto {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  resolvedSymbol: string;
+  resolverMode: "quote_first" | "chart_probe_v1" | null;
+  evidence: Record<string, unknown> | null;
+  verifiedAt: string;
+  verifiedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderResolutionMappingsResponse {
+  items: ProviderResolutionMappingDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────
 
 export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";
