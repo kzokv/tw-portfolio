@@ -27,6 +27,8 @@ type ProviderConsoleTab =
   | "logs"
   | "mappings";
 
+type ProviderUnresolvedSort = "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
+
 const providerConsoleTabs = new Set<string>([
   "overview",
   "unresolved",
@@ -66,6 +68,13 @@ function unresolvedStateQueryValue(value: string | string[] | undefined): "activ
   return state === "resolved" || state === "unsupported" || state === "ignored" ? state : "active";
 }
 
+function unresolvedSortQueryValue(value: string | string[] | undefined): ProviderUnresolvedSort {
+  const sort = firstOptionalQueryValue(value);
+  return sort === "updated_desc" || sort === "source_symbol_asc" || sort === "occurrence_count_desc"
+    ? sort
+    : "last_seen_desc";
+}
+
 export default async function AdminProvidersPage({ searchParams }: AdminProvidersPageProps) {
   const query = await searchParams;
   const providerId = firstQueryValue(query.providerId, "yahoo-finance-kr");
@@ -74,6 +83,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   const initialTab = firstTabQueryValue(query.tab);
   const unresolvedState = unresolvedStateQueryValue(query.unresolvedState);
   const unresolvedSearch = firstOptionalQueryValue(query.unresolvedSearch) ?? "";
+  const unresolvedSort = unresolvedSortQueryValue(query.unresolvedSort);
   const unresolvedPage = positiveIntQueryValue(query.unresolvedPage, 1);
   const operationsPage = positiveIntQueryValue(query.operationsPage, 1);
   const operationId = firstOptionalQueryValue(query.operationId);
@@ -91,7 +101,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       `/admin/providers/${encodeURIComponent(providerId)}/diagnostics?resolverMode=${encodeURIComponent(resolverMode)}&errorCode=${encodeURIComponent(errorCode)}`,
     ),
     getJson<ProviderUnresolvedItemsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/unresolved?state=${encodeURIComponent(unresolvedState)}&errorCode=${encodeURIComponent(errorCode)}&search=${encodeURIComponent(unresolvedSearch)}&page=${unresolvedPage}&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/unresolved?state=${encodeURIComponent(unresolvedState)}&errorCode=${encodeURIComponent(errorCode)}&search=${encodeURIComponent(unresolvedSearch)}&sort=${encodeURIComponent(unresolvedSort)}&page=${unresolvedPage}&limit=${pageLimit}`,
     ),
     getJson<ProviderIncidentsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/incidents?status=open&page=1&limit=${pageLimit}`,
@@ -158,6 +168,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       unresolvedTotal={unresolvedData.total}
       initialUnresolvedState={unresolvedState}
       initialUnresolvedSearch={unresolvedSearch}
+      initialUnresolvedSort={unresolvedSort}
       incidents={incidentsData.items}
       incidentsPage={incidentsData.page}
       incidentsLimit={incidentsData.limit}

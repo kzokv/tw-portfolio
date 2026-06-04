@@ -1483,6 +1483,7 @@ export interface ListProviderUnresolvedItemsOptions {
   state?: ProviderUnresolvedItemState;
   errorCode?: string;
   search?: string;
+  sort?: "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
   page: number;
   limit: number;
 }

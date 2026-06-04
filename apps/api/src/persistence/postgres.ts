@@ -12682,6 +12682,14 @@ export class PostgresPersistence implements Persistence {
       params.push(`%${options.search.trim()}%`);
       i++;
     }
+    const orderBy =
+      options.sort === "updated_desc"
+        ? "updated_at DESC"
+        : options.sort === "source_symbol_asc"
+          ? "source_symbol ASC"
+          : options.sort === "occurrence_count_desc"
+            ? "occurrence_count DESC, last_seen_at DESC"
+            : "last_seen_at DESC";
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const countResult = await this.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
@@ -12695,7 +12703,7 @@ export class PostgresPersistence implements Persistence {
               resolved_at, resolved_by_operation_id, updated_at
          FROM market_data.provider_unresolved_items
          ${whereClause}
-         ORDER BY last_seen_at DESC
+         ORDER BY ${orderBy}
          LIMIT $${i++}
          OFFSET $${i++}`,
       [...params, limit, offset],
