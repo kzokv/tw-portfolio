@@ -488,6 +488,73 @@ describe("Provider Fixer admin routes", () => {
     expect(mismatchedExecute.statusCode).toBe(404);
   });
 
+  it("updates unresolved item lifecycle state with provider-scoped audit metadata", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const ignore = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/unresolved/state",
+      headers,
+      payload: {
+        marketCode: "KR",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        sourceSymbol: "005930",
+        state: "ignored",
+        reason: "admin reviewed duplicate raw errors",
+      },
+    });
+    expect(ignore.statusCode).toBe(200);
+    expect(ignore.json()).toMatchObject({
+      item: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        sourceSymbol: "005930",
+        state: "ignored",
+        evidence: {
+          stateChange: {
+            state: "ignored",
+            reason: "admin reviewed duplicate raw errors",
+            actorUserId: admin.userId,
+          },
+        },
+      },
+    });
+
+    const ignored = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=ignored&page=1&limit=10",
+      headers,
+    });
+    expect(ignored.statusCode).toBe(200);
+    expect(ignored.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "ignored" })],
+    });
+
+    const reopen = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/unresolved/state",
+      headers,
+      payload: {
+        marketCode: "KR",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        sourceSymbol: "005930",
+        state: "active",
+      },
+    });
+    expect(reopen.statusCode).toBe(200);
+    expect(reopen.json()).toMatchObject({
+      item: {
+        sourceSymbol: "005930",
+        state: "active",
+        resolvedAt: null,
+        resolvedByOperationId: null,
+      },
+    });
+  });
+
   it("enforces provider operation rate caps against configured upstream budgets", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
