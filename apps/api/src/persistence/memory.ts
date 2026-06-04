@@ -140,6 +140,7 @@ import type {
   SaveAiTransactionDraftUnsupportedItemInput,
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
+  UpdateProviderIncidentStatusInput,
   UpdateProviderOperationInput,
   UpsertProviderOperationOutcomeInput,
   UpsertProviderIncidentInput,
@@ -5569,6 +5570,27 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async updateProviderIncidentStatus(input: UpdateProviderIncidentStatusInput): Promise<ProviderIncidentRecord> {
+    const existing = [...this.providerIncidents.values()].find(
+      (row) => row.id === input.incidentId && row.providerId === input.providerId,
+    );
+    if (!existing) throw routeError(404, "provider_incident_not_found", "Provider incident not found");
+    const now = new Date().toISOString();
+    const next: ProviderIncidentRecord = {
+      ...existing,
+      status: input.status,
+      acknowledgedAt: input.status === "acknowledged" ? now : input.status === "open" ? null : existing.acknowledgedAt,
+      acknowledgedByUserId: input.status === "acknowledged" ? input.actorUserId : input.status === "open" ? null : existing.acknowledgedByUserId,
+      resolvedAt: input.status === "resolved" ? now : input.status === "open" ? null : existing.resolvedAt,
+      resolvedByUserId: input.status === "resolved" ? input.actorUserId : input.status === "open" ? null : existing.resolvedByUserId,
+      ignoredAt: input.status === "ignored" ? now : input.status === "open" ? null : existing.ignoredAt,
+      ignoredByUserId: input.status === "ignored" ? input.actorUserId : input.status === "open" ? null : existing.ignoredByUserId,
+      updatedAt: now,
+    };
+    this.providerIncidents.set(providerIncidentKey(next.providerId, next.incidentKey), next);
+    return { ...next, metadata: { ...next.metadata } };
   }
 
   async upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord> {
