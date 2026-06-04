@@ -191,7 +191,9 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added operation-budget pacing for budget-consuming verification work. Repair, Renew, and Reverify now persist operation budget windows, pause with `paused_rate_limit` when the admin cap is exhausted, and preserve budget metadata through interrupted operations.
 - 2026-06-04: Routed unresolved lifecycle writes (`Ignore`, `Unsupported`, `Reopen`) through durable provider operations with item outcomes, logs, audit metadata, and SSE progress/phase events.
 - 2026-06-04: Completed purge operation evidence by writing a durable purge outcome, post-purge completion log, and progress event after deleting raw provider logs so the purge operation remains inspectable.
-- Remaining high-risk work is now verification-heavy: broader test coverage, full gate coverage, `/aaa` E2E additions, and final PR/CI review.
+- 2026-06-04: Expanded OAuth E2E provider-console coverage for unresolved filters/select-all, guarded repair preview, operations progress surfaces, purge preview guardrails, and mobile provider selection.
+- 2026-06-04: Focused validation passed for provider-fixer API integration tests, Admin Providers web unit tests, targeted provider-console OAuth E2E cases, linted touched files, and web/API package typechecks. Full repo gate remains pending.
+- Remaining high-risk work is now final verification-heavy: full gate coverage, `/si-review`, `/si-promote`, push, CI, and review follow-up.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
@@ -212,9 +214,9 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [x] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.
 - [x] Add mobile provider selector, mobile cards, bottom action bar, disabled action reasons, and full-screen destructive preview sheets.
 - [x] Add concise contextual help/tooltips for Repair, Renew, Rerun, Purge, quote-first, chart-probe, awaiting action, unsupported actions, and disabled states.
-- [ ] Add DB/API/worker tests for unresolved dedupe, incident recurrence, operations, outcomes, queueing, rate-limit pause/resume, stale operations, guardrails, settings validation, purge, and KR mapping.
-- [ ] Add web unit tests for provider console UI states, action enablement, tooltips/help copy, mobile variants, and settings validation.
-- [ ] Run `/aaa` to add or update E2E tests covering provider console navigation, unresolved table, repair flow, dangerous preview, operations progress, purge guardrail, and mobile action sheet.
+- [x] Add DB/API/worker tests for unresolved dedupe, incident recurrence, operations, outcomes, queueing, rate-limit pause/resume, stale operations, guardrails, settings validation, purge, and KR mapping.
+- [x] Add web unit tests for provider console UI states, action enablement, tooltips/help copy, mobile variants, and settings validation.
+- [x] Run `/aaa` to add or update E2E tests covering provider console navigation, unresolved table, repair flow, dangerous preview, operations progress, purge guardrail, and mobile action sheet.
 - [ ] Run the smallest relevant tests first, then the repo-required full gate before PR.
 
 ## Commit Order
