@@ -274,7 +274,7 @@ function buildMappings(): ProviderResolutionMappingDto[] {
       sourceSymbol: "005930",
       resolvedSymbol: "005930.KS",
       resolverMode: "quote_first",
-      evidence: { candidate: "005930.KS" },
+      evidence: { candidate: "005930.KS", operationId: "OP-20260602-1842" },
       verifiedAt: "2026-06-02T14:42:12.000Z",
       verifiedByUserId: "admin-1",
       createdAt: "2026-06-02T14:42:12.000Z",
@@ -763,6 +763,20 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/only removes raw provider error trail rows/i);
     expect(findElementByText("button", "Preview purge").getAttribute("title") ?? "").toMatch(
       /preview eligible raw provider logs/i,
+    );
+  });
+
+  it("shows mapping evidence, linked context, and guarded mapping action affordances", () => {
+    renderClient(root, { initialTab: "mappings" });
+
+    expect(document.body.textContent ?? "").toMatch(/005930\.KS/i);
+    expect(document.body.textContent ?? "").toMatch(/Operation: OP-20260602-1842/i);
+    expect(document.body.textContent ?? "").toMatch(/Unresolved: 005930/i);
+    expect(findElementByText("button", "Reverify").getAttribute("title") ?? "").toMatch(
+      /create a provider operation/i,
+    );
+    expect(findElementByText("button", "Revert").getAttribute("title") ?? "").toMatch(
+      /typed-preview provider operation/i,
     );
   });
 

@@ -188,6 +188,24 @@ function formatTimestamp(ts: string | null): string {
   return new Date(ts).toLocaleString();
 }
 
+function evidenceString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function mappingEvidenceSummary(evidence: Record<string, unknown> | null): string {
+  return evidenceString(evidence?.candidate)
+    ?? evidenceString(evidence?.candidateSymbol)
+    ?? evidenceString(evidence?.exchangeHint)
+    ?? evidenceString(evidence?.note)
+    ?? "Stored durable mapping";
+}
+
+function mappingLinkedOperation(evidence: Record<string, unknown> | null): string | null {
+  return evidenceString(evidence?.operationId)
+    ?? evidenceString(evidence?.providerOperationId)
+    ?? evidenceString(evidence?.retryOfOperationId);
+}
+
 function statusCopy(status: ProviderHealthStatus): string {
   if (status === "healthy") return "Healthy";
   if (status === "degraded") return "Degraded";
@@ -1785,6 +1803,10 @@ function MappingsTab({
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
 }) {
   const evidenceRows = currentPreview?.evidenceSample ?? [];
+  const reverifySupported = actionSupported(capability, "reverify_mapping");
+  const revertSupported = actionSupported(capability, "revert_mapping");
+  const reverifyReason = actionDisabledReason(capability, "reverify_mapping", "Reverify is unavailable for this provider.");
+  const revertReason = actionDisabledReason(capability, "revert_mapping", "Revert is unavailable for this provider.");
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div>
@@ -1803,6 +1825,8 @@ function MappingsTab({
                     <th className="px-3 py-3">Resolver</th>
                     <th className="px-3 py-3">Verified</th>
                     <th className="px-3 py-3">Evidence</th>
+                    <th className="px-3 py-3">Linked context</th>
+                    <th className="px-3 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1816,7 +1840,31 @@ function MappingsTab({
                       <td className="px-3 py-3">{mapping.resolverMode?.replace(/_/g, " ") ?? "manual"}</td>
                       <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(mapping.verifiedAt)}</td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">
-                        {mapping.evidence?.candidate ? String(mapping.evidence.candidate) : "Stored durable mapping"}
+                        {mappingEvidenceSummary(mapping.evidence)}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">
+                        <div>Unresolved: {mapping.sourceSymbol}</div>
+                        <div>Operation: {mappingLinkedOperation(mapping.evidence) ?? "not linked"}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled
+                            title={reverifySupported ? "Reverify will create a provider operation for this durable mapping." : reverifyReason ?? undefined}
+                          >
+                            Reverify
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled
+                            title={revertSupported ? "Revert requires a typed-preview provider operation before removing this mapping." : revertReason ?? undefined}
+                          >
+                            Revert
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
