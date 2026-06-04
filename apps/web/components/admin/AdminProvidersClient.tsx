@@ -552,6 +552,17 @@ export function AdminProvidersClient({
     );
   }
 
+  function rerunUnresolvedItem(item: ProviderUnresolvedItemDto): void {
+    void runAction(`unresolved:rerun:${item.sourceSymbol}`, () =>
+      postJson(`/admin/providers/${encodeURIComponent(item.providerId)}/mappings/rerun`, {
+        marketCode: item.marketCode,
+        sourceSymbol: item.sourceSymbol,
+        resolverMode: diagnostics.resolverMode,
+        acknowledged: true,
+      }),
+    );
+  }
+
   function openMappingUnresolved(mapping: ProviderResolutionMappingDto): void {
     const params = new URLSearchParams({
       providerId: mapping.providerId,
@@ -843,6 +854,7 @@ export function AdminProvidersClient({
             rerunDisabledReason={rerunDisabledReason}
             onPreviewRepair={previewRepair}
             onSetState={updateUnresolvedItemState}
+            onRerunItem={rerunUnresolvedItem}
             onApplyFilters={applyUnresolvedFilters}
             busyAction={busyAction}
           />
@@ -1041,6 +1053,7 @@ function UnresolvedTab({
   rerunDisabledReason,
   onPreviewRepair,
   onSetState,
+  onRerunItem,
   onApplyFilters,
   busyAction,
 }: {
@@ -1058,6 +1071,7 @@ function UnresolvedTab({
   rerunDisabledReason: string;
   onPreviewRepair: () => void;
   onSetState: (item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored") => void;
+  onRerunItem: (item: ProviderUnresolvedItemDto) => void;
   onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
   busyAction: string | null;
 }) {
@@ -1092,8 +1106,15 @@ function UnresolvedTab({
   const canMarkUnsupported = actionSupported(capability, "mark_unsupported");
   const canIgnore = actionSupported(capability, "ignore_unresolved");
   const canReopen = actionSupported(capability, "reopen_unresolved");
+  const canRerun = actionSupported(capability, "rerun_backfill");
   const lifecycleUnavailable = "Available for durable unresolved rows only.";
   const firstDurableRow = rows.find((row) => row.item)?.item ?? null;
+  const rowRerunTitle = (row: (typeof rows)[number]) => {
+    if (!canRerun) return rerunDisabledReason;
+    if (!row.item || row.item.state !== "resolved") return "Rerun is disabled until this durable row is resolved or mapped.";
+    return "Rerun creates a provider operation that enqueues a fresh backfill for this resolved row.";
+  };
+  const rowRerunDisabled = (row: (typeof rows)[number]) => !canRerun || !row.item || row.item.state !== "resolved" || busyAction !== null;
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1190,7 +1211,16 @@ function UnresolvedTab({
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
                 <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
-                <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={rowRerunDisabled(row)}
+                  title={rowRerunTitle(row)}
+                  onClick={() => row.item ? onRerunItem(row.item) : undefined}
+                  data-testid={`provider-console-unresolved-rerun-mobile-${row.sourceSymbol}`}
+                >
+                  Rerun
+                </Button>
                 {row.item && row.item.state !== "active" ? (
                   <Button
                     size="sm"
@@ -1224,7 +1254,9 @@ function UnresolvedTab({
                   </>
                 )}
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">Rerun is disabled until this item is resolved or mapped.</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {row.item?.state === "resolved" && canRerun ? "Rerun will enqueue a fresh backfill for this resolved row." : "Rerun is disabled until this item is resolved or mapped."}
+              </p>
             </article>
           ))}
         </div>
@@ -1259,7 +1291,16 @@ function UnresolvedTab({
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
                     <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
-                    <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={rowRerunDisabled(row)}
+                      title={rowRerunTitle(row)}
+                      onClick={() => row.item ? onRerunItem(row.item) : undefined}
+                      data-testid={`provider-console-unresolved-rerun-${row.sourceSymbol}`}
+                    >
+                      Rerun
+                    </Button>
                     {row.item && row.item.state !== "active" ? (
                       <Button
                         size="sm"
@@ -1296,7 +1337,9 @@ function UnresolvedTab({
                       </>
                     )}
                   </div>
-                  <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
+                  <p className="mt-1 text-right text-xs text-muted-foreground">
+                    {row.item?.state === "resolved" && canRerun ? "Rerun enqueues fresh backfill." : "Rerun requires resolved mapping."}
+                  </p>
                 </td>
               </tr>
             ))}

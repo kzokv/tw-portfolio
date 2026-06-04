@@ -571,6 +571,33 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-console-unresolved-ignore-005930']")).toBeNull();
   });
 
+  it("reruns resolved unresolved rows through mapped provider operation API", async () => {
+    renderClient(root, {
+      initialTab: "unresolved",
+      initialUnresolvedState: "resolved",
+      unresolvedItems: buildUnresolvedItems().map((item) => ({
+        ...item,
+        state: "resolved" as const,
+        resolvedAt: "2026-06-02T14:42:12.000Z",
+        resolvedByOperationId: "OP-20260602-1842",
+      })),
+    });
+
+    click("provider-console-unresolved-rerun-005930");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/mappings/rerun",
+      {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolverMode: "quote_first",
+        acknowledged: true,
+      },
+    );
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
   it("keeps dangerous execution disabled until checkbox and typed confirmation are satisfied", () => {
     renderClient(root, { initialTab: "fixer" });
 
