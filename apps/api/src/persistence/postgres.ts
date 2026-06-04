@@ -9922,6 +9922,15 @@ export class PostgresPersistence implements Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    providerOperationAutoRenewIntervalMinutes: number | null;
+    providerIncidentRecurrenceWindowMinutes: number | null;
+    providerHealthWarningUnresolvedThreshold: number | null;
+    providerHealthCriticalUnresolvedThreshold: number | null;
+    providerOperationStaleHeartbeatMinutes: number | null;
+    providerOperationSummaryRetentionDays: number | null;
+    providerOperationLogRetentionDays: number | null;
+    providerIncidentRetentionDays: number | null;
+    providerResolvedItemRetentionDays: number | null;
     finmindProviderRateLimitPerHour: number | null;
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;
@@ -9970,6 +9979,15 @@ export class PostgresPersistence implements Persistence {
       provider_fixer_ui_page_size: number | null;
       provider_fixer_auto_pause_failures_per_minute: number | null;
       provider_fixer_preview_token_ttl_minutes: number | null;
+      provider_operation_auto_renew_interval_minutes: number | null;
+      provider_incident_recurrence_window_minutes: number | null;
+      provider_health_warning_unresolved_threshold: number | null;
+      provider_health_critical_unresolved_threshold: number | null;
+      provider_operation_stale_heartbeat_minutes: number | null;
+      provider_operation_summary_retention_days: number | null;
+      provider_operation_log_retention_days: number | null;
+      provider_incident_retention_days: number | null;
+      provider_resolved_item_retention_days: number | null;
       finmind_provider_rate_limit_per_hour: number | null;
       twelve_data_provider_rate_limit_per_minute: number | null;
       yahoo_au_provider_rate_limit_per_minute: number | null;
@@ -10007,6 +10025,11 @@ export class PostgresPersistence implements Persistence {
          provider_fixer_dangerous_match_threshold, provider_fixer_preview_sample_limit,
          provider_fixer_ui_page_size, provider_fixer_auto_pause_failures_per_minute,
          provider_fixer_preview_token_ttl_minutes,
+         provider_operation_auto_renew_interval_minutes, provider_incident_recurrence_window_minutes,
+         provider_health_warning_unresolved_threshold, provider_health_critical_unresolved_threshold,
+         provider_operation_stale_heartbeat_minutes,
+         provider_operation_summary_retention_days, provider_operation_log_retention_days,
+         provider_incident_retention_days, provider_resolved_item_retention_days,
          finmind_provider_rate_limit_per_hour, twelve_data_provider_rate_limit_per_minute,
          yahoo_au_provider_rate_limit_per_minute, yahoo_kr_provider_rate_limit_per_minute,
          frankfurter_provider_rate_limit_per_minute, asx_gics_provider_rate_limit_per_hour,
@@ -10045,6 +10068,15 @@ export class PostgresPersistence implements Persistence {
         providerFixerUiPageSize: null,
         providerFixerAutoPauseFailuresPerMinute: null,
         providerFixerPreviewTokenTtlMinutes: null,
+        providerOperationAutoRenewIntervalMinutes: null,
+        providerIncidentRecurrenceWindowMinutes: null,
+        providerHealthWarningUnresolvedThreshold: null,
+        providerHealthCriticalUnresolvedThreshold: null,
+        providerOperationStaleHeartbeatMinutes: null,
+        providerOperationSummaryRetentionDays: null,
+        providerOperationLogRetentionDays: null,
+        providerIncidentRetentionDays: null,
+        providerResolvedItemRetentionDays: null,
         finmindProviderRateLimitPerHour: null,
         twelveDataProviderRateLimitPerMinute: null,
         yahooAuProviderRateLimitPerMinute: null,
@@ -10101,6 +10133,15 @@ export class PostgresPersistence implements Persistence {
       providerFixerUiPageSize: row.provider_fixer_ui_page_size,
       providerFixerAutoPauseFailuresPerMinute: row.provider_fixer_auto_pause_failures_per_minute,
       providerFixerPreviewTokenTtlMinutes: row.provider_fixer_preview_token_ttl_minutes,
+      providerOperationAutoRenewIntervalMinutes: row.provider_operation_auto_renew_interval_minutes,
+      providerIncidentRecurrenceWindowMinutes: row.provider_incident_recurrence_window_minutes,
+      providerHealthWarningUnresolvedThreshold: row.provider_health_warning_unresolved_threshold,
+      providerHealthCriticalUnresolvedThreshold: row.provider_health_critical_unresolved_threshold,
+      providerOperationStaleHeartbeatMinutes: row.provider_operation_stale_heartbeat_minutes,
+      providerOperationSummaryRetentionDays: row.provider_operation_summary_retention_days,
+      providerOperationLogRetentionDays: row.provider_operation_log_retention_days,
+      providerIncidentRetentionDays: row.provider_incident_retention_days,
+      providerResolvedItemRetentionDays: row.provider_resolved_item_retention_days,
       finmindProviderRateLimitPerHour: row.finmind_provider_rate_limit_per_hour,
       twelveDataProviderRateLimitPerMinute: row.twelve_data_provider_rate_limit_per_minute,
       yahooAuProviderRateLimitPerMinute: row.yahoo_au_provider_rate_limit_per_minute,
