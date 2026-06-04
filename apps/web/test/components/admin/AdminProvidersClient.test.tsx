@@ -19,9 +19,27 @@ import type {
 
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
+const mockPostJson = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
+}));
+
+vi.mock("../../../lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    code: string | null;
+
+    constructor(message: string, status: number, code: string | null = null) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.code = code;
+    }
+  },
+  getApiBaseUrl: () => "http://localhost:4000",
+  patchJson: vi.fn(),
+  postJson: (...args: unknown[]) => mockPostJson(...args),
 }));
 
 import { AdminProvidersClient } from "../../../components/admin/AdminProvidersClient";
@@ -136,6 +154,7 @@ function buildOperation(
     canPause: false,
     canResume: false,
     canCancel: false,
+    canRetry: false,
     dangerous: true,
     progressPercent: 62,
     autoPauseFailureCount: 12,
@@ -417,6 +436,8 @@ describe("AdminProvidersClient", () => {
   beforeEach(() => {
     mockRefresh.mockReset();
     mockPush.mockReset();
+    mockPostJson.mockReset();
+    mockPostJson.mockResolvedValue({});
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -500,6 +521,45 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/operation item outcomes/i);
     expect(document.body.textContent ?? "").toMatch(/repair mapping/i);
     expect(document.body.textContent ?? "").toMatch(/resolved 005930 to 005930\.KS/i);
+  });
+
+  it("retries terminal operations through provider-scoped linked preview route", async () => {
+    renderClient(root, {
+      initialTab: "operations",
+      operations: [
+        buildOperation({
+          id: "OP-COMPLETED-1",
+          phase: "completed",
+          canExecute: false,
+          canRetry: true,
+          progressPercent: 100,
+        }),
+      ],
+      stagedOperation: null,
+    });
+
+    click("provider-console-operation-retry-OP-COMPLETED-1");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/OP-COMPLETED-1/retry",
+      {},
+    );
+    expect(mockRefresh).toHaveBeenCalled();
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /operation state changed/i,
+    );
+  });
+
+  it("keeps retry disabled before an operation reaches a retryable phase", () => {
+    renderClient(root, { initialTab: "operations" });
+
+    const retryButton = document.querySelector(
+      "[data-testid='provider-console-operation-retry-OP-20260602-1842']",
+    ) as HTMLButtonElement | null;
+
+    expect(retryButton?.disabled).toBe(true);
+    expect(retryButton?.getAttribute("title") ?? "").toMatch(/paused, failed, cancelled, or completed/i);
   });
 
   it("shows log purge as a preview-first destructive action", () => {
