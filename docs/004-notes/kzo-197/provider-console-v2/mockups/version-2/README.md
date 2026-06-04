@@ -1,6 +1,6 @@
-# KZO-197 Provider Console V2 Locked Mockups
+# KZO-197 Provider Console V2 Option 3 Locked Mockups
 
-This folder preserves the second locked visual version of the Provider Console V2 mockups. The older `mockups/screenshots/` set remains available for comparison.
+This folder preserves the option 3 locked visual version of the Provider Console V2 mockups. The older `mockups/screenshots/` set remains available for comparison.
 
 ## Files
 
