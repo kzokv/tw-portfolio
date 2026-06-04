@@ -75,6 +75,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   const unresolvedState = unresolvedStateQueryValue(query.unresolvedState);
   const unresolvedSearch = firstOptionalQueryValue(query.unresolvedSearch) ?? "";
   const unresolvedPage = positiveIntQueryValue(query.unresolvedPage, 1);
+  const operationId = firstOptionalQueryValue(query.operationId);
 
   const [providersData, summaryData] = await Promise.all([
     getJson<AdminProvidersResponse>("/admin/providers"),
@@ -104,7 +105,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       `/admin/providers/${encodeURIComponent(providerId)}/operations?page=1&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardLogsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/logs?page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/logs?page=1&limit=${pageLimit}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
     ),
   ]);
 
@@ -113,7 +114,11 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
     !operationsData.operations.some((operation) => operation.id === operationsData.stagedOperation?.id)
       ? [operationsData.stagedOperation, ...operationsData.operations]
       : operationsData.operations;
-  const selectedOperationForOutcomes = operationsData.stagedOperation ?? operations[0] ?? null;
+  const selectedOperationForOutcomes =
+    (operationId ? operations.find((operation) => operation.id === operationId && operation.providerId === providerId) : null)
+    ?? operationsData.stagedOperation
+    ?? operations[0]
+    ?? null;
   const outcomesData = selectedOperationForOutcomes
     ? await getJson<ProviderOperationOutcomesResponse>(
         `/admin/providers/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(selectedOperationForOutcomes.id)}/outcomes?page=1&limit=${pageLimit}`,
@@ -166,6 +171,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       activityTotal={activityData.total}
       stagedOperation={operationsData.stagedOperation}
       operations={operations}
+      initialOperationId={selectedOperationForOutcomes?.id}
       operationsPage={operationsData.page}
       operationsLimit={operationsData.limit}
       operationsTotal={operationsData.total}

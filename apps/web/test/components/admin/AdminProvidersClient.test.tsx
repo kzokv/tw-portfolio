@@ -576,8 +576,41 @@ describe("AdminProvidersClient", () => {
     renderClient(root, { initialTab: "operations" });
 
     expect(document.body.textContent ?? "").toMatch(/operation item outcomes/i);
+    expect(document.querySelector("[data-testid='provider-console-operation-details']")?.textContent ?? "").toMatch(/operation details/i);
     expect(document.body.textContent ?? "").toMatch(/repair mapping/i);
     expect(document.body.textContent ?? "").toMatch(/resolved 005930 to 005930\.KS/i);
+  });
+
+  it("selects operations through URL state so outcomes can reload", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      operations: [
+        buildOperation({ id: "OP-FIRST", phase: "completed", canExecute: false, canRetry: true }),
+        buildOperation({ id: "OP-SECOND", phase: "failed", canExecute: false, canRetry: true, progressPercent: 25 }),
+      ],
+      stagedOperation: null,
+    });
+
+    click("provider-console-operation-select-OP-SECOND");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-SECOND",
+    );
+  });
+
+  it("links selected operation details to provider-scoped logs", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-LOGS",
+      operations: [buildOperation({ id: "OP-LOGS", phase: "completed", canExecute: false, canRetry: true })],
+      stagedOperation: null,
+    });
+
+    click("provider-console-operation-open-logs");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&operationId=OP-LOGS",
+    );
   });
 
   it("retries terminal operations through provider-scoped linked preview route", async () => {
