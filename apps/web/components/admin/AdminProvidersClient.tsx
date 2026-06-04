@@ -13,6 +13,7 @@ import type {
   ProviderIncidentDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
+  ProviderResolutionMappingDto,
   ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
@@ -54,6 +55,10 @@ interface AdminProvidersClientProps {
   incidentsPage: number;
   incidentsLimit: number;
   incidentsTotal: number;
+  mappings: ProviderResolutionMappingDto[];
+  mappingsPage: number;
+  mappingsLimit: number;
+  mappingsTotal: number;
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   operationsPage: number;
@@ -284,6 +289,10 @@ export function AdminProvidersClient({
   incidentsPage,
   incidentsLimit,
   incidentsTotal,
+  mappings,
+  mappingsPage,
+  mappingsLimit,
+  mappingsTotal,
   stagedOperation,
   operations,
   operationsPage,
@@ -665,6 +674,10 @@ export function AdminProvidersClient({
           <MappingsTab
             selectedProviderId={selectedProviderId}
             capability={capability}
+            mappings={mappings.filter((mapping) => mapping.providerId === selectedProviderId)}
+            page={mappingsPage}
+            limit={mappingsLimit}
+            total={mappingsTotal}
             currentPreview={currentPreview}
             evidenceColumns={evidenceColumns}
           />
@@ -1255,15 +1268,23 @@ function LogsTab({
 function MappingsTab({
   selectedProviderId,
   capability,
+  mappings,
+  page,
+  limit,
+  total,
   currentPreview,
   evidenceColumns,
 }: {
   selectedProviderId: string;
   capability: typeof defaultCapability;
+  mappings: ProviderResolutionMappingDto[];
+  page: number;
+  limit: number;
+  total: number;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
 }) {
-  const rows = currentPreview?.evidenceSample ?? [];
+  const evidenceRows = currentPreview?.evidenceSample ?? [];
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div>
@@ -1271,10 +1292,43 @@ function MappingsTab({
         <p className="mt-1 text-sm text-muted-foreground">Durable source catalog to provider-symbol bindings where supported.</p>
       </div>
       {capability.supportsMappings ? (
-        rows.length > 0 ? (
+        mappings.length > 0 ? (
+          <>
+            <div className="overflow-hidden rounded-xl border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-3">Source</th>
+                    <th className="px-3 py-3">Provider symbol</th>
+                    <th className="px-3 py-3">Resolver</th>
+                    <th className="px-3 py-3">Verified</th>
+                    <th className="px-3 py-3">Evidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappings.map((mapping) => (
+                    <tr key={`${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}`} className="border-t border-border">
+                      <td className="px-3 py-3">
+                        <div className="font-mono font-semibold text-foreground">{mapping.sourceSymbol}</div>
+                        <div className="text-xs text-muted-foreground">{mapping.marketCode}</div>
+                      </td>
+                      <td className="px-3 py-3 font-mono">{mapping.resolvedSymbol}</td>
+                      <td className="px-3 py-3">{mapping.resolverMode?.replace(/_/g, " ") ?? "manual"}</td>
+                      <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(mapping.verifiedAt)}</td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">
+                        {mapping.evidence?.candidate ? String(mapping.evidence.candidate) : "Stored durable mapping"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+          </>
+        ) : evidenceRows.length > 0 ? (
           <DataTable
             data-testid="provider-console-mappings-table"
-            data={rows}
+            data={evidenceRows}
             columns={evidenceColumns}
             rowKey={(row) => `${row.symbol}-${row.providerSymbol}-${row.candidateSymbol ?? "none"}`}
           />

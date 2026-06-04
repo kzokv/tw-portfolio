@@ -1390,6 +1390,21 @@ export interface UpsertProviderResolutionMappingInput {
   verifiedByUserId?: string | null;
 }
 
+export interface ListProviderResolutionMappingsOptions {
+  providerId?: string;
+  marketCode?: MarketCode;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderResolutionMappingsResult {
+  items: ProviderResolutionMappingRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ListProviderErrorTrailOptions {
   providerId?: string;
   marketCode?: MarketCode;
@@ -2579,6 +2594,9 @@ export interface Persistence {
   upsertProviderResolutionMapping(
     input: UpsertProviderResolutionMappingInput,
   ): Promise<ProviderResolutionMappingRecord>;
+  listProviderResolutionMappings(
+    options: ListProviderResolutionMappingsOptions,
+  ): Promise<ListProviderResolutionMappingsResult>;
   /** Return user IDs of all active admins (role='admin', not deactivated/deleted). */
   listAdminUserIds(): Promise<string[]>;
 }

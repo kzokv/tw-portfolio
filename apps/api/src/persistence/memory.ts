@@ -117,6 +117,8 @@ import type {
   ListProviderOperationOutcomesResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
+  ListProviderResolutionMappingsOptions,
+  ListProviderResolutionMappingsResult,
   ListProviderUnresolvedItemsOptions,
   ListProviderUnresolvedItemsResult,
   ProviderErrorTrailInput,
@@ -5903,6 +5905,36 @@ export class MemoryPersistence implements Persistence {
     };
     this.providerResolutionMappings.set(key, row);
     return { ...row };
+  }
+
+  async listProviderResolutionMappings(
+    options: ListProviderResolutionMappingsOptions,
+  ): Promise<ListProviderResolutionMappingsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const marketCode = options.marketCode?.toUpperCase();
+    const search = options.search?.trim().toLowerCase();
+    const filtered = [...this.providerResolutionMappings.values()]
+      .filter((row) => {
+        if (options.providerId && row.providerId !== options.providerId) return false;
+        if (marketCode && row.marketCode !== marketCode) return false;
+        if (search) {
+          const haystack = `${row.sourceSymbol} ${row.resolvedSymbol} ${row.resolverMode ?? ""}`.toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.verifiedAt.localeCompare(a.verifiedAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({
+        ...row,
+        evidence: row.evidence ? { ...row.evidence } : null,
+      })),
+      total: filtered.length,
+      page,
+      limit,
+    };
   }
 
   private _providerResolutionMappingKey(providerId: string, marketCode: MarketCode, sourceSymbol: string): string {

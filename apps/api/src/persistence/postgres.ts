@@ -144,6 +144,8 @@ import type {
   ListProviderOperationOutcomesResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
+  ListProviderResolutionMappingsOptions,
+  ListProviderResolutionMappingsResult,
   ListProviderUnresolvedItemsOptions,
   ListProviderUnresolvedItemsResult,
   ProviderErrorTrailInput,
@@ -13073,6 +13075,53 @@ export class PostgresPersistence implements Persistence {
       ],
     );
     return mapProviderResolutionMappingRow(result.rows[0]!);
+  }
+
+  async listProviderResolutionMappings(
+    options: ListProviderResolutionMappingsOptions,
+  ): Promise<ListProviderResolutionMappingsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (options.providerId) {
+      where.push(`provider_id = $${i++}`);
+      params.push(options.providerId);
+    }
+    if (options.marketCode) {
+      where.push(`market_code = $${i++}`);
+      params.push(options.marketCode);
+    }
+    if (options.search?.trim()) {
+      where.push(`(source_symbol ILIKE $${i} OR resolved_symbol ILIKE $${i} OR COALESCE(resolver_mode, '') ILIKE $${i})`);
+      params.push(`%${options.search.trim()}%`);
+      i++;
+    }
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_resolution_mappings
+         ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query<ProviderResolutionMappingRowSql>(
+      `SELECT provider_id, market_code, source_symbol, resolved_symbol, resolver_mode, evidence,
+              verified_at, verified_by_user_id, created_at, updated_at
+         FROM market_data.provider_resolution_mappings
+         ${whereClause}
+         ORDER BY verified_at DESC
+         LIMIT $${i++}
+         OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderResolutionMappingRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
   }
 
   async listAdminUserIds(): Promise<string[]> {
