@@ -188,19 +188,22 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Made cancelled Repair operations terminal in the background runner; if a repair row finishes after Cancel, completed item work is preserved but the operation phase stays `cancelled` and backfill enqueue/final completion are skipped.
 - 2026-06-04: Added durable provider-operation `queued` phase with migration support. Renew, Repair execute, Rerun, Reverify, and Revert now queue behind active same-provider/market work instead of failing with an active-operation 409, and terminal completion/cancel promotes the next queued operation.
 - 2026-06-04: Expanded locked version-2 mockups to 19 screenshots, adding provider-fixer coverage across supported providers, queued-operation behavior, and mobile provider switcher states.
-- Remaining high-risk work is still backend-heavy: budget pacing, broader operation action coverage, and full gate coverage.
+- 2026-06-04: Added operation-budget pacing for budget-consuming verification work. Repair, Renew, and Reverify now persist operation budget windows, pause with `paused_rate_limit` when the admin cap is exhausted, and preserve budget metadata through interrupted operations.
+- 2026-06-04: Routed unresolved lifecycle writes (`Ignore`, `Unsupported`, `Reopen`) through durable provider operations with item outcomes, logs, audit metadata, and SSE progress/phase events.
+- 2026-06-04: Completed purge operation evidence by writing a durable purge outcome, post-purge completion log, and progress event after deleting raw provider logs so the purge operation remains inspectable.
+- Remaining high-risk work is now verification-heavy: broader test coverage, full gate coverage, `/aaa` E2E additions, and final PR/CI review.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
 - [x] Add central provider-error normalization service and wire item-scoped provider error writers/workers to it.
 - [x] Add provider capability registry and shared operation taxonomy.
-- [ ] Implement provider operation engine with background execution, row outcomes, pause/resume/cancel/retry, stale operation cleanup, queueing, budget pacing, and SSE emission.
+- [x] Implement provider operation engine with background execution, row outcomes, pause/resume/cancel/retry, stale operation cleanup, queueing, budget pacing, and SSE emission.
 - [x] Add API-authoritative Provider operations settings validation for guardrails, budgets, thresholds, retention, and auto-renew.
 - [x] Add provider-scoped API routes under `/admin/providers/:providerId/*` for console, unresolved items, incidents, activity, logs, mappings, operation preview, operation execute, operation control, and purge.
 - [x] Remove the unshipped `/admin/provider-fixer` UI route and old fixer-only assumptions.
 - [x] Implement KR resolver binding: Twelve Data catalog identity plus market evidence to verified Yahoo Finance KR provider symbol.
 - [x] Update Yahoo Finance KR provider to consult durable mappings before fallback probing.
-- [ ] Implement Renew, Repair, Rerun, Reverify, Revert, Unsupported, Ignore, Reopen, and Purge flows through the operation engine where writes occur.
+- [x] Implement Renew, Repair, Rerun, Reverify, Revert, Unsupported, Ignore, Reopen, and Purge flows through the operation engine where writes occur.
 - [x] Build `/admin/providers` provider console shell with grouped provider rail, provider sub-tabs, Overview, Unresolved instruments, Fixer, Operations, Incidents, Activity, Logs, and Mappings.
 - [x] Build dense unresolved tables with filters, sort, pagination, select-all-matching, row/bulk actions, disabled-action reasons, and recently resolved visibility.
 - [x] Build operation details with durable item outcomes, progress, budget state, pause/resume/cancel/retry, and links to incidents/unresolved items/logs.
