@@ -10,6 +10,8 @@ import type {
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatus,
   ProviderHealthStatusDto,
+  ProviderOperationOutcomeDto,
+  ProviderOperationOutcomeSummaryDto,
   ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
@@ -52,6 +54,11 @@ interface AdminProvidersClientProps {
   operationsPage: number;
   operationsLimit: number;
   operationsTotal: number;
+  operationOutcomes: ProviderOperationOutcomeDto[];
+  operationOutcomeSummary: ProviderOperationOutcomeSummaryDto;
+  operationOutcomesPage: number;
+  operationOutcomesLimit: number;
+  operationOutcomesTotal: number;
   logs: ProviderFixerDashboardLogEntryDto[];
   logsPage: number;
   logsLimit: number;
@@ -273,6 +280,11 @@ export function AdminProvidersClient({
   operationsPage,
   operationsLimit,
   operationsTotal,
+  operationOutcomes,
+  operationOutcomeSummary,
+  operationOutcomesPage,
+  operationOutcomesLimit,
+  operationOutcomesTotal,
   logs,
   logsPage,
   logsLimit,
@@ -597,6 +609,11 @@ export function AdminProvidersClient({
             operations={providerOperations.length > 0 ? providerOperations : operations}
             operationColumns={operationColumns}
             progressOperation={progressOperation}
+            outcomes={operationOutcomes.filter((outcome) => outcome.providerId === selectedProviderId)}
+            outcomeSummary={operationOutcomeSummary}
+            outcomesPage={operationOutcomesPage}
+            outcomesLimit={operationOutcomesLimit}
+            outcomesTotal={operationOutcomesTotal}
             page={operationsPage}
             limit={operationsLimit}
             total={operationsTotal}
@@ -967,6 +984,11 @@ function OperationsTab({
   operations,
   operationColumns,
   progressOperation,
+  outcomes,
+  outcomeSummary,
+  outcomesPage,
+  outcomesLimit,
+  outcomesTotal,
   page,
   limit,
   total,
@@ -974,6 +996,11 @@ function OperationsTab({
   operations: ProviderFixerDashboardOperationDto[];
   operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[];
   progressOperation: ProviderFixerDashboardOperationDto | null;
+  outcomes: ProviderOperationOutcomeDto[];
+  outcomeSummary: ProviderOperationOutcomeSummaryDto;
+  outcomesPage: number;
+  outcomesLimit: number;
+  outcomesTotal: number;
   page: number;
   limit: number;
   total: number;
@@ -983,7 +1010,7 @@ function OperationsTab({
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
         <div>
           <h3 className="text-xl font-semibold text-foreground">Provider operations</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Operation summaries and durable progress. Item outcomes land here in the next backend slice.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Operation summaries and durable per-item progress.</p>
         </div>
         <DataTable
           data-testid="provider-console-operations-table"
@@ -1008,11 +1035,48 @@ function OperationsTab({
             <div className="grid grid-cols-2 gap-2 text-sm">
               <Metric label="Matched" value={formatNumber(progressOperation.matchCount)} detail="Frozen operation scope" />
               <Metric label="Rate cap" value={`${progressOperation.effectiveRateCapPerMinute ?? 250}/min`} detail="Effective provider operation budget" />
+              <Metric label="Processed" value={formatNumber(outcomeSummary.processed)} detail={`${formatNumber(outcomeSummary.succeeded)} succeeded, ${formatNumber(outcomeSummary.skipped)} skipped`} />
+              <Metric label="Failed" value={formatNumber(outcomeSummary.failed + outcomeSummary.rateLimited)} detail="Failures and rate-limit pauses" />
             </div>
           </>
         ) : (
           <p className="text-sm text-muted-foreground">No running operation.</p>
         )}
+      </Card>
+      <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2">
+        <div>
+          <h3 className="text-xl font-semibold text-foreground">Operation item outcomes</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Durable token-level results for the selected provider operation.</p>
+        </div>
+        {outcomes.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-3">Token</th>
+                  <th className="px-3 py-3">Action</th>
+                  <th className="px-3 py-3">State</th>
+                  <th className="px-3 py-3">Message</th>
+                  <th className="px-3 py-3">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outcomes.map((outcome) => (
+                  <tr key={`${outcome.operationId}-${outcome.action}-${outcome.sourceSymbol}`} className="border-t border-border">
+                    <td className="px-3 py-3 font-mono font-semibold">{outcome.sourceSymbol}</td>
+                    <td className="px-3 py-3">{outcome.action.replace(/_/g, " ")}</td>
+                    <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{outcome.state.replace(/_/g, " ")}</span></td>
+                    <td className="px-3 py-3">{outcome.message ?? outcome.errorCode ?? "-"}</td>
+                    <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(outcome.updatedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No item outcomes recorded for this operation yet.</p>
+        )}
+        <Pagination page={outcomesPage} limit={outcomesLimit} total={outcomesTotal} onPageChange={() => undefined} />
       </Card>
     </div>
   );

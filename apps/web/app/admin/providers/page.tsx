@@ -4,6 +4,7 @@ import type {
   ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationsResponse,
   ProviderFixerDashboardSummaryResponse,
+  ProviderOperationOutcomesResponse,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
@@ -86,6 +87,29 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
     !operationsData.operations.some((operation) => operation.id === operationsData.stagedOperation?.id)
       ? [operationsData.stagedOperation, ...operationsData.operations]
       : operationsData.operations;
+  const selectedOperationForOutcomes = operationsData.stagedOperation ?? operations[0] ?? null;
+  const outcomesData = selectedOperationForOutcomes
+    ? await getJson<ProviderOperationOutcomesResponse>(
+        `/admin/providers/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(selectedOperationForOutcomes.id)}/outcomes?page=1&limit=${pageLimit}`,
+      )
+    : {
+        items: [],
+        summary: {
+          total: 0,
+          processed: 0,
+          pending: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          skipped: 0,
+          rateLimited: 0,
+          cancelled: 0,
+          progressPercent: 0,
+        },
+        total: 0,
+        page: 1,
+        limit: pageLimit,
+      };
 
   return (
     <AdminProvidersClient
@@ -104,6 +128,11 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       operationsPage={operationsData.page}
       operationsLimit={operationsData.limit}
       operationsTotal={operationsData.total}
+      operationOutcomes={outcomesData.items}
+      operationOutcomeSummary={outcomesData.summary}
+      operationOutcomesPage={outcomesData.page}
+      operationOutcomesLimit={outcomesData.limit}
+      operationOutcomesTotal={outcomesData.total}
       logs={logsData.items}
       logsPage={logsData.page}
       logsLimit={logsData.limit}

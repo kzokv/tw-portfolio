@@ -111,6 +111,8 @@ import type {
   ListProviderErrorTrailResult,
   ListProviderOperationLogsOptions,
   ListProviderOperationLogsResult,
+  ListProviderOperationOutcomesOptions,
+  ListProviderOperationOutcomesResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
   ListProviderUnresolvedItemsOptions,
@@ -120,6 +122,8 @@ import type {
   ProviderHealthRow,
   ProviderHealthUpsert,
   ProviderOperationLogRecord,
+  ProviderOperationOutcomeRecord,
+  ProviderOperationOutcomeState,
   ProviderOperationRecord,
   ProviderResolutionMappingRecord,
   ProviderUnresolvedItemRecord,
@@ -134,6 +138,7 @@ import type {
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
+  UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
   UserRole,
@@ -381,6 +386,37 @@ function providerUnresolvedItemKey(
   return `${providerId}:${marketCode}:${errorCode}:${sourceSymbol.toUpperCase()}`;
 }
 
+function providerOperationOutcomeKey(operationId: string, action: string, sourceSymbol: string): string {
+  return `${operationId}:${action}:${sourceSymbol.toUpperCase()}`;
+}
+
+function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord[]): ListProviderOperationOutcomesResult["summary"] {
+  const counts: Record<ProviderOperationOutcomeState, number> = {
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    skipped: 0,
+    rate_limited: 0,
+    cancelled: 0,
+  };
+  for (const row of rows) counts[row.state] += 1;
+  const processed = counts.succeeded + counts.failed + counts.skipped + counts.rate_limited + counts.cancelled;
+  const total = rows.length;
+  return {
+    total,
+    processed,
+    pending: counts.pending,
+    running: counts.running,
+    succeeded: counts.succeeded,
+    failed: counts.failed,
+    skipped: counts.skipped,
+    rateLimited: counts.rate_limited,
+    cancelled: counts.cancelled,
+    progressPercent: total > 0 ? Math.round((processed / total) * 100) : 0,
+  };
+}
+
 function mapMemoryTickerFundamentals(
   row: MemoryTickerFundamentalsRecord,
 ): PersistedTickerFundamentalsRecord {
@@ -504,6 +540,7 @@ export class MemoryPersistence implements Persistence {
   private readonly providerOperations = new Map<string, ProviderOperationRecord>();
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
   private _providerOperationLogNextId = 1;
+  private readonly providerOperationOutcomes = new Map<string, ProviderOperationOutcomeRecord>();
   private readonly providerResolutionMappings = new Map<string, ProviderResolutionMappingRecord>();
   /**
    * KZO-177 (M2): per-provider promise-chain mutex for the recovery CAS.
@@ -5598,6 +5635,71 @@ export class MemoryPersistence implements Persistence {
     const offset = (page - 1) * limit;
     return {
       items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async upsertProviderOperationOutcome(
+    input: UpsertProviderOperationOutcomeInput,
+  ): Promise<ProviderOperationOutcomeRecord> {
+    const now = new Date().toISOString();
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const key = providerOperationOutcomeKey(input.operationId, input.action, sourceSymbol);
+    const existing = this.providerOperationOutcomes.get(key);
+    const row: ProviderOperationOutcomeRecord = existing
+      ? {
+          ...existing,
+          providerSymbol: input.providerSymbol ?? existing.providerSymbol,
+          state: input.state,
+          message: input.message ?? existing.message,
+          errorCode: input.errorCode ?? existing.errorCode,
+          jobId: input.jobId ?? existing.jobId,
+          evidence: { ...(existing.evidence ?? {}), ...(input.evidence ?? {}) },
+          startedAt: input.startedAt ?? existing.startedAt,
+          completedAt: input.completedAt ?? existing.completedAt,
+          updatedAt: now,
+        }
+      : {
+          operationId: input.operationId,
+          providerId: input.providerId,
+          marketCode: input.marketCode,
+          sourceSymbol,
+          providerSymbol: input.providerSymbol ?? null,
+          action: input.action,
+          state: input.state,
+          message: input.message ?? null,
+          errorCode: input.errorCode ?? null,
+          jobId: input.jobId ?? null,
+          evidence: input.evidence ?? null,
+          startedAt: input.startedAt ?? (input.state === "running" ? now : null),
+          completedAt: input.completedAt ?? (["succeeded", "failed", "skipped", "rate_limited", "cancelled"].includes(input.state) ? now : null),
+          createdAt: now,
+          updatedAt: now,
+        };
+    this.providerOperationOutcomes.set(key, row);
+    return { ...row, evidence: row.evidence ? { ...row.evidence } : null };
+  }
+
+  async listProviderOperationOutcomes(
+    options: ListProviderOperationOutcomesOptions,
+  ): Promise<ListProviderOperationOutcomesResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const filtered = [...this.providerOperationOutcomes.values()]
+      .filter((row) => row.operationId === options.operationId)
+      .filter((row) => !options.state || row.state === options.state)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const allForOperation = [...this.providerOperationOutcomes.values()]
+      .filter((row) => row.operationId === options.operationId);
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({
+        ...row,
+        evidence: row.evidence ? { ...row.evidence } : null,
+      })),
+      summary: summarizeProviderOperationOutcomes(allForOperation),
       total: filtered.length,
       page,
       limit,

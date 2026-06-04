@@ -138,6 +138,8 @@ import type {
   ListProviderErrorTrailResult,
   ListProviderOperationLogsOptions,
   ListProviderOperationLogsResult,
+  ListProviderOperationOutcomesOptions,
+  ListProviderOperationOutcomesResult,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
   ListProviderUnresolvedItemsOptions,
@@ -152,6 +154,7 @@ import type {
   ProviderOperationPhase,
   ProviderOperationRecord,
   ProviderOperationLogLevel,
+  ProviderOperationOutcomeRecord,
   ProviderResolutionMappingRecord,
   ProviderUnresolvedItemRecord,
   SaveAiConnectorCredentialInput,
@@ -165,6 +168,7 @@ import type {
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
+  UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
   UserRole,
@@ -12769,6 +12773,100 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
+  async upsertProviderOperationOutcome(
+    input: UpsertProviderOperationOutcomeInput,
+  ): Promise<ProviderOperationOutcomeRecord> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const result = await this.pool.query<ProviderOperationOutcomeRowSql>(
+      `INSERT INTO market_data.provider_operation_outcomes
+         (operation_id, provider_id, market_code, source_symbol, provider_symbol, action, state,
+          message, error_code, job_id, evidence, started_at, completed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+       ON CONFLICT (operation_id, action, source_symbol) DO UPDATE
+       SET provider_symbol = COALESCE(EXCLUDED.provider_symbol, market_data.provider_operation_outcomes.provider_symbol),
+           state = EXCLUDED.state,
+           message = COALESCE(EXCLUDED.message, market_data.provider_operation_outcomes.message),
+           error_code = COALESCE(EXCLUDED.error_code, market_data.provider_operation_outcomes.error_code),
+           job_id = COALESCE(EXCLUDED.job_id, market_data.provider_operation_outcomes.job_id),
+           evidence = COALESCE(market_data.provider_operation_outcomes.evidence, '{}'::jsonb) || COALESCE(EXCLUDED.evidence, '{}'::jsonb),
+           started_at = COALESCE(EXCLUDED.started_at, market_data.provider_operation_outcomes.started_at),
+           completed_at = COALESCE(EXCLUDED.completed_at, market_data.provider_operation_outcomes.completed_at),
+           updated_at = NOW()
+       RETURNING operation_id, provider_id, market_code, source_symbol, provider_symbol, action, state,
+                 message, error_code, job_id, evidence, started_at, completed_at, created_at, updated_at`,
+      [
+        input.operationId,
+        input.providerId,
+        input.marketCode,
+        sourceSymbol,
+        input.providerSymbol ?? null,
+        input.action,
+        input.state,
+        input.message ?? null,
+        input.errorCode ?? null,
+        input.jobId ?? null,
+        input.evidence ? JSON.stringify(input.evidence) : null,
+        input.startedAt ?? (input.state === "running" ? new Date().toISOString() : null),
+        input.completedAt ?? (["succeeded", "failed", "skipped", "rate_limited", "cancelled"].includes(input.state) ? new Date().toISOString() : null),
+      ],
+    );
+    return mapProviderOperationOutcomeRow(result.rows[0]!);
+  }
+
+  async listProviderOperationOutcomes(
+    options: ListProviderOperationOutcomesOptions,
+  ): Promise<ListProviderOperationOutcomesResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const params: unknown[] = [options.operationId];
+    const where: string[] = ["operation_id = $1"];
+    let i = 2;
+    if (options.state) {
+      where.push(`state = $${i++}`);
+      params.push(options.state);
+    }
+    const whereClause = where.join(" AND ");
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_operation_outcomes
+        WHERE ${whereClause}`,
+      params,
+    );
+    const summaryResult = await this.pool.query<ProviderOperationOutcomeSummaryRowSql>(
+      `SELECT
+          count(*)::text AS total,
+          count(*) FILTER (WHERE state IN ('succeeded', 'failed', 'skipped', 'rate_limited', 'cancelled'))::text AS processed,
+          count(*) FILTER (WHERE state = 'pending')::text AS pending,
+          count(*) FILTER (WHERE state = 'running')::text AS running,
+          count(*) FILTER (WHERE state = 'succeeded')::text AS succeeded,
+          count(*) FILTER (WHERE state = 'failed')::text AS failed,
+          count(*) FILTER (WHERE state = 'skipped')::text AS skipped,
+          count(*) FILTER (WHERE state = 'rate_limited')::text AS rate_limited,
+          count(*) FILTER (WHERE state = 'cancelled')::text AS cancelled
+         FROM market_data.provider_operation_outcomes
+        WHERE operation_id = $1`,
+      [options.operationId],
+    );
+    const rowsResult = await this.pool.query<ProviderOperationOutcomeRowSql>(
+      `SELECT operation_id, provider_id, market_code, source_symbol, provider_symbol, action, state,
+              message, error_code, job_id, evidence, started_at, completed_at, created_at, updated_at
+         FROM market_data.provider_operation_outcomes
+        WHERE ${whereClause}
+        ORDER BY updated_at DESC
+        LIMIT $${i++}
+        OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderOperationOutcomeRow),
+      summary: mapProviderOperationOutcomeSummary(summaryResult.rows[0]),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
   async getProviderResolutionMapping(
     providerId: string,
     marketCode: MarketCode,
@@ -12903,6 +13001,36 @@ interface ProviderOperationLogRowSql {
   created_at: string;
 }
 
+interface ProviderOperationOutcomeRowSql {
+  operation_id: string;
+  provider_id: string;
+  market_code: string;
+  source_symbol: string;
+  provider_symbol: string | null;
+  action: string;
+  state: string;
+  message: string | null;
+  error_code: string | null;
+  job_id: string | null;
+  evidence: Record<string, unknown> | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProviderOperationOutcomeSummaryRowSql {
+  total: string | null;
+  processed: string | null;
+  pending: string | null;
+  running: string | null;
+  succeeded: string | null;
+  failed: string | null;
+  skipped: string | null;
+  rate_limited: string | null;
+  cancelled: string | null;
+}
+
 interface ProviderResolutionMappingRowSql {
   provider_id: string;
   market_code: string;
@@ -13031,6 +13159,43 @@ function mapProviderOperationLogRow(row: ProviderOperationLogRowSql): ProviderOp
     message: row.message,
     context: row.context,
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapProviderOperationOutcomeRow(row: ProviderOperationOutcomeRowSql): ProviderOperationOutcomeRecord {
+  return {
+    operationId: row.operation_id,
+    providerId: row.provider_id,
+    marketCode: row.market_code as MarketCode,
+    sourceSymbol: row.source_symbol,
+    providerSymbol: row.provider_symbol,
+    action: row.action,
+    state: row.state as ProviderOperationOutcomeRecord["state"],
+    message: row.message,
+    errorCode: row.error_code,
+    jobId: row.job_id,
+    evidence: row.evidence,
+    startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapProviderOperationOutcomeSummary(row?: ProviderOperationOutcomeSummaryRowSql): ListProviderOperationOutcomesResult["summary"] {
+  const total = parseInt(row?.total ?? "0", 10);
+  const processed = parseInt(row?.processed ?? "0", 10);
+  return {
+    total,
+    processed,
+    pending: parseInt(row?.pending ?? "0", 10),
+    running: parseInt(row?.running ?? "0", 10),
+    succeeded: parseInt(row?.succeeded ?? "0", 10),
+    failed: parseInt(row?.failed ?? "0", 10),
+    skipped: parseInt(row?.skipped ?? "0", 10),
+    rateLimited: parseInt(row?.rate_limited ?? "0", 10),
+    cancelled: parseInt(row?.cancelled ?? "0", 10),
+    progressPercent: total > 0 ? Math.round((processed / total) * 100) : 0,
   };
 }
 
