@@ -511,6 +511,16 @@ export function AdminProvidersClient({
     );
   }
 
+  function reverifyMapping(mapping: ProviderResolutionMappingDto): void {
+    void runAction(`mapping:reverify:${mapping.sourceSymbol}`, () =>
+      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/reverify`, {
+        marketCode: mapping.marketCode,
+        sourceSymbol: mapping.sourceSymbol,
+        resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
+      }),
+    );
+  }
+
   function applyUnresolvedFilters(next: {
     state?: ProviderUnresolvedItemDto["state"];
     search?: string;
@@ -876,6 +886,8 @@ export function AdminProvidersClient({
             total={mappingsTotal}
             currentPreview={currentPreview}
             evidenceColumns={evidenceColumns}
+            onReverifyMapping={reverifyMapping}
+            busyAction={busyAction}
           />
         ) : null}
       </main>
@@ -1792,6 +1804,8 @@ function MappingsTab({
   total,
   currentPreview,
   evidenceColumns,
+  onReverifyMapping,
+  busyAction,
 }: {
   selectedProviderId: string;
   capability: ProviderOperationCapabilityDto;
@@ -1801,6 +1815,8 @@ function MappingsTab({
   total: number;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
+  onReverifyMapping: (mapping: ProviderResolutionMappingDto) => void;
+  busyAction: string | null;
 }) {
   const evidenceRows = currentPreview?.evidenceSample ?? [];
   const reverifySupported = actionSupported(capability, "reverify_mapping");
@@ -1851,8 +1867,10 @@ function MappingsTab({
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled
+                            disabled={!reverifySupported || busyAction !== null}
                             title={reverifySupported ? "Reverify will create a provider operation for this durable mapping." : reverifyReason ?? undefined}
+                            onClick={() => onReverifyMapping(mapping)}
+                            data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}
                           >
                             Reverify
                           </Button>

@@ -1460,6 +1460,294 @@ function runProviderFixerOperationInBackground(
   });
 }
 
+async function completeProviderMappingReverifyOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+    throwOnFailure: boolean;
+  },
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const sourceSymbol = stringField(metadata.mappingSourceSymbol);
+  const resolvedSymbol = stringField(metadata.mappingResolvedSymbol);
+  const resolverMode = operation.resolverMode ?? "quote_first";
+  if (!sourceSymbol || !resolvedSymbol) {
+    const message = "Provider mapping reverify operation is missing mapping metadata.";
+    const failed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        failureReason: message,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "failed",
+      level: "error",
+      message: `reverify_failed provider=${operation.providerId} market=${operation.marketCode} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, errorMessage: message },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "reverify_failed",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        errorMessage: message,
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: failed.phase,
+    });
+    if (context.throwOnFailure) {
+      throw routeError(400, "provider_mapping_reverify_metadata_missing", message);
+    }
+    return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
+  }
+
+  await app.persistence.upsertProviderOperationOutcome({
+    operationId: operation.id,
+    providerId: operation.providerId,
+    marketCode: operation.marketCode,
+    sourceSymbol,
+    providerSymbol: resolvedSymbol,
+    action: "reverify_mapping",
+    state: "running",
+    message: "Reverifying durable provider mapping.",
+    evidence: { previousVerifiedAt: metadata.mappingPreviousVerifiedAt ?? null },
+  });
+
+  try {
+    const mapping = await app.persistence.getProviderResolutionMapping(operation.providerId, operation.marketCode, sourceSymbol);
+    const verification = await verifyProviderFixerCandidate(
+      app,
+      operation.providerId,
+      operation.marketCode,
+      sourceSymbol,
+      resolvedSymbol,
+      resolverMode,
+    );
+    if (!verification.verified) {
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        providerSymbol: resolvedSymbol,
+        action: "reverify_mapping",
+        state: "failed",
+        message: `Mapping verification failed for ${resolvedSymbol}: ${verification.reason ?? "unknown"}.`,
+        errorCode: verification.reason ?? "provider_mapping_reverify_failed",
+        evidence: { checkedSymbol: verification.checkedSymbol, resolverMode: verification.resolverMode },
+      });
+      const failed = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        metadata: {
+          ...metadata,
+          progressPercent: 100,
+          failureReason: verification.reason ?? "provider_mapping_reverify_failed",
+        },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: operation.id,
+        phase: "failed",
+        level: "warning",
+        message: `reverify_failed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} reason=${verification.reason ?? "unknown"}`,
+        context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, verification },
+      });
+      await app.persistence.appendAuditLog({
+        actorUserId: context.actorUserId,
+        action: "provider_fixer_operation",
+        ipAddress: context.ipAddress,
+        metadata: {
+          operationId: operation.id,
+          action: "reverify_failed",
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          resolvedSymbol,
+          reason: verification.reason ?? "provider_mapping_reverify_failed",
+        },
+      });
+      await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+        operationId: operation.id,
+        providerId: operation.providerId,
+        phase: failed.phase,
+      });
+      if (context.throwOnFailure) {
+        throw routeError(502, "provider_mapping_reverify_failed", verification.reason ?? "Provider mapping verification failed");
+      }
+      return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", verification } };
+    }
+
+    const verifiedAt = new Date().toISOString();
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      resolvedSymbol,
+      resolverMode,
+      evidence: {
+        ...(mapping?.evidence ?? {}),
+        reverifiedAt: verifiedAt,
+        reverifiedByOperationId: operation.id,
+        checkedSymbol: verification.checkedSymbol,
+        resolverMode: verification.resolverMode,
+      },
+      verifiedAt,
+      verifiedByUserId: context.actorUserId,
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "reverify_mapping",
+      state: "succeeded",
+      message: `Reverified ${sourceSymbol} -> ${resolvedSymbol}.`,
+      evidence: { checkedSymbol: verification.checkedSymbol, resolverMode: verification.resolverMode },
+    });
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt: verifiedAt,
+      metadata: { ...metadata, progressPercent: 100 },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "completed",
+      level: "info",
+      message: `reverify_completed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${resolvedSymbol}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, resolvedSymbol },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "reverify_completed",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: completed.phase,
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      processed: 1,
+      total: 1,
+      progressPercent: 100,
+    });
+    return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", verification } };
+  } catch (err) {
+    const isRateLimited = err instanceof RateLimitedError;
+    const message = err instanceof Error ? err.message : "Provider mapping reverify failed.";
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "reverify_mapping",
+      state: isRateLimited ? "rate_limited" : "failed",
+      message,
+      errorCode: isRateLimited ? "provider_rate_limited" : "provider_mapping_reverify_failed",
+    });
+    const interrupted = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: isRateLimited ? "paused" : "failed",
+      completedAt: isRateLimited ? null : new Date().toISOString(),
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
+        failureReason: message,
+        failureName: err instanceof Error ? err.name : "UnknownError",
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : undefined,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: interrupted.phase,
+      level: isRateLimited ? "warning" : "error",
+      message: `${isRateLimited ? "reverify_auto_paused_rate_limited" : "reverify_failed"} provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, errorMessage: message },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: isRateLimited ? "reverify_auto_pause" : "reverify_failed",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: interrupted.phase,
+      pauseReason: isRateLimited ? "paused_rate_limit" : null,
+    });
+    if (context.throwOnFailure) {
+      if (isRateLimited) {
+        throw routeError(503, "provider_rate_limited", message);
+      }
+      throw err;
+    }
+    return {
+      operation: providerFixerOperationToDto(interrupted, context.guardrails),
+      result: { status: interrupted.phase, errorMessage: message },
+    };
+  }
+}
+
+function runProviderMappingReverifyOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: Omit<Parameters<typeof completeProviderMappingReverifyOperation>[2], "throwOnFailure">,
+): void {
+  setImmediate(() => {
+    void completeProviderMappingReverifyOperation(app, operation, { ...context, throwOnFailure: false }).catch((err) => {
+      app.log.error(
+        {
+          operationId: operation.id,
+          providerId: operation.providerId,
+          err,
+        },
+        "provider_mapping_reverify_background_failed",
+      );
+    });
+  });
+}
+
 function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   const providerConsoleParamsSchema = z.object({
     providerId: providerFixerProviderSchema,
@@ -1860,6 +2148,83 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     };
   });
 
+  app.post("/providers/:providerId/mappings/reverify", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema,
+        sourceSymbol: z.string().trim().min(1).max(80),
+        resolverMode: providerFixerResolverModeSchema.default("quote_first"),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const sourceSymbol = body.sourceSymbol.trim().toUpperCase();
+    const mapping = await app.persistence.getProviderResolutionMapping(providerId, body.marketCode, sourceSymbol);
+    if (!mapping) {
+      throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
+    }
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode: body.marketCode,
+      operationType: "reverify_mapping",
+      phase: "running",
+      resolverMode: body.resolverMode,
+      scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:${Date.now()}`).slice(0, 12),
+      matchCount: 1,
+      sample: [{
+        symbol: mapping.sourceSymbol,
+        providerSymbol: mapping.sourceSymbol,
+        candidateSymbol: mapping.resolvedSymbol,
+        exchangeHint: "durable provider_resolution_mappings row",
+        verificationStatus: "pending",
+        note: "Reverify existing durable provider mapping.",
+      }],
+      metadata: {
+        progressPercent: 0,
+        mappingSourceSymbol: mapping.sourceSymbol,
+        mappingResolvedSymbol: mapping.resolvedSymbol,
+        mappingPreviousVerifiedAt: mapping.verifiedAt,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "running",
+      level: "info",
+      message: `reverify_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "reverify_mapping",
+        providerId,
+        marketCode: body.marketCode,
+        sourceSymbol,
+        resolvedSymbol: mapping.resolvedSymbol,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: operation.phase,
+    });
+    runProviderMappingReverifyOperationInBackground(app, operation, {
+      actorUserId: sessionUserId,
+      ipAddress,
+      guardrails: providerFixerGuardrailsFromConfig(await loadAppConfigDto(app)),
+    });
+    reply.code(202);
+    return { operation: providerFixerOperationToDto(operation, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+  });
+
   app.get("/providers/:providerId/activity", async (req): Promise<ProviderActivityResponse> => {
     requireAdminRole(req);
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
@@ -2054,6 +2419,14 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (action === "cancel" && !["preview", "staged", "running", "paused"].includes(existing.phase)) {
         throw routeError(400, "provider_operation_not_cancellable", "Selected operation cannot be cancelled");
       }
+      if (
+        action === "resume" &&
+        existing.operationType !== "reverify_mapping" &&
+        existing.operationType !== "resolver_repair" &&
+        existing.operationType !== "repair_mapping"
+      ) {
+        throw routeError(400, "provider_operation_resume_not_supported", "Resume is not supported for this provider operation type");
+      }
       const updated = await app.persistence.updateProviderOperation({
         id: operationId,
         phase: to,
@@ -2080,12 +2453,20 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         phase: updated.phase,
       });
       if (action === "resume") {
-        runProviderFixerOperationInBackground(app, updated, {
-          actorUserId: sessionUserId,
-          ipAddress,
-          guardrails,
-          dangerous: operationDto.dangerous,
-        });
+        if (updated.operationType === "reverify_mapping") {
+          runProviderMappingReverifyOperationInBackground(app, updated, {
+            actorUserId: sessionUserId,
+            ipAddress,
+            guardrails,
+          });
+        } else if (updated.operationType === "resolver_repair" || updated.operationType === "repair_mapping") {
+          runProviderFixerOperationInBackground(app, updated, {
+            actorUserId: sessionUserId,
+            ipAddress,
+            guardrails,
+            dangerous: operationDto.dangerous,
+          });
+        }
       }
       return { operation: operationDto };
     });

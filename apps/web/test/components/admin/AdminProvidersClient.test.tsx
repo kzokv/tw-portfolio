@@ -766,7 +766,7 @@ describe("AdminProvidersClient", () => {
     );
   });
 
-  it("shows mapping evidence, linked context, and guarded mapping action affordances", () => {
+  it("shows mapping evidence, linked context, and starts guarded reverify operations", async () => {
     renderClient(root, { initialTab: "mappings" });
 
     expect(document.body.textContent ?? "").toMatch(/005930\.KS/i);
@@ -777,6 +777,17 @@ describe("AdminProvidersClient", () => {
     );
     expect(findElementByText("button", "Revert").getAttribute("title") ?? "").toMatch(
       /typed-preview provider operation/i,
+    );
+
+    click("provider-console-mapping-reverify-005930");
+    await act(async () => undefined);
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/mappings/reverify",
+      {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolverMode: "quote_first",
+      },
     );
   });
 
