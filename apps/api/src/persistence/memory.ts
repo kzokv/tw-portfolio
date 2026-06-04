@@ -107,6 +107,7 @@ import type {
   AppendAiTransactionDraftEventInput,
   CreateProviderOperationInput,
   CreateProviderOperationLogInput,
+  DeleteProviderResolutionMappingInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
   ListProviderIncidentsOptions,
@@ -5935,6 +5936,19 @@ export class MemoryPersistence implements Persistence {
     };
     this.providerResolutionMappings.set(key, row);
     return { ...row };
+  }
+
+  async deleteProviderResolutionMapping(
+    input: DeleteProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord | null> {
+    const key = this._providerResolutionMappingKey(input.providerId, input.marketCode, input.sourceSymbol);
+    const existing = this.providerResolutionMappings.get(key);
+    if (!existing) return null;
+    this.providerResolutionMappings.delete(key);
+    return {
+      ...existing,
+      evidence: existing.evidence ? { ...existing.evidence } : null,
+    };
   }
 
   async listProviderResolutionMappings(

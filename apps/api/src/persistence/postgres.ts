@@ -134,6 +134,7 @@ import type {
   ApproveMcpOAuthAuthorizationRequestResult,
   CreateProviderOperationInput,
   CreateProviderOperationLogInput,
+  DeleteProviderResolutionMappingInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
   ListProviderIncidentsOptions,
@@ -13209,6 +13210,21 @@ export class PostgresPersistence implements Persistence {
       ],
     );
     return mapProviderResolutionMappingRow(result.rows[0]!);
+  }
+
+  async deleteProviderResolutionMapping(
+    input: DeleteProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord | null> {
+    const result = await this.pool.query<ProviderResolutionMappingRowSql>(
+      `DELETE FROM market_data.provider_resolution_mappings
+        WHERE provider_id = $1
+          AND market_code = $2
+          AND source_symbol = $3
+        RETURNING provider_id, market_code, source_symbol, resolved_symbol, resolver_mode, evidence,
+                  verified_at, verified_by_user_id, created_at, updated_at`,
+      [input.providerId, input.marketCode, input.sourceSymbol.trim().toUpperCase()],
+    );
+    return result.rows[0] ? mapProviderResolutionMappingRow(result.rows[0]) : null;
   }
 
   async listProviderResolutionMappings(

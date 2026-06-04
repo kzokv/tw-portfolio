@@ -1429,6 +1429,12 @@ export interface ListProviderResolutionMappingsResult {
   limit: number;
 }
 
+export interface DeleteProviderResolutionMappingInput {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+}
+
 export interface ListProviderErrorTrailOptions {
   providerId?: string;
   marketCode?: MarketCode;
@@ -2641,6 +2647,9 @@ export interface Persistence {
   upsertProviderResolutionMapping(
     input: UpsertProviderResolutionMappingInput,
   ): Promise<ProviderResolutionMappingRecord>;
+  deleteProviderResolutionMapping(
+    input: DeleteProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord | null>;
   listProviderResolutionMappings(
     options: ListProviderResolutionMappingsOptions,
   ): Promise<ListProviderResolutionMappingsResult>;
