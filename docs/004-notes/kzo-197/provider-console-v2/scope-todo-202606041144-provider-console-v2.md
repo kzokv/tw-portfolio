@@ -162,6 +162,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Started the provider operation engine transition: provider-scoped Execute now validates guardrails, marks the operation `running`, returns `202`, completes KR repair work in the background, persists durable outcomes/progress, and emits provider-operation SSE invalidation events.
 - 2026-06-04: Removed remaining `/admin/provider-fixer/*` API handlers and auth allowlist entries; provider operations are now exposed only through `/admin/providers/:providerId/*` plus the unified provider console.
 - 2026-06-04: Added provider-scoped operation Retry; retry creates a new linked preview operation with a fresh token and `retryOfOperationId` metadata instead of mutating historical operation rows.
+- 2026-06-04: Added stale running-operation sweep on provider console summary/list reads; stale rows are auto-paused with operation logs, audit metadata, SSE invalidation, and preserved progress metadata.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
@@ -175,11 +176,11 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [x] Implement KR resolver binding: Twelve Data catalog identity plus market evidence to verified Yahoo Finance KR provider symbol.
 - [x] Update Yahoo Finance KR provider to consult durable mappings before fallback probing.
 - [ ] Implement Renew, Repair, Rerun, Reverify, Revert, Unsupported, Ignore, Reopen, and Purge flows through the operation engine where writes occur.
-- [ ] Build `/admin/providers` provider console shell with grouped provider rail, provider sub-tabs, Overview, Unresolved instruments, Fixer, Operations, Incidents, Activity, Logs, and Mappings.
+- [x] Build `/admin/providers` provider console shell with grouped provider rail, provider sub-tabs, Overview, Unresolved instruments, Fixer, Operations, Incidents, Activity, Logs, and Mappings.
 - [ ] Build dense unresolved tables with filters, sort, pagination, select-all-matching, row/bulk actions, disabled-action reasons, and recently resolved visibility.
 - [ ] Build operation details with durable item outcomes, progress, budget state, pause/resume/cancel/retry, and links to incidents/unresolved items/logs.
 - [ ] Build mappings tab with evidence, reverify, revert mapping, linked unresolved item, linked operation, and unsupported empty states for providers without mappings.
-- [ ] Build logs purge preview modal and provider-scoped Activity timeline.
+- [x] Build logs purge preview modal and provider-scoped Activity timeline.
 - [x] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.
 - [ ] Add mobile provider selector, mobile cards, bottom action bar, disabled action reasons, and full-screen destructive preview sheets.
 - [ ] Add concise contextual help/tooltips for Repair, Renew, Rerun, Purge, quote-first, chart-probe, awaiting action, unsupported actions, and disabled states.
