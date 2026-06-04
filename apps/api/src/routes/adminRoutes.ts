@@ -1601,6 +1601,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         state: z.enum(["active", "resolved", "unsupported", "ignored"]).default("active"),
         errorCode: providerFixerErrorCodeSchema.optional(),
         search: z.string().trim().max(120).optional(),
+        sort: z.enum(["last_seen_desc", "updated_desc", "source_symbol_asc", "occurrence_count_desc"]).default("last_seen_desc"),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(200).default(25),
       })
@@ -1611,6 +1612,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       state: query.state,
       errorCode: query.errorCode,
       search: query.search,
+      sort: query.sort,
       page: query.page,
       limit: query.limit,
     });

@@ -5595,7 +5595,14 @@ export class MemoryPersistence implements Persistence {
         if (search && !`${row.sourceSymbol} ${row.providerSymbol ?? ""} ${row.errorCode}`.toUpperCase().includes(search)) return false;
         return true;
       })
-      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+      .sort((a, b) => {
+        if (options.sort === "updated_desc") return b.updatedAt.localeCompare(a.updatedAt);
+        if (options.sort === "source_symbol_asc") return a.sourceSymbol.localeCompare(b.sourceSymbol);
+        if (options.sort === "occurrence_count_desc") {
+          return b.occurrenceCount - a.occurrenceCount || b.lastSeenAt.localeCompare(a.lastSeenAt);
+        }
+        return b.lastSeenAt.localeCompare(a.lastSeenAt);
+      });
     const offset = (page - 1) * limit;
     return {
       items: filtered.slice(offset, offset + limit).map((row) => ({

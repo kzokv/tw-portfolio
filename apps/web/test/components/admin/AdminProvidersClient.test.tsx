@@ -500,7 +500,7 @@ describe("AdminProvidersClient", () => {
     click("provider-console-subtab-unresolved");
 
     const selection = document.querySelector("[data-testid='provider-console-selection-banner']");
-    expect(selection?.textContent ?? "").toMatch(/select all 1 matching rows/i);
+    expect(selection?.textContent ?? "").toMatch(/1 rows match this filter/i);
     expect(document.body.textContent ?? "").toMatch(/005930/i);
     expect(document.body.textContent ?? "").toMatch(/4 occurrences/i);
     expect(document.body.textContent ?? "").toMatch(/rerun requires resolved mapping/i);
@@ -535,7 +535,29 @@ describe("AdminProvidersClient", () => {
     click("provider-console-unresolved-apply");
 
     expect(mockPush).toHaveBeenCalledWith(
-      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=ignored&unresolvedPage=1&unresolvedSearch=005930",
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=ignored&unresolvedSort=last_seen_desc&unresolvedPage=1&unresolvedSearch=005930",
+    );
+  });
+
+  it("supports unresolved sort, select-all matching, and recently resolved shortcut", () => {
+    renderClient(root, { initialTab: "unresolved", unresolvedTotal: 1842 });
+
+    const sort = document.querySelector("[data-testid='provider-console-unresolved-sort']") as HTMLSelectElement | null;
+    if (!sort) throw new Error("expected unresolved sort control");
+    updateSelectValue(sort, "occurrence_count_desc");
+    click("provider-console-unresolved-apply");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSort=occurrence_count_desc&unresolvedPage=1",
+    );
+
+    click("provider-console-select-all-matching");
+    expect(document.querySelector("[data-testid='provider-console-selection-banner']")?.textContent ?? "").toMatch(
+      /1,842 rows selected/i,
+    );
+
+    click("provider-console-recently-resolved");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=resolved&unresolvedSort=updated_desc&unresolvedPage=1",
     );
   });
 
