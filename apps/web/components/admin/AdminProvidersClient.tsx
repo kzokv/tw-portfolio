@@ -541,6 +541,17 @@ export function AdminProvidersClient({
     );
   }
 
+  function rerunMapping(mapping: ProviderResolutionMappingDto): void {
+    void runAction(`mapping:rerun:${mapping.sourceSymbol}`, () =>
+      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/rerun`, {
+        marketCode: mapping.marketCode,
+        sourceSymbol: mapping.sourceSymbol,
+        resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
+        acknowledged: true,
+      }),
+    );
+  }
+
   function openMappingUnresolved(mapping: ProviderResolutionMappingDto): void {
     const params = new URLSearchParams({
       providerId: mapping.providerId,
@@ -935,6 +946,7 @@ export function AdminProvidersClient({
             evidenceColumns={evidenceColumns}
             onReverifyMapping={reverifyMapping}
             onRevertMapping={revertMapping}
+            onRerunMapping={rerunMapping}
             onOpenUnresolvedMapping={openMappingUnresolved}
             onOpenMappingOperation={openMappingOperation}
             busyAction={busyAction}
@@ -1858,6 +1870,7 @@ function MappingsTab({
   evidenceColumns,
   onReverifyMapping,
   onRevertMapping,
+  onRerunMapping,
   onOpenUnresolvedMapping,
   onOpenMappingOperation,
   busyAction,
@@ -1872,6 +1885,7 @@ function MappingsTab({
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
   onReverifyMapping: (mapping: ProviderResolutionMappingDto) => void;
   onRevertMapping: (mapping: ProviderResolutionMappingDto, typedConfirmation: string) => void;
+  onRerunMapping: (mapping: ProviderResolutionMappingDto) => void;
   onOpenUnresolvedMapping: (mapping: ProviderResolutionMappingDto) => void;
   onOpenMappingOperation: (mapping: ProviderResolutionMappingDto) => void;
   busyAction: string | null;
@@ -1879,8 +1893,10 @@ function MappingsTab({
   const evidenceRows = currentPreview?.evidenceSample ?? [];
   const reverifySupported = actionSupported(capability, "reverify_mapping");
   const revertSupported = actionSupported(capability, "revert_mapping");
+  const rerunSupported = actionSupported(capability, "rerun_backfill");
   const reverifyReason = actionDisabledReason(capability, "reverify_mapping", "Reverify is unavailable for this provider.");
   const revertReason = actionDisabledReason(capability, "revert_mapping", "Revert is unavailable for this provider.");
+  const rerunReason = actionDisabledReason(capability, "rerun_backfill", "Rerun is unavailable for this provider.");
   const [revertTarget, setRevertTarget] = useState<string | null>(null);
   const [revertConfirmation, setRevertConfirmation] = useState("");
   return (
@@ -1962,6 +1978,16 @@ function MappingsTab({
                                 data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}
                               >
                                 Reverify
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={!rerunSupported || busyAction !== null}
+                                title={rerunSupported ? "Rerun creates a provider operation that enqueues a fresh backfill for this mapped row." : rerunReason ?? undefined}
+                                onClick={() => onRerunMapping(mapping)}
+                                data-testid={`provider-console-mapping-rerun-${mapping.sourceSymbol}`}
+                              >
+                                Rerun
                               </Button>
                               <Button
                                 size="sm"
