@@ -952,6 +952,32 @@ describe("Provider Fixer admin routes", () => {
         },
       },
     });
+    const lifecycleOperations = await app.persistence.listProviderOperations({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      page: 1,
+      limit: 10,
+    });
+    const ignoredOperation = lifecycleOperations.items.find((operation) => operation.operationType === "ignore_unresolved");
+    expect(ignoredOperation).toMatchObject({
+      phase: "completed",
+      matchCount: 1,
+      metadata: expect.objectContaining({
+        sourceSymbol: "005930",
+        targetState: "ignored",
+        completedState: "ignored",
+      }),
+    });
+    const lifecycleOutcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${ignoredOperation!.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(lifecycleOutcomes.statusCode).toBe(200);
+    expect(lifecycleOutcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1 },
+      items: [expect.objectContaining({ sourceSymbol: "005930", action: "ignore_unresolved", state: "succeeded" })],
+    });
 
     const ignored = await app.inject({
       method: "GET",
@@ -1059,6 +1085,111 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(preview.statusCode).toBe(201);
     expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 1 } });
+  });
+
+  it("pauses provider repair when the admin operation budget is exhausted", async () => {
+    verifyResolvedSymbol.mockImplementation((_sourceSymbol: string, candidateSymbol: string, options: { resolverMode: "quote_first" }) =>
+      Promise.resolve({
+        verified: true,
+        checkedSymbol: candidateSymbol,
+        resolverMode: options.resolverMode,
+      }),
+    );
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "KR";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "035720",
+      name: "Kakao",
+      instrumentType: "STOCK",
+      marketCode: "KR",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "KOSPI",
+      catalogMicCode: "XKRX",
+    });
+    await app.persistence.insertProviderErrorTrailEntry({
+      providerId: "yahoo-finance-kr",
+      errorClass: "other",
+      errorMessage: "yahoo_finance_kr_symbol_unresolved: 035720",
+      context: { ticker: "035720", marketCode: "KR" },
+    });
+
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const settings = await app.inject({
+      method: "PATCH",
+      url: "/admin/settings",
+      headers,
+      payload: { yahooKrProviderRateLimitPerMinute: 1 },
+    });
+    expect(settings.statusCode).toBe(200);
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(preview.statusCode).toBe(201);
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string; confirmationText: string | null } };
+    };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: {
+        previewToken: previewBody.operation.preview.token,
+        acknowledged: true,
+        ...(previewBody.operation.preview.confirmationText
+          ? { typedConfirmation: previewBody.operation.preview.confirmationText }
+          : {}),
+      },
+    });
+    expect(execute.statusCode).toBe(202);
+
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("paused");
+    });
+    await expect(app.persistence.getProviderOperation(previewBody.operation.id)).resolves.toMatchObject({
+      phase: "paused",
+      metadata: expect.objectContaining({
+        pauseReason: "paused_rate_limit",
+        failureName: "RateLimitedError",
+        operationBudgetConsumed: 1,
+        operationBudgetCapPerWindow: 1,
+        operationBudgetWindowMs: 60_000,
+      }),
+    });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 2, processed: 2, succeeded: 1, rateLimited: 1 },
+      items: expect.arrayContaining([
+        expect.objectContaining({ sourceSymbol: "005930", state: "succeeded" }),
+        expect.objectContaining({ sourceSymbol: "035720", state: "rate_limited", errorCode: "provider_rate_limited" }),
+      ]),
+    });
   });
 
   it("persists provider operation settings and rejects inverted health thresholds", async () => {
@@ -1670,6 +1801,7 @@ describe("Provider Fixer admin routes", () => {
       errorTrailDeleted: 1,
       operationLogDeleted: 1,
     });
+    const executeBody = execute.json() as { operationId: string };
 
     await expect(app.persistence.listProviderErrorTrailPage({
       providerId: "yahoo-finance-kr",
@@ -1692,5 +1824,23 @@ describe("Provider Fixer admin routes", () => {
       page: 1,
       limit: 10,
     })).resolves.toMatchObject({ total: 0 });
+    const purgeOutcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${executeBody.operationId}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(purgeOutcomes.statusCode).toBe(200);
+    expect(purgeOutcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1 },
+      items: [expect.objectContaining({ sourceSymbol: "PROVIDER_LOGS", action: "purge_logs", state: "succeeded" })],
+    });
+    await expect(app.persistence.listProviderOperationLogs({
+      operationId: executeBody.operationId,
+      page: 1,
+      limit: 10,
+    })).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ message: expect.stringContaining("purge_logs_completed") })],
+    });
   });
 });
