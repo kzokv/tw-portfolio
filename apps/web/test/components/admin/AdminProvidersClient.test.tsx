@@ -613,6 +613,22 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("pages provider operations through URL state", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-PAGE",
+      operations: [buildOperation({ id: "OP-PAGE", phase: "completed", canExecute: false, canRetry: true })],
+      operationsTotal: 25,
+      stagedOperation: null,
+    });
+
+    click("pagination-next");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationsPage=2&operationId=OP-PAGE",
+    );
+  });
+
   it("retries terminal operations through provider-scoped linked preview route", async () => {
     renderClient(root, {
       initialTab: "operations",
