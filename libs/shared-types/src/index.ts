@@ -1966,6 +1966,33 @@ export interface ProviderFixerDashboardLogsResponse {
   limit: number;
 }
 
+export type ProviderUnresolvedItemState = "active" | "resolved" | "unsupported" | "ignored";
+
+export interface ProviderUnresolvedItemDto {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+  providerSymbol: string | null;
+  state: ProviderUnresolvedItemState;
+  severity: "ok" | "warning" | "critical";
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastErrorTrailId: number | null;
+  evidence: Record<string, unknown> | null;
+  resolvedAt: string | null;
+  resolvedByOperationId: string | null;
+  updatedAt: string;
+}
+
+export interface ProviderUnresolvedItemsResponse {
+  items: ProviderUnresolvedItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────
 
 export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";

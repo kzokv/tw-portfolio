@@ -1256,6 +1256,55 @@ export interface ListProviderErrorTrailResult {
   limit: number;
 }
 
+export type ProviderUnresolvedItemState = "active" | "resolved" | "unsupported" | "ignored";
+export type ProviderUnresolvedItemSeverity = "ok" | "warning" | "critical";
+
+export interface ProviderUnresolvedItemRecord {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+  providerSymbol: string | null;
+  state: ProviderUnresolvedItemState;
+  severity: ProviderUnresolvedItemSeverity;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastErrorTrailId: number | null;
+  evidence: Record<string, unknown> | null;
+  resolvedAt: string | null;
+  resolvedByOperationId: string | null;
+  updatedAt: string;
+}
+
+export interface UpsertProviderUnresolvedItemInput {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+  providerSymbol?: string | null;
+  severity?: ProviderUnresolvedItemSeverity;
+  lastErrorTrailId?: number | null;
+  evidence?: Record<string, unknown> | null;
+}
+
+export interface ListProviderUnresolvedItemsOptions {
+  providerId?: string;
+  marketCode?: MarketCode;
+  state?: ProviderUnresolvedItemState;
+  errorCode?: string;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderUnresolvedItemsResult {
+  items: ProviderUnresolvedItemRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
 
 /**
@@ -2339,6 +2388,14 @@ export interface Persistence {
   /** Count error trail rows where error_class = 'rate_limit' within the last 24 hours. */
   computeRateLimitCount24h(providerId: string): Promise<number>;
   listProviderErrorTrailPage(options: ListProviderErrorTrailOptions): Promise<ListProviderErrorTrailResult>;
+  upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord>;
+  listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
+  resolveProviderUnresolvedItems(input: {
+    providerId: string;
+    marketCode: MarketCode;
+    sourceSymbols: string[];
+    operationId?: string | null;
+  }): Promise<number>;
   /**
    * Delete error trail rows older than `olderThanDays` days. Memory backend
    * may behave as a no-op (returns 0). Returns the number of rows deleted.

@@ -119,6 +119,25 @@ describe("Provider Fixer admin routes", () => {
     expect(previewBody.operation.matchCount).toBe(1);
     expect(previewBody.operation.preview.evidenceSample[0]?.candidateSymbol).toBe("005930.KS");
     expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("verified");
+
+    const activeBeforeExecute = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&page=1&limit=10",
+      headers,
+    });
+    expect(activeBeforeExecute.statusCode).toBe(200);
+    expect(activeBeforeExecute.json()).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          sourceSymbol: "005930",
+          state: "active",
+          occurrenceCount: 1,
+        }),
+      ],
+    });
     const bossSend = vi.fn().mockResolvedValue("job-005930-quote-first");
     app.boss = { send: bossSend } as never;
 
@@ -162,6 +181,30 @@ describe("Provider Fixer admin routes", () => {
       sourceSymbol: "005930",
       resolvedSymbol: "005930.KS",
       verifiedByUserId: admin.userId,
+    });
+    const activeAfterExecute = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&page=1&limit=10",
+      headers,
+    });
+    expect(activeAfterExecute.statusCode).toBe(200);
+    expect(activeAfterExecute.json()).toMatchObject({ total: 0, items: [] });
+
+    const resolvedAfterExecute = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=resolved&page=1&limit=10",
+      headers,
+    });
+    expect(resolvedAfterExecute.statusCode).toBe(200);
+    expect(resolvedAfterExecute.json()).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "005930",
+          state: "resolved",
+          resolvedByOperationId: previewBody.operation.id,
+        }),
+      ],
     });
 
     const refreshedPreview = await app.inject({
@@ -212,6 +255,17 @@ describe("Provider Fixer admin routes", () => {
           expect.objectContaining({ providerId: "yahoo-finance-kr", unresolvedCount: 1 }),
         ]),
       },
+    });
+
+    const unresolved = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&search=005930&page=1&limit=10",
+      headers,
+    });
+    expect(unresolved.statusCode).toBe(200);
+    expect(unresolved.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "active" })],
     });
 
     const preview = await app.inject({
