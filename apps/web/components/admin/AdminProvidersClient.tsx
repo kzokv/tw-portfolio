@@ -39,6 +39,8 @@ type ProviderConsoleTab =
   | "logs"
   | "mappings";
 
+type ProviderUnresolvedSort = "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
+
 interface ProviderGroup {
   label: string;
   budgetLabel: string;
@@ -59,6 +61,7 @@ interface AdminProvidersClientProps {
   unresolvedTotal: number;
   initialUnresolvedState?: ProviderUnresolvedItemDto["state"];
   initialUnresolvedSearch?: string;
+  initialUnresolvedSort?: ProviderUnresolvedSort;
   incidents: ProviderIncidentDto[];
   incidentsPage: number;
   incidentsLimit: number;
@@ -299,6 +302,7 @@ export function AdminProvidersClient({
   unresolvedTotal,
   initialUnresolvedState = "active",
   initialUnresolvedSearch = "",
+  initialUnresolvedSort = "last_seen_desc",
   incidents,
   incidentsPage,
   incidentsLimit,
@@ -492,6 +496,7 @@ export function AdminProvidersClient({
   function applyUnresolvedFilters(next: {
     state?: ProviderUnresolvedItemDto["state"];
     search?: string;
+    sort?: ProviderUnresolvedSort;
     page?: number;
   }): void {
     const params = new URLSearchParams({
@@ -500,6 +505,7 @@ export function AdminProvidersClient({
       resolverMode: diagnostics.resolverMode,
       errorCode: fallbackDiagnosis?.errorCode ?? diagnostics.errorCode,
       unresolvedState: next.state ?? initialUnresolvedState,
+      unresolvedSort: next.sort ?? initialUnresolvedSort,
       unresolvedPage: String(next.page ?? 1),
     });
     const search = next.search ?? initialUnresolvedSearch;
@@ -746,6 +752,7 @@ export function AdminProvidersClient({
             unresolvedTotal={unresolvedTotal}
             initialState={initialUnresolvedState}
             initialSearch={initialUnresolvedSearch}
+            initialSort={initialUnresolvedSort}
             currentPreview={currentPreview}
             capability={capability}
             rerunDisabledReason={rerunDisabledReason}
@@ -936,6 +943,7 @@ function UnresolvedTab({
   unresolvedTotal,
   initialState,
   initialSearch,
+  initialSort,
   currentPreview,
   capability,
   rerunDisabledReason,
@@ -952,16 +960,19 @@ function UnresolvedTab({
   unresolvedTotal: number;
   initialState: ProviderUnresolvedItemDto["state"];
   initialSearch: string;
+  initialSort: ProviderUnresolvedSort;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   capability: ProviderOperationCapabilityDto;
   rerunDisabledReason: string;
   onPreviewRepair: () => void;
   onSetState: (item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored") => void;
-  onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; page?: number }) => void;
+  onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
   busyAction: string | null;
 }) {
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
+  const [sortInput, setSortInput] = useState<ProviderUnresolvedSort>(initialSort);
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const evidence = currentPreview?.evidenceSample ?? [];
   const rows = unresolvedItems.length > 0
     ? unresolvedItems.map((item) => ({
@@ -1005,13 +1016,13 @@ function UnresolvedTab({
           <Button disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair selected</Button>
         </div>
       </div>
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px_220px_160px]">
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_190px_220px_150px]">
         <input
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") onApplyFilters({ state: stateInput, search: searchInput, page: 1 });
+            if (event.key === "Enter") onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page: 1 });
           }}
           placeholder="Search symbol, provider symbol, error"
           data-testid="provider-console-unresolved-search"
@@ -1027,13 +1038,47 @@ function UnresolvedTab({
           <option value="unsupported">State: unsupported</option>
           <option value="ignored">State: ignored</option>
         </select>
+        <select
+          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          value={sortInput}
+          onChange={(event) => setSortInput(event.target.value as ProviderUnresolvedSort)}
+          data-testid="provider-console-unresolved-sort"
+        >
+          <option value="last_seen_desc">Sort: last seen</option>
+          <option value="updated_desc">Sort: recently updated</option>
+          <option value="occurrence_count_desc">Sort: most occurrences</option>
+          <option value="source_symbol_asc">Sort: source symbol</option>
+        </select>
         <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Error: {diagnosis?.errorCode ?? "all"}</div>
-        <Button variant="secondary" onClick={() => onApplyFilters({ state: stateInput, search: searchInput, page: 1 })} data-testid="provider-console-unresolved-apply">
+        <Button variant="secondary" onClick={() => onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page: 1 })} data-testid="provider-console-unresolved-apply">
           Apply filters
         </Button>
       </div>
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800" data-testid="provider-console-selection-banner">
-        <strong>{formatNumber(Math.min(rows.length, 3))} rows selected.</strong> Select all {formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} matching rows for bulk repair.
+      <div className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
+        <span>
+          <strong>{allMatchingSelected ? formatNumber(unresolvedTotal || rows.length) : formatNumber(Math.min(rows.length, 3))} rows selected.</strong>{" "}
+          {allMatchingSelected
+            ? "All matching rows in the current filter are selected for guarded bulk repair."
+            : `Current-page rows selected. ${formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} rows match this filter.`}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setAllMatchingSelected((value) => !value)} data-testid="provider-console-select-all-matching">
+            {allMatchingSelected ? "Clear all matching" : "Select all matching"}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setStateInput("resolved");
+              setSortInput("updated_desc");
+              setAllMatchingSelected(false);
+              onApplyFilters({ state: "resolved", search: searchInput, sort: "updated_desc", page: 1 });
+            }}
+            data-testid="provider-console-recently-resolved"
+          >
+            Recently resolved
+          </Button>
+        </div>
       </div>
       {rows.length > 0 ? (
         <div className="grid gap-3 sm:hidden">
@@ -1170,7 +1215,7 @@ function UnresolvedTab({
         page={unresolvedPage}
         limit={unresolvedLimit}
         total={unresolvedTotal}
-        onPageChange={(page) => onApplyFilters({ state: stateInput, search: searchInput, page })}
+        onPageChange={(page) => onApplyFilters({ state: stateInput, search: searchInput, sort: sortInput, page })}
       />
       {rows.length > 0 ? (
         <div

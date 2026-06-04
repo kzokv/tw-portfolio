@@ -488,6 +488,32 @@ describe("Provider Fixer admin routes", () => {
     expect(mismatchedExecute.statusCode).toBe(404);
   });
 
+  it("sorts provider unresolved rows through provider-scoped query state", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.insertProviderErrorTrailEntry({
+      providerId: "yahoo-finance-kr",
+      errorClass: "other",
+      errorMessage: "yahoo_finance_kr_symbol_unresolved: 000660",
+      context: { ticker: "000660", marketCode: "KR" },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&sort=source_symbol_asc&page=1&limit=10",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({ sourceSymbol: "000660" }),
+        expect.objectContaining({ sourceSymbol: "005930" }),
+      ],
+    });
+  });
+
   it("updates unresolved item lifecycle state with provider-scoped audit metadata", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
