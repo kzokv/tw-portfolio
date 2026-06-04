@@ -1251,6 +1251,7 @@ function FixerTab({
   onExecute: () => void;
 }) {
   const stagedVisible = !!selectedOperation && (selectedOperation.phase === "preview" || selectedOperation.phase === "staged" || selectedOperation.phase === "running" || selectedOperation.phase === "paused");
+  const dangerousPreviewSheet = stagedVisible && selectedOperation?.dangerous;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
@@ -1292,7 +1293,24 @@ function FixerTab({
       </Card>
 
       {stagedVisible ? (
-        <Card className="space-y-4 px-4 py-4 hover:translate-y-0" data-testid="provider-console-operation-panel">
+        <>
+          {dangerousPreviewSheet ? (
+            <div className="fixed inset-0 z-40 bg-foreground/35 backdrop-blur-sm sm:hidden" aria-hidden="true" data-testid="provider-console-mobile-preview-backdrop" />
+          ) : null}
+          <Card
+            className={cn(
+              "space-y-4 px-4 py-4 hover:translate-y-0",
+              dangerousPreviewSheet
+                ? "fixed inset-x-0 bottom-0 z-50 max-h-[92vh] overflow-y-auto rounded-b-none rounded-t-2xl border-x-0 border-b-0 shadow-2xl sm:static sm:max-h-none sm:rounded-xl sm:border sm:shadow-sm"
+                : "",
+            )}
+            data-testid="provider-console-operation-panel"
+          >
+          {dangerousPreviewSheet ? (
+            <span className="sr-only sm:hidden" data-testid="provider-console-mobile-dangerous-preview">
+              Mobile dangerous operation preview sheet
+            </span>
+          ) : null}
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-xl font-semibold text-foreground">Operation preview</h3>
@@ -1335,7 +1353,8 @@ function FixerTab({
               </div>
             </>
           ) : null}
-        </Card>
+          </Card>
+        </>
       ) : (
         <Card className="px-4 py-4 hover:translate-y-0">
           <h3 className="text-xl font-semibold text-foreground">No staged operation</h3>
