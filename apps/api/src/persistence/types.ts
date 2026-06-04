@@ -1494,6 +1494,16 @@ export interface ListProviderUnresolvedItemsResult {
   limit: number;
 }
 
+export interface UpdateProviderUnresolvedItemStateInput {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+  state: ProviderUnresolvedItemState;
+  actorUserId?: string | null;
+  reason?: string | null;
+}
+
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
 
 /**
@@ -2597,6 +2607,7 @@ export interface Persistence {
   updateProviderIncidentStatus(input: UpdateProviderIncidentStatusInput): Promise<ProviderIncidentRecord>;
   upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord>;
   listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
+  updateProviderUnresolvedItemState(input: UpdateProviderUnresolvedItemStateInput): Promise<ProviderUnresolvedItemRecord>;
   resolveProviderUnresolvedItems(input: {
     providerId: string;
     marketCode: MarketCode;

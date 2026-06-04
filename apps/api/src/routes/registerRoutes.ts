@@ -617,6 +617,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   "GET /admin/providers/:providerId/operations/summary",
   "GET /admin/providers/:providerId/diagnostics",
   "GET /admin/providers/:providerId/unresolved",
+  "POST /admin/providers/:providerId/unresolved/state",
   "GET /admin/providers/:providerId/operations",
   "GET /admin/providers/:providerId/operations/:operationId/outcomes",
   "GET /admin/providers/:providerId/logs",

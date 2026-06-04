@@ -175,6 +175,7 @@ import type {
   SetShareCapabilitiesInput,
   UpdateProviderIncidentStatusInput,
   UpdateProviderOperationInput,
+  UpdateProviderUnresolvedItemStateInput,
   UpsertProviderIncidentInput,
   UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
@@ -12728,6 +12729,45 @@ export class PostgresPersistence implements Persistence {
       [input.providerId, input.marketCode, sourceSymbols, input.operationId ?? null],
     );
     return result.rowCount ?? 0;
+  }
+
+  async updateProviderUnresolvedItemState(
+    input: UpdateProviderUnresolvedItemStateInput,
+  ): Promise<ProviderUnresolvedItemRecord> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const now = new Date().toISOString();
+    const stateChange = {
+      state: input.state,
+      reason: input.reason ?? null,
+      actorUserId: input.actorUserId ?? null,
+      changedAt: now,
+    };
+    const result = await this.pool.query<ProviderUnresolvedItemRowSql>(
+      `UPDATE market_data.provider_unresolved_items
+          SET state = $5,
+              evidence = COALESCE(evidence, '{}'::jsonb) || $6::jsonb,
+              resolved_at = CASE WHEN $5 = 'resolved' THEN $7::timestamptz ELSE NULL END,
+              resolved_by_operation_id = CASE WHEN $5 = 'active' THEN NULL ELSE resolved_by_operation_id END,
+              updated_at = NOW()
+        WHERE provider_id = $1
+          AND market_code = $2
+          AND error_code = $3
+          AND source_symbol = $4
+        RETURNING provider_id, market_code, error_code, source_symbol, provider_symbol, state, severity,
+                  occurrence_count, first_seen_at, last_seen_at, last_error_trail_id, evidence,
+                  resolved_at, resolved_by_operation_id, updated_at`,
+      [
+        input.providerId,
+        input.marketCode,
+        input.errorCode,
+        sourceSymbol,
+        input.state,
+        JSON.stringify({ stateChange }),
+        now,
+      ],
+    );
+    if (!result.rows[0]) throw routeError(404, "provider_unresolved_item_not_found", "provider unresolved item not found");
+    return mapProviderUnresolvedItemRow(result.rows[0]);
   }
 
   async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {

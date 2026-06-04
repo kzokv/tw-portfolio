@@ -23,6 +23,7 @@ import type {
   ProviderResolutionMappingDto,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemDto,
+  ProviderUnresolvedItemUpdateResponse,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
 import {
@@ -1484,6 +1485,72 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       total: result.total,
       page: result.page,
       limit: result.limit,
+    };
+  });
+
+  app.post("/providers/:providerId/unresolved/state", async (req): Promise<ProviderUnresolvedItemUpdateResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema,
+        errorCode: providerFixerErrorCodeSchema,
+        sourceSymbol: z.string().trim().min(1).max(80),
+        state: z.enum(["active", "unsupported", "ignored"]),
+        reason: z.string().trim().max(240).optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const item = await app.persistence.updateProviderUnresolvedItemState({
+      providerId,
+      marketCode: body.marketCode,
+      errorCode: body.errorCode,
+      sourceSymbol: body.sourceSymbol,
+      state: body.state,
+      actorUserId: sessionUserId,
+      reason: body.reason ?? null,
+    });
+    const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        action,
+        providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+        state: item.state,
+        reason: body.reason ?? null,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_unresolved_item_changed", {
+      providerId,
+      marketCode: item.marketCode,
+      errorCode: item.errorCode,
+      sourceSymbol: item.sourceSymbol,
+      state: item.state,
+    });
+    return {
+      item: {
+        providerId: item.providerId,
+        marketCode: item.marketCode as ProviderUnresolvedItemDto["marketCode"],
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+        providerSymbol: item.providerSymbol,
+        state: item.state,
+        severity: item.severity,
+        occurrenceCount: item.occurrenceCount,
+        firstSeenAt: item.firstSeenAt,
+        lastSeenAt: item.lastSeenAt,
+        lastErrorTrailId: item.lastErrorTrailId,
+        evidence: item.evidence,
+        resolvedAt: item.resolvedAt,
+        resolvedByOperationId: item.resolvedByOperationId,
+        updatedAt: item.updatedAt,
+      },
     };
   });
 

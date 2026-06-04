@@ -315,6 +315,9 @@ function buildCapabilities(): ProviderOperationCapabilityDto[] {
         { action: "revert_mapping", supported: true, guardrail: "typed_preview", reason: null },
         { action: "purge_logs", supported: true, guardrail: "typed_preview", reason: null },
         { action: "normalize_errors", supported: true, guardrail: "checkbox", reason: null },
+        { action: "mark_unsupported", supported: true, guardrail: "none", reason: null },
+        { action: "ignore_unresolved", supported: true, guardrail: "none", reason: null },
+        { action: "reopen_unresolved", supported: true, guardrail: "none", reason: null },
         { action: "refresh_health", supported: true, guardrail: "none", reason: null },
       ],
     },
@@ -349,6 +352,9 @@ function buildCapabilities(): ProviderOperationCapabilityDto[] {
         },
         { action: "purge_logs", supported: true, guardrail: "typed_preview", reason: null },
         { action: "normalize_errors", supported: true, guardrail: "checkbox", reason: null },
+        { action: "mark_unsupported", supported: true, guardrail: "none", reason: null },
+        { action: "ignore_unresolved", supported: true, guardrail: "none", reason: null },
+        { action: "reopen_unresolved", supported: true, guardrail: "none", reason: null },
         { action: "refresh_health", supported: true, guardrail: "none", reason: null },
       ],
     },
@@ -476,6 +482,34 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/005930/i);
     expect(document.body.textContent ?? "").toMatch(/4 occurrences/i);
     expect(document.body.textContent ?? "").toMatch(/rerun requires resolved mapping/i);
+  });
+
+  it("updates unresolved row lifecycle state through provider-scoped API", async () => {
+    renderClient(root, { initialTab: "unresolved" });
+
+    click("provider-console-unresolved-ignore-005930");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/unresolved/state",
+      {
+        marketCode: "KR",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        sourceSymbol: "005930",
+        state: "ignored",
+      },
+    );
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it("shows reopen for non-active unresolved rows", () => {
+    renderClient(root, {
+      initialTab: "unresolved",
+      unresolvedItems: buildUnresolvedItems().map((item) => ({ ...item, state: "ignored" as const })),
+    });
+
+    expect(document.querySelector("[data-testid='provider-console-unresolved-reopen-005930']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='provider-console-unresolved-ignore-005930']")).toBeNull();
   });
 
   it("keeps dangerous execution disabled until checkbox and typed confirmation are satisfied", () => {

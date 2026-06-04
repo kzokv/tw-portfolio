@@ -25,6 +25,9 @@ const DEFAULT_DISABLED_REASONS: Record<ProviderOperationAction, string> = {
   revert_mapping: "Revert is unavailable because this provider has no durable mappings.",
   purge_logs: "Purge logs is unavailable for this provider.",
   normalize_errors: "Normalize errors is unavailable for this provider.",
+  mark_unsupported: "Mark unsupported is unavailable for this provider.",
+  ignore_unresolved: "Ignore unresolved item is unavailable for this provider.",
+  reopen_unresolved: "Reopen unresolved item is unavailable for this provider.",
   refresh_health: "Refresh health is unavailable for this provider.",
 };
 
@@ -33,6 +36,9 @@ const WRITE_PROVIDER_ACTIONS: Partial<Record<ProviderOperationAction, ProviderOp
   rerun_backfill: "checkbox",
   purge_logs: "typed_preview",
   normalize_errors: "checkbox",
+  mark_unsupported: "none",
+  ignore_unresolved: "none",
+  reopen_unresolved: "none",
   refresh_health: "none",
 };
 
@@ -53,6 +59,9 @@ const DEFAULT_DEFINITION: ProviderCapabilityDefinition = {
     renew_evidence: "checkbox",
     purge_logs: "typed_preview",
     normalize_errors: "checkbox",
+    mark_unsupported: "none",
+    ignore_unresolved: "none",
+    reopen_unresolved: "none",
     refresh_health: "none",
   },
 };

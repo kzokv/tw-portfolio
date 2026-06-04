@@ -145,6 +145,7 @@ import type {
   SetShareCapabilitiesInput,
   UpdateProviderIncidentStatusInput,
   UpdateProviderOperationInput,
+  UpdateProviderUnresolvedItemStateInput,
   UpsertProviderOperationOutcomeInput,
   UpsertProviderIncidentInput,
   UpsertProviderUnresolvedItemInput,
@@ -5629,6 +5630,35 @@ export class MemoryPersistence implements Persistence {
       updated++;
     }
     return updated;
+  }
+
+  async updateProviderUnresolvedItemState(
+    input: UpdateProviderUnresolvedItemStateInput,
+  ): Promise<ProviderUnresolvedItemRecord> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    const key = providerUnresolvedItemKey(input.providerId, input.marketCode, input.errorCode, sourceSymbol);
+    const existing = this.providerUnresolvedItems.get(key);
+    if (!existing) throw routeError(404, "provider_unresolved_item_not_found", "provider unresolved item not found");
+    const now = new Date().toISOString();
+    const evidence = {
+      ...(existing.evidence ?? {}),
+      stateChange: {
+        state: input.state,
+        reason: input.reason ?? null,
+        actorUserId: input.actorUserId ?? null,
+        changedAt: now,
+      },
+    };
+    const row: ProviderUnresolvedItemRecord = {
+      ...existing,
+      state: input.state,
+      evidence,
+      resolvedAt: input.state === "resolved" ? now : null,
+      resolvedByOperationId: input.state === "active" ? null : existing.resolvedByOperationId,
+      updatedAt: now,
+    };
+    this.providerUnresolvedItems.set(key, row);
+    return { ...row, evidence: { ...evidence } };
   }
 
   async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {

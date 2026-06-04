@@ -1873,6 +1873,9 @@ export const PROVIDER_OPERATION_ACTIONS = [
   "revert_mapping",
   "purge_logs",
   "normalize_errors",
+  "mark_unsupported",
+  "ignore_unresolved",
+  "reopen_unresolved",
   "refresh_health",
 ] as const;
 
@@ -2079,6 +2082,10 @@ export interface ProviderUnresolvedItemsResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface ProviderUnresolvedItemUpdateResponse {
+  item: ProviderUnresolvedItemDto;
 }
 
 export type ProviderIncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
