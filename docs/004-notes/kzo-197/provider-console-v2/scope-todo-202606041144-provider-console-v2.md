@@ -167,6 +167,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Replaced static unresolved filter placeholders with URL-backed provider-scoped state/search/page controls; pagination now re-queries the unresolved API instead of no-oping.
 - 2026-06-04: Added URL-backed operation selection so the Operations tab reloads durable outcomes for the selected operation; added selected-operation details with phase, progress, budget state, and links to logs/unresolved views.
 - 2026-06-04: Added URL-backed Operations pagination so operation summaries re-query provider-scoped API pages while preserving the selected operation.
+- 2026-06-04: Added mobile provider selector plus unresolved bottom action bar for repair/ignore/unsupported row actions.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
