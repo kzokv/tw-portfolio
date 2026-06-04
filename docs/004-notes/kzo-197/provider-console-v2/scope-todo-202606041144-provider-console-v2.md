@@ -159,6 +159,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added idempotent incident backfill from historical `provider_error_trail` rows using the same durable incident-key semantics as the runtime normalizer.
 - 2026-06-04: Extracted central provider-error normalization service shared by Postgres and memory persistence, covering durable incidents and unresolved worklist rows from raw provider errors.
 - 2026-06-04: Added shared provider-operation action taxonomy plus API-backed provider capability registry; `/admin/providers` now returns supported/disabled actions and guardrail levels for Yahoo, FinMind, Twelve Data, Frankfurter, and ASX GICS CSV, and the UI consumes those reasons instead of a hardcoded local map.
+- 2026-06-04: Started the provider operation engine transition: provider-scoped Execute now validates guardrails, marks the operation `running`, returns `202`, completes KR repair work in the background, persists durable outcomes/progress, and emits provider-operation SSE invalidation events. The legacy unshipped fixer execute route remains synchronous until that route is removed.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
