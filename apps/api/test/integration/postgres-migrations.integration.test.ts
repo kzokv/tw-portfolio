@@ -3420,6 +3420,48 @@ describePostgres("postgres migrations", () => {
     }
   });
 
+  it("KZO-197: migration 070 backfills provider incidents idempotently from error trail", async () => {
+    const before070 = await getNumberedMigrationsBefore("070_kzo197_provider_incident_backfill.sql");
+    await applyMigrationFiles(before070);
+
+    await pool.query(
+      `INSERT INTO market_data.provider_error_trail (provider_id, occurred_at, error_class, error_message, context)
+       VALUES
+         ('yahoo-finance-kr', '2026-06-04T10:00:00Z', 'other', 'yahoo_finance_kr_symbol_unresolved: 005930', '{"marketCode":"KR","ticker":"005930"}'::jsonb),
+         ('yahoo-finance-kr', '2026-06-04T10:05:00Z', 'other', 'yahoo_finance_kr_symbol_unresolved: 005930', '{"marketCode":"KR","ticker":"005930"}'::jsonb)`,
+    );
+
+    await applyMigrationFiles(["070_kzo197_provider_incident_backfill.sql"]);
+    await applyMigrationFiles(["070_kzo197_provider_incident_backfill.sql"]);
+
+    const rows = await pool.query<{
+      incident_key: string;
+      status: string;
+      severity: string;
+      title: string;
+      occurrence_count: number;
+      metadata: { seededFrom?: string; sourceSymbol?: string };
+    }>(
+      `SELECT incident_key, status, severity, title, occurrence_count, metadata
+       FROM market_data.provider_incidents
+       WHERE provider_id = 'yahoo-finance-kr'
+       ORDER BY incident_key`,
+    );
+
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      incident_key: "other:yahoo_finance_kr_symbol_unresolved:KR:005930",
+      status: "open",
+      severity: "critical",
+      title: "yahoo-finance-kr unresolved 005930",
+      occurrence_count: 2,
+    });
+    expect(rows.rows[0]?.metadata).toMatchObject({
+      seededFrom: "provider_error_trail_incident_backfill",
+      sourceSymbol: "005930",
+    });
+  });
+
   it("KZO-210: pending invite capabilities materialize onto the share grant", async () => {
     await applyNumberedMigrations();
 
