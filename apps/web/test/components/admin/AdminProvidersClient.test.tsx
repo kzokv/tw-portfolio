@@ -613,7 +613,7 @@ describe("AdminProvidersClient", () => {
     );
   });
 
-  it("explains fixer actions and resolver modes with contextual help", () => {
+  it("explains fixer actions and starts renew evidence operations", async () => {
     renderClient(root, { initialTab: "fixer" });
 
     expect(findElementByText("span", "Quote-first").getAttribute("title") ?? "").toMatch(
@@ -630,6 +630,16 @@ describe("AdminProvidersClient", () => {
     );
     expect(findElementByText("button", "Rerun disabled").getAttribute("title") ?? "").toMatch(
       /resolved items or durable provider mappings/i,
+    );
+
+    click("provider-console-renew-evidence");
+    await act(async () => undefined);
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/renew",
+      {
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
     );
   });
 

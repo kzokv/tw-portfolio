@@ -477,6 +477,16 @@ export function AdminProvidersClient({
     );
   }
 
+  function renewEvidence(): void {
+    const row = fallbackDiagnosis;
+    void runAction("renew", () =>
+      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/renew`, {
+        resolverMode: diagnostics.resolverMode,
+        errorCode: row?.errorCode ?? diagnostics.errorCode,
+      }),
+    );
+  }
+
   function executeSelectedOperation(): void {
     if (!selectedOperation || !currentPreview) return;
     void runAction("execute", () =>
@@ -847,6 +857,7 @@ export function AdminProvidersClient({
             actionError={actionError}
             setConfirmationChecked={setConfirmationChecked}
             setTypedConfirmation={setTypedConfirmation}
+            onRenewEvidence={renewEvidence}
             onPreviewRepair={previewRepair}
             onExecute={executeSelectedOperation}
           />
@@ -1341,6 +1352,7 @@ function FixerTab({
   actionError,
   setConfirmationChecked,
   setTypedConfirmation,
+  onRenewEvidence,
   onPreviewRepair,
   onExecute,
 }: {
@@ -1362,6 +1374,7 @@ function FixerTab({
   actionError: string | null;
   setConfirmationChecked: (checked: boolean) => void;
   setTypedConfirmation: (value: string) => void;
+  onRenewEvidence: () => void;
   onPreviewRepair: () => void;
   onExecute: () => void;
 }) {
@@ -1400,7 +1413,7 @@ function FixerTab({
           <Metric label="Preview sample" value={formatNumber(guardrails.previewSampleLimit)} detail="Rows shown before dangerous execution." />
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" />
+          <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" onClick={onRenewEvidence} busy={busyAction !== null} testId="provider-console-renew-evidence" />
           <ActionPanel title="Repair" body={actionHelp.repair} enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
           <ActionPanel title="Rerun" body={actionHelp.rerun} enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
         </div>
@@ -2071,6 +2084,7 @@ function ActionPanel({
   actionLabel,
   onClick,
   busy,
+  testId,
 }: {
   title: string;
   body: string;
@@ -2079,12 +2093,13 @@ function ActionPanel({
   actionLabel: string;
   onClick?: () => void;
   busy?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4" title={enabled ? body : disabledReason}>
       <h4 className="font-semibold text-foreground">{title}</h4>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
-      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={onClick} title={enabled ? body : disabledReason}>
+      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={onClick} title={enabled ? body : disabledReason} data-testid={testId}>
         {actionLabel}
       </Button>
       {!enabled ? <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p> : null}
