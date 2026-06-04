@@ -663,6 +663,21 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("links selected operation details to provider incidents", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-INCIDENTS",
+      operations: [buildOperation({ id: "OP-INCIDENTS", phase: "completed", canExecute: false, canRetry: true })],
+      stagedOperation: null,
+    });
+
+    click("provider-console-operation-open-incidents");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=incidents",
+    );
+  });
+
   it("pages provider operations through URL state", () => {
     renderClient(root, {
       initialTab: "operations",

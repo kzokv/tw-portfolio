@@ -170,6 +170,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added mobile provider selector plus unresolved bottom action bar for repair/ignore/unsupported row actions.
 - 2026-06-04: Added contextual help for provider status, Refresh, Renew, Repair, Rerun, quote-first, chart-probe, guarded execute, Purge, Unsupported, Ignore, Reopen, and disabled action states.
 - 2026-06-04: Added mobile dangerous-operation preview sheet behavior with mobile backdrop/full-height constraints while keeping a single guarded Execute state.
+- 2026-06-04: Completed operation-details navigation by linking selected operations to logs, incidents, and unresolved views alongside durable outcomes/progress/budget state and operation controls.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
@@ -185,7 +186,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [ ] Implement Renew, Repair, Rerun, Reverify, Revert, Unsupported, Ignore, Reopen, and Purge flows through the operation engine where writes occur.
 - [x] Build `/admin/providers` provider console shell with grouped provider rail, provider sub-tabs, Overview, Unresolved instruments, Fixer, Operations, Incidents, Activity, Logs, and Mappings.
 - [ ] Build dense unresolved tables with filters, sort, pagination, select-all-matching, row/bulk actions, disabled-action reasons, and recently resolved visibility.
-- [ ] Build operation details with durable item outcomes, progress, budget state, pause/resume/cancel/retry, and links to incidents/unresolved items/logs.
+- [x] Build operation details with durable item outcomes, progress, budget state, pause/resume/cancel/retry, and links to incidents/unresolved items/logs.
 - [ ] Build mappings tab with evidence, reverify, revert mapping, linked unresolved item, linked operation, and unsupported empty states for providers without mappings.
 - [x] Build logs purge preview modal and provider-scoped Activity timeline.
 - [x] Build Admin Settings Provider operations tab with global defaults, shared budget groups, provider overrides, validation, and retention settings.

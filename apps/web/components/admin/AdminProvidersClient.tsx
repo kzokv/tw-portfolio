@@ -788,6 +788,7 @@ export function AdminProvidersClient({
             selectedOperation={selectedOperation}
             selectedProviderId={selectedProviderId}
             onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`)}
+            onOpenIncidents={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=incidents`)}
             onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`)}
             onPageChange={applyOperationsPage}
             progressOperation={progressOperation}
@@ -1373,6 +1374,7 @@ function OperationsTab({
   selectedOperation,
   selectedProviderId,
   onOpenLogs,
+  onOpenIncidents,
   onOpenUnresolved,
   onPageChange,
   progressOperation,
@@ -1390,6 +1392,7 @@ function OperationsTab({
   selectedOperation: ProviderFixerDashboardOperationDto | null;
   selectedProviderId: string;
   onOpenLogs: (operationId: string) => void;
+  onOpenIncidents: () => void;
   onOpenUnresolved: () => void;
   onPageChange: (page: number) => void;
   progressOperation: ProviderFixerDashboardOperationDto | null;
@@ -1452,6 +1455,9 @@ function OperationsTab({
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" onClick={() => onOpenLogs(selectedOperation.id)} data-testid="provider-console-operation-open-logs">
                 Open logs
+              </Button>
+              <Button size="sm" variant="secondary" onClick={onOpenIncidents} data-testid="provider-console-operation-open-incidents">
+                Open incidents
               </Button>
               <Button size="sm" variant="secondary" onClick={onOpenUnresolved}>
                 Open unresolved
