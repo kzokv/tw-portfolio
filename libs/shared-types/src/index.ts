@@ -1978,6 +1978,30 @@ export interface ProviderFixerDashboardLogsResponse {
   limit: number;
 }
 
+export interface ProviderLogPurgePreviewDto {
+  operationId: string;
+  providerId: string;
+  previewToken: string;
+  tokenExpiresAt: string;
+  confirmationText: string;
+  errorTrailCount: number;
+  operationLogCount: number;
+  matchCount: number;
+  canExecute: boolean;
+  boundary: string;
+}
+
+export interface ProviderLogPurgePreviewResponse {
+  preview: ProviderLogPurgePreviewDto;
+}
+
+export interface ProviderLogPurgeExecuteResponse {
+  operationId: string;
+  providerId: string;
+  errorTrailDeleted: number;
+  operationLogDeleted: number;
+}
+
 export type ProviderUnresolvedItemState = "active" | "resolved" | "unsupported" | "ignored";
 
 export interface ProviderUnresolvedItemDto {

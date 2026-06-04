@@ -12,6 +12,8 @@ import type {
   ProviderHealthStatus,
   ProviderHealthStatusDto,
   ProviderIncidentDto,
+  ProviderLogPurgePreviewDto,
+  ProviderLogPurgePreviewResponse,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
   ProviderResolutionMappingDto,
@@ -331,6 +333,8 @@ export function AdminProvidersClient({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
+  const [logPurgePreview, setLogPurgePreview] = useState<ProviderLogPurgePreviewDto | null>(null);
+  const [logPurgeConfirmation, setLogPurgeConfirmation] = useState("");
 
   const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId) ?? providers[0] ?? null;
   const capability = providerCapabilities[selectedProviderId] ?? defaultCapability;
@@ -390,6 +394,8 @@ export function AdminProvidersClient({
     setSelectedOperationId("");
     setConfirmationChecked(false);
     setTypedConfirmation("");
+    setLogPurgePreview(null);
+    setLogPurgeConfirmation("");
     setActiveTab(nextTab);
     router.push(`/admin/providers?providerId=${encodeURIComponent(providerId)}&tab=${encodeURIComponent(nextTab)}`);
   }
@@ -448,6 +454,30 @@ export function AdminProvidersClient({
     void runAction(`incident:${status}:${incidentId}`, () =>
       patchJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/incidents/${encodeURIComponent(incidentId)}`, { status }),
     );
+  }
+
+  function previewLogPurge(): void {
+    void runAction("purge-preview", async () => {
+      const result = await postJson<ProviderLogPurgePreviewResponse>(
+        `/admin/providers/${encodeURIComponent(selectedProviderId)}/logs/purge/preview`,
+        {},
+      );
+      setLogPurgePreview(result.preview);
+      setLogPurgeConfirmation("");
+    });
+  }
+
+  function executeLogPurge(): void {
+    if (!logPurgePreview) return;
+    void runAction("purge-execute", async () => {
+      await postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/logs/purge/execute`, {
+        operationId: logPurgePreview.operationId,
+        previewToken: logPurgePreview.previewToken,
+        typedConfirmation: logPurgeConfirmation,
+      });
+      setLogPurgePreview(null);
+      setLogPurgeConfirmation("");
+    });
   }
 
   const operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[] = [
@@ -682,6 +712,12 @@ export function AdminProvidersClient({
             limit={logsLimit}
             total={logsTotal}
             selectedProviderId={selectedProviderId}
+            purgePreview={logPurgePreview?.providerId === selectedProviderId ? logPurgePreview : null}
+            purgeConfirmation={logPurgeConfirmation}
+            onPurgeConfirmationChange={setLogPurgeConfirmation}
+            onPreviewPurge={previewLogPurge}
+            onExecutePurge={executeLogPurge}
+            busyAction={busyAction}
           />
         ) : null}
 
@@ -1261,22 +1297,65 @@ function LogsTab({
   limit,
   total,
   selectedProviderId,
+  purgePreview,
+  purgeConfirmation,
+  onPurgeConfirmationChange,
+  onPreviewPurge,
+  onExecutePurge,
+  busyAction,
 }: {
   logs: ProviderFixerDashboardLogEntryDto[];
   page: number;
   limit: number;
   total: number;
   selectedProviderId: string;
+  purgePreview: ProviderLogPurgePreviewDto | null;
+  purgeConfirmation: string;
+  onPurgeConfirmationChange: (value: string) => void;
+  onPreviewPurge: () => void;
+  onExecutePurge: () => void;
+  busyAction: string | null;
 }) {
+  const purgeReady =
+    !!purgePreview
+    && purgePreview.canExecute
+    && purgeConfirmation === purgePreview.confirmationText
+    && busyAction !== "purge-execute";
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-xl font-semibold text-foreground">Logs</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Raw/system diagnostics for {selectedProviderId}. Purge preview is destructive and typed-confirmed in the backend slice.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Raw/system diagnostics for {selectedProviderId}. Purge only removes raw provider error trail rows and provider operation logs.</p>
         </div>
-        <Button variant="destructive" disabled title="Purge preview API is part of the provider-scoped backend slice.">Purge logs</Button>
+        <Button variant="destructive" disabled={busyAction === "purge-preview"} onClick={onPreviewPurge}>Preview purge</Button>
       </div>
+      {purgePreview ? (
+        <div className="space-y-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4">
+          <div>
+            <h4 className="font-semibold text-red-800">Purge preview</h4>
+            <p className="mt-1 text-sm text-red-700">{purgePreview.boundary}</p>
+          </div>
+          <div className="grid gap-3 text-sm md:grid-cols-3">
+            <Metric label="Provider errors" value={formatNumber(purgePreview.errorTrailCount)} detail="provider_error_trail rows" />
+            <Metric label="Operation logs" value={formatNumber(purgePreview.operationLogCount)} detail="provider_operation_logs rows" />
+            <Metric label="Preview expires" value={formatTimestamp(purgePreview.tokenExpiresAt)} detail="Run preview again after expiry" />
+          </div>
+          <label className="block text-sm font-medium text-red-800" htmlFor="provider-log-purge-confirmation">
+            Type {purgePreview.confirmationText} to execute
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              id="provider-log-purge-confirmation"
+              className="min-h-10 flex-1 rounded-md border border-red-300 bg-white px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-red-500"
+              value={purgeConfirmation}
+              onChange={(event) => onPurgeConfirmationChange(event.target.value)}
+              placeholder={purgePreview.confirmationText}
+            />
+            <Button variant="destructive" disabled={!purgeReady} onClick={onExecutePurge}>Execute purge</Button>
+          </div>
+        </div>
+      ) : null}
       {logs.length > 0 ? (
         <div className="space-y-0">
           {logs.map((entry) => (

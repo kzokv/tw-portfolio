@@ -155,6 +155,7 @@ import type {
   ProviderHealthUpsert,
   ProviderErrorClass,
   ProviderIncidentRecord,
+  ProviderLogPurgeCounts,
   ProviderOperationLogRecord,
   ProviderOperationPhase,
   ProviderOperationRecord,
@@ -12930,6 +12931,59 @@ export class PostgresPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async countProviderLogsForPurge(providerId: string): Promise<ProviderLogPurgeCounts> {
+    const [errorTrailResult, operationLogResult] = await Promise.all([
+      this.pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM market_data.provider_error_trail
+          WHERE provider_id = $1`,
+        [providerId],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM market_data.provider_operation_logs l
+           JOIN market_data.provider_operations o ON o.id = l.operation_id
+          WHERE o.provider_id = $1`,
+        [providerId],
+      ),
+    ]);
+    return {
+      providerId,
+      errorTrailCount: parseInt(errorTrailResult.rows[0]?.count ?? "0", 10),
+      operationLogCount: parseInt(operationLogResult.rows[0]?.count ?? "0", 10),
+    };
+  }
+
+  async purgeProviderLogs(providerId: string): Promise<ProviderLogPurgeCounts> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const errorTrailResult = await client.query(
+        `DELETE FROM market_data.provider_error_trail
+          WHERE provider_id = $1`,
+        [providerId],
+      );
+      const operationLogResult = await client.query(
+        `DELETE FROM market_data.provider_operation_logs l
+          USING market_data.provider_operations o
+         WHERE o.id = l.operation_id
+           AND o.provider_id = $1`,
+        [providerId],
+      );
+      await client.query("COMMIT");
+      return {
+        providerId,
+        errorTrailCount: errorTrailResult.rowCount ?? 0,
+        operationLogCount: operationLogResult.rowCount ?? 0,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async upsertProviderOperationOutcome(

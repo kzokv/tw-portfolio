@@ -652,4 +652,96 @@ describe("Provider Fixer admin routes", () => {
     expect(concurrentResponse.statusCode).toBe(409);
     expect(concurrentResponse.json()).toMatchObject({ error: "provider_fixer_active_execution_exists" });
   });
+
+  it("previews and executes provider log purge with typed guardrails", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const operation = await app.persistence.createProviderOperation({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "completed",
+      level: "info",
+      message: "test provider operation log",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/logs/purge/preview",
+      headers,
+      payload: {},
+    });
+    expect(preview.statusCode).toBe(201);
+    const previewBody = preview.json() as {
+      preview: {
+        operationId: string;
+        previewToken: string;
+        confirmationText: string;
+        errorTrailCount: number;
+        operationLogCount: number;
+        matchCount: number;
+      };
+    };
+    expect(previewBody.preview).toMatchObject({
+      confirmationText: "PURGE yahoo-finance-kr",
+      errorTrailCount: 1,
+      operationLogCount: 1,
+      matchCount: 2,
+    });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/logs/purge/execute",
+      headers,
+      payload: {
+        operationId: previewBody.preview.operationId,
+        previewToken: previewBody.preview.previewToken,
+        typedConfirmation: "PURGE WRONG",
+      },
+    });
+    expect(blocked.statusCode).toBe(400);
+
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/logs/purge/execute",
+      headers,
+      payload: {
+        operationId: previewBody.preview.operationId,
+        previewToken: previewBody.preview.previewToken,
+        typedConfirmation: previewBody.preview.confirmationText,
+      },
+    });
+    expect(execute.statusCode).toBe(200);
+    expect(execute.json()).toMatchObject({
+      providerId: "yahoo-finance-kr",
+      errorTrailDeleted: 1,
+      operationLogDeleted: 1,
+    });
+
+    await expect(app.persistence.listProviderErrorTrailPage({
+      providerId: "yahoo-finance-kr",
+      page: 1,
+      limit: 10,
+    })).resolves.toMatchObject({ total: 0 });
+    await expect(app.persistence.listProviderUnresolvedItems({
+      providerId: "yahoo-finance-kr",
+      state: "active",
+      page: 1,
+      limit: 10,
+    })).resolves.toMatchObject({ total: 1 });
+    await expect(app.persistence.listProviderIncidents({
+      providerId: "yahoo-finance-kr",
+      page: 1,
+      limit: 10,
+    })).resolves.toMatchObject({ total: 1 });
+    await expect(app.persistence.listProviderOperationLogs({
+      operationId: operation.id,
+      page: 1,
+      limit: 10,
+    })).resolves.toMatchObject({ total: 0 });
+  });
 });
