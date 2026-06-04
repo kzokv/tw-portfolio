@@ -1005,6 +1005,28 @@ describe("Provider Fixer admin routes", () => {
       frankfurterProviderRateLimitPerMinute: 1,
       effectiveFrankfurterProviderRateLimitPerMinute: 1,
     });
+
+    const summary = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations/summary",
+      headers,
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toMatchObject({ summary: { effectiveRateCapPerMinute: 1 } });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(preview.statusCode).toBe(201);
+    expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 1 } });
   });
 
   it("persists provider operation settings and rejects inverted health thresholds", async () => {

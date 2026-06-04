@@ -443,6 +443,32 @@ function assertProviderRateBudgetOverrides(body: z.infer<typeof patchAdminSettin
   }
 }
 
+function hourlyBudgetToPerMinute(value: number): number {
+  return Math.max(0.01, Math.round((value / 60) * 100) / 100);
+}
+
+function providerOperationRateCapPerMinute(providerId: string, config: AppConfigDto): number {
+  if (providerId === "finmind-tw" || providerId === "finmind-us") {
+    return hourlyBudgetToPerMinute(config.effectiveFinmindProviderRateLimitPerHour);
+  }
+  if (providerId === "twelve-data-au" || providerId === "twelve-data-kr") {
+    return config.effectiveTwelveDataProviderRateLimitPerMinute;
+  }
+  if (providerId === "yahoo-finance-au") {
+    return config.effectiveYahooAuProviderRateLimitPerMinute;
+  }
+  if (providerId === "yahoo-finance-kr") {
+    return config.effectiveYahooKrProviderRateLimitPerMinute;
+  }
+  if (providerId === "frankfurter") {
+    return config.effectiveFrankfurterProviderRateLimitPerMinute;
+  }
+  if (providerId === "asx-gics-csv") {
+    return hourlyBudgetToPerMinute(config.effectiveAsxGicsProviderRateLimitPerHour);
+  }
+  return 250;
+}
+
 function assertProviderHealthThresholdOverrides(
   body: z.infer<typeof patchAdminSettingsSchema>,
   current: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
@@ -1124,6 +1150,7 @@ async function providerFixerDiagnostics(
 async function providerFixerSummary(
   app: FastifyInstance,
   guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+  config: AppConfigDto,
 ): Promise<ProviderFixerDashboardSummaryResponse> {
   const diagnostics = await providerFixerDiagnostics(
     app,
@@ -1157,7 +1184,7 @@ async function providerFixerSummary(
       queuedOperationsCount: staged.total,
       runningOperationsCount: running.total,
       guardrailsEnabled: true,
-      effectiveRateCapPerMinute: 250,
+      effectiveRateCapPerMinute: providerOperationRateCapPerMinute("yahoo-finance-kr", config),
     },
     guardrails,
   };
@@ -2404,7 +2431,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const config = await loadAppConfigDto(app);
     await pauseStaleProviderOperations(app, config.effectiveProviderOperationStaleHeartbeatMinutes, { actorUserId: sessionUserId, ipAddress });
     const guardrails = providerFixerGuardrailsFromConfig(config);
-    return providerFixerSummary(app, guardrails);
+    return providerFixerSummary(app, guardrails, config);
   }
 
   async function loadProviderDiagnostics(
@@ -2423,7 +2450,8 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       })
       .parse(req.query ?? {});
     const providerId = providerIdOverride ?? query.providerId ?? "yahoo-finance-kr";
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
     return providerFixerDiagnostics(
       app,
       guardrails,
@@ -2445,8 +2473,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       ? providerFixerPreviewBodySchema.partial({ providerId: true }).parse(req.body ?? {})
       : providerFixerPreviewBodySchema.parse(req.body ?? {});
     const providerId = providerIdOverride ?? body.providerId ?? "yahoo-finance-kr";
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
     const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
     const { sample, total } = await buildProviderFixerEvidenceSample(
       app,
       providerId,
@@ -2475,7 +2505,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       metadata: {
         previewTokenDisplay: token,
         confirmationText,
-        effectiveRateCapPerMinute: 250,
+        effectiveRateCapPerMinute,
         autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
       },
       actorUserId: sessionUserId,
@@ -2538,8 +2568,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!capability?.actions.some((action) => action.action === "renew_evidence" && action.supported)) {
       throw routeError(400, "provider_operation_not_supported", "Renew evidence is not supported for this provider");
     }
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
     const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
     await assertNoOtherProviderOperationExecution(app, { providerId, marketCode });
     const firstPage = await app.persistence.listProviderErrorTrailPage({
       providerId,
@@ -2574,6 +2606,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       metadata: {
         progressPercent: 0,
         previewSampleLimit: guardrails.previewSampleLimit,
+        effectiveRateCapPerMinute,
       },
       actorUserId: sessionUserId,
       startedAt: new Date().toISOString(),
@@ -2898,6 +2931,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!mapping) {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
     await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
@@ -2921,6 +2957,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingSourceSymbol: mapping.sourceSymbol,
         mappingResolvedSymbol: mapping.resolvedSymbol,
         mappingPreviousVerifiedAt: mapping.verifiedAt,
+        effectiveRateCapPerMinute,
       },
       actorUserId: sessionUserId,
       startedAt: new Date().toISOString(),
@@ -2953,10 +2990,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     runProviderMappingReverifyOperationInBackground(app, operation, {
       actorUserId: sessionUserId,
       ipAddress,
-      guardrails: providerFixerGuardrailsFromConfig(await loadAppConfigDto(app)),
+      guardrails,
     });
     reply.code(202);
-    return { operation: providerFixerOperationToDto(operation, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+    return { operation: providerFixerOperationToDto(operation, guardrails) };
   });
 
   app.post("/providers/:providerId/mappings/revert", async (req, reply) => {
@@ -2980,7 +3017,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!mapping) {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
     await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
@@ -3006,6 +3045,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingResolvedSymbol: mapping.resolvedSymbol,
         mappingPreviousVerifiedAt: mapping.verifiedAt,
         mappingPreviousEvidence: mapping.evidence,
+        effectiveRateCapPerMinute,
       },
       actorUserId: sessionUserId,
       startedAt: new Date().toISOString(),
@@ -3062,7 +3102,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!mapping) {
       throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
     }
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
     await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
     const operation = await app.persistence.createProviderOperation({
       providerId,
@@ -3086,6 +3128,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingSourceSymbol: mapping.sourceSymbol,
         mappingResolvedSymbol: mapping.resolvedSymbol,
         mappingPreviousVerifiedAt: mapping.verifiedAt,
+        effectiveRateCapPerMinute,
       },
       actorUserId: sessionUserId,
       startedAt: new Date().toISOString(),
@@ -3410,7 +3453,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (!["paused", "failed", "cancelled", "completed"].includes(existing.phase)) {
       throw routeError(400, "provider_operation_not_retryable", "Selected operation cannot be retried yet");
     }
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(existing.providerId, config);
     const matchCount = existing.matchCount ?? 0;
     const dangerous = matchCount >= guardrails.dangerousMatchThreshold;
     const token = newProviderFixerToken();
@@ -3433,7 +3478,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         confirmationText: dangerous ? `EXECUTE ${matchCount}` : null,
         retryOfOperationId: existing.id,
         retryAttempt,
-        effectiveRateCapPerMinute: numberField(asRecord(existing.metadata)?.effectiveRateCapPerMinute) ?? 250,
+        effectiveRateCapPerMinute,
         autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
       },
       actorUserId: sessionUserId,
