@@ -7,6 +7,7 @@ required_reading:
   - docs/004-notes/kzo-197/scope-todo-202605091500-locked.md
   - docs/004-notes/kzo-197/scope-todo-202606031320-provider-fixer-kr-binding.md
   - docs/004-notes/kzo-197/provider-console-v2/mockups/provider-console-v2-mockup.html
+  - docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/provider-console-v2-locked-mockup.html
 superseded_by: null
 ---
 
@@ -119,6 +120,25 @@ The comprehensive mockup set is in `mockups/screenshots/`.
 - `10-mobile-unresolved.png` - mobile provider selector and unresolved cards.
 - `11-mobile-dangerous-preview.png` - mobile destructive preview sheet.
 
+The current locked visual version is preserved separately in `mockups/version-2/screenshots/`.
+
+- `01-provider-console-overview-desktop.png` - provider rail, health overview, notification-aware refresh.
+- `02-provider-tabs-capabilities-desktop.png` - provider-owned tabs/actions and disabled capability reasons.
+- `03-unresolved-instruments-desktop.png` - durable unresolved table, filters, select-all matching, disabled rerun reason.
+- `04-fixer-normal-actions-desktop.png` - provider-owned fixer with Renew, Repair, Rerun semantics.
+- `05-dangerous-preview-desktop.png` - typed-phrase preview for bulk repair.
+- `06-operations-running-sse-desktop.png` - running operations with SSE status and persisted counters.
+- `07-operation-outcomes-desktop.png` - per-item outcomes and retryable failures.
+- `08-incidents-activity-logs-desktop.png` - useful incident, activity, and raw log surfaces.
+- `09-logs-purge-preview-desktop.png` - destructive purge preview and durable-record boundaries.
+- `10-kr-mappings-desktop.png` - durable KR resolver mappings and evidence.
+- `11-settings-provider-budgets-desktop.png` - provider-operation budgets and shared caps.
+- `12-settings-retention-desktop.png` - retention windows and purge limits.
+- `13-mobile-provider-overview.png` - mobile provider overview and bottom action bar.
+- `14-mobile-unresolved.png` - mobile unresolved cards.
+- `15-mobile-operation-progress.png` - mobile operation progress.
+- `16-mobile-dangerous-preview.png` - mobile destructive preview sheet.
+
 ## Implementation Steps
 
 ### Progress Snapshot
@@ -129,6 +149,7 @@ The comprehensive mockup set is in `mockups/screenshots/`.
 - 2026-06-04: Added provider-scoped operation adapters for summary, diagnostics, preview, execute, pause/resume/cancel, operation listing, and logs under `/admin/providers/:providerId/*`; `/admin/providers` no longer calls `/admin/provider-fixer/*`.
 - 2026-06-04: Added durable `provider_unresolved_items`, error-trail normalization at write time, provider-scoped unresolved-list API, and UI table wiring so active/resolved rows are no longer preview-only.
 - 2026-06-04: Added durable `provider_operation_outcomes`, provider-scoped outcome API, KR repair outcome writes, and Operations tab outcome visibility.
+- 2026-06-04: Added `mockups/version-2/` with the locked 16-screenshot desktop/mobile review set covering capability tabs, unresolved/fixer flows, dangerous previews, SSE progress, outcomes, purge, mappings, settings budgets, retention, and mobile states.
 - Remaining high-risk work is still backend-heavy: durable incidents, full provider-scoped APIs for incidents/activity/mappings/purge, background operation engine, deeper KR resolver binding/provider consult path, provider settings, purge preview, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
