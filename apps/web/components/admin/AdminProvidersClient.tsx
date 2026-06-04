@@ -244,6 +244,10 @@ function actionDisabledReason(
   return actionCapability?.reason ?? fallback;
 }
 
+function actionSupported(capability: ProviderOperationCapabilityDto, action: ProviderOperationAction): boolean {
+  return capability.actions.find((item) => item.action === action)?.supported ?? false;
+}
+
 export function AdminProvidersClient({
   providers,
   capabilities = [],
@@ -431,6 +435,17 @@ export function AdminProvidersClient({
   function updateIncidentStatus(incidentId: string, status: ProviderIncidentDto["status"]): void {
     void runAction(`incident:${status}:${incidentId}`, () =>
       patchJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/incidents/${encodeURIComponent(incidentId)}`, { status }),
+    );
+  }
+
+  function updateUnresolvedItemState(item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored"): void {
+    void runAction(`unresolved:${state}:${item.sourceSymbol}`, () =>
+      postJson(`/admin/providers/${encodeURIComponent(item.providerId)}/unresolved/state`, {
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+        state,
+      }),
     );
   }
 
@@ -635,6 +650,8 @@ export function AdminProvidersClient({
             capability={capability}
             rerunDisabledReason={rerunDisabledReason}
             onPreviewRepair={previewRepair}
+            onSetState={updateUnresolvedItemState}
+            busyAction={busyAction}
           />
         ) : null}
 
@@ -814,6 +831,8 @@ function UnresolvedTab({
   capability,
   rerunDisabledReason,
   onPreviewRepair,
+  onSetState,
+  busyAction,
 }: {
   selectedProviderId: string;
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
@@ -825,11 +844,14 @@ function UnresolvedTab({
   capability: ProviderOperationCapabilityDto;
   rerunDisabledReason: string;
   onPreviewRepair: () => void;
+  onSetState: (item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored") => void;
+  busyAction: string | null;
 }) {
   const evidence = currentPreview?.evidenceSample ?? [];
   const rows = unresolvedItems.length > 0
     ? unresolvedItems.map((item) => ({
         key: `${item.providerId}-${item.marketCode}-${item.errorCode}-${item.sourceSymbol}`,
+        item,
         sourceSymbol: item.sourceSymbol,
         providerSymbol: item.providerSymbol ?? item.sourceSymbol,
         candidateSymbol: null as string | null,
@@ -840,6 +862,7 @@ function UnresolvedTab({
       }))
     : evidence.map((item) => ({
         key: `${selectedProviderId}-${item.symbol}-${item.providerSymbol}`,
+        item: null,
         sourceSymbol: item.symbol,
         providerSymbol: item.providerSymbol,
         candidateSymbol: item.candidateSymbol,
@@ -848,6 +871,10 @@ function UnresolvedTab({
         evidence: item.exchangeHint ?? item.note,
         note: item.note,
       }));
+  const canMarkUnsupported = actionSupported(capability, "mark_unsupported");
+  const canIgnore = actionSupported(capability, "ignore_unresolved");
+  const canReopen = actionSupported(capability, "reopen_unresolved");
+  const lifecycleUnavailable = "Available for durable unresolved rows only.";
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -890,6 +917,38 @@ function UnresolvedTab({
                 <Button size="sm" variant="secondary">Renew</Button>
                 <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
                 <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
+                {row.item && row.item.state !== "active" ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!canReopen || busyAction !== null}
+                    title="Move this unresolved item back to active so it can be repaired again."
+                    onClick={() => row.item ? onSetState(row.item, "active") : undefined}
+                  >
+                    Reopen
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={!row.item || !canMarkUnsupported || busyAction !== null}
+                      title={row.item ? "Mark this instrument as unsupported for this provider." : lifecycleUnavailable}
+                      onClick={() => row.item ? onSetState(row.item, "unsupported") : undefined}
+                    >
+                      Unsupported
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={!row.item || !canIgnore || busyAction !== null}
+                      title={row.item ? "Hide this unresolved item without marking it resolved." : lifecycleUnavailable}
+                      onClick={() => row.item ? onSetState(row.item, "ignored") : undefined}
+                    >
+                      Ignore
+                    </Button>
+                  </>
+                )}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">Rerun is disabled until this item is resolved or mapped.</p>
             </article>
@@ -927,6 +986,41 @@ function UnresolvedTab({
                     <Button size="sm" variant="secondary">Renew</Button>
                     <Button size="sm" disabled={!capability.supportsRepair}>Repair</Button>
                     <Button size="sm" variant="secondary" disabled title={rerunDisabledReason}>Rerun</Button>
+                    {row.item && row.item.state !== "active" ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!canReopen || busyAction !== null}
+                        title="Move this unresolved item back to active so it can be repaired again."
+                        onClick={() => row.item ? onSetState(row.item, "active") : undefined}
+                        data-testid={`provider-console-unresolved-reopen-${row.sourceSymbol}`}
+                      >
+                        Reopen
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!row.item || !canMarkUnsupported || busyAction !== null}
+                          title={row.item ? "Mark this instrument as unsupported for this provider." : lifecycleUnavailable}
+                          onClick={() => row.item ? onSetState(row.item, "unsupported") : undefined}
+                          data-testid={`provider-console-unresolved-unsupported-${row.sourceSymbol}`}
+                        >
+                          Unsupported
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!row.item || !canIgnore || busyAction !== null}
+                          title={row.item ? "Hide this unresolved item without marking it resolved." : lifecycleUnavailable}
+                          onClick={() => row.item ? onSetState(row.item, "ignored") : undefined}
+                          data-testid={`provider-console-unresolved-ignore-${row.sourceSymbol}`}
+                        >
+                          Ignore
+                        </Button>
+                      </>
+                    )}
                   </div>
                   <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
                 </td>
