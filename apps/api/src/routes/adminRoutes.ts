@@ -12,6 +12,8 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
   ProviderFixerDashboardSummaryResponse,
+  ProviderOperationOutcomeDto,
+  ProviderOperationOutcomesResponse,
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
@@ -46,6 +48,7 @@ import {
 import type {
   AppConfigPlainField,
   ProviderErrorTrailRow,
+  ProviderOperationOutcomeRecord,
   ProviderOperationPhase,
   ProviderOperationRecord,
   SaveAiConnectorPolicySettingsInput,
@@ -753,6 +756,53 @@ function providerFixerOperationToDto(
   };
 }
 
+function providerOperationOutcomeToDto(record: ProviderOperationOutcomeRecord): ProviderOperationOutcomeDto {
+  return {
+    operationId: record.operationId,
+    providerId: record.providerId,
+    marketCode: record.marketCode as ProviderOperationOutcomeDto["marketCode"],
+    sourceSymbol: record.sourceSymbol,
+    providerSymbol: record.providerSymbol,
+    action: record.action,
+    state: record.state,
+    message: record.message,
+    errorCode: record.errorCode,
+    jobId: record.jobId,
+    evidence: record.evidence,
+    startedAt: record.startedAt,
+    completedAt: record.completedAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+async function refreshProviderOperationProgressFromOutcomes(
+  app: FastifyInstance,
+  operationId: string,
+): Promise<ProviderOperationRecord | null> {
+  const operation = await app.persistence.getProviderOperation(operationId);
+  if (!operation) return null;
+  const outcomes = await app.persistence.listProviderOperationOutcomes({ operationId, page: 1, limit: 1 });
+  const expectedTotal = Math.max(operation.matchCount ?? 0, outcomes.summary.total);
+  const progressPercent = expectedTotal > 0
+    ? Math.min(100, Math.round((outcomes.summary.processed / expectedTotal) * 100))
+    : outcomes.summary.progressPercent;
+  return app.persistence.updateProviderOperation({
+    id: operation.id,
+    metadata: {
+      ...(asRecord(operation.metadata) ?? {}),
+      progressPercent,
+      outcomeTotalCount: expectedTotal,
+      outcomeRecordedCount: outcomes.summary.total,
+      outcomeProcessedCount: outcomes.summary.processed,
+      outcomeSucceededCount: outcomes.summary.succeeded,
+      outcomeFailedCount: outcomes.summary.failed,
+      outcomeSkippedCount: outcomes.summary.skipped,
+      outcomeRateLimitedCount: outcomes.summary.rateLimited,
+      outcomeCancelledCount: outcomes.summary.cancelled,
+    },
+  });
+}
+
 function assertProviderFixerPreviewToken(operation: ProviderOperationRecord, previewToken: string | undefined): void {
   if (operation.previewExpiresAt && new Date(operation.previewExpiresAt).getTime() <= Date.now()) {
     throw routeError(400, "provider_fixer_preview_token_expired", "Preview token has expired; run preview again");
@@ -903,12 +953,57 @@ async function executeProviderFixerMappings(
     });
     for (const row of rows.items) {
       scanned += 1;
-      const evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
-        resolverMode: operation.resolverMode ?? "quote_first",
-        verifyCandidate: true,
+      const extractedTicker = extractProviderFixerTicker(row);
+      const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        providerSymbol: extractedTicker ?? null,
+        action: "repair_mapping",
+        state: "running",
+        message: "Verifying provider symbol candidate.",
+        evidence: { errorTrailId: row.id },
       });
+      let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
+      try {
+        evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
+          resolverMode: operation.resolverMode ?? "quote_first",
+          verifyCandidate: true,
+        });
+      } catch (err) {
+        const isRateLimited = err instanceof RateLimitedError;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol: extractedTicker ?? null,
+          action: "repair_mapping",
+          state: isRateLimited ? "rate_limited" : "failed",
+          message: err instanceof Error ? err.message : "Provider verification failed.",
+          errorCode: isRateLimited ? "provider_rate_limited" : "provider_verification_failed",
+          evidence: { errorTrailId: row.id },
+        });
+        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+        throw err;
+      }
       if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
         skipped += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
+          action: "repair_mapping",
+          state: "skipped",
+          message: evidence?.note ?? "No verified provider symbol candidate.",
+          errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
+          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
+        });
+        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
         continue;
       }
       await app.persistence.upsertProviderResolutionMapping({
@@ -926,6 +1021,22 @@ async function executeProviderFixerMappings(
       });
       applied += 1;
       mappedTickers.push(evidence.symbol);
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol: evidence.symbol,
+        providerSymbol: evidence.providerSymbol,
+        action: "repair_mapping",
+        state: "succeeded",
+        message: `Resolved ${evidence.symbol} to ${evidence.candidateSymbol}.`,
+        evidence: {
+          candidateSymbol: evidence.candidateSymbol,
+          exchangeHint: evidence.exchangeHint,
+          note: evidence.note,
+        },
+      });
+      await refreshProviderOperationProgressFromOutcomes(app, operation.id);
     }
     if (page * limit >= rows.total || rows.items.length === 0) break;
     page += 1;
@@ -1284,17 +1395,19 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
           msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
         },
       });
+      await refreshProviderOperationProgressFromOutcomes(app, interrupted.id);
       if (isRateLimited) {
         throw routeError(503, "provider_rate_limited", message);
       }
       throw err;
     }
+    const outcomeProgress = await refreshProviderOperationProgressFromOutcomes(app, running.id);
     const completed = await app.persistence.updateProviderOperation({
       id: running.id,
       phase: "completed",
       completedAt: new Date().toISOString(),
       metadata: {
-        ...(asRecord(running.metadata) ?? {}),
+        ...(asRecord(outcomeProgress?.metadata) ?? asRecord(running.metadata) ?? {}),
         progressPercent: 100,
         appliedMappingCount: result.applied,
         skippedMappingCount: result.skipped,
@@ -1457,6 +1570,35 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   app.get("/providers/:providerId/operations", (req) => {
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
     return listProviderOperations(req, providerId);
+  });
+
+  app.get("/providers/:providerId/operations/:operationId/outcomes", async (req): Promise<ProviderOperationOutcomesResponse> => {
+    requireAdminRole(req);
+    const { providerId, operationId } = providerConsoleOperationParamsSchema.parse(req.params);
+    const operation = await app.persistence.getProviderOperation(operationId);
+    if (!operation || operation.providerId !== providerId) {
+      throw routeError(404, "provider_operation_not_found", "Provider operation not found for this provider");
+    }
+    const query = z
+      .object({
+        state: z.enum(["pending", "running", "succeeded", "failed", "skipped", "rate_limited", "cancelled"]).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const result = await app.persistence.listProviderOperationOutcomes({
+      operationId,
+      state: query.state,
+      page: query.page,
+      limit: query.limit,
+    });
+    return {
+      items: result.items.map(providerOperationOutcomeToDto),
+      summary: result.summary,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
   });
 
   async function listProviderLogs(

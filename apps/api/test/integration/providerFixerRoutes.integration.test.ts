@@ -163,6 +163,22 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(execute.statusCode).toBe(200);
     expect(execute.json()).toMatchObject({ result: { applied: 1, skipped: 0, scanned: 1 } });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1, skipped: 0 },
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "005930",
+          action: "repair_mapping",
+          state: "succeeded",
+        }),
+      ],
+    });
     expect(verifyResolvedSymbol).toHaveBeenCalledWith("005930", "005930.KS", { resolverMode: "quote_first" });
     expect(bossSend).toHaveBeenCalledWith(
       "finmind-backfill",
@@ -354,6 +370,16 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(execute.statusCode).toBe(200);
     expect(execute.json()).toMatchObject({ result: { applied: 0, skipped: 1, scanned: 1 } });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 0, skipped: 1 },
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "skipped", errorCode: "candidate_rejected" })],
+    });
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toBeNull();
@@ -397,6 +423,16 @@ describe("Provider Fixer admin routes", () => {
 
     expect(execute.statusCode).toBe(503);
     expect(execute.json()).toMatchObject({ error: "provider_rate_limited" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, rateLimited: 1 },
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "rate_limited" })],
+    });
     await expect(app.persistence.getProviderOperation(previewBody.operation.id)).resolves.toMatchObject({
       phase: "paused",
       metadata: expect.objectContaining({
