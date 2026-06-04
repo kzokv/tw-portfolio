@@ -842,6 +842,51 @@ describe("Provider Fixer admin routes", () => {
     ).resolves.toMatchObject({ resolvedSymbol: "005930.KS" });
   });
 
+  it("rejects mapped provider rerun while another provider operation is active", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn().mockResolvedValue("job-rerun-005930");
+    app.boss = { send: bossSend } as never;
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "original-op" },
+      verifiedByUserId: admin.userId,
+    });
+    await app.persistence.createProviderOperation({
+      id: "active-provider-lock",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "renew_evidence",
+      phase: "running",
+      scopeQuery: "yahoo-finance-kr:KR:symbol_unresolved",
+      snapshotHash: "active-lock",
+      matchCount: 1,
+      metadata: { progressPercent: 0 },
+      actorUserId: admin.userId,
+      startedAt: new Date().toISOString(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/mappings/rerun",
+      headers,
+      payload: {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolverMode: "quote_first",
+        acknowledged: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: "provider_fixer_active_execution_exists" });
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
   it("updates unresolved item lifecycle state with provider-scoped audit metadata", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
