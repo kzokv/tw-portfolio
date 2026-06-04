@@ -1310,6 +1310,156 @@ async function enqueueProviderFixerBackfills(
   return { enqueued, skippedExisting };
 }
 
+async function completeProviderFixerOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+    dangerous: boolean;
+    throwOnFailure: boolean;
+  },
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
+  let result: Awaited<ReturnType<typeof executeProviderFixerMappings>>;
+  let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
+  try {
+    result = await executeProviderFixerMappings(app, operation, context.actorUserId);
+    backfills = await enqueueProviderFixerBackfills(app, operation, result.mappedTickers);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Provider fixer execution failed";
+    const isRateLimited = err instanceof RateLimitedError;
+    const interrupted = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: isRateLimited ? "paused" : "failed",
+      completedAt: isRateLimited ? null : new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 0,
+        pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
+        autoPauseFailureCount: isRateLimited ? 1 : undefined,
+        failureReason: message,
+        failureName: err instanceof Error ? err.name : "UnknownError",
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : undefined,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: interrupted.id,
+      phase: interrupted.phase,
+      level: isRateLimited ? "warning" : "error",
+      message: `${isRateLimited ? "execute_auto_paused_rate_limited" : "execute_failed"} provider=${interrupted.providerId} market=${interrupted.marketCode} reason=${message}`,
+      context: {
+        providerId: interrupted.providerId,
+        marketCode: interrupted.marketCode,
+        errorCode: interrupted.errorCode,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: interrupted.id,
+        action: isRateLimited ? "execute_auto_pause" : "execute_failed",
+        providerId: interrupted.providerId,
+        marketCode: interrupted.marketCode,
+        dangerous: context.dangerous,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+      },
+    });
+    await refreshProviderOperationProgressFromOutcomes(app, interrupted.id);
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: interrupted.id,
+      providerId: interrupted.providerId,
+      phase: interrupted.phase,
+      pauseReason: isRateLimited ? "paused_rate_limit" : null,
+    });
+    if (context.throwOnFailure) {
+      if (isRateLimited) {
+        throw routeError(503, "provider_rate_limited", message);
+      }
+      throw err;
+    }
+    return {
+      operation: providerFixerOperationToDto(interrupted, context.guardrails),
+      result: { status: interrupted.phase, errorMessage: message },
+    };
+  }
+  const outcomeProgress = await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+  const completed = await app.persistence.updateProviderOperation({
+    id: operation.id,
+    phase: "completed",
+    completedAt: new Date().toISOString(),
+    metadata: {
+      ...(asRecord(outcomeProgress?.metadata) ?? asRecord(operation.metadata) ?? {}),
+      progressPercent: 100,
+      appliedMappingCount: result.applied,
+      skippedMappingCount: result.skipped,
+      scannedRowCount: result.scanned,
+      enqueuedBackfillCount: backfills.enqueued,
+      skippedExistingBackfillCount: backfills.skippedExisting,
+    },
+  });
+  await app.persistence.createProviderOperationLog({
+    operationId: completed.id,
+    phase: "completed",
+    level: result.skipped > 0 ? "warning" : "info",
+    message: `execute_completed provider=${completed.providerId} market=${completed.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
+    context: { providerId: completed.providerId, marketCode: completed.marketCode, ...result, backfills },
+  });
+  await app.persistence.appendAuditLog({
+    actorUserId: context.actorUserId,
+    action: "provider_fixer_operation",
+    ipAddress: context.ipAddress,
+    metadata: {
+      operationId: completed.id,
+      action: "execute",
+      providerId: completed.providerId,
+      marketCode: completed.marketCode,
+      dangerous: context.dangerous,
+      ...result,
+      backfills,
+    },
+  });
+  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+    operationId: completed.id,
+    providerId: completed.providerId,
+    phase: completed.phase,
+  });
+  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+    operationId: completed.id,
+    providerId: completed.providerId,
+    processed: result.applied + result.skipped,
+    total: result.scanned,
+    progressPercent: 100,
+  });
+  return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { ...result, backfills } };
+}
+
+function runProviderFixerOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: Omit<Parameters<typeof completeProviderFixerOperation>[2], "throwOnFailure">,
+): void {
+  setImmediate(() => {
+    void completeProviderFixerOperation(app, operation, { ...context, throwOnFailure: false }).catch((err) => {
+      app.log.error(
+        {
+          operationId: operation.id,
+          providerId: operation.providerId,
+          err,
+        },
+        "provider_operation_background_execution_failed",
+      );
+    });
+  });
+}
+
 function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   const providerConsoleParamsSchema = z.object({
     providerId: providerFixerProviderSchema,
@@ -1840,141 +1990,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       phase: running.phase,
     });
 
-    async function runProviderFixerOperationToCompletion(
-      throwOnFailure: boolean,
-    ): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
-      let result: Awaited<ReturnType<typeof executeProviderFixerMappings>>;
-      let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
-      try {
-        result = await executeProviderFixerMappings(app, running, sessionUserId);
-        backfills = await enqueueProviderFixerBackfills(app, running, result.mappedTickers);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Provider fixer execution failed";
-        const isRateLimited = err instanceof RateLimitedError;
-        const interrupted = await app.persistence.updateProviderOperation({
-          id: running.id,
-          phase: isRateLimited ? "paused" : "failed",
-          completedAt: isRateLimited ? null : new Date().toISOString(),
-          metadata: {
-            ...(asRecord(running.metadata) ?? {}),
-            progressPercent: 0,
-            pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
-            autoPauseFailureCount: isRateLimited ? 1 : undefined,
-            failureReason: message,
-            failureName: err instanceof Error ? err.name : "UnknownError",
-            msUntilAvailable: isRateLimited ? err.msUntilAvailable : undefined,
-          },
-        });
-        await app.persistence.createProviderOperationLog({
-          operationId: interrupted.id,
-          phase: interrupted.phase,
-          level: isRateLimited ? "warning" : "error",
-          message: `${isRateLimited ? "execute_auto_paused_rate_limited" : "execute_failed"} provider=${interrupted.providerId} market=${interrupted.marketCode} reason=${message}`,
-          context: {
-            providerId: interrupted.providerId,
-            marketCode: interrupted.marketCode,
-            errorCode: interrupted.errorCode,
-            errorName: err instanceof Error ? err.name : "UnknownError",
-            errorMessage: message,
-            msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
-          },
-        });
-        await app.persistence.appendAuditLog({
-          actorUserId: sessionUserId,
-          action: "provider_fixer_operation",
-          ipAddress,
-          metadata: {
-            operationId: interrupted.id,
-            action: isRateLimited ? "execute_auto_pause" : "execute_failed",
-            providerId: interrupted.providerId,
-            marketCode: interrupted.marketCode,
-            dangerous: operationDto.dangerous,
-            errorName: err instanceof Error ? err.name : "UnknownError",
-            errorMessage: message,
-            msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
-          },
-        });
-        await refreshProviderOperationProgressFromOutcomes(app, interrupted.id);
-        await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
-          operationId: interrupted.id,
-          providerId: interrupted.providerId,
-          phase: interrupted.phase,
-          pauseReason: isRateLimited ? "paused_rate_limit" : null,
-        });
-        if (throwOnFailure) {
-          if (isRateLimited) {
-            throw routeError(503, "provider_rate_limited", message);
-          }
-          throw err;
-        }
-        return {
-          operation: providerFixerOperationToDto(interrupted, guardrails),
-          result: { status: interrupted.phase, errorMessage: message },
-        };
-      }
-      const outcomeProgress = await refreshProviderOperationProgressFromOutcomes(app, running.id);
-      const completed = await app.persistence.updateProviderOperation({
-        id: running.id,
-        phase: "completed",
-        completedAt: new Date().toISOString(),
-        metadata: {
-          ...(asRecord(outcomeProgress?.metadata) ?? asRecord(running.metadata) ?? {}),
-          progressPercent: 100,
-          appliedMappingCount: result.applied,
-          skippedMappingCount: result.skipped,
-          scannedRowCount: result.scanned,
-          enqueuedBackfillCount: backfills.enqueued,
-          skippedExistingBackfillCount: backfills.skippedExisting,
-        },
-      });
-      await app.persistence.createProviderOperationLog({
-        operationId: completed.id,
-        phase: "completed",
-        level: result.skipped > 0 ? "warning" : "info",
-        message: `execute_completed provider=${completed.providerId} market=${completed.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
-        context: { providerId: completed.providerId, marketCode: completed.marketCode, ...result, backfills },
-      });
-      await app.persistence.appendAuditLog({
-        actorUserId: sessionUserId,
-        action: "provider_fixer_operation",
-        ipAddress,
-        metadata: {
-          operationId: completed.id,
-          action: "execute",
-          providerId: completed.providerId,
-          marketCode: completed.marketCode,
-          dangerous: operationDto.dangerous,
-          ...result,
-          backfills,
-        },
-      });
-      await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
-        operationId: completed.id,
-        providerId: completed.providerId,
-        phase: completed.phase,
-      });
-      await app.eventBus.publishEvent(sessionUserId, "provider_operation_progress", {
-        operationId: completed.id,
-        providerId: completed.providerId,
-        processed: result.applied + result.skipped,
-        total: result.scanned,
-        progressPercent: 100,
-      });
-      return { operation: providerFixerOperationToDto(completed, guardrails), result: { ...result, backfills } };
-    }
-
     if (options.background) {
-      setImmediate(() => {
-        void runProviderFixerOperationToCompletion(false).catch((err) => {
-          app.log.error(
-            {
-              operationId: running.id,
-              providerId: running.providerId,
-              err,
-            },
-            "provider_operation_background_execution_failed",
-          );
-        });
+      runProviderFixerOperationInBackground(app, running, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+        dangerous: operationDto.dangerous,
       });
       return {
         operation: providerFixerOperationToDto(running, guardrails),
@@ -1989,7 +2010,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       };
     }
 
-    return runProviderFixerOperationToCompletion(true);
+    return completeProviderFixerOperation(app, running, {
+      actorUserId: sessionUserId,
+      ipAddress,
+      guardrails,
+      dangerous: operationDto.dangerous,
+      throwOnFailure: true,
+    });
   }
 
   app.post("/providers/:providerId/operations/:operationId/execute", async (req, reply) => {
@@ -2043,7 +2070,22 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         ipAddress,
         metadata: { operationId, action, providerId: updated.providerId, marketCode: updated.marketCode },
       });
-      return { operation: providerFixerOperationToDto(updated, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+      const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+      const operationDto = providerFixerOperationToDto(updated, guardrails);
+      await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+        operationId,
+        providerId: updated.providerId,
+        phase: updated.phase,
+      });
+      if (action === "resume") {
+        runProviderFixerOperationInBackground(app, updated, {
+          actorUserId: sessionUserId,
+          ipAddress,
+          guardrails,
+          dangerous: operationDto.dangerous,
+        });
+      }
+      return { operation: operationDto };
     });
   }
 

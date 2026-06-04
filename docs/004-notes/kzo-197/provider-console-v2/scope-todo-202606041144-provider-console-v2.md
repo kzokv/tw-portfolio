@@ -171,7 +171,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added contextual help for provider status, Refresh, Renew, Repair, Rerun, quote-first, chart-probe, guarded execute, Purge, Unsupported, Ignore, Reopen, and disabled action states.
 - 2026-06-04: Added mobile dangerous-operation preview sheet behavior with mobile backdrop/full-height constraints while keeping a single guarded Execute state.
 - 2026-06-04: Completed operation-details navigation by linking selected operations to logs, incidents, and unresolved views alongside durable outcomes/progress/budget state and operation controls.
-- Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Refactored provider operation completion into a reusable background helper and fixed Resume so paused operations restart completion work instead of only flipping phase to `running`; added integration coverage for rate-limit pause -> resume -> completed mapping.
+- Remaining high-risk work is still backend-heavy: durable queueing, budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
