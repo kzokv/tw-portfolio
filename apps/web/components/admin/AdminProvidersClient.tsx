@@ -483,6 +483,16 @@ export function AdminProvidersClient({
     router.push(`/admin/providers?${params.toString()}`);
   }
 
+  function applyOperationsPage(page: number): void {
+    const params = new URLSearchParams({
+      providerId: selectedProviderId,
+      tab: "operations",
+      operationsPage: String(page),
+    });
+    if (selectedOperation?.id) params.set("operationId", selectedOperation.id);
+    router.push(`/admin/providers?${params.toString()}`);
+  }
+
   function previewLogPurge(): void {
     void runAction("purge-preview", async () => {
       const result = await postJson<ProviderLogPurgePreviewResponse>(
@@ -730,6 +740,7 @@ export function AdminProvidersClient({
             selectedProviderId={selectedProviderId}
             onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`)}
             onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`)}
+            onPageChange={applyOperationsPage}
             progressOperation={progressOperation}
             outcomes={operationOutcomes.filter((outcome) => outcome.providerId === selectedProviderId)}
             outcomeSummary={operationOutcomeSummary}
@@ -1252,6 +1263,7 @@ function OperationsTab({
   selectedProviderId,
   onOpenLogs,
   onOpenUnresolved,
+  onPageChange,
   progressOperation,
   outcomes,
   outcomeSummary,
@@ -1268,6 +1280,7 @@ function OperationsTab({
   selectedProviderId: string;
   onOpenLogs: (operationId: string) => void;
   onOpenUnresolved: () => void;
+  onPageChange: (page: number) => void;
   progressOperation: ProviderFixerDashboardOperationDto | null;
   outcomes: ProviderOperationOutcomeDto[];
   outcomeSummary: ProviderOperationOutcomeSummaryDto;
@@ -1292,7 +1305,7 @@ function OperationsTab({
           rowKey={(operation) => operation.id}
           emptyState={<div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No provider operations found.</div>}
         />
-        <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+        <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
       </Card>
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
         <h3 className="text-xl font-semibold text-foreground">Live progress</h3>
