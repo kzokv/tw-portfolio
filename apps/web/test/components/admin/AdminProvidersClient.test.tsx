@@ -435,6 +435,13 @@ function findElementByText(selector: string, text: string): HTMLElement {
   return element;
 }
 
+function queryElementByText(selector: string, text: string): HTMLElement | null {
+  const element = Array.from(document.querySelectorAll(selector)).find((candidate) =>
+    candidate.textContent?.trim().includes(text),
+  ) as HTMLElement | undefined;
+  return element ?? null;
+}
+
 function updateInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   act(() => {
@@ -638,6 +645,43 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-console-mobile-dangerous-preview']")?.textContent ?? "").toMatch(
       /mobile dangerous operation preview sheet/i,
     );
+  });
+
+  it("shows queued operations as visible queued work with cancel-only controls", () => {
+    renderClient(root, {
+      initialTab: "fixer",
+      initialOperationId: "OP-QUEUED",
+      stagedOperation: buildOperation({
+        id: "OP-QUEUED",
+        phase: "queued",
+        canExecute: false,
+        canPause: false,
+        canResume: false,
+        canCancel: true,
+        progressPercent: 0,
+      }),
+      operations: [
+        buildOperation({
+          id: "OP-QUEUED",
+          phase: "queued",
+          canExecute: false,
+          canPause: false,
+          canResume: false,
+          canCancel: true,
+          progressPercent: 0,
+        }),
+      ],
+    });
+
+    const providerButton = document.querySelector("[data-testid='provider-console-tab-yahoo-finance-kr']");
+    expect(providerButton?.getAttribute("title") ?? "").toMatch(/1 active operations/i);
+    expect(document.querySelector("[data-testid='provider-console-operation-panel']")?.textContent ?? "").toMatch(
+      /operation preview/i,
+    );
+    expect(document.body.textContent ?? "").toMatch(/queued/i);
+    expect(findElementByText("button", "Cancel")).not.toBeNull();
+    expect(queryElementByText("button", "Pause")).toBeNull();
+    expect(queryElementByText("button", "Resume")).toBeNull();
   });
 
   it("explains fixer actions and starts renew evidence operations", async () => {
