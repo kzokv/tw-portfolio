@@ -22,6 +22,21 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
       const result = patchAdminSettingsSchema.safeParse({ repairCooldownMinutes: null });
       expect(result.success).toBe(true);
     });
+
+    it("provider operation settings accept valid integer overrides", () => {
+      const result = patchAdminSettingsSchema.safeParse({
+        providerOperationAutoRenewIntervalMinutes: 60,
+        providerIncidentRecurrenceWindowMinutes: 30,
+        providerHealthWarningUnresolvedThreshold: 1_000,
+        providerHealthCriticalUnresolvedThreshold: 10_000,
+        providerOperationStaleHeartbeatMinutes: 15,
+        providerOperationSummaryRetentionDays: 90,
+        providerOperationLogRetentionDays: 30,
+        providerIncidentRetentionDays: 180,
+        providerResolvedItemRetentionDays: 30,
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("rejects", () => {
@@ -47,6 +62,11 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
 
     it("repairCooldownMinutes = '60' (string, not a number)", () => {
       const result = patchAdminSettingsSchema.safeParse({ repairCooldownMinutes: "60" });
+      expect(result.success).toBe(false);
+    });
+
+    it("providerOperationStaleHeartbeatMinutes rejects values above max", () => {
+      const result = patchAdminSettingsSchema.safeParse({ providerOperationStaleHeartbeatMinutes: 241 });
       expect(result.success).toBe(false);
     });
 

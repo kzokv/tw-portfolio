@@ -127,4 +127,19 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(panelHidden("catalog-metadata")).toBe(false);
     expect(panelHidden("rate-limits")).toBe(true);
   });
+
+  it("renders provider operation policy and retention settings in the provider-health tab", () => {
+    mockParams = new URLSearchParams({ tab: "provider-health" });
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    expect(panelHidden("provider-health")).toBe(false);
+    expect(document.body.textContent).toContain("Provider operation automation");
+    expect(document.body.textContent).toContain("Auto-renew interval");
+    expect(document.body.textContent).toContain("Provider health thresholds");
+    expect(document.body.textContent).toContain("Warning unresolved threshold");
+    expect(document.body.textContent).toContain("Provider retention");
+    expect(document.body.textContent).toContain("Operation summary retention");
+    expect(document.querySelector("[data-testid='admin-settings-providerOperationAutoRenewIntervalMinutes-row']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-providerResolvedItemRetentionDays-row']")).not.toBeNull();
+  });
 });

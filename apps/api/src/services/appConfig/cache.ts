@@ -51,6 +51,15 @@ export interface AppConfigCacheEntry {
   providerFixerUiPageSize: number | null;
   providerFixerAutoPauseFailuresPerMinute: number | null;
   providerFixerPreviewTokenTtlMinutes: number | null;
+  providerOperationAutoRenewIntervalMinutes: number | null;
+  providerIncidentRecurrenceWindowMinutes: number | null;
+  providerHealthWarningUnresolvedThreshold: number | null;
+  providerHealthCriticalUnresolvedThreshold: number | null;
+  providerOperationStaleHeartbeatMinutes: number | null;
+  providerOperationSummaryRetentionDays: number | null;
+  providerOperationLogRetentionDays: number | null;
+  providerIncidentRetentionDays: number | null;
+  providerResolvedItemRetentionDays: number | null;
   finmindProviderRateLimitPerHour: number | null;
   twelveDataProviderRateLimitPerMinute: number | null;
   yahooAuProviderRateLimitPerMinute: number | null;
