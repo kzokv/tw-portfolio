@@ -75,6 +75,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   const unresolvedState = unresolvedStateQueryValue(query.unresolvedState);
   const unresolvedSearch = firstOptionalQueryValue(query.unresolvedSearch) ?? "";
   const unresolvedPage = positiveIntQueryValue(query.unresolvedPage, 1);
+  const operationsPage = positiveIntQueryValue(query.operationsPage, 1);
   const operationId = firstOptionalQueryValue(query.operationId);
 
   const [providersData, summaryData] = await Promise.all([
@@ -102,7 +103,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       `/admin/providers/${encodeURIComponent(providerId)}/activity?page=1&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardOperationsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/operations?page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/operations?page=${operationsPage}&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardLogsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/logs?page=1&limit=${pageLimit}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
