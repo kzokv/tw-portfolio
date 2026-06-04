@@ -1194,6 +1194,7 @@ export type ProviderOperationPhase =
   | "diagnose"
   | "preview"
   | "staged"
+  | "queued"
   | "running"
   | "paused"
   | "completed"

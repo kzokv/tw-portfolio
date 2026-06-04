@@ -183,7 +183,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Extended the provider operation write lock beyond bulk Repair so Renew, Reverify, Revert, Rerun, and Resume cannot start while another staged/running/paused operation is active for the same provider and market.
 - 2026-06-04: Propagated Admin Settings provider-operation rate caps into provider operation summary, preview, renew, reverify, revert, rerun, and retry metadata so Operations budget state no longer falls back to the old hardcoded cap.
 - 2026-06-04: Made cancelled Repair operations terminal in the background runner; if a repair row finishes after Cancel, completed item work is preserved but the operation phase stays `cancelled` and backfill enqueue/final completion are skipped.
-- Remaining high-risk work is still backend-heavy: durable queueing, budget pacing, broader operation action coverage, and full gate coverage.
+- 2026-06-04: Added durable provider-operation `queued` phase with migration support. Renew, Repair execute, Rerun, Reverify, and Revert now queue behind active same-provider/market work instead of failing with an active-operation 409, and terminal completion/cancel promotes the next queued operation.
+- Remaining high-risk work is still backend-heavy: budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.

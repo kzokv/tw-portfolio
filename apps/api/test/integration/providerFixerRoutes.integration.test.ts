@@ -842,7 +842,7 @@ describe("Provider Fixer admin routes", () => {
     ).resolves.toMatchObject({ resolvedSymbol: "005930.KS" });
   });
 
-  it("rejects mapped provider rerun while another provider operation is active", async () => {
+  it("queues mapped provider rerun while another provider operation is active", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const bossSend = vi.fn().mockResolvedValue("job-rerun-005930");
@@ -882,9 +882,41 @@ describe("Provider Fixer admin routes", () => {
       },
     });
 
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ error: "provider_fixer_active_execution_exists" });
+    expect(response.statusCode).toBe(202);
+    const body = response.json() as { operation: { id: string; phase: string }; result: { status: string } };
+    expect(body).toMatchObject({
+      operation: { phase: "queued" },
+      result: { status: "queued" },
+    });
     expect(bossSend).not.toHaveBeenCalled();
+
+    const queuedBeforeCancel = await app.persistence.getProviderOperation(body.operation.id);
+    expect(queuedBeforeCancel).toMatchObject({
+      phase: "queued",
+      metadata: expect.objectContaining({ queuedBehindOperationId: "active-provider-lock" }),
+    });
+
+    const cancel = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/active-provider-lock/cancel",
+      headers,
+    });
+    expect(cancel.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const queuedAfterCancel = await app.persistence.getProviderOperation(body.operation.id);
+      expect(queuedAfterCancel?.phase).toBe("completed");
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        ticker: "005930",
+        marketCode: "KR",
+        trigger: "admin_rerun",
+        providerOperationId: body.operation.id,
+      }),
+      expect.any(Object),
+    );
   });
 
   it("updates unresolved item lifecycle state with provider-scoped audit metadata", async () => {
@@ -1401,7 +1433,7 @@ describe("Provider Fixer admin routes", () => {
     );
   });
 
-  it("rejects expired preview tokens and concurrent active executions for the same provider market", async () => {
+  it("rejects expired preview tokens and queues concurrent active executions for the same provider market", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const expired = await app.persistence.createProviderOperation({
@@ -1461,8 +1493,14 @@ describe("Provider Fixer admin routes", () => {
       headers,
       payload: { acknowledged: true },
     });
-    expect(concurrentResponse.statusCode).toBe(409);
-    expect(concurrentResponse.json()).toMatchObject({ error: "provider_fixer_active_execution_exists" });
+    expect(concurrentResponse.statusCode).toBe(202);
+    expect(concurrentResponse.json()).toMatchObject({
+      operation: {
+        id: candidate.id,
+        phase: "queued",
+      },
+      result: { status: "queued" },
+    });
 
     const activeRetry = await app.inject({
       method: "POST",
