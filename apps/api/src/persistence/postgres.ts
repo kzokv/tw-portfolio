@@ -170,6 +170,7 @@ import type {
   SaveAiTransactionDraftUnsupportedItemInput,
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
+  UpdateProviderIncidentStatusInput,
   UpdateProviderOperationInput,
   UpsertProviderIncidentInput,
   UpsertProviderOperationOutcomeInput,
@@ -12555,6 +12556,30 @@ export class PostgresPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async updateProviderIncidentStatus(input: UpdateProviderIncidentStatusInput): Promise<ProviderIncidentRecord> {
+    const result = await this.pool.query<ProviderIncidentRowSql>(
+      `UPDATE market_data.provider_incidents
+          SET status = $3,
+              acknowledged_at = CASE WHEN $3 = 'acknowledged' THEN NOW() WHEN $3 = 'open' THEN NULL ELSE acknowledged_at END,
+              acknowledged_by_user_id = CASE WHEN $3 = 'acknowledged' THEN $4 WHEN $3 = 'open' THEN NULL ELSE acknowledged_by_user_id END,
+              resolved_at = CASE WHEN $3 = 'resolved' THEN NOW() WHEN $3 = 'open' THEN NULL ELSE resolved_at END,
+              resolved_by_user_id = CASE WHEN $3 = 'resolved' THEN $4 WHEN $3 = 'open' THEN NULL ELSE resolved_by_user_id END,
+              ignored_at = CASE WHEN $3 = 'ignored' THEN NOW() WHEN $3 = 'open' THEN NULL ELSE ignored_at END,
+              ignored_by_user_id = CASE WHEN $3 = 'ignored' THEN $4 WHEN $3 = 'open' THEN NULL ELSE ignored_by_user_id END,
+              updated_at = NOW()
+        WHERE provider_id = $1
+          AND id = $2
+        RETURNING id, provider_id, market_code, incident_key, status, severity, title, summary,
+                  error_class, error_code, occurrence_count, first_seen_at, last_seen_at,
+                  last_error_trail_id, linked_operation_id, metadata,
+                  acknowledged_at, acknowledged_by_user_id, resolved_at, resolved_by_user_id,
+                  ignored_at, ignored_by_user_id, created_at, updated_at`,
+      [input.providerId, input.incidentId, input.status, input.actorUserId],
+    );
+    if (!result.rows[0]) throw routeError(404, "provider_incident_not_found", "Provider incident not found");
+    return mapProviderIncidentRow(result.rows[0]);
   }
 
   async upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord> {

@@ -1165,6 +1165,13 @@ export interface ListProviderIncidentsResult {
   limit: number;
 }
 
+export interface UpdateProviderIncidentStatusInput {
+  providerId: string;
+  incidentId: string;
+  status: ProviderIncidentStatus;
+  actorUserId: string;
+}
+
 export type ProviderOperationPhase =
   | "diagnose"
   | "preview"
@@ -2539,6 +2546,7 @@ export interface Persistence {
   listProviderErrorTrailPage(options: ListProviderErrorTrailOptions): Promise<ListProviderErrorTrailResult>;
   upsertProviderIncident(input: UpsertProviderIncidentInput): Promise<ProviderIncidentRecord>;
   listProviderIncidents(options: ListProviderIncidentsOptions): Promise<ListProviderIncidentsResult>;
+  updateProviderIncidentStatus(input: UpdateProviderIncidentStatusInput): Promise<ProviderIncidentRecord>;
   upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord>;
   listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
   resolveProviderUnresolvedItems(input: {

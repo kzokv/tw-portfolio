@@ -19,7 +19,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { DataTable, type DataTableColumn } from "../ui/DataTable";
 import { Pagination } from "./Pagination";
-import { ApiError, postJson } from "../../lib/api";
+import { ApiError, patchJson, postJson } from "../../lib/api";
 import { useEventStream } from "../../hooks/useEventStream";
 import { cn } from "../../lib/utils";
 
@@ -426,6 +426,12 @@ export function AdminProvidersClient({
     );
   }
 
+  function updateIncidentStatus(incidentId: string, status: ProviderIncidentDto["status"]): void {
+    void runAction(`incident:${status}:${incidentId}`, () =>
+      patchJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/incidents/${encodeURIComponent(incidentId)}`, { status }),
+    );
+  }
+
   const operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[] = [
     { key: "operation", header: "Operation", render: (row) => <span className="font-mono text-xs">{row.id}</span> },
     {
@@ -636,6 +642,8 @@ export function AdminProvidersClient({
             page={incidentsPage}
             limit={incidentsLimit}
             total={incidentsTotal}
+            onSetStatus={updateIncidentStatus}
+            busyAction={busyAction}
           />
         ) : null}
 
@@ -1103,12 +1111,16 @@ function IncidentsTab({
   page,
   limit,
   total,
+  onSetStatus,
+  busyAction,
 }: {
   selectedProviderId: string;
   incidents: ProviderIncidentDto[];
   page: number;
   limit: number;
   total: number;
+  onSetStatus: (incidentId: string, status: ProviderIncidentDto["status"]) => void;
+  busyAction: string | null;
 }) {
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
@@ -1127,33 +1139,50 @@ function IncidentsTab({
                 <th className="px-3 py-3">Error</th>
                 <th className="px-3 py-3">Count</th>
                 <th className="px-3 py-3">Last seen</th>
+                <th className="px-3 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {incidents.map((incident) => (
-                <tr key={incident.id} className="border-t border-border align-top">
-                  <td className="px-3 py-3">
-                    <div className="font-semibold text-foreground">{incident.title}</div>
-                    <div className="mt-1 max-w-[34rem] text-xs text-muted-foreground">{incident.summary ?? incident.incidentKey}</div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{incident.status}</span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className={cn(
-                      "rounded-full px-2 py-1 text-xs font-semibold",
-                      incident.severity === "critical"
-                        ? "bg-rose-100 text-rose-700"
-                        : incident.severity === "warning"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-slate-100 text-slate-700",
-                    )}>{incident.severity}</span>
-                  </td>
-                  <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{incident.errorCode ?? incident.errorClass}</td>
-                  <td className="px-3 py-3 font-mono">{formatNumber(incident.occurrenceCount)}</td>
-                  <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(incident.lastSeenAt)}</td>
-                </tr>
-              ))}
+              {incidents.map((incident) => {
+                const busy = busyAction?.startsWith(`incident:`) && busyAction.endsWith(`:${incident.id}`);
+                return (
+                  <tr key={incident.id} className="border-t border-border align-top">
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-foreground">{incident.title}</div>
+                      <div className="mt-1 max-w-[34rem] text-xs text-muted-foreground">{incident.summary ?? incident.incidentKey}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{incident.status}</span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={cn(
+                        "rounded-full px-2 py-1 text-xs font-semibold",
+                        incident.severity === "critical"
+                          ? "bg-rose-100 text-rose-700"
+                          : incident.severity === "warning"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-slate-100 text-slate-700",
+                      )}>{incident.severity}</span>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{incident.errorCode ?? incident.errorClass}</td>
+                    <td className="px-3 py-3 font-mono">{formatNumber(incident.occurrenceCount)}</td>
+                    <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(incident.lastSeenAt)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        {incident.status === "open" ? (
+                          <>
+                            <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "acknowledged")}>Acknowledge</Button>
+                            <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "resolved")}>Resolve</Button>
+                            <Button size="sm" variant="outline" disabled={busy} onClick={() => onSetStatus(incident.id, "ignored")}>Ignore</Button>
+                          </>
+                        ) : (
+                          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "open")}>Reopen</Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
