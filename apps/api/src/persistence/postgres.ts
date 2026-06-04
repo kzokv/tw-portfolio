@@ -14,6 +14,7 @@ import {
 } from "@vakwen/domain";
 import type { DailyBar, DailyBarWithMarket, InstrumentType, MarketCode } from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
+import { buildRedisSocketOptions } from "../lib/redisClientOptions.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
   buildAccountingPolicy,
@@ -823,14 +824,19 @@ export class PostgresPersistence implements Persistence {
       connectionString: options.databaseUrl,
       // KZO-199 — env-tunable (restart-required); default 20.
       max: Env.POSTGRES_POOL_MAX,
-      connectionTimeoutMillis: 10_000,
+      connectionTimeoutMillis: Env.POSTGRES_CONNECTION_TIMEOUT_MS,
       idleTimeoutMillis: 30_000,
     });
-    this.redis = createClient({ url: options.redisUrl });
+    this.redis = createClient({
+      url: options.redisUrl,
+      socket: buildRedisSocketOptions(),
+    });
   }
 
   async init(): Promise<void> {
-    if (!this.redis.isOpen) await this.redis.connect();
+    if (process.env.POSTGRES_PERSISTENCE_SKIP_REDIS_INIT !== "1") {
+      await this.ensureRedisOpen();
+    }
     await this.runMigrations();
     await this.seedDefaults();
   }
@@ -5163,11 +5169,13 @@ export class PostgresPersistence implements Persistence {
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
     const redisKey = `idempotency:${userId}:${key}`;
+    await this.ensureRedisOpen();
     const result = await this.redis.set(redisKey, "1", { EX: 86_400, NX: true });
     return result === "OK";
   }
 
   async releaseIdempotencyKey(userId: string, key: string): Promise<void> {
+    await this.ensureRedisOpen();
     await this.redis.del(`idempotency:${userId}:${key}`);
   }
 
@@ -6249,7 +6257,7 @@ export class PostgresPersistence implements Persistence {
     }
 
     try {
-      if (!this.redis.isOpen) await this.redis.connect();
+      await this.ensureRedisOpen();
       await this.redis.ping();
       status.redis = true;
     } catch {
@@ -6257,6 +6265,10 @@ export class PostgresPersistence implements Persistence {
     }
 
     return status;
+  }
+
+  private async ensureRedisOpen(): Promise<void> {
+    if (!this.redis.isOpen) await this.redis.connect();
   }
 
   async saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void> {

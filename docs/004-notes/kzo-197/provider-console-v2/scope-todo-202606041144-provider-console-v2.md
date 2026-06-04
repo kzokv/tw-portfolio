@@ -193,8 +193,9 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Completed purge operation evidence by writing a durable purge outcome, post-purge completion log, and progress event after deleting raw provider logs so the purge operation remains inspectable.
 - 2026-06-04: Expanded OAuth E2E provider-console coverage for unresolved filters/select-all, guarded repair preview, operations progress surfaces, purge preview guardrails, and mobile provider selection.
 - 2026-06-04: Focused validation passed for provider-fixer API integration tests, Admin Providers web unit tests, targeted provider-console OAuth E2E cases, linted touched files, and web/API package typechecks. Full repo gate remains pending.
-- 2026-06-04: Full-gate progress: `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run test --prefix apps/api`, `npm run test:e2e:bypass:mem --prefix apps/web`, `npm run test:e2e:oauth:mem --prefix apps/web`, and `npm run test:http --prefix apps/api` passed locally. `npm run test:integration:full:host` is blocked in this VM shell by intermittent `connect ETIMEDOUT 192.168.64.1:15432` host-to-Docker Postgres connectivity across unrelated old integration tests; the CI stack was cleaned after each failed attempt.
-- Remaining high-risk work is now final verification-heavy: unblock or obtain a clean `test:integration:full:host` run, `/si-review`, `/si-promote`, push, CI, and review follow-up.
+- 2026-06-05: Stabilized the managed Postgres/Redis integration harness with bounded connection timeouts, host-port polling, and lazy Redis connection setup for Postgres persistence tests. `npm run test:integration:full:host` passed locally with 79 files, 776 passing tests, and 1 skipped test.
+- 2026-06-05: Final local gate evidence collected: `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run test --prefix apps/api`, `npm run test:integration:full:host`, `npm run test:e2e:bypass:mem --prefix apps/web`, `npm run test:e2e:oauth:mem --prefix apps/web`, and `npm run test:http --prefix apps/api` passed locally. The final-tree bypass E2E rerun passed with 258 passed and 9 skipped tests.
+- 2026-06-05: Completed `/si-review` and `/si-promote`; promoted the managed Postgres host-mode integration harness lesson to `.claude/rules/managed-postgres-integration-harness.md`. Remaining work is push, CI, and review follow-up.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
@@ -218,7 +219,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - [x] Add DB/API/worker tests for unresolved dedupe, incident recurrence, operations, outcomes, queueing, rate-limit pause/resume, stale operations, guardrails, settings validation, purge, and KR mapping.
 - [x] Add web unit tests for provider console UI states, action enablement, tooltips/help copy, mobile variants, and settings validation.
 - [x] Run `/aaa` to add or update E2E tests covering provider console navigation, unresolved table, repair flow, dangerous preview, operations progress, purge guardrail, and mobile action sheet.
-- [ ] Run the smallest relevant tests first, then the repo-required full gate before PR.
+- [x] Run the smallest relevant tests first, then the repo-required full gate before PR.
 
 ## Commit Order
 

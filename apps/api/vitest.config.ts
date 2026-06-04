@@ -28,6 +28,9 @@ export default defineConfig({
     },
     // @ts-expect-error globalTeardown is supported at runtime but missing from InlineConfig in this Vitest version
     globalTeardown: "./test/globalTeardown.ts",
+    ...(isManagedPostgresIntegration
+      ? { setupFiles: ["./test/setupManagedPostgres.ts"] }
+      : {}),
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
     //   npm run test:html  → vitest-report/ (view: npx vite preview --outDir vitest-report)
     //   npm run test:json  → test-results/vitest-results.json
@@ -37,7 +40,7 @@ export default defineConfig({
     // The API package boots many Fastify app instances and provider registries.
     // Bounding workers avoids host/VM contention that can make unrelated tests
     // hit Vitest's very small defaults during full-package runs.
-    maxWorkers: 4,
+    maxWorkers: isManagedPostgresIntegration ? 1 : 4,
     ...(isManagedPostgresIntegration
       ? {
           // The managed Postgres gate runs against a Docker DB/Redis stack and
