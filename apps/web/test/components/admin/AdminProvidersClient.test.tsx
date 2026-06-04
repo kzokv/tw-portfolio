@@ -442,6 +442,14 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/resolved 005930 to 005930\.KS/i);
   });
 
+  it("shows log purge as a preview-first destructive action", () => {
+    renderClient(root, { initialTab: "logs" });
+
+    expect(document.body.textContent ?? "").toMatch(/raw\/system diagnostics/i);
+    expect(document.body.textContent ?? "").toMatch(/preview purge/i);
+    expect(document.body.textContent ?? "").toMatch(/only removes raw provider error trail rows/i);
+  });
+
   it("navigates provider tab changes through provider-scoped server data", () => {
     renderClient(root);
 

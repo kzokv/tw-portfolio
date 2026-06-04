@@ -16,6 +16,8 @@ import type {
   ProviderFixerDashboardSummaryResponse,
   ProviderIncidentDto,
   ProviderIncidentsResponse,
+  ProviderLogPurgeExecuteResponse,
+  ProviderLogPurgePreviewResponse,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomesResponse,
   ProviderResolutionMappingDto,
@@ -1971,6 +1973,148 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   app.get("/providers/:providerId/logs", (req) => {
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
     return listProviderLogs(req, providerId);
+  });
+
+  app.post("/providers/:providerId/logs/purge/preview", async (req, reply): Promise<ProviderLogPurgePreviewResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const counts = await app.persistence.countProviderLogsForPurge(providerId);
+    const matchCount = counts.errorTrailCount + counts.operationLogCount;
+    const token = newProviderFixerToken();
+    const now = new Date();
+    const tokenExpiresAt = new Date(now.getTime() + guardrails.previewTokenTtlSeconds * 1000).toISOString();
+    const confirmationText = `PURGE ${providerId}`;
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode: providerFixerMarketCode(providerId),
+      operationType: "purge_logs",
+      phase: "preview",
+      errorCode: "provider_logs_purge",
+      scopeQuery: `${providerId}:logs:purge`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:logs:${matchCount}:${now.toISOString()}`).slice(0, 12),
+      previewTokenHash: hashProviderFixerToken(token),
+      previewExpiresAt: tokenExpiresAt,
+      matchCount,
+      sample: [],
+      metadata: {
+        errorTrailCount: counts.errorTrailCount,
+        operationLogCount: counts.operationLogCount,
+        confirmationText,
+        destructiveBoundary: "Deletes provider_error_trail rows and provider_operation_logs only.",
+      },
+      actorUserId: sessionUserId,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      metadata: {
+        operationId: operation.id,
+        action: "purge_logs_preview",
+        providerId,
+        matchCount,
+        errorTrailCount: counts.errorTrailCount,
+        operationLogCount: counts.operationLogCount,
+      },
+      ipAddress,
+    });
+    reply.code(201);
+    return {
+      preview: {
+        operationId: operation.id,
+        providerId,
+        previewToken: token,
+        tokenExpiresAt,
+        confirmationText,
+        errorTrailCount: counts.errorTrailCount,
+        operationLogCount: counts.operationLogCount,
+        matchCount,
+        canExecute: matchCount > 0,
+        boundary: "Deletes provider_error_trail rows and provider_operation_logs only. Incidents, unresolved items, mappings, operation summaries, audit logs, and pg-boss history are retained.",
+      },
+    };
+  });
+
+  app.post("/providers/:providerId/logs/purge/execute", async (req): Promise<ProviderLogPurgeExecuteResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        operationId: z.string().trim().min(1).max(120),
+        previewToken: z.string().trim().min(1).max(160),
+        typedConfirmation: z.string().trim().max(160),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const operation = await app.persistence.getProviderOperation(body.operationId);
+    if (!operation || operation.providerId !== providerId || operation.operationType !== "purge_logs") {
+      throw routeError(404, "provider_purge_operation_not_found", "Provider purge operation not found");
+    }
+    if (operation.phase !== "preview" && operation.phase !== "staged") {
+      throw routeError(400, "provider_purge_operation_not_executable", "Provider purge operation cannot be executed");
+    }
+    assertProviderFixerPreviewToken(operation, body.previewToken);
+    const expectedConfirmation = `PURGE ${providerId}`;
+    if (body.typedConfirmation !== expectedConfirmation) {
+      throw routeError(400, "provider_purge_typed_confirmation_required", "Provider log purge requires matching typed confirmation");
+    }
+    const counts = await app.persistence.countProviderLogsForPurge(providerId);
+    const currentMatchCount = counts.errorTrailCount + counts.operationLogCount;
+    if (currentMatchCount !== (operation.matchCount ?? 0)) {
+      throw routeError(409, "snapshot_changed", "Provider log purge scope changed; run purge preview again");
+    }
+    const running = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "running",
+      startedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 0,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      providerId,
+      operationId: running.id,
+      phase: running.phase,
+    });
+    const deleted = await app.persistence.purgeProviderLogs(providerId);
+    const completed = await app.persistence.updateProviderOperation({
+      id: running.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(running.metadata) ?? {}),
+        progressPercent: 100,
+        errorTrailDeleted: deleted.errorTrailCount,
+        operationLogDeleted: deleted.operationLogCount,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      metadata: {
+        operationId: completed.id,
+        action: "purge_logs_execute",
+        providerId,
+        errorTrailDeleted: deleted.errorTrailCount,
+        operationLogDeleted: deleted.operationLogCount,
+      },
+      ipAddress,
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      providerId,
+      operationId: completed.id,
+      phase: completed.phase,
+    });
+    return {
+      operationId: completed.id,
+      providerId,
+      errorTrailDeleted: deleted.errorTrailCount,
+      operationLogDeleted: deleted.operationLogCount,
+    };
   });
 }
 

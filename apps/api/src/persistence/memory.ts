@@ -126,6 +126,7 @@ import type {
   ProviderHealthRow,
   ProviderHealthUpsert,
   ProviderIncidentRecord,
+  ProviderLogPurgeCounts,
   ProviderOperationLogRecord,
   ProviderOperationOutcomeRecord,
   ProviderOperationOutcomeState,
@@ -5807,6 +5808,55 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async countProviderLogsForPurge(providerId: string): Promise<ProviderLogPurgeCounts> {
+    const operationIds = new Set(
+      [...this.providerOperations.values()]
+        .filter((operation) => operation.providerId === providerId)
+        .map((operation) => operation.id),
+    );
+    return {
+      providerId,
+      errorTrailCount: this.providerErrorTrail.filter((row) => row.providerId === providerId).length,
+      operationLogCount: this.providerOperationLogs.filter((row) => operationIds.has(row.operationId)).length,
+    };
+  }
+
+  async purgeProviderLogs(providerId: string): Promise<ProviderLogPurgeCounts> {
+    const errorTrailIds = new Set(
+      this.providerErrorTrail.filter((row) => row.providerId === providerId).map((row) => row.id),
+    );
+    let errorTrailCount = 0;
+    for (let i = this.providerErrorTrail.length - 1; i >= 0; i--) {
+      if (this.providerErrorTrail[i]!.providerId === providerId) {
+        this.providerErrorTrail.splice(i, 1);
+        errorTrailCount++;
+      }
+    }
+    for (const [key, row] of this.providerUnresolvedItems.entries()) {
+      if (row.providerId === providerId && row.lastErrorTrailId != null && errorTrailIds.has(row.lastErrorTrailId)) {
+        this.providerUnresolvedItems.set(key, { ...row, lastErrorTrailId: null });
+      }
+    }
+    for (const [key, row] of this.providerIncidents.entries()) {
+      if (row.providerId === providerId && row.lastErrorTrailId != null && errorTrailIds.has(row.lastErrorTrailId)) {
+        this.providerIncidents.set(key, { ...row, lastErrorTrailId: null });
+      }
+    }
+    const operationIds = new Set(
+      [...this.providerOperations.values()]
+        .filter((operation) => operation.providerId === providerId)
+        .map((operation) => operation.id),
+    );
+    let operationLogCount = 0;
+    for (let i = this.providerOperationLogs.length - 1; i >= 0; i--) {
+      if (operationIds.has(this.providerOperationLogs[i]!.operationId)) {
+        this.providerOperationLogs.splice(i, 1);
+        operationLogCount++;
+      }
+    }
+    return { providerId, errorTrailCount, operationLogCount };
   }
 
   async upsertProviderOperationOutcome(

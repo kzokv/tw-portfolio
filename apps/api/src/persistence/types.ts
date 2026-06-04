@@ -1295,6 +1295,12 @@ export interface ListProviderOperationLogsResult {
   limit: number;
 }
 
+export interface ProviderLogPurgeCounts {
+  providerId: string;
+  errorTrailCount: number;
+  operationLogCount: number;
+}
+
 export type ProviderOperationOutcomeState =
   | "pending"
   | "running"
@@ -2582,6 +2588,8 @@ export interface Persistence {
   hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean>;
   createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord>;
   listProviderOperationLogs(options: ListProviderOperationLogsOptions): Promise<ListProviderOperationLogsResult>;
+  countProviderLogsForPurge(providerId: string): Promise<ProviderLogPurgeCounts>;
+  purgeProviderLogs(providerId: string): Promise<ProviderLogPurgeCounts>;
   upsertProviderOperationOutcome(input: UpsertProviderOperationOutcomeInput): Promise<ProviderOperationOutcomeRecord>;
   listProviderOperationOutcomes(
     options: ListProviderOperationOutcomesOptions,
