@@ -10,6 +10,7 @@ import type {
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatus,
   ProviderHealthStatusDto,
+  ProviderIncidentDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
   ProviderUnresolvedItemDto,
@@ -49,6 +50,10 @@ interface AdminProvidersClientProps {
   unresolvedPage: number;
   unresolvedLimit: number;
   unresolvedTotal: number;
+  incidents: ProviderIncidentDto[];
+  incidentsPage: number;
+  incidentsLimit: number;
+  incidentsTotal: number;
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   operationsPage: number;
@@ -275,6 +280,10 @@ export function AdminProvidersClient({
   unresolvedPage,
   unresolvedLimit,
   unresolvedTotal,
+  incidents,
+  incidentsPage,
+  incidentsLimit,
+  incidentsTotal,
   stagedOperation,
   operations,
   operationsPage,
@@ -621,7 +630,13 @@ export function AdminProvidersClient({
         ) : null}
 
         {activeTab === "incidents" ? (
-          <IncidentsTab selectedProviderId={selectedProviderId} diagnosis={fallbackDiagnosis} summary={summary} />
+          <IncidentsTab
+            selectedProviderId={selectedProviderId}
+            incidents={incidents.filter((incident) => incident.providerId === selectedProviderId)}
+            page={incidentsPage}
+            limit={incidentsLimit}
+            total={incidentsTotal}
+          />
         ) : null}
 
         {activeTab === "activity" ? (
@@ -1084,21 +1099,68 @@ function OperationsTab({
 
 function IncidentsTab({
   selectedProviderId,
-  diagnosis,
-  summary,
+  incidents,
+  page,
+  limit,
+  total,
 }: {
   selectedProviderId: string;
-  diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
-  summary: ProviderFixerDashboardSummaryDto;
+  incidents: ProviderIncidentDto[];
+  page: number;
+  limit: number;
+  total: number;
 }) {
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
-      <h3 className="text-xl font-semibold text-foreground">Incidents</h3>
-      <p className="text-sm text-muted-foreground">Durable incident lifecycle is part of the next backend schema slice; this view shows the provider-level incident model and current active backlog.</p>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Reason tone="warning" title={`${selectedProviderId} unresolved backlog`} body={`${formatNumber(diagnosis?.unresolvedCount ?? 0)} rows are linked to the active resolver incident.`} />
-        <Reason tone="info" title="Incident lifecycle" body={`Open incidents: ${formatNumber(summary.affectedProviders.length)} affected providers. Admin owner is informational; no new permission split.`} />
+      <div>
+        <h3 className="text-xl font-semibold text-foreground">Incidents</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Durable provider incident lifecycle for {selectedProviderId}, grouped from repeated provider errors.</p>
       </div>
+      {incidents.length > 0 ? (
+        <div className="overflow-hidden rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-3 py-3">Incident</th>
+                <th className="px-3 py-3">State</th>
+                <th className="px-3 py-3">Severity</th>
+                <th className="px-3 py-3">Error</th>
+                <th className="px-3 py-3">Count</th>
+                <th className="px-3 py-3">Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.map((incident) => (
+                <tr key={incident.id} className="border-t border-border align-top">
+                  <td className="px-3 py-3">
+                    <div className="font-semibold text-foreground">{incident.title}</div>
+                    <div className="mt-1 max-w-[34rem] text-xs text-muted-foreground">{incident.summary ?? incident.incidentKey}</div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{incident.status}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={cn(
+                      "rounded-full px-2 py-1 text-xs font-semibold",
+                      incident.severity === "critical"
+                        ? "bg-rose-100 text-rose-700"
+                        : incident.severity === "warning"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-slate-100 text-slate-700",
+                    )}>{incident.severity}</span>
+                  </td>
+                  <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{incident.errorCode ?? incident.errorClass}</td>
+                  <td className="px-3 py-3 font-mono">{formatNumber(incident.occurrenceCount)}</td>
+                  <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(incident.lastSeenAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No open incidents for this provider.</p>
+      )}
+      <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
     </Card>
   );
 }

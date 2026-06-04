@@ -136,6 +136,8 @@ import type {
   CreateProviderOperationLogInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
+  ListProviderIncidentsOptions,
+  ListProviderIncidentsResult,
   ListProviderOperationLogsOptions,
   ListProviderOperationLogsResult,
   ListProviderOperationOutcomesOptions,
@@ -150,6 +152,7 @@ import type {
   ProviderHealthStatus,
   ProviderHealthUpsert,
   ProviderErrorClass,
+  ProviderIncidentRecord,
   ProviderOperationLogRecord,
   ProviderOperationPhase,
   ProviderOperationRecord,
@@ -168,6 +171,7 @@ import type {
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
+  UpsertProviderIncidentInput,
   UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
@@ -12308,6 +12312,7 @@ export class PostgresPersistence implements Persistence {
       ],
     );
     const row = mapProviderErrorTrailRow(result.rows[0]!);
+    await this.upsertProviderIncident(providerIncidentInputFromErrorTrail(row));
     if (row.errorClass !== "rate_limit") {
       const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
       if (sourceSymbol) {
@@ -12446,6 +12451,106 @@ export class PostgresPersistence implements Persistence {
 
     return {
       items: rowsResult.rows.map(mapProviderErrorTrailRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async upsertProviderIncident(input: UpsertProviderIncidentInput): Promise<ProviderIncidentRecord> {
+    const result = await this.pool.query<ProviderIncidentRowSql>(
+      `INSERT INTO market_data.provider_incidents
+         (provider_id, market_code, incident_key, severity, title, summary, error_class, error_code,
+          last_error_trail_id, linked_operation_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+       ON CONFLICT (provider_id, incident_key) DO UPDATE
+       SET market_code = COALESCE(EXCLUDED.market_code, market_data.provider_incidents.market_code),
+           status = 'open',
+           severity = EXCLUDED.severity,
+           title = EXCLUDED.title,
+           summary = COALESCE(EXCLUDED.summary, market_data.provider_incidents.summary),
+           error_class = EXCLUDED.error_class,
+           error_code = COALESCE(EXCLUDED.error_code, market_data.provider_incidents.error_code),
+           occurrence_count = market_data.provider_incidents.occurrence_count + 1,
+           last_seen_at = NOW(),
+           last_error_trail_id = COALESCE(EXCLUDED.last_error_trail_id, market_data.provider_incidents.last_error_trail_id),
+           linked_operation_id = COALESCE(EXCLUDED.linked_operation_id, market_data.provider_incidents.linked_operation_id),
+           metadata = COALESCE(market_data.provider_incidents.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
+           acknowledged_at = NULL,
+           acknowledged_by_user_id = NULL,
+           resolved_at = NULL,
+           resolved_by_user_id = NULL,
+           ignored_at = NULL,
+           ignored_by_user_id = NULL,
+           updated_at = NOW()
+       RETURNING id, provider_id, market_code, incident_key, status, severity, title, summary,
+                 error_class, error_code, occurrence_count, first_seen_at, last_seen_at,
+                 last_error_trail_id, linked_operation_id, metadata,
+                 acknowledged_at, acknowledged_by_user_id, resolved_at, resolved_by_user_id,
+                 ignored_at, ignored_by_user_id, created_at, updated_at`,
+      [
+        input.providerId,
+        input.marketCode ?? null,
+        input.incidentKey,
+        input.severity ?? "warning",
+        input.title,
+        input.summary ?? null,
+        input.errorClass,
+        input.errorCode ?? null,
+        input.lastErrorTrailId ?? null,
+        input.linkedOperationId ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapProviderIncidentRow(result.rows[0]!);
+  }
+
+  async listProviderIncidents(options: ListProviderIncidentsOptions): Promise<ListProviderIncidentsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (options.providerId) {
+      where.push(`provider_id = $${i++}`);
+      params.push(options.providerId);
+    }
+    if (options.marketCode) {
+      where.push(`market_code = $${i++}`);
+      params.push(options.marketCode);
+    }
+    if (options.status) {
+      where.push(`status = $${i++}`);
+      params.push(options.status);
+    }
+    if (options.search?.trim()) {
+      where.push(`(title ILIKE $${i} OR COALESCE(summary, '') ILIKE $${i} OR COALESCE(error_code, '') ILIKE $${i} OR incident_key ILIKE $${i})`);
+      params.push(`%${options.search.trim()}%`);
+      i++;
+    }
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_incidents
+         ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query<ProviderIncidentRowSql>(
+      `SELECT id, provider_id, market_code, incident_key, status, severity, title, summary,
+              error_class, error_code, occurrence_count, first_seen_at, last_seen_at,
+              last_error_trail_id, linked_operation_id, metadata,
+              acknowledged_at, acknowledged_by_user_id, resolved_at, resolved_by_user_id,
+              ignored_at, ignored_by_user_id, created_at, updated_at
+         FROM market_data.provider_incidents
+         ${whereClause}
+         ORDER BY last_seen_at DESC
+         LIMIT $${i++}
+         OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapProviderIncidentRow),
       total: parseInt(countResult.rows[0]?.count ?? "0", 10),
       page,
       limit,
@@ -12994,6 +13099,33 @@ interface ProviderUnresolvedItemRowSql {
   updated_at: string;
 }
 
+interface ProviderIncidentRowSql {
+  id: string;
+  provider_id: string;
+  market_code: string | null;
+  incident_key: string;
+  status: string;
+  severity: string;
+  title: string;
+  summary: string | null;
+  error_class: string;
+  error_code: string | null;
+  occurrence_count: number | string;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_error_trail_id: string | number | null;
+  linked_operation_id: string | null;
+  metadata: Record<string, unknown>;
+  acknowledged_at: string | null;
+  acknowledged_by_user_id: string | null;
+  resolved_at: string | null;
+  resolved_by_user_id: string | null;
+  ignored_at: string | null;
+  ignored_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface ProviderOperationRowSql {
   id: string;
   provider_id: string;
@@ -13123,6 +13255,39 @@ function mapProviderUnresolvedItemRow(row: ProviderUnresolvedItemRowSql): Provid
   };
 }
 
+function mapProviderIncidentRow(row: ProviderIncidentRowSql): ProviderIncidentRecord {
+  return {
+    id: row.id,
+    providerId: row.provider_id,
+    marketCode: row.market_code as ProviderIncidentRecord["marketCode"],
+    incidentKey: row.incident_key,
+    status: row.status as ProviderIncidentRecord["status"],
+    severity: row.severity as ProviderIncidentRecord["severity"],
+    title: row.title,
+    summary: row.summary,
+    errorClass: row.error_class as ProviderErrorClass,
+    errorCode: row.error_code,
+    occurrenceCount: Number(row.occurrence_count),
+    firstSeenAt: new Date(row.first_seen_at).toISOString(),
+    lastSeenAt: new Date(row.last_seen_at).toISOString(),
+    lastErrorTrailId: row.last_error_trail_id == null
+      ? null
+      : typeof row.last_error_trail_id === "string"
+        ? parseInt(row.last_error_trail_id, 10)
+        : row.last_error_trail_id,
+    linkedOperationId: row.linked_operation_id,
+    metadata: row.metadata,
+    acknowledgedAt: row.acknowledged_at ? new Date(row.acknowledged_at).toISOString() : null,
+    acknowledgedByUserId: row.acknowledged_by_user_id,
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : null,
+    resolvedByUserId: row.resolved_by_user_id,
+    ignoredAt: row.ignored_at ? new Date(row.ignored_at).toISOString() : null,
+    ignoredByUserId: row.ignored_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 function inferProviderMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode {
   const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
   if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
@@ -13149,6 +13314,44 @@ function extractProviderUnresolvedSymbol(context: Record<string, unknown> | null
     || (errorMessage?.match(/:\s*([A-Z0-9][A-Z0-9.-]{1,20})\s*$/i)?.[1] ?? null);
   const symbol = raw?.trim().toUpperCase();
   return symbol && symbol.length > 0 ? symbol : null;
+}
+
+function inferProviderIncidentMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode | null {
+  const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+    return contextMarket;
+  }
+  if (providerId.endsWith("-tw")) return "TW";
+  if (providerId.endsWith("-us")) return "US";
+  if (providerId.endsWith("-kr")) return "KR";
+  if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
+  return null;
+}
+
+function providerIncidentInputFromErrorTrail(row: ProviderErrorTrailRow): UpsertProviderIncidentInput {
+  const marketCode = inferProviderIncidentMarketCode(row.providerId, row.context);
+  const errorCode = inferProviderErrorCode(row.errorClass, row.errorMessage);
+  const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
+  const incidentKey = [
+    row.errorClass,
+    errorCode,
+    marketCode ?? "GLOBAL",
+    sourceSymbol ?? "provider",
+  ].join(":");
+  return {
+    providerId: row.providerId,
+    marketCode,
+    incidentKey,
+    severity: row.errorClass === "rate_limit" ? "warning" : "critical",
+    title: sourceSymbol
+      ? `${row.providerId} unresolved ${sourceSymbol}`
+      : `${row.providerId} ${errorCode.replace(/_/g, " ")}`,
+    summary: row.errorMessage,
+    errorClass: row.errorClass,
+    errorCode,
+    lastErrorTrailId: row.id,
+    metadata: { context: row.context, sourceSymbol },
+  };
 }
 
 function mapProviderOperationRow(row: ProviderOperationRowSql): ProviderOperationRecord {

@@ -109,6 +109,8 @@ import type {
   CreateProviderOperationLogInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
+  ListProviderIncidentsOptions,
+  ListProviderIncidentsResult,
   ListProviderOperationLogsOptions,
   ListProviderOperationLogsResult,
   ListProviderOperationOutcomesOptions,
@@ -121,6 +123,7 @@ import type {
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthUpsert,
+  ProviderIncidentRecord,
   ProviderOperationLogRecord,
   ProviderOperationOutcomeRecord,
   ProviderOperationOutcomeState,
@@ -139,6 +142,7 @@ import type {
   SetShareCapabilitiesInput,
   UpdateProviderOperationInput,
   UpsertProviderOperationOutcomeInput,
+  UpsertProviderIncidentInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
   UserRole,
@@ -377,6 +381,44 @@ function extractProviderUnresolvedSymbol(context: Record<string, unknown> | null
   return symbol && symbol.length > 0 ? symbol : null;
 }
 
+function inferProviderIncidentMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode | null {
+  const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+    return contextMarket;
+  }
+  if (providerId.endsWith("-tw")) return "TW";
+  if (providerId.endsWith("-us")) return "US";
+  if (providerId.endsWith("-kr")) return "KR";
+  if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
+  return null;
+}
+
+function providerIncidentInputFromErrorTrail(row: ProviderErrorTrailRow): UpsertProviderIncidentInput {
+  const marketCode = inferProviderIncidentMarketCode(row.providerId, row.context);
+  const errorCode = inferProviderErrorCode(row.errorClass, row.errorMessage);
+  const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
+  const incidentKey = [
+    row.errorClass,
+    errorCode,
+    marketCode ?? "GLOBAL",
+    sourceSymbol ?? "provider",
+  ].join(":");
+  return {
+    providerId: row.providerId,
+    marketCode,
+    incidentKey,
+    severity: row.errorClass === "rate_limit" ? "warning" : "critical",
+    title: sourceSymbol
+      ? `${row.providerId} unresolved ${sourceSymbol}`
+      : `${row.providerId} ${errorCode.replace(/_/g, " ")}`,
+    summary: row.errorMessage,
+    errorClass: row.errorClass,
+    errorCode,
+    lastErrorTrailId: row.id,
+    metadata: { context: row.context, sourceSymbol },
+  };
+}
+
 function providerUnresolvedItemKey(
   providerId: string,
   marketCode: MarketCode,
@@ -384,6 +426,10 @@ function providerUnresolvedItemKey(
   sourceSymbol: string,
 ): string {
   return `${providerId}:${marketCode}:${errorCode}:${sourceSymbol.toUpperCase()}`;
+}
+
+function providerIncidentKey(providerId: string, incidentKey: string): string {
+  return `${providerId}:${incidentKey}`;
 }
 
 function providerOperationOutcomeKey(operationId: string, action: string, sourceSymbol: string): string {
@@ -536,6 +582,7 @@ export class MemoryPersistence implements Persistence {
   /** KZO-177: provider error trail rows; auto-incrementing id stamped at insert. */
   private readonly providerErrorTrail: ProviderErrorTrailRow[] = [];
   private _providerErrorTrailNextId = 1;
+  private readonly providerIncidents = new Map<string, ProviderIncidentRecord>();
   private readonly providerUnresolvedItems = new Map<string, ProviderUnresolvedItemRecord>();
   private readonly providerOperations = new Map<string, ProviderOperationRecord>();
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
@@ -5327,6 +5374,7 @@ export class MemoryPersistence implements Persistence {
       context: input.context ?? null,
     };
     this.providerErrorTrail.push(row);
+    await this.upsertProviderIncident(providerIncidentInputFromErrorTrail(row));
     if (row.errorClass !== "rate_limit") {
       const sourceSymbol = extractProviderUnresolvedSymbol(row.context, row.errorMessage);
       if (sourceSymbol) {
@@ -5433,6 +5481,90 @@ export class MemoryPersistence implements Persistence {
     const offset = (page - 1) * limit;
     return {
       items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async upsertProviderIncident(input: UpsertProviderIncidentInput): Promise<ProviderIncidentRecord> {
+    const now = new Date().toISOString();
+    const key = providerIncidentKey(input.providerId, input.incidentKey);
+    const existing = this.providerIncidents.get(key);
+    const metadata = input.metadata ?? {};
+    const row: ProviderIncidentRecord = existing
+      ? {
+          ...existing,
+          marketCode: input.marketCode ?? existing.marketCode,
+          status: "open",
+          severity: input.severity ?? existing.severity,
+          title: input.title,
+          summary: input.summary ?? existing.summary,
+          errorClass: input.errorClass,
+          errorCode: input.errorCode ?? existing.errorCode,
+          occurrenceCount: existing.occurrenceCount + 1,
+          lastSeenAt: now,
+          lastErrorTrailId: input.lastErrorTrailId ?? existing.lastErrorTrailId,
+          linkedOperationId: input.linkedOperationId ?? existing.linkedOperationId,
+          metadata: { ...existing.metadata, ...metadata },
+          acknowledgedAt: null,
+          acknowledgedByUserId: null,
+          resolvedAt: null,
+          resolvedByUserId: null,
+          ignoredAt: null,
+          ignoredByUserId: null,
+          updatedAt: now,
+        }
+      : {
+          id: randomUUID(),
+          providerId: input.providerId,
+          marketCode: input.marketCode ?? null,
+          incidentKey: input.incidentKey,
+          status: "open",
+          severity: input.severity ?? "warning",
+          title: input.title,
+          summary: input.summary ?? null,
+          errorClass: input.errorClass,
+          errorCode: input.errorCode ?? null,
+          occurrenceCount: 1,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          lastErrorTrailId: input.lastErrorTrailId ?? null,
+          linkedOperationId: input.linkedOperationId ?? null,
+          metadata,
+          acknowledgedAt: null,
+          acknowledgedByUserId: null,
+          resolvedAt: null,
+          resolvedByUserId: null,
+          ignoredAt: null,
+          ignoredByUserId: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+    this.providerIncidents.set(key, row);
+    return { ...row, metadata: { ...row.metadata } };
+  }
+
+  async listProviderIncidents(options: ListProviderIncidentsOptions): Promise<ListProviderIncidentsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const marketCode = options.marketCode?.toUpperCase();
+    const search = options.search?.trim().toLowerCase();
+    const filtered = [...this.providerIncidents.values()]
+      .filter((row) => {
+        if (options.providerId && row.providerId !== options.providerId) return false;
+        if (marketCode && row.marketCode !== marketCode) return false;
+        if (options.status && row.status !== options.status) return false;
+        if (search) {
+          const haystack = `${row.title} ${row.summary ?? ""} ${row.errorCode ?? ""} ${row.incidentKey}`.toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row, metadata: { ...row.metadata } })),
       total: filtered.length,
       page,
       limit,

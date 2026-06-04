@@ -12,6 +12,8 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
   ProviderFixerDashboardSummaryResponse,
+  ProviderIncidentDto,
+  ProviderIncidentsResponse,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomesResponse,
   ProviderUnresolvedItemDto,
@@ -1341,6 +1343,59 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         resolvedAt: item.resolvedAt,
         resolvedByOperationId: item.resolvedByOperationId,
         updatedAt: item.updatedAt,
+      })),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
+  });
+
+  app.get("/providers/:providerId/incidents", async (req): Promise<ProviderIncidentsResponse> => {
+    requireAdminRole(req);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const query = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        status: z.enum(["open", "acknowledged", "resolved", "ignored"]).optional(),
+        search: z.string().trim().max(120).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const result = await app.persistence.listProviderIncidents({
+      providerId,
+      marketCode: query.marketCode,
+      status: query.status,
+      search: query.search,
+      page: query.page,
+      limit: query.limit,
+    });
+    return {
+      items: result.items.map((incident): ProviderIncidentDto => ({
+        id: incident.id,
+        providerId: incident.providerId,
+        marketCode: incident.marketCode as ProviderIncidentDto["marketCode"],
+        incidentKey: incident.incidentKey,
+        status: incident.status,
+        severity: incident.severity,
+        title: incident.title,
+        summary: incident.summary,
+        errorClass: incident.errorClass,
+        errorCode: incident.errorCode,
+        occurrenceCount: incident.occurrenceCount,
+        firstSeenAt: incident.firstSeenAt,
+        lastSeenAt: incident.lastSeenAt,
+        lastErrorTrailId: incident.lastErrorTrailId,
+        linkedOperationId: incident.linkedOperationId,
+        metadata: incident.metadata,
+        acknowledgedAt: incident.acknowledgedAt,
+        acknowledgedByUserId: incident.acknowledgedByUserId,
+        resolvedAt: incident.resolvedAt,
+        resolvedByUserId: incident.resolvedByUserId,
+        ignoredAt: incident.ignoredAt,
+        ignoredByUserId: incident.ignoredByUserId,
+        createdAt: incident.createdAt,
+        updatedAt: incident.updatedAt,
       })),
       total: result.total,
       page: result.page,
