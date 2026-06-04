@@ -153,7 +153,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added Admin Settings provider-operation budget caps for FinMind, Twelve Data, Yahoo AU/KR, Frankfurter, and ASX GICS CSV. API bounds are deployment-aware, editable values must be >0 and below the configured provider ceiling, and runtime provider limiters read refreshed app-config budgets dynamically.
 - 2026-06-04: Added durable `provider_incidents`, provider-scoped incident list API, error-trail-to-incident normalization, Incidents tab table, and incident lifecycle actions (`open`, `acknowledged`, `resolved`, `ignored`) with admin audit metadata and SSE invalidation.
 - 2026-06-04: Added provider-scoped durable mappings API plus Mappings tab data wiring so verified KR provider-symbol bindings are inspectable outside operation previews.
-- Remaining high-risk work is still backend-heavy: full provider-scoped APIs for activity/purge, background operation engine, deeper KR resolver binding/provider consult path, provider settings, purge preview, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added provider-scoped Activity API and timeline wiring composed from incidents, operations, logs, unresolved rows, and mappings.
+- Remaining high-risk work is still backend-heavy: provider-scoped purge preview/execute, background operation engine, deeper KR resolver binding/provider consult path, provider settings, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [ ] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
