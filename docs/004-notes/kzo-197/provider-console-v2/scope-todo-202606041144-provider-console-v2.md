@@ -7,7 +7,7 @@ required_reading:
   - docs/004-notes/kzo-197/scope-todo-202605091500-locked.md
   - docs/004-notes/kzo-197/scope-todo-202606031320-provider-fixer-kr-binding.md
   - docs/004-notes/kzo-197/provider-console-v2/mockups/provider-console-v2-mockup.html
-  - docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/provider-console-v2-locked-mockup.html
+  - docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/provider-console-v2-option-3-mockup.html
 superseded_by: null
 ---
 
@@ -120,27 +120,29 @@ The comprehensive mockup set is in `mockups/screenshots/`.
 - `10-mobile-unresolved.png` - mobile provider selector and unresolved cards.
 - `11-mobile-dangerous-preview.png` - mobile destructive preview sheet.
 
-The current locked visual version is preserved separately in `mockups/version-2/screenshots/`.
+The current locked Option 3 visual version is preserved separately in `mockups/version-2/screenshots/`.
 
 - `01-provider-console-overview-desktop.png` - provider rail, health overview, notification-aware refresh.
-- `02-provider-tabs-capabilities-desktop.png` - provider-owned tabs/actions and disabled capability reasons.
-- `03-provider-fixer-coverage-desktop.png` - provider-specific fixer coverage across Yahoo, Twelve Data, FinMind, Frankfurter, and ASX GICS CSV.
-- `04-unresolved-instruments-desktop.png` - durable unresolved table, filters, select-all matching, disabled rerun reason.
-- `05-fixer-normal-actions-desktop.png` - provider-owned fixer with Renew, Repair, Rerun semantics.
-- `06-dangerous-preview-desktop.png` - typed-phrase preview for bulk repair.
-- `07-operations-running-sse-desktop.png` - running operations with SSE status and persisted counters.
-- `08-operations-queued-desktop.png` - queued operation phase, promotion rules, and cancel-only controls.
-- `09-operation-outcomes-desktop.png` - per-item outcomes and retryable failures.
-- `10-incidents-activity-logs-desktop.png` - useful incident, activity, and raw log surfaces.
-- `11-logs-purge-preview-desktop.png` - destructive purge preview and durable-record boundaries.
-- `12-kr-mappings-desktop.png` - durable KR resolver mappings and evidence.
-- `13-settings-provider-budgets-desktop.png` - provider-operation budgets and shared caps.
-- `14-settings-retention-desktop.png` - retention windows and purge limits.
-- `15-mobile-provider-overview.png` - mobile provider overview and bottom action bar.
-- `16-mobile-provider-switcher.png` - mobile provider list with statuses, counts, and provider-owned fixer access.
-- `17-mobile-unresolved.png` - mobile unresolved cards.
-- `18-mobile-operation-progress.png` - mobile operation progress.
-- `19-mobile-dangerous-preview.png` - mobile destructive preview sheet.
+- `02-unresolved-instruments-desktop.png` - durable unresolved table, filters, row actions, and disabled Rerun reason.
+- `03-select-all-matching-desktop.png` - select-all-matching across pages with clear bulk scope.
+- `04-provider-fixer-desktop.png` - provider-owned Fixer tab with Renew, Repair, Rerun semantics.
+- `05-ambiguous-candidate-selection-desktop.png` - KR candidate selection for ambiguous mappings.
+- `06-dangerous-repair-preview-desktop.png` - dangerous Repair preview with snapshot guard and typed phrase.
+- `07-operations-running-desktop.png` - running operations with SSE state, progress, queue, and budget.
+- `08-operation-outcomes-desktop.png` - item-level operation outcomes and retryable failures.
+- `09-incidents-desktop.png` - incident lifecycle view with open, acknowledged, and resolved states.
+- `10-activity-logs-purge-desktop.png` - useful activity, raw logs, and typed-phrase purge preview.
+- `11-kr-mappings-desktop.png` - durable Twelve Data identity to Yahoo Finance KR binding evidence.
+- `12-provider-operations-settings-desktop.png` - Admin Settings Provider operations budgets, guardrails, thresholds, and retention.
+- `13-finmind-shared-budget-desktop.png` - FinMind provider console using shared TW/US budget and capability-driven actions.
+- `14-twelve-data-capability-evidence-desktop.png` - Twelve Data plan/capability evidence and explicit fallback guidance.
+- `15-yahoo-finance-au-rerun-desktop.png` - Yahoo Finance AU provider-owned rerun/warm-up semantics and audit shape.
+- `16-twelve-data-au-catalog-desktop.png` - Twelve Data AU catalog-only capability and disabled backfill affordance.
+- `17-asx-gics-csv-enrichment-desktop.png` - ASX GICS CSV enrichment provider with repair, preview delta, and unsupported rerun.
+- `18-frankfurter-fx-refresh-desktop.png` - Frankfurter FX provider with refresh/rerun semantics and no resolver mapping.
+- `19-mobile-unresolved.png` - mobile unresolved cards.
+- `20-mobile-fixer-action-sheet.png` - mobile small Repair guardrail action sheet.
+- `21-mobile-dangerous-preview.png` - mobile destructive preview sheet.
 
 ## Implementation Steps
 
@@ -188,6 +190,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Made cancelled Repair operations terminal in the background runner; if a repair row finishes after Cancel, completed item work is preserved but the operation phase stays `cancelled` and backfill enqueue/final completion are skipped.
 - 2026-06-04: Added durable provider-operation `queued` phase with migration support. Renew, Repair execute, Rerun, Reverify, and Revert now queue behind active same-provider/market work instead of failing with an active-operation 409, and terminal completion/cancel promotes the next queued operation.
 - 2026-06-04: Expanded locked version-2 mockups to 19 screenshots, adding provider-fixer coverage across supported providers, queued-operation behavior, and mobile provider switcher states.
+- 2026-06-05: Replaced locked version-2 mockups with the final Option 3 review set: 21 screenshots covering provider-owned tabs, select-all-matching, ambiguous KR candidates, dangerous repair preview, SSE progress, outcomes, incidents, logs purge, KR mappings, provider operations settings, cross-provider examples, and mobile action sheets.
 - 2026-06-04: Added operation-budget pacing for budget-consuming verification work. Repair, Renew, and Reverify now persist operation budget windows, pause with `paused_rate_limit` when the admin cap is exhausted, and preserve budget metadata through interrupted operations.
 - 2026-06-04: Routed unresolved lifecycle writes (`Ignore`, `Unsupported`, `Reopen`) through durable provider operations with item outcomes, logs, audit metadata, and SSE progress/phase events.
 - 2026-06-04: Completed purge operation evidence by writing a durable purge outcome, post-purge completion log, and progress event after deleting raw provider logs so the purge operation remains inspectable.

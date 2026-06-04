@@ -8,7 +8,7 @@ Version 2 retires the standalone Provider Fixer concept before rollout and repla
 - `mockups/provider-console-v2-mockup.html` - deterministic HTML mockup used for screenshots.
 - `mockups/render-provider-console-v2.mjs` - Playwright renderer for all v2 screenshots.
 - `mockups/screenshots/` - rendered desktop and mobile screenshots.
-- `mockups/version-2/` - current locked-in mockup version with expanded desktop/mobile screenshots.
+- `mockups/version-2/` - current locked-in Option 3 mockup version with expanded desktop/mobile screenshots.
 
 ## Mockup Screenshots
 
@@ -35,27 +35,29 @@ node docs/004-notes/kzo-197/provider-console-v2/mockups/render-provider-console-
 Current review set: `mockups/version-2/screenshots/`.
 
 - `01-provider-console-overview-desktop.png`
-- `02-provider-tabs-capabilities-desktop.png`
-- `03-provider-fixer-coverage-desktop.png`
-- `04-unresolved-instruments-desktop.png`
-- `05-fixer-normal-actions-desktop.png`
-- `06-dangerous-preview-desktop.png`
-- `07-operations-running-sse-desktop.png`
-- `08-operations-queued-desktop.png`
-- `09-operation-outcomes-desktop.png`
-- `10-incidents-activity-logs-desktop.png`
-- `11-logs-purge-preview-desktop.png`
-- `12-kr-mappings-desktop.png`
-- `13-settings-provider-budgets-desktop.png`
-- `14-settings-retention-desktop.png`
-- `15-mobile-provider-overview.png`
-- `16-mobile-provider-switcher.png`
-- `17-mobile-unresolved.png`
-- `18-mobile-operation-progress.png`
-- `19-mobile-dangerous-preview.png`
+- `02-unresolved-instruments-desktop.png`
+- `03-select-all-matching-desktop.png`
+- `04-provider-fixer-desktop.png`
+- `05-ambiguous-candidate-selection-desktop.png`
+- `06-dangerous-repair-preview-desktop.png`
+- `07-operations-running-desktop.png`
+- `08-operation-outcomes-desktop.png`
+- `09-incidents-desktop.png`
+- `10-activity-logs-purge-desktop.png`
+- `11-kr-mappings-desktop.png`
+- `12-provider-operations-settings-desktop.png`
+- `13-finmind-shared-budget-desktop.png`
+- `14-twelve-data-capability-evidence-desktop.png`
+- `15-yahoo-finance-au-rerun-desktop.png`
+- `16-twelve-data-au-catalog-desktop.png`
+- `17-asx-gics-csv-enrichment-desktop.png`
+- `18-frankfurter-fx-refresh-desktop.png`
+- `19-mobile-unresolved.png`
+- `20-mobile-fixer-action-sheet.png`
+- `21-mobile-dangerous-preview.png`
 
 Regenerate the locked version:
 
 ```bash
-node docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/render-provider-console-v2-locked.mjs
+node docs/004-notes/kzo-197/provider-console-v2/mockups/version-2/render-provider-console-v2-option-3.mjs
 ```
