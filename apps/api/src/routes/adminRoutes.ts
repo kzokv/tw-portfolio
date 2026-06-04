@@ -988,6 +988,73 @@ async function assertNoOtherProviderFixerExecution(
   }
 }
 
+async function pauseStaleProviderOperations(
+  app: FastifyInstance,
+  staleHeartbeatMinutes: number,
+  context?: { actorUserId: string; ipAddress?: string },
+): Promise<number> {
+  const running = await app.persistence.listProviderOperations({
+    phases: ["running"],
+    page: 1,
+    limit: 500,
+  });
+  const nowMs = Date.now();
+  const staleAfterMs = Math.max(1, staleHeartbeatMinutes) * 60_000;
+  let paused = 0;
+  for (const operation of running.items) {
+    const heartbeatAt = new Date(operation.updatedAt).getTime();
+    if (!Number.isFinite(heartbeatAt) || nowMs - heartbeatAt <= staleAfterMs) continue;
+    const staleDetectedAt = new Date(nowMs).toISOString();
+    const updated = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "paused",
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        pauseReason: "stale_operation",
+        staleDetectedAt,
+        staleHeartbeatMinutes,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "paused",
+      level: "warning",
+      message: `auto_paused_stale_operation provider=${operation.providerId} market=${operation.marketCode} stale_minutes=${staleHeartbeatMinutes}`,
+      context: {
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        previousUpdatedAt: operation.updatedAt,
+        staleDetectedAt,
+        staleHeartbeatMinutes,
+      },
+    });
+    if (context) {
+      await app.persistence.appendAuditLog({
+        actorUserId: context.actorUserId,
+        action: "provider_fixer_operation",
+        ipAddress: context.ipAddress,
+        metadata: {
+          operationId: operation.id,
+          action: "auto_pause_stale",
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          previousUpdatedAt: operation.updatedAt,
+          staleDetectedAt,
+          staleHeartbeatMinutes,
+        },
+      });
+      await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+        operationId: operation.id,
+        providerId: operation.providerId,
+        phase: updated.phase,
+        pauseReason: "stale_operation",
+      });
+    }
+    paused += 1;
+  }
+  return paused;
+}
+
 async function providerFixerDiagnostics(
   app: FastifyInstance,
   guardrails: ProviderFixerDashboardGuardrailSettingsDto,
@@ -1252,7 +1319,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
 
   async function loadProviderOperationSummary(req: FastifyRequest): Promise<ProviderFixerDashboardSummaryResponse> {
     requireAdminRole(req);
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const config = await loadAppConfigDto(app);
+    await pauseStaleProviderOperations(app, config.effectiveProviderOperationStaleHeartbeatMinutes, { actorUserId: sessionUserId, ipAddress });
+    const guardrails = providerFixerGuardrailsFromConfig(config);
     return providerFixerSummary(app, guardrails);
   }
 
@@ -1999,6 +2069,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       })
       .parse(req.query ?? {});
     const providerId = providerIdOverride ?? query.providerId;
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const config = await loadAppConfigDto(app);
+    await pauseStaleProviderOperations(app, config.effectiveProviderOperationStaleHeartbeatMinutes, { actorUserId: sessionUserId, ipAddress });
     const result = await app.persistence.listProviderOperations({
       providerId,
       marketCode: query.marketCode,
@@ -2006,7 +2079,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       page: query.page,
       limit: query.limit,
     });
-    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const guardrails = providerFixerGuardrailsFromConfig(config);
     const operations = result.items.map((operation) => providerFixerOperationToDto(operation, guardrails));
     return {
       stagedOperation:
