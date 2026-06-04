@@ -1,6 +1,6 @@
 # Managed Postgres Integration Harness
 
-When `npm run test:integration:full:host` fails before assertions with `connect ETIMEDOUT`, `Connection terminated due to connection timeout`, or Redis connect stalls, triage the managed test harness before changing product behavior.
+When `npm run test:integration:full:host` fails before assertions with `connect ETIMEDOUT`, `Connection terminated due to connection timeout`, `timeout exceeded when trying to connect`, or Redis connect stalls, triage the managed test harness before changing product behavior.
 
 ## The Rule
 
@@ -14,7 +14,7 @@ For host-mode managed Postgres/Redis integration runs:
 
 ## Why
 
-KZO-197 provider-console validation repeatedly failed `test:integration:full:host` with `connect ETIMEDOUT 192.168.64.1:15432` across unrelated old integration tests. The fix was harness-level: host-port polling, bounded Postgres/Redis connection timeouts, lazy Redis init for Postgres persistence tests, single-worker managed integration runs, and retrying transient pool acquisition. After that, the same suite passed locally with 79 files, 776 passing tests, and 1 skipped test.
+KZO-197 provider-console validation repeatedly failed `test:integration:full:host` with `connect ETIMEDOUT 192.168.64.1:15432` and `timeout exceeded when trying to connect` across unrelated old integration tests. The fix was harness-level: host-port polling, bounded Postgres/Redis connection timeouts, lazy Redis init for Postgres persistence tests, single-worker managed integration runs, and retrying transient pool acquisition. After that, the same suite passed locally with 79 files, 779 passing tests, and 1 skipped test.
 
 ## How To Apply
 
