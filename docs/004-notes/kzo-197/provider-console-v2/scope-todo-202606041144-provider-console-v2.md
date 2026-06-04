@@ -193,7 +193,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Completed purge operation evidence by writing a durable purge outcome, post-purge completion log, and progress event after deleting raw provider logs so the purge operation remains inspectable.
 - 2026-06-04: Expanded OAuth E2E provider-console coverage for unresolved filters/select-all, guarded repair preview, operations progress surfaces, purge preview guardrails, and mobile provider selection.
 - 2026-06-04: Focused validation passed for provider-fixer API integration tests, Admin Providers web unit tests, targeted provider-console OAuth E2E cases, linted touched files, and web/API package typechecks. Full repo gate remains pending.
-- Remaining high-risk work is now final verification-heavy: full gate coverage, `/si-review`, `/si-promote`, push, CI, and review follow-up.
+- 2026-06-04: Full-gate progress: `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run test --prefix apps/api`, `npm run test:e2e:bypass:mem --prefix apps/web`, `npm run test:e2e:oauth:mem --prefix apps/web`, and `npm run test:http --prefix apps/api` passed locally. `npm run test:integration:full:host` is blocked in this VM shell by intermittent `connect ETIMEDOUT 192.168.64.1:15432` host-to-Docker Postgres connectivity across unrelated old integration tests; the CI stack was cleaned after each failed attempt.
+- Remaining high-risk work is now final verification-heavy: unblock or obtain a clean `test:integration:full:host` run, `/si-review`, `/si-promote`, push, CI, and review follow-up.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [x] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
