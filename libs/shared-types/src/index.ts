@@ -2005,6 +2005,43 @@ export interface ProviderUnresolvedItemsResponse {
   limit: number;
 }
 
+export type ProviderIncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
+export type ProviderIncidentSeverity = "info" | "warning" | "critical";
+
+export interface ProviderIncidentDto {
+  id: string;
+  providerId: string;
+  marketCode: MarketCode | null;
+  incidentKey: string;
+  status: ProviderIncidentStatus;
+  severity: ProviderIncidentSeverity;
+  title: string;
+  summary: string | null;
+  errorClass: ProviderErrorClass;
+  errorCode: string | null;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastErrorTrailId: number | null;
+  linkedOperationId: string | null;
+  metadata: Record<string, unknown>;
+  acknowledgedAt: string | null;
+  acknowledgedByUserId: string | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  ignoredAt: string | null;
+  ignoredByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderIncidentsResponse {
+  items: ProviderIncidentDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export type ProviderOperationOutcomeState =
   | "pending"
   | "running"

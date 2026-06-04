@@ -138,6 +138,25 @@ describe("Provider Fixer admin routes", () => {
         }),
       ],
     });
+    const incidentsBeforeExecute = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/incidents?status=open&page=1&limit=10",
+      headers,
+    });
+    expect(incidentsBeforeExecute.statusCode).toBe(200);
+    expect(incidentsBeforeExecute.json()).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          status: "open",
+          severity: "critical",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          occurrenceCount: 1,
+        }),
+      ],
+    });
     const bossSend = vi.fn().mockResolvedValue("job-005930-quote-first");
     app.boss = { send: bossSend } as never;
 

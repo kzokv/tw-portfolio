@@ -8,6 +8,7 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatusDto,
+  ProviderIncidentDto,
   ProviderOperationOutcomeDto,
   ProviderOperationOutcomeSummaryDto,
   ProviderUnresolvedItemDto,
@@ -212,6 +213,37 @@ function buildOperationOutcomeSummary(): ProviderOperationOutcomeSummaryDto {
   };
 }
 
+function buildIncidents(): ProviderIncidentDto[] {
+  return [
+    {
+      id: "incident-yahoo-kr-005930",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      incidentKey: "other:yahoo_finance_kr_symbol_unresolved:KR:005930",
+      status: "open",
+      severity: "critical",
+      title: "yahoo-finance-kr unresolved 005930",
+      summary: "yahoo_finance_kr_symbol_unresolved: 005930",
+      errorClass: "other",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      occurrenceCount: 2,
+      firstSeenAt: "2026-06-02T14:40:00.000Z",
+      lastSeenAt: "2026-06-02T14:42:00.000Z",
+      lastErrorTrailId: 1,
+      linkedOperationId: null,
+      metadata: { sourceSymbol: "005930" },
+      acknowledgedAt: null,
+      acknowledgedByUserId: null,
+      resolvedAt: null,
+      resolvedByUserId: null,
+      ignoredAt: null,
+      ignoredByUserId: null,
+      createdAt: "2026-06-02T14:40:00.000Z",
+      updatedAt: "2026-06-02T14:42:00.000Z",
+    },
+  ];
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -237,6 +269,10 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
         unresolvedPage={1}
         unresolvedLimit={10}
         unresolvedTotal={1}
+        incidents={buildIncidents()}
+        incidentsPage={1}
+        incidentsLimit={10}
+        incidentsTotal={1}
         stagedOperation={operations[0] ?? null}
         operations={operations}
         operationsPage={1}
