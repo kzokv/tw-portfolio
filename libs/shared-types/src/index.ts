@@ -1993,6 +1993,53 @@ export interface ProviderUnresolvedItemsResponse {
   limit: number;
 }
 
+export type ProviderOperationOutcomeState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "rate_limited"
+  | "cancelled";
+
+export interface ProviderOperationOutcomeDto {
+  operationId: string;
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  providerSymbol: string | null;
+  action: string;
+  state: ProviderOperationOutcomeState;
+  message: string | null;
+  errorCode: string | null;
+  jobId: string | null;
+  evidence: Record<string, unknown> | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ProviderOperationOutcomeSummaryDto {
+  total: number;
+  processed: number;
+  pending: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  rateLimited: number;
+  cancelled: number;
+  progressPercent: number;
+}
+
+export interface ProviderOperationOutcomesResponse {
+  items: ProviderOperationOutcomeDto[];
+  summary: ProviderOperationOutcomeSummaryDto;
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────
 
 export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";

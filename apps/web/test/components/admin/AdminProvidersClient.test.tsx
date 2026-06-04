@@ -8,6 +8,8 @@ import type {
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardSummaryDto,
   ProviderHealthStatusDto,
+  ProviderOperationOutcomeDto,
+  ProviderOperationOutcomeSummaryDto,
   ProviderUnresolvedItemDto,
 } from "@vakwen/shared-types";
 
@@ -174,6 +176,42 @@ function buildUnresolvedItems(): ProviderUnresolvedItemDto[] {
   ];
 }
 
+function buildOperationOutcomes(): ProviderOperationOutcomeDto[] {
+  return [
+    {
+      operationId: "OP-20260602-1842",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+      action: "repair_mapping",
+      state: "succeeded",
+      message: "Resolved 005930 to 005930.KS.",
+      errorCode: null,
+      jobId: null,
+      evidence: { candidateSymbol: "005930.KS" },
+      startedAt: "2026-06-02T14:42:11.000Z",
+      completedAt: "2026-06-02T14:42:12.000Z",
+      updatedAt: "2026-06-02T14:42:12.000Z",
+    },
+  ];
+}
+
+function buildOperationOutcomeSummary(): ProviderOperationOutcomeSummaryDto {
+  return {
+    total: 1,
+    processed: 1,
+    pending: 0,
+    running: 0,
+    succeeded: 1,
+    failed: 0,
+    skipped: 0,
+    rateLimited: 0,
+    cancelled: 0,
+    progressPercent: 100,
+  };
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -204,6 +242,11 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
         operationsPage={1}
         operationsLimit={10}
         operationsTotal={operations.length}
+        operationOutcomes={buildOperationOutcomes()}
+        operationOutcomeSummary={buildOperationOutcomeSummary()}
+        operationOutcomesPage={1}
+        operationOutcomesLimit={10}
+        operationOutcomesTotal={1}
         logs={buildLogs()}
         logsPage={1}
         logsLimit={10}
@@ -312,6 +355,14 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
       /reloading console state from the api/i,
     );
+  });
+
+  it("shows durable item outcomes in the Operations tab", () => {
+    renderClient(root, { initialTab: "operations" });
+
+    expect(document.body.textContent ?? "").toMatch(/operation item outcomes/i);
+    expect(document.body.textContent ?? "").toMatch(/repair mapping/i);
+    expect(document.body.textContent ?? "").toMatch(/resolved 005930 to 005930\.KS/i);
   });
 
   it("navigates provider tab changes through provider-scoped server data", () => {

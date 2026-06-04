@@ -1216,6 +1216,77 @@ export interface ListProviderOperationLogsResult {
   limit: number;
 }
 
+export type ProviderOperationOutcomeState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "rate_limited"
+  | "cancelled";
+
+export interface ProviderOperationOutcomeRecord {
+  operationId: string;
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  providerSymbol: string | null;
+  action: string;
+  state: ProviderOperationOutcomeState;
+  message: string | null;
+  errorCode: string | null;
+  jobId: string | null;
+  evidence: Record<string, unknown> | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertProviderOperationOutcomeInput {
+  operationId: string;
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  providerSymbol?: string | null;
+  action: string;
+  state: ProviderOperationOutcomeState;
+  message?: string | null;
+  errorCode?: string | null;
+  jobId?: string | null;
+  evidence?: Record<string, unknown> | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface ListProviderOperationOutcomesOptions {
+  operationId: string;
+  state?: ProviderOperationOutcomeState;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderOperationOutcomeSummary {
+  total: number;
+  processed: number;
+  pending: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  rateLimited: number;
+  cancelled: number;
+  progressPercent: number;
+}
+
+export interface ListProviderOperationOutcomesResult {
+  items: ProviderOperationOutcomeRecord[];
+  summary: ProviderOperationOutcomeSummary;
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ProviderResolutionMappingRecord {
   providerId: string;
   marketCode: MarketCode;
@@ -2408,6 +2479,10 @@ export interface Persistence {
   hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean>;
   createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord>;
   listProviderOperationLogs(options: ListProviderOperationLogsOptions): Promise<ListProviderOperationLogsResult>;
+  upsertProviderOperationOutcome(input: UpsertProviderOperationOutcomeInput): Promise<ProviderOperationOutcomeRecord>;
+  listProviderOperationOutcomes(
+    options: ListProviderOperationOutcomesOptions,
+  ): Promise<ListProviderOperationOutcomesResult>;
   getProviderResolutionMapping(
     providerId: string,
     marketCode: MarketCode,
