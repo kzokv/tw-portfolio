@@ -1105,6 +1105,66 @@ export interface ProviderErrorTrailInput {
   context?: Record<string, unknown> | null;
 }
 
+export type ProviderIncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
+export type ProviderIncidentSeverity = "info" | "warning" | "critical";
+
+export interface ProviderIncidentRecord {
+  id: string;
+  providerId: string;
+  marketCode: MarketCode | null;
+  incidentKey: string;
+  status: ProviderIncidentStatus;
+  severity: ProviderIncidentSeverity;
+  title: string;
+  summary: string | null;
+  errorClass: ProviderErrorClass;
+  errorCode: string | null;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastErrorTrailId: number | null;
+  linkedOperationId: string | null;
+  metadata: Record<string, unknown>;
+  acknowledgedAt: string | null;
+  acknowledgedByUserId: string | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  ignoredAt: string | null;
+  ignoredByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertProviderIncidentInput {
+  providerId: string;
+  marketCode?: MarketCode | null;
+  incidentKey: string;
+  severity?: ProviderIncidentSeverity;
+  title: string;
+  summary?: string | null;
+  errorClass: ProviderErrorClass;
+  errorCode?: string | null;
+  lastErrorTrailId?: number | null;
+  linkedOperationId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ListProviderIncidentsOptions {
+  providerId?: string;
+  marketCode?: MarketCode;
+  status?: ProviderIncidentStatus;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+export interface ListProviderIncidentsResult {
+  items: ProviderIncidentRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export type ProviderOperationPhase =
   | "diagnose"
   | "preview"
@@ -2477,6 +2537,8 @@ export interface Persistence {
   /** Count error trail rows where error_class = 'rate_limit' within the last 24 hours. */
   computeRateLimitCount24h(providerId: string): Promise<number>;
   listProviderErrorTrailPage(options: ListProviderErrorTrailOptions): Promise<ListProviderErrorTrailResult>;
+  upsertProviderIncident(input: UpsertProviderIncidentInput): Promise<ProviderIncidentRecord>;
+  listProviderIncidents(options: ListProviderIncidentsOptions): Promise<ListProviderIncidentsResult>;
   upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord>;
   listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
   resolveProviderUnresolvedItems(input: {
