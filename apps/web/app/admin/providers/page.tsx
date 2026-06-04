@@ -1,5 +1,6 @@
 import type {
   AdminProvidersResponse,
+  ProviderActivityResponse,
   ProviderFixerDashboardDiagnosticsResponse,
   ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationsResponse,
@@ -69,7 +70,7 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   ]);
 
   const pageLimit = summaryData.guardrails.uiPageSize;
-  const [diagnosticsData, unresolvedData, incidentsData, mappingsData, operationsData, logsData] = await Promise.all([
+  const [diagnosticsData, unresolvedData, incidentsData, mappingsData, activityData, operationsData, logsData] = await Promise.all([
     getJson<ProviderFixerDashboardDiagnosticsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/diagnostics?resolverMode=${encodeURIComponent(resolverMode)}&errorCode=${encodeURIComponent(errorCode)}`,
     ),
@@ -81,6 +82,9 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
     ),
     getJson<ProviderResolutionMappingsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/mappings?page=1&limit=${pageLimit}`,
+    ),
+    getJson<ProviderActivityResponse>(
+      `/admin/providers/${encodeURIComponent(providerId)}/activity?page=1&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardOperationsResponse>(
       `/admin/providers/${encodeURIComponent(providerId)}/operations?page=1&limit=${pageLimit}`,
@@ -139,6 +143,10 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       mappingsPage={mappingsData.page}
       mappingsLimit={mappingsData.limit}
       mappingsTotal={mappingsData.total}
+      activityItems={activityData.items}
+      activityPage={activityData.page}
+      activityLimit={activityData.limit}
+      activityTotal={activityData.total}
       stagedOperation={operationsData.stagedOperation}
       operations={operations}
       operationsPage={operationsData.page}

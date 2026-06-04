@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type {
+  ProviderActivityItemDto,
   ProviderFixerDashboardDiagnosticsDto,
   ProviderFixerDashboardGuardrailSettingsDto,
   ProviderFixerDashboardLogEntryDto,
@@ -262,6 +263,20 @@ function buildMappings(): ProviderResolutionMappingDto[] {
   ];
 }
 
+function buildActivityItems(): ProviderActivityItemDto[] {
+  return [
+    {
+      id: "mapping:yahoo-finance-kr:KR:005930",
+      providerId: "yahoo-finance-kr",
+      kind: "mapping",
+      occurredAt: "2026-06-02T14:42:12.000Z",
+      title: "Mapping verified",
+      detail: "005930 -> 005930.KS",
+      refId: "005930",
+    },
+  ];
+}
+
 function renderClient(root: Root, overrides: Partial<ComponentProps<typeof AdminProvidersClient>> = {}) {
   const operations = overrides.operations ?? [buildOperation()];
 
@@ -295,6 +310,10 @@ function renderClient(root: Root, overrides: Partial<ComponentProps<typeof Admin
         mappingsPage={1}
         mappingsLimit={10}
         mappingsTotal={1}
+        activityItems={buildActivityItems()}
+        activityPage={1}
+        activityLimit={10}
+        activityTotal={1}
         stagedOperation={operations[0] ?? null}
         operations={operations}
         operationsPage={1}
