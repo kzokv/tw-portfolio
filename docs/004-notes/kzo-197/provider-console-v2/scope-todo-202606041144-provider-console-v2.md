@@ -165,6 +165,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added stale running-operation sweep on provider console summary/list reads; stale rows are auto-paused with operation logs, audit metadata, SSE invalidation, and preserved progress metadata.
 - 2026-06-04: Added provider-scoped unresolved item lifecycle actions for Ignore, Unsupported, and Reopen with durable row state transitions, audit metadata, SSE invalidation, capability taxonomy, and row-level UI controls.
 - 2026-06-04: Replaced static unresolved filter placeholders with URL-backed provider-scoped state/search/page controls; pagination now re-queries the unresolved API instead of no-oping.
+- 2026-06-04: Added URL-backed operation selection so the Operations tab reloads durable outcomes for the selected operation; added selected-operation details with phase, progress, budget state, and links to logs/unresolved views.
 - Remaining high-risk work is still backend-heavy: background operation engine, full mobile action sheets, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.

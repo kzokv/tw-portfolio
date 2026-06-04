@@ -73,6 +73,7 @@ interface AdminProvidersClientProps {
   activityTotal: number;
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
+  initialOperationId?: string;
   operationsPage: number;
   operationsLimit: number;
   operationsTotal: number;
@@ -278,6 +279,7 @@ export function AdminProvidersClient({
   activityTotal,
   stagedOperation,
   operations,
+  initialOperationId,
   operationsPage,
   operationsLimit,
   operationsTotal,
@@ -299,7 +301,7 @@ export function AdminProvidersClient({
   const [activeTab, setActiveTab] = useState<ProviderConsoleTab>(() =>
     initialTab ?? (summary.criticalUnresolvedCount > 0 ? "unresolved" : "overview"),
   );
-  const [selectedOperationId, setSelectedOperationId] = useState(stagedOperation?.id ?? operations[0]?.id ?? "");
+  const [selectedOperationId, setSelectedOperationId] = useState(initialOperationId ?? stagedOperation?.id ?? operations[0]?.id ?? "");
   const [confirmationChecked, setConfirmationChecked] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -471,6 +473,16 @@ export function AdminProvidersClient({
     router.push(`/admin/providers?${params.toString()}`);
   }
 
+  function selectOperation(operationId: string): void {
+    setSelectedOperationId(operationId);
+    const params = new URLSearchParams({
+      providerId: selectedProviderId,
+      tab: "operations",
+      operationId,
+    });
+    router.push(`/admin/providers?${params.toString()}`);
+  }
+
   function previewLogPurge(): void {
     void runAction("purge-preview", async () => {
       const result = await postJson<ProviderLogPurgePreviewResponse>(
@@ -513,7 +525,12 @@ export function AdminProvidersClient({
       header: "Actions",
       render: (row) => (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={selectedOperation?.id === row.id ? "default" : "secondary"} onClick={() => setSelectedOperationId(row.id)}>
+          <Button
+            size="sm"
+            variant={selectedOperation?.id === row.id ? "default" : "secondary"}
+            onClick={() => selectOperation(row.id)}
+            data-testid={`provider-console-operation-select-${row.id}`}
+          >
             Select
           </Button>
           {row.canPause ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "pause")}>Pause</Button> : null}
@@ -709,6 +726,10 @@ export function AdminProvidersClient({
           <OperationsTab
             operations={providerOperations.length > 0 ? providerOperations : operations}
             operationColumns={operationColumns}
+            selectedOperation={selectedOperation}
+            selectedProviderId={selectedProviderId}
+            onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`)}
+            onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`)}
             progressOperation={progressOperation}
             outcomes={operationOutcomes.filter((outcome) => outcome.providerId === selectedProviderId)}
             outcomeSummary={operationOutcomeSummary}
@@ -1227,6 +1248,10 @@ function FixerTab({
 function OperationsTab({
   operations,
   operationColumns,
+  selectedOperation,
+  selectedProviderId,
+  onOpenLogs,
+  onOpenUnresolved,
   progressOperation,
   outcomes,
   outcomeSummary,
@@ -1239,6 +1264,10 @@ function OperationsTab({
 }: {
   operations: ProviderFixerDashboardOperationDto[];
   operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[];
+  selectedOperation: ProviderFixerDashboardOperationDto | null;
+  selectedProviderId: string;
+  onOpenLogs: (operationId: string) => void;
+  onOpenUnresolved: () => void;
   progressOperation: ProviderFixerDashboardOperationDto | null;
   outcomes: ProviderOperationOutcomeDto[];
   outcomeSummary: ProviderOperationOutcomeSummaryDto;
@@ -1285,6 +1314,36 @@ function OperationsTab({
           </>
         ) : (
           <p className="text-sm text-muted-foreground">No running operation.</p>
+        )}
+      </Card>
+      <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2" data-testid="provider-console-operation-details">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold text-foreground">Operation details</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Selected operation context, durable scope, budget state, and related provider-console views.
+            </p>
+          </div>
+          {selectedOperation ? (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => onOpenLogs(selectedOperation.id)} data-testid="provider-console-operation-open-logs">
+                Open logs
+              </Button>
+              <Button size="sm" variant="secondary" onClick={onOpenUnresolved}>
+                Open unresolved
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        {selectedOperation ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <Metric label="Provider" value={selectedProviderId} detail={selectedOperation.market ?? "Provider market"} />
+            <Metric label="Phase" value={selectedOperation.phase} detail={selectedOperation.canRetry ? "Retry available" : "Retry unavailable"} />
+            <Metric label="Progress" value={`${operationProgress(selectedOperation)}%`} detail={`${formatNumber(outcomeSummary.processed)} processed outcomes`} />
+            <Metric label="Rate cap" value={`${selectedOperation.effectiveRateCapPerMinute ?? 250}/min`} detail={`${formatNumber(selectedOperation.autoPauseFailureCount ?? 0)} auto-pause failures`} />
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Select an operation to inspect details.</p>
         )}
       </Card>
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2">
