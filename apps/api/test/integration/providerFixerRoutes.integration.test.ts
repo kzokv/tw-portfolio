@@ -1183,13 +1183,20 @@ describe("Provider Fixer admin routes", () => {
       headers,
     });
     expect(outcomes.statusCode).toBe(200);
-    expect(outcomes.json()).toMatchObject({
+    const outcomesBody = outcomes.json() as {
+      summary: { total: number; processed: number; succeeded: number; rateLimited: number };
+      items: Array<{ sourceSymbol: string; state: string; errorCode: string | null }>;
+    };
+    expect(outcomesBody).toMatchObject({
       summary: { total: 2, processed: 2, succeeded: 1, rateLimited: 1 },
-      items: expect.arrayContaining([
-        expect.objectContaining({ sourceSymbol: "005930", state: "succeeded" }),
-        expect.objectContaining({ sourceSymbol: "035720", state: "rate_limited", errorCode: "provider_rate_limited" }),
-      ]),
     });
+    expect(outcomesBody.items.map((item) => item.sourceSymbol).sort()).toEqual(["005930", "035720"]);
+    expect(outcomesBody.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "succeeded", errorCode: null }),
+        expect.objectContaining({ state: "rate_limited", errorCode: "provider_rate_limited" }),
+      ]),
+    );
   });
 
   it("persists provider operation settings and rejects inverted health thresholds", async () => {
