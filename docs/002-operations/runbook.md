@@ -2034,16 +2034,16 @@ Notifications are posted to all admin users when:
 
 Notifications on `degraded` transitions are intentionally suppressed — `degraded` is informational and does not require immediate operator action.
 
-#### Provider Fixer
+#### Provider Console
 
-The Providers page is a read-only health overview. Use **Open fixer** to diagnose provider errors, stage guarded repair operations, and execute confirmed provider work at `/admin/provider-fixer`.
+The Providers page is the provider operations console at `/admin/providers`. Use the provider-scoped tabs to diagnose provider errors, inspect unresolved instruments, preview guarded repair operations, and execute confirmed provider work through `/admin/providers/:providerId/*` APIs.
 
-Provider Fixer flow:
+Provider console flow:
 
-1. **Diagnose:** reads `market_data.provider_error_trail` and shows unresolved counts by provider/market.
+1. **Diagnose:** reads durable unresolved items plus provider error history and shows unresolved counts by provider/market.
 2. **Preview:** stores a query-backed operation with match count, sample rows, snapshot hash, preview token, and expiry. KR samples use Twelve Data catalog evidence to propose `.KS` / `.KQ`, then verify the sample candidate against Yahoo before showing it as verified.
-3. **Execute:** requires the preview token and acknowledgement. Dangerous scopes also require the typed confirmation shown in the preview. Execution writes only Yahoo-verified KR mappings to `market_data.provider_resolution_mappings` and enqueues KR backfill jobs for mapped tickers.
-4. **Audit/logs:** each preview/execute/control action writes a `provider_fixer_operation` audit row and a Provider Fixer operation log row.
+3. **Execute:** requires the preview token and acknowledgement. Dangerous scopes also require the typed confirmation shown in the preview. Provider-scoped Execute returns `202`, marks the operation running, completes work in the background, writes only Yahoo-verified KR mappings to `market_data.provider_resolution_mappings`, and enqueues KR backfill jobs for mapped tickers.
+4. **Audit/logs:** each preview/execute/control action writes a `provider_fixer_operation` audit row and a provider operation log row.
 
 Guardrail settings live in `/admin/settings?tab=provider-health`:
 
