@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ProviderActivityItemDto,
@@ -521,6 +521,16 @@ export function AdminProvidersClient({
     );
   }
 
+  function revertMapping(mapping: ProviderResolutionMappingDto, typedConfirmation: string): void {
+    void runAction(`mapping:revert:${mapping.sourceSymbol}`, () =>
+      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/revert`, {
+        marketCode: mapping.marketCode,
+        sourceSymbol: mapping.sourceSymbol,
+        typedConfirmation,
+      }),
+    );
+  }
+
   function applyUnresolvedFilters(next: {
     state?: ProviderUnresolvedItemDto["state"];
     search?: string;
@@ -887,6 +897,7 @@ export function AdminProvidersClient({
             currentPreview={currentPreview}
             evidenceColumns={evidenceColumns}
             onReverifyMapping={reverifyMapping}
+            onRevertMapping={revertMapping}
             busyAction={busyAction}
           />
         ) : null}
@@ -1805,6 +1816,7 @@ function MappingsTab({
   currentPreview,
   evidenceColumns,
   onReverifyMapping,
+  onRevertMapping,
   busyAction,
 }: {
   selectedProviderId: string;
@@ -1816,6 +1828,7 @@ function MappingsTab({
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
   onReverifyMapping: (mapping: ProviderResolutionMappingDto) => void;
+  onRevertMapping: (mapping: ProviderResolutionMappingDto, typedConfirmation: string) => void;
   busyAction: string | null;
 }) {
   const evidenceRows = currentPreview?.evidenceSample ?? [];
@@ -1823,6 +1836,8 @@ function MappingsTab({
   const revertSupported = actionSupported(capability, "revert_mapping");
   const reverifyReason = actionDisabledReason(capability, "reverify_mapping", "Reverify is unavailable for this provider.");
   const revertReason = actionDisabledReason(capability, "revert_mapping", "Revert is unavailable for this provider.");
+  const [revertTarget, setRevertTarget] = useState<string | null>(null);
+  const [revertConfirmation, setRevertConfirmation] = useState("");
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div>
@@ -1846,46 +1861,88 @@ function MappingsTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {mappings.map((mapping) => (
-                    <tr key={`${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}`} className="border-t border-border">
-                      <td className="px-3 py-3">
-                        <div className="font-mono font-semibold text-foreground">{mapping.sourceSymbol}</div>
-                        <div className="text-xs text-muted-foreground">{mapping.marketCode}</div>
-                      </td>
-                      <td className="px-3 py-3 font-mono">{mapping.resolvedSymbol}</td>
-                      <td className="px-3 py-3">{mapping.resolverMode?.replace(/_/g, " ") ?? "manual"}</td>
-                      <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(mapping.verifiedAt)}</td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        {mappingEvidenceSummary(mapping.evidence)}
-                      </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        <div>Unresolved: {mapping.sourceSymbol}</div>
-                        <div>Operation: {mappingLinkedOperation(mapping.evidence) ?? "not linked"}</div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={!reverifySupported || busyAction !== null}
-                            title={reverifySupported ? "Reverify will create a provider operation for this durable mapping." : reverifyReason ?? undefined}
-                            onClick={() => onReverifyMapping(mapping)}
-                            data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}
-                          >
-                            Reverify
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled
-                            title={revertSupported ? "Revert requires a typed-preview provider operation before removing this mapping." : revertReason ?? undefined}
-                          >
-                            Revert
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {mappings.map((mapping) => {
+                    const key = `${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}`;
+                    const phrase = `REVERT ${mapping.sourceSymbol}`;
+                    const revertOpen = revertTarget === key;
+                    const revertReady = revertConfirmation.trim() === phrase;
+                    return (
+                      <Fragment key={key}>
+                        <tr className="border-t border-border">
+                          <td className="px-3 py-3">
+                            <div className="font-mono font-semibold text-foreground">{mapping.sourceSymbol}</div>
+                            <div className="text-xs text-muted-foreground">{mapping.marketCode}</div>
+                          </td>
+                          <td className="px-3 py-3 font-mono">{mapping.resolvedSymbol}</td>
+                          <td className="px-3 py-3">{mapping.resolverMode?.replace(/_/g, " ") ?? "manual"}</td>
+                          <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(mapping.verifiedAt)}</td>
+                          <td className="px-3 py-3 text-xs text-muted-foreground">
+                            {mappingEvidenceSummary(mapping.evidence)}
+                          </td>
+                          <td className="px-3 py-3 text-xs text-muted-foreground">
+                            <div>Unresolved: {mapping.sourceSymbol}</div>
+                            <div>Operation: {mappingLinkedOperation(mapping.evidence) ?? "not linked"}</div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={!reverifySupported || busyAction !== null}
+                                title={reverifySupported ? "Reverify will create a provider operation for this durable mapping." : reverifyReason ?? undefined}
+                                onClick={() => onReverifyMapping(mapping)}
+                                data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}
+                              >
+                                Reverify
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!revertSupported || busyAction !== null}
+                                title={revertSupported ? "Revert requires typing the exact phrase before removing this mapping." : revertReason ?? undefined}
+                                onClick={() => {
+                                  setRevertTarget(revertOpen ? null : key);
+                                  setRevertConfirmation("");
+                                }}
+                                data-testid={`provider-console-mapping-revert-open-${mapping.sourceSymbol}`}
+                              >
+                                Revert
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                        {revertOpen ? (
+                          <tr key={`${key}-revert`} className="border-t border-red-200 bg-red-50/70">
+                            <td colSpan={7} className="px-3 py-3">
+                              <div className="grid gap-3 md:grid-cols-[1fr_minmax(260px,360px)_auto] md:items-center">
+                                <div>
+                                  <div className="text-sm font-semibold text-red-900">Revert durable mapping</div>
+                                  <div className="text-xs text-red-800">This removes {mapping.sourceSymbol} -&gt; {mapping.resolvedSymbol}. Type <span className="font-mono">{phrase}</span> to continue.</div>
+                                </div>
+                                <input
+                                  className="min-h-10 rounded-md border border-red-300 bg-white px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-red-500"
+                                  value={revertConfirmation}
+                                  onChange={(event) => setRevertConfirmation(event.target.value)}
+                                  placeholder={phrase}
+                                  title="Typed confirmation must exactly match the revert phrase."
+                                  data-testid={`provider-console-mapping-revert-confirmation-${mapping.sourceSymbol}`}
+                                />
+                                <Button
+                                  variant="destructive"
+                                  disabled={!revertReady || busyAction !== null}
+                                  title={revertReady ? "Create a revert mapping provider operation." : "Execute revert is disabled until the typed confirmation matches."}
+                                  onClick={() => onRevertMapping(mapping, revertConfirmation.trim())}
+                                  data-testid={`provider-console-mapping-revert-execute-${mapping.sourceSymbol}`}
+                                >
+                                  Execute revert
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

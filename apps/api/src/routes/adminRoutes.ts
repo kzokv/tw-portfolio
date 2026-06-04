@@ -1748,6 +1748,223 @@ function runProviderMappingReverifyOperationInBackground(
   });
 }
 
+function providerMappingRevertConfirmationText(sourceSymbol: string): string {
+  return `REVERT ${sourceSymbol.trim().toUpperCase()}`;
+}
+
+async function completeProviderMappingRevertOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+    throwOnFailure: boolean;
+  },
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const sourceSymbol = stringField(metadata.mappingSourceSymbol);
+  const resolvedSymbol = stringField(metadata.mappingResolvedSymbol);
+  if (!sourceSymbol || !resolvedSymbol) {
+    const message = "Provider mapping revert operation is missing mapping metadata.";
+    const failed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      metadata: { ...metadata, progressPercent: 100, failureReason: message },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "failed",
+      level: "error",
+      message: `revert_failed provider=${operation.providerId} market=${operation.marketCode} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, errorMessage: message },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: failed.phase,
+    });
+    if (context.throwOnFailure) {
+      throw routeError(400, "provider_mapping_revert_metadata_missing", message);
+    }
+    return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
+  }
+
+  await app.persistence.upsertProviderOperationOutcome({
+    operationId: operation.id,
+    providerId: operation.providerId,
+    marketCode: operation.marketCode,
+    sourceSymbol,
+    providerSymbol: resolvedSymbol,
+    action: "revert_mapping",
+    state: "running",
+    message: "Removing durable provider mapping.",
+    evidence: { previousEvidence: metadata.mappingPreviousEvidence ?? null },
+  });
+
+  try {
+    const deleted = await app.persistence.deleteProviderResolutionMapping({
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+    });
+    const state = deleted ? "succeeded" : "skipped";
+    const message = deleted
+      ? `Reverted ${sourceSymbol} -> ${resolvedSymbol}.`
+      : `Mapping ${sourceSymbol} -> ${resolvedSymbol} was already absent.`;
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "revert_mapping",
+      state,
+      message,
+      evidence: {
+        deletedMapping: deleted
+          ? {
+              resolvedSymbol: deleted.resolvedSymbol,
+              resolverMode: deleted.resolverMode,
+              verifiedAt: deleted.verifiedAt,
+              evidence: deleted.evidence,
+            }
+          : null,
+      },
+    });
+    const completedAt = new Date().toISOString();
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt,
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        revertedMappingCount: deleted ? 1 : 0,
+        skippedMappingCount: deleted ? 0 : 1,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "completed",
+      level: deleted ? "warning" : "info",
+      message: `revert_completed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${resolvedSymbol} deleted=${deleted ? 1 : 0}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, resolvedSymbol, deleted: Boolean(deleted) },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "revert_mapping",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+        deleted: Boolean(deleted),
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: completed.phase,
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_mapping_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      resolvedSymbol,
+      action: "revert_mapping",
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      processed: 1,
+      total: 1,
+      progressPercent: 100,
+    });
+    return {
+      operation: providerFixerOperationToDto(completed, context.guardrails),
+      result: { status: "completed", deleted: Boolean(deleted) },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Provider mapping revert failed.";
+    const failed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        failureReason: message,
+        failureName: err instanceof Error ? err.name : "UnknownError",
+      },
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "revert_mapping",
+      state: "failed",
+      message,
+      errorCode: "provider_mapping_revert_failed",
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "failed",
+      level: "error",
+      message: `revert_failed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, errorMessage: message },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "revert_mapping_failed",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: failed.phase,
+    });
+    if (context.throwOnFailure) throw err;
+    return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
+  }
+}
+
+function runProviderMappingRevertOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: Omit<Parameters<typeof completeProviderMappingRevertOperation>[2], "throwOnFailure">,
+): void {
+  setImmediate(() => {
+    void completeProviderMappingRevertOperation(app, operation, { ...context, throwOnFailure: false }).catch((err) => {
+      app.log.error(
+        {
+          operationId: operation.id,
+          providerId: operation.providerId,
+          err,
+        },
+        "provider_mapping_revert_background_failed",
+      );
+    });
+  });
+}
+
 function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   const providerConsoleParamsSchema = z.object({
     providerId: providerFixerProviderSchema,
@@ -2225,6 +2442,90 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     return { operation: providerFixerOperationToDto(operation, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
   });
 
+  app.post("/providers/:providerId/mappings/revert", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema,
+        sourceSymbol: z.string().trim().min(1).max(80),
+        typedConfirmation: z.string().trim().min(1).max(120),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const sourceSymbol = body.sourceSymbol.trim().toUpperCase();
+    const confirmationText = providerMappingRevertConfirmationText(sourceSymbol);
+    if (body.typedConfirmation.trim() !== confirmationText) {
+      throw routeError(400, "provider_mapping_revert_confirmation_required", "Revert requires the exact typed confirmation phrase");
+    }
+    const mapping = await app.persistence.getProviderResolutionMapping(providerId, body.marketCode, sourceSymbol);
+    if (!mapping) {
+      throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
+    }
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode: body.marketCode,
+      operationType: "revert_mapping",
+      phase: "running",
+      resolverMode: mapping.resolverMode,
+      scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:${Date.now()}`).slice(0, 12),
+      matchCount: 1,
+      sample: [{
+        symbol: mapping.sourceSymbol,
+        providerSymbol: mapping.resolvedSymbol,
+        candidateSymbol: null,
+        exchangeHint: "durable provider_resolution_mappings row",
+        verificationStatus: "pending",
+        note: "Revert existing durable provider mapping.",
+      }],
+      metadata: {
+        progressPercent: 0,
+        confirmationText,
+        mappingSourceSymbol: mapping.sourceSymbol,
+        mappingResolvedSymbol: mapping.resolvedSymbol,
+        mappingPreviousVerifiedAt: mapping.verifiedAt,
+        mappingPreviousEvidence: mapping.evidence,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "running",
+      level: "warning",
+      message: `revert_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "revert_mapping_started",
+        providerId,
+        marketCode: body.marketCode,
+        sourceSymbol,
+        resolvedSymbol: mapping.resolvedSymbol,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: operation.phase,
+    });
+    runProviderMappingRevertOperationInBackground(app, operation, {
+      actorUserId: sessionUserId,
+      ipAddress,
+      guardrails,
+    });
+    reply.code(202);
+    return { operation: providerFixerOperationToDto(operation, guardrails) };
+  });
+
   app.get("/providers/:providerId/activity", async (req): Promise<ProviderActivityResponse> => {
     requireAdminRole(req);
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
@@ -2422,6 +2723,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (
         action === "resume" &&
         existing.operationType !== "reverify_mapping" &&
+        existing.operationType !== "revert_mapping" &&
         existing.operationType !== "resolver_repair" &&
         existing.operationType !== "repair_mapping"
       ) {
@@ -2455,6 +2757,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (action === "resume") {
         if (updated.operationType === "reverify_mapping") {
           runProviderMappingReverifyOperationInBackground(app, updated, {
+            actorUserId: sessionUserId,
+            ipAddress,
+            guardrails,
+          });
+        } else if (updated.operationType === "revert_mapping") {
+          runProviderMappingRevertOperationInBackground(app, updated, {
             actorUserId: sessionUserId,
             ipAddress,
             guardrails,

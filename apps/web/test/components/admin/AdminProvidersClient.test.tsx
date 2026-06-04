@@ -776,7 +776,7 @@ describe("AdminProvidersClient", () => {
       /create a provider operation/i,
     );
     expect(findElementByText("button", "Revert").getAttribute("title") ?? "").toMatch(
-      /typed-preview provider operation/i,
+      /typing the exact phrase/i,
     );
 
     click("provider-console-mapping-reverify-005930");
@@ -787,6 +787,29 @@ describe("AdminProvidersClient", () => {
         marketCode: "KR",
         sourceSymbol: "005930",
         resolverMode: "quote_first",
+      },
+    );
+
+    click("provider-console-mapping-revert-open-005930");
+    expect(document.body.textContent ?? "").toMatch(/Revert durable mapping/i);
+    const executeRevert = document.querySelector(
+      "[data-testid='provider-console-mapping-revert-execute-005930']",
+    ) as HTMLButtonElement | null;
+    expect(executeRevert?.disabled).toBe(true);
+    const confirmation = document.querySelector(
+      "[data-testid='provider-console-mapping-revert-confirmation-005930']",
+    ) as HTMLInputElement | null;
+    expect(confirmation).not.toBeNull();
+    if (confirmation) updateInputValue(confirmation, "REVERT 005930");
+    expect(executeRevert?.disabled).toBe(false);
+    click("provider-console-mapping-revert-execute-005930");
+    await act(async () => undefined);
+    expect(mockPostJson).toHaveBeenLastCalledWith(
+      "/admin/providers/yahoo-finance-kr/mappings/revert",
+      {
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        typedConfirmation: "REVERT 005930",
       },
     );
   });
