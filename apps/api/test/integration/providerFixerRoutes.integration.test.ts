@@ -439,6 +439,38 @@ describe("Provider Fixer admin routes", () => {
       items: [expect.objectContaining({ operationId: previewBody.operation.id })],
     });
 
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: {
+        previewToken: previewBody.operation.preview.token,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(202);
+    expect(execute.json()).toMatchObject({
+      result: { status: "started" },
+      operation: {
+        id: previewBody.operation.id,
+        providerId: "yahoo-finance-kr",
+        phase: "running",
+      },
+    });
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 1 },
+    });
+
     const mismatchedExecute = await app.inject({
       method: "POST",
       url: `/admin/providers/finmind-tw/operations/${previewBody.operation.id}/execute`,
