@@ -422,7 +422,7 @@ export function AdminProvidersClient({
     );
   }
 
-  function mutateOperation(operationId: string, action: "pause" | "resume" | "cancel"): void {
+  function mutateOperation(operationId: string, action: "pause" | "resume" | "cancel" | "retry"): void {
     void runAction(action, () =>
       postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/${encodeURIComponent(operationId)}/${action}`, {}),
     );
@@ -481,6 +481,20 @@ export function AdminProvidersClient({
           </Button>
           {row.canPause ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "pause")}>Pause</Button> : null}
           {row.canResume ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "resume")}>Resume</Button> : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!row.canRetry || busyAction !== null}
+            title={
+              row.canRetry
+                ? "Create a fresh preview linked to this operation with a new token and unchanged historical outcomes."
+                : "Retry is available after an operation is paused, failed, cancelled, or completed."
+            }
+            onClick={() => mutateOperation(row.id, "retry")}
+            data-testid={`provider-console-operation-retry-${row.id}`}
+          >
+            Retry
+          </Button>
           {row.canCancel ? (
             <Button size="sm" variant="outline" className="border-rose-200 text-rose-700" onClick={() => mutateOperation(row.id, "cancel")}>
               Cancel

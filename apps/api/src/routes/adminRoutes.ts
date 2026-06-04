@@ -902,6 +902,7 @@ function providerFixerOperationToDto(
     canPause: operation.phase === "running",
     canResume: operation.phase === "paused",
     canCancel: operation.phase === "preview" || operation.phase === "staged" || operation.phase === "running" || operation.phase === "paused",
+    canRetry: operation.phase === "paused" || operation.phase === "failed" || operation.phase === "cancelled" || operation.phase === "completed",
     dangerous,
     progressPercent: numberField(metadata.progressPercent),
     autoPauseFailureCount: numberField(metadata.autoPauseFailureCount),

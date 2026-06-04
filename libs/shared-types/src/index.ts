@@ -1990,6 +1990,7 @@ export interface ProviderFixerDashboardOperationDto {
   canPause: boolean;
   canResume: boolean;
   canCancel: boolean;
+  canRetry: boolean;
   dangerous: boolean;
   progressPercent: number | null;
   autoPauseFailureCount: number | null;
