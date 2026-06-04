@@ -9914,6 +9914,12 @@ export class PostgresPersistence implements Persistence {
     providerFixerUiPageSize: number | null;
     providerFixerAutoPauseFailuresPerMinute: number | null;
     providerFixerPreviewTokenTtlMinutes: number | null;
+    finmindProviderRateLimitPerHour: number | null;
+    twelveDataProviderRateLimitPerMinute: number | null;
+    yahooAuProviderRateLimitPerMinute: number | null;
+    yahooKrProviderRateLimitPerMinute: number | null;
+    frankfurterProviderRateLimitPerMinute: number | null;
+    asxGicsProviderRateLimitPerHour: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -9956,6 +9962,12 @@ export class PostgresPersistence implements Persistence {
       provider_fixer_ui_page_size: number | null;
       provider_fixer_auto_pause_failures_per_minute: number | null;
       provider_fixer_preview_token_ttl_minutes: number | null;
+      finmind_provider_rate_limit_per_hour: number | null;
+      twelve_data_provider_rate_limit_per_minute: number | null;
+      yahoo_au_provider_rate_limit_per_minute: number | null;
+      yahoo_kr_provider_rate_limit_per_minute: number | null;
+      frankfurter_provider_rate_limit_per_minute: number | null;
+      asx_gics_provider_rate_limit_per_hour: number | null;
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
@@ -9987,6 +9999,9 @@ export class PostgresPersistence implements Persistence {
          provider_fixer_dangerous_match_threshold, provider_fixer_preview_sample_limit,
          provider_fixer_ui_page_size, provider_fixer_auto_pause_failures_per_minute,
          provider_fixer_preview_token_ttl_minutes,
+         finmind_provider_rate_limit_per_hour, twelve_data_provider_rate_limit_per_minute,
+         yahoo_au_provider_rate_limit_per_minute, yahoo_kr_provider_rate_limit_per_minute,
+         frankfurter_provider_rate_limit_per_minute, asx_gics_provider_rate_limit_per_hour,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
@@ -10022,6 +10037,12 @@ export class PostgresPersistence implements Persistence {
         providerFixerUiPageSize: null,
         providerFixerAutoPauseFailuresPerMinute: null,
         providerFixerPreviewTokenTtlMinutes: null,
+        finmindProviderRateLimitPerHour: null,
+        twelveDataProviderRateLimitPerMinute: null,
+        yahooAuProviderRateLimitPerMinute: null,
+        yahooKrProviderRateLimitPerMinute: null,
+        frankfurterProviderRateLimitPerMinute: null,
+        asxGicsProviderRateLimitPerHour: null,
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
@@ -10072,6 +10093,12 @@ export class PostgresPersistence implements Persistence {
       providerFixerUiPageSize: row.provider_fixer_ui_page_size,
       providerFixerAutoPauseFailuresPerMinute: row.provider_fixer_auto_pause_failures_per_minute,
       providerFixerPreviewTokenTtlMinutes: row.provider_fixer_preview_token_ttl_minutes,
+      finmindProviderRateLimitPerHour: row.finmind_provider_rate_limit_per_hour,
+      twelveDataProviderRateLimitPerMinute: row.twelve_data_provider_rate_limit_per_minute,
+      yahooAuProviderRateLimitPerMinute: row.yahoo_au_provider_rate_limit_per_minute,
+      yahooKrProviderRateLimitPerMinute: row.yahoo_kr_provider_rate_limit_per_minute,
+      frankfurterProviderRateLimitPerMinute: row.frankfurter_provider_rate_limit_per_minute,
+      asxGicsProviderRateLimitPerHour: row.asx_gics_provider_rate_limit_per_hour,
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),

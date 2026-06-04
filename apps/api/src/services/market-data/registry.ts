@@ -83,7 +83,15 @@ export function buildMarketDataRegistry(
     );
   }
 
-  const finmindLimiter = new RateLimiter(env.FINMIND_RATE_LIMIT_PER_HOUR);
+  const providerBudget = {
+    finmindPerHour: () => getAppConfigCacheEntry()?.finmindProviderRateLimitPerHour ?? env.FINMIND_RATE_LIMIT_PER_HOUR,
+    twelveDataPerMinute: () => getAppConfigCacheEntry()?.twelveDataProviderRateLimitPerMinute ?? env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE,
+    yahooAuPerMinute: () => getAppConfigCacheEntry()?.yahooAuProviderRateLimitPerMinute ?? env.YAHOO_AU_RATE_LIMIT_PER_MINUTE,
+    yahooKrPerMinute: () => getAppConfigCacheEntry()?.yahooKrProviderRateLimitPerMinute ?? env.YAHOO_KR_RATE_LIMIT_PER_MINUTE,
+    frankfurterPerMinute: () => getAppConfigCacheEntry()?.frankfurterProviderRateLimitPerMinute ?? env.FRANKFURTER_RATE_LIMIT_PER_MINUTE,
+  };
+
+  const finmindLimiter = new RateLimiter(providerBudget.finmindPerHour);
 
   // KZO-198: real-vs-mock gate consults the `app_config` cache (via the
   // resolver) BEFORE falling back to env. `buildApp` eagerly pre-warms the
@@ -159,7 +167,7 @@ export function buildMarketDataRegistry(
   // returns `[]`. The TD provider composes the Yahoo provider as `yahooFallback` so
   // `fetchInstrumentMetadata` + `searchInstruments` keep working for tickers TD's bulk
   // catalog doesn't enumerate (e.g. LICs).
-  const yahooAuLimiter = new RateLimiter(env.YAHOO_AU_RATE_LIMIT_PER_MINUTE, 60_000);
+  const yahooAuLimiter = new RateLimiter(providerBudget.yahooAuPerMinute, 60_000);
   const yahooAuProvider: MarketDataProvider & InstrumentCatalogProvider = env.AU_PROVIDER_MOCK
     ? new MockYahooFinanceAuMarketDataProvider()
     : new YahooFinanceAuMarketDataProvider({ rateLimiter: yahooAuLimiter });
@@ -171,7 +179,7 @@ export function buildMarketDataRegistry(
     null,
   );
 
-  const twelveDataRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
+  const twelveDataRateLimiter = new RateLimiter(providerBudget.twelveDataPerMinute, 60_000);
   // KZO-198: same gate semantics as FinMind above — consult resolver first.
   // KZO-200: source-detection via the cache entry (see FinMind comment above).
   const twelveDataCacheHasKey =
@@ -209,7 +217,7 @@ export function buildMarketDataRegistry(
   // owns bars, cash dividends, metadata, and search via internal `.KS/.KQ`
   // suffix resolution. The shared Twelve Data limiter reflects the single
   // account-level free quota across AU + KR catalog endpoints.
-  const yahooKrLimiter = new RateLimiter(env.YAHOO_KR_RATE_LIMIT_PER_MINUTE, 60_000);
+  const yahooKrLimiter = new RateLimiter(providerBudget.yahooKrPerMinute, 60_000);
   const yahooKrProvider: MarketDataProvider & InstrumentCatalogProvider = env.KR_PROVIDER_MOCK
     ? new MockYahooFinanceKrMarketDataProvider()
     : new YahooFinanceKrMarketDataProvider({
@@ -247,7 +255,10 @@ export function buildMarketDataRegistry(
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()
-    : new FrankfurterFxRateProvider({ baseUrl: env.FRANKFURTER_BASE_URL });
+    : new FrankfurterFxRateProvider({
+        baseUrl: env.FRANKFURTER_BASE_URL,
+        rateLimiter: new RateLimiter(providerBudget.frankfurterPerMinute, 60_000),
+      });
   // Frankfurter is keyless. Branch is `mock_forced_by_env` when
   // FX_PROVIDER_MOCK is true, otherwise `real`.
   emit(

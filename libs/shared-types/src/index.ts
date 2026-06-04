@@ -1008,6 +1008,18 @@ export interface AppConfigDto {
   effectiveProviderFixerAutoPauseFailuresPerMinute: number;
   providerFixerPreviewTokenTtlMinutes: number | null;
   effectiveProviderFixerPreviewTokenTtlMinutes: number;
+  finmindProviderRateLimitPerHour: number | null;
+  effectiveFinmindProviderRateLimitPerHour: number;
+  twelveDataProviderRateLimitPerMinute: number | null;
+  effectiveTwelveDataProviderRateLimitPerMinute: number;
+  yahooAuProviderRateLimitPerMinute: number | null;
+  effectiveYahooAuProviderRateLimitPerMinute: number;
+  yahooKrProviderRateLimitPerMinute: number | null;
+  effectiveYahooKrProviderRateLimitPerMinute: number;
+  frankfurterProviderRateLimitPerMinute: number | null;
+  effectiveFrankfurterProviderRateLimitPerMinute: number;
+  asxGicsProviderRateLimitPerHour: number | null;
+  effectiveAsxGicsProviderRateLimitPerHour: number;
 
   // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
   backfillRetryLimit: number | null;

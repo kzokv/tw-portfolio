@@ -44,6 +44,7 @@ import { enqueueAuCatalogBarsBackfill } from "../services/market-data/enqueueAuC
 import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
 import {
   invalidate as invalidateAppConfigCache,
+  refresh as refreshAppConfigCache,
 } from "../services/appConfig/cache.js";
 import type {
   AppConfigPlainField,
@@ -249,6 +250,12 @@ export const patchAdminSettingsSchema = z
     providerFixerUiPageSize: plainBoundedField("providerFixerUiPageSize"),
     providerFixerAutoPauseFailuresPerMinute: plainBoundedField("providerFixerAutoPauseFailuresPerMinute"),
     providerFixerPreviewTokenTtlMinutes: plainBoundedField("providerFixerPreviewTokenTtlMinutes"),
+    finmindProviderRateLimitPerHour: plainBoundedField("finmindProviderRateLimitPerHour"),
+    twelveDataProviderRateLimitPerMinute: plainBoundedField("twelveDataProviderRateLimitPerMinute"),
+    yahooAuProviderRateLimitPerMinute: plainBoundedField("yahooAuProviderRateLimitPerMinute"),
+    yahooKrProviderRateLimitPerMinute: plainBoundedField("yahooKrProviderRateLimitPerMinute"),
+    frankfurterProviderRateLimitPerMinute: plainBoundedField("frankfurterProviderRateLimitPerMinute"),
+    asxGicsProviderRateLimitPerHour: plainBoundedField("asxGicsProviderRateLimitPerHour"),
 
     // ── KZO-198 Tier 1/2 — backfill ─────────────────────────────────────
     backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
@@ -312,6 +319,12 @@ const TIER1_PLAIN_FIELDS = [
   "providerFixerUiPageSize",
   "providerFixerAutoPauseFailuresPerMinute",
   "providerFixerPreviewTokenTtlMinutes",
+  "finmindProviderRateLimitPerHour",
+  "twelveDataProviderRateLimitPerMinute",
+  "yahooAuProviderRateLimitPerMinute",
+  "yahooKrProviderRateLimitPerMinute",
+  "frankfurterProviderRateLimitPerMinute",
+  "asxGicsProviderRateLimitPerHour",
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
@@ -349,6 +362,57 @@ function resolveEffectiveDashboardPerformanceRanges(
     return [...override];
   }
   return [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
+}
+
+function appConfigBoundsForEnv(): AppConfigDto["bounds"] {
+  const strictOverrideMax = (ceiling: number): number => Math.max(1, ceiling - 1);
+  return {
+    ...APP_CONFIG_BOUNDS,
+    finmindProviderRateLimitPerHour: {
+      min: APP_CONFIG_BOUNDS.finmindProviderRateLimitPerHour.min,
+      max: strictOverrideMax(Env.FINMIND_RATE_LIMIT_PER_HOUR),
+    },
+    twelveDataProviderRateLimitPerMinute: {
+      min: APP_CONFIG_BOUNDS.twelveDataProviderRateLimitPerMinute.min,
+      max: strictOverrideMax(Env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE),
+    },
+    yahooAuProviderRateLimitPerMinute: {
+      min: APP_CONFIG_BOUNDS.yahooAuProviderRateLimitPerMinute.min,
+      max: strictOverrideMax(Env.YAHOO_AU_RATE_LIMIT_PER_MINUTE),
+    },
+    yahooKrProviderRateLimitPerMinute: {
+      min: APP_CONFIG_BOUNDS.yahooKrProviderRateLimitPerMinute.min,
+      max: strictOverrideMax(Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE),
+    },
+    frankfurterProviderRateLimitPerMinute: {
+      min: APP_CONFIG_BOUNDS.frankfurterProviderRateLimitPerMinute.min,
+      max: strictOverrideMax(Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE),
+    },
+    asxGicsProviderRateLimitPerHour: {
+      min: APP_CONFIG_BOUNDS.asxGicsProviderRateLimitPerHour.min,
+      max: strictOverrideMax(Env.ASX_GICS_RATE_LIMIT_PER_HOUR),
+    },
+  };
+}
+
+function assertProviderRateBudgetOverrides(body: z.infer<typeof patchAdminSettingsSchema>): void {
+  const checks: Array<{ field: keyof typeof body; value: unknown; max: number }> = [
+    { field: "finmindProviderRateLimitPerHour", value: body.finmindProviderRateLimitPerHour, max: Env.FINMIND_RATE_LIMIT_PER_HOUR },
+    { field: "twelveDataProviderRateLimitPerMinute", value: body.twelveDataProviderRateLimitPerMinute, max: Env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE },
+    { field: "yahooAuProviderRateLimitPerMinute", value: body.yahooAuProviderRateLimitPerMinute, max: Env.YAHOO_AU_RATE_LIMIT_PER_MINUTE },
+    { field: "yahooKrProviderRateLimitPerMinute", value: body.yahooKrProviderRateLimitPerMinute, max: Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE },
+    { field: "frankfurterProviderRateLimitPerMinute", value: body.frankfurterProviderRateLimitPerMinute, max: Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE },
+    { field: "asxGicsProviderRateLimitPerHour", value: body.asxGicsProviderRateLimitPerHour, max: Env.ASX_GICS_RATE_LIMIT_PER_HOUR },
+  ];
+  for (const check of checks) {
+    if (typeof check.value === "number" && check.value >= check.max) {
+      throw routeError(
+        400,
+        "provider_rate_budget_exceeded",
+        `${String(check.field)} must be greater than 0 and below the configured provider budget (${check.max}).`,
+      );
+    }
+  }
 }
 
 /**
@@ -414,6 +478,24 @@ function buildAppConfigDtoFromRow(
     providerFixerPreviewTokenTtlMinutes: row.providerFixerPreviewTokenTtlMinutes,
     effectiveProviderFixerPreviewTokenTtlMinutes:
       row.providerFixerPreviewTokenTtlMinutes ?? PROVIDER_FIXER_DEFAULTS.previewTokenTtlMinutes,
+    finmindProviderRateLimitPerHour: row.finmindProviderRateLimitPerHour,
+    effectiveFinmindProviderRateLimitPerHour:
+      row.finmindProviderRateLimitPerHour ?? Env.FINMIND_RATE_LIMIT_PER_HOUR,
+    twelveDataProviderRateLimitPerMinute: row.twelveDataProviderRateLimitPerMinute,
+    effectiveTwelveDataProviderRateLimitPerMinute:
+      row.twelveDataProviderRateLimitPerMinute ?? Env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE,
+    yahooAuProviderRateLimitPerMinute: row.yahooAuProviderRateLimitPerMinute,
+    effectiveYahooAuProviderRateLimitPerMinute:
+      row.yahooAuProviderRateLimitPerMinute ?? Env.YAHOO_AU_RATE_LIMIT_PER_MINUTE,
+    yahooKrProviderRateLimitPerMinute: row.yahooKrProviderRateLimitPerMinute,
+    effectiveYahooKrProviderRateLimitPerMinute:
+      row.yahooKrProviderRateLimitPerMinute ?? Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE,
+    frankfurterProviderRateLimitPerMinute: row.frankfurterProviderRateLimitPerMinute,
+    effectiveFrankfurterProviderRateLimitPerMinute:
+      row.frankfurterProviderRateLimitPerMinute ?? Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE,
+    asxGicsProviderRateLimitPerHour: row.asxGicsProviderRateLimitPerHour,
+    effectiveAsxGicsProviderRateLimitPerHour:
+      row.asxGicsProviderRateLimitPerHour ?? Env.ASX_GICS_RATE_LIMIT_PER_HOUR,
 
     // KZO-198 Tier 1 — backfill
     backfillRetryLimit: row.backfillRetryLimit,
@@ -456,7 +538,7 @@ function buildAppConfigDtoFromRow(
     twelveDataApiKeySet: row.twelveDataApiKeyEncrypted !== null,
 
     // KZO-198 — bounds (single source of truth for UI form constraints)
-    bounds: APP_CONFIG_BOUNDS,
+    bounds: appConfigBoundsForEnv(),
     secretLengthBounds: APP_CONFIG_SECRET_LENGTH,
 
     updatedAt: row.updatedAt,
@@ -1914,6 +1996,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
     const body = patchAdminSettingsSchema.parse(req.body);
+    assertProviderRateBudgetOverrides(body);
 
     const current = await app.persistence.getAppConfig();
 
@@ -2037,6 +2120,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     // sees the new value immediately. Cross-instance pub/sub is a KZO-121
     // follow-up; peers see stale values up to TTL.
     invalidateAppConfigCache();
+    await refreshAppConfigCache();
 
     return loadAppConfigDto(app);
   });

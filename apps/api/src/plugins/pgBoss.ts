@@ -24,6 +24,8 @@ import {
 import { getEffectiveAsxGicsRefreshCron } from "../services/appConfig/asxGicsCron.js";
 import { AsxGicsCatalogProvider } from "../services/market-data/providers/asxGicsCatalog.js";
 import { MockAsxGicsCatalogProvider } from "../services/market-data/providers/mockAsxGicsCatalog.js";
+import { getAppConfigCacheEntry } from "../services/appConfig/cache.js";
+import { RateLimiter } from "../services/market-data/rateLimiter.js";
 import { handleBatchComplete } from "../services/notificationService.js";
 import type { AppInstance } from "../app.js";
 
@@ -178,7 +180,11 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   // so the resolver returns the hot value here.
   const asxGicsProvider = Env.AU_CATALOG_PROVIDER_MOCK
     ? new MockAsxGicsCatalogProvider()
-    : new AsxGicsCatalogProvider();
+    : new AsxGicsCatalogProvider({
+        rateLimiter: new RateLimiter(
+          () => getAppConfigCacheEntry()?.asxGicsProviderRateLimitPerHour ?? Env.ASX_GICS_RATE_LIMIT_PER_HOUR,
+        ),
+      });
   await registerAsxGicsSyncWorker(app, boss, {
     provider: asxGicsProvider,
     pool,

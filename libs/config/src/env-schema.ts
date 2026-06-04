@@ -78,10 +78,13 @@ export const envSchema = z.object({
   // without code changes. Defaults match the prior hardcoded values.
   FINMIND_BASE_URL: z.string().url().default("https://api.finmindtrade.com/api/v4/data"),
   FINMIND_RATE_LIMIT_PER_HOUR: z.coerce.number().int().positive().default(600),
-  // KZO-164: Frankfurter v2 FX-rate ingestion. Frankfurter has no quota — no rate limit knob.
+  // KZO-164: Frankfurter v2 FX-rate ingestion. Frankfurter has no published
+  // quota; this is a defensive app-side operation ceiling for admin/cron
+  // refreshes and can be tightened via app_config.
   // FX_PROVIDER_MOCK enables the deterministic mock provider for tests/dev without changing
   // the registry call sites; defaults to false so prod always reaches the real provider.
   FRANKFURTER_BASE_URL: z.string().url().default("https://api.frankfurter.dev/v2"),
+  FRANKFURTER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),
   FX_PROVIDER_MOCK: envBool,
   // KZO-172: Yahoo Finance AU provider. Per-minute self-imposed ceiling — Yahoo does not
   // publish a hard limit (KZO-171 spike §5). The AU provider has its own `RateLimiter`
@@ -180,6 +183,10 @@ export const envSchema = z.object({
   // change at the env level; admins can override via `app_config.asx_gics_refresh_cron`
   // (also restart-required — pg-boss schedule is registered once at boot).
   ASX_GICS_REFRESH_CRON: z.string().min(1).default("0 2 * * 0"),
+  // ASX publishes no documented quota for the listed-companies CSV. This
+  // defensive ceiling controls admin-triggered/manual CSV refresh pacing and
+  // can be tightened via app_config.
+  ASX_GICS_RATE_LIMIT_PER_HOUR: z.coerce.number().int().positive().default(6),
 
   // ui-enhancement — Tier 3 env-only cron schedule for the daily account
   // hard-purge cron. Restart-required (cron live-edit out of scope). Default
