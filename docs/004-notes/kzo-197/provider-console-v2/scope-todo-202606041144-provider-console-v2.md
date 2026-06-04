@@ -124,20 +124,23 @@ The current locked visual version is preserved separately in `mockups/version-2/
 
 - `01-provider-console-overview-desktop.png` - provider rail, health overview, notification-aware refresh.
 - `02-provider-tabs-capabilities-desktop.png` - provider-owned tabs/actions and disabled capability reasons.
-- `03-unresolved-instruments-desktop.png` - durable unresolved table, filters, select-all matching, disabled rerun reason.
-- `04-fixer-normal-actions-desktop.png` - provider-owned fixer with Renew, Repair, Rerun semantics.
-- `05-dangerous-preview-desktop.png` - typed-phrase preview for bulk repair.
-- `06-operations-running-sse-desktop.png` - running operations with SSE status and persisted counters.
-- `07-operation-outcomes-desktop.png` - per-item outcomes and retryable failures.
-- `08-incidents-activity-logs-desktop.png` - useful incident, activity, and raw log surfaces.
-- `09-logs-purge-preview-desktop.png` - destructive purge preview and durable-record boundaries.
-- `10-kr-mappings-desktop.png` - durable KR resolver mappings and evidence.
-- `11-settings-provider-budgets-desktop.png` - provider-operation budgets and shared caps.
-- `12-settings-retention-desktop.png` - retention windows and purge limits.
-- `13-mobile-provider-overview.png` - mobile provider overview and bottom action bar.
-- `14-mobile-unresolved.png` - mobile unresolved cards.
-- `15-mobile-operation-progress.png` - mobile operation progress.
-- `16-mobile-dangerous-preview.png` - mobile destructive preview sheet.
+- `03-provider-fixer-coverage-desktop.png` - provider-specific fixer coverage across Yahoo, Twelve Data, FinMind, Frankfurter, and ASX GICS CSV.
+- `04-unresolved-instruments-desktop.png` - durable unresolved table, filters, select-all matching, disabled rerun reason.
+- `05-fixer-normal-actions-desktop.png` - provider-owned fixer with Renew, Repair, Rerun semantics.
+- `06-dangerous-preview-desktop.png` - typed-phrase preview for bulk repair.
+- `07-operations-running-sse-desktop.png` - running operations with SSE status and persisted counters.
+- `08-operations-queued-desktop.png` - queued operation phase, promotion rules, and cancel-only controls.
+- `09-operation-outcomes-desktop.png` - per-item outcomes and retryable failures.
+- `10-incidents-activity-logs-desktop.png` - useful incident, activity, and raw log surfaces.
+- `11-logs-purge-preview-desktop.png` - destructive purge preview and durable-record boundaries.
+- `12-kr-mappings-desktop.png` - durable KR resolver mappings and evidence.
+- `13-settings-provider-budgets-desktop.png` - provider-operation budgets and shared caps.
+- `14-settings-retention-desktop.png` - retention windows and purge limits.
+- `15-mobile-provider-overview.png` - mobile provider overview and bottom action bar.
+- `16-mobile-provider-switcher.png` - mobile provider list with statuses, counts, and provider-owned fixer access.
+- `17-mobile-unresolved.png` - mobile unresolved cards.
+- `18-mobile-operation-progress.png` - mobile operation progress.
+- `19-mobile-dangerous-preview.png` - mobile destructive preview sheet.
 
 ## Implementation Steps
 
@@ -184,6 +187,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Propagated Admin Settings provider-operation rate caps into provider operation summary, preview, renew, reverify, revert, rerun, and retry metadata so Operations budget state no longer falls back to the old hardcoded cap.
 - 2026-06-04: Made cancelled Repair operations terminal in the background runner; if a repair row finishes after Cancel, completed item work is preserved but the operation phase stays `cancelled` and backfill enqueue/final completion are skipped.
 - 2026-06-04: Added durable provider-operation `queued` phase with migration support. Renew, Repair execute, Rerun, Reverify, and Revert now queue behind active same-provider/market work instead of failing with an active-operation 409, and terminal completion/cancel promotes the next queued operation.
+- 2026-06-04: Expanded locked version-2 mockups to 19 screenshots, adding provider-fixer coverage across supported providers, queued-operation behavior, and mobile provider switcher states.
 - Remaining high-risk work is still backend-heavy: budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.

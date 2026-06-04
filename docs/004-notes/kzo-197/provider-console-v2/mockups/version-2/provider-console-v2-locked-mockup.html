@@ -1161,6 +1161,106 @@ function providerTabsCapabilities() {
   });
 }
 
+function providerFixerCoverage() {
+  return shell("Fixer", `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Provider-owned fixer coverage</h2>
+          <p>Each provider owns the same console structure. The enabled actions, tooltips, and guardrails are provider-specific.</p>
+        </div>
+        <button class="btn">Refresh all provider state</button>
+      </div>
+      <div class="three-grid">
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("awaiting", "Awaiting action")}<span class="tiny mono">yahoo-finance-kr</span></div>
+          <h3>Yahoo Finance KR</h3>
+          <p>KR resolver binding from Twelve Data catalog identity to Yahoo symbols.</p>
+          <div class="reason blue"><span class="mark"></span><div><strong>Repair</strong><span class="tiny">Writes durable KR mappings after preview when scope is large.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Renew</button>
+            <button class="mini-btn">Repair</button>
+            <button class="mini-btn disabled">Rerun</button>
+          </div>
+          <span class="tooltip-note">Rerun is disabled until selected rows have resolved mappings.</span>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("degraded", "Degraded")}<span class="tiny mono">twelve-data-kr</span></div>
+          <h3>Twelve Data KR</h3>
+          <p>Catalog evidence and plan-limited bars. Repair writes unsupported markers only where evidence is definitive.</p>
+          <div class="reason"><span class="mark"></span><div><strong>Renew</strong><span class="tiny">Refreshes catalog evidence under the shared Twelve Data budget.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Renew</button>
+            <button class="mini-btn disabled">Repair</button>
+            <button class="mini-btn disabled">Rerun</button>
+          </div>
+          <span class="tooltip-note">KR bars remain plan-limited; use Yahoo KR after binding for free backfill.</span>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("degraded", "Degraded")}<span class="tiny mono">finmind-tw / finmind-us</span></div>
+          <h3>FinMind TW and US</h3>
+          <p>Shared FinMind budget. Fixer focuses on provider evidence refresh, retryable failures, and mapped reruns.</p>
+          <div class="reason"><span class="mark"></span><div><strong>Repair</strong><span class="tiny">Enabled only for known provider-specific data gaps, never generic KR resolver mapping.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Renew</button>
+            <button class="mini-btn">Retry</button>
+            <button class="mini-btn">Rerun</button>
+          </div>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("healthy", "Healthy")}<span class="tiny mono">yahoo-finance-au</span></div>
+          <h3>Yahoo Finance AU</h3>
+          <p>Provider-owned rerun and renew actions are available, but no KR binding tab appears.</p>
+          <div class="reason blue"><span class="mark"></span><div><strong>Visible unsupported states</strong><span class="tiny">Mappings tab explains that this provider has no resolver binding model.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Renew</button>
+            <button class="mini-btn disabled">Repair</button>
+            <button class="mini-btn">Rerun</button>
+          </div>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("healthy", "Healthy")}<span class="tiny mono">frankfurter</span></div>
+          <h3>Frankfurter</h3>
+          <p>FX pairs use refresh and rerun actions with provider cap validation in Admin Settings.</p>
+          <div class="reason"><span class="mark"></span><div><strong>No symbol repair</strong><span class="tiny">The fixer explains unsupported repair instead of hiding the action.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Refresh</button>
+            <button class="mini-btn disabled">Repair</button>
+            <button class="mini-btn">Rerun</button>
+          </div>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;">${statusBadge("healthy", "Healthy")}<span class="tiny mono">asx-gics-csv</span></div>
+          <h3>ASX GICS CSV</h3>
+          <p>CSV refresh is singleton-queued. There is no row-by-row resolver repair path.</p>
+          <div class="reason blue"><span class="mark"></span><div><strong>Queue only</strong><span class="tiny">Refresh frequency is capped; duplicate refreshes join the queue.</span></div></div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Refresh CSV</button>
+            <button class="mini-btn disabled">Repair</button>
+            <button class="mini-btn disabled">Rerun</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:14px;">
+      <div class="panel-head">
+        <div>
+          <h2>Normal versus staged work</h2>
+          <p>Small actions stay in the provider Fixer section. Large writes open a guarded preview and then run through the operation engine.</p>
+        </div>
+      </div>
+      <div class="three-grid">
+        <div class="metric"><div class="label">Normal scope</div><div class="value" style="font-size:20px;">Up to 100</div><div class="sub">Checkbox guardrail and action tooltip.</div></div>
+        <div class="metric"><div class="label">Large write</div><div class="value" style="font-size:20px;">Preview required</div><div class="sub">Frozen filters, typed phrase, snapshot hash.</div></div>
+        <div class="metric"><div class="label">Execution</div><div class="value" style="font-size:20px;">Operation engine</div><div class="sub">SSE progress, outcomes, rate-limit pacing.</div></div>
+      </div>
+    </section>
+  `, {
+    title: "Provider fixer coverage",
+    subtitle: "Option 3 locked model: one provider console, provider-owned tabs, provider-specific actions and guardrails."
+  });
+}
+
 function unresolvedRows() {
   return [
     ["KR-005930", "005930", "KOSPI", "candidate_found", "005930.KS", "quote-first strict", "126"],
@@ -1488,6 +1588,76 @@ function operations() {
       </aside>
     </section>
   `);
+}
+
+function operationsQueued() {
+  return shell("Operations", `
+    <section class="layout-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Operation queue</h2>
+            <p>Only one provider operation runs at a time for the provider. Later actions are queued and promoted automatically.</p>
+          </div>
+          <button class="btn">Refresh operations</button>
+        </div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <h3>Repair 1,248 Yahoo KR strict mappings</h3>
+              <div class="tiny mono">operation 63c31e77-9b3e-4f1f-8b1b-15aa3d960a0a</div>
+            </div>
+            ${statusBadge("info", "Running")}
+          </div>
+          <div class="progress"><span style="width:42%"></span></div>
+          <div class="tiny">523 processed of 1,248 total. Queued operations stay blocked until this reaches a terminal phase.</div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn">Pause</button>
+            <button class="mini-btn">Cancel</button>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <h3>Rerun backfill for resolved Yahoo KR rows</h3>
+              <div class="tiny mono">operation 28fd0a82-bdc4-4a85-a3a0-bf5040c45a20</div>
+            </div>
+            ${statusBadge("neutral", "Queued")}
+          </div>
+          <div class="progress"><span style="width:0%"></span></div>
+          <div class="tiny">Queued behind 63c31e77. Pause is disabled because work has not started.</div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;">
+            <button class="mini-btn disabled">Pause</button>
+            <button class="mini-btn">Cancel queued</button>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="operation-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <h3>Renew ambiguous resolver evidence</h3>
+              <div class="tiny mono">operation b2ee2f40-0968-44c7-a241-541bb5494637</div>
+            </div>
+            ${statusBadge("neutral", "Queued")}
+          </div>
+          <div class="tiny">Queue position 2. Cancel removes it from the queue without changing unresolved rows.</div>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2>Queue rules</h2>
+        <div class="timeline">
+          <div class="timeline-row"><span class="tiny">Queued</span><strong>Accepted, not executing, cancellable.</strong></div>
+          <div class="timeline-row"><span class="tiny">Promote</span><strong>Oldest queued operation starts after active terminal phase.</strong></div>
+          <div class="timeline-row"><span class="tiny">Counters</span><strong>Queued totals are known; processed counts remain zero.</strong></div>
+          <div class="timeline-row"><span class="tiny">SSE</span><strong>Queue promotion pushes a refresh event.</strong></div>
+        </div>
+      </aside>
+    </section>
+  `, {
+    title: "Yahoo Finance KR operations",
+    subtitle: "Queued phase, promotion behavior, and cancel-only controls for not-yet-started operations."
+  });
 }
 
 function operationOutcomes() {
@@ -1910,6 +2080,40 @@ function mobileOverview() {
   });
 }
 
+function mobileProviderSwitcher() {
+  return shell("Overview", `
+    <section class="panel">
+      <h2>Provider switcher</h2>
+      <div class="mobile-list" style="display:grid;">
+        <div class="mobile-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;"><strong>Yahoo Finance KR</strong>${statusBadge("awaiting", "Awaiting action")}</div>
+          <span class="tiny">27,212 unresolved - 3 incidents - 2 ops</span>
+          <button class="btn primary">Open fixer</button>
+        </div>
+        <div class="mobile-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;"><strong>Twelve Data KR</strong>${statusBadge("degraded", "Degraded")}</div>
+          <span class="tiny">1,942 unresolved - shared Twelve Data budget</span>
+          <button class="btn">Open provider</button>
+        </div>
+        <div class="mobile-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;"><strong>FinMind TW</strong>${statusBadge("degraded", "Degraded")}</div>
+          <span class="tiny">328 unresolved - shared FinMind budget</span>
+          <button class="btn">Open provider</button>
+        </div>
+        <div class="mobile-card">
+          <div style="display:flex;justify-content:space-between;gap:10px;"><strong>ASX GICS CSV</strong>${statusBadge("healthy", "Healthy")}</div>
+          <span class="tiny">0 unresolved - CSV refresh only</span>
+          <button class="btn">Open provider</button>
+        </div>
+      </div>
+    </section>
+  `, {
+    title: "Provider console",
+    subtitle: "Mobile provider selection keeps statuses, counts, budget hints, and provider-owned fixer access visible.",
+    bottomBar: `<div class="bottom-bar"><button class="btn">Refresh</button><button class="btn primary">Open selected</button></div>`
+  });
+}
+
 function mobileOperations() {
   return shell("Operations", `
     <section class="panel">
@@ -1950,10 +2154,12 @@ function mobileOperations() {
 const screens = {
   overview,
   "provider-tabs-capabilities": providerTabsCapabilities,
+  "provider-fixer-coverage": providerFixerCoverage,
   unresolved,
   fixer,
   "dangerous-preview": dangerousPreview,
   operations,
+  "operations-queued": operationsQueued,
   "operation-outcomes": operationOutcomes,
   "incidents-activity-logs": incidentsActivityLogs,
   "logs-purge-preview": logsPurgePreview,
@@ -1961,6 +2167,7 @@ const screens = {
   settings,
   "settings-retention": settingsRetention,
   "mobile-overview": mobileOverview,
+  "mobile-provider-switcher": mobileProviderSwitcher,
   "mobile-unresolved": unresolved,
   "mobile-operations": mobileOperations,
   "mobile-dangerous-preview": mobileDangerous
