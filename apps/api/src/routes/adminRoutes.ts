@@ -920,6 +920,55 @@ async function buildProviderFixerEvidenceSample(
   };
 }
 
+function shouldExcludeResolvedProviderMappings(providerId: string, marketCode: MarketCode): boolean {
+  return providerId === "yahoo-finance-kr" && marketCode === "KR";
+}
+
+async function listProviderFixerScopeRows(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  errorCode: string,
+): Promise<{ rows: ProviderErrorTrailRow[]; total: number }> {
+  const limit = 500;
+  let page = 1;
+  let total = 0;
+  const collected: ProviderErrorTrailRow[] = [];
+  while (true) {
+    const rows = await app.persistence.listProviderErrorTrailPage({
+      providerId,
+      marketCode,
+      errorMessageLike: errorCode,
+      excludeResolvedMappings: shouldExcludeResolvedProviderMappings(providerId, marketCode),
+      page,
+      limit,
+    });
+    total = rows.total;
+    collected.push(...rows.items);
+    if (page * limit >= rows.total || rows.items.length === 0) break;
+    page += 1;
+  }
+  return { rows: collected, total };
+}
+
+async function buildProviderFixerScopeSnapshot(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  errorCode: string,
+): Promise<{ matchCount: number; snapshotHash: string }> {
+  const scope = await listProviderFixerScopeRows(app, providerId, marketCode, errorCode);
+  const entries = scope.rows.map((row) => {
+    const sourceSymbol = extractProviderFixerTicker(row)?.replace(/\.(KS|KQ)$/i, "").toUpperCase() ?? "";
+    return `${row.id}:${sourceSymbol}:${row.occurredAt}`;
+  });
+  entries.sort();
+  return {
+    matchCount: scope.total,
+    snapshotHash: hashProviderFixerToken(JSON.stringify({ providerId, marketCode, errorCode, matchCount: scope.total, entries })).slice(0, 12),
+  };
+}
+
 function evidenceSampleFromOperation(operation: ProviderOperationRecord): ProviderFixerDashboardEvidenceSampleDto[] {
   const sample = Array.isArray(operation.sample) ? operation.sample : [];
   return sample
@@ -1288,20 +1337,36 @@ async function executeProviderFixerMappings(
   let skipped = 0;
   let scanned = 0;
   const mappedTickers: string[] = [];
-  let page = 1;
-  const limit = 200;
-  while (true) {
-    const rows = await app.persistence.listProviderErrorTrailPage({
+  const scope = await listProviderFixerScopeRows(
+    app,
+    operation.providerId,
+    operation.marketCode,
+    operation.errorCode ?? "symbol_unresolved",
+  );
+  for (const row of scope.rows) {
+    scanned += 1;
+    const extractedTicker = extractProviderFixerTicker(row);
+    const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
       providerId: operation.providerId,
       marketCode: operation.marketCode,
-      errorMessageLike: operation.errorCode ?? "symbol_unresolved",
-      page,
-      limit,
+      sourceSymbol,
+      providerSymbol: extractedTicker ?? null,
+      action: "repair_mapping",
+      state: "running",
+      message: "Verifying provider symbol candidate.",
+      evidence: { errorTrailId: row.id },
     });
-    for (const row of rows.items) {
-      scanned += 1;
-      const extractedTicker = extractProviderFixerTicker(row);
-      const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+    let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
+    try {
+      evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
+        resolverMode: operation.resolverMode ?? "quote_first",
+        verifyCandidate: true,
+        operationBudget: operation,
+      });
+    } catch (err) {
+      const isRateLimited = err instanceof RateLimitedError;
       await app.persistence.upsertProviderOperationOutcome({
         operationId: operation.id,
         providerId: operation.providerId,
@@ -1309,85 +1374,62 @@ async function executeProviderFixerMappings(
         sourceSymbol,
         providerSymbol: extractedTicker ?? null,
         action: "repair_mapping",
-        state: "running",
-        message: "Verifying provider symbol candidate.",
+        state: isRateLimited ? "rate_limited" : "failed",
+        message: err instanceof Error ? err.message : "Provider verification failed.",
+        errorCode: isRateLimited ? "provider_rate_limited" : "provider_verification_failed",
         evidence: { errorTrailId: row.id },
       });
-      let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
-      try {
-        evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
-          resolverMode: operation.resolverMode ?? "quote_first",
-          verifyCandidate: true,
-          operationBudget: operation,
-        });
-      } catch (err) {
-        const isRateLimited = err instanceof RateLimitedError;
-        await app.persistence.upsertProviderOperationOutcome({
-          operationId: operation.id,
-          providerId: operation.providerId,
-          marketCode: operation.marketCode,
-          sourceSymbol,
-          providerSymbol: extractedTicker ?? null,
-          action: "repair_mapping",
-          state: isRateLimited ? "rate_limited" : "failed",
-          message: err instanceof Error ? err.message : "Provider verification failed.",
-          errorCode: isRateLimited ? "provider_rate_limited" : "provider_verification_failed",
-          evidence: { errorTrailId: row.id },
-        });
-        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
-        throw err;
-      }
-      if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
-        skipped += 1;
-        await app.persistence.upsertProviderOperationOutcome({
-          operationId: operation.id,
-          providerId: operation.providerId,
-          marketCode: operation.marketCode,
-          sourceSymbol,
-          providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
-          action: "repair_mapping",
-          state: "skipped",
-          message: evidence?.note ?? "No verified provider symbol candidate.",
-          errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
-          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
-        });
-        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
-        continue;
-      }
-      await app.persistence.upsertProviderResolutionMapping({
-        providerId: operation.providerId,
-        marketCode: "KR",
-        sourceSymbol: evidence.symbol,
-        resolvedSymbol: evidence.candidateSymbol,
-        resolverMode: operation.resolverMode ?? "quote_first",
-        evidence: {
-          exchangeHint: evidence.exchangeHint,
-          note: evidence.note,
-          operationId: operation.id,
-        },
-        verifiedByUserId: actorUserId,
-      });
-      applied += 1;
-      mappedTickers.push(evidence.symbol);
+      await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+      throw err;
+    }
+    if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
+      skipped += 1;
       await app.persistence.upsertProviderOperationOutcome({
         operationId: operation.id,
         providerId: operation.providerId,
         marketCode: operation.marketCode,
-        sourceSymbol: evidence.symbol,
-        providerSymbol: evidence.providerSymbol,
+        sourceSymbol,
+        providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
         action: "repair_mapping",
-        state: "succeeded",
-        message: `Resolved ${evidence.symbol} to ${evidence.candidateSymbol}.`,
-        evidence: {
-          candidateSymbol: evidence.candidateSymbol,
-          exchangeHint: evidence.exchangeHint,
-          note: evidence.note,
-        },
+        state: "skipped",
+        message: evidence?.note ?? "No verified provider symbol candidate.",
+        errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
+        evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
       });
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+      continue;
     }
-    if (page * limit >= rows.total || rows.items.length === 0) break;
-    page += 1;
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: operation.providerId,
+      marketCode: "KR",
+      sourceSymbol: evidence.symbol,
+      resolvedSymbol: evidence.candidateSymbol,
+      resolverMode: operation.resolverMode ?? "quote_first",
+      evidence: {
+        exchangeHint: evidence.exchangeHint,
+        note: evidence.note,
+        operationId: operation.id,
+      },
+      verifiedByUserId: actorUserId,
+    });
+    applied += 1;
+    mappedTickers.push(evidence.symbol);
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol: evidence.symbol,
+      providerSymbol: evidence.providerSymbol,
+      action: "repair_mapping",
+      state: "succeeded",
+      message: `Resolved ${evidence.symbol} to ${evidence.candidateSymbol}.`,
+      evidence: {
+        candidateSymbol: evidence.candidateSymbol,
+        exchangeHint: evidence.exchangeHint,
+        note: evidence.note,
+      },
+    });
+    await refreshProviderOperationProgressFromOutcomes(app, operation.id);
   }
   if (mappedTickers.length > 0) {
     await app.persistence.resolveProviderUnresolvedItems({
@@ -2759,7 +2801,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const marketCode = providerFixerMarketCode(providerId, body.marketCode);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    const { sample, total } = await buildProviderFixerEvidenceSample(
+    const { sample } = await buildProviderFixerEvidenceSample(
       app,
       providerId,
       marketCode,
@@ -2767,9 +2809,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       body.resolverMode,
       guardrails.previewSampleLimit,
     );
+    const scopeSnapshot = await buildProviderFixerScopeSnapshot(app, providerId, marketCode, body.errorCode);
     const token = newProviderFixerToken();
-    const dangerous = total >= guardrails.dangerousMatchThreshold;
-    const confirmationText = dangerous ? `EXECUTE ${total}` : null;
+    const dangerous = scopeSnapshot.matchCount >= guardrails.dangerousMatchThreshold;
+    const confirmationText = dangerous ? `EXECUTE ${scopeSnapshot.matchCount}` : null;
     const now = Date.now();
     const operation = await app.persistence.createProviderOperation({
       providerId,
@@ -2779,10 +2822,10 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       errorCode: body.errorCode,
       resolverMode: body.resolverMode,
       scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
-      snapshotHash: hashProviderFixerToken(`${providerId}:${marketCode}:${body.errorCode}:${total}:${now}`).slice(0, 12),
+      snapshotHash: scopeSnapshot.snapshotHash,
       previewTokenHash: hashProviderFixerToken(token),
       previewExpiresAt: new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString(),
-      matchCount: total,
+      matchCount: scopeSnapshot.matchCount,
       sample,
       metadata: {
         previewTokenDisplay: token,
@@ -2795,8 +2838,8 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
       phase: "preview",
-      level: total > 0 ? "info" : "warning",
-      message: `preview provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${total} sample=${sample.length}`,
+      level: scopeSnapshot.matchCount > 0 ? "info" : "warning",
+      message: `preview provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${scopeSnapshot.matchCount} sample=${sample.length}`,
       context: {
         providerId,
         marketCode,
@@ -2816,7 +2859,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         marketCode,
         errorCode: body.errorCode,
         resolverMode: body.resolverMode,
-        matchCount: total,
+        matchCount: scopeSnapshot.matchCount,
         dangerous,
       },
     });
@@ -3686,6 +3729,15 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     if (operationDto.dangerous && body.typedConfirmation !== operationDto.preview.confirmationText) {
       throw routeError(400, "provider_fixer_typed_confirmation_required", "Dangerous operation requires matching typed confirmation");
+    }
+    const currentScope = await buildProviderFixerScopeSnapshot(
+      app,
+      existing.providerId,
+      existing.marketCode,
+      existing.errorCode ?? "symbol_unresolved",
+    );
+    if (currentScope.matchCount !== (existing.matchCount ?? 0) || currentScope.snapshotHash !== existing.snapshotHash) {
+      throw routeError(409, "snapshot_changed", "Provider fixer scope changed; run preview again");
     }
     const activeOperation = await findOtherActiveProviderOperationExecution(app, {
       providerId: existing.providerId,
