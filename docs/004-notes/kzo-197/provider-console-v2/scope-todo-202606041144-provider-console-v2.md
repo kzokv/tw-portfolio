@@ -151,7 +151,8 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added durable `provider_operation_outcomes`, provider-scoped outcome API, KR repair outcome writes, and Operations tab outcome visibility.
 - 2026-06-04: Added `mockups/version-2/` with the locked 16-screenshot desktop/mobile review set covering capability tabs, unresolved/fixer flows, dangerous previews, SSE progress, outcomes, purge, mappings, settings budgets, retention, and mobile states.
 - 2026-06-04: Added Admin Settings provider-operation budget caps for FinMind, Twelve Data, Yahoo AU/KR, Frankfurter, and ASX GICS CSV. API bounds are deployment-aware, editable values must be >0 and below the configured provider ceiling, and runtime provider limiters read refreshed app-config budgets dynamically.
-- Remaining high-risk work is still backend-heavy: durable incidents, full provider-scoped APIs for incidents/activity/mappings/purge, background operation engine, deeper KR resolver binding/provider consult path, provider settings, purge preview, full mobile action sheets, and full gate coverage.
+- 2026-06-04: Added durable `provider_incidents`, provider-scoped incident list API, error-trail-to-incident normalization, Incidents tab table, and incident lifecycle actions (`open`, `acknowledged`, `resolved`, `ignored`) with admin audit metadata and SSE invalidation.
+- Remaining high-risk work is still backend-heavy: full provider-scoped APIs for activity/mappings/purge, background operation engine, deeper KR resolver binding/provider consult path, provider settings, purge preview, full mobile action sheets, and full gate coverage.
 
 - [ ] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
 - [ ] Add idempotent migration/backfill from recent `provider_error_trail` into unresolved items/incidents.
