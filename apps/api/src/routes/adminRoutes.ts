@@ -1441,6 +1441,223 @@ async function completeProviderFixerOperation(
   return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { ...result, backfills } };
 }
 
+async function renewProviderFixerEvidence(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+): Promise<{ succeeded: number; skipped: number; scanned: number }> {
+  let succeeded = 0;
+  let skipped = 0;
+  let scanned = 0;
+  let page = 1;
+  const limit = 200;
+  while (true) {
+    const rows = await app.persistence.listProviderErrorTrailPage({
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      errorMessageLike: operation.errorCode ?? "symbol_unresolved",
+      page,
+      limit,
+    });
+    for (const row of rows.items) {
+      scanned += 1;
+      const extractedTicker = extractProviderFixerTicker(row);
+      const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        providerSymbol: extractedTicker ?? null,
+        action: "renew_evidence",
+        state: "running",
+        message: "Renewing provider evidence.",
+        evidence: { errorTrailId: row.id },
+      });
+      let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
+      try {
+        evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
+          resolverMode: operation.resolverMode ?? "quote_first",
+          verifyCandidate: true,
+        });
+      } catch (err) {
+        const isRateLimited = err instanceof RateLimitedError;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol: extractedTicker ?? null,
+          action: "renew_evidence",
+          state: isRateLimited ? "rate_limited" : "failed",
+          message: err instanceof Error ? err.message : "Provider evidence renewal failed.",
+          errorCode: isRateLimited ? "provider_rate_limited" : "provider_evidence_renewal_failed",
+          evidence: { errorTrailId: row.id },
+        });
+        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+        throw err;
+      }
+      if (evidence?.candidateSymbol && evidence.verificationStatus === "verified") {
+        succeeded += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol: evidence.symbol,
+          providerSymbol: evidence.providerSymbol,
+          action: "renew_evidence",
+          state: "succeeded",
+          message: `Renewed evidence for ${evidence.symbol}: ${evidence.candidateSymbol}.`,
+          evidence: {
+            candidateSymbol: evidence.candidateSymbol,
+            exchangeHint: evidence.exchangeHint,
+            note: evidence.note,
+          },
+        });
+      } else {
+        skipped += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
+          action: "renew_evidence",
+          state: "skipped",
+          message: evidence?.note ?? "No verified provider evidence candidate.",
+          errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
+          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
+        });
+      }
+      await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+    }
+    if (page * limit >= rows.total || rows.items.length === 0) break;
+    page += 1;
+  }
+  return { succeeded, skipped, scanned };
+}
+
+async function completeProviderRenewEvidenceOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+    throwOnFailure: boolean;
+  },
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
+  let result: Awaited<ReturnType<typeof renewProviderFixerEvidence>>;
+  try {
+    result = await renewProviderFixerEvidence(app, operation);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Provider evidence renewal failed.";
+    const isRateLimited = err instanceof RateLimitedError;
+    const interrupted = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: isRateLimited ? "paused" : "failed",
+      completedAt: isRateLimited ? null : new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 0,
+        pauseReason: isRateLimited ? "paused_rate_limit" : undefined,
+        failureReason: message,
+        failureName: err instanceof Error ? err.name : "UnknownError",
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : undefined,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: interrupted.id,
+      phase: interrupted.phase,
+      level: isRateLimited ? "warning" : "error",
+      message: `${isRateLimited ? "renew_auto_paused_rate_limited" : "renew_failed"} provider=${interrupted.providerId} market=${interrupted.marketCode} reason=${message}`,
+      context: {
+        providerId: interrupted.providerId,
+        marketCode: interrupted.marketCode,
+        errorCode: interrupted.errorCode,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: interrupted.id,
+        action: isRateLimited ? "renew_auto_pause" : "renew_failed",
+        providerId: interrupted.providerId,
+        marketCode: interrupted.marketCode,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+        errorMessage: message,
+        msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+      },
+    });
+    await refreshProviderOperationProgressFromOutcomes(app, interrupted.id);
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: interrupted.id,
+      providerId: interrupted.providerId,
+      phase: interrupted.phase,
+      pauseReason: isRateLimited ? "paused_rate_limit" : null,
+    });
+    if (context.throwOnFailure) {
+      if (isRateLimited) {
+        throw routeError(503, "provider_rate_limited", message);
+      }
+      throw err;
+    }
+    return {
+      operation: providerFixerOperationToDto(interrupted, context.guardrails),
+      result: { status: interrupted.phase, errorMessage: message },
+    };
+  }
+  const outcomeProgress = await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+  const completed = await app.persistence.updateProviderOperation({
+    id: operation.id,
+    phase: "completed",
+    completedAt: new Date().toISOString(),
+    metadata: {
+      ...(asRecord(outcomeProgress?.metadata) ?? asRecord(operation.metadata) ?? {}),
+      progressPercent: 100,
+      renewedEvidenceCount: result.succeeded,
+      skippedEvidenceCount: result.skipped,
+      scannedRowCount: result.scanned,
+    },
+  });
+  await app.persistence.createProviderOperationLog({
+    operationId: completed.id,
+    phase: "completed",
+    level: result.skipped > 0 ? "warning" : "info",
+    message: `renew_completed provider=${completed.providerId} market=${completed.marketCode} renewed=${result.succeeded} skipped=${result.skipped} scanned=${result.scanned}`,
+    context: { providerId: completed.providerId, marketCode: completed.marketCode, ...result },
+  });
+  await app.persistence.appendAuditLog({
+    actorUserId: context.actorUserId,
+    action: "provider_fixer_operation",
+    ipAddress: context.ipAddress,
+    metadata: {
+      operationId: completed.id,
+      action: "renew_evidence",
+      providerId: completed.providerId,
+      marketCode: completed.marketCode,
+      ...result,
+    },
+  });
+  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+    operationId: completed.id,
+    providerId: completed.providerId,
+    phase: completed.phase,
+  });
+  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+    operationId: completed.id,
+    providerId: completed.providerId,
+    processed: result.succeeded + result.skipped,
+    total: result.scanned,
+    progressPercent: 100,
+  });
+  return { operation: providerFixerOperationToDto(completed, context.guardrails), result };
+}
+
 function runProviderFixerOperationInBackground(
   app: FastifyInstance,
   operation: ProviderOperationRecord,
@@ -1455,6 +1672,25 @@ function runProviderFixerOperationInBackground(
           err,
         },
         "provider_operation_background_execution_failed",
+      );
+    });
+  });
+}
+
+function runProviderRenewEvidenceOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: Omit<Parameters<typeof completeProviderRenewEvidenceOperation>[2], "throwOnFailure">,
+): void {
+  setImmediate(() => {
+    void completeProviderRenewEvidenceOperation(app, operation, { ...context, throwOnFailure: false }).catch((err) => {
+      app.log.error(
+        {
+          operationId: operation.id,
+          providerId: operation.providerId,
+          err,
+        },
+        "provider_renew_evidence_background_failed",
       );
     });
   });
@@ -2097,6 +2333,96 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     return loadProviderDiagnostics(req, providerId);
   });
 
+  app.post("/providers/:providerId/operations/renew", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        resolverMode: providerFixerResolverModeSchema.default("quote_first"),
+        errorCode: providerFixerErrorCodeSchema.default("symbol_unresolved"),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const capability = listProviderOperationCapabilities([providerId])[0];
+    if (!capability?.actions.some((action) => action.action === "renew_evidence" && action.supported)) {
+      throw routeError(400, "provider_operation_not_supported", "Renew evidence is not supported for this provider");
+    }
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    const firstPage = await app.persistence.listProviderErrorTrailPage({
+      providerId,
+      marketCode,
+      errorMessageLike: body.errorCode,
+      page: 1,
+      limit: guardrails.previewSampleLimit,
+    });
+    const sample = firstPage.items.map((row): ProviderFixerDashboardEvidenceSampleDto => {
+      const extractedTicker = extractProviderFixerTicker(row);
+      const symbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      return {
+        symbol,
+        providerSymbol: extractedTicker ?? symbol,
+        candidateSymbol: null,
+        exchangeHint: null,
+        verificationStatus: "pending",
+        note: "Renew evidence pending.",
+      };
+    });
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode,
+      operationType: "renew_evidence",
+      phase: "running",
+      errorCode: body.errorCode,
+      resolverMode: body.resolverMode,
+      scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${marketCode}:${body.errorCode}:renew:${firstPage.total}:${Date.now()}`).slice(0, 12),
+      matchCount: firstPage.total,
+      sample,
+      metadata: {
+        progressPercent: 0,
+        previewSampleLimit: guardrails.previewSampleLimit,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "running",
+      level: "info",
+      message: `renew_started provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${firstPage.total}`,
+      context: { providerId, marketCode, errorCode: body.errorCode, resolverMode: body.resolverMode },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "renew_evidence_started",
+        providerId,
+        marketCode,
+        errorCode: body.errorCode,
+        resolverMode: body.resolverMode,
+        matchCount: firstPage.total,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: operation.phase,
+    });
+    runProviderRenewEvidenceOperationInBackground(app, operation, {
+      actorUserId: sessionUserId,
+      ipAddress,
+      guardrails,
+    });
+    reply.code(202);
+    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: "started" } };
+  });
+
   app.get("/providers/:providerId/unresolved", async (req): Promise<ProviderUnresolvedItemsResponse> => {
     requireAdminRole(req);
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
@@ -2722,6 +3048,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       }
       if (
         action === "resume" &&
+        existing.operationType !== "renew_evidence" &&
         existing.operationType !== "reverify_mapping" &&
         existing.operationType !== "revert_mapping" &&
         existing.operationType !== "resolver_repair" &&
@@ -2755,7 +3082,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         phase: updated.phase,
       });
       if (action === "resume") {
-        if (updated.operationType === "reverify_mapping") {
+        if (updated.operationType === "renew_evidence") {
+          runProviderRenewEvidenceOperationInBackground(app, updated, {
+            actorUserId: sessionUserId,
+            ipAddress,
+            guardrails,
+          });
+        } else if (updated.operationType === "reverify_mapping") {
           runProviderMappingReverifyOperationInBackground(app, updated, {
             actorUserId: sessionUserId,
             ipAddress,
