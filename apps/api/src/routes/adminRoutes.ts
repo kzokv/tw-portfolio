@@ -4,6 +4,8 @@ import { z } from "zod";
 import type {
   AiConnectorPolicySettingsDto,
   AppConfigDto,
+  ProviderActivityItemDto,
+  ProviderActivityResponse,
   ProviderFixerDashboardDiagnosticsResponse,
   ProviderFixerDashboardEvidenceSampleDto,
   ProviderFixerDashboardGuardrailSettingsDto,
@@ -1503,6 +1505,85 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       total: result.total,
       page: result.page,
       limit: result.limit,
+    };
+  });
+
+  app.get("/providers/:providerId/activity", async (req): Promise<ProviderActivityResponse> => {
+    requireAdminRole(req);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const query = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const fetchLimit = Math.max(query.limit, 50);
+    const [incidents, operations, unresolved, mappings] = await Promise.all([
+      app.persistence.listProviderIncidents({ providerId, page: 1, limit: fetchLimit }),
+      app.persistence.listProviderOperations({ providerId, page: 1, limit: fetchLimit }),
+      app.persistence.listProviderUnresolvedItems({ providerId, page: 1, limit: fetchLimit }),
+      app.persistence.listProviderResolutionMappings({ providerId, page: 1, limit: fetchLimit }),
+    ]);
+    const operationLogs = (
+      await Promise.all(
+        operations.items.map((operation) =>
+          app.persistence.listProviderOperationLogs({ operationId: operation.id, page: 1, limit: 10 }),
+        ),
+      )
+    ).flatMap((result) => result.items);
+    const items: ProviderActivityItemDto[] = [
+      ...incidents.items.map((incident): ProviderActivityItemDto => ({
+        id: `incident:${incident.id}`,
+        providerId: incident.providerId,
+        kind: "incident",
+        occurredAt: incident.updatedAt,
+        title: `Incident ${incident.status}`,
+        detail: incident.title,
+        refId: incident.id,
+      })),
+      ...operations.items.map((operation): ProviderActivityItemDto => ({
+        id: `operation:${operation.id}`,
+        providerId: operation.providerId,
+        kind: "operation",
+        occurredAt: operation.updatedAt,
+        title: `Operation ${operation.phase}`,
+        detail: operation.operationType,
+        refId: operation.id,
+      })),
+      ...operationLogs.map((log): ProviderActivityItemDto => ({
+        id: `log:${log.id}`,
+        providerId,
+        kind: "log",
+        occurredAt: log.createdAt,
+        title: `Log ${log.phase}`,
+        detail: log.message,
+        refId: log.operationId,
+      })),
+      ...unresolved.items.map((item): ProviderActivityItemDto => ({
+        id: `unresolved:${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`,
+        providerId: item.providerId,
+        kind: "unresolved",
+        occurredAt: item.updatedAt,
+        title: `Unresolved ${item.state}`,
+        detail: `${item.sourceSymbol} ${item.errorCode}`,
+        refId: item.lastErrorTrailId == null ? null : String(item.lastErrorTrailId),
+      })),
+      ...mappings.items.map((mapping): ProviderActivityItemDto => ({
+        id: `mapping:${mapping.providerId}:${mapping.marketCode}:${mapping.sourceSymbol}`,
+        providerId: mapping.providerId,
+        kind: "mapping",
+        occurredAt: mapping.updatedAt,
+        title: "Mapping verified",
+        detail: `${mapping.sourceSymbol} -> ${mapping.resolvedSymbol}`,
+        refId: mapping.sourceSymbol,
+      })),
+    ].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const offset = (query.page - 1) * query.limit;
+    return {
+      items: items.slice(offset, offset + query.limit),
+      total: items.length,
+      page: query.page,
+      limit: query.limit,
     };
   });
 

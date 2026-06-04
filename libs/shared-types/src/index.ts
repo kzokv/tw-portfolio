@@ -2109,6 +2109,25 @@ export interface ProviderResolutionMappingsResponse {
   limit: number;
 }
 
+export type ProviderActivityItemKind = "incident" | "operation" | "log" | "mapping" | "unresolved";
+
+export interface ProviderActivityItemDto {
+  id: string;
+  providerId: string;
+  kind: ProviderActivityItemKind;
+  occurredAt: string;
+  title: string;
+  detail: string | null;
+  refId: string | null;
+}
+
+export interface ProviderActivityResponse {
+  items: ProviderActivityItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────
 
 export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
+  ProviderActivityItemDto,
   ProviderFixerDashboardDiagnosticsDto,
   ProviderFixerDashboardGuardrailSettingsDto,
   ProviderFixerDashboardLogEntryDto,
@@ -59,6 +60,10 @@ interface AdminProvidersClientProps {
   mappingsPage: number;
   mappingsLimit: number;
   mappingsTotal: number;
+  activityItems: ProviderActivityItemDto[];
+  activityPage: number;
+  activityLimit: number;
+  activityTotal: number;
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   operationsPage: number;
@@ -293,6 +298,10 @@ export function AdminProvidersClient({
   mappingsPage,
   mappingsLimit,
   mappingsTotal,
+  activityItems,
+  activityPage,
+  activityLimit,
+  activityTotal,
   stagedOperation,
   operations,
   operationsPage,
@@ -657,7 +666,13 @@ export function AdminProvidersClient({
         ) : null}
 
         {activeTab === "activity" ? (
-          <ActivityTab selectedProviderId={selectedProviderId} logs={logs} />
+          <ActivityTab
+            selectedProviderId={selectedProviderId}
+            items={activityItems.filter((item) => item.providerId === selectedProviderId)}
+            page={activityPage}
+            limit={activityLimit}
+            total={activityTotal}
+          />
         ) : null}
 
         {activeTab === "logs" ? (
@@ -1207,21 +1222,35 @@ function IncidentsTab({
   );
 }
 
-function ActivityTab({ selectedProviderId, logs }: { selectedProviderId: string; logs: ProviderFixerDashboardLogEntryDto[] }) {
+function ActivityTab({
+  selectedProviderId,
+  items,
+  page,
+  limit,
+  total,
+}: {
+  selectedProviderId: string;
+  items: ProviderActivityItemDto[];
+  page: number;
+  limit: number;
+  total: number;
+}) {
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <h3 className="text-xl font-semibold text-foreground">Activity</h3>
-      <p className="text-sm text-muted-foreground">Provider-scoped timeline composed from operations, logs, incidents, unresolved items, audit events, and settings changes.</p>
+      <p className="text-sm text-muted-foreground">Provider-scoped timeline composed from operations, logs, incidents, unresolved items, and mappings.</p>
       <div className="space-y-0">
-        {logs.length > 0 ? logs.map((entry) => (
-          <div key={entry.id} className="grid gap-2 border-b border-border py-3 text-sm last:border-b-0 md:grid-cols-[170px_1fr]">
+        {items.length > 0 ? items.map((entry) => (
+          <div key={entry.id} className="grid gap-2 border-b border-border py-3 text-sm last:border-b-0 md:grid-cols-[170px_130px_1fr]">
             <span className="font-mono text-muted-foreground">{formatTimestamp(entry.occurredAt)}</span>
-            <span><strong>{entry.phase}</strong> {entry.message}</span>
+            <span className="w-fit rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{entry.kind}</span>
+            <span><strong>{entry.title}</strong>{entry.detail ? ` - ${entry.detail}` : ""}</span>
           </div>
         )) : (
-          <Reason tone="info" title={`No recent activity for ${selectedProviderId}`} body="Activity will populate from provider operation logs and incident timeline events." />
+          <Reason tone="info" title={`No recent activity for ${selectedProviderId}`} body="Activity will populate from provider operation logs, incidents, unresolved items, and mappings." />
         )}
       </div>
+      <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
     </Card>
   );
 }
