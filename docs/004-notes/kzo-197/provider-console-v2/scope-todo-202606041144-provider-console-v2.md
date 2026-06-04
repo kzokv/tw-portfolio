@@ -175,6 +175,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Completed dense unresolved table controls with server-backed sort, URL-preserved sort/filter/page state, explicit select-all-matching UX, and a recently-resolved shortcut.
 - 2026-06-04: Improved Mappings tab rows with durable evidence summaries, linked unresolved/operation context, and visible Reverify/Revert affordances with guardrail explanations; backend write routes for those actions remain in operation-engine scope.
 - 2026-06-04: Added provider-scoped Reverify mapping operation for durable mappings; it creates a background provider operation, records item outcomes, updates mapping verification evidence, emits operation events, and wires the Mappings tab Reverify action.
+- 2026-06-04: Added provider-scoped Revert mapping operation with exact typed confirmation, durable operation/outcome/log/audit records, mapping deletion, SSE invalidation, and inline Mappings-tab guardrail UI.
 - Remaining high-risk work is still backend-heavy: durable queueing, budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.
