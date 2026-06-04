@@ -178,6 +178,7 @@ The current locked visual version is preserved separately in `mockups/version-2/
 - 2026-06-04: Added provider-scoped Revert mapping operation with exact typed confirmation, durable operation/outcome/log/audit records, mapping deletion, SSE invalidation, and inline Mappings-tab guardrail UI.
 - 2026-06-04: Completed the Mappings tab checklist item with actual provider-scoped unresolved and operation links, guarded Reverify/Revert actions, provider unsupported empty states, and evidence summaries.
 - 2026-06-04: Added provider-scoped Renew evidence operation; Renew now runs as a background provider operation with durable item outcomes/progress/logs/audit and no mapping or bar writes, plus Fixer-tab action wiring.
+- 2026-06-04: Added mapped-row Rerun backfill operation; Rerun is available from durable mappings, creates a provider operation, records item outcomes/progress/logs/audit, and enqueues the same KR backfill jobs used by repair completion.
 - Remaining high-risk work is still backend-heavy: durable queueing, budget pacing, broader operation action coverage, and full gate coverage.
 
 - [x] Add migrations for `provider_unresolved_items`, `provider_incidents`, provider mappings, provider operation outcomes, operation summary fields, settings, and supporting indexes.

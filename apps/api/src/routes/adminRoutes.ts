@@ -1658,6 +1658,165 @@ async function completeProviderRenewEvidenceOperation(
   return { operation: providerFixerOperationToDto(completed, context.guardrails), result };
 }
 
+async function completeProviderRerunBackfillOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+    throwOnFailure: boolean;
+  },
+): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const sourceSymbol = stringField(metadata.mappingSourceSymbol);
+  const resolvedSymbol = stringField(metadata.mappingResolvedSymbol);
+  if (!sourceSymbol || !resolvedSymbol) {
+    const message = "Provider rerun operation is missing mapping metadata.";
+    const failed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      metadata: { ...metadata, progressPercent: 100, failureReason: message },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "failed",
+      level: "error",
+      message: `rerun_failed provider=${operation.providerId} market=${operation.marketCode} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, errorMessage: message },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: failed.phase,
+    });
+    if (context.throwOnFailure) {
+      throw routeError(400, "provider_rerun_metadata_missing", message);
+    }
+    return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
+  }
+
+  await app.persistence.upsertProviderOperationOutcome({
+    operationId: operation.id,
+    providerId: operation.providerId,
+    marketCode: operation.marketCode,
+    sourceSymbol,
+    providerSymbol: resolvedSymbol,
+    action: "rerun_backfill",
+    state: "running",
+    message: "Enqueuing provider backfill rerun.",
+    evidence: {
+      resolvedSymbol,
+      resolverMode: operation.resolverMode ?? null,
+    },
+  });
+
+  try {
+    const backfills = await enqueueProviderFixerBackfills(app, operation, [sourceSymbol]);
+    const succeeded = backfills.enqueued > 0;
+    const state = succeeded ? "succeeded" : "skipped";
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "rerun_backfill",
+      state,
+      message: succeeded
+        ? `Queued backfill rerun for ${sourceSymbol}.`
+        : `Backfill rerun for ${sourceSymbol} was skipped because a matching job already exists or the queue is unavailable.`,
+      errorCode: succeeded ? null : "backfill_rerun_skipped_existing_or_unavailable",
+      evidence: backfills,
+    });
+    const completedAt = new Date().toISOString();
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt,
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        enqueuedBackfillCount: backfills.enqueued,
+        skippedExistingBackfillCount: backfills.skippedExisting,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "completed",
+      level: succeeded ? "info" : "warning",
+      message: `rerun_completed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} enqueued_backfills=${backfills.enqueued} skipped_existing=${backfills.skippedExisting}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, resolvedSymbol, backfills },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "rerun_backfill",
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol,
+        resolvedSymbol,
+        backfills,
+      },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: completed.phase,
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      processed: 1,
+      total: 1,
+      progressPercent: 100,
+    });
+    return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", backfills } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Provider backfill rerun failed.";
+    const failed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...metadata,
+        progressPercent: 100,
+        failureReason: message,
+        failureName: err instanceof Error ? err.name : "UnknownError",
+      },
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      sourceSymbol,
+      providerSymbol: resolvedSymbol,
+      action: "rerun_backfill",
+      state: "failed",
+      message,
+      errorCode: "provider_rerun_backfill_failed",
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "failed",
+      level: "error",
+      message: `rerun_failed provider=${operation.providerId} market=${operation.marketCode} source_symbol=${sourceSymbol} reason=${message}`,
+      context: { providerId: operation.providerId, marketCode: operation.marketCode, sourceSymbol, errorMessage: message },
+    });
+    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId: operation.providerId,
+      phase: failed.phase,
+    });
+    if (context.throwOnFailure) throw err;
+    return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
+  }
+}
+
 function runProviderFixerOperationInBackground(
   app: FastifyInstance,
   operation: ProviderOperationRecord,
@@ -1691,6 +1850,25 @@ function runProviderRenewEvidenceOperationInBackground(
           err,
         },
         "provider_renew_evidence_background_failed",
+      );
+    });
+  });
+}
+
+function runProviderRerunBackfillOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: Omit<Parameters<typeof completeProviderRerunBackfillOperation>[2], "throwOnFailure">,
+): void {
+  setImmediate(() => {
+    void completeProviderRerunBackfillOperation(app, operation, { ...context, throwOnFailure: false }).catch((err) => {
+      app.log.error(
+        {
+          operationId: operation.id,
+          providerId: operation.providerId,
+          err,
+        },
+        "provider_rerun_backfill_background_failed",
       );
     });
   });
@@ -2852,6 +3030,85 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     return { operation: providerFixerOperationToDto(operation, guardrails) };
   });
 
+  app.post("/providers/:providerId/mappings/rerun", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        marketCode: providerFixerMarketCodeSchema,
+        sourceSymbol: z.string().trim().min(1).max(80),
+        resolverMode: providerFixerResolverModeSchema.default("quote_first"),
+        acknowledged: z.literal(true),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const sourceSymbol = body.sourceSymbol.trim().toUpperCase();
+    const mapping = await app.persistence.getProviderResolutionMapping(providerId, body.marketCode, sourceSymbol);
+    if (!mapping) {
+      throw routeError(404, "provider_resolution_mapping_not_found", "Provider resolution mapping not found");
+    }
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode: body.marketCode,
+      operationType: "rerun_backfill",
+      phase: "running",
+      resolverMode: body.resolverMode,
+      scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
+      snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:rerun:${Date.now()}`).slice(0, 12),
+      matchCount: 1,
+      sample: [{
+        symbol: mapping.sourceSymbol,
+        providerSymbol: mapping.resolvedSymbol,
+        candidateSymbol: mapping.resolvedSymbol,
+        exchangeHint: "durable provider_resolution_mappings row",
+        verificationStatus: "verified",
+        note: "Rerun mapped provider backfill.",
+      }],
+      metadata: {
+        progressPercent: 0,
+        mappingSourceSymbol: mapping.sourceSymbol,
+        mappingResolvedSymbol: mapping.resolvedSymbol,
+        mappingPreviousVerifiedAt: mapping.verifiedAt,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "running",
+      level: "info",
+      message: `rerun_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "rerun_backfill_started",
+        providerId,
+        marketCode: body.marketCode,
+        sourceSymbol,
+        resolvedSymbol: mapping.resolvedSymbol,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: operation.phase,
+    });
+    runProviderRerunBackfillOperationInBackground(app, operation, {
+      actorUserId: sessionUserId,
+      ipAddress,
+      guardrails,
+    });
+    reply.code(202);
+    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: "started" } };
+  });
+
   app.get("/providers/:providerId/activity", async (req): Promise<ProviderActivityResponse> => {
     requireAdminRole(req);
     const { providerId } = providerConsoleParamsSchema.parse(req.params);
@@ -3049,6 +3306,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (
         action === "resume" &&
         existing.operationType !== "renew_evidence" &&
+        existing.operationType !== "rerun_backfill" &&
         existing.operationType !== "reverify_mapping" &&
         existing.operationType !== "revert_mapping" &&
         existing.operationType !== "resolver_repair" &&
@@ -3084,6 +3342,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (action === "resume") {
         if (updated.operationType === "renew_evidence") {
           runProviderRenewEvidenceOperationInBackground(app, updated, {
+            actorUserId: sessionUserId,
+            ipAddress,
+            guardrails,
+          });
+        } else if (updated.operationType === "rerun_backfill") {
+          runProviderRerunBackfillOperationInBackground(app, updated, {
             actorUserId: sessionUserId,
             ipAddress,
             guardrails,
