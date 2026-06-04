@@ -772,6 +772,14 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/005930\.KS/i);
     expect(document.body.textContent ?? "").toMatch(/Operation: OP-20260602-1842/i);
     expect(document.body.textContent ?? "").toMatch(/Unresolved: 005930/i);
+    click("provider-console-mapping-unresolved-link-005930");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSearch=005930&unresolvedPage=1",
+    );
+    click("provider-console-mapping-operation-link-005930");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&operationId=OP-20260602-1842",
+    );
     expect(findElementByText("button", "Reverify").getAttribute("title") ?? "").toMatch(
       /create a provider operation/i,
     );
