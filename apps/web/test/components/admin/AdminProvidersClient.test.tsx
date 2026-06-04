@@ -577,6 +577,20 @@ describe("AdminProvidersClient", () => {
     expect(executeButton?.getAttribute("title") ?? "").toMatch(/guarded operation preview/i);
   });
 
+  it("renders dangerous operation previews as mobile full-screen sheets", () => {
+    renderClient(root, { initialTab: "fixer" });
+
+    const panel = document.querySelector("[data-testid='provider-console-operation-panel']") as HTMLElement | null;
+    expect(panel).not.toBeNull();
+    expect(panel?.className ?? "").toMatch(/fixed/);
+    expect(panel?.className ?? "").toMatch(/max-h-\[92vh\]/);
+    expect(panel?.className ?? "").toMatch(/rounded-t-2xl/);
+    expect(document.querySelector("[data-testid='provider-console-mobile-preview-backdrop']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='provider-console-mobile-dangerous-preview']")?.textContent ?? "").toMatch(
+      /mobile dangerous operation preview sheet/i,
+    );
+  });
+
   it("explains fixer actions and resolver modes with contextual help", () => {
     renderClient(root, { initialTab: "fixer" });
 
