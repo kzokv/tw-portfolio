@@ -148,17 +148,17 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Minimum interval between admin-triggered re-runs for the same provider+market.": "管理員對相同資料提供者與市場觸發重新執行的最小間隔。",
   "Yahoo Finance AU re-run cooldown": "Yahoo Finance 澳洲重新執行冷卻時間",
   "Yahoo-AU-specific override for the re-run cooldown. Falls back to the generic re-run cooldown when off.": "Yahoo 澳洲專用的重新執行冷卻時間覆寫。關閉時回退使用一般重新執行冷卻時間。",
-  "Provider fixer guardrails": "資料提供者修復器防護",
+  "Provider operations guardrails": "資料提供者作業防護",
   "Dangerous match threshold": "危險批次門檻",
   "Operations at or above this match count require typed confirmation before execution.": "達到或超過此符合數量的作業，在執行前必須輸入確認文字。",
   "Preview sample limit": "預覽樣本上限",
-  "Maximum evidence rows captured in a Provider Fixer preview.": "資料提供者修復器預覽中最多擷取的證據列數。",
-  "Provider Fixer page size": "資料提供者修復器頁面大小",
-  "Default page size for Provider Fixer operation, log, and evidence tables.": "資料提供者修復器作業、記錄與證據表格的預設頁面大小。",
+  "Maximum evidence rows captured in a provider operation preview.": "資料提供者作業預覽中最多擷取的證據列數。",
+  "Provider operations page size": "資料提供者作業頁面大小",
+  "Default page size for provider operation, log, and evidence tables.": "資料提供者作業、記錄與證據表格的預設頁面大小。",
   "Auto-pause failures per minute": "每分鐘自動暫停失敗數",
-  "Failure rate that auto-pauses a running Provider Fixer operation.": "正在執行的資料提供者修復器作業達到此失敗率時會自動暫停。",
+  "Failure rate that auto-pauses a running provider operation.": "正在執行的資料提供者作業達到此失敗率時會自動暫停。",
   "Preview token TTL": "預覽權杖有效時間",
-  "Minutes before a Provider Fixer preview token expires.": "資料提供者修復器預覽權杖到期前的分鐘數。",
+  "Minutes before a provider operation preview token expires.": "資料提供者作業預覽權杖到期前的分鐘數。",
   "Repair cooldown": "修復冷卻時間",
   "Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.": "同一代號兩次修復之間的最短等待時間（分鐘）。關閉時使用環境預設值。",
   "Cooldown": "冷卻時間",
@@ -1100,7 +1100,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 onSave={(v) => patchAppConfigField("yahooAuRerunCooldownMs", v)}
               />
               <div className="border-t border-slate-200 pt-5">
-                <h3 className="text-sm font-semibold text-slate-900">{t("Provider fixer guardrails")}</h3>
+                <h3 className="text-sm font-semibold text-slate-900">{t("Provider operations guardrails")}</h3>
               </div>
               <NumericOverrideRow
                 fieldKey="providerFixerDangerousMatchThreshold"
@@ -1116,7 +1116,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               <NumericOverrideRow
                 fieldKey="providerFixerPreviewSampleLimit"
                 label={t("Preview sample limit")}
-                description={t("Maximum evidence rows captured in a Provider Fixer preview.")}
+                description={t("Maximum evidence rows captured in a provider operation preview.")}
                 override={config.providerFixerPreviewSampleLimit}
                 effective={config.effectiveProviderFixerPreviewSampleLimit}
                 bounds={config.bounds.providerFixerPreviewSampleLimit}
@@ -1126,8 +1126,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="providerFixerUiPageSize"
-                label={t("Provider Fixer page size")}
-                description={t("Default page size for Provider Fixer operation, log, and evidence tables.")}
+                label={t("Provider operations page size")}
+                description={t("Default page size for provider operation, log, and evidence tables.")}
                 override={config.providerFixerUiPageSize}
                 effective={config.effectiveProviderFixerUiPageSize}
                 bounds={config.bounds.providerFixerUiPageSize}
@@ -1138,7 +1138,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               <NumericOverrideRow
                 fieldKey="providerFixerAutoPauseFailuresPerMinute"
                 label={t("Auto-pause failures per minute")}
-                description={t("Failure rate that auto-pauses a running Provider Fixer operation.")}
+                description={t("Failure rate that auto-pauses a running provider operation.")}
                 override={config.providerFixerAutoPauseFailuresPerMinute}
                 effective={config.effectiveProviderFixerAutoPauseFailuresPerMinute}
                 bounds={config.bounds.providerFixerAutoPauseFailuresPerMinute}
@@ -1149,7 +1149,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               <NumericOverrideRow
                 fieldKey="providerFixerPreviewTokenTtlMinutes"
                 label={t("Preview token TTL")}
-                description={t("Minutes before a Provider Fixer preview token expires.")}
+                description={t("Minutes before a provider operation preview token expires.")}
                 override={config.providerFixerPreviewTokenTtlMinutes}
                 effective={config.effectiveProviderFixerPreviewTokenTtlMinutes}
                 bounds={config.bounds.providerFixerPreviewTokenTtlMinutes}
