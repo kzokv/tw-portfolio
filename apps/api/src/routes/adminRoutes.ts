@@ -660,6 +660,7 @@ const providerFixerPhaseSchema = z.enum([
   "diagnose",
   "preview",
   "staged",
+  "queued",
   "running",
   "paused",
   "completed",
@@ -928,7 +929,12 @@ function providerFixerOperationToDto(
     canExecute: (operation.phase === "preview" || operation.phase === "staged") && !previewExpired,
     canPause: operation.phase === "running",
     canResume: operation.phase === "paused",
-    canCancel: operation.phase === "preview" || operation.phase === "staged" || operation.phase === "running" || operation.phase === "paused",
+    canCancel:
+      operation.phase === "preview"
+      || operation.phase === "staged"
+      || operation.phase === "queued"
+      || operation.phase === "running"
+      || operation.phase === "paused",
     canRetry: operation.phase === "paused" || operation.phase === "failed" || operation.phase === "cancelled" || operation.phase === "completed",
     dangerous,
     progressPercent: numberField(metadata.progressPercent),
@@ -1029,18 +1035,25 @@ function assertProviderFixerPreviewToken(operation: ProviderOperationRecord, pre
   }
 }
 
+async function findOtherActiveProviderOperationExecution(
+  app: FastifyInstance,
+  scope: { providerId: string; marketCode: MarketCode; operationId?: string | null },
+): Promise<ProviderOperationRecord | null> {
+  const active = await app.persistence.listProviderOperations({
+    providerId: scope.providerId,
+    marketCode: scope.marketCode,
+    phases: ["running", "paused"],
+    page: 1,
+    limit: 50,
+  });
+  return active.items.find((row) => row.id !== scope.operationId) ?? null;
+}
+
 async function assertNoOtherProviderOperationExecution(
   app: FastifyInstance,
   scope: { providerId: string; marketCode: MarketCode; operationId?: string | null },
 ): Promise<void> {
-  const active = await app.persistence.listProviderOperations({
-    providerId: scope.providerId,
-    marketCode: scope.marketCode,
-    phases: ["staged", "running", "paused"],
-    page: 1,
-    limit: 50,
-  });
-  const other = active.items.find((row) => row.id !== scope.operationId);
+  const other = await findOtherActiveProviderOperationExecution(app, scope);
   if (other) {
     throw routeError(
       409,
@@ -1048,17 +1061,6 @@ async function assertNoOtherProviderOperationExecution(
       "Another provider operation is already active for this provider and market",
     );
   }
-}
-
-async function assertNoOtherProviderFixerExecution(
-  app: FastifyInstance,
-  operation: ProviderOperationRecord,
-): Promise<void> {
-  return assertNoOtherProviderOperationExecution(app, {
-    providerId: operation.providerId,
-    marketCode: operation.marketCode,
-    operationId: operation.id,
-  });
 }
 
 async function pauseStaleProviderOperations(
@@ -1198,7 +1200,7 @@ async function providerFixerSummary(
   const operations = await app.persistence.listProviderOperations({
     page: 1,
     limit: 1,
-    phases: ["preview", "staged", "running", "paused"],
+    phases: ["preview", "staged", "queued", "running", "paused"],
   });
   const running = await app.persistence.listProviderOperations({
     page: 1,
@@ -1208,7 +1210,7 @@ async function providerFixerSummary(
   const staged = await app.persistence.listProviderOperations({
     page: 1,
     limit: 1,
-    phases: ["preview", "staged"],
+    phases: ["preview", "staged", "queued"],
   });
   const unresolvedRows = diagnostics.diagnostics.rows.filter((row) => row.unresolvedCount > 0);
   return {
@@ -1468,6 +1470,13 @@ async function completeProviderFixerOperation(
       phase: interrupted.phase,
       pauseReason: isRateLimited ? "paused_rate_limit" : null,
     });
+    if (!isRateLimited) {
+      await maybeStartNextQueuedProviderOperation(app, interrupted.providerId, interrupted.marketCode, {
+        actorUserId: context.actorUserId,
+        ipAddress: context.ipAddress,
+        guardrails: context.guardrails,
+      });
+    }
     if (context.throwOnFailure) {
       if (isRateLimited) {
         throw routeError(503, "provider_rate_limited", message);
@@ -1526,6 +1535,11 @@ async function completeProviderFixerOperation(
     processed: result.applied + result.skipped,
     total: result.scanned,
     progressPercent: 100,
+  });
+  await maybeStartNextQueuedProviderOperation(app, completed.providerId, completed.marketCode, {
+    actorUserId: context.actorUserId,
+    ipAddress: context.ipAddress,
+    guardrails: context.guardrails,
   });
   return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { ...result, backfills } };
 }
@@ -1689,6 +1703,13 @@ async function completeProviderRenewEvidenceOperation(
       phase: interrupted.phase,
       pauseReason: isRateLimited ? "paused_rate_limit" : null,
     });
+    if (!isRateLimited) {
+      await maybeStartNextQueuedProviderOperation(app, interrupted.providerId, interrupted.marketCode, {
+        actorUserId: context.actorUserId,
+        ipAddress: context.ipAddress,
+        guardrails: context.guardrails,
+      });
+    }
     if (context.throwOnFailure) {
       if (isRateLimited) {
         throw routeError(503, "provider_rate_limited", message);
@@ -1744,6 +1765,11 @@ async function completeProviderRenewEvidenceOperation(
     total: result.scanned,
     progressPercent: 100,
   });
+  await maybeStartNextQueuedProviderOperation(app, completed.providerId, completed.marketCode, {
+    actorUserId: context.actorUserId,
+    ipAddress: context.ipAddress,
+    guardrails: context.guardrails,
+  });
   return { operation: providerFixerOperationToDto(completed, context.guardrails), result };
 }
 
@@ -1779,6 +1805,11 @@ async function completeProviderRerunBackfillOperation(
       operationId: operation.id,
       providerId: operation.providerId,
       phase: failed.phase,
+    });
+    await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
     });
     if (context.throwOnFailure) {
       throw routeError(400, "provider_rerun_metadata_missing", message);
@@ -1864,6 +1895,11 @@ async function completeProviderRerunBackfillOperation(
       total: 1,
       progressPercent: 100,
     });
+    await maybeStartNextQueuedProviderOperation(app, completed.providerId, completed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
+    });
     return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", backfills } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Provider backfill rerun failed.";
@@ -1900,6 +1936,11 @@ async function completeProviderRerunBackfillOperation(
       operationId: operation.id,
       providerId: operation.providerId,
       phase: failed.phase,
+    });
+    await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
     });
     if (context.throwOnFailure) throw err;
     return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
@@ -2013,6 +2054,11 @@ async function completeProviderMappingReverifyOperation(
       providerId: operation.providerId,
       phase: failed.phase,
     });
+    await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
+    });
     if (context.throwOnFailure) {
       throw routeError(400, "provider_mapping_reverify_metadata_missing", message);
     }
@@ -2090,6 +2136,11 @@ async function completeProviderMappingReverifyOperation(
         providerId: operation.providerId,
         phase: failed.phase,
       });
+      await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+        actorUserId: context.actorUserId,
+        ipAddress: context.ipAddress,
+        guardrails: context.guardrails,
+      });
       if (context.throwOnFailure) {
         throw routeError(502, "provider_mapping_reverify_failed", verification.reason ?? "Provider mapping verification failed");
       }
@@ -2162,6 +2213,11 @@ async function completeProviderMappingReverifyOperation(
       total: 1,
       progressPercent: 100,
     });
+    await maybeStartNextQueuedProviderOperation(app, completed.providerId, completed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
+    });
     return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", verification } };
   } catch (err) {
     const isRateLimited = err instanceof RateLimitedError;
@@ -2219,6 +2275,13 @@ async function completeProviderMappingReverifyOperation(
       phase: interrupted.phase,
       pauseReason: isRateLimited ? "paused_rate_limit" : null,
     });
+    if (!isRateLimited) {
+      await maybeStartNextQueuedProviderOperation(app, interrupted.providerId, interrupted.marketCode, {
+        actorUserId: context.actorUserId,
+        ipAddress: context.ipAddress,
+        guardrails: context.guardrails,
+      });
+    }
     if (context.throwOnFailure) {
       if (isRateLimited) {
         throw routeError(503, "provider_rate_limited", message);
@@ -2287,6 +2350,11 @@ async function completeProviderMappingRevertOperation(
       operationId: operation.id,
       providerId: operation.providerId,
       phase: failed.phase,
+    });
+    await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
     });
     if (context.throwOnFailure) {
       throw routeError(400, "provider_mapping_revert_metadata_missing", message);
@@ -2389,6 +2457,11 @@ async function completeProviderMappingRevertOperation(
       total: 1,
       progressPercent: 100,
     });
+    await maybeStartNextQueuedProviderOperation(app, completed.providerId, completed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
+    });
     return {
       operation: providerFixerOperationToDto(completed, context.guardrails),
       result: { status: "completed", deleted: Boolean(deleted) },
@@ -2444,6 +2517,11 @@ async function completeProviderMappingRevertOperation(
       providerId: operation.providerId,
       phase: failed.phase,
     });
+    await maybeStartNextQueuedProviderOperation(app, failed.providerId, failed.marketCode, {
+      actorUserId: context.actorUserId,
+      ipAddress: context.ipAddress,
+      guardrails: context.guardrails,
+    });
     if (context.throwOnFailure) throw err;
     return { operation: providerFixerOperationToDto(failed, context.guardrails), result: { status: "failed", errorMessage: message } };
   }
@@ -2466,6 +2544,104 @@ function runProviderMappingRevertOperationInBackground(
       );
     });
   });
+}
+
+function runProviderOperationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  },
+): void {
+  if (operation.operationType === "renew_evidence") {
+    runProviderRenewEvidenceOperationInBackground(app, operation, context);
+    return;
+  }
+  if (operation.operationType === "rerun_backfill") {
+    runProviderRerunBackfillOperationInBackground(app, operation, context);
+    return;
+  }
+  if (operation.operationType === "reverify_mapping") {
+    runProviderMappingReverifyOperationInBackground(app, operation, context);
+    return;
+  }
+  if (operation.operationType === "revert_mapping") {
+    runProviderMappingRevertOperationInBackground(app, operation, context);
+    return;
+  }
+  if (operation.operationType === "resolver_repair" || operation.operationType === "repair_mapping") {
+    runProviderFixerOperationInBackground(app, operation, {
+      ...context,
+      dangerous: providerFixerOperationToDto(operation, context.guardrails).dangerous,
+    });
+  }
+}
+
+async function maybeStartNextQueuedProviderOperation(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  },
+): Promise<ProviderOperationRecord | null> {
+  const active = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode });
+  if (active) return null;
+  const queued = await app.persistence.listProviderOperations({
+    providerId,
+    marketCode,
+    phases: ["queued"],
+    page: 1,
+    limit: 50,
+  });
+  const next = queued.items.sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+  if (!next) return null;
+  const startedAt = new Date().toISOString();
+  const actorUserId = next.actorUserId ?? context.actorUserId;
+  const running = await app.persistence.updateProviderOperation({
+    id: next.id,
+    phase: "running",
+    startedAt,
+    metadata: {
+      ...(asRecord(next.metadata) ?? {}),
+      progressPercent: 0,
+      queuedUntilStart: startedAt,
+    },
+  });
+  await app.persistence.createProviderOperationLog({
+    operationId: running.id,
+    phase: "running",
+    level: "info",
+    message: `queued_operation_started provider=${running.providerId} market=${running.marketCode} operation_type=${running.operationType}`,
+    context: {
+      providerId: running.providerId,
+      marketCode: running.marketCode,
+      operationType: running.operationType,
+    },
+  });
+  await app.persistence.appendAuditLog({
+    actorUserId,
+    action: "provider_fixer_operation",
+    ipAddress: context.ipAddress,
+    metadata: {
+      operationId: running.id,
+      action: "queued_operation_started",
+      providerId: running.providerId,
+      marketCode: running.marketCode,
+      operationType: running.operationType,
+    },
+  });
+  await app.eventBus.publishEvent(actorUserId, "provider_operation_phase_changed", {
+    operationId: running.id,
+    providerId: running.providerId,
+    phase: running.phase,
+  });
+  runProviderOperationInBackground(app, running, { ...context, actorUserId });
+  return running;
 }
 
 function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
@@ -2623,7 +2799,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const marketCode = providerFixerMarketCode(providerId, body.marketCode);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode });
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode });
+    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
+    const startedAt = activeOperation ? null : new Date().toISOString();
     const firstPage = await app.persistence.listProviderErrorTrailPage({
       providerId,
       marketCode,
@@ -2647,7 +2825,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       marketCode,
       operationType: "renew_evidence",
-      phase: "running",
+      phase: initialPhase,
       errorCode: body.errorCode,
       resolverMode: body.resolverMode,
       scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
@@ -2658,16 +2836,17 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         progressPercent: 0,
         previewSampleLimit: guardrails.previewSampleLimit,
         effectiveRateCapPerMinute,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
       actorUserId: sessionUserId,
-      startedAt: new Date().toISOString(),
+      startedAt,
     });
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
-      phase: "running",
+      phase: initialPhase,
       level: "info",
-      message: `renew_started provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${firstPage.total}`,
-      context: { providerId, marketCode, errorCode: body.errorCode, resolverMode: body.resolverMode },
+      message: `${activeOperation ? "renew_queued" : "renew_started"} provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${firstPage.total}`,
+      context: { providerId, marketCode, errorCode: body.errorCode, resolverMode: body.resolverMode, queuedBehindOperationId: activeOperation?.id ?? null },
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -2675,12 +2854,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       ipAddress,
       metadata: {
         operationId: operation.id,
-        action: "renew_evidence_started",
+        action: activeOperation ? "renew_evidence_queued" : "renew_evidence_started",
         providerId,
         marketCode,
         errorCode: body.errorCode,
         resolverMode: body.resolverMode,
         matchCount: firstPage.total,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -2688,13 +2868,15 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       phase: operation.phase,
     });
-    runProviderRenewEvidenceOperationInBackground(app, operation, {
-      actorUserId: sessionUserId,
-      ipAddress,
-      guardrails,
-    });
+    if (!activeOperation) {
+      runProviderRenewEvidenceOperationInBackground(app, operation, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+      });
+    }
     reply.code(202);
-    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: "started" } };
+    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: activeOperation ? "queued" : "started" } };
   });
 
   app.get("/providers/:providerId/unresolved", async (req): Promise<ProviderUnresolvedItemsResponse> => {
@@ -2985,12 +3167,14 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
+    const startedAt = activeOperation ? null : new Date().toISOString();
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
       operationType: "reverify_mapping",
-      phase: "running",
+      phase: initialPhase,
       resolverMode: body.resolverMode,
       scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
       snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:${Date.now()}`).slice(0, 12),
@@ -3009,16 +3193,17 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingResolvedSymbol: mapping.resolvedSymbol,
         mappingPreviousVerifiedAt: mapping.verifiedAt,
         effectiveRateCapPerMinute,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
       actorUserId: sessionUserId,
-      startedAt: new Date().toISOString(),
+      startedAt,
     });
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
-      phase: "running",
+      phase: initialPhase,
       level: "info",
-      message: `reverify_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
-      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+      message: `${activeOperation ? "reverify_queued" : "reverify_started"} provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol, queuedBehindOperationId: activeOperation?.id ?? null },
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -3026,11 +3211,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       ipAddress,
       metadata: {
         operationId: operation.id,
-        action: "reverify_mapping",
+        action: activeOperation ? "reverify_mapping_queued" : "reverify_mapping",
         providerId,
         marketCode: body.marketCode,
         sourceSymbol,
         resolvedSymbol: mapping.resolvedSymbol,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -3038,11 +3224,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       phase: operation.phase,
     });
-    runProviderMappingReverifyOperationInBackground(app, operation, {
-      actorUserId: sessionUserId,
-      ipAddress,
-      guardrails,
-    });
+    if (!activeOperation) {
+      runProviderMappingReverifyOperationInBackground(app, operation, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+      });
+    }
     reply.code(202);
     return { operation: providerFixerOperationToDto(operation, guardrails) };
   });
@@ -3071,12 +3259,14 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
+    const startedAt = activeOperation ? null : new Date().toISOString();
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
       operationType: "revert_mapping",
-      phase: "running",
+      phase: initialPhase,
       resolverMode: mapping.resolverMode,
       scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
       snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:${Date.now()}`).slice(0, 12),
@@ -3097,16 +3287,17 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingPreviousVerifiedAt: mapping.verifiedAt,
         mappingPreviousEvidence: mapping.evidence,
         effectiveRateCapPerMinute,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
       actorUserId: sessionUserId,
-      startedAt: new Date().toISOString(),
+      startedAt,
     });
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
-      phase: "running",
+      phase: initialPhase,
       level: "warning",
-      message: `revert_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
-      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+      message: `${activeOperation ? "revert_queued" : "revert_started"} provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol, queuedBehindOperationId: activeOperation?.id ?? null },
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -3114,11 +3305,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       ipAddress,
       metadata: {
         operationId: operation.id,
-        action: "revert_mapping_started",
+        action: activeOperation ? "revert_mapping_queued" : "revert_mapping_started",
         providerId,
         marketCode: body.marketCode,
         sourceSymbol,
         resolvedSymbol: mapping.resolvedSymbol,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -3126,11 +3318,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       phase: operation.phase,
     });
-    runProviderMappingRevertOperationInBackground(app, operation, {
-      actorUserId: sessionUserId,
-      ipAddress,
-      guardrails,
-    });
+    if (!activeOperation) {
+      runProviderMappingRevertOperationInBackground(app, operation, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+      });
+    }
     reply.code(202);
     return { operation: providerFixerOperationToDto(operation, guardrails) };
   });
@@ -3156,12 +3350,14 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode: body.marketCode });
+    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
+    const startedAt = activeOperation ? null : new Date().toISOString();
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode: body.marketCode,
       operationType: "rerun_backfill",
-      phase: "running",
+      phase: initialPhase,
       resolverMode: body.resolverMode,
       scopeQuery: `${providerId}:${body.marketCode}:${sourceSymbol}`,
       snapshotHash: hashProviderFixerToken(`${providerId}:${body.marketCode}:${sourceSymbol}:${mapping.resolvedSymbol}:rerun:${Date.now()}`).slice(0, 12),
@@ -3180,16 +3376,17 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         mappingResolvedSymbol: mapping.resolvedSymbol,
         mappingPreviousVerifiedAt: mapping.verifiedAt,
         effectiveRateCapPerMinute,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
       actorUserId: sessionUserId,
-      startedAt: new Date().toISOString(),
+      startedAt,
     });
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
-      phase: "running",
+      phase: initialPhase,
       level: "info",
-      message: `rerun_started provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
-      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol },
+      message: `${activeOperation ? "rerun_queued" : "rerun_started"} provider=${providerId} market=${body.marketCode} source_symbol=${sourceSymbol} resolved_symbol=${mapping.resolvedSymbol}`,
+      context: { providerId, marketCode: body.marketCode, sourceSymbol, resolvedSymbol: mapping.resolvedSymbol, queuedBehindOperationId: activeOperation?.id ?? null },
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -3197,11 +3394,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       ipAddress,
       metadata: {
         operationId: operation.id,
-        action: "rerun_backfill_started",
+        action: activeOperation ? "rerun_backfill_queued" : "rerun_backfill_started",
         providerId,
         marketCode: body.marketCode,
         sourceSymbol,
         resolvedSymbol: mapping.resolvedSymbol,
+        queuedBehindOperationId: activeOperation?.id ?? null,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -3209,13 +3407,15 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       phase: operation.phase,
     });
-    runProviderRerunBackfillOperationInBackground(app, operation, {
-      actorUserId: sessionUserId,
-      ipAddress,
-      guardrails,
-    });
+    if (!activeOperation) {
+      runProviderRerunBackfillOperationInBackground(app, operation, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+      });
+    }
     reply.code(202);
-    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: "started" } };
+    return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: activeOperation ? "queued" : "started" } };
   });
 
   app.get("/providers/:providerId/activity", async (req): Promise<ProviderActivityResponse> => {
@@ -3328,21 +3528,35 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (operationDto.dangerous && body.typedConfirmation !== operationDto.preview.confirmationText) {
       throw routeError(400, "provider_fixer_typed_confirmation_required", "Dangerous operation requires matching typed confirmation");
     }
-    await assertNoOtherProviderFixerExecution(app, existing);
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, {
+      providerId: existing.providerId,
+      marketCode: existing.marketCode,
+      operationId: existing.id,
+    });
+    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
 
     const running = await app.persistence.updateProviderOperation({
       id: existing.id,
-      phase: "running",
+      phase: initialPhase,
       actorUserId: sessionUserId,
-      startedAt: new Date().toISOString(),
-      metadata: { ...(asRecord(existing.metadata) ?? {}), progressPercent: 0 },
+      startedAt: activeOperation ? null : new Date().toISOString(),
+      metadata: {
+        ...(asRecord(existing.metadata) ?? {}),
+        progressPercent: 0,
+        queuedBehindOperationId: activeOperation?.id ?? null,
+      },
     });
     await app.persistence.createProviderOperationLog({
       operationId: running.id,
-      phase: "running",
+      phase: initialPhase,
       level: "info",
-      message: `execute_started provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
-      context: { providerId: running.providerId, marketCode: running.marketCode, errorCode: running.errorCode },
+      message: `${activeOperation ? "execute_queued" : "execute_started"} provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
+      context: {
+        providerId: running.providerId,
+        marketCode: running.marketCode,
+        errorCode: running.errorCode,
+        queuedBehindOperationId: activeOperation?.id ?? null,
+      },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
       operationId: running.id,
@@ -3351,16 +3565,32 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     });
 
     if (options.background) {
-      runProviderFixerOperationInBackground(app, running, {
-        actorUserId: sessionUserId,
-        ipAddress,
-        guardrails,
-        dangerous: operationDto.dangerous,
-      });
+      if (!activeOperation) {
+        runProviderFixerOperationInBackground(app, running, {
+          actorUserId: sessionUserId,
+          ipAddress,
+          guardrails,
+          dangerous: operationDto.dangerous,
+        });
+      }
       return {
         operation: providerFixerOperationToDto(running, guardrails),
         result: {
-          status: "started",
+          status: activeOperation ? "queued" : "started",
+          applied: 0,
+          skipped: 0,
+          scanned: 0,
+          mappedTickers: [],
+          backfills: { enqueued: 0, skippedExisting: 0 },
+        },
+      };
+    }
+
+    if (activeOperation) {
+      return {
+        operation: providerFixerOperationToDto(running, guardrails),
+        result: {
+          status: "queued",
           applied: 0,
           skipped: 0,
           scanned: 0,
@@ -3409,7 +3639,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (from && existing.phase !== from) {
         throw routeError(400, `provider_operation_not_${action}able`, `Selected operation cannot be ${action}d`);
       }
-      if (action === "cancel" && !["preview", "staged", "running", "paused"].includes(existing.phase)) {
+      if (action === "cancel" && !["preview", "staged", "queued", "running", "paused"].includes(existing.phase)) {
         throw routeError(400, "provider_operation_not_cancellable", "Selected operation cannot be cancelled");
       }
       if (
@@ -3455,6 +3685,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         providerId: updated.providerId,
         phase: updated.phase,
       });
+      if (action === "cancel") {
+        await maybeStartNextQueuedProviderOperation(app, updated.providerId, updated.marketCode, {
+          actorUserId: sessionUserId,
+          ipAddress,
+          guardrails,
+        });
+      }
       if (action === "resume") {
         if (updated.operationType === "renew_evidence") {
           runProviderRenewEvidenceOperationInBackground(app, updated, {
