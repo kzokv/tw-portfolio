@@ -41,6 +41,26 @@ type ProviderConsoleTab =
 
 type ProviderUnresolvedSort = "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
 type ProviderConsoleDisplayStatus = ProviderHealthStatus | "attention" | "critical_backlog";
+type ProviderFixerScopeItem = Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">;
+interface ProviderFixerFilterScope {
+  providerId: string;
+  marketCode: ProviderUnresolvedItemDto["marketCode"] | null;
+  errorCode: string;
+  state: ProviderUnresolvedItemDto["state"] | null;
+  search: string | null;
+}
+type ProviderFixerRepairScope =
+  | {
+      type: "selected_items";
+      items: ProviderFixerScopeItem[];
+    }
+  | {
+      type: "filter";
+      marketCode?: ProviderUnresolvedItemDto["marketCode"];
+      errorCode: string;
+      state: "active";
+      search?: string;
+    };
 
 interface ProviderGroup {
   label: string;
@@ -145,6 +165,7 @@ const defaultCapability: ProviderOperationCapabilityDto = {
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   diagnose: "bg-slate-100 text-slate-700",
+  preparing_preview: "bg-indigo-100 text-indigo-800",
   preview: "bg-sky-100 text-sky-700",
   staged: "bg-amber-100 text-amber-800",
   queued: "bg-slate-100 text-slate-800",
@@ -197,11 +218,96 @@ function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
+function csvEscape(value: string | number | null | undefined): string {
+  const raw = value === null || value === undefined ? "" : String(value);
+  if (!/[",\n\r]/.test(raw)) return raw;
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: Array<Record<string, string | number | null | undefined>>): void {
+  if (rows.length === 0) return;
+  const headers = Object.keys(rows[0] ?? {});
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(",")),
+  ].join("\n");
+  const link = document.createElement("a");
+  link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function formatTimestamp(ts: string | null): string {
   if (!ts) return "Never";
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return "Invalid timestamp";
   return timestampFormatter.format(date);
+}
+
+interface UnresolvedScopeSelection {
+  type: "selected_items" | "filter";
+  count: number;
+  label: string;
+  filterFingerprint: string;
+  selectedItems: ProviderFixerScopeItem[];
+  filter: ProviderFixerFilterScope | null;
+}
+
+interface ExecuteBlocker {
+  label: string;
+  satisfied: boolean;
+  help: string;
+}
+
+function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
+  return `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
+}
+
+function unresolvedScopeFingerprint(args: {
+  providerId: string;
+  resolverMode: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
+  errorCode: string;
+  state: ProviderUnresolvedItemDto["state"];
+  search: string;
+  sort: ProviderUnresolvedSort;
+}): string {
+  return JSON.stringify({
+    providerId: args.providerId,
+    resolverMode: args.resolverMode,
+    errorCode: args.errorCode,
+    state: args.state,
+    search: args.search.trim() || null,
+    sort: args.sort,
+  });
+}
+
+function previewExpired(preview: ProviderFixerDashboardOperationDto["preview"] | null): boolean {
+  if (!preview) return true;
+  return new Date(preview.tokenExpiresAt).getTime() <= Date.now();
+}
+
+function previewMatchesScope(
+  preview: ProviderFixerDashboardOperationDto["preview"] | null,
+  scope: UnresolvedScopeSelection | null,
+): boolean {
+  if (!preview || !scope || !preview.frozenScope) return false;
+  if (preview.frozenScope.type !== scope.type) return false;
+  if (preview.frozenScope.filterFingerprint !== scope.filterFingerprint) return false;
+  if (scope.type === "filter") return preview.frozenScope.matchCount === scope.count;
+  const previewKeys = preview.frozenScope.selectedItems.map(unresolvedItemKey).sort();
+  const scopeKeys = scope.selectedItems.map(unresolvedItemKey).sort();
+  return previewKeys.length === scopeKeys.length && previewKeys.every((key, index) => key === scopeKeys[index]);
+}
+
+function scopeGuardrailLevel(
+  scope: UnresolvedScopeSelection | null,
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+): "none" | "checkbox" | "typed_preview" {
+  if (!scope || scope.count <= 0) return "none";
+  return scope.count >= guardrails.dangerousMatchThreshold ? "typed_preview" : "checkbox";
 }
 
 function evidenceString(value: unknown): string | null {
@@ -400,7 +506,10 @@ export function AdminProvidersClient({
   const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
   const [logPurgePreview, setLogPurgePreview] = useState<ProviderLogPurgePreviewDto | null>(null);
   const [logPurgeConfirmation, setLogPurgeConfirmation] = useState("");
+  const [selectedUnresolvedKeys, setSelectedUnresolvedKeys] = useState<Set<string>>(new Set());
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const [isRoutePending, startRouteTransition] = useTransition();
+  const pendingScrollTopRef = useRef<number | null>(null);
 
   const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId) ?? providers[0] ?? null;
   const capability =
@@ -420,9 +529,26 @@ export function AdminProvidersClient({
   const rerunDisabledReason = rerunProviderDisabledReason ?? "Rerun requires resolved items or durable provider mappings.";
   const providerDiagnostics = diagnostics.rows.filter((row) => row.providerId === selectedProviderId);
   const fallbackDiagnosis = providerDiagnostics[0] ?? diagnostics.rows[0] ?? null;
+  const activeErrorCode = fallbackDiagnosis?.errorCode ?? diagnostics.errorCode;
   const selectedDisplayStatus = selectedProvider
     ? providerConsoleDisplayStatus(selectedProvider.status, fallbackDiagnosis?.unresolvedCount ?? 0, guardrails)
     : null;
+  const providerUnresolvedItems = unresolvedItems.filter((item) => item.providerId === selectedProviderId);
+  const unresolvedFingerprint = useMemo(() => unresolvedScopeFingerprint({
+    providerId: selectedProviderId,
+    resolverMode: diagnostics.resolverMode,
+    errorCode: activeErrorCode,
+    state: initialUnresolvedState,
+    search: initialUnresolvedSearch,
+    sort: initialUnresolvedSort,
+  }), [
+    activeErrorCode,
+    diagnostics.resolverMode,
+    initialUnresolvedSearch,
+    initialUnresolvedSort,
+    initialUnresolvedState,
+    selectedProviderId,
+  ]);
   const providerOperations = operations.filter((operation) => operation.providerId === selectedProviderId);
   const providerStagedOperation = stagedOperation?.providerId === selectedProviderId ? stagedOperation : null;
   const selectedOperation =
@@ -432,13 +558,100 @@ export function AdminProvidersClient({
     ?? null;
   const progressOperation =
     providerOperations.find((operation) => operation.phase === "running")
+    ?? providerOperations.find((operation) => operation.phase === "preparing_preview")
     ?? providerOperations.find((operation) => operation.phase === "paused")
     ?? providerOperations.find((operation) => operation.phase === "queued")
     ?? selectedOperation;
   const currentPreview = selectedOperation?.preview ?? null;
+  const selectedScope = useMemo<UnresolvedScopeSelection | null>(() => {
+    if (allMatchingSelected) {
+      return {
+        type: "filter",
+        count: unresolvedTotal,
+        label: "All matching unresolved rows",
+        filterFingerprint: unresolvedFingerprint,
+        selectedItems: [],
+        filter: {
+          providerId: selectedProviderId,
+          marketCode: providerUnresolvedItems[0]?.marketCode ?? "KR",
+          errorCode: activeErrorCode,
+          state: "active",
+          search: initialUnresolvedSearch.trim() || null,
+        },
+      };
+    }
+
+    const selectedItems = providerUnresolvedItems.filter((item) => selectedUnresolvedKeys.has(unresolvedItemKey(item)));
+    if (selectedItems.length === 0) return null;
+
+    return {
+      type: "selected_items",
+      count: selectedItems.length,
+      label: selectedItems.length === 1 ? "1 selected unresolved row" : `${formatNumber(selectedItems.length)} selected unresolved rows`,
+      filterFingerprint: unresolvedFingerprint,
+      selectedItems: selectedItems.map((item) => ({
+        providerId: item.providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+      })),
+      filter: null,
+    };
+  }, [
+    activeErrorCode,
+    allMatchingSelected,
+    initialUnresolvedSearch,
+    providerUnresolvedItems,
+    selectedProviderId,
+    selectedUnresolvedKeys,
+    unresolvedFingerprint,
+    unresolvedTotal,
+  ]);
   const typedConfirmationRequired = currentPreview?.confirmationMode === "typed";
+  const currentPreviewExpired = previewExpired(currentPreview);
+  const scopeMatchesPreview = previewMatchesScope(currentPreview, selectedScope);
+  const executeBlockers: ExecuteBlocker[] = [
+    {
+      label: "Token still valid",
+      satisfied: !currentPreviewExpired,
+      help: "Preview tokens expire. Refresh the scoped preview after expiry.",
+    },
+    {
+      label: "Operation selected",
+      satisfied: !!selectedOperation,
+      help: "Choose a staged operation before executing.",
+    },
+    {
+      label: "Scope selected",
+      satisfied: !!selectedScope,
+      help: "Pick visible rows or explicitly choose all matching before previewing repair.",
+    },
+    {
+      label: "Scope matches preview",
+      satisfied: scopeMatchesPreview,
+      help: "Selection or filters changed after the preview was created. Create a fresh preview.",
+    },
+    {
+      label: "Operation executable",
+      satisfied: !!selectedOperation?.canExecute,
+      help: "Legacy, expired, queued, or running operations cannot execute.",
+    },
+    {
+      label: "Checkbox acknowledged",
+      satisfied: confirmationChecked,
+      help: "The execution acknowledgement checkbox must be checked.",
+    },
+    {
+      label: "Typed phrase matches",
+      satisfied: !typedConfirmationRequired || typedConfirmation.trim() === currentPreview?.confirmationText,
+      help: "Dangerous previews require the exact typed phrase.",
+    },
+  ];
   const executeDisabled =
     busyAction !== null
+    || !selectedScope
+    || !scopeMatchesPreview
+    || currentPreviewExpired
     || !selectedOperation?.canExecute
     || !confirmationChecked
     || (typedConfirmationRequired && typedConfirmation.trim() !== currentPreview?.confirmationText);
@@ -469,6 +682,22 @@ export function AdminProvidersClient({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    setSelectedUnresolvedKeys(new Set());
+    setAllMatchingSelected(false);
+    setConfirmationChecked(false);
+    setTypedConfirmation("");
+  }, [unresolvedFingerprint]);
+
+  useEffect(() => {
+    if (pendingScrollTopRef.current == null) return;
+    const top = pendingScrollTopRef.current;
+    pendingScrollTopRef.current = null;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top, behavior: "auto" });
+    });
+  }, [activityItems, incidents, logs, mappings, operationOutcomes, operations, unresolvedItems]);
+
   useEventStream({
     eventTypes: [
       "provider_operation_progress",
@@ -477,7 +706,10 @@ export function AdminProvidersClient({
       "provider_incident_changed",
       "provider_budget_wait_changed",
     ],
-    onEvent: () => router.refresh(),
+    onEvent: () => {
+      pendingScrollTopRef.current = window.scrollY;
+      router.refresh();
+    },
     enabled: true,
   });
 
@@ -487,7 +719,7 @@ export function AdminProvidersClient({
 
   function pushProviderRoute(params: URLSearchParams): void {
     startRouteTransition(() => {
-      router.push(`/admin/providers?${params.toString()}`);
+      router.push(`/admin/providers?${params.toString()}`, { scroll: false });
     });
   }
 
@@ -523,16 +755,19 @@ export function AdminProvidersClient({
 
   function refreshData(): void {
     setToast({ title: "Refreshing provider data", body: "Reloading console state from the API. No upstream provider calls are made." });
+    pendingScrollTopRef.current = window.scrollY;
     router.refresh();
     window.setTimeout(() => setToast({ title: "Refresh complete", body: "Provider console data was refreshed from local API state." }), 500);
   }
 
-  async function runAction(actionName: string, action: () => Promise<unknown>): Promise<void> {
+  async function runAction<T>(actionName: string, action: () => Promise<T>, onSuccess?: (result: T) => void): Promise<void> {
     setBusyAction(actionName);
     setActionError(null);
     try {
-      await action();
+      const result = await action();
+      onSuccess?.(result);
       setToast({ title: "Provider operation updated", body: "The operation state changed. Refreshing console data." });
+      pendingScrollTopRef.current = window.scrollY;
       router.refresh();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Provider operation failed.";
@@ -543,24 +778,139 @@ export function AdminProvidersClient({
     }
   }
 
-  function previewRepair(): void {
+  function toggleUnresolvedRow(item: ProviderUnresolvedItemDto): void {
+    setAllMatchingSelected(false);
+    setSelectedUnresolvedKeys((current) => {
+      const next = new Set(current);
+      const key = unresolvedItemKey(item);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function setVisibleUnresolvedRows(items: ProviderUnresolvedItemDto[], checked: boolean): void {
+    setAllMatchingSelected(false);
+    setSelectedUnresolvedKeys((current) => {
+      const next = new Set(current);
+      for (const item of items) {
+        const key = unresolvedItemKey(item);
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  }
+
+  function clearUnresolvedSelection(): void {
+    setAllMatchingSelected(false);
+    setSelectedUnresolvedKeys(new Set());
+  }
+
+  function selectAllMatchingScope(): void {
+    setSelectedUnresolvedKeys(new Set());
+    setAllMatchingSelected(true);
+  }
+
+  function focusRowScope(item: ProviderUnresolvedItemDto, destination: ProviderConsoleTab = "fixer"): void {
+    setSelectedUnresolvedKeys(new Set([unresolvedItemKey(item)]));
+    setAllMatchingSelected(false);
+    setConfirmationChecked(false);
+    setTypedConfirmation("");
+    if (destination !== activeTab) setActiveTab(destination);
+  }
+
+  function toRepairScope(scope: UnresolvedScopeSelection | null): ProviderFixerRepairScope | undefined {
+    if (!scope) return undefined;
+    if (scope.type === "filter" && scope.filter) {
+      return {
+        type: "filter",
+        ...(scope.filter.marketCode ? { marketCode: scope.filter.marketCode } : {}),
+        errorCode: scope.filter.errorCode,
+        state: "active",
+        ...(scope.filter.search ? { search: scope.filter.search } : {}),
+      };
+    }
+    return {
+      type: "selected_items",
+      items: scope.selectedItems,
+    };
+  }
+
+  function previewRepair(scope?: ProviderFixerRepairScope): void {
     const row = fallbackDiagnosis;
-    if (!row) return;
+    const effectiveScope = scope ?? toRepairScope(selectedScope);
+    if (!row || !effectiveScope) {
+      setToast({
+        title: "Repair scope required",
+        body: "Select unresolved rows or explicitly choose all matching before creating a repair preview.",
+      });
+      setActiveTab("fixer");
+      return;
+    }
     void runAction("preview", () =>
-      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/preview`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/preview`, {
         resolverMode: diagnostics.resolverMode,
         errorCode: row.errorCode,
+        scope: effectiveScope,
       }),
+      (result) => {
+        setSelectedOperationId(result.operation.id);
+        setConfirmationChecked(false);
+        setTypedConfirmation("");
+        setActiveTab("fixer");
+      },
     );
   }
 
-  function renewEvidence(): void {
+  function bulkUpdateUnresolvedState(state: "unsupported" | "ignored"): void {
+    const scope = toRepairScope(selectedScope);
+    if (!scope || !selectedScope) {
+      setToast({ title: "Bulk scope required", body: "Select rows or choose all matching before changing unresolved state." });
+      return;
+    }
+    const phrase = state === "unsupported"
+      ? selectedScope.type === "filter"
+        ? `MARK ${selectedScope.count} MATCHING UNSUPPORTED`
+        : `MARK ${selectedScope.count} UNSUPPORTED`
+      : selectedScope.type === "filter"
+        ? `IGNORE ${selectedScope.count} MATCHING ACTIVE`
+        : `IGNORE ${selectedScope.count} ACTIVE`;
+    const dangerous = selectedScope.type === "filter" || selectedScope.count >= guardrails.dangerousMatchThreshold;
+    let typedConfirmation: string | undefined;
+    if (dangerous) {
+      typedConfirmation = window.prompt(`Type ${phrase} to ${state === "unsupported" ? "mark unsupported" : "ignore"} this scope.`)?.trim();
+      if (typedConfirmation !== phrase) {
+        setToast({ title: "Confirmation phrase mismatch", body: `Bulk ${state} requires the exact phrase ${phrase}.` });
+        return;
+      }
+    } else if (!window.confirm(`Apply ${state} to ${selectedScope.count} selected unresolved row${selectedScope.count === 1 ? "" : "s"}?`)) {
+      return;
+    }
+    void runAction(`bulk-unresolved:${state}`, () =>
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(selectedProviderId)}/unresolved/state/bulk`, {
+        scope,
+        state,
+        acknowledged: !dangerous,
+        typedConfirmation,
+      }),
+      (result) => {
+        setSelectedOperationId(result.operation.id);
+        clearUnresolvedSelection();
+        setActiveTab("operations");
+      },
+    );
+  }
+
+  function renewEvidence(scope?: ProviderFixerRepairScope): void {
     const row = fallbackDiagnosis;
     void runAction("renew", () =>
-      postJson(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/renew`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(selectedProviderId)}/operations/renew`, {
         resolverMode: diagnostics.resolverMode,
         errorCode: row?.errorCode ?? diagnostics.errorCode,
+        ...(scope ? { scope } : {}),
       }),
+      (result) => setSelectedOperationId(result.operation.id),
     );
   }
 
@@ -650,7 +1000,7 @@ export function AdminProvidersClient({
       unresolvedSearch: mapping.sourceSymbol,
       unresolvedPage: "1",
     });
-    router.push(`/admin/providers?${params.toString()}`);
+    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function openMappingOperation(mapping: ProviderResolutionMappingDto): void {
@@ -663,7 +1013,7 @@ export function AdminProvidersClient({
       errorCode: diagnostics.errorCode,
       operationId,
     });
-    router.push(`/admin/providers?${params.toString()}`);
+    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function applyUnresolvedFilters(next: {
@@ -695,7 +1045,7 @@ export function AdminProvidersClient({
       tab: "operations",
       operationId,
     });
-    router.push(`/admin/providers?${params.toString()}`);
+    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function applyOperationsPage(page: number): void {
@@ -705,7 +1055,7 @@ export function AdminProvidersClient({
       operationsPage: String(page),
     });
     if (selectedOperation?.id) params.set("operationId", selectedOperation.id);
-    router.push(`/admin/providers?${params.toString()}`);
+    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function previewLogPurge(): void {
@@ -756,7 +1106,7 @@ export function AdminProvidersClient({
             onClick={() => selectOperation(row.id)}
             data-testid={`provider-console-operation-select-${row.id}`}
           >
-            Select
+            View details
           </Button>
           {row.canPause ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "pause")}>Pause</Button> : null}
           {row.canResume ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "resume")}>Resume</Button> : null}
@@ -811,7 +1161,7 @@ export function AdminProvidersClient({
               const diagnosis = diagnostics.rows.find((row) => row.providerId === provider.providerId);
               const displayStatus = providerConsoleDisplayStatus(provider.status, diagnosis?.unresolvedCount ?? 0, guardrails);
               const activeOperationCount = operations.filter((operation) =>
-                operation.providerId === provider.providerId && ["preview", "staged", "queued", "running", "paused"].includes(operation.phase)
+                operation.providerId === provider.providerId && ["preparing_preview", "preview", "staged", "queued", "running", "paused"].includes(operation.phase)
               ).length;
               return (
                 <button
@@ -880,11 +1230,8 @@ export function AdminProvidersClient({
               <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh" title={actionHelp.refresh}>
                 Refresh data
               </Button>
-              <Button variant="secondary" disabled={!capability.supportsRenew} title={renewDisabledReason ?? actionHelp.renew}>
+              <Button variant="secondary" disabled={!capability.supportsRenew} onClick={() => renewEvidence()} title={renewDisabledReason ?? actionHelp.renew}>
                 Renew evidence
-              </Button>
-              <Button onClick={previewRepair} disabled={!capability.supportsRepair || busyAction !== null} title={repairDisabledReason ?? actionHelp.repair}>
-                Repair selected
               </Button>
             </div>
           </div>
@@ -933,11 +1280,45 @@ export function AdminProvidersClient({
             initialState={initialUnresolvedState}
             initialSearch={initialUnresolvedSearch}
             initialSort={initialUnresolvedSort}
+            selectedScope={selectedScope}
+            selectedKeys={selectedUnresolvedKeys}
+            allMatchingSelected={allMatchingSelected}
             currentPreview={currentPreview}
+            guardrails={guardrails}
+            resolverMode={diagnostics.resolverMode}
             capability={capability}
+            renewDisabledReason={renewDisabledReason}
+            repairDisabledReason={repairDisabledReason}
             rerunDisabledReason={rerunDisabledReason}
             onPreviewRepair={previewRepair}
+            onRenewItem={(item) => {
+              focusRowScope(item);
+              void runAction("renew-row", () =>
+                postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(item.providerId)}/operations/renew`, {
+                  marketCode: item.marketCode,
+                  resolverMode: diagnostics.resolverMode,
+                  errorCode: item.errorCode,
+                  scope: {
+                    type: "selected_items",
+                    items: [{
+                      providerId: item.providerId,
+                      marketCode: item.marketCode,
+                      errorCode: item.errorCode,
+                      sourceSymbol: item.sourceSymbol,
+                    }],
+                  },
+                }),
+                (result) => setSelectedOperationId(result.operation.id),
+              );
+            }}
+            onToggleItem={toggleUnresolvedRow}
+            onToggleVisiblePage={setVisibleUnresolvedRows}
+            onSelectAllMatching={selectAllMatchingScope}
+            onClearSelection={clearUnresolvedSelection}
+            onFocusRowScope={focusRowScope}
             onSetState={updateUnresolvedItemState}
+            onBulkSetState={bulkUpdateUnresolvedState}
+            onRenewScope={renewEvidence}
             onRerunItem={rerunUnresolvedItem}
             onApplyFilters={applyUnresolvedFilters}
             busyAction={busyAction}
@@ -955,18 +1336,22 @@ export function AdminProvidersClient({
             renewDisabledReason={renewDisabledReason}
             repairDisabledReason={repairDisabledReason}
             rerunDisabledReason={rerunDisabledReason}
+            selectedScope={selectedScope}
             currentPreview={currentPreview}
             selectedOperation={selectedOperation}
             confirmationChecked={confirmationChecked}
             typedConfirmation={typedConfirmation}
             typedConfirmationRequired={typedConfirmationRequired}
             executeDisabled={executeDisabled}
+            executeBlockers={executeBlockers}
             busyAction={busyAction}
             actionError={actionError}
             setConfirmationChecked={setConfirmationChecked}
             setTypedConfirmation={setTypedConfirmation}
             onRenewEvidence={renewEvidence}
             onPreviewRepair={previewRepair}
+            onUseAllMatchingScope={selectAllMatchingScope}
+            onOpenUnresolvedScope={() => selectTab("unresolved")}
             onExecute={executeSelectedOperation}
             onControlOperation={(action) => {
               if (!selectedOperation) return;
@@ -981,11 +1366,12 @@ export function AdminProvidersClient({
             operationColumns={operationColumns}
             selectedOperation={selectedOperation}
             selectedProviderId={selectedProviderId}
-            onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`)}
-            onOpenIncidents={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=incidents`)}
-            onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`)}
+            onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`, { scroll: false })}
+            onOpenIncidents={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=incidents`, { scroll: false })}
+            onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`, { scroll: false })}
             onPageChange={applyOperationsPage}
             progressOperation={progressOperation}
+            selectedScope={selectedScope}
             outcomes={operationOutcomes.filter((outcome) => outcome.providerId === selectedProviderId)}
             outcomeSummary={operationOutcomeSummary}
             outcomesPage={operationOutcomesPage}
@@ -1141,11 +1527,26 @@ function UnresolvedTab({
   initialState,
   initialSearch,
   initialSort,
+  selectedScope,
+  selectedKeys,
+  allMatchingSelected,
   currentPreview,
+  guardrails,
+  resolverMode,
   capability,
+  renewDisabledReason,
+  repairDisabledReason,
   rerunDisabledReason,
   onPreviewRepair,
+  onRenewItem,
+  onToggleItem,
+  onToggleVisiblePage,
+  onSelectAllMatching,
+  onClearSelection,
+  onFocusRowScope,
   onSetState,
+  onBulkSetState,
+  onRenewScope,
   onRerunItem,
   onApplyFilters,
   busyAction,
@@ -1160,11 +1561,26 @@ function UnresolvedTab({
   initialState: ProviderUnresolvedItemDto["state"];
   initialSearch: string;
   initialSort: ProviderUnresolvedSort;
+  selectedScope: UnresolvedScopeSelection | null;
+  selectedKeys: Set<string>;
+  allMatchingSelected: boolean;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  resolverMode: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
   capability: ProviderOperationCapabilityDto;
+  renewDisabledReason: string | null;
+  repairDisabledReason: string | null;
   rerunDisabledReason: string;
-  onPreviewRepair: () => void;
+  onPreviewRepair: (scope?: ProviderFixerRepairScope) => void;
+  onRenewItem: (item: ProviderUnresolvedItemDto) => void;
+  onToggleItem: (item: ProviderUnresolvedItemDto) => void;
+  onToggleVisiblePage: (items: ProviderUnresolvedItemDto[], checked: boolean) => void;
+  onSelectAllMatching: () => void;
+  onClearSelection: () => void;
+  onFocusRowScope: (item: ProviderUnresolvedItemDto, destination?: ProviderConsoleTab) => void;
   onSetState: (item: ProviderUnresolvedItemDto, state: "active" | "unsupported" | "ignored") => void;
+  onBulkSetState: (state: "unsupported" | "ignored") => void;
+  onRenewScope: (scope?: ProviderFixerRepairScope) => void;
   onRerunItem: (item: ProviderUnresolvedItemDto) => void;
   onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
   busyAction: string | null;
@@ -1173,10 +1589,10 @@ function UnresolvedTab({
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
   const [sortInput, setSortInput] = useState<ProviderUnresolvedSort>(initialSort);
-  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const stateInputRef = useRef<HTMLSelectElement>(null);
   const sortInputRef = useRef<HTMLSelectElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSearchInput(initialSearch);
@@ -1211,7 +1627,7 @@ function UnresolvedTab({
   const evidence = currentPreview?.evidenceSample ?? [];
   const rows = unresolvedItems.length > 0
     ? unresolvedItems.map((item) => ({
-        key: `${item.providerId}-${item.marketCode}-${item.errorCode}-${item.sourceSymbol}`,
+        key: unresolvedItemKey(item),
         item,
         sourceSymbol: item.sourceSymbol,
         providerSymbol: item.providerSymbol ?? item.sourceSymbol,
@@ -1232,18 +1648,102 @@ function UnresolvedTab({
         evidence: item.exchangeHint ?? item.note,
         note: item.note,
       }));
+  const visibleDurableRows = rows.filter((row): row is (typeof rows)[number] & { item: ProviderUnresolvedItemDto } => row.item !== null);
+  const visibleDurableKeys = visibleDurableRows.map((row) => row.key);
+  const selectedVisibleCount = visibleDurableKeys.filter((key) => selectedKeys.has(key)).length;
+  const allVisibleSelected = visibleDurableKeys.length > 0 && selectedVisibleCount === visibleDurableKeys.length;
+  const selectedCount = selectedScope?.count ?? 0;
+  const canRepairSelected = capability.supportsRepair && selectedCount > 0 && busyAction === null;
+  const canRenewSelected = capability.supportsRenew && selectedCount > 0 && busyAction === null;
+  const matchingErrorCode = diagnosis?.errorCode ?? visibleDurableRows[0]?.item.errorCode ?? "symbol_unresolved";
+  const renewScopeBlockedReason = selectedScope
+    ? renewDisabledReason ?? actionHelp.renew
+    : "Select a concrete scope before using renew from Unresolved instruments.";
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+  }, [allVisibleSelected, selectedVisibleCount]);
+
+  const toggleVisibleSelection = (checked: boolean) => {
+    onToggleVisiblePage(visibleDurableRows.map((row) => row.item), checked);
+  };
+
+  const toggleRowSelection = (key: string, checked: boolean) => {
+    const row = visibleDurableRows.find((item) => item.key === key)?.item;
+    if (!row) return;
+    const isSelected = selectedKeys.has(key);
+    if (checked === isSelected) return;
+    onToggleItem(row);
+  };
+
+  const previewSelectedScope = () => {
+    if (!canRepairSelected) return;
+    if (allMatchingSelected) {
+      onPreviewRepair({
+        type: "filter",
+        marketCode: visibleDurableRows[0]?.item.marketCode,
+        errorCode: matchingErrorCode,
+        state: "active",
+        search: searchInput.trim() || undefined,
+      });
+      return;
+    }
+    if (!selectedScope || selectedScope.type !== "selected_items") return;
+    onPreviewRepair({ type: "selected_items", items: selectedScope.selectedItems });
+  };
+  const renewSelectedScope = () => {
+    if (!canRenewSelected) return;
+    if (allMatchingSelected) {
+      onRenewScope({
+        type: "filter",
+        marketCode: visibleDurableRows[0]?.item.marketCode,
+        errorCode: matchingErrorCode,
+        state: "active",
+        search: searchInput.trim() || undefined,
+      });
+      return;
+    }
+    if (!selectedScope || selectedScope.type !== "selected_items") return;
+    onRenewScope({ type: "selected_items", items: selectedScope.selectedItems });
+  };
   const canMarkUnsupported = actionSupported(capability, "mark_unsupported");
   const canIgnore = actionSupported(capability, "ignore_unresolved");
   const canReopen = actionSupported(capability, "reopen_unresolved");
   const canRerun = actionSupported(capability, "rerun_backfill");
   const lifecycleUnavailable = "Available for durable unresolved rows only.";
-  const firstDurableRow = rows.find((row) => row.item)?.item ?? null;
   const rowRerunTitle = (row: (typeof rows)[number]) => {
     if (!canRerun) return rerunDisabledReason;
     if (!row.item || row.item.state !== "resolved") return "Rerun is disabled until this durable row is resolved or mapped.";
     return "Rerun creates a provider operation that enqueues a fresh backfill for this resolved row.";
   };
   const rowRerunDisabled = (row: (typeof rows)[number]) => !canRerun || !row.item || row.item.state !== "resolved" || busyAction !== null;
+  const exportRows = selectedScope?.type === "selected_items"
+    ? visibleDurableRows.filter((row) => selectedKeys.has(row.key))
+    : visibleDurableRows;
+  const exportTitle = selectedScope?.type === "filter"
+    ? "Export the currently loaded page as a sample of the all-matching scope. Use pagination to export more rows."
+    : selectedScope?.type === "selected_items"
+      ? "Export the selected rows visible on this page."
+      : "Export the currently loaded filtered rows for offline review.";
+  const exportLoadedRows = () => {
+    const timestamp = new Date().toISOString().replace(/[.:]/g, "-");
+    downloadCsv(`${selectedProviderId}-unresolved-${timestamp}.csv`, exportRows.map((row) => ({
+      providerId: row.item.providerId,
+      marketCode: row.item.marketCode,
+      errorCode: row.item.errorCode,
+      sourceSymbol: row.item.sourceSymbol,
+      providerSymbol: row.item.providerSymbol,
+      state: row.item.state,
+      occurrenceCount: row.item.occurrenceCount,
+      firstSeenAt: row.item.firstSeenAt,
+      lastSeenAt: row.item.lastSeenAt,
+      lastErrorTrailId: row.item.lastErrorTrailId,
+      resolvedAt: row.item.resolvedAt,
+      resolvedByOperationId: row.item.resolvedByOperationId,
+      updatedAt: row.item.updatedAt,
+    })));
+  };
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1254,8 +1754,8 @@ function UnresolvedTab({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" title="Export the currently filtered unresolved rows for offline review.">Export</Button>
-          <Button disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair selected</Button>
+          <Button variant="secondary" disabled={exportRows.length === 0} onClick={exportLoadedRows} title={exportTitle} data-testid="provider-console-export-unresolved">Export</Button>
+          <Button disabled={!canRepairSelected} onClick={previewSelectedScope} title={canRepairSelected ? actionHelp.repair : "Select at least one durable active unresolved row before previewing repair."}>Repair selected</Button>
         </div>
       </div>
       <div className="flex flex-col gap-2 xl:flex-row xl:flex-wrap">
@@ -1303,22 +1803,40 @@ function UnresolvedTab({
       </div>
       <div className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
         <span>
-          <strong>{allMatchingSelected ? formatNumber(unresolvedTotal || rows.length) : formatNumber(Math.min(rows.length, 3))} rows selected.</strong>{" "}
-          {allMatchingSelected
-            ? "All matching rows in the current filter are selected for guarded bulk repair."
-            : `Current-page rows selected. ${formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} rows match this filter.`}
+          <strong>{formatNumber(selectedCount)} rows selected.</strong>{" "}
+          {selectedScope?.type === "filter"
+            ? `All matching rows in the current filter are selected for guarded bulk repair. ${formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} rows match this filter.`
+            : selectedCount > 0
+              ? "Visible-page row selection is active."
+              : `Select visible rows or choose all matching. ${formatNumber(unresolvedTotal || diagnosis?.unresolvedCount || 0)} rows match this filter.`}
         </span>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setAllMatchingSelected((value) => !value)} data-testid="provider-console-select-all-matching">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={initialState !== "active" || visibleDurableRows.length === 0}
+            onClick={() => {
+              if (allMatchingSelected) onClearSelection();
+              else onSelectAllMatching();
+            }}
+            title={initialState === "active" ? "Select every active unresolved row matching this provider/filter, including pages not visible." : "All-matching repair is available only for active unresolved rows."}
+            data-testid="provider-console-select-all-matching"
+          >
             {allMatchingSelected ? "Clear all matching" : "Select all matching"}
           </Button>
+          <Button size="sm" variant="secondary" disabled={!canRepairSelected} onClick={previewSelectedScope} title={canRepairSelected ? actionHelp.repair : "Select at least one durable active unresolved row before previewing repair."}>Repair</Button>
+          <Button size="sm" variant="secondary" disabled={!canRenewSelected} onClick={renewSelectedScope} title={renewScopeBlockedReason} data-testid="provider-console-bulk-renew">Renew</Button>
+          <Button size="sm" variant="secondary" disabled={!selectedScope || !canIgnore || busyAction !== null} onClick={() => onBulkSetState("ignored")} title={selectedScope ? actionHelp.ignore : "Select a concrete scope before bulk ignore."} data-testid="provider-console-bulk-ignore">Ignore</Button>
+          <Button size="sm" variant="secondary" disabled={!selectedScope || !canMarkUnsupported || busyAction !== null} onClick={() => onBulkSetState("unsupported")} title={selectedScope ? actionHelp.markUnsupported : "Select a concrete scope before bulk unsupported."} data-testid="provider-console-bulk-unsupported">Unsupported</Button>
+          <Button size="sm" variant="secondary" disabled={exportRows.length === 0} onClick={exportLoadedRows} title={exportTitle} data-testid="provider-console-bulk-export">Export</Button>
+          <Button size="sm" variant="secondary" disabled={selectedCount === 0} onClick={onClearSelection}>Clear selection</Button>
           <Button
             size="sm"
             variant="secondary"
             onClick={() => {
               setStateInput("resolved");
               setSortInput("updated_desc");
-              setAllMatchingSelected(false);
+              onClearSelection();
               onApplyFilters({ state: "resolved", search: searchInput, sort: "updated_desc", page: 1 });
             }}
             data-testid="provider-console-recently-resolved"
@@ -1327,15 +1845,37 @@ function UnresolvedTab({
           </Button>
         </div>
       </div>
+      <RepairScopePanel
+        selectedProviderId={selectedProviderId}
+        errorCode={diagnosis?.errorCode ?? "all"}
+        state={initialState}
+        search={initialSearch}
+        resolverMode={resolverMode}
+        guardrails={guardrails}
+        scope={selectedScope}
+        currentPreview={currentPreview}
+        title="Selected repair scope"
+        testId="provider-console-repair-scope"
+      />
       {rows.length > 0 ? (
         <div className="grid gap-3 sm:hidden">
           {rows.map((row) => (
             <article key={row.key} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <label className="flex min-w-0 items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={row.item ? selectedKeys.has(row.key) : false}
+                    disabled={!row.item || allMatchingSelected}
+                    onChange={(event) => toggleRowSelection(row.key, event.target.checked)}
+                    aria-label={`Select ${row.sourceSymbol}`}
+                  />
+                  <span className="min-w-0">
                   <p className="font-mono font-semibold text-foreground">{row.sourceSymbol}</p>
                   <p className="text-xs text-muted-foreground">{row.providerSymbol}</p>
-                </div>
+                  </span>
+                </label>
                 <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.stateLabel}</span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
@@ -1343,8 +1883,23 @@ function UnresolvedTab({
                 <SettingReadout label="Evidence" value={row.evidence ?? "-"} />
               </dl>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
-                <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
+                <Button size="sm" variant="secondary" disabled={!row.item || !capability.supportsRenew || busyAction !== null} onClick={() => row.item ? onRenewItem(row.item) : undefined} title={row.item ? (renewDisabledReason ?? actionHelp.renew) : lifecycleUnavailable}>Renew</Button>
+                <Button
+                  size="sm"
+                  disabled={!row.item || !capability.supportsRepair || busyAction !== null}
+                  onClick={() => row.item ? (onFocusRowScope(row.item), onPreviewRepair({
+                    type: "selected_items",
+                    items: [{
+                      providerId: row.item.providerId,
+                      marketCode: row.item.marketCode,
+                      errorCode: row.item.errorCode,
+                      sourceSymbol: row.item.sourceSymbol,
+                    }],
+                  })) : undefined}
+                  title={row.item && capability.supportsRepair ? (repairDisabledReason ?? actionHelp.repair) : "Repair is unavailable for this provider or row."}
+                >
+                  Repair
+                </Button>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -1403,7 +1958,17 @@ function UnresolvedTab({
         <table className="min-w-[920px] text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-3 py-3"><input type="checkbox" defaultChecked aria-label="Select rows" /></th>
+              <th className="px-3 py-3">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  disabled={visibleDurableRows.length === 0 || allMatchingSelected}
+                  onChange={(event) => toggleVisibleSelection(event.target.checked)}
+                  aria-label="Select visible rows"
+                  data-testid="provider-console-select-visible"
+                />
+              </th>
               <th className="px-3 py-3">Source symbol</th>
               <th className="px-3 py-3">Provider symbol</th>
               <th className="px-3 py-3">Candidate</th>
@@ -1415,16 +1980,40 @@ function UnresolvedTab({
           <tbody>
             {rows.map((row) => (
               <tr key={row.key} className="border-t border-border">
-                <td className="px-3 py-3"><input type="checkbox" defaultChecked aria-label={`Select ${row.sourceSymbol}`} /></td>
+                <td className="px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={row.item ? selectedKeys.has(row.key) : false}
+                    disabled={!row.item || allMatchingSelected}
+                    onChange={(event) => toggleRowSelection(row.key, event.target.checked)}
+                    aria-label={`Select ${row.sourceSymbol}`}
+                    data-testid={`provider-console-select-row-${row.sourceSymbol}`}
+                  />
+                </td>
                 <td className="px-3 py-3 font-mono font-semibold">{row.sourceSymbol}</td>
                 <td className="px-3 py-3 font-mono">{row.providerSymbol}</td>
                 <td className="px-3 py-3 font-mono">{row.candidateSymbol ?? "-"}</td>
                 <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.stateLabel}</span></td>
-                <td className="px-3 py-3">{row.evidence ?? row.note}</td>
+                <td className="px-3 py-3 break-words">{row.evidence ?? row.note}</td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
-                    <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
+                    <Button size="sm" variant="secondary" disabled={!row.item || !capability.supportsRenew || busyAction !== null} onClick={() => row.item ? onRenewItem(row.item) : undefined} title={row.item ? (renewDisabledReason ?? actionHelp.renew) : lifecycleUnavailable}>Renew</Button>
+                    <Button
+                      size="sm"
+                      disabled={!row.item || !capability.supportsRepair || busyAction !== null}
+                      onClick={() => row.item ? (onFocusRowScope(row.item), onPreviewRepair({
+                        type: "selected_items",
+                        items: [{
+                          providerId: row.item.providerId,
+                          marketCode: row.item.marketCode,
+                          errorCode: row.item.errorCode,
+                          sourceSymbol: row.item.sourceSymbol,
+                        }],
+                      })) : undefined}
+                      title={row.item && capability.supportsRepair ? (repairDisabledReason ?? actionHelp.repair) : "Repair is unavailable for this provider or row."}
+                    >
+                      Repair
+                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1493,32 +2082,78 @@ function UnresolvedTab({
         >
           <div className="mx-auto flex max-w-md items-center gap-2">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-foreground">{formatNumber(rows.length)} visible unresolved</p>
+              <p className="truncate text-xs font-semibold text-foreground">{formatNumber(selectedCount)} selected</p>
               <p className="truncate text-[11px] text-muted-foreground">{selectedProviderId}</p>
             </div>
-            <Button size="sm" disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!firstDurableRow || !canIgnore || busyAction !== null}
-              title={firstDurableRow ? actionHelp.ignore : lifecycleUnavailable}
-              onClick={() => firstDurableRow ? onSetState(firstDurableRow, "ignored") : undefined}
-            >
-              Ignore
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!firstDurableRow || !canMarkUnsupported || busyAction !== null}
-              title={firstDurableRow ? actionHelp.markUnsupported : lifecycleUnavailable}
-              onClick={() => firstDurableRow ? onSetState(firstDurableRow, "unsupported") : undefined}
-            >
-              Unsupported
-            </Button>
+            <Button size="sm" disabled={!canRepairSelected} onClick={previewSelectedScope} title={canRepairSelected ? actionHelp.repair : "Select durable rows before repair."}>Repair</Button>
+            <Button size="sm" variant="secondary" onClick={() => (allMatchingSelected ? onClearSelection() : onSelectAllMatching())}>{allMatchingSelected ? "Clear" : "All matching"}</Button>
           </div>
         </div>
       ) : null}
     </Card>
+  );
+}
+
+function RepairScopePanel({
+  selectedProviderId,
+  errorCode,
+  state,
+  search,
+  resolverMode,
+  guardrails,
+  scope,
+  currentPreview,
+  title,
+  testId,
+}: {
+  selectedProviderId: string;
+  errorCode: string;
+  state: ProviderUnresolvedItemDto["state"];
+  search: string;
+  resolverMode: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  scope: UnresolvedScopeSelection | null;
+  currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
+  title: string;
+  testId?: string;
+}) {
+  const guardrailLevel = scopeGuardrailLevel(scope, guardrails);
+  const previewStatus = !currentPreview
+    ? "No preview loaded"
+    : previewExpired(currentPreview)
+      ? "Preview expired"
+      : previewMatchesScope(currentPreview, scope)
+        ? `${(currentPreview.scopeType ?? "legacy").replace(/_/g, " ")} preview ready`
+        : "Preview scope does not match selection";
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-4" data-testid={testId}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="text-base font-semibold text-foreground">{title}</h4>
+          <p className="mt-1 text-sm text-muted-foreground">Preview sample rows are display-only. Execution applies to the frozen selected or all-matching scope.</p>
+        </div>
+        <span className={cn(
+          "w-fit rounded-full px-2 py-1 text-xs font-semibold",
+          previewStatus === "No preview loaded" && "bg-slate-100 text-slate-700",
+          previewStatus === "Preview expired" && "bg-rose-100 text-rose-700",
+          previewStatus.endsWith("ready") && "bg-emerald-100 text-emerald-700",
+          previewStatus.includes("does not match") && "bg-amber-100 text-amber-800",
+        )}>
+          {previewStatus}
+        </span>
+      </div>
+      <dl className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SettingReadout label="Provider" value={selectedProviderId} />
+        <SettingReadout label="Error code" value={errorCode} />
+        <SettingReadout label="State / search" value={`${state}${search.trim() ? ` / ${search.trim()}` : ""}`} />
+        <SettingReadout label="Scope type" value={scope?.type === "filter" ? "All matching filter" : scope ? "Selected rows" : "None selected"} />
+        <SettingReadout label="Count" value={scope ? formatNumber(scope.count) : "0"} />
+        <SettingReadout label="Resolver mode" value={resolverMode ? resolverMode.replace(/_/g, " ") : "unknown"} />
+        <SettingReadout label="Guardrail level" value={guardrailLevel ? guardrailLevel.replace(/_/g, " ") : "none"} />
+        <SettingReadout label="Preview" value={previewStatus} />
+      </dl>
+    </div>
   );
 }
 
@@ -1531,18 +2166,22 @@ function FixerTab({
   renewDisabledReason,
   repairDisabledReason,
   rerunDisabledReason,
+  selectedScope,
   currentPreview,
   selectedOperation,
   confirmationChecked,
   typedConfirmation,
   typedConfirmationRequired,
   executeDisabled,
+  executeBlockers,
   busyAction,
   actionError,
   setConfirmationChecked,
   setTypedConfirmation,
   onRenewEvidence,
   onPreviewRepair,
+  onUseAllMatchingScope,
+  onOpenUnresolvedScope,
   onExecute,
   onControlOperation,
 }: {
@@ -1554,22 +2193,33 @@ function FixerTab({
   renewDisabledReason: string | null;
   repairDisabledReason: string | null;
   rerunDisabledReason: string;
+  selectedScope: UnresolvedScopeSelection | null;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   selectedOperation: ProviderFixerDashboardOperationDto | null;
   confirmationChecked: boolean;
   typedConfirmation: string;
   typedConfirmationRequired: boolean;
   executeDisabled: boolean;
+  executeBlockers: ExecuteBlocker[];
   busyAction: string | null;
   actionError: string | null;
   setConfirmationChecked: (checked: boolean) => void;
   setTypedConfirmation: (value: string) => void;
   onRenewEvidence: () => void;
   onPreviewRepair: () => void;
+  onUseAllMatchingScope: () => void;
+  onOpenUnresolvedScope: () => void;
   onExecute: () => void;
   onControlOperation: (action: "pause" | "resume" | "cancel") => void;
 }) {
-  const stagedVisible = !!selectedOperation && (selectedOperation.phase === "preview" || selectedOperation.phase === "staged" || selectedOperation.phase === "queued" || selectedOperation.phase === "running" || selectedOperation.phase === "paused");
+  const stagedVisible = !!selectedOperation && (
+    selectedOperation.phase === "preparing_preview"
+    || selectedOperation.phase === "preview"
+    || selectedOperation.phase === "staged"
+    || selectedOperation.phase === "queued"
+    || selectedOperation.phase === "running"
+    || selectedOperation.phase === "paused"
+  );
   const dangerousPreviewSheet = stagedVisible && selectedOperation?.dangerous;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1603,11 +2253,29 @@ function FixerTab({
           <Metric label="Guardrail threshold" value={formatNumber(guardrails.dangerousMatchThreshold)} detail="Bulk writes above this require typed phrase." />
           <Metric label="Preview sample" value={formatNumber(guardrails.previewSampleLimit)} detail="Rows shown before dangerous execution." />
         </div>
+        <RepairScopePanel
+          selectedProviderId={selectedProviderId}
+          errorCode={diagnosis?.errorCode ?? diagnostics.errorCode}
+          state="active"
+          search={currentPreview?.search ?? ""}
+          resolverMode={diagnostics.resolverMode}
+          guardrails={guardrails}
+          scope={selectedScope}
+          currentPreview={currentPreview}
+          title="Fixer scope"
+          testId="provider-console-fixer-scope"
+        />
         <div className="grid gap-3 md:grid-cols-3">
-          <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" onClick={onRenewEvidence} busy={busyAction !== null} testId="provider-console-renew-evidence" />
+          <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" onClick={() => onRenewEvidence()} busy={busyAction !== null} testId="provider-console-renew-evidence" />
           <ActionPanel title="Repair" body={actionHelp.repair} enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
           <ActionPanel title="Rerun" body={actionHelp.rerun} enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
         </div>
+        {!selectedScope ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={onOpenUnresolvedScope}>Select visible rows</Button>
+            <Button variant="secondary" onClick={onUseAllMatchingScope}>Use all matching filter scope</Button>
+          </div>
+        ) : null}
         {actionError ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{actionError}</p> : null}
       </Card>
 
@@ -1649,7 +2317,9 @@ function FixerTab({
               <div>
                 <p className="font-medium text-foreground">Operation state</p>
                 <p className="text-muted-foreground">
-                  {selectedOperation.phase === "queued"
+                  {selectedOperation.phase === "preparing_preview"
+                    ? "Preview preparation started. The scope is frozen, sample generation is running, and the operation can still be cancelled."
+                    : selectedOperation.phase === "queued"
                     ? "Accepted and waiting behind active provider work. Progress remains zero until the operation starts."
                     : `${operationProgress(selectedOperation)}% progress from durable operation outcomes.`}
                 </p>
@@ -1679,7 +2349,22 @@ function FixerTab({
                 <SettingReadout label="Scope label" value={currentPreview.scopeLabel} />
                 <SettingReadout label="Snapshot hash" value={currentPreview.snapshotHash} />
                 <SettingReadout label="Confirmation phrase" value={currentPreview.confirmationText ?? "Checkbox only"} />
+                <SettingReadout label="Preview expiry" value={formatTimestamp(currentPreview.tokenExpiresAt)} />
               </dl>
+              <div className="rounded-xl border border-border bg-card p-3" data-testid="provider-console-execute-blockers">
+                <p className="text-sm font-semibold text-foreground">Execute blockers</p>
+                <ul className="mt-3 space-y-2 text-sm">
+                  {executeBlockers.map((blocker) => (
+                    <li key={blocker.label} className="flex items-start gap-2">
+                      <span className={cn("mt-1 h-2.5 w-2.5 rounded-full", blocker.satisfied ? "bg-emerald-500" : "bg-amber-500")} aria-hidden="true" />
+                      <span>
+                        <strong className="text-foreground">{blocker.label}</strong>
+                        <span className="block text-muted-foreground">{blocker.help}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
               <label className="flex items-start gap-2 rounded-xl border border-border bg-card px-3 py-3 text-sm">
                 <input type="checkbox" checked={confirmationChecked} onChange={(event) => setConfirmationChecked(event.target.checked)} data-testid="provider-console-confirm-checkbox" />
                 <span>{currentPreview.acknowledgementLabel}</span>
@@ -1726,6 +2411,7 @@ function OperationsTab({
   onOpenUnresolved,
   onPageChange,
   progressOperation,
+  selectedScope,
   outcomes,
   outcomeSummary,
   outcomesPage,
@@ -1744,6 +2430,7 @@ function OperationsTab({
   onOpenUnresolved: () => void;
   onPageChange: (page: number) => void;
   progressOperation: ProviderFixerDashboardOperationDto | null;
+  selectedScope: UnresolvedScopeSelection | null;
   outcomes: ProviderOperationOutcomeDto[];
   outcomeSummary: ProviderOperationOutcomeSummaryDto;
   outcomesPage: number;
@@ -1753,6 +2440,16 @@ function OperationsTab({
   limit: number;
   total: number;
 }) {
+  const operationScope = selectedOperation?.preview.frozenScope
+    ? {
+        type: selectedOperation.preview.frozenScope.type,
+        count: selectedOperation.preview.frozenScope.matchCount,
+        label: selectedOperation.preview.scopeSummary,
+        filterFingerprint: selectedOperation.preview.frozenScope.filterFingerprint,
+        selectedItems: selectedOperation.preview.frozenScope.selectedItems,
+        filter: selectedOperation.preview.frozenScope.filter,
+      }
+    : selectedScope;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
@@ -1780,6 +2477,11 @@ function OperationsTab({
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary" style={{ width: `${operationProgress(progressOperation)}%` }} />
             </div>
+            <p className="text-sm text-muted-foreground">
+              {progressOperation.phase === "preparing_preview"
+                ? "Preparing preview samples from the frozen scope."
+                : `${progressOperation.phase.replace(/_/g, " ")} progress from durable operation outcomes.`}
+            </p>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <Metric label="Matched" value={formatNumber(progressOperation.matchCount)} detail="Frozen operation scope" />
               <Metric label="Rate cap" value={`${progressOperation.effectiveRateCapPerMinute ?? 250}/min`} detail="Effective provider operation budget" />
@@ -1823,6 +2525,27 @@ function OperationsTab({
         ) : (
           <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Select an operation to inspect details.</p>
         )}
+        {selectedOperation ? (
+          <RepairScopePanel
+            selectedProviderId={selectedProviderId}
+            errorCode={selectedOperation.preview.frozenScope?.filter?.errorCode ?? selectedOperation.preview.scopeLabel}
+            state={selectedOperation.preview.state ?? "active"}
+            search={selectedOperation.preview.search ?? ""}
+            resolverMode="quote_first"
+            guardrails={{
+              dangerousMatchThreshold: selectedOperation.dangerous ? selectedOperation.matchCount : Number.MAX_SAFE_INTEGER,
+              previewSampleLimit: selectedOperation.preview.sampleCount,
+              uiPageSize: selectedOperation.preview.sampleCount,
+              autoPauseFailureThresholdPerMinute: selectedOperation.autoPauseFailureThresholdPerMinute ?? 0,
+              previewTokenTtlSeconds: 0,
+              healthWarningUnresolvedThreshold: 0,
+              healthCriticalUnresolvedThreshold: 0,
+            }}
+            scope={operationScope}
+            currentPreview={selectedOperation.preview}
+            title="Selected operation scope"
+          />
+        ) : null}
       </Card>
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2">
         <div>
@@ -1887,7 +2610,41 @@ function IncidentsTab({
         <p className="mt-1 text-sm text-muted-foreground">Durable provider incident lifecycle for {selectedProviderId}, grouped from repeated provider errors.</p>
       </div>
       {incidents.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-border">
+        <>
+        <div className="grid gap-3 md:hidden">
+          {incidents.map((incident) => {
+            const busy = busyAction?.startsWith(`incident:`) && busyAction.endsWith(`:${incident.id}`);
+            return (
+              <article key={incident.id} className="rounded-xl border border-border bg-card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground break-words">{incident.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground break-words">{incident.summary ?? incident.incidentKey}</p>
+                  </div>
+                  <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{incident.status}</span>
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <SettingReadout label="Severity" value={incident.severity} />
+                  <SettingReadout label="Error" value={incident.errorCode ?? incident.errorClass} />
+                  <SettingReadout label="Count" value={formatNumber(incident.occurrenceCount)} />
+                  <SettingReadout label="Last seen" value={formatTimestamp(incident.lastSeenAt)} />
+                </dl>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {incident.status === "open" ? (
+                    <>
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "acknowledged")}>Acknowledge</Button>
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "resolved")}>Resolve</Button>
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => onSetStatus(incident.id, "ignored")}>Ignore</Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="secondary" disabled={busy} onClick={() => onSetStatus(incident.id, "open")}>Reopen</Button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-hidden rounded-xl border border-border md:block">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -1907,7 +2664,7 @@ function IncidentsTab({
                   <tr key={incident.id} className="border-t border-border align-top">
                     <td className="px-3 py-3">
                       <div className="font-semibold text-foreground">{incident.title}</div>
-                      <div className="mt-1 max-w-[34rem] text-xs text-muted-foreground">{incident.summary ?? incident.incidentKey}</div>
+                      <div className="mt-1 max-w-[34rem] break-words text-xs text-muted-foreground">{incident.summary ?? incident.incidentKey}</div>
                     </td>
                     <td className="px-3 py-3">
                       <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{incident.status}</span>
@@ -1944,6 +2701,7 @@ function IncidentsTab({
             </tbody>
           </table>
         </div>
+        </>
       ) : (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No open incidents for this provider.</p>
       )}
@@ -1970,13 +2728,28 @@ function ActivityTab({
       <h3 className="text-xl font-semibold text-foreground">Activity</h3>
       <p className="text-sm text-muted-foreground">Provider-scoped timeline composed from operations, logs, incidents, unresolved items, and mappings.</p>
       <div className="space-y-0">
-        {items.length > 0 ? items.map((entry) => (
-          <div key={entry.id} className="grid gap-2 border-b border-border py-3 text-sm last:border-b-0 md:grid-cols-[170px_130px_1fr]">
-            <span className="font-mono text-muted-foreground">{formatTimestamp(entry.occurredAt)}</span>
-            <span className="w-fit rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{entry.kind}</span>
-            <span><strong>{entry.title}</strong>{entry.detail ? ` - ${entry.detail}` : ""}</span>
-          </div>
-        )) : (
+        {items.length > 0 ? (
+          <>
+            <div className="grid gap-3 md:hidden">
+              {items.map((entry) => (
+                <article key={entry.id} className="rounded-xl border border-border bg-card p-4 text-sm">
+                  <p className="font-mono text-xs text-muted-foreground">{formatTimestamp(entry.occurredAt)}</p>
+                  <span className="mt-2 inline-flex w-fit rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{entry.kind}</span>
+                  <p className="mt-3 break-words"><strong>{entry.title}</strong>{entry.detail ? ` - ${entry.detail}` : ""}</p>
+                </article>
+              ))}
+            </div>
+            <div className="hidden md:block">
+              {items.map((entry) => (
+                <div key={entry.id} className="grid gap-2 border-b border-border py-3 text-sm last:border-b-0 md:grid-cols-[170px_130px_1fr]">
+                  <span className="font-mono text-muted-foreground">{formatTimestamp(entry.occurredAt)}</span>
+                  <span className="w-fit rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{entry.kind}</span>
+                  <span className="break-words"><strong>{entry.title}</strong>{entry.detail ? ` - ${entry.detail}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
           <Reason tone="info" title={`No recent activity for ${selectedProviderId}`} body="Activity will populate from provider operation logs, incidents, unresolved items, and mappings." />
         )}
       </div>
