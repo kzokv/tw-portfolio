@@ -162,6 +162,7 @@ const defaultCapability: ProviderOperationCapabilityDto = {
     { action: "refresh_health", supported: true, guardrail: "none", reason: null },
   ],
 };
+const providerConsoleScrollStorageKey = "vakwen:admin-provider-console-scroll-top";
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   diagnose: "bg-slate-100 text-slate-700",
@@ -683,6 +684,17 @@ export function AdminProvidersClient({
   }, [toast]);
 
   useEffect(() => {
+    const storedTop = window.sessionStorage.getItem(providerConsoleScrollStorageKey);
+    if (!storedTop) return;
+    const top = Number.parseInt(storedTop, 10);
+    if (!Number.isFinite(top) || top <= 0) {
+      window.sessionStorage.removeItem(providerConsoleScrollStorageKey);
+      return;
+    }
+    scheduleScrollRestore(top);
+  }, []);
+
+  useEffect(() => {
     setSelectedUnresolvedKeys(new Set());
     setAllMatchingSelected(false);
     setConfirmationChecked(false);
@@ -717,6 +729,7 @@ export function AdminProvidersClient({
 
   function scheduleScrollRestore(top = typeof window === "undefined" ? 0 : window.scrollY): void {
     pendingScrollTopRef.current = top;
+    if (top > 0) window.sessionStorage.setItem(providerConsoleScrollStorageKey, String(top));
     const restore = () => {
       if (pendingScrollTopRef.current !== top) return;
       const currentTop = window.scrollY;
@@ -734,6 +747,9 @@ export function AdminProvidersClient({
     window.setTimeout(() => {
       window.clearInterval(intervalId);
       if (pendingScrollTopRef.current === top) pendingScrollTopRef.current = null;
+      if (window.sessionStorage.getItem(providerConsoleScrollStorageKey) === String(top)) {
+        window.sessionStorage.removeItem(providerConsoleScrollStorageKey);
+      }
     }, 6000);
   }
 
