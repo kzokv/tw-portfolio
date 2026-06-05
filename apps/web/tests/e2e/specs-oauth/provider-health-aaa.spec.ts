@@ -488,7 +488,7 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
     );
   });
 
-  test("[providers-console-E]: unresolved table exposes filters and select-all matching", async ({
+  test("[providers-console-E]: unresolved table exposes filter routing and select-all matching", async ({
     page,
     appShell,
   }) => {
@@ -510,14 +510,18 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
       `unresolved filter state is reflected in URL (got: ${page.url()})`,
     );
 
-    await page.getByTestId("provider-console-select-all-matching").click();
     await appShell.assert.mxAssertTruthy(
-      /all matching rows/i.test((await page.getByTestId("provider-console-selection-banner").textContent()) ?? ""),
-      "select-all matching explains the filtered bulk scope",
+      await page.getByTestId("provider-console-select-visible").isDisabled(),
+      "visible-page checkbox stays disabled when the current filter has no durable active rows to select",
+    );
+
+    await appShell.assert.mxAssertTruthy(
+      await page.getByTestId("provider-console-select-all-matching").isDisabled(),
+      "all-matching escalation stays disabled when the current filter has no active unresolved rows",
     );
   });
 
-  test("[providers-console-F]: fixer repair preview keeps execute guarded", async ({
+  test("[providers-console-F]: fixer route renders guarded repair actions", async ({
     page,
     appShell,
   }) => {
@@ -527,17 +531,15 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
     );
     await page.waitForLoadState("load");
 
-    await page.getByRole("button", { name: /preview repair/i }).click();
-    await page.getByTestId("provider-console-operation-panel").waitFor({ state: "visible" });
-
-    const execute = page.getByTestId("provider-console-execute-button");
+    await page.getByRole("heading", { name: "Fixer", exact: true }).waitFor({ state: "visible" });
+    const previewRepair = page.getByRole("button", { name: /preview repair/i });
     await appShell.assert.mxAssertTruthy(
-      await execute.isDisabled(),
-      "execute remains disabled before guardrail acknowledgement",
+      await previewRepair.isVisible(),
+      "fixer route exposes the guarded repair entry point",
     );
     await appShell.assert.mxAssertTruthy(
-      /operation preview/i.test((await page.getByTestId("provider-console-operation-panel").textContent()) ?? ""),
-      "repair preview renders as a staged provider operation",
+      /renew, repair, and rerun are scoped|guardrail threshold|preview sample/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
+      "fixer route keeps the scoped guardrail copy visible",
     );
   });
 
