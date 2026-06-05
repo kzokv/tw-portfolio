@@ -707,14 +707,29 @@ export function AdminProvidersClient({
       "provider_budget_wait_changed",
     ],
     onEvent: () => {
-      pendingScrollTopRef.current = window.scrollY;
-      router.refresh();
+      refreshPreservingScroll();
     },
     enabled: true,
   });
 
   function currentRouteParams(): URLSearchParams {
     return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  }
+
+  function scheduleScrollRestore(top = typeof window === "undefined" ? 0 : window.scrollY): void {
+    pendingScrollTopRef.current = top;
+    const restore = () => {
+      if (pendingScrollTopRef.current == null) return;
+      window.scrollTo({ top: pendingScrollTopRef.current, behavior: "auto" });
+    };
+    window.requestAnimationFrame(restore);
+    window.setTimeout(restore, 0);
+    window.setTimeout(restore, 150);
+  }
+
+  function refreshPreservingScroll(): void {
+    scheduleScrollRestore();
+    router.refresh();
   }
 
   function pushProviderRoute(params: URLSearchParams): void {
@@ -755,8 +770,7 @@ export function AdminProvidersClient({
 
   function refreshData(): void {
     setToast({ title: "Refreshing provider data", body: "Reloading console state from the API. No upstream provider calls are made." });
-    pendingScrollTopRef.current = window.scrollY;
-    router.refresh();
+    refreshPreservingScroll();
     window.setTimeout(() => setToast({ title: "Refresh complete", body: "Provider console data was refreshed from local API state." }), 500);
   }
 
@@ -767,8 +781,7 @@ export function AdminProvidersClient({
       const result = await action();
       onSuccess?.(result);
       setToast({ title: "Provider operation updated", body: "The operation state changed. Refreshing console data." });
-      pendingScrollTopRef.current = window.scrollY;
-      router.refresh();
+      refreshPreservingScroll();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Provider operation failed.";
       setActionError(message);

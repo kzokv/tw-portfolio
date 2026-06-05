@@ -493,6 +493,7 @@ describe("AdminProvidersClient", () => {
     mockPush.mockReset();
     mockPostJson.mockReset();
     mockPostJson.mockResolvedValue({});
+    Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: vi.fn() });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -501,6 +502,7 @@ describe("AdminProvidersClient", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
     vi.useRealTimers();
   });
 
@@ -938,11 +940,18 @@ describe("AdminProvidersClient", () => {
   });
 
   it("refreshes API-backed state without an upstream provider action", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 640 });
+    const scrollTo = vi.mocked(window.scrollTo);
     renderClient(root);
 
     click("provider-console-refresh");
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
 
     expect(mockRefresh).toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ top: 640, behavior: "auto" });
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
       /reloading console state from the api/i,
     );
