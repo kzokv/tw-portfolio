@@ -692,7 +692,6 @@ export function AdminProvidersClient({
   useEffect(() => {
     if (pendingScrollTopRef.current == null) return;
     const top = pendingScrollTopRef.current;
-    pendingScrollTopRef.current = null;
     window.requestAnimationFrame(() => {
       window.scrollTo({ top, behavior: "auto" });
     });
@@ -719,12 +718,16 @@ export function AdminProvidersClient({
   function scheduleScrollRestore(top = typeof window === "undefined" ? 0 : window.scrollY): void {
     pendingScrollTopRef.current = top;
     const restore = () => {
-      if (pendingScrollTopRef.current == null) return;
-      window.scrollTo({ top: pendingScrollTopRef.current, behavior: "auto" });
+      if (pendingScrollTopRef.current !== top) return;
+      window.scrollTo({ top, behavior: "auto" });
     };
     window.requestAnimationFrame(restore);
-    window.setTimeout(restore, 0);
-    window.setTimeout(restore, 150);
+    for (const delay of [0, 150, 500, 1000, 2000]) {
+      window.setTimeout(restore, delay);
+    }
+    window.setTimeout(() => {
+      if (pendingScrollTopRef.current === top) pendingScrollTopRef.current = null;
+    }, 2200);
   }
 
   function refreshPreservingScroll(): void {

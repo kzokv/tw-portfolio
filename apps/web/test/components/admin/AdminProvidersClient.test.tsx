@@ -955,6 +955,10 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
       /reloading console state from the api/i,
     );
+    act(() => {
+      vi.advanceTimersByTime(1850);
+    });
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 640, behavior: "auto" });
   });
 
   it("shows durable item outcomes in the Operations tab", () => {
