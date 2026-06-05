@@ -721,6 +721,8 @@ function providerFixerGuardrailsFromConfig(config: AppConfigDto): ProviderFixerD
     uiPageSize: config.effectiveProviderFixerUiPageSize,
     autoPauseFailureThresholdPerMinute: config.effectiveProviderFixerAutoPauseFailuresPerMinute,
     previewTokenTtlSeconds: config.effectiveProviderFixerPreviewTokenTtlMinutes * 60,
+    healthWarningUnresolvedThreshold: config.effectiveProviderHealthWarningUnresolvedThreshold,
+    healthCriticalUnresolvedThreshold: config.effectiveProviderHealthCriticalUnresolvedThreshold,
   };
 }
 

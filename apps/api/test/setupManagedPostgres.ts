@@ -2,8 +2,9 @@ import { vi } from "vitest";
 
 const timeoutMs = Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS ?? 0);
 const redisTimeoutMs = Number(process.env.REDIS_CONNECTION_TIMEOUT_MS ?? timeoutMs);
-const retryAttempts = Number(process.env.POSTGRES_CONNECT_RETRY_ATTEMPTS ?? 4);
-const retryDelayMs = Number(process.env.POSTGRES_CONNECT_RETRY_DELAY_MS ?? 250);
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
+const retryAttempts = Number(process.env.POSTGRES_CONNECT_RETRY_ATTEMPTS ?? (managedCiStack ? 8 : 4));
+const retryDelayMs = Number(process.env.POSTGRES_CONNECT_RETRY_DELAY_MS ?? (managedCiStack ? 500 : 250));
 const redisRetryAttempts = Number(process.env.REDIS_RECONNECT_MAX_RETRIES ?? retryAttempts);
 
 function isConnectionTimeout(error: unknown): boolean {

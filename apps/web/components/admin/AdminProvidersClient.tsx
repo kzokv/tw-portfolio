@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ProviderActivityItemDto,
@@ -40,6 +40,7 @@ type ProviderConsoleTab =
   | "mappings";
 
 type ProviderUnresolvedSort = "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
+type ProviderConsoleDisplayStatus = ProviderHealthStatus | "attention" | "critical_backlog";
 
 interface ProviderGroup {
   label: string;
@@ -180,13 +181,27 @@ const resolverModeHelp = {
     "Chart-probe verifies chart/backfill readiness with chart requests. It costs more provider budget and is useful when quote evidence is ambiguous.",
 } as const;
 
+const numberFormatter = new Intl.NumberFormat("en-US");
+const timestampFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  month: "numeric",
+  second: "2-digit",
+  timeZone: "UTC",
+  timeZoneName: "short",
+  year: "numeric",
+});
+
 function formatNumber(value: number): string {
-  return value.toLocaleString();
+  return numberFormatter.format(value);
 }
 
 function formatTimestamp(ts: string | null): string {
   if (!ts) return "Never";
-  return new Date(ts).toLocaleString();
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "Invalid timestamp";
+  return timestampFormatter.format(date);
 }
 
 function evidenceString(value: unknown): string | null {
@@ -207,15 +222,19 @@ function mappingLinkedOperation(evidence: Record<string, unknown> | null): strin
     ?? evidenceString(evidence?.retryOfOperationId);
 }
 
-function statusCopy(status: ProviderHealthStatus): string {
+function statusCopy(status: ProviderConsoleDisplayStatus): string {
   if (status === "healthy") return "Healthy";
   if (status === "degraded") return "Degraded";
   if (status === "down") return "Down";
+  if (status === "attention") return "Needs attention";
+  if (status === "critical_backlog") return "Critical backlog";
   return "Awaiting action";
 }
 
-function statusHelp(status: ProviderHealthStatus): string {
-  if (status === "healthy") return "Healthy: provider checks are passing and no admin fixer action is currently required.";
+function statusHelp(status: ProviderConsoleDisplayStatus): string {
+  if (status === "healthy") return "Healthy: provider availability checks are passing and no unresolved backlog is above the configured admin thresholds.";
+  if (status === "attention") return "Needs attention: provider availability checks are passing, but unresolved instruments are above the configured warning threshold.";
+  if (status === "critical_backlog") return "Critical backlog: provider availability checks are passing, but unresolved instruments are above the configured critical threshold.";
   if (status === "degraded") return "Degraded: provider is reachable, but errors, backlog, incidents, or rate limits need attention.";
   if (status === "down") return "Down: provider checks are failing or unavailable; repair work should wait until connectivity recovers.";
   return "Awaiting action: provider is reachable, but a guarded admin decision is required before fixer writes continue.";
@@ -226,6 +245,17 @@ function statusRank(status: ProviderHealthStatus): number {
   if (status === "degraded") return 3;
   if (status === "awaiting") return 2;
   return 1;
+}
+
+function providerConsoleDisplayStatus(
+  status: ProviderHealthStatus,
+  unresolvedCount: number,
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+): ProviderConsoleDisplayStatus {
+  if (status === "down" || status === "awaiting") return status;
+  if (unresolvedCount >= guardrails.healthCriticalUnresolvedThreshold) return "critical_backlog";
+  if (unresolvedCount >= guardrails.healthWarningUnresolvedThreshold) return "attention";
+  return status;
 }
 
 function providerGroups(providers: ProviderHealthStatusDto[]): ProviderGroup[] {
@@ -256,13 +286,15 @@ function pickInitialProvider(providers: ProviderHealthStatusDto[]): string {
   })[0]?.providerId ?? "yahoo-finance-kr";
 }
 
-function StatusBadge({ status, providerId }: { status: ProviderHealthStatus; providerId: string }) {
+function StatusBadge({ status, providerId }: { status: ProviderConsoleDisplayStatus; providerId: string }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
         status === "healthy" && "bg-emerald-100 text-emerald-800",
         status === "degraded" && "bg-amber-100 text-amber-800",
+        status === "attention" && "bg-amber-100 text-amber-800 ring-1 ring-amber-200",
+        status === "critical_backlog" && "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
         status === "down" && "bg-rose-100 text-rose-800",
         status === "awaiting" && "bg-violet-100 text-violet-800 ring-1 ring-violet-200",
       )}
@@ -274,6 +306,8 @@ function StatusBadge({ status, providerId }: { status: ProviderHealthStatus; pro
           "h-1.5 w-1.5 rounded-full",
           status === "healthy" && "bg-emerald-500",
           status === "degraded" && "bg-amber-500",
+          status === "attention" && "bg-amber-500",
+          status === "critical_backlog" && "bg-orange-500",
           status === "down" && "bg-rose-500",
           status === "awaiting" && "bg-violet-500",
         )}
@@ -366,6 +400,7 @@ export function AdminProvidersClient({
   const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
   const [logPurgePreview, setLogPurgePreview] = useState<ProviderLogPurgePreviewDto | null>(null);
   const [logPurgeConfirmation, setLogPurgeConfirmation] = useState("");
+  const [isRoutePending, startRouteTransition] = useTransition();
 
   const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId) ?? providers[0] ?? null;
   const capability =
@@ -385,6 +420,9 @@ export function AdminProvidersClient({
   const rerunDisabledReason = rerunProviderDisabledReason ?? "Rerun requires resolved items or durable provider mappings.";
   const providerDiagnostics = diagnostics.rows.filter((row) => row.providerId === selectedProviderId);
   const fallbackDiagnosis = providerDiagnostics[0] ?? diagnostics.rows[0] ?? null;
+  const selectedDisplayStatus = selectedProvider
+    ? providerConsoleDisplayStatus(selectedProvider.status, fallbackDiagnosis?.unresolvedCount ?? 0, guardrails)
+    : null;
   const providerOperations = operations.filter((operation) => operation.providerId === selectedProviderId);
   const providerStagedOperation = stagedOperation?.providerId === selectedProviderId ? stagedOperation : null;
   const selectedOperation =
@@ -411,6 +449,16 @@ export function AdminProvidersClient({
   }, [providers, selectedProvider, selectedProviderId]);
 
   useEffect(() => {
+    if (!initialProviderId || !providers.some((provider) => provider.providerId === initialProviderId)) return;
+    setSelectedProviderId((current) => current === initialProviderId ? current : initialProviderId);
+  }, [initialProviderId, providers]);
+
+  useEffect(() => {
+    if (!initialTab) return;
+    setActiveTab((current) => current === initialTab ? current : initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
     if (providerOperations.some((operation) => operation.id === selectedOperationId)) return;
     setSelectedOperationId(providerStagedOperation?.id ?? providerOperations[0]?.id ?? "");
   }, [providerOperations, providerStagedOperation, selectedOperationId]);
@@ -433,6 +481,27 @@ export function AdminProvidersClient({
     enabled: true,
   });
 
+  function currentRouteParams(): URLSearchParams {
+    return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  }
+
+  function pushProviderRoute(params: URLSearchParams): void {
+    startRouteTransition(() => {
+      router.push(`/admin/providers?${params.toString()}`);
+    });
+  }
+
+  function selectTab(tab: ProviderConsoleTab): void {
+    setActiveTab(tab);
+    const params = currentRouteParams();
+    params.set("providerId", selectedProviderId);
+    params.set("tab", tab);
+    params.set("resolverMode", diagnostics.resolverMode);
+    params.set("errorCode", fallbackDiagnosis?.errorCode ?? diagnostics.errorCode);
+    if (tab !== "operations") params.delete("operationId");
+    pushProviderRoute(params);
+  }
+
   function selectProvider(providerId: string): void {
     const row = diagnostics.rows.find((item) => item.providerId === providerId);
     const nextTab: ProviderConsoleTab = row && row.unresolvedCount > 0 ? "unresolved" : activeTab;
@@ -443,7 +512,13 @@ export function AdminProvidersClient({
     setLogPurgePreview(null);
     setLogPurgeConfirmation("");
     setActiveTab(nextTab);
-    router.push(`/admin/providers?providerId=${encodeURIComponent(providerId)}&tab=${encodeURIComponent(nextTab)}`);
+    const params = new URLSearchParams({
+      providerId,
+      tab: nextTab,
+      resolverMode: diagnostics.resolverMode,
+      errorCode: row?.errorCode ?? diagnostics.errorCode,
+    });
+    pushProviderRoute(params);
   }
 
   function refreshData(): void {
@@ -597,6 +672,8 @@ export function AdminProvidersClient({
     sort?: ProviderUnresolvedSort;
     page?: number;
   }): void {
+    setActiveTab("unresolved");
+    setToast({ title: "Applying unresolved filters", body: "Refreshing provider rows for the selected filter." });
     const params = new URLSearchParams({
       providerId: selectedProviderId,
       tab: "unresolved",
@@ -608,7 +685,7 @@ export function AdminProvidersClient({
     });
     const search = next.search ?? initialUnresolvedSearch;
     if (search.trim()) params.set("unresolvedSearch", search.trim());
-    router.push(`/admin/providers?${params.toString()}`);
+    pushProviderRoute(params);
   }
 
   function selectOperation(operationId: string): void {
@@ -717,8 +794,8 @@ export function AdminProvidersClient({
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]" data-testid="provider-console-page">
-      <aside className="space-y-4 rounded-xl border border-border bg-card p-4" data-testid="provider-console-rail">
+    <div className="grid w-full max-w-full gap-4 lg:grid-cols-[280px_minmax(0,1fr)]" data-testid="provider-console-page">
+      <aside className="min-w-0 space-y-4 rounded-xl border border-border bg-card p-4" data-testid="provider-console-rail">
         <div>
           <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Provider console</p>
           <h1 className="mt-2 text-2xl font-semibold text-foreground">Providers</h1>
@@ -727,11 +804,12 @@ export function AdminProvidersClient({
         {groups.map((group) => (
           <section key={group.label} className="space-y-2">
             <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              <span>{group.label}</span>
-              <span className="rounded-full bg-muted px-2 py-1 normal-case tracking-normal">{group.budgetLabel}</span>
+              <span className="min-w-0 truncate">{group.label}</span>
+              <span className="min-w-0 rounded-full bg-muted px-2 py-1 normal-case tracking-normal">{group.budgetLabel}</span>
             </div>
             {group.providers.map((provider) => {
               const diagnosis = diagnostics.rows.find((row) => row.providerId === provider.providerId);
+              const displayStatus = providerConsoleDisplayStatus(provider.status, diagnosis?.unresolvedCount ?? 0, guardrails);
               const activeOperationCount = operations.filter((operation) =>
                 operation.providerId === provider.providerId && ["preview", "staged", "queued", "running", "paused"].includes(operation.phase)
               ).length;
@@ -740,7 +818,7 @@ export function AdminProvidersClient({
                   key={provider.providerId}
                   type="button"
                   onClick={() => selectProvider(provider.providerId)}
-                  title={`${provider.providerId}: ${statusCopy(provider.status)}. ${diagnosis?.unresolvedCount ?? provider.errorCount7d} unresolved, ${activeOperationCount} active operations.`}
+                  title={`${provider.providerId}: ${statusCopy(displayStatus)}. ${diagnosis?.unresolvedCount ?? provider.errorCount7d} unresolved, ${activeOperationCount} active operations.`}
                   className={cn(
                     "w-full rounded-lg border px-3 py-3 text-left transition",
                     provider.providerId === selectedProviderId
@@ -750,8 +828,8 @@ export function AdminProvidersClient({
                   data-testid={`provider-console-tab-${provider.providerId}`}
                 >
                   <span className="flex items-start justify-between gap-2">
-                    <span className="font-semibold text-foreground">{provider.providerId}</span>
-                    <StatusBadge status={provider.status} providerId={provider.providerId} />
+                    <span className="min-w-0 break-all font-semibold text-foreground">{provider.providerId}</span>
+                    <StatusBadge status={displayStatus} providerId={provider.providerId} />
                   </span>
                   <span className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span>{formatNumber(diagnosis?.unresolvedCount ?? provider.errorCount7d)} unresolved</span>
@@ -765,7 +843,7 @@ export function AdminProvidersClient({
         ))}
       </aside>
 
-      <main className="min-w-0 space-y-4">
+      <main className="min-w-0 max-w-full space-y-4">
         <Card className="px-4 py-4 hover:translate-y-0 sm:px-5 sm:py-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
@@ -788,13 +866,17 @@ export function AdminProvidersClient({
                 >
                   {providers.map((provider) => (
                     <option key={provider.providerId} value={provider.providerId}>
-                      {provider.providerId} - {statusCopy(provider.status)}
+                      {provider.providerId} - {statusCopy(providerConsoleDisplayStatus(
+                        provider.status,
+                        diagnostics.rows.find((row) => row.providerId === provider.providerId)?.unresolvedCount ?? 0,
+                        guardrails,
+                      ))}
                     </option>
                   ))}
                 </select>
               </label>
             </div>
-            <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
               <Button variant="secondary" onClick={refreshData} data-testid="provider-console-refresh" title={actionHelp.refresh}>
                 Refresh data
               </Button>
@@ -807,7 +889,7 @@ export function AdminProvidersClient({
             </div>
           </div>
 
-          <nav className="mt-5 flex gap-1 overflow-x-auto border-b border-border" aria-label="Provider console tabs">
+          <nav className="mt-5 flex max-w-full gap-1 overflow-x-auto border-b border-border" aria-label="Provider console tabs">
             {tabLabels.map((tab) => (
               <button
                 key={tab.id}
@@ -818,7 +900,7 @@ export function AdminProvidersClient({
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => selectTab(tab.id)}
                 title={tab.help}
                 data-testid={`provider-console-subtab-${tab.id}`}
               >
@@ -829,10 +911,10 @@ export function AdminProvidersClient({
         </Card>
 
         {activeTab === "overview" ? (
-          <OverviewTab
-            selectedProvider={selectedProvider}
-            selectedProviderId={selectedProviderId}
-            diagnosis={fallbackDiagnosis}
+            <OverviewTab
+              selectedProviderId={selectedProviderId}
+              displayStatus={selectedDisplayStatus}
+              diagnosis={fallbackDiagnosis}
             summary={summary}
             guardrails={guardrails}
             capability={capability}
@@ -859,6 +941,7 @@ export function AdminProvidersClient({
             onRerunItem={rerunUnresolvedItem}
             onApplyFilters={applyUnresolvedFilters}
             busyAction={busyAction}
+            routePending={isRoutePending}
           />
         ) : null}
 
@@ -986,16 +1069,16 @@ export function AdminProvidersClient({
 }
 
 function OverviewTab({
-  selectedProvider,
   selectedProviderId,
+  displayStatus,
   diagnosis,
   summary,
   guardrails,
   capability,
   onViewUnresolved,
 }: {
-  selectedProvider: ProviderHealthStatusDto | null;
   selectedProviderId: string;
+  displayStatus: ProviderConsoleDisplayStatus | null;
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
   summary: ProviderFixerDashboardSummaryDto;
   guardrails: ProviderFixerDashboardGuardrailSettingsDto;
@@ -1006,7 +1089,7 @@ function OverviewTab({
     <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
       <section className="space-y-4">
         <div className="grid gap-3 md:grid-cols-3">
-          <Metric label="Health" value={selectedProvider ? statusCopy(selectedProvider.status) : "Unknown"} detail="Availability plus admin workflow state." />
+          <Metric label="Console status" value={displayStatus ? statusCopy(displayStatus) : "Unknown"} detail="Availability plus configured unresolved backlog thresholds." />
           <Metric label="Active unresolved" value={formatNumber(diagnosis?.unresolvedCount ?? 0)} detail="From provider console diagnostics until durable unresolved rows are fully migrated." />
           <Metric label="Operations" value={formatNumber(summary.activeOperationsCount)} detail={`${formatNumber(summary.runningOperationsCount)} running, ${formatNumber(summary.queuedOperationsCount)} queued.`} />
         </div>
@@ -1015,12 +1098,16 @@ function OverviewTab({
             <div>
               <h3 className="text-xl font-semibold text-foreground">Why this status?</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Health combines provider availability, unresolved backlog, rate-limit pressure, and active operations.
+                Console status separates provider availability from unresolved instrument backlog so healthy upstream checks can still surface admin work.
               </p>
             </div>
             <Button variant="secondary" onClick={onViewUnresolved}>View unresolved</Button>
           </div>
-          <Reason tone="warning" title="Unresolved backlog" body={`${formatNumber(diagnosis?.unresolvedCount ?? 0)} active rows are visible for ${selectedProviderId}.`} />
+          <Reason
+            tone={(diagnosis?.unresolvedCount ?? 0) >= guardrails.healthCriticalUnresolvedThreshold ? "danger" : "warning"}
+            title="Unresolved backlog"
+            body={`${formatNumber(diagnosis?.unresolvedCount ?? 0)} active rows are visible for ${selectedProviderId}; warning starts at ${formatNumber(guardrails.healthWarningUnresolvedThreshold)} and critical starts at ${formatNumber(guardrails.healthCriticalUnresolvedThreshold)}.`}
+          />
           <Reason tone="info" title="Guardrails active" body={`Bulk writes at or above ${formatNumber(guardrails.dangerousMatchThreshold)} matches require typed confirmation.`} />
           <Reason tone="info" title="Provider capability" body={capability.supportsMappings ? "Durable mappings are supported for this provider." : capability.emptyMappingReason} />
         </Card>
@@ -1062,6 +1149,7 @@ function UnresolvedTab({
   onRerunItem,
   onApplyFilters,
   busyAction,
+  routePending,
 }: {
   selectedProviderId: string;
   diagnosis: ProviderFixerDashboardDiagnosticsDto["rows"][number] | null;
@@ -1080,6 +1168,7 @@ function UnresolvedTab({
   onRerunItem: (item: ProviderUnresolvedItemDto) => void;
   onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
   busyAction: string | null;
+  routePending: boolean;
 }) {
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
@@ -1169,10 +1258,10 @@ function UnresolvedTab({
           <Button disabled={!capability.supportsRepair} onClick={onPreviewRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair selected</Button>
         </div>
       </div>
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_190px_220px_150px]">
+      <div className="flex flex-col gap-2 xl:flex-row xl:flex-wrap">
         <input
           ref={searchInputRef}
-          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground xl:min-w-[220px] xl:flex-1"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
           onKeyDown={(event) => {
@@ -1183,7 +1272,7 @@ function UnresolvedTab({
         />
         <select
           ref={stateInputRef}
-          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground xl:w-40"
           value={stateInput}
           onChange={(event) => setStateInput(event.target.value as ProviderUnresolvedItemDto["state"])}
           data-testid="provider-console-unresolved-state"
@@ -1195,7 +1284,7 @@ function UnresolvedTab({
         </select>
         <select
           ref={sortInputRef}
-          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground xl:w-48"
           value={sortInput}
           onChange={(event) => setSortInput(event.target.value as ProviderUnresolvedSort)}
           data-testid="provider-console-unresolved-sort"
@@ -1205,9 +1294,11 @@ function UnresolvedTab({
           <option value="occurrence_count_desc">Sort: most occurrences</option>
           <option value="source_symbol_asc">Sort: source symbol</option>
         </select>
-        <div className="rounded-lg border border-input bg-background px-3 py-2 text-sm">Error: {diagnosis?.errorCode ?? "all"}</div>
-        <Button variant="secondary" onClick={() => applyCurrentFilters()} data-testid="provider-console-unresolved-apply">
-          Apply filters
+        <div className="min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm xl:w-56" title={diagnosis?.errorCode ?? "all"}>
+          <span className="block truncate">Error: {diagnosis?.errorCode ?? "all"}</span>
+        </div>
+        <Button variant="secondary" onClick={() => applyCurrentFilters()} disabled={routePending} data-testid="provider-console-unresolved-apply">
+          {routePending ? "Applying..." : "Apply filters"}
         </Button>
       </div>
       <div className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
@@ -1308,8 +1399,8 @@ function UnresolvedTab({
           No active durable unresolved rows found for this provider. Run Renew to refresh evidence or check Logs for raw occurrences.
         </div>
       )}
-      <div className="hidden overflow-hidden rounded-xl border border-border sm:block">
-        <table className="w-full text-sm">
+      <div className="hidden max-w-full overflow-x-auto rounded-xl border border-border sm:block">
+        <table className="min-w-[920px] text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-3"><input type="checkbox" defaultChecked aria-label="Select rows" /></th>
@@ -1331,7 +1422,7 @@ function UnresolvedTab({
                 <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{row.stateLabel}</span></td>
                 <td className="px-3 py-3">{row.evidence ?? row.note}</td>
                 <td className="px-3 py-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <Button size="sm" variant="secondary" title={actionHelp.renew}>Renew</Button>
                     <Button size="sm" disabled={!capability.supportsRepair} title={capability.supportsRepair ? actionHelp.repair : "Repair is unavailable for this provider."}>Repair</Button>
                     <Button
@@ -2187,10 +2278,18 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function Reason({ tone, title, body }: { tone: "info" | "warning"; title: string; body: string }) {
+function Reason({ tone, title, body }: { tone: "info" | "warning" | "danger"; title: string; body: string }) {
   return (
     <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-3 rounded-xl border border-border bg-muted/30 px-3 py-3 text-sm">
-      <span className={cn("mt-1 h-3.5 w-3.5 rounded-full", tone === "warning" ? "bg-amber-500" : "bg-primary")} aria-hidden="true" />
+      <span
+        className={cn(
+          "mt-1 h-3.5 w-3.5 rounded-full",
+          tone === "warning" && "bg-amber-500",
+          tone === "danger" && "bg-orange-500",
+          tone === "info" && "bg-primary",
+        )}
+        aria-hidden="true"
+      />
       <span>
         <strong className="text-foreground">{title}</strong>
         <span className="mt-1 block text-muted-foreground">{body}</span>
