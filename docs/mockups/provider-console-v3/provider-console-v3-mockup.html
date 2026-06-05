@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Provider Console V3 Mockups</title>
+<style>
+  :root {
+    --bg: #f5f7fb;
+    --panel: #fff;
+    --panel-2: #f8fafc;
+    --text: #172033;
+    --muted: #667085;
+    --line: #d8e0ea;
+    --blue: #2563eb;
+    --blue-soft: #eff6ff;
+    --amber: #b45309;
+    --amber-soft: #fff7e6;
+    --green: #047857;
+    --green-soft: #ecfdf5;
+    --red: #be123c;
+    --red-soft: #fff1f2;
+    --slate-soft: #eef2f7;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+  }
+  .app { min-height: 100vh; display: grid; grid-template-columns: 286px minmax(0, 1fr); }
+  .rail { border-right: 1px solid var(--line); background: #fbfcfe; padding: 18px 14px; }
+  .rail h1 { margin: 0 0 16px; font-size: 18px; }
+  .group { margin: 18px 0 7px; color: var(--muted); font-size: 11px; font-weight: 760; text-transform: uppercase; display: flex; justify-content: space-between; gap: 8px; }
+  .provider { border: 1px solid transparent; border-radius: 8px; padding: 10px; margin: 5px 0; }
+  .provider.active { border-color: #c8d2df; background: var(--panel); box-shadow: 0 8px 20px rgba(15,23,42,.06); }
+  .provider .top { display: flex; justify-content: space-between; gap: 8px; }
+  .provider .name { font-weight: 750; overflow-wrap: anywhere; }
+  .meta { margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  main { min-width: 0; padding: 20px 24px 36px; }
+  .topbar { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+  .crumb { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .title { margin: 0; font-size: 27px; line-height: 1.15; }
+  .actions, .tabs, .row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { border: 1px solid #c8d2df; background: var(--panel); color: var(--text); border-radius: 6px; min-height: 34px; padding: 7px 11px; font-weight: 650; white-space: nowrap; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.danger { color: var(--red); border-color: #fecdd3; background: #fff; }
+  .btn[disabled] { opacity: .52; }
+  .tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 11px 4px 9px; font-weight: 700; }
+  .tab.active { color: var(--blue); border-color: var(--blue); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-top: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.04); }
+  .grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .metric { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 12px; min-width: 0; }
+  .metric .label { color: var(--muted); font-size: 11px; font-weight: 780; text-transform: uppercase; }
+  .metric .value { margin-top: 5px; font-size: 20px; font-weight: 760; overflow-wrap: anywhere; }
+  .metric .detail { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; font-size: 12px; font-weight: 720; white-space: nowrap; }
+  .pill.green { color: var(--green); background: var(--green-soft); }
+  .pill.amber { color: var(--amber); background: var(--amber-soft); }
+  .pill.red { color: var(--red); background: var(--red-soft); }
+  .pill.blue { color: var(--blue); background: var(--blue-soft); }
+  .pill.slate { color: #475467; background: var(--slate-soft); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  input, select { min-height: 36px; border: 1px solid #c8d2df; border-radius: 6px; background: #fff; padding: 7px 10px; color: var(--text); }
+  .search { min-width: 280px; flex: 1; }
+  .banner { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 14px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+  .banner.neutral { background: #fbfcfe; }
+  .banner.blue { background: var(--blue-soft); border-color: #bfdbfe; color: #1e40af; }
+  .banner.amber { background: var(--amber-soft); border-color: #fed7aa; color: #92400e; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-top: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }
+  th { border-top: 0; color: var(--muted); background: var(--panel-2); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  td { overflow-wrap: anywhere; }
+  .mono { font-family: var(--mono); }
+  .scope { border: 1px solid #bfdbfe; background: var(--blue-soft); border-radius: 8px; padding: 13px; }
+  .scope h3, .card h2 { margin: 0 0 6px; font-size: 16px; }
+  .scope dl, .checklist { margin: 10px 0 0; display: grid; gap: 8px; }
+  .scope-row, .check { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid rgba(37,99,235,.16); padding-top: 8px; }
+  .check.ok { color: var(--green); }
+  .check.wait { color: var(--amber); }
+  .progress { height: 9px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+  .progress > span { display: block; height: 100%; background: var(--blue); }
+  .mobile-cards { display: none; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  @media (max-width: 760px) {
+    .app { display: block; }
+    .rail { display: none; }
+    main { padding: 14px; }
+    .topbar { display: block; }
+    .actions { justify-content: stretch; margin-top: 12px; }
+    .actions .btn, .toolbar .btn, .toolbar select, .toolbar input { width: 100%; }
+    .tabs { overflow-x: auto; flex-wrap: nowrap; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .desktop-table { display: none; }
+    .mobile-cards { display: grid; gap: 10px; }
+    .mobile-row { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .banner { display: block; }
+    .banner .actions { margin-top: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <h1>Provider console</h1>
+    <div class="group"><span>KR market data</span><span>shared budget</span></div>
+    <div class="provider"><div class="top"><span class="name">twelve-data-kr</span><span class="pill green">Healthy</span></div><div class="meta"><span>18 active</span><span>0 running</span></div></div>
+    <div class="provider active"><div class="top"><span class="name">yahoo-finance-kr</span><span class="pill red">Critical backlog</span></div><div class="meta"><span>27,212 active</span><span>1 preview</span></div></div>
+    <div class="group"><span>FinMind</span><span>rate capped</span></div>
+    <div class="provider"><div class="top"><span class="name">finmind-tw</span><span class="pill amber">Needs attention</span></div><div class="meta"><span>1,842 active</span><span>paused</span></div></div>
+    <div class="provider"><div class="top"><span class="name">finmind-us</span><span class="pill green">Healthy</span></div><div class="meta"><span>0 active</span></div></div>
+    <div class="group"><span>Other providers</span><span>mixed</span></div>
+    <div class="provider"><div class="top"><span class="name">yahoo-finance-au</span><span class="pill red">Down</span></div><div class="meta"><span>provider unavailable</span></div></div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <div><div class="crumb">Admin / Provider console / yahoo-finance-kr</div><h1 class="title">yahoo-finance-kr</h1></div>
+      <div class="actions"><button class="btn">Refresh data</button><button class="btn">Renew evidence</button></div>
+    </div>
+    <nav class="tabs">
+      <button class="tab" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="unresolved">Unresolved instruments</button>
+      <button class="tab" data-tab="fixer">Fixer</button>
+      <button class="tab" data-tab="operations">Operations</button>
+      <button class="tab" data-tab="incidents">Incidents</button>
+      <button class="tab" data-tab="activity">Activity</button>
+    </nav>
+
+    <section id="unresolved" class="screen">
+      <div class="card">
+        <div class="topbar">
+          <div><h2>Unique unresolved instruments</h2><p>Rows are selected intentionally. Header checkbox controls visible rows only.</p></div>
+          <div class="actions"><button class="btn">Export selected</button><button id="repairBtn" class="btn primary">Repair selected</button></div>
+        </div>
+        <div class="toolbar">
+          <input class="search" value="005" />
+          <select><option>State: active</option></select>
+          <select><option>Sort: last seen</option></select>
+          <span class="pill slate mono">yahoo_finance_kr_symbol_unresolved</span>
+        </div>
+        <div id="selectionBanner" class="banner neutral"></div>
+        <div class="card desktop-table" style="padding:0; overflow:hidden">
+          <table>
+            <thead><tr><th><input id="headCheck" type="checkbox"></th><th>Source symbol</th><th>Provider symbol</th><th>State</th><th>Evidence</th><th>Actions</th></tr></thead>
+            <tbody id="unresolvedRows"></tbody>
+          </table>
+        </div>
+        <div id="mobileRows" class="mobile-cards"></div>
+      </div>
+    </section>
+
+    <section id="fixer" class="screen">
+      <div class="grid-2">
+        <div>
+          <div class="card">
+            <h2>Fixer</h2>
+            <p>Choose an explicit repair scope before previewing. No provider-wide default is assumed.</p>
+            <div class="grid-3" style="margin-top:12px">
+              <div class="metric"><div class="label">Active unresolved</div><div class="value">27,212</div><div class="detail">current filter</div></div>
+              <div class="metric"><div class="label">Guardrail threshold</div><div class="value">500</div><div class="detail">typed phrase above this</div></div>
+              <div class="metric"><div class="label">Resolver mode</div><div class="value">Quote-first</div><div class="detail">chart-probe available</div></div>
+            </div>
+          </div>
+          <div id="fixerState" class="card"></div>
+        </div>
+        <div class="scope" id="scopePanel"></div>
+      </div>
+    </section>
+
+    <section id="operations" class="screen">
+      <div class="grid-2">
+        <div class="card"><h2>Provider operations</h2><p>History and controls for scoped provider work.</p><table style="margin-top:12px"><thead><tr><th>Operation</th><th>Phase</th><th>Scope</th><th>Progress</th><th>Action</th></tr></thead><tbody><tr><td class="mono">OP-KR-5821</td><td><span class="pill blue">running</span></td><td>27,212 matching</td><td>8,964 / 27,212</td><td><button class="btn primary">View details</button></td></tr><tr><td class="mono">OP-KR-5818</td><td><span class="pill green">completed</span></td><td>10 selected</td><td>10 / 10</td><td><button class="btn">View details</button></td></tr></tbody></table></div>
+        <div class="card"><h2>Live progress</h2><p class="mono">OP-KR-5821</p><div class="progress" style="margin:12px 0"><span style="width:33%"></span></div><div class="grid-3"><div class="metric"><div class="label">Processed</div><div class="value">8,964</div><div class="detail">32.9%</div></div><div class="metric"><div class="label">Applied</div><div class="value">6,312</div><div class="detail">mappings written</div></div><div class="metric"><div class="label">Failed</div><div class="value">14</div><div class="detail">rate-limit aware</div></div></div></div>
+      </div>
+      <div class="card"><h2>Operation details</h2><div class="grid-3"><div class="metric"><div class="label">Scope</div><div class="value">All matching</div><div class="detail">state active, search 005</div></div><div class="metric"><div class="label">Last event</div><div class="value">1s ago</div><div class="detail">SSE progress snapshot</div></div><div class="metric"><div class="label">Controls</div><div class="value">Pause</div><div class="detail">cancel remains available</div></div></div></div>
+    </section>
+  </main>
+</div>
+<script>
+const rows = [
+  ["005930", "005930.KS", "active", "144 occurrences; last seen 6/5/2026, 05:43 UTC"],
+  ["005380", "005380.KS", "active", "87 occurrences; candidate verified from stored evidence"],
+  ["035420", "035420.KS", "active", "62 occurrences; no live provider call during preview"],
+  ["068270", "068270.KS", "active", "55 occurrences; stale error trail retained for logs"],
+  ["247540", "247540.KQ", "active", "41 occurrences; KOSDAQ hint present"]
+];
+const screen = new URLSearchParams(location.search).get("screen") || "01";
+const isMobile = screen.includes("mobile");
+const selectedVisible = screen.includes("visible-selected") || screen.includes("all-matching") || screen.includes("mobile");
+const allMatching = screen.includes("all-matching");
+const fixerNoScope = screen.includes("fixer-no-scope");
+const preparing = screen.includes("preparing-preview");
+const ready = screen.includes("preview-checklist");
+const operations = screen.includes("operations");
+const activeTab = operations ? "operations" : screen.includes("fixer") ? "fixer" : "unresolved";
+document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === activeTab));
+document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === activeTab));
+document.getElementById("headCheck").checked = selectedVisible;
+document.getElementById("repairBtn").disabled = !selectedVisible && !allMatching;
+document.getElementById("selectionBanner").className = "banner " + (allMatching ? "amber" : selectedVisible ? "blue" : "neutral");
+document.getElementById("selectionBanner").innerHTML = allMatching
+  ? `<div><strong>All 27,212 matching active rows selected.</strong><br>Execution applies to the frozen filter scope, not just sample rows.</div><div class="actions"><button class="btn danger">Clear selection</button><button class="btn primary">Preview all matching repair</button></div>`
+  : selectedVisible
+    ? `<div><strong>5 visible rows selected.</strong><br>27,212 active rows match this filter.</div><div class="actions"><button class="btn">Select all 27,212 matching</button><button class="btn primary">Repair selected</button></div>`
+    : `<div><strong>No rows selected.</strong><br>Select visible rows or choose all matching before staging a bulk action.</div><div class="actions"><button class="btn">Select all 27,212 matching</button><button class="btn" disabled>Repair selected</button></div>`;
+const tbody = document.getElementById("unresolvedRows");
+const cards = document.getElementById("mobileRows");
+for (const row of rows) {
+  tbody.innerHTML += `<tr><td><input type="checkbox" ${selectedVisible ? "checked" : ""}></td><td class="mono"><strong>${row[0]}</strong></td><td class="mono">${row[1]}</td><td><span class="pill blue">${row[2]}</span></td><td>${row[3]}</td><td><div class="row-actions"><button class="btn">Renew</button><button class="btn">Repair</button><button class="btn">Unsupported</button><button class="btn">Ignore</button></div></td></tr>`;
+  cards.innerHTML += `<article class="mobile-row"><div style="display:flex;justify-content:space-between;gap:10px"><label><input type="checkbox" ${selectedVisible ? "checked" : ""}> <strong class="mono">${row[0]}</strong></label><span class="pill blue">${row[2]}</span></div><p class="mono">${row[1]}</p><p>${row[3]}</p><div class="row-actions" style="margin-top:10px"><button class="btn">Renew</button><button class="btn">Repair</button><button class="btn">Ignore</button></div></article>`;
+}
+const scope = document.getElementById("scopePanel");
+if (scope) {
+  const scopeLabel = fixerNoScope ? "No scope selected" : allMatching || preparing || ready ? "All matching active rows" : "5 selected active rows";
+  scope.innerHTML = `<h3>Repair scope</h3><p>${scopeLabel}</p><dl><div class="scope-row"><span>Provider</span><strong class="mono">yahoo-finance-kr</strong></div><div class="scope-row"><span>Error code</span><strong class="mono">yahoo_finance_kr_symbol_unresolved</strong></div><div class="scope-row"><span>State / search</span><strong>active / 005</strong></div><div class="scope-row"><span>Resolver</span><strong>quote_first</strong></div><div class="scope-row"><span>Guardrail</span><strong>${allMatching || preparing || ready ? "Dangerous" : "Small write"}</strong></div></dl>`;
+}
+const fixer = document.getElementById("fixerState");
+if (fixer) {
+  fixer.innerHTML = fixerNoScope
+    ? `<h2>Select scope</h2><p>Fixer does not default to all matching. Choose a scope before preview.</p><div class="toolbar"><button class="btn">Use selected rows</button><button class="btn">All matching active rows</button><button class="btn primary" disabled>Preview repair</button></div>`
+    : preparing
+      ? `<h2>Preparing preview</h2><p>Created operation <span class="mono">OP-KR-5821</span>. Counting and sampling stored unresolved evidence without upstream provider calls.</p><div class="progress" style="margin:14px 0"><span style="width:42%"></span></div><div class="actions"><button class="btn danger">Cancel preparation</button></div>`
+      : `<h2>Preview ready</h2><p>Showing 50 sample rows from 27,212 matching active rows. Execute applies to all matching rows in this frozen preview.</p><div class="grid-3" style="margin-top:12px"><div class="metric"><div class="label">Scope</div><div class="value">27,212</div><div class="detail">matching active rows</div></div><div class="metric"><div class="label">Phrase</div><div class="value mono" style="font-size:16px">EXECUTE 27212 MATCHING</div><div class="detail">exact text</div></div><div class="metric"><div class="label">Expires</div><div class="value">14m</div><div class="detail">refresh after expiry</div></div></div><div class="checklist"><div class="check ok"><span>Preview token valid</span><strong>OK</strong></div><div class="check ok"><span>Operation selected</span><strong>OP-KR-5821</strong></div><div class="check ok"><span>Scope unchanged</span><strong>OK</strong></div><div class="check wait"><span>Acknowledgement</span><strong>required</strong></div><div class="check wait"><span>Typed phrase</span><strong>required</strong></div></div><div class="toolbar"><label><input type="checkbox"> I understand this writes provider mappings</label><input class="search mono" placeholder="EXECUTE 27212 MATCHING"><button class="btn primary" disabled>Execute operation</button></div>`;
+}
+</script>
+</body>
+</html>
