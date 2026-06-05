@@ -1939,6 +1939,8 @@ export interface ProviderFixerDashboardGuardrailSettingsDto {
   uiPageSize: number;
   autoPauseFailureThresholdPerMinute: number;
   previewTokenTtlSeconds: number;
+  healthWarningUnresolvedThreshold: number;
+  healthCriticalUnresolvedThreshold: number;
 }
 
 export interface ProviderFixerDashboardDiagnosisRowDto {

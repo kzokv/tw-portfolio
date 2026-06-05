@@ -73,6 +73,8 @@ function buildGuardrails(): ProviderFixerDashboardGuardrailSettingsDto {
     uiPageSize: 10,
     autoPauseFailureThresholdPerMinute: 20,
     previewTokenTtlSeconds: 900,
+    healthWarningUnresolvedThreshold: 1000,
+    healthCriticalUnresolvedThreshold: 10000,
   };
 }
 
@@ -501,6 +503,42 @@ describe("AdminProvidersClient", () => {
     expect(document.querySelector("[data-testid='provider-open-fixer-yahoo-finance-kr']")).toBeNull();
   });
 
+  it("shows admin attention status when a runtime-healthy provider has unresolved backlog", () => {
+    renderClient(root, {
+      providers: [
+        buildProvider({
+          status: "healthy",
+          lastSuccessfulRun: "2026-06-03T00:00:00Z",
+          errorCount24h: 0,
+          errorCount7d: 0,
+        }),
+      ],
+      diagnostics: {
+        ...buildDiagnostics(),
+        rows: [
+          {
+            providerId: "yahoo-finance-kr",
+            market: "KRX",
+            unresolvedCount: 27_212,
+            resolverStatus: "enabled",
+            severity: "critical",
+            errorCode: "yahoo_finance_kr_symbol_unresolved",
+          },
+        ],
+      },
+      guardrails: {
+        ...buildGuardrails(),
+        healthWarningUnresolvedThreshold: 1_000,
+        healthCriticalUnresolvedThreshold: 10_000,
+      },
+    });
+
+    const badge = document.querySelector("[data-testid='provider-status-badge-yahoo-finance-kr']");
+    expect(badge?.textContent ?? "").toMatch(/critical backlog/i);
+    expect(badge?.getAttribute("title") ?? "").toMatch(/availability checks are passing/i);
+    expect(document.body.textContent ?? "").toMatch(/warning starts at 1,000 and critical starts at 10,000/i);
+  });
+
   it("switches provider-owned tabs and shows unresolved rows with disabled rerun reasons", () => {
     renderClient(root);
 
@@ -920,7 +958,19 @@ describe("AdminProvidersClient", () => {
 
     click("provider-console-tab-finmind-tw");
 
-    expect(mockPush).toHaveBeenCalledWith("/admin/providers?providerId=finmind-tw&tab=unresolved");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=finmind-tw&tab=unresolved&resolverMode=quote_first&errorCode=provider_symbol_unresolved",
+    );
+  });
+
+  it("keeps provider subtab selection in provider-scoped URL state", () => {
+    renderClient(root, { initialTab: "unresolved" });
+
+    click("provider-console-subtab-operations");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+    );
   });
 
   it("offers mobile provider selection and unresolved bottom actions", async () => {
@@ -939,6 +989,8 @@ describe("AdminProvidersClient", () => {
 
     if (!providerSelect) throw new Error("expected provider select");
     updateSelectValue(providerSelect, "finmind-tw");
-    expect(mockPush).toHaveBeenCalledWith("/admin/providers?providerId=finmind-tw&tab=unresolved");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=finmind-tw&tab=unresolved&resolverMode=quote_first&errorCode=provider_symbol_unresolved",
+    );
   });
 });

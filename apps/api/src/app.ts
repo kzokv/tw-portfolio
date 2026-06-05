@@ -38,6 +38,8 @@ interface BuildAppOptions {
   persistenceBackend?: "postgres" | "memory";
   seedMemoryCatalog?: boolean;
   eventBusBackend?: "postgres" | "memory";
+  /** Disable pg-boss worker registration for route tests that do not exercise queues. */
+  registerWorkers?: boolean;
   /** Inject OAuth config directly (used in tests). Pass null to explicitly disable OAuth.
    *  When omitted, reads from environment variables via getGoogleOAuthEnvConfig(). */
   oauthConfig?: GoogleOAuthConfig | null;
@@ -386,6 +388,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.boss = null;
   await registerRoutes(app);
   await registerMcpRoutes(app);
-  await registerPgBoss(app, options.persistenceBackend);
+  if (options.registerWorkers !== false) {
+    await registerPgBoss(app, options.persistenceBackend);
+  }
   return app;
 }
