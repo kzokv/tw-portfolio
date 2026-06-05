@@ -134,6 +134,7 @@ import type {
   ProviderOperationRecord,
   ProviderResolutionMappingRecord,
   ProviderUnresolvedItemRecord,
+  ResolveProviderUnresolvedItemsInput,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -5616,18 +5617,17 @@ export class MemoryPersistence implements Persistence {
     };
   }
 
-  async resolveProviderUnresolvedItems(input: {
-    providerId: string;
-    marketCode: MarketCode;
-    sourceSymbols: string[];
-    operationId?: string | null;
-  }): Promise<number> {
+  async resolveProviderUnresolvedItems(input: ResolveProviderUnresolvedItemsInput): Promise<number> {
     const now = new Date().toISOString();
-    const symbols = new Set(input.sourceSymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean));
+    const identities = new Set(
+      input.items
+        .map((item) => `${item.marketCode}::${item.errorCode}::${item.sourceSymbol.trim().toUpperCase()}`)
+        .filter((item) => item !== "::"),
+    );
     let updated = 0;
     for (const [key, row] of this.providerUnresolvedItems.entries()) {
       if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
-      if (!symbols.has(row.sourceSymbol)) continue;
+      if (!identities.has(`${row.marketCode}::${row.errorCode}::${row.sourceSymbol}`)) continue;
       this.providerUnresolvedItems.set(key, {
         ...row,
         state: "resolved",
@@ -5756,7 +5756,12 @@ export class MemoryPersistence implements Persistence {
     return [...this.providerOperations.values()].some((row) =>
       row.providerId === providerId
       && row.marketCode === marketCode
-      && (row.phase === "staged" || row.phase === "running" || row.phase === "paused")
+      && (row.phase === "preparing_preview"
+        || row.phase === "preview"
+        || row.phase === "staged"
+        || row.phase === "queued"
+        || row.phase === "running"
+        || row.phase === "paused")
     );
   }
 
