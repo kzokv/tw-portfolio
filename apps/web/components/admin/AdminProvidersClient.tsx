@@ -719,15 +719,22 @@ export function AdminProvidersClient({
     pendingScrollTopRef.current = top;
     const restore = () => {
       if (pendingScrollTopRef.current !== top) return;
+      const currentTop = window.scrollY;
+      if (currentTop > 0 && Math.abs(currentTop - top) > 24) {
+        pendingScrollTopRef.current = null;
+        return;
+      }
       window.scrollTo({ top, behavior: "auto" });
     };
     window.requestAnimationFrame(restore);
-    for (const delay of [0, 150, 500, 1000, 2000]) {
+    for (const delay of [0, 150, 500, 1000, 2000, 3500, 5000]) {
       window.setTimeout(restore, delay);
     }
+    const intervalId = window.setInterval(restore, 250);
     window.setTimeout(() => {
+      window.clearInterval(intervalId);
       if (pendingScrollTopRef.current === top) pendingScrollTopRef.current = null;
-    }, 2200);
+    }, 6000);
   }
 
   function refreshPreservingScroll(): void {
