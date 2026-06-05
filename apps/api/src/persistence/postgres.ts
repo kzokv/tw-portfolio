@@ -165,6 +165,7 @@ import type {
   ProviderOperationOutcomeRecord,
   ProviderResolutionMappingRecord,
   ProviderUnresolvedItemRecord,
+  ResolveProviderUnresolvedItemsInput,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -12729,25 +12730,24 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
-  async resolveProviderUnresolvedItems(input: {
-    providerId: string;
-    marketCode: MarketCode;
-    sourceSymbols: string[];
-    operationId?: string | null;
-  }): Promise<number> {
-    const sourceSymbols = input.sourceSymbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean);
-    if (sourceSymbols.length === 0) return 0;
+  async resolveProviderUnresolvedItems(input: ResolveProviderUnresolvedItemsInput): Promise<number> {
+    const marketCodes = input.items.map((item) => item.marketCode).filter(Boolean);
+    const errorCodes = input.items.map((item) => item.errorCode.trim()).filter(Boolean);
+    const sourceSymbols = input.items.map((item) => item.sourceSymbol.trim().toUpperCase()).filter(Boolean);
+    if (marketCodes.length === 0 || sourceSymbols.length === 0 || errorCodes.length === 0) return 0;
     const result = await this.pool.query(
       `UPDATE market_data.provider_unresolved_items
           SET state = 'resolved',
               resolved_at = NOW(),
-              resolved_by_operation_id = $4,
+              resolved_by_operation_id = $6,
               updated_at = NOW()
         WHERE provider_id = $1
           AND market_code = $2
-          AND source_symbol = ANY($3::text[])
+          AND (market_code, error_code, source_symbol) IN (
+            SELECT * FROM UNNEST($3::text[], $4::text[], $5::text[])
+          )
           AND state = 'active'`,
-      [input.providerId, input.marketCode, sourceSymbols, input.operationId ?? null],
+      [input.providerId, input.marketCode, marketCodes, errorCodes, sourceSymbols, input.operationId ?? null],
     );
     return result.rowCount ?? 0;
   }
@@ -12979,7 +12979,7 @@ export class PostgresPersistence implements Persistence {
            FROM market_data.provider_operations
           WHERE provider_id = $1
             AND market_code = $2
-            AND phase IN ('staged', 'running', 'paused')
+            AND phase IN ('preparing_preview', 'preview', 'staged', 'queued', 'running', 'paused')
        ) AS exists`,
       [providerId, marketCode],
     );

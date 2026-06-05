@@ -13,6 +13,7 @@ import type {
   ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
+  ProviderFixerDashboardPreviewDto,
   ProviderFixerDashboardSummaryResponse,
   ProviderIncidentDto,
   ProviderIncidentsResponse,
@@ -57,7 +58,6 @@ import {
 } from "../services/appConfig/cache.js";
 import type {
   AppConfigPlainField,
-  ProviderErrorTrailRow,
   ProviderOperationOutcomeRecord,
   ProviderOperationPhase,
   ProviderOperationRecord,
@@ -658,6 +658,7 @@ async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
 const providerFixerResolverModeSchema = z.enum(["quote_first", "chart_probe_v1"]);
 const providerFixerPhaseSchema = z.enum([
   "diagnose",
+  "preparing_preview",
   "preview",
   "staged",
   "queued",
@@ -675,12 +676,39 @@ const providerFixerProviderSchema = z
   .regex(/^[a-z0-9-]+$/);
 const providerFixerErrorCodeSchema = z.string().trim().min(1).max(160);
 const providerFixerMarketCodeSchema = z.enum(MARKET_CODES);
+type ProviderFixerMarketCode = z.infer<typeof providerFixerMarketCodeSchema>;
+const providerFixerSelectedItemSchema = z
+  .object({
+    providerId: providerFixerProviderSchema,
+    marketCode: providerFixerMarketCodeSchema,
+    errorCode: providerFixerErrorCodeSchema,
+    sourceSymbol: z.string().trim().min(1).max(80),
+  })
+  .strict();
+const providerFixerScopeSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("selected_items"),
+      items: z.array(providerFixerSelectedItemSchema).min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("filter"),
+      marketCode: providerFixerMarketCodeSchema.optional(),
+      errorCode: providerFixerErrorCodeSchema,
+      state: z.literal("active").default("active"),
+      search: z.string().trim().max(120).optional(),
+    })
+    .strict(),
+]);
 const providerFixerPreviewBodySchema = z
   .object({
     providerId: providerFixerProviderSchema,
     marketCode: providerFixerMarketCodeSchema.optional(),
     resolverMode: providerFixerResolverModeSchema.default("quote_first"),
     errorCode: providerFixerErrorCodeSchema.default("symbol_unresolved"),
+    scope: providerFixerScopeSchema.optional(),
   })
   .strict();
 const providerFixerOperationBodySchema = z
@@ -698,8 +726,9 @@ const PROVIDER_FIXER_DEFAULT_PROVIDER_IDS = [
   "finmind-us",
 ] as const;
 
-function providerFixerMarketCode(providerId: string, requested?: MarketCode): MarketCode {
-  if (requested) return requested;
+function providerFixerMarketCode(providerId: string, requested?: MarketCode): ProviderFixerMarketCode {
+  const parsed = providerFixerMarketCodeSchema.safeParse(requested);
+  if (parsed.success) return parsed.data;
   if (providerId.endsWith("-kr")) return "KR";
   if (providerId.endsWith("-tw")) return "TW";
   if (providerId.endsWith("-us")) return "US";
@@ -738,6 +767,202 @@ function stringField(value: unknown): string | null {
 
 function numberField(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function providerFixerMarketCodeField(value: unknown, fallback: ProviderFixerMarketCode): ProviderFixerMarketCode {
+  const parsed = providerFixerMarketCodeSchema.safeParse(value);
+  return parsed.success ? parsed.data : fallback;
+}
+
+type ProviderFixerScopeInput = z.infer<typeof providerFixerScopeSchema>;
+type ProviderFixerSelectedItemInput = z.infer<typeof providerFixerSelectedItemSchema>;
+type DurableProviderScopeItem = Awaited<
+  ReturnType<FastifyInstance["persistence"]["listProviderUnresolvedItems"]>
+>["items"][number];
+const providerOperationProgressEventState = new Map<string, number>();
+
+function providerFixerScopeFingerprint(scope: ProviderFixerScopeInput): string {
+  if (scope.type === "filter") {
+    return JSON.stringify({
+      type: scope.type,
+      marketCode: scope.marketCode ?? null,
+      errorCode: scope.errorCode,
+      state: scope.state,
+      search: scope.search?.trim() || null,
+    });
+  }
+  const items = [...scope.items]
+    .map((item) => `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`)
+    .sort();
+  return JSON.stringify({ type: scope.type, items });
+}
+
+function providerFixerScopeLabel(scope: ProviderFixerScopeInput, providerId: string): string {
+  if (scope.type === "filter") {
+    const searchSuffix = scope.search?.trim() ? ` search=${scope.search.trim()}` : "";
+    return `${providerId}:${scope.marketCode ?? providerFixerMarketCode(providerId)}:${scope.errorCode}:active${searchSuffix}`;
+  }
+  return `${providerId}:selected:${scope.items.length}`;
+}
+
+function providerFixerScopeSummary(scope: ProviderFixerScopeInput, matchCount: number): string {
+  if (scope.type === "filter") {
+    return `${matchCount} active unresolved rows matching the current filter`;
+  }
+  return `${matchCount} selected unresolved row${matchCount === 1 ? "" : "s"}`;
+}
+
+function providerBulkUnresolvedStateConfirmationText(
+  targetState: "unsupported" | "ignored",
+  scope: ProviderFixerScopeInput,
+  matchCount: number,
+): string {
+  if (targetState === "unsupported") {
+    return scope.type === "filter"
+      ? `MARK ${matchCount} MATCHING UNSUPPORTED`
+      : `MARK ${matchCount} UNSUPPORTED`;
+  }
+  return scope.type === "filter"
+    ? `IGNORE ${matchCount} MATCHING ACTIVE`
+    : `IGNORE ${matchCount} ACTIVE`;
+}
+
+function providerFixerFrozenScopeMetadata(
+  providerId: string,
+  scope: ProviderFixerScopeInput,
+  scopeItems: DurableProviderScopeItem[],
+): {
+  type: "selected_items" | "filter";
+  filterFingerprint: string;
+  matchCount: number;
+  selectedItems: ProviderFixerSelectedItemInput[];
+  filter: { providerId: string; marketCode: ProviderFixerMarketCode; errorCode: string; state: "active"; search: string | null } | null;
+} {
+  const selectedItems = scopeItems.map((item) => ({
+    providerId: item.providerId,
+    marketCode: providerFixerMarketCodeField(item.marketCode, providerFixerMarketCode(providerId)),
+    errorCode: item.errorCode,
+    sourceSymbol: item.sourceSymbol,
+  }));
+  return {
+    type: scope.type,
+    filterFingerprint: providerFixerScopeFingerprint(scope),
+    matchCount: scopeItems.length,
+    selectedItems,
+    filter: scope.type === "filter"
+      ? {
+          providerId,
+          marketCode: providerFixerMarketCodeField(
+            scopeItems[0]?.marketCode ?? scope.marketCode,
+            providerFixerMarketCode(providerId),
+          ),
+          errorCode: scope.errorCode,
+          state: "active",
+          search: scope.search?.trim() || null,
+        }
+      : null,
+  };
+}
+
+function providerFixerScopeFromMetadata(
+  providerId: string,
+  metadata: Record<string, unknown> | null,
+  fallback: { marketCode: ProviderFixerMarketCode; errorCode: string | null },
+): ProviderFixerScopeInput {
+  const record = asRecord(metadata) ?? {};
+  const stored = asRecord(record.scope);
+  if (stored?.type === "selected_items" && Array.isArray(stored.items)) {
+    return providerFixerScopeSchema.parse({
+      type: "selected_items",
+      items: stored.items,
+    });
+  }
+  if (stored?.type === "filter") {
+    return providerFixerScopeSchema.parse({
+      type: "filter",
+      marketCode: providerFixerMarketCodeField(stored.marketCode, fallback.marketCode),
+      errorCode: stringField(stored.errorCode) ?? fallback.errorCode ?? "symbol_unresolved",
+      state: "active",
+      search: stringField(stored.search) ?? undefined,
+    });
+  }
+  return {
+    type: "filter",
+    marketCode: fallback.marketCode,
+    errorCode: fallback.errorCode ?? "symbol_unresolved",
+    state: "active",
+  };
+}
+
+function providerFixerFrozenSelectedItemsFromMetadata(
+  metadata: Record<string, unknown> | null,
+): ProviderFixerSelectedItemInput[] {
+  const frozenScope = asRecord(asRecord(metadata)?.frozenScope);
+  if (!frozenScope || !Array.isArray(frozenScope.selectedItems)) return [];
+  return frozenScope.selectedItems.flatMap((item) => {
+    const parsed = providerFixerSelectedItemSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+async function listProviderUnresolvedScopeItems(
+  app: FastifyInstance,
+  providerId: string,
+  scope: ProviderFixerScopeInput,
+): Promise<DurableProviderScopeItem[]> {
+  if (scope.type === "selected_items") {
+    const requested = new Map<string, ProviderFixerSelectedItemInput>();
+    for (const item of scope.items) {
+      if (item.providerId !== providerId) {
+        throw routeError(400, "provider_scope_provider_mismatch", "Selected scope item does not match the target provider");
+      }
+      requested.set(`${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`, item);
+    }
+    const result: DurableProviderScopeItem[] = [];
+    let page = 1;
+    const limit = 200;
+    while (requested.size > 0) {
+      const rows = await app.persistence.listProviderUnresolvedItems({
+        providerId,
+        state: "active",
+        page,
+        limit,
+      });
+      for (const row of rows.items) {
+        const key = `${row.marketCode}:${row.errorCode}:${row.sourceSymbol}`;
+        if (requested.has(key)) {
+          result.push(row);
+          requested.delete(key);
+        }
+      }
+      if (page * limit >= rows.total || rows.items.length === 0) break;
+      page += 1;
+    }
+    if (requested.size > 0) {
+      throw routeError(409, "provider_scope_items_not_active", "One or more selected unresolved rows are no longer active");
+    }
+    return result.sort((a, b) => a.sourceSymbol.localeCompare(b.sourceSymbol));
+  }
+
+  const items: DurableProviderScopeItem[] = [];
+  let page = 1;
+  const limit = 200;
+  while (true) {
+    const rows = await app.persistence.listProviderUnresolvedItems({
+      providerId,
+      marketCode: scope.marketCode,
+      state: "active",
+      errorCode: scope.errorCode,
+      search: scope.search?.trim() || undefined,
+      sort: "last_seen_desc",
+      page,
+      limit,
+    });
+    items.push(...rows.items);
+    if (page * limit >= rows.total || rows.items.length === 0) break;
+    page += 1;
+  }
+  return items;
 }
 
 async function reserveProviderOperationBudget(
@@ -794,84 +1019,22 @@ function newProviderFixerToken(): string {
   return `PF-${randomBytes(9).toString("base64url").toUpperCase()}`;
 }
 
-function extractProviderFixerTicker(row: ProviderErrorTrailRow): string | null {
-  const context = asRecord(row.context);
-  const contextTicker =
-    stringField(context?.ticker) ??
-    stringField(context?.symbol) ??
-    stringField(context?.providerSymbol) ??
-    stringField(context?.sourceSymbol);
-  if (contextTicker) return contextTicker.toUpperCase();
-  const match = row.errorMessage?.match(/\b([0-9]{6})(?:\.(?:KS|KQ))?\b/i);
-  return match?.[1]?.toUpperCase() ?? null;
-}
-
-async function buildProviderFixerEvidenceRow(
+async function publishProviderOperationProgress(
   app: FastifyInstance,
-  providerId: string,
-  marketCode: MarketCode,
-  row: ProviderErrorTrailRow,
-  options: { resolverMode?: MarketDataResolverMode; verifyCandidate?: boolean; operationBudget?: ProviderOperationRecord } = {},
-): Promise<ProviderFixerDashboardEvidenceSampleDto | null> {
-  const ticker = extractProviderFixerTicker(row);
-  if (!ticker) return null;
-  let candidateSymbol: string | null = null;
-  let exchangeHint: string | null = null;
-  let verificationStatus: ProviderFixerDashboardEvidenceSampleDto["verificationStatus"] = "pending";
-
-  if (providerId === "yahoo-finance-kr" && marketCode === "KR") {
-    const bareTicker = ticker.replace(/\.(KS|KQ)$/i, "");
-    const existing = await app.persistence.getProviderResolutionMapping(providerId, "KR", bareTicker);
-    if (existing) {
-      candidateSymbol = existing.resolvedSymbol;
-      exchangeHint = "durable provider_resolution_mappings row";
-      verificationStatus = "verified";
-    } else {
-      const instrument = await app.persistence.getInstrument(bareTicker, "KR");
-      const suffix = yahooSuffixHintFromKrCatalogEvidence(
-        instrument?.catalogExchangeRaw ?? instrument?.typeRaw ?? null,
-        instrument?.catalogMicCode ?? null,
-      );
-      if (suffix) {
-        candidateSymbol = `${bareTicker}${suffix}`;
-        exchangeHint = [
-          instrument?.catalogExchangeRaw ? `Twelve Data exchange=${instrument.catalogExchangeRaw}` : null,
-          instrument?.catalogMicCode ? `mic=${instrument.catalogMicCode}` : null,
-        ].filter(Boolean).join(" / ") || "Twelve Data catalog hint";
-        verificationStatus = "pending";
-      }
-    }
-  }
-
-  let verificationNote: string | null = null;
-  if (candidateSymbol && options.verifyCandidate) {
-    if (options.operationBudget) {
-      await reserveProviderOperationBudget(app, options.operationBudget, 1);
-    }
-    const verification = await verifyProviderFixerCandidate(
-      app,
-      providerId,
-      marketCode,
-      ticker,
-      candidateSymbol,
-      options.resolverMode ?? "quote_first",
-    );
-    verificationStatus = verification.verified ? "verified" : "rejected";
-    verificationNote = verification.verified
-      ? `Yahoo ${verification.resolverMode} verification passed for ${verification.checkedSymbol}.`
-      : `Yahoo ${verification.resolverMode} verification failed for ${verification.checkedSymbol}: ${verification.reason ?? "unknown"}.`;
-  }
-
-  return {
-    symbol: ticker.replace(/\.(KS|KQ)$/i, ""),
-    providerSymbol: ticker,
-    candidateSymbol,
-    exchangeHint,
-    verificationStatus,
-    note: candidateSymbol
-      ? verificationNote ?? "Candidate requires Yahoo verification before durable provider binding."
-      : "No catalog exchange/MIC hint was available; leave unresolved for manual review.",
-  };
+  actorUserId: string,
+  payload: {
+    operationId: string;
+    providerId: string;
+    processed: number;
+    total: number;
+    progressPercent: number;
+  },
+): Promise<void> {
+  const now = Date.now();
+  const lastPublishedAt = providerOperationProgressEventState.get(payload.operationId) ?? 0;
+  if (payload.progressPercent < 100 && now - lastPublishedAt < 1_000) return;
+  providerOperationProgressEventState.set(payload.operationId, now);
+  await app.eventBus.publishEvent(actorUserId, "provider_operation_progress", payload);
 }
 
 async function verifyProviderFixerCandidate(
@@ -898,76 +1061,107 @@ async function buildProviderFixerEvidenceSample(
   app: FastifyInstance,
   providerId: string,
   marketCode: MarketCode,
-  errorCode: string,
+  scopeItems: DurableProviderScopeItem[],
   resolverMode: MarketDataResolverMode,
   limit: number,
+  options: { verifyCandidate?: boolean; operationBudget?: ProviderOperationRecord } = {},
 ): Promise<{ sample: ProviderFixerDashboardEvidenceSampleDto[]; total: number }> {
-  const page = await app.persistence.listProviderErrorTrailPage({
-    providerId,
-    marketCode,
-    errorMessageLike: errorCode,
-    excludeResolvedMappings: providerId === "yahoo-finance-kr" && marketCode === "KR",
-    page: 1,
-    limit,
-  });
+  const page = scopeItems.slice(0, limit);
   const rows = await Promise.all(
-    page.items.map((row) => buildProviderFixerEvidenceRow(app, providerId, marketCode, row, {
-      resolverMode: providerId === "yahoo-finance-kr" ? resolverMode : undefined,
-      verifyCandidate: providerId === "yahoo-finance-kr" && marketCode === "KR",
-    })),
+    page.map((item) =>
+      buildProviderFixerEvidenceSampleRow(app, providerId, marketCode, item, resolverMode, options),
+    ),
   );
   return {
-    sample: rows.filter((row): row is ProviderFixerDashboardEvidenceSampleDto => row !== null),
-    total: page.total,
+    sample: rows,
+    total: scopeItems.length,
   };
 }
 
-function shouldExcludeResolvedProviderMappings(providerId: string, marketCode: MarketCode): boolean {
-  return providerId === "yahoo-finance-kr" && marketCode === "KR";
-}
-
-async function listProviderFixerScopeRows(
+async function buildProviderFixerEvidenceSampleRow(
   app: FastifyInstance,
   providerId: string,
   marketCode: MarketCode,
-  errorCode: string,
-): Promise<{ rows: ProviderErrorTrailRow[]; total: number }> {
-  const limit = 500;
-  let page = 1;
-  let total = 0;
-  const collected: ProviderErrorTrailRow[] = [];
-  while (true) {
-    const rows = await app.persistence.listProviderErrorTrailPage({
+  item: DurableProviderScopeItem,
+  resolverMode: MarketDataResolverMode,
+  options: { verifyCandidate?: boolean; operationBudget?: ProviderOperationRecord } = {},
+): Promise<ProviderFixerDashboardEvidenceSampleDto> {
+  const bareTicker = item.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
+  let candidateSymbol: string | null = null;
+  let exchangeHint: string | null = null;
+  let verificationStatus: ProviderFixerDashboardEvidenceSampleDto["verificationStatus"] = "pending";
+
+  if (providerId === "yahoo-finance-kr" && marketCode === "KR") {
+    const existing = await app.persistence.getProviderResolutionMapping(providerId, "KR", bareTicker);
+    if (existing) {
+      candidateSymbol = existing.resolvedSymbol;
+      exchangeHint = "durable provider_resolution_mappings row";
+      verificationStatus = "verified";
+    } else {
+      const instrument = await app.persistence.getInstrument(bareTicker, "KR");
+      const suffix = yahooSuffixHintFromKrCatalogEvidence(
+        instrument?.catalogExchangeRaw ?? instrument?.typeRaw ?? null,
+        instrument?.catalogMicCode ?? null,
+      );
+      if (suffix) {
+        candidateSymbol = `${bareTicker}${suffix}`;
+        exchangeHint = [
+          instrument?.catalogExchangeRaw ? `Twelve Data exchange=${instrument.catalogExchangeRaw}` : null,
+          instrument?.catalogMicCode ? `mic=${instrument.catalogMicCode}` : null,
+        ].filter(Boolean).join(" / ") || "Twelve Data catalog hint";
+      }
+    }
+  }
+
+  if (candidateSymbol && options.verifyCandidate && providerId === "yahoo-finance-kr" && marketCode === "KR") {
+    if (options.operationBudget) {
+      await reserveProviderOperationBudget(app, options.operationBudget, 1);
+    }
+    const verification = await verifyProviderFixerCandidate(
+      app,
       providerId,
       marketCode,
-      errorMessageLike: errorCode,
-      excludeResolvedMappings: shouldExcludeResolvedProviderMappings(providerId, marketCode),
-      page,
-      limit,
-    });
-    total = rows.total;
-    collected.push(...rows.items);
-    if (page * limit >= rows.total || rows.items.length === 0) break;
-    page += 1;
+      bareTicker,
+      candidateSymbol,
+      resolverMode,
+    );
+    verificationStatus = verification.verified ? "verified" : "rejected";
   }
-  return { rows: collected, total };
+
+  return {
+    symbol: bareTicker,
+    providerSymbol: item.providerSymbol ?? bareTicker,
+    candidateSymbol,
+    exchangeHint,
+    verificationStatus,
+    note: candidateSymbol
+      ? verificationStatus === "verified"
+        ? "Candidate verified against the provider for this frozen unresolved scope."
+        : "Candidate is display-only until execution re-verifies the frozen unresolved scope."
+      : "No catalog exchange/MIC hint was available; leave unresolved for manual review.",
+  };
 }
 
 async function buildProviderFixerScopeSnapshot(
-  app: FastifyInstance,
+  _app: FastifyInstance,
   providerId: string,
   marketCode: MarketCode,
-  errorCode: string,
+  scope: ProviderFixerScopeInput,
+  scopeItems: DurableProviderScopeItem[],
 ): Promise<{ matchCount: number; snapshotHash: string }> {
-  const scope = await listProviderFixerScopeRows(app, providerId, marketCode, errorCode);
-  const entries = scope.rows.map((row) => {
-    const sourceSymbol = extractProviderFixerTicker(row)?.replace(/\.(KS|KQ)$/i, "").toUpperCase() ?? "";
-    return `${row.id}:${sourceSymbol}:${row.occurredAt}`;
+  const entries = scopeItems.map((row) => {
+    return `${row.providerId}:${row.marketCode}:${row.errorCode}:${row.sourceSymbol}:${row.updatedAt}:${row.occurrenceCount}`;
   });
   entries.sort();
   return {
-    matchCount: scope.total,
-    snapshotHash: hashProviderFixerToken(JSON.stringify({ providerId, marketCode, errorCode, matchCount: scope.total, entries })).slice(0, 12),
+    matchCount: scopeItems.length,
+    snapshotHash: hashProviderFixerToken(JSON.stringify({
+      providerId,
+      marketCode,
+      fingerprint: providerFixerScopeFingerprint(scope),
+      matchCount: scopeItems.length,
+      entries,
+    })).slice(0, 12),
   };
 }
 
@@ -995,9 +1189,15 @@ function providerFixerOperationToDto(
   guardrails: ProviderFixerDashboardGuardrailSettingsDto,
 ): ProviderFixerDashboardOperationDto {
   const metadata = asRecord(operation.metadata) ?? {};
+  const frozenScope = asRecord(metadata.frozenScope);
   const matchCount = operation.matchCount ?? 0;
   const dangerous = matchCount >= guardrails.dangerousMatchThreshold;
   const token = stringField(metadata.previewTokenDisplay) ?? operation.id;
+  const scopeTypeRaw = stringField(metadata.scopeType);
+  const scopeType =
+    scopeTypeRaw === "row" || scopeTypeRaw === "selected_items" || scopeTypeRaw === "filter"
+      ? scopeTypeRaw
+      : "legacy";
   const previewExpired = operation.previewExpiresAt
     ? new Date(operation.previewExpiresAt).getTime() <= Date.now()
     : false;
@@ -1012,6 +1212,7 @@ function providerFixerOperationToDto(
     phase: operation.phase,
     matchCount,
     preview: {
+      scopeType,
       scopeLabel: operation.scopeQuery ?? `${operation.providerId}:${operation.errorCode ?? "all"}`,
       queryBacked: matchCount > sample.length,
       page: 1,
@@ -1024,13 +1225,32 @@ function providerFixerOperationToDto(
       confirmationMode: dangerous ? "typed" : "standard",
       confirmationText: dangerous ? confirmationText : null,
       acknowledgementLabel: "I understand this can write provider rows",
+      scopeSummary: stringField(metadata.scopeSummary) ?? `${matchCount} unresolved rows`,
+      search: stringField(metadata.scopeSearch),
+      state: (stringField(metadata.scopeState) as ProviderFixerDashboardPreviewDto["state"] | null) ?? null,
+      frozenScope: frozenScope ? {
+        type: frozenScope.type === "selected_items" ? "selected_items" : "filter",
+        filterFingerprint: stringField(frozenScope.filterFingerprint) ?? stringField(metadata.scopeFingerprint) ?? "",
+        matchCount: numberField(frozenScope.matchCount) ?? matchCount,
+        selectedItems: providerFixerFrozenSelectedItemsFromMetadata(metadata),
+        filter: asRecord(frozenScope.filter)
+          ? {
+              providerId: stringField(asRecord(frozenScope.filter)?.providerId) ?? operation.providerId,
+              marketCode: (stringField(asRecord(frozenScope.filter)?.marketCode) ?? operation.marketCode) as ProviderUnresolvedItemDto["marketCode"],
+              errorCode: stringField(asRecord(frozenScope.filter)?.errorCode) ?? operation.errorCode ?? "symbol_unresolved",
+              state: "active",
+              search: stringField(asRecord(frozenScope.filter)?.search),
+            }
+          : null,
+      } : null,
       evidenceSample: sample,
     },
     canExecute: (operation.phase === "preview" || operation.phase === "staged") && !previewExpired,
     canPause: operation.phase === "running",
     canResume: operation.phase === "paused",
     canCancel:
-      operation.phase === "preview"
+      operation.phase === "preparing_preview"
+      || operation.phase === "preview"
       || operation.phase === "staged"
       || operation.phase === "queued"
       || operation.phase === "running"
@@ -1142,7 +1362,7 @@ async function findOtherActiveProviderOperationExecution(
   const active = await app.persistence.listProviderOperations({
     providerId: scope.providerId,
     marketCode: scope.marketCode,
-    phases: ["running", "paused"],
+    phases: ["preparing_preview", "preview", "queued", "running", "paused"],
     page: 1,
     limit: 50,
   });
@@ -1339,34 +1559,85 @@ async function executeProviderFixerMappings(
   let skipped = 0;
   let scanned = 0;
   const mappedTickers: string[] = [];
-  const scope = await listProviderFixerScopeRows(
-    app,
-    operation.providerId,
-    operation.marketCode,
-    operation.errorCode ?? "symbol_unresolved",
-  );
-  for (const row of scope.rows) {
+  const scopeItems = await listProviderUnresolvedScopeItems(app, operation.providerId, {
+    type: "selected_items",
+    items: providerFixerFrozenSelectedItemsFromMetadata(operation.metadata),
+  });
+  for (const row of scopeItems) {
     scanned += 1;
-    const extractedTicker = extractProviderFixerTicker(row);
-    const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+    const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
+    const providerSymbol = row.providerSymbol ?? sourceSymbol;
     await app.persistence.upsertProviderOperationOutcome({
       operationId: operation.id,
       providerId: operation.providerId,
       marketCode: operation.marketCode,
       sourceSymbol,
-      providerSymbol: extractedTicker ?? null,
+      providerSymbol,
       action: "repair_mapping",
       state: "running",
       message: "Verifying provider symbol candidate.",
-      evidence: { errorTrailId: row.id },
+      evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
     });
-    let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
     try {
-      evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
+      const [evidence] = (
+        await buildProviderFixerEvidenceSample(
+          app,
+          operation.providerId,
+          operation.marketCode,
+          [row],
+          operation.resolverMode ?? "quote_first",
+          1,
+          { verifyCandidate: true, operationBudget: operation },
+        )
+      ).sample;
+      if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
+        skipped += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol,
+          action: "repair_mapping",
+          state: "skipped",
+          message: evidence?.note ?? "No verified provider symbol candidate.",
+          errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
+          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : null,
+        });
+        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+        continue;
+      }
+      await app.persistence.upsertProviderResolutionMapping({
+        providerId: operation.providerId,
+        marketCode: "KR",
+        sourceSymbol: evidence.symbol,
+        resolvedSymbol: evidence.candidateSymbol,
         resolverMode: operation.resolverMode ?? "quote_first",
-        verifyCandidate: true,
-        operationBudget: operation,
+        evidence: {
+          exchangeHint: evidence.exchangeHint,
+          note: evidence.note,
+          operationId: operation.id,
+        },
+        verifiedByUserId: actorUserId,
       });
+      applied += 1;
+      mappedTickers.push(evidence.symbol);
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: operation.providerId,
+        marketCode: operation.marketCode,
+        sourceSymbol: evidence.symbol,
+        providerSymbol: evidence.providerSymbol,
+        action: "repair_mapping",
+        state: "succeeded",
+        message: `Resolved ${evidence.symbol} to ${evidence.candidateSymbol}.`,
+        evidence: {
+          candidateSymbol: evidence.candidateSymbol,
+          exchangeHint: evidence.exchangeHint,
+          note: evidence.note,
+        },
+      });
+      await refreshProviderOperationProgressFromOutcomes(app, operation.id);
     } catch (err) {
       const isRateLimited = err instanceof RateLimitedError;
       await app.persistence.upsertProviderOperationOutcome({
@@ -1374,70 +1645,29 @@ async function executeProviderFixerMappings(
         providerId: operation.providerId,
         marketCode: operation.marketCode,
         sourceSymbol,
-        providerSymbol: extractedTicker ?? null,
+        providerSymbol,
         action: "repair_mapping",
         state: isRateLimited ? "rate_limited" : "failed",
         message: err instanceof Error ? err.message : "Provider verification failed.",
         errorCode: isRateLimited ? "provider_rate_limited" : "provider_verification_failed",
-        evidence: { errorTrailId: row.id },
+        evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
       });
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
       throw err;
     }
-    if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
-      skipped += 1;
-      await app.persistence.upsertProviderOperationOutcome({
-        operationId: operation.id,
-        providerId: operation.providerId,
-        marketCode: operation.marketCode,
-        sourceSymbol,
-        providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
-        action: "repair_mapping",
-        state: "skipped",
-        message: evidence?.note ?? "No verified provider symbol candidate.",
-        errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
-        evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
-      });
-      await refreshProviderOperationProgressFromOutcomes(app, operation.id);
-      continue;
-    }
-    await app.persistence.upsertProviderResolutionMapping({
-      providerId: operation.providerId,
-      marketCode: "KR",
-      sourceSymbol: evidence.symbol,
-      resolvedSymbol: evidence.candidateSymbol,
-      resolverMode: operation.resolverMode ?? "quote_first",
-      evidence: {
-        exchangeHint: evidence.exchangeHint,
-        note: evidence.note,
-        operationId: operation.id,
-      },
-      verifiedByUserId: actorUserId,
-    });
-    applied += 1;
-    mappedTickers.push(evidence.symbol);
-    await app.persistence.upsertProviderOperationOutcome({
-      operationId: operation.id,
-      providerId: operation.providerId,
-      marketCode: operation.marketCode,
-      sourceSymbol: evidence.symbol,
-      providerSymbol: evidence.providerSymbol,
-      action: "repair_mapping",
-      state: "succeeded",
-      message: `Resolved ${evidence.symbol} to ${evidence.candidateSymbol}.`,
-      evidence: {
-        candidateSymbol: evidence.candidateSymbol,
-        exchangeHint: evidence.exchangeHint,
-        note: evidence.note,
-      },
-    });
-    await refreshProviderOperationProgressFromOutcomes(app, operation.id);
   }
   if (mappedTickers.length > 0) {
     await app.persistence.resolveProviderUnresolvedItems({
       providerId: operation.providerId,
       marketCode: operation.marketCode,
-      sourceSymbols: mappedTickers,
+      items: scopeItems
+        .filter((row) => mappedTickers.includes(row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase()))
+        .map((row) => ({
+          providerId: row.providerId,
+          marketCode: row.marketCode,
+          errorCode: row.errorCode,
+          sourceSymbol: row.sourceSymbol,
+        })),
       operationId: operation.id,
     });
   }
@@ -1624,7 +1854,7 @@ async function completeProviderFixerOperation(
     providerId: completed.providerId,
     phase: completed.phase,
   });
-  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+  await publishProviderOperationProgress(app, context.actorUserId, {
     operationId: completed.id,
     providerId: completed.providerId,
     processed: result.applied + result.skipped,
@@ -1646,38 +1876,70 @@ async function renewProviderFixerEvidence(
   let succeeded = 0;
   let skipped = 0;
   let scanned = 0;
-  let page = 1;
-  const limit = 200;
-  while (true) {
-    const rows = await app.persistence.listProviderErrorTrailPage({
-      providerId: operation.providerId,
-      marketCode: operation.marketCode,
-      errorMessageLike: operation.errorCode ?? "symbol_unresolved",
-      page,
-      limit,
-    });
-    for (const row of rows.items) {
+  const scope = providerFixerScopeFromMetadata(operation.providerId, operation.metadata, {
+    marketCode: providerFixerMarketCodeField(operation.marketCode, providerFixerMarketCode(operation.providerId)),
+    errorCode: operation.errorCode,
+  });
+  const rows = await listProviderUnresolvedScopeItems(app, operation.providerId, scope);
+  for (const row of rows) {
       scanned += 1;
-      const extractedTicker = extractProviderFixerTicker(row);
-      const sourceSymbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      const providerSymbol = row.providerSymbol ?? sourceSymbol;
       await app.persistence.upsertProviderOperationOutcome({
         operationId: operation.id,
         providerId: operation.providerId,
         marketCode: operation.marketCode,
         sourceSymbol,
-        providerSymbol: extractedTicker ?? null,
+        providerSymbol,
         action: "renew_evidence",
         state: "running",
         message: "Renewing provider evidence.",
-        evidence: { errorTrailId: row.id },
+        evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
       });
-      let evidence: ProviderFixerDashboardEvidenceSampleDto | null = null;
       try {
-        evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
-          resolverMode: operation.resolverMode ?? "quote_first",
-          verifyCandidate: true,
-          operationBudget: operation,
-        });
+        const [evidence] = (
+        await buildProviderFixerEvidenceSample(
+          app,
+          operation.providerId,
+          operation.marketCode,
+          [row],
+          operation.resolverMode ?? "quote_first",
+          1,
+          { verifyCandidate: true, operationBudget: operation },
+        )
+      ).sample;
+        if (evidence?.candidateSymbol && evidence.verificationStatus === "verified") {
+          succeeded += 1;
+          await app.persistence.upsertProviderOperationOutcome({
+            operationId: operation.id,
+            providerId: operation.providerId,
+            marketCode: operation.marketCode,
+            sourceSymbol: evidence.symbol,
+            providerSymbol: evidence.providerSymbol,
+            action: "renew_evidence",
+            state: "succeeded",
+            message: `Renewed evidence for ${evidence.symbol}: ${evidence.candidateSymbol}.`,
+            evidence: {
+              candidateSymbol: evidence.candidateSymbol,
+              exchangeHint: evidence.exchangeHint,
+              note: evidence.note,
+            },
+          });
+        } else {
+          skipped += 1;
+          await app.persistence.upsertProviderOperationOutcome({
+            operationId: operation.id,
+            providerId: operation.providerId,
+            marketCode: operation.marketCode,
+            sourceSymbol,
+            providerSymbol,
+            action: "renew_evidence",
+            state: "skipped",
+            message: evidence?.note ?? "No verified provider evidence candidate.",
+            errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
+            evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : null,
+          });
+        }
       } catch (err) {
         const isRateLimited = err instanceof RateLimitedError;
         await app.persistence.upsertProviderOperationOutcome({
@@ -1685,52 +1947,17 @@ async function renewProviderFixerEvidence(
           providerId: operation.providerId,
           marketCode: operation.marketCode,
           sourceSymbol,
-          providerSymbol: extractedTicker ?? null,
+          providerSymbol,
           action: "renew_evidence",
           state: isRateLimited ? "rate_limited" : "failed",
           message: err instanceof Error ? err.message : "Provider evidence renewal failed.",
           errorCode: isRateLimited ? "provider_rate_limited" : "provider_evidence_renewal_failed",
-          evidence: { errorTrailId: row.id },
+          evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
         });
         await refreshProviderOperationProgressFromOutcomes(app, operation.id);
         throw err;
       }
-      if (evidence?.candidateSymbol && evidence.verificationStatus === "verified") {
-        succeeded += 1;
-        await app.persistence.upsertProviderOperationOutcome({
-          operationId: operation.id,
-          providerId: operation.providerId,
-          marketCode: operation.marketCode,
-          sourceSymbol: evidence.symbol,
-          providerSymbol: evidence.providerSymbol,
-          action: "renew_evidence",
-          state: "succeeded",
-          message: `Renewed evidence for ${evidence.symbol}: ${evidence.candidateSymbol}.`,
-          evidence: {
-            candidateSymbol: evidence.candidateSymbol,
-            exchangeHint: evidence.exchangeHint,
-            note: evidence.note,
-          },
-        });
-      } else {
-        skipped += 1;
-        await app.persistence.upsertProviderOperationOutcome({
-          operationId: operation.id,
-          providerId: operation.providerId,
-          marketCode: operation.marketCode,
-          sourceSymbol,
-          providerSymbol: evidence?.providerSymbol ?? extractedTicker ?? null,
-          action: "renew_evidence",
-          state: "skipped",
-          message: evidence?.note ?? "No verified provider evidence candidate.",
-          errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
-          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : { errorTrailId: row.id },
-        });
-      }
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
-    }
-    if (page * limit >= rows.total || rows.items.length === 0) break;
-    page += 1;
   }
   return { succeeded, skipped, scanned };
 }
@@ -1855,7 +2082,7 @@ async function completeProviderRenewEvidenceOperation(
     providerId: completed.providerId,
     phase: completed.phase,
   });
-  await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+  await publishProviderOperationProgress(app, context.actorUserId, {
     operationId: completed.id,
     providerId: completed.providerId,
     processed: result.succeeded + result.skipped,
@@ -1985,7 +2212,7 @@ async function completeProviderRerunBackfillOperation(
       providerId: operation.providerId,
       phase: completed.phase,
     });
-    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+    await publishProviderOperationProgress(app, context.actorUserId, {
       operationId: operation.id,
       providerId: operation.providerId,
       processed: 1,
@@ -2059,6 +2286,94 @@ function runProviderFixerOperationInBackground(
         },
         "provider_operation_background_execution_failed",
       );
+    });
+  });
+}
+
+function runProviderPreviewPreparationInBackground(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  context: {
+    actorUserId: string;
+    ipAddress?: string;
+    guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+  },
+): void {
+  setImmediate(() => {
+    void (async () => {
+      const frozenItems = providerFixerFrozenSelectedItemsFromMetadata(operation.metadata);
+      const scopeItems = await listProviderUnresolvedScopeItems(app, operation.providerId, {
+        type: "selected_items",
+        items: frozenItems,
+      });
+      const latest = await app.persistence.getProviderOperation(operation.id);
+      if (latest?.phase === "cancelled") {
+        return;
+      }
+      const sample = (
+        await buildProviderFixerEvidenceSample(
+          app,
+          operation.providerId,
+          operation.marketCode,
+          scopeItems,
+          operation.resolverMode ?? "quote_first",
+          context.guardrails.previewSampleLimit,
+          { verifyCandidate: false },
+        )
+      ).sample;
+      const refreshed = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "preview",
+        sample,
+        metadata: {
+          ...(asRecord(latest?.metadata) ?? asRecord(operation.metadata) ?? {}),
+          progressPercent: 100,
+        },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: refreshed.id,
+        phase: "preview",
+        level: "info",
+        message: `preview_ready provider=${refreshed.providerId} market=${refreshed.marketCode} matched=${refreshed.matchCount ?? 0} sample=${sample.length}`,
+        context: { providerId: refreshed.providerId, marketCode: refreshed.marketCode, matchCount: refreshed.matchCount ?? 0 },
+      });
+      await publishProviderOperationProgress(app, context.actorUserId, {
+        operationId: refreshed.id,
+        providerId: refreshed.providerId,
+        processed: sample.length,
+        total: Math.max(refreshed.matchCount ?? sample.length, sample.length),
+        progressPercent: 100,
+      });
+      await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+        operationId: refreshed.id,
+        providerId: refreshed.providerId,
+        phase: refreshed.phase,
+      });
+    })().catch(async (err) => {
+      const message = err instanceof Error ? err.message : "Provider preview preparation failed.";
+      const failed = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        metadata: {
+          ...(asRecord(operation.metadata) ?? {}),
+          progressPercent: 100,
+          failureReason: message,
+        },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: failed.id,
+        phase: "failed",
+        level: "error",
+        message: `preview_preparation_failed provider=${failed.providerId} market=${failed.marketCode} reason=${message}`,
+        context: { providerId: failed.providerId, marketCode: failed.marketCode, errorMessage: message },
+      });
+      await app.eventBus.publishEvent(context.actorUserId, "provider_operation_phase_changed", {
+        operationId: failed.id,
+        providerId: failed.providerId,
+        phase: failed.phase,
+      });
+      app.log.error({ operationId: operation.id, providerId: operation.providerId, err }, "provider_preview_preparation_failed");
     });
   });
 }
@@ -2304,7 +2619,7 @@ async function completeProviderMappingReverifyOperation(
       providerId: operation.providerId,
       phase: completed.phase,
     });
-    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+    await publishProviderOperationProgress(app, context.actorUserId, {
       operationId: operation.id,
       providerId: operation.providerId,
       processed: 1,
@@ -2549,7 +2864,7 @@ async function completeProviderMappingRevertOperation(
       resolvedSymbol,
       action: "revert_mapping",
     });
-    await app.eventBus.publishEvent(context.actorUserId, "provider_operation_progress", {
+    await publishProviderOperationProgress(app, context.actorUserId, {
       operationId: operation.id,
       providerId: operation.providerId,
       processed: 1,
@@ -2688,7 +3003,15 @@ async function maybeStartNextQueuedProviderOperation(
     guardrails: ProviderFixerDashboardGuardrailSettingsDto;
   },
 ): Promise<ProviderOperationRecord | null> {
-  const active = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode });
+  const active = (
+    await app.persistence.listProviderOperations({
+      providerId,
+      marketCode,
+      phases: ["preparing_preview", "preview", "running", "paused"],
+      page: 1,
+      limit: 50,
+    })
+  ).items[0] ?? null;
   if (active) return null;
   const queued = await app.persistence.listProviderOperations({
     providerId,
@@ -2801,29 +3124,71 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const providerId = providerIdOverride ?? body.providerId ?? "yahoo-finance-kr";
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
-    const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    const defaultMarketCode = providerFixerMarketCodeField(body.marketCode, providerFixerMarketCode(providerId));
+    const scope = body.scope ?? {
+      type: "filter",
+      marketCode: defaultMarketCode,
+      errorCode: body.errorCode,
+      state: "active",
+    } satisfies ProviderFixerScopeInput;
+    const selectedScopeMarketCodes = scope.type === "selected_items"
+      ? [...new Set(scope.items.map((item) => item.marketCode))]
+      : [];
+    if (selectedScopeMarketCodes.length > 1) {
+      throw routeError(400, "provider_scope_market_mismatch", "Selected scope items must belong to a single market");
+    }
+    const requestedMarketCode = scope.type === "selected_items"
+      ? selectedScopeMarketCodes[0] ?? defaultMarketCode
+      : providerFixerMarketCode(providerId, scope.marketCode ?? defaultMarketCode);
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
-    const { sample } = await buildProviderFixerEvidenceSample(
-      app,
-      providerId,
-      marketCode,
-      body.errorCode,
-      body.resolverMode,
-      guardrails.previewSampleLimit,
-    );
-    const scopeSnapshot = await buildProviderFixerScopeSnapshot(app, providerId, marketCode, body.errorCode);
+    const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode: requestedMarketCode });
+    if (activeOperation) {
+      throw routeError(
+        409,
+        "provider_fixer_active_operation_conflict",
+        "Another provider operation is already active for this provider and market",
+      );
+    }
+    const scopeItems = await listProviderUnresolvedScopeItems(app, providerId, scope);
+    const scopeMarketCodes = [...new Set(scopeItems.map((item) => item.marketCode))];
+    const marketCode = scopeMarketCodes[0] ?? requestedMarketCode;
+    const scopeErrorCodes = [...new Set(scopeItems.map((item) => item.errorCode))];
+    const operationErrorCode = scope.type === "filter"
+      ? scope.errorCode
+      : scopeErrorCodes.length === 1
+        ? scopeErrorCodes[0]!
+        : body.errorCode;
+    const scopeSnapshot = await buildProviderFixerScopeSnapshot(app, providerId, marketCode, scope, scopeItems);
     const token = newProviderFixerToken();
     const dangerous = scopeSnapshot.matchCount >= guardrails.dangerousMatchThreshold;
-    const confirmationText = dangerous ? `EXECUTE ${scopeSnapshot.matchCount}` : null;
+    const initialPhase: ProviderOperationPhase = dangerous && scope.type === "filter" ? "preparing_preview" : "preview";
+    const sample = initialPhase === "preview"
+      ? (await buildProviderFixerEvidenceSample(
+          app,
+          providerId,
+          marketCode,
+          scopeItems,
+          body.resolverMode,
+          guardrails.previewSampleLimit,
+          { verifyCandidate: true },
+        )).sample
+      : [];
+    const confirmationText = dangerous
+      ? scope.type === "filter"
+        ? `EXECUTE ${scopeSnapshot.matchCount} MATCHING`
+        : `EXECUTE ${scopeSnapshot.matchCount} SELECTED`
+      : null;
+    const scopeLabel = providerFixerScopeLabel(scope, providerId);
+    const scopeSummary = providerFixerScopeSummary(scope, scopeSnapshot.matchCount);
     const now = Date.now();
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode,
       operationType: "resolver_repair",
-      phase: "preview",
-      errorCode: body.errorCode,
+      phase: initialPhase,
+      errorCode: operationErrorCode,
       resolverMode: body.resolverMode,
-      scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
+      scopeQuery: scopeLabel,
       snapshotHash: scopeSnapshot.snapshotHash,
       previewTokenHash: hashProviderFixerToken(token),
       previewExpiresAt: new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString(),
@@ -2834,19 +3199,29 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         confirmationText,
         effectiveRateCapPerMinute,
         autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
+        scope,
+        frozenScope: providerFixerFrozenScopeMetadata(providerId, scope, scopeItems),
+        scopeType: scope.type,
+        scopeFingerprint: providerFixerScopeFingerprint(scope),
+        scopeSummary,
+        scopeSearch: scope.type === "filter" ? scope.search?.trim() || null : null,
+        scopeState: scope.type === "filter" ? scope.state : "active",
+        progressPercent: initialPhase === "preparing_preview" ? 0 : null,
       },
       actorUserId: sessionUserId,
     });
     await app.persistence.createProviderOperationLog({
       operationId: operation.id,
-      phase: "preview",
+      phase: initialPhase,
       level: scopeSnapshot.matchCount > 0 ? "info" : "warning",
-      message: `preview provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${scopeSnapshot.matchCount} sample=${sample.length}`,
+      message: `${initialPhase === "preparing_preview" ? "preparing_preview" : "preview"} provider=${providerId} market=${marketCode} error_code=${operationErrorCode ?? "mixed"} scope=${scope.type} matched=${scopeSnapshot.matchCount} sample=${sample.length}`,
       context: {
         providerId,
         marketCode,
-        errorCode: body.errorCode,
+        errorCode: operationErrorCode,
         resolverMode: body.resolverMode,
+        scope,
+        scopeFingerprint: providerFixerScopeFingerprint(scope),
         dangerous,
       },
     });
@@ -2859,12 +3234,28 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         action: "preview",
         providerId,
         marketCode,
-        errorCode: body.errorCode,
+        errorCode: operationErrorCode,
         resolverMode: body.resolverMode,
+        scope,
+        scopeFingerprint: providerFixerScopeFingerprint(scope),
         matchCount: scopeSnapshot.matchCount,
         dangerous,
       },
     });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: operation.phase,
+    });
+    if (initialPhase === "preparing_preview") {
+      runProviderPreviewPreparationInBackground(app, operation, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+      });
+      reply.code(202);
+      return { operation: providerFixerOperationToDto(operation, guardrails), result: { status: "preparing_preview" } };
+    }
     reply.code(201);
     return { operation: providerFixerOperationToDto(operation, guardrails) };
   }
@@ -2888,6 +3279,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         marketCode: providerFixerMarketCodeSchema.optional(),
         resolverMode: providerFixerResolverModeSchema.default("quote_first"),
         errorCode: providerFixerErrorCodeSchema.default("symbol_unresolved"),
+        scope: providerFixerScopeSchema.optional(),
       })
       .strict()
       .parse(req.body ?? {});
@@ -2897,30 +3289,26 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
-    const marketCode = providerFixerMarketCode(providerId, body.marketCode);
+    const marketCode = providerFixerMarketCodeField(body.marketCode, providerFixerMarketCode(providerId));
     const effectiveRateCapPerMinute = providerOperationRateCapPerMinute(providerId, config);
+    const scope = body.scope ?? {
+      type: "filter",
+      marketCode,
+      errorCode: body.errorCode,
+      state: "active",
+    } satisfies ProviderFixerScopeInput;
     const activeOperation = await findOtherActiveProviderOperationExecution(app, { providerId, marketCode });
     const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
     const startedAt = activeOperation ? null : new Date().toISOString();
-    const firstPage = await app.persistence.listProviderErrorTrailPage({
-      providerId,
-      marketCode,
-      errorMessageLike: body.errorCode,
-      page: 1,
-      limit: guardrails.previewSampleLimit,
-    });
-    const sample = firstPage.items.map((row): ProviderFixerDashboardEvidenceSampleDto => {
-      const extractedTicker = extractProviderFixerTicker(row);
-      const symbol = (extractedTicker ?? `error-trail-${row.id}`).replace(/\.(KS|KQ)$/i, "").toUpperCase();
-      return {
-        symbol,
-        providerSymbol: extractedTicker ?? symbol,
-        candidateSymbol: null,
-        exchangeHint: null,
-        verificationStatus: "pending",
-        note: "Renew evidence pending.",
-      };
-    });
+    const scopeItems = await listProviderUnresolvedScopeItems(app, providerId, scope);
+    const sample = scopeItems.slice(0, guardrails.previewSampleLimit).map((row): ProviderFixerDashboardEvidenceSampleDto => ({
+      symbol: row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase(),
+      providerSymbol: row.providerSymbol ?? row.sourceSymbol,
+      candidateSymbol: null,
+      exchangeHint: null,
+      verificationStatus: "pending",
+      note: "Renew evidence pending.",
+    }));
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode,
@@ -2928,15 +3316,21 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       phase: initialPhase,
       errorCode: body.errorCode,
       resolverMode: body.resolverMode,
-      scopeQuery: `${providerId}:${marketCode}:${body.errorCode}`,
-      snapshotHash: hashProviderFixerToken(`${providerId}:${marketCode}:${body.errorCode}:renew:${firstPage.total}:${Date.now()}`).slice(0, 12),
-      matchCount: firstPage.total,
+      scopeQuery: providerFixerScopeLabel(scope, providerId),
+      snapshotHash: hashProviderFixerToken(`${providerId}:${marketCode}:${providerFixerScopeFingerprint(scope)}:renew:${scopeItems.length}:${Date.now()}`).slice(0, 12),
+      matchCount: scopeItems.length,
       sample,
       metadata: {
         progressPercent: 0,
         previewSampleLimit: guardrails.previewSampleLimit,
         effectiveRateCapPerMinute,
         queuedBehindOperationId: activeOperation?.id ?? null,
+        scope,
+        scopeType: scope.type === "selected_items" && scope.items.length === 1 ? "row" : scope.type,
+        scopeFingerprint: providerFixerScopeFingerprint(scope),
+        scopeSummary: providerFixerScopeSummary(scope, scopeItems.length),
+        scopeSearch: scope.type === "filter" ? scope.search?.trim() || null : null,
+        scopeState: "active",
       },
       actorUserId: sessionUserId,
       startedAt,
@@ -2945,8 +3339,8 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       operationId: operation.id,
       phase: initialPhase,
       level: "info",
-      message: `${activeOperation ? "renew_queued" : "renew_started"} provider=${providerId} market=${marketCode} error_code=${body.errorCode} matched=${firstPage.total}`,
-      context: { providerId, marketCode, errorCode: body.errorCode, resolverMode: body.resolverMode, queuedBehindOperationId: activeOperation?.id ?? null },
+      message: `${activeOperation ? "renew_queued" : "renew_started"} provider=${providerId} market=${marketCode} error_code=${body.errorCode} scope=${scope.type} matched=${scopeItems.length}`,
+      context: { providerId, marketCode, errorCode: body.errorCode, resolverMode: body.resolverMode, queuedBehindOperationId: activeOperation?.id ?? null, scopeType: scope.type },
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -2959,8 +3353,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         marketCode,
         errorCode: body.errorCode,
         resolverMode: body.resolverMode,
-        matchCount: firstPage.total,
+        matchCount: scopeItems.length,
         queuedBehindOperationId: activeOperation?.id ?? null,
+        scopeType: scope.type,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -3147,7 +3542,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       phase: completed.phase,
     });
-    await app.eventBus.publishEvent(sessionUserId, "provider_operation_progress", {
+    await publishProviderOperationProgress(app, sessionUserId, {
       operationId: operation.id,
       providerId,
       processed: 1,
@@ -3194,6 +3589,173 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         resolvedByOperationId: item.resolvedByOperationId,
         updatedAt: item.updatedAt,
       },
+    };
+  });
+
+  app.post("/providers/:providerId/unresolved/state/bulk", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { providerId } = providerConsoleParamsSchema.parse(req.params);
+    const body = z
+      .object({
+        scope: providerFixerScopeSchema,
+        state: z.enum(["unsupported", "ignored"]),
+        acknowledged: z.boolean().optional(),
+        typedConfirmation: z.string().trim().max(160).optional(),
+        reason: z.string().trim().max(240).optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const scopeItems = await listProviderUnresolvedScopeItems(app, providerId, body.scope);
+    const matchCount = scopeItems.length;
+    if (matchCount === 0) {
+      throw routeError(409, "provider_scope_items_not_active", "No active unresolved rows match this scope");
+    }
+    const dangerous = matchCount >= guardrails.dangerousMatchThreshold || body.scope.type === "filter";
+    const confirmationText = providerBulkUnresolvedStateConfirmationText(body.state, body.scope, matchCount);
+    if (dangerous) {
+      if (body.typedConfirmation?.trim() !== confirmationText) {
+        throw routeError(400, "provider_fixer_typed_confirmation_required", "Bulk unresolved state change requires matching typed confirmation");
+      }
+    } else if (body.acknowledged !== true) {
+      throw routeError(400, "provider_fixer_acknowledgement_required", "Bulk unresolved state change requires explicit acknowledgement");
+    }
+    const action = body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    const marketCode = providerFixerMarketCodeField(scopeItems[0]?.marketCode, providerFixerMarketCode(providerId));
+    const startedAt = new Date().toISOString();
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode,
+      operationType: action,
+      phase: "running",
+      errorCode: body.scope.type === "filter" ? body.scope.errorCode : scopeItems[0]?.errorCode ?? null,
+      scopeQuery: providerFixerScopeLabel(body.scope, providerId),
+      snapshotHash: hashProviderFixerToken(`${providerId}:${providerFixerScopeFingerprint(body.scope)}:${body.state}:${matchCount}`).slice(0, 12),
+      previewTokenHash: null,
+      previewExpiresAt: null,
+      matchCount,
+      sample: scopeItems.slice(0, guardrails.previewSampleLimit).map((item): ProviderFixerDashboardEvidenceSampleDto => ({
+        symbol: item.sourceSymbol,
+        providerSymbol: item.providerSymbol ?? item.sourceSymbol,
+        candidateSymbol: null,
+        exchangeHint: null,
+        verificationStatus: "pending",
+        note: `Bulk ${body.state} scope item.`,
+      })),
+      metadata: {
+        confirmationText: dangerous ? confirmationText : null,
+        frozenScope: providerFixerFrozenScopeMetadata(providerId, body.scope, scopeItems),
+        scope: body.scope,
+        scopeType: body.scope.type,
+        scopeFingerprint: providerFixerScopeFingerprint(body.scope),
+        scopeSummary: providerFixerScopeSummary(body.scope, matchCount),
+        targetState: body.state,
+        reason: body.reason ?? null,
+        progressPercent: 0,
+      },
+      actorUserId: sessionUserId,
+      startedAt,
+    });
+    let succeeded = 0;
+    let failed = 0;
+    for (const item of scopeItems) {
+      try {
+        const updated = await app.persistence.updateProviderUnresolvedItemState({
+          providerId,
+          marketCode: providerFixerMarketCodeField(item.marketCode, marketCode),
+          errorCode: item.errorCode,
+          sourceSymbol: item.sourceSymbol,
+          state: body.state,
+          actorUserId: sessionUserId,
+          reason: body.reason ?? null,
+        });
+        succeeded += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId,
+          marketCode: updated.marketCode,
+          sourceSymbol: updated.sourceSymbol,
+          providerSymbol: updated.providerSymbol,
+          action,
+          state: "succeeded",
+          message: `Set unresolved item ${updated.sourceSymbol} to ${updated.state}.`,
+          evidence: { targetState: updated.state, reason: body.reason ?? null },
+        });
+        await app.eventBus.publishEvent(sessionUserId, "provider_unresolved_item_changed", {
+          providerId,
+          marketCode: updated.marketCode,
+          errorCode: updated.errorCode,
+          sourceSymbol: updated.sourceSymbol,
+          state: updated.state,
+        });
+      } catch (err) {
+        failed += 1;
+        const message = err instanceof Error ? err.message : "Provider unresolved lifecycle update failed.";
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId,
+          marketCode: item.marketCode,
+          sourceSymbol: item.sourceSymbol,
+          providerSymbol: item.providerSymbol ?? item.sourceSymbol,
+          action,
+          state: "failed",
+          message,
+          errorCode: "provider_unresolved_state_update_failed",
+          evidence: { targetState: body.state, reason: body.reason ?? null },
+        });
+      }
+      await publishProviderOperationProgress(app, sessionUserId, {
+        operationId: operation.id,
+        providerId,
+        processed: succeeded + failed,
+        total: matchCount,
+        progressPercent: Math.round(((succeeded + failed) / Math.max(matchCount, 1)) * 100),
+      });
+    }
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: failed > 0 ? "failed" : "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        succeeded,
+        failed,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: completed.phase,
+      level: failed > 0 ? "error" : body.state === "unsupported" ? "warning" : "info",
+      message: `${action}_bulk_${completed.phase} provider=${providerId} scope=${body.scope.type} state=${body.state} succeeded=${succeeded} failed=${failed}`,
+      context: { providerId, scope: body.scope, state: body.state, succeeded, failed, reason: body.reason ?? null },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: `${action}_bulk`,
+        providerId,
+        scope: body.scope,
+        matchCount,
+        state: body.state,
+        succeeded,
+        failed,
+      },
+    });
+    await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+      operationId: operation.id,
+      providerId,
+      phase: completed.phase,
+    });
+    reply.code(202);
+    return {
+      operation: providerFixerOperationToDto(completed, guardrails),
+      result: { status: completed.phase, succeeded, failed },
     };
   });
 
@@ -3722,6 +4284,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
     const operationDto = providerFixerOperationToDto(existing, guardrails);
+    if (existing.phase === "preparing_preview") {
+      throw routeError(409, "provider_preview_still_preparing", "Preview is still preparing; wait for the frozen scope preview to finish");
+    }
     if (existing.phase !== "preview" && existing.phase !== "staged") {
       throw routeError(400, "provider_operation_not_executable", "Selected operation cannot be executed");
     }
@@ -3732,21 +4297,37 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     if (operationDto.dangerous && body.typedConfirmation !== operationDto.preview.confirmationText) {
       throw routeError(400, "provider_fixer_typed_confirmation_required", "Dangerous operation requires matching typed confirmation");
     }
+    if (!asRecord(asRecord(existing.metadata)?.frozenScope)) {
+      throw routeError(409, "provider_legacy_preview_stale", "Legacy previews cannot execute; create a new scoped preview");
+    }
+    const scope = providerFixerScopeFromMetadata(existing.providerId, existing.metadata, {
+      marketCode: providerFixerMarketCodeField(existing.marketCode, providerFixerMarketCode(existing.providerId)),
+      errorCode: existing.errorCode,
+    });
+    const scopeItems = await listProviderUnresolvedScopeItems(app, existing.providerId, scope);
     const currentScope = await buildProviderFixerScopeSnapshot(
       app,
       existing.providerId,
       existing.marketCode,
-      existing.errorCode ?? "symbol_unresolved",
+      scope,
+      scopeItems,
     );
     if (currentScope.matchCount !== (existing.matchCount ?? 0) || currentScope.snapshotHash !== existing.snapshotHash) {
-      throw routeError(409, "snapshot_changed", "Provider fixer scope changed; run preview again");
+      throw routeError(409, "provider_fixer_snapshot_drift", "Provider fixer scope changed; run preview again");
     }
     const activeOperation = await findOtherActiveProviderOperationExecution(app, {
       providerId: existing.providerId,
       marketCode: existing.marketCode,
       operationId: existing.id,
     });
-    const initialPhase: ProviderOperationPhase = activeOperation ? "queued" : "running";
+    if (activeOperation) {
+      throw routeError(
+        409,
+        "provider_fixer_active_operation_conflict",
+        "Another provider operation is already active for this provider and market",
+      );
+    }
+    const initialPhase: ProviderOperationPhase = "running";
 
     const running = await app.persistence.updateProviderOperation({
       id: existing.id,
@@ -3756,19 +4337,19 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       metadata: {
         ...(asRecord(existing.metadata) ?? {}),
         progressPercent: 0,
-        queuedBehindOperationId: activeOperation?.id ?? null,
+        queuedBehindOperationId: null,
       },
     });
     await app.persistence.createProviderOperationLog({
       operationId: running.id,
       phase: initialPhase,
       level: "info",
-      message: `${activeOperation ? "execute_queued" : "execute_started"} provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
+      message: `execute_started provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
       context: {
         providerId: running.providerId,
         marketCode: running.marketCode,
         errorCode: running.errorCode,
-        queuedBehindOperationId: activeOperation?.id ?? null,
+        queuedBehindOperationId: null,
       },
     });
     await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
@@ -3778,32 +4359,16 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     });
 
     if (options.background) {
-      if (!activeOperation) {
-        runProviderFixerOperationInBackground(app, running, {
-          actorUserId: sessionUserId,
-          ipAddress,
-          guardrails,
-          dangerous: operationDto.dangerous,
-        });
-      }
+      runProviderFixerOperationInBackground(app, running, {
+        actorUserId: sessionUserId,
+        ipAddress,
+        guardrails,
+        dangerous: operationDto.dangerous,
+      });
       return {
         operation: providerFixerOperationToDto(running, guardrails),
         result: {
-          status: activeOperation ? "queued" : "started",
-          applied: 0,
-          skipped: 0,
-          scanned: 0,
-          mappedTickers: [],
-          backfills: { enqueued: 0, skippedExisting: 0 },
-        },
-      };
-    }
-
-    if (activeOperation) {
-      return {
-        operation: providerFixerOperationToDto(running, guardrails),
-        result: {
-          status: "queued",
+          status: "started",
           applied: 0,
           skipped: 0,
           scanned: 0,
@@ -3852,7 +4417,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       if (from && existing.phase !== from) {
         throw routeError(400, `provider_operation_not_${action}able`, `Selected operation cannot be ${action}d`);
       }
-      if (action === "cancel" && !["preview", "staged", "queued", "running", "paused"].includes(existing.phase)) {
+      if (action === "cancel" && !["preparing_preview", "preview", "staged", "queued", "running", "paused"].includes(existing.phase)) {
         throw routeError(400, "provider_operation_not_cancellable", "Selected operation cannot be cancelled");
       }
       if (
@@ -4300,7 +4865,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       operationId: completed.id,
       phase: completed.phase,
     });
-    await app.eventBus.publishEvent(sessionUserId, "provider_operation_progress", {
+    await publishProviderOperationProgress(app, sessionUserId, {
       operationId: completed.id,
       providerId,
       processed: 1,
