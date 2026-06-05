@@ -1192,6 +1192,7 @@ export interface UpdateProviderIncidentStatusInput {
 
 export type ProviderOperationPhase =
   | "diagnose"
+  | "preparing_preview"
   | "preview"
   | "staged"
   | "queued"
@@ -1202,6 +1203,23 @@ export type ProviderOperationPhase =
   | "cancelled";
 
 export type ProviderOperationLogLevel = "info" | "warning" | "error";
+
+export type ProviderOperationScopeType = "selected_items" | "filter";
+
+export interface ProviderOperationScopeItem {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+}
+
+export interface ProviderOperationFilterScope {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  state: "active";
+  search: string | null;
+}
 
 export interface ProviderOperationRecord {
   id: string;
@@ -1510,6 +1528,13 @@ export interface UpdateProviderUnresolvedItemStateInput {
   state: ProviderUnresolvedItemState;
   actorUserId?: string | null;
   reason?: string | null;
+}
+
+export interface ResolveProviderUnresolvedItemsInput {
+  providerId: string;
+  marketCode: MarketCode;
+  items: ProviderOperationScopeItem[];
+  operationId?: string | null;
 }
 
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
@@ -2616,12 +2641,7 @@ export interface Persistence {
   upsertProviderUnresolvedItem(input: UpsertProviderUnresolvedItemInput): Promise<ProviderUnresolvedItemRecord>;
   listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
   updateProviderUnresolvedItemState(input: UpdateProviderUnresolvedItemStateInput): Promise<ProviderUnresolvedItemRecord>;
-  resolveProviderUnresolvedItems(input: {
-    providerId: string;
-    marketCode: MarketCode;
-    sourceSymbols: string[];
-    operationId?: string | null;
-  }): Promise<number>;
+  resolveProviderUnresolvedItems(input: ResolveProviderUnresolvedItemsInput): Promise<number>;
   /**
    * Delete error trail rows older than `olderThanDays` days. Memory backend
    * may behave as a no-op (returns 0). Returns the number of rows deleted.

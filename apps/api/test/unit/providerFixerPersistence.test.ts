@@ -53,6 +53,25 @@ describe("Provider Fixer persistence contract", () => {
     });
   });
 
+  it("treats preparing previews as active provider executions", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+
+    await persistence.createProviderOperation({
+      id: "op-kr-preparing",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair",
+      phase: "preparing_preview",
+      matchCount: 24,
+      scopeQuery: "provider=yahoo-finance-kr&state=active",
+    });
+
+    await expect(
+      persistence.hasActiveProviderExecution("yahoo-finance-kr", "KR"),
+    ).resolves.toBe(true);
+  });
+
   it("upserts durable provider-resolution mappings and lists unresolved provider errors", async () => {
     const persistence = new MemoryPersistence();
     await persistence.init();
@@ -62,6 +81,13 @@ describe("Provider Fixer persistence contract", () => {
       errorClass: "other",
       errorMessage: "yahoo_finance_kr_symbol_unresolved: 035900",
       context: { ticker: "035900", marketCode: "KR" },
+    });
+    await persistence.upsertProviderUnresolvedItem({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "different_unresolved_error",
+      sourceSymbol: "035900",
+      providerSymbol: "035900",
     });
     const page = await persistence.listProviderErrorTrailPage({
       providerId: "yahoo-finance-kr",
@@ -101,6 +127,44 @@ describe("Provider Fixer persistence contract", () => {
       sourceSymbol: "035900",
       resolvedSymbol: "035900.KQ",
       evidence: { exchange: "KOSDAQ", micCode: "XKOS" },
+    });
+    await expect(
+      persistence.resolveProviderUnresolvedItems({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        items: [
+          {
+            providerId: "yahoo-finance-kr",
+            marketCode: "KR",
+            errorCode: "yahoo_finance_kr_symbol_unresolved",
+            sourceSymbol: "035900",
+          },
+        ],
+        operationId: "op-kr-1",
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      persistence.listProviderUnresolvedItems({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          sourceSymbol: "035900",
+          state: "resolved",
+          resolvedByOperationId: "op-kr-1",
+        }),
+        expect.objectContaining({
+          errorCode: "different_unresolved_error",
+          sourceSymbol: "035900",
+          state: "active",
+        }),
+      ]),
     });
   });
 });

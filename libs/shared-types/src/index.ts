@@ -1910,6 +1910,7 @@ export interface AdminProvidersResponse {
 
 export type ProviderFixerDashboardOperationPhase =
   | "diagnose"
+  | "preparing_preview"
   | "preview"
   | "staged"
   | "queued"
@@ -1922,6 +1923,30 @@ export type ProviderFixerDashboardOperationPhase =
 export type ProviderFixerDashboardSeverity = "ok" | "warning" | "critical";
 export type ProviderFixerDashboardResolverStatus = "enabled" | "disabled" | "auto";
 export type ProviderFixerDashboardConfirmationMode = "standard" | "typed";
+export type ProviderOperationScopeType = "selected_items" | "filter";
+
+export interface ProviderOperationScopeItemDto {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+}
+
+export interface ProviderOperationFilterScopeDto {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  state: "active";
+  search: string | null;
+}
+
+export interface ProviderOperationFrozenScopeDto {
+  type: ProviderOperationScopeType;
+  filterFingerprint: string;
+  matchCount: number;
+  selectedItems: ProviderOperationScopeItemDto[];
+  filter: ProviderOperationFilterScopeDto | null;
+}
 
 export interface ProviderFixerDashboardSummaryDto {
   criticalUnresolvedCount: number;
@@ -1971,6 +1996,7 @@ export interface ProviderFixerDashboardEvidenceSampleDto {
 }
 
 export interface ProviderFixerDashboardPreviewDto {
+  scopeType: "row" | "selected_items" | "filter" | "legacy";
   scopeLabel: string;
   queryBacked: boolean;
   page: number;
@@ -1983,6 +2009,10 @@ export interface ProviderFixerDashboardPreviewDto {
   confirmationMode: ProviderFixerDashboardConfirmationMode;
   confirmationText: string | null;
   acknowledgementLabel: string;
+  scopeSummary: string;
+  search: string | null;
+  state: ProviderUnresolvedItemState | null;
+  frozenScope: ProviderOperationFrozenScopeDto | null;
   evidenceSample: ProviderFixerDashboardEvidenceSampleDto[];
 }
 
