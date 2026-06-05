@@ -133,7 +133,7 @@ describePostgres("app_config — repair cooldown + DTO field (Postgres)", () => 
     await applyNumberedMigrations();
     // Build against the real Postgres backend using managed CI stack env vars.
     // AUTH_MODE=dev_bypass (set by vitest config) so routes use userId="user-1" without cookies.
-    app = await buildApp({ persistenceBackend: "postgres" });
+    app = await buildApp({ persistenceBackend: "postgres", registerWorkers: false });
     // seedDefaults() (called inside buildApp init) upserts 4 default instruments.
     // Clear them so each test starts from a known-empty instruments table.
     await pool.query("DELETE FROM market_data.instruments");
