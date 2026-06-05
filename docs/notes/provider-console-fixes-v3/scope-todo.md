@@ -112,7 +112,7 @@ superseded_by: null
 - [x] All-matching preview clearly states execution applies to all matching rows, not only sample rows.
 - [x] Large all-matching preview returns quickly by entering `preparing_preview` instead of blocking.
 - [x] Execute button shows exact blocker checklist.
-- [ ] Progress updates through SSE without scrolling the page to top.
+- [x] Progress updates through SSE without scrolling the page to top.
 - [x] Incidents and Activity wrap long text on desktop and are readable on mobile.
 - [x] Focused component, API, and E2E tests pass.
 

@@ -20,6 +20,7 @@ import type {
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
 const mockPostJson = vi.fn();
+const mockUseEventStream = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
@@ -40,6 +41,10 @@ vi.mock("../../../lib/api", () => ({
   getApiBaseUrl: () => "http://localhost:4000",
   patchJson: vi.fn(),
   postJson: (...args: unknown[]) => mockPostJson(...args),
+}));
+
+vi.mock("../../../hooks/useEventStream", () => ({
+  useEventStream: (options: unknown) => mockUseEventStream(options),
 }));
 
 import { AdminProvidersClient } from "../../../components/admin/AdminProvidersClient";
@@ -492,6 +497,7 @@ describe("AdminProvidersClient", () => {
     mockRefresh.mockReset();
     mockPush.mockReset();
     mockPostJson.mockReset();
+    mockUseEventStream.mockReset();
     mockPostJson.mockResolvedValue({});
     Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: vi.fn() });
     container = document.createElement("div");
@@ -959,6 +965,30 @@ describe("AdminProvidersClient", () => {
       vi.advanceTimersByTime(1850);
     });
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 640, behavior: "auto" });
+  });
+
+  it("preserves scroll when provider progress arrives over SSE", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 720 });
+    const scrollTo = vi.mocked(window.scrollTo);
+    renderClient(root);
+
+    const eventOptions = mockUseEventStream.mock.calls[0]?.[0] as { onEvent?: () => void; eventTypes?: string[] };
+    expect(eventOptions.eventTypes).toEqual([
+      "provider_operation_progress",
+      "provider_operation_phase_changed",
+      "provider_unresolved_item_changed",
+      "provider_incident_changed",
+      "provider_budget_wait_changed",
+    ]);
+
+    act(() => {
+      eventOptions.onEvent?.();
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(mockRefresh).toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ top: 720, behavior: "auto" });
   });
 
   it("shows durable item outcomes in the Operations tab", () => {
