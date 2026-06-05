@@ -129,18 +129,42 @@ function buildOperation(
     phase: "preview",
     matchCount: 1842,
     preview: {
+      scopeType: "filter",
       scopeLabel: "symbol_unresolved",
+      scopeSummary: "1842 active unresolved rows matching the current filter",
       queryBacked: true,
       page: 1,
       totalPages: 184,
       token: "PF-UNSAFE-OK",
-      tokenExpiresAt: "2026-06-03T14:15:00.000Z",
+      tokenExpiresAt: "2026-06-30T14:15:00.000Z",
       snapshotHash: "2d14f",
       matchCount: 1842,
       sampleCount: 120,
       confirmationMode: "typed",
-      confirmationText: "EXECUTE 1842",
+      confirmationText: "EXECUTE 1842 MATCHING",
       acknowledgementLabel: "I understand this can write provider rows",
+      search: null,
+      state: "active",
+      frozenScope: {
+        type: "filter",
+        filterFingerprint: JSON.stringify({
+          providerId: "yahoo-finance-kr",
+          resolverMode: "quote_first",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          state: "active",
+          search: null,
+          sort: "last_seen_desc",
+        }),
+        matchCount: 1842,
+        selectedItems: [],
+        filter: {
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          state: "active",
+          search: null,
+        },
+      },
       evidenceSample: [
         {
           symbol: "005930",
@@ -581,6 +605,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=ignored&unresolvedSort=last_seen_desc&unresolvedPage=1&unresolvedSearch=005930",
+      { scroll: false },
     );
   });
 
@@ -593,6 +618,7 @@ describe("AdminProvidersClient", () => {
     click("provider-console-unresolved-apply");
     expect(mockPush).toHaveBeenLastCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSort=occurrence_count_desc&unresolvedPage=1",
+      { scroll: false },
     );
 
     click("provider-console-select-all-matching");
@@ -603,7 +629,156 @@ describe("AdminProvidersClient", () => {
     click("provider-console-recently-resolved");
     expect(mockPush).toHaveBeenLastCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=resolved&unresolvedSort=updated_desc&unresolvedPage=1",
+      { scroll: false },
     );
+  });
+
+  it("header checkbox selects and clears only visible durable rows", () => {
+    renderClient(root, {
+      initialTab: "unresolved",
+      unresolvedTotal: 25,
+      unresolvedItems: [
+        ...buildUnresolvedItems(),
+        {
+          ...buildUnresolvedItems()[0],
+          sourceSymbol: "035720",
+          providerSymbol: "035720",
+        },
+      ],
+    });
+
+    const selectVisible = document.querySelector("[data-testid='provider-console-select-visible']") as HTMLInputElement | null;
+    const rowOne = document.querySelector("[data-testid='provider-console-select-row-005930']") as HTMLInputElement | null;
+    const rowTwo = document.querySelector("[data-testid='provider-console-select-row-035720']") as HTMLInputElement | null;
+
+    act(() => {
+      selectVisible?.click();
+    });
+
+    expect(rowOne?.checked).toBe(true);
+    expect(rowTwo?.checked).toBe(true);
+    expect(document.querySelector("[data-testid='provider-console-selection-banner']")?.textContent ?? "").toMatch(/2 rows selected/i);
+
+    act(() => {
+      selectVisible?.click();
+    });
+
+    expect(rowOne?.checked).toBe(false);
+    expect(rowTwo?.checked).toBe(false);
+    expect(document.querySelector("[data-testid='provider-console-selection-banner']")?.textContent ?? "").toMatch(/select visible rows or choose all matching/i);
+  });
+
+  it("bulk-ignores selected unresolved rows through a selected-items scope", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-BULK-IGNORE", phase: "completed" }) });
+    renderClient(root, { initialTab: "unresolved" });
+
+    click("provider-console-select-visible");
+    click("provider-console-bulk-ignore");
+    await act(async () => undefined);
+
+    expect(confirmSpy).toHaveBeenCalledWith("Apply ignored to 1 selected unresolved row?");
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/unresolved/state/bulk",
+      {
+        scope: {
+          type: "selected_items",
+          items: [
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "005930",
+            },
+          ],
+        },
+        state: "ignored",
+        acknowledged: true,
+        typedConfirmation: undefined,
+      },
+    );
+    expect(document.querySelector("[data-testid='provider-console-operations-table']")).not.toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it("renews selected unresolved rows through a selected-items scope", async () => {
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-BULK-RENEW", phase: "running" }) });
+    renderClient(root, { initialTab: "unresolved" });
+
+    click("provider-console-select-visible");
+    click("provider-console-bulk-renew");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/renew",
+      {
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        scope: {
+          type: "selected_items",
+          items: [
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "005930",
+            },
+          ],
+        },
+      },
+    );
+  });
+
+  it("bulk-marks all matching unresolved rows unsupported with typed confirmation", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("MARK 1842 MATCHING UNSUPPORTED");
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-BULK-UNSUPPORTED", phase: "completed" }) });
+    renderClient(root, { initialTab: "unresolved", unresolvedTotal: 1842 });
+
+    click("provider-console-select-all-matching");
+    click("provider-console-bulk-unsupported");
+    await act(async () => undefined);
+
+    expect(promptSpy).toHaveBeenCalledWith("Type MARK 1842 MATCHING UNSUPPORTED to mark unsupported this scope.");
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/unresolved/state/bulk",
+      {
+        scope: {
+          type: "filter",
+          marketCode: "KR",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          state: "active",
+          search: undefined,
+        },
+        state: "unsupported",
+        acknowledged: false,
+        typedConfirmation: "MARK 1842 MATCHING UNSUPPORTED",
+      },
+    );
+    expect(document.querySelector("[data-testid='provider-console-operations-table']")).not.toBeNull();
+    promptSpy.mockRestore();
+  });
+
+  it("exports currently loaded unresolved rows as csv", () => {
+    const anchors: HTMLAnchorElement[] = [];
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tagName, options);
+      if (tagName === "a") anchors.push(element as HTMLAnchorElement);
+      return element;
+    }) as typeof document.createElement);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderClient(root, { initialTab: "unresolved" });
+
+    click("provider-console-bulk-export");
+
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]?.download).toMatch(/^yahoo-finance-kr-unresolved-.*\.csv$/);
+    const csv = decodeURIComponent((anchors[0]?.href ?? "").split(",")[1] ?? "");
+    expect(csv).toContain("providerId,marketCode,errorCode,sourceSymbol");
+    expect(csv).toContain("yahoo-finance-kr,KR,yahoo_finance_kr_symbol_unresolved,005930");
+
+    clickSpy.mockRestore();
+    createElementSpy.mockRestore();
   });
 
   it("shows reopen for non-active unresolved rows", () => {
@@ -643,8 +818,8 @@ describe("AdminProvidersClient", () => {
     expect(mockRefresh).toHaveBeenCalled();
   });
 
-  it("keeps dangerous execution disabled until checkbox and typed confirmation are satisfied", () => {
-    renderClient(root, { initialTab: "fixer" });
+  it("keeps dangerous execution disabled until scope, checkbox, and typed confirmation are satisfied", () => {
+    renderClient(root, { initialTab: "fixer", unresolvedTotal: 1842 });
 
     const executeButton = document.querySelector(
       "[data-testid='provider-console-execute-button']",
@@ -659,13 +834,23 @@ describe("AdminProvidersClient", () => {
     ) as HTMLInputElement | null;
     expect(input).not.toBeNull();
 
+    const allMatchingButton = findElementByText("button", "Use all matching filter scope");
+    expect(allMatchingButton).not.toBeNull();
+    act(() => {
+      allMatchingButton?.click();
+    });
+    expect(executeButton?.disabled).toBe(true);
+    act(() => {
+      allMatchingButton?.click();
+    });
+
     act(() => {
       checkbox?.click();
     });
     expect(executeButton?.disabled).toBe(true);
     expect(executeButton?.getAttribute("title") ?? "").toMatch(/typed phrase/i);
 
-    if (input) updateInputValue(input, "EXECUTE 1842");
+    if (input) updateInputValue(input, "EXECUTE 1842 MATCHING");
 
     expect(executeButton?.disabled).toBe(false);
     expect(executeButton?.getAttribute("title") ?? "").toMatch(/guarded operation preview/i);
@@ -786,6 +971,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-SECOND",
+      { scroll: false },
     );
   });
 
@@ -801,6 +987,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=logs&operationId=OP-LOGS",
+      { scroll: false },
     );
   });
 
@@ -816,6 +1003,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=incidents",
+      { scroll: false },
     );
   });
 
@@ -832,6 +1020,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationsPage=2&operationId=OP-PAGE",
+      { scroll: false },
     );
   });
 
@@ -894,10 +1083,12 @@ describe("AdminProvidersClient", () => {
     click("provider-console-mapping-unresolved-link-005930");
     expect(mockPush).toHaveBeenLastCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSearch=005930&unresolvedPage=1",
+      { scroll: false },
     );
     click("provider-console-mapping-operation-link-005930");
     expect(mockPush).toHaveBeenLastCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&operationId=OP-20260602-1842",
+      { scroll: false },
     );
     expect(findElementByText("button", "Reverify").getAttribute("title") ?? "").toMatch(
       /create a provider operation/i,
@@ -960,6 +1151,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=finmind-tw&tab=unresolved&resolverMode=quote_first&errorCode=provider_symbol_unresolved",
+      { scroll: false },
     );
   });
 
@@ -970,6 +1162,7 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+      { scroll: false },
     );
   });
 
@@ -978,7 +1171,7 @@ describe("AdminProvidersClient", () => {
 
     const providerSelect = document.querySelector("[data-testid='provider-console-mobile-provider-select']") as HTMLSelectElement | null;
     expect(providerSelect).not.toBeNull();
-    expect(document.querySelector("[data-testid='provider-console-mobile-bottom-actions']")?.textContent ?? "").toMatch(/visible unresolved/i);
+    expect(document.querySelector("[data-testid='provider-console-mobile-bottom-actions']")?.textContent ?? "").toMatch(/selected/i);
 
     click("provider-console-unresolved-ignore-005930");
     await act(async () => undefined);
@@ -991,6 +1184,7 @@ describe("AdminProvidersClient", () => {
     updateSelectValue(providerSelect, "finmind-tw");
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=finmind-tw&tab=unresolved&resolverMode=quote_first&errorCode=provider_symbol_unresolved",
+      { scroll: false },
     );
   });
 });
