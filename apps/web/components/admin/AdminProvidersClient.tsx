@@ -2566,7 +2566,7 @@ function FixerTab({
         />
         <div className="grid gap-3 md:grid-cols-3">
           <ActionPanel title="Renew" body={actionHelp.renew} enabled={capability.supportsRenew} disabledReason={renewDisabledReason ?? ""} actionLabel="Renew evidence" onClick={() => onRenewEvidence()} busy={busyAction !== null} testId="provider-console-renew-evidence" />
-          <ActionPanel title="Repair" body={actionHelp.repair} enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} />
+          <ActionPanel title="Repair" body={actionHelp.repair} enabled={capability.supportsRepair} disabledReason={repairDisabledReason ?? ""} actionLabel="Preview repair" onClick={onPreviewRepair} busy={busyAction !== null} testId="provider-console-preview-repair" />
           <ActionPanel title="Rerun" body={actionHelp.rerun} enabled={false} disabledReason={rerunDisabledReason} actionLabel="Rerun disabled" />
         </div>
         {!selectedScope ? (
@@ -2681,7 +2681,7 @@ function FixerTab({
                 </label>
               ) : null}
               <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="secondary" onClick={onPreviewRepair} title="Refresh the preview snapshot before executing; execution still requires matching confirmation.">Refresh preview</Button>
+                <Button variant="secondary" onClick={() => onPreviewRepair()} title="Refresh the preview snapshot before executing; execution still requires matching confirmation.">Refresh preview</Button>
                 <Button disabled={executeDisabled} onClick={onExecute} data-testid="provider-console-execute-button" title={executeDisabled ? "Execution stays disabled until the checkbox and typed phrase match the current preview." : "Execute the current guarded operation preview."}>Execute operation</Button>
               </div>
             </>
@@ -3627,7 +3627,7 @@ function ActionPanel({
     <div className="rounded-xl border border-border bg-card p-4" title={enabled ? body : disabledReason}>
       <h4 className="font-semibold text-foreground">{title}</h4>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
-      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={onClick} title={enabled ? body : disabledReason} data-testid={testId}>
+      <Button className="mt-3 w-full" variant={enabled ? "default" : "secondary"} disabled={!enabled || busy} onClick={() => onClick?.()} title={enabled ? body : disabledReason} data-testid={testId}>
         {actionLabel}
       </Button>
       {!enabled ? <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p> : null}
