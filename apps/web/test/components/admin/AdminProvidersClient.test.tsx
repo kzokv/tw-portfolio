@@ -986,6 +986,33 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("previews fixer repair without leaking click events into the request body", async () => {
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-PREVIEW-1", phase: "preview" }) });
+    renderClient(root, { initialTab: "fixer", unresolvedTotal: 1842 });
+
+    const allMatchingButton = findElementByText("button", "Use all matching filter scope");
+    act(() => {
+      allMatchingButton.click();
+    });
+    await act(async () => undefined);
+    click("provider-console-preview-repair");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/preview",
+      {
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+        scope: {
+          type: "filter",
+          marketCode: "KR",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          state: "active",
+        },
+      },
+    );
+  });
+
   it("routes execute repair to the operations inspector", async () => {
     mockPostJson.mockResolvedValueOnce({});
     renderClient(root, { initialTab: "fixer", unresolvedTotal: 1842 });

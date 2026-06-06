@@ -23,6 +23,8 @@ This follow-up scope fixes provider console UX bugs observed in dev and locks th
 
 Locked on 2026-06-06 after grill alignment. Do not expand this todo with new provider lifecycle semantics, new role/permission splits, provider budget/rate-limit changes, or `mapped_pending_rerun`. New findings should become a separate durable todo unless they are required to make the items below work as written.
 
+User reconfirmed on 2026-06-06 that the scope is locked and should be written to this durable todo list. Keep the UI label/state wording as-is for active unresolved rows; do not rename the displayed state to `resolved` or introduce a new lifecycle label as part of this scope.
+
 Current audit status:
 
 - Implementation is present in the active KZO-197 provider guardrails branch.
