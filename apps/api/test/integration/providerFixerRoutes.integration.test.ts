@@ -2259,7 +2259,7 @@ describe("Provider Fixer admin routes", () => {
     );
   });
 
-  it("rejects expired preview tokens and blocks new previews while another provider-market operation is active", async () => {
+  it("rejects expired preview tokens but lets admins create a fresh preview unless another provider-market operation is active", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const expired = await app.persistence.createProviderOperation({
@@ -2290,6 +2290,30 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(expiredResponse.statusCode).toBe(400);
     expect(expiredResponse.json()).toMatchObject({ error: "provider_fixer_preview_token_expired" });
+
+    const freshPreview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(freshPreview.statusCode).toBe(201);
+    expect(freshPreview.json()).toMatchObject({
+      operation: {
+        providerId: "yahoo-finance-kr",
+        phase: "preview",
+      },
+    });
+    await app.persistence.updateProviderOperation({
+      id: freshPreview.json().operation.id,
+      phase: "cancelled",
+      cancelledAt: new Date().toISOString(),
+    });
 
     await app.persistence.updateProviderOperation({
       id: expired.id,
