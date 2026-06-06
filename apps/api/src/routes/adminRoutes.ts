@@ -1366,7 +1366,18 @@ async function findOtherActiveProviderOperationExecution(
     page: 1,
     limit: 50,
   });
-  return active.items.find((row) => row.id !== scope.operationId) ?? null;
+  const now = Date.now();
+  return active.items.find((row) => {
+    if (row.id === scope.operationId) return false;
+    if (
+      (row.phase === "preview" || row.phase === "staged")
+      && row.previewExpiresAt
+      && new Date(row.previewExpiresAt).getTime() <= now
+    ) {
+      return false;
+    }
+    return true;
+  }) ?? null;
 }
 
 async function assertNoOtherProviderOperationExecution(
