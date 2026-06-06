@@ -640,7 +640,7 @@ rollback() {
   fi
   git reset --hard "$PREVIOUS_SHA"
 
-  dc --profile migrate build $BUILD_FLAGS
+  run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS
   dc down --remove-orphans --timeout 10 || true
   for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
@@ -748,7 +748,11 @@ if ! docker buildx version >/dev/null 2>&1; then
   log "WARNING: buildx not available — using --no-cache to prevent stale layers"
   BUILD_FLAGS="--no-cache"
 fi
-dc --profile migrate build $BUILD_FLAGS
+if ! run_with_heartbeat "image build" dc --profile migrate build $BUILD_FLAGS; then
+  log "ERROR: Image build failed"
+  collect_compose_failure_diagnostics "image build failed"
+  exit 1
+fi
 phase_done
 
 phase_start "Pre-migration database backup"

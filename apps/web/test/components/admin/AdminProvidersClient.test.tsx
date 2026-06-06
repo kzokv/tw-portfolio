@@ -818,6 +818,7 @@ describe("AdminProvidersClient", () => {
   });
 
   it("reruns resolved unresolved rows through mapped provider operation API", async () => {
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-RERUN-ROW", phase: "queued", canExecute: false }) });
     renderClient(root, {
       initialTab: "unresolved",
       initialUnresolvedState: "resolved",
@@ -842,7 +843,10 @@ describe("AdminProvidersClient", () => {
       },
     );
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
-      /provider operation updated/i,
+      /Rerun queued/i,
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Use Inspect in Operations to review it/i,
     );
   });
 
@@ -949,6 +953,7 @@ describe("AdminProvidersClient", () => {
   });
 
   it("explains fixer actions and starts renew evidence operations", async () => {
+    mockPostJson.mockResolvedValueOnce({ operation: buildOperation({ id: "OP-RENEW-1", phase: "running", canExecute: false }) });
     renderClient(root, { initialTab: "fixer" });
 
     expect(findElementByText("span", "Quote-first").getAttribute("title") ?? "").toMatch(
@@ -975,6 +980,47 @@ describe("AdminProvidersClient", () => {
         resolverMode: "quote_first",
         errorCode: "yahoo_finance_kr_symbol_unresolved",
       },
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Renew created a provider operation/i,
+    );
+  });
+
+  it("routes execute repair to the operations inspector", async () => {
+    mockPostJson.mockResolvedValueOnce({});
+    renderClient(root, { initialTab: "fixer", unresolvedTotal: 1842 });
+
+    const checkbox = document.querySelector(
+      "[data-testid='provider-console-confirm-checkbox']",
+    ) as HTMLInputElement | null;
+    const input = document.querySelector(
+      "[data-testid='provider-console-typed-confirmation']",
+    ) as HTMLInputElement | null;
+    const allMatchingButton = findElementByText("button", "Use all matching filter scope");
+
+    act(() => {
+      allMatchingButton.click();
+      checkbox?.click();
+    });
+    if (input) updateInputValue(input, "EXECUTE 1842 MATCHING");
+
+    click("provider-console-execute-button");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/OP-20260602-1842/execute",
+      {
+        previewToken: "PF-UNSAFE-OK",
+        acknowledged: true,
+        typedConfirmation: "EXECUTE 1842 MATCHING",
+      },
+    );
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-20260602-1842&operationOutcomesPage=1",
+      { scroll: false },
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Repair started/i,
     );
   });
 
@@ -1306,6 +1352,10 @@ describe("AdminProvidersClient", () => {
   });
 
   it("shows mapping evidence, linked context, and starts guarded reverify operations", async () => {
+    mockPostJson
+      .mockResolvedValueOnce({ operation: buildOperation({ id: "OP-REVERIFY", phase: "running", canExecute: false }) })
+      .mockResolvedValueOnce({ operation: buildOperation({ id: "OP-RERUN-MAPPING", phase: "queued", canExecute: false }) })
+      .mockResolvedValueOnce({ operation: buildOperation({ id: "OP-REVERT-MAPPING", phase: "queued", canExecute: false }) });
     renderClient(root, { initialTab: "mappings" });
 
     expect(document.body.textContent ?? "").toMatch(/005930\.KS/i);
@@ -1334,6 +1384,12 @@ describe("AdminProvidersClient", () => {
         resolverMode: "quote_first",
       },
     );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Reverify started/i,
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Use Inspect in Operations to review it/i,
+    );
 
     click("provider-console-mapping-rerun-005930");
     await act(async () => undefined);
@@ -1345,6 +1401,9 @@ describe("AdminProvidersClient", () => {
         resolverMode: "quote_first",
         acknowledged: true,
       },
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Rerun queued/i,
     );
 
     click("provider-console-mapping-revert-open-005930");
@@ -1368,6 +1427,9 @@ describe("AdminProvidersClient", () => {
         sourceSymbol: "005930",
         typedConfirmation: "REVERT 005930",
       },
+    );
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /Revert started/i,
     );
   });
 

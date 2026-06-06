@@ -50,6 +50,11 @@ Latest validation finding:
 
 - Direct unresolved filter URLs worked on dev, but the rendered search form did not submit through Apply/Enter. The fix converts the unresolved filter controls to a real form submit path and adds a component regression test.
 
+Post-lock follow-up findings:
+
+- Dev deployment run `27049655875` failed during the remote deploy step with `client_loop: send disconnect: Broken pipe` while the web image build was still progressing. The failure appears transport/quiet-build related rather than an application compile failure.
+- Provider repair execution now needs to route the user directly into the Operations inspector for the created operation, while row-level renew/rerun/reverify/revert actions should keep the user in context and provide explicit Inspect guidance.
+
 ## Locked Decisions
 
 - Use URL-backed pagination for every provider console pageable section.
@@ -102,6 +107,10 @@ Latest validation finding:
 - [x] Add or update API/integration tests for `state=all`, mappings search, selected operation include/fetch, and operation outcome filters/pagination.
 - [x] Add or update E2E coverage for provider console pagination, Inspect flow, mapping linked context, and responsive mappings on desktop/mobile.
 - [x] Run the smallest relevant test scope first, then required broader gates for touched areas.
+- [x] Add SSH keepalives and deploy-script heartbeat wrapping for long-running image builds so remote deploy does not fail silently during quiet build phases.
+- [x] Add runbook guidance for diagnosing long-running build disconnects and distinguishing SSH transport failure from application build failure.
+- [x] Route guarded repair execution to the selected Operations inspector and preserve action-specific toast guidance for provider row/mapping actions.
+- [x] Add regression coverage for guarded repair execution selecting and focusing the Operations inspector.
 - [ ] Inspect failed dev deployment run `27049655875`, rerun or fix deployment as needed, then validate the latest branch on dev through Chrome.
 
 ## Acceptance Criteria

@@ -156,6 +156,8 @@ jobs:
             -o ConnectTimeout=30 \
             -o IdentitiesOnly=yes \
             -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "test -f '$DEPLOY_PATH/infra/scripts/deploy.sh' && test -f '$remote_compose_file' && test -f '$remote_env_file' && docker compose version >/dev/null"
@@ -168,6 +170,8 @@ jobs:
             -o ConnectTimeout=30 \
             -o IdentitiesOnly=yes \
             -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "bash '$DEPLOY_PATH/infra/scripts/deploy.sh' --environment '$DEPLOY_ENVIRONMENT' --branch '$DEPLOY_BRANCH' -t '$DEPLOY_IMAGE_TAG' '$DEPLOY_SHA'"
