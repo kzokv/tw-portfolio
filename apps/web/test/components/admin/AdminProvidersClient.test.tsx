@@ -153,12 +153,11 @@ function buildOperation(
       frozenScope: {
         type: "filter",
         filterFingerprint: JSON.stringify({
-          providerId: "yahoo-finance-kr",
-          resolverMode: "quote_first",
+          type: "filter",
+          marketCode: "KR",
           errorCode: "yahoo_finance_kr_symbol_unresolved",
           state: "active",
           search: null,
-          sort: "last_seen_desc",
         }),
         matchCount: 1842,
         selectedItems: [],
@@ -499,7 +498,9 @@ describe("AdminProvidersClient", () => {
     mockPostJson.mockReset();
     mockUseEventStream.mockReset();
     mockPostJson.mockResolvedValue({});
+    window.sessionStorage.clear();
     Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: vi.fn() });
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: vi.fn() });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1048,6 +1049,46 @@ describe("AdminProvidersClient", () => {
     );
     expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
       /Repair started/i,
+    );
+  });
+
+  it("executes a preview from the operations inspector using the frozen scope", async () => {
+    mockPostJson.mockResolvedValueOnce({});
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-20260602-1842",
+      unresolvedTotal: 1842,
+    });
+
+    expect(document.querySelector("[data-testid='provider-console-operation-execute-review-OP-20260602-1842']")).not.toBeNull();
+    const checkbox = document.querySelector(
+      "[data-testid='provider-console-operation-confirm-checkbox']",
+    ) as HTMLInputElement | null;
+    const input = document.querySelector(
+      "[data-testid='provider-console-operation-typed-confirmation']",
+    ) as HTMLInputElement | null;
+    const executeButton = document.querySelector(
+      "[data-testid='provider-console-operation-execute-button']",
+    ) as HTMLButtonElement | null;
+
+    expect(document.querySelector("[data-testid='provider-console-operation-execute-guardrails']")).not.toBeNull();
+    expect(executeButton?.disabled).toBe(true);
+    act(() => {
+      checkbox?.click();
+    });
+    if (input) updateInputValue(input, "EXECUTE 1842 MATCHING");
+    expect(executeButton?.disabled).toBe(false);
+
+    click("provider-console-operation-execute-button");
+    await act(async () => undefined);
+
+    expect(mockPostJson).toHaveBeenCalledWith(
+      "/admin/providers/yahoo-finance-kr/operations/OP-20260602-1842/execute",
+      {
+        previewToken: "PF-UNSAFE-OK",
+        acknowledged: true,
+        typedConfirmation: "EXECUTE 1842 MATCHING",
+      },
     );
   });
 
