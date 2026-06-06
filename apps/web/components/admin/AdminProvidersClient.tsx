@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, type MutableRefObject, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ProviderActivityItemDto,
@@ -80,7 +80,7 @@ interface AdminProvidersClientProps {
   unresolvedPage: number;
   unresolvedLimit: number;
   unresolvedTotal: number;
-  initialUnresolvedState?: ProviderUnresolvedItemDto["state"];
+  initialUnresolvedState?: ProviderUnresolvedItemDto["state"] | "all";
   initialUnresolvedSearch?: string;
   initialUnresolvedSort?: ProviderUnresolvedSort;
   incidents: ProviderIncidentDto[];
@@ -98,6 +98,7 @@ interface AdminProvidersClientProps {
   stagedOperation: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   initialOperationId?: string;
+  initialRequestedOperationId?: string;
   operationsPage: number;
   operationsLimit: number;
   operationsTotal: number;
@@ -110,6 +111,9 @@ interface AdminProvidersClientProps {
   logsPage: number;
   logsLimit: number;
   logsTotal: number;
+  initialMappingsSearch?: string;
+  initialOperationOutcomeState?: ProviderOperationOutcomeDto["state"] | "all";
+  initialOperationOutcomeAction?: string;
 }
 
 const tabLabels: Array<{ id: ProviderConsoleTab; label: string; help: string }> = [
@@ -163,6 +167,7 @@ const defaultCapability: ProviderOperationCapabilityDto = {
   ],
 };
 const providerConsoleScrollStorageKey = "vakwen:admin-provider-console-scroll-top";
+const operationInspectorFocusStorageKey = "vakwen:admin-provider-console-focus-operation-inspector";
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
   diagnose: "bg-slate-100 text-slate-700",
@@ -271,7 +276,7 @@ function unresolvedScopeFingerprint(args: {
   providerId: string;
   resolverMode: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
   errorCode: string;
-  state: ProviderUnresolvedItemDto["state"];
+  state: ProviderUnresolvedItemDto["state"] | "all";
   search: string;
   sort: ProviderUnresolvedSort;
 }): string {
@@ -478,6 +483,7 @@ export function AdminProvidersClient({
   stagedOperation,
   operations,
   initialOperationId,
+  initialRequestedOperationId,
   operationsPage,
   operationsLimit,
   operationsTotal,
@@ -490,6 +496,9 @@ export function AdminProvidersClient({
   logsPage,
   logsLimit,
   logsTotal,
+  initialMappingsSearch = "",
+  initialOperationOutcomeState = "all",
+  initialOperationOutcomeAction = "",
 }: AdminProvidersClientProps) {
   const router = useRouter();
   const groups = useMemo(() => providerGroups(providers), [providers]);
@@ -511,6 +520,9 @@ export function AdminProvidersClient({
   const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const [isRoutePending, startRouteTransition] = useTransition();
   const pendingScrollTopRef = useRef<number | null>(null);
+  const refreshTimeoutRef = useRef<number | null>(null);
+  const inspectorRef = useRef<HTMLDivElement | null>(null);
+  const providerRequestedOperationId = initialRequestedOperationId ?? initialOperationId ?? "";
 
   const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId) ?? providers[0] ?? null;
   const capability =
@@ -552,10 +564,13 @@ export function AdminProvidersClient({
   ]);
   const providerOperations = operations.filter((operation) => operation.providerId === selectedProviderId);
   const providerStagedOperation = stagedOperation?.providerId === selectedProviderId ? stagedOperation : null;
-  const selectedOperation =
+  const selectedOperationFromList =
     providerOperations.find((operation) => operation.id === selectedOperationId)
-    ?? providerStagedOperation
-    ?? providerOperations[0]
+    ?? (providerStagedOperation?.id === selectedOperationId ? providerStagedOperation : null);
+  const requestedOperationMissing = selectedOperationId.length > 0 && !selectedOperationFromList;
+  const selectedOperation =
+    selectedOperationFromList
+    ?? (selectedOperationId.length === 0 ? providerStagedOperation ?? providerOperations[0] ?? null : null)
     ?? null;
   const progressOperation =
     providerOperations.find((operation) => operation.phase === "running")
@@ -564,6 +579,13 @@ export function AdminProvidersClient({
     ?? providerOperations.find((operation) => operation.phase === "queued")
     ?? selectedOperation;
   const currentPreview = selectedOperation?.preview ?? null;
+  const outcomeActionFilter = initialOperationOutcomeAction.trim().toLowerCase();
+  const visibleOperationOutcomes = useMemo(
+    () => operationOutcomes
+      .filter((outcome) => outcome.providerId === selectedProviderId)
+      .filter((outcome) => outcomeActionFilter.length === 0 || outcome.action.toLowerCase().includes(outcomeActionFilter)),
+    [operationOutcomes, outcomeActionFilter, selectedProviderId],
+  );
   const selectedScope = useMemo<UnresolvedScopeSelection | null>(() => {
     if (allMatchingSelected) {
       return {
@@ -673,7 +695,12 @@ export function AdminProvidersClient({
   }, [initialTab]);
 
   useEffect(() => {
-    if (providerOperations.some((operation) => operation.id === selectedOperationId)) return;
+    if (!providerRequestedOperationId) return;
+    setSelectedOperationId((current) => current === providerRequestedOperationId ? current : providerRequestedOperationId);
+  }, [providerRequestedOperationId]);
+
+  useEffect(() => {
+    if (selectedOperationId.length > 0) return;
     setSelectedOperationId(providerStagedOperation?.id ?? providerOperations[0]?.id ?? "");
   }, [providerOperations, providerStagedOperation, selectedOperationId]);
 
@@ -709,6 +736,23 @@ export function AdminProvidersClient({
     });
   }, [activityItems, incidents, logs, mappings, operationOutcomes, operations, unresolvedItems]);
 
+  useEffect(() => () => {
+    if (refreshTimeoutRef.current !== null) window.clearTimeout(refreshTimeoutRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "operations") return;
+    if (!selectedOperation) return;
+    if (typeof window === "undefined") return;
+    const pendingFocusId = window.sessionStorage.getItem(operationInspectorFocusStorageKey);
+    if (pendingFocusId !== selectedOperation.id) return;
+    window.sessionStorage.removeItem(operationInspectorFocusStorageKey);
+    window.requestAnimationFrame(() => {
+      inspectorRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      inspectorRef.current?.focus();
+    });
+  }, [activeTab, selectedOperation]);
+
   useEventStream({
     eventTypes: [
       "provider_operation_progress",
@@ -718,7 +762,11 @@ export function AdminProvidersClient({
       "provider_budget_wait_changed",
     ],
     onEvent: () => {
-      refreshPreservingScroll();
+      if (refreshTimeoutRef.current !== null) window.clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        refreshPreservingScroll();
+      }, 250);
     },
     enabled: true,
   });
@@ -764,15 +812,30 @@ export function AdminProvidersClient({
     });
   }
 
+  function pushProviderRouteMutating(
+    mutate: (params: URLSearchParams) => void,
+    options?: { preserveScroll?: boolean },
+  ): void {
+    const params = currentRouteParams();
+    mutate(params);
+    if (options?.preserveScroll ?? true) scheduleScrollRestore();
+    pushProviderRoute(params);
+  }
+
   function selectTab(tab: ProviderConsoleTab): void {
     setActiveTab(tab);
-    const params = currentRouteParams();
-    params.set("providerId", selectedProviderId);
-    params.set("tab", tab);
-    params.set("resolverMode", diagnostics.resolverMode);
-    params.set("errorCode", fallbackDiagnosis?.errorCode ?? diagnostics.errorCode);
-    if (tab !== "operations") params.delete("operationId");
-    pushProviderRoute(params);
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", tab);
+      params.set("resolverMode", diagnostics.resolverMode);
+      params.set("errorCode", fallbackDiagnosis?.errorCode ?? diagnostics.errorCode);
+      if (tab !== "operations") {
+        params.delete("operationId");
+        params.delete("operationOutcomesPage");
+        params.delete("operationOutcomeState");
+        params.delete("operationOutcomeAction");
+      }
+    });
   }
 
   function selectProvider(providerId: string): void {
@@ -785,13 +848,15 @@ export function AdminProvidersClient({
     setLogPurgePreview(null);
     setLogPurgeConfirmation("");
     setActiveTab(nextTab);
-    const params = new URLSearchParams({
-      providerId,
-      tab: nextTab,
-      resolverMode: diagnostics.resolverMode,
-      errorCode: row?.errorCode ?? diagnostics.errorCode,
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", providerId);
+      params.set("tab", nextTab);
+      params.set("resolverMode", diagnostics.resolverMode);
+      params.set("errorCode", row?.errorCode ?? diagnostics.errorCode);
+      params.delete("operationId");
+      params.delete("operationOutcomesPage");
+      params.delete("logsPage");
     });
-    pushProviderRoute(params);
   }
 
   function refreshData(): void {
@@ -949,7 +1014,11 @@ export function AdminProvidersClient({
         errorCode: row?.errorCode ?? diagnostics.errorCode,
         ...(scope ? { scope } : {}),
       }),
-      (result) => setSelectedOperationId(result.operation.id),
+      (result) => {
+        if (!result.operation?.id) return;
+        setSelectedOperationId(result.operation.id);
+        setToast({ title: "Operation created", body: `Renew created ${result.operation.id}. Open Operations to inspect progress.` });
+      },
     );
   }
 
@@ -989,112 +1058,205 @@ export function AdminProvidersClient({
 
   function reverifyMapping(mapping: ProviderResolutionMappingDto): void {
     void runAction(`mapping:reverify:${mapping.sourceSymbol}`, () =>
-      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/reverify`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/reverify`, {
         marketCode: mapping.marketCode,
         sourceSymbol: mapping.sourceSymbol,
         resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
       }),
+      (result: { operation: ProviderFixerDashboardOperationDto }) => {
+        if (!result.operation?.id) return;
+        setSelectedOperationId(result.operation.id);
+        setToast({ title: "Reverify started", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      },
     );
   }
 
   function revertMapping(mapping: ProviderResolutionMappingDto, typedConfirmation: string): void {
     void runAction(`mapping:revert:${mapping.sourceSymbol}`, () =>
-      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/revert`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/revert`, {
         marketCode: mapping.marketCode,
         sourceSymbol: mapping.sourceSymbol,
         typedConfirmation,
       }),
+      (result: { operation: ProviderFixerDashboardOperationDto }) => {
+        if (!result.operation?.id) return;
+        setSelectedOperationId(result.operation.id);
+        setToast({ title: "Revert started", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      },
     );
   }
 
   function rerunMapping(mapping: ProviderResolutionMappingDto): void {
     void runAction(`mapping:rerun:${mapping.sourceSymbol}`, () =>
-      postJson(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/rerun`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(mapping.providerId)}/mappings/rerun`, {
         marketCode: mapping.marketCode,
         sourceSymbol: mapping.sourceSymbol,
         resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
         acknowledged: true,
       }),
+      (result: { operation: ProviderFixerDashboardOperationDto }) => {
+        if (!result.operation?.id) return;
+        setSelectedOperationId(result.operation.id);
+        setToast({ title: "Rerun queued", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      },
     );
   }
 
   function rerunUnresolvedItem(item: ProviderUnresolvedItemDto): void {
     void runAction(`unresolved:rerun:${item.sourceSymbol}`, () =>
-      postJson(`/admin/providers/${encodeURIComponent(item.providerId)}/mappings/rerun`, {
+      postJson<{ operation: ProviderFixerDashboardOperationDto }>(`/admin/providers/${encodeURIComponent(item.providerId)}/mappings/rerun`, {
         marketCode: item.marketCode,
         sourceSymbol: item.sourceSymbol,
         resolverMode: diagnostics.resolverMode,
         acknowledged: true,
       }),
+      (result: { operation: ProviderFixerDashboardOperationDto }) => {
+        if (!result.operation?.id) return;
+        setSelectedOperationId(result.operation.id);
+        setToast({ title: "Rerun queued", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      },
     );
   }
 
   function openMappingUnresolved(mapping: ProviderResolutionMappingDto): void {
-    const params = new URLSearchParams({
-      providerId: mapping.providerId,
-      tab: "unresolved",
-      resolverMode: diagnostics.resolverMode,
-      errorCode: diagnostics.errorCode,
-      unresolvedState: "active",
-      unresolvedSearch: mapping.sourceSymbol,
-      unresolvedPage: "1",
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", mapping.providerId);
+      params.set("tab", "unresolved");
+      params.set("resolverMode", diagnostics.resolverMode);
+      params.set("errorCode", diagnostics.errorCode);
+      params.set("unresolvedState", "all");
+      params.set("unresolvedSearch", mapping.sourceSymbol);
+      params.set("unresolvedPage", "1");
     });
-    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function openMappingOperation(mapping: ProviderResolutionMappingDto): void {
     const operationId = mappingLinkedOperation(mapping.evidence);
     if (!operationId) return;
-    const params = new URLSearchParams({
-      providerId: mapping.providerId,
-      tab: "operations",
-      resolverMode: diagnostics.resolverMode,
-      errorCode: diagnostics.errorCode,
-      operationId,
+    setSelectedOperationId(operationId);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(operationInspectorFocusStorageKey, operationId);
+    }
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", mapping.providerId);
+      params.set("tab", "operations");
+      params.set("resolverMode", diagnostics.resolverMode);
+      params.set("errorCode", diagnostics.errorCode);
+      params.set("operationId", operationId);
+      params.set("operationOutcomesPage", "1");
     });
-    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function applyUnresolvedFilters(next: {
-    state?: ProviderUnresolvedItemDto["state"];
+    state?: ProviderUnresolvedItemDto["state"] | "all";
     search?: string;
     sort?: ProviderUnresolvedSort;
     page?: number;
   }): void {
     setActiveTab("unresolved");
     setToast({ title: "Applying unresolved filters", body: "Refreshing provider rows for the selected filter." });
-    const params = new URLSearchParams({
-      providerId: selectedProviderId,
-      tab: "unresolved",
-      resolverMode: diagnostics.resolverMode,
-      errorCode: fallbackDiagnosis?.errorCode ?? diagnostics.errorCode,
-      unresolvedState: next.state ?? initialUnresolvedState,
-      unresolvedSort: next.sort ?? initialUnresolvedSort,
-      unresolvedPage: String(next.page ?? 1),
-    });
     const search = next.search ?? initialUnresolvedSearch;
-    if (search.trim()) params.set("unresolvedSearch", search.trim());
-    pushProviderRoute(params);
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "unresolved");
+      params.set("resolverMode", diagnostics.resolverMode);
+      params.set("errorCode", fallbackDiagnosis?.errorCode ?? diagnostics.errorCode);
+      params.set("unresolvedState", next.state ?? initialUnresolvedState);
+      params.set("unresolvedSort", next.sort ?? initialUnresolvedSort);
+      params.set("unresolvedPage", String(next.page ?? 1));
+      if (search.trim()) params.set("unresolvedSearch", search.trim());
+      else params.delete("unresolvedSearch");
+    });
   }
 
-  function selectOperation(operationId: string): void {
+  function selectOperation(operationId: string, options?: { focusInspector?: boolean; announce?: boolean }): void {
     setSelectedOperationId(operationId);
-    const params = new URLSearchParams({
-      providerId: selectedProviderId,
-      tab: "operations",
-      operationId,
+    if (options?.focusInspector !== false && typeof window !== "undefined") {
+      window.sessionStorage.setItem(operationInspectorFocusStorageKey, operationId);
+    }
+    if (options?.announce) {
+      setToast({ title: "Operation selected", body: `Inspecting ${operationId} below the history table.` });
+    }
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "operations");
+      params.set("operationId", operationId);
+      params.set("operationOutcomesPage", "1");
     });
-    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
   }
 
   function applyOperationsPage(page: number): void {
-    const params = new URLSearchParams({
-      providerId: selectedProviderId,
-      tab: "operations",
-      operationsPage: String(page),
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "operations");
+      params.set("operationsPage", String(page));
+      if (selectedOperationId) params.set("operationId", selectedOperationId);
     });
-    if (selectedOperation?.id) params.set("operationId", selectedOperation.id);
-    router.push(`/admin/providers?${params.toString()}`, { scroll: false });
+  }
+
+  function applyIncidentsPage(page: number): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "incidents");
+      params.set("incidentsPage", String(page));
+    });
+  }
+
+  function applyActivityPage(page: number): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "activity");
+      params.set("activityPage", String(page));
+    });
+  }
+
+  function applyLogsPage(page: number): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "logs");
+      params.set("logsPage", String(page));
+      if (selectedOperationId) params.set("operationId", selectedOperationId);
+    });
+  }
+
+  function applyMappingsPage(page: number): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "mappings");
+      params.set("mappingsPage", String(page));
+      const search = (params.get("mappingsSearch") ?? initialMappingsSearch).trim();
+      if (search.length > 0) params.set("mappingsSearch", search);
+      else params.delete("mappingsSearch");
+    });
+  }
+
+  function applyMappingsSearch(search: string): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "mappings");
+      params.set("mappingsPage", "1");
+      if (search.trim()) params.set("mappingsSearch", search.trim());
+      else params.delete("mappingsSearch");
+    });
+  }
+
+  function applyOperationOutcomeFilters(next: {
+    page?: number;
+    state?: ProviderOperationOutcomeDto["state"] | "all";
+    action?: string;
+  }): void {
+    pushProviderRouteMutating((params) => {
+      params.set("providerId", selectedProviderId);
+      params.set("tab", "operations");
+      if (selectedOperationId) params.set("operationId", selectedOperationId);
+      params.set("operationOutcomesPage", String(next.page ?? 1));
+      const state = next.state ?? initialOperationOutcomeState;
+      if (state === "all") params.delete("operationOutcomeState");
+      else params.set("operationOutcomeState", state);
+      const action = next.action ?? initialOperationOutcomeAction;
+      if (action.trim()) params.set("operationOutcomeAction", action.trim());
+      else params.delete("operationOutcomeAction");
+    });
   }
 
   function previewLogPurge(): void {
@@ -1142,10 +1304,10 @@ export function AdminProvidersClient({
           <Button
             size="sm"
             variant={selectedOperation?.id === row.id ? "default" : "secondary"}
-            onClick={() => selectOperation(row.id)}
+            onClick={() => selectOperation(row.id, { focusInspector: true, announce: true })}
             data-testid={`provider-console-operation-select-${row.id}`}
           >
-            View details
+            Inspect
           </Button>
           {row.canPause ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "pause")}>Pause</Button> : null}
           {row.canResume ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "resume")}>Resume</Button> : null}
@@ -1404,18 +1566,37 @@ export function AdminProvidersClient({
             operations={providerOperations.length > 0 ? providerOperations : operations}
             operationColumns={operationColumns}
             selectedOperation={selectedOperation}
+            requestedOperationMissing={requestedOperationMissing}
+            requestedOperationId={providerRequestedOperationId}
             selectedProviderId={selectedProviderId}
-            onOpenLogs={(operationId) => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=logs&operationId=${encodeURIComponent(operationId)}`, { scroll: false })}
-            onOpenIncidents={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=incidents`, { scroll: false })}
-            onOpenUnresolved={() => router.push(`/admin/providers?providerId=${encodeURIComponent(selectedProviderId)}&tab=unresolved&unresolvedState=active`, { scroll: false })}
+            initialOutcomeState={initialOperationOutcomeState}
+            initialOutcomeAction={initialOperationOutcomeAction}
+            inspectorRef={inspectorRef}
+            onOpenLogs={(operationId) => pushProviderRouteMutating((params) => {
+              params.set("providerId", selectedProviderId);
+              params.set("tab", "logs");
+              params.set("operationId", operationId);
+              params.set("logsPage", "1");
+            })}
+            onOpenIncidents={() => pushProviderRouteMutating((params) => {
+              params.set("providerId", selectedProviderId);
+              params.set("tab", "incidents");
+            })}
+            onOpenUnresolved={() => pushProviderRouteMutating((params) => {
+              params.set("providerId", selectedProviderId);
+              params.set("tab", "unresolved");
+              params.set("unresolvedState", "active");
+            })}
             onPageChange={applyOperationsPage}
             progressOperation={progressOperation}
             selectedScope={selectedScope}
-            outcomes={operationOutcomes.filter((outcome) => outcome.providerId === selectedProviderId)}
+            outcomes={visibleOperationOutcomes}
             outcomeSummary={operationOutcomeSummary}
             outcomesPage={operationOutcomesPage}
             outcomesLimit={operationOutcomesLimit}
             outcomesTotal={operationOutcomesTotal}
+            onOutcomeRouteChange={applyOperationOutcomeFilters}
+            onInspectOperation={(operationId) => selectOperation(operationId, { focusInspector: true, announce: true })}
             page={operationsPage}
             limit={operationsLimit}
             total={operationsTotal}
@@ -1429,6 +1610,7 @@ export function AdminProvidersClient({
             page={incidentsPage}
             limit={incidentsLimit}
             total={incidentsTotal}
+            onPageChange={applyIncidentsPage}
             onSetStatus={updateIncidentStatus}
             busyAction={busyAction}
           />
@@ -1441,6 +1623,7 @@ export function AdminProvidersClient({
             page={activityPage}
             limit={activityLimit}
             total={activityTotal}
+            onPageChange={applyActivityPage}
           />
         ) : null}
 
@@ -1457,6 +1640,7 @@ export function AdminProvidersClient({
             onPreviewPurge={previewLogPurge}
             onExecutePurge={executeLogPurge}
             busyAction={busyAction}
+            onPageChange={applyLogsPage}
           />
         ) : null}
 
@@ -1468,6 +1652,7 @@ export function AdminProvidersClient({
             page={mappingsPage}
             limit={mappingsLimit}
             total={mappingsTotal}
+            search={initialMappingsSearch}
             currentPreview={currentPreview}
             evidenceColumns={evidenceColumns}
             onReverifyMapping={reverifyMapping}
@@ -1475,6 +1660,8 @@ export function AdminProvidersClient({
             onRerunMapping={rerunMapping}
             onOpenUnresolvedMapping={openMappingUnresolved}
             onOpenMappingOperation={openMappingOperation}
+            onPageChange={applyMappingsPage}
+            onSearchChange={applyMappingsSearch}
             busyAction={busyAction}
           />
         ) : null}
@@ -1597,7 +1784,7 @@ function UnresolvedTab({
   unresolvedPage: number;
   unresolvedLimit: number;
   unresolvedTotal: number;
-  initialState: ProviderUnresolvedItemDto["state"];
+  initialState: ProviderUnresolvedItemDto["state"] | "all";
   initialSearch: string;
   initialSort: ProviderUnresolvedSort;
   selectedScope: UnresolvedScopeSelection | null;
@@ -1621,12 +1808,12 @@ function UnresolvedTab({
   onBulkSetState: (state: "unsupported" | "ignored") => void;
   onRenewScope: (scope?: ProviderFixerRepairScope) => void;
   onRerunItem: (item: ProviderUnresolvedItemDto) => void;
-  onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"]; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
+  onApplyFilters: (next: { state?: ProviderUnresolvedItemDto["state"] | "all"; search?: string; sort?: ProviderUnresolvedSort; page?: number }) => void;
   busyAction: string | null;
   routePending: boolean;
 }) {
   const [searchInput, setSearchInput] = useState(initialSearch);
-  const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"]>(initialState);
+  const [stateInput, setStateInput] = useState<ProviderUnresolvedItemDto["state"] | "all">(initialState);
   const [sortInput, setSortInput] = useState<ProviderUnresolvedSort>(initialSort);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const stateInputRef = useRef<HTMLSelectElement>(null);
@@ -1650,7 +1837,7 @@ function UnresolvedTab({
     const sortValue = sortInputRef.current?.value;
     return {
       search: searchInputRef.current?.value ?? searchInput,
-      state: stateValue === "resolved" || stateValue === "unsupported" || stateValue === "ignored" || stateValue === "active"
+      state: stateValue === "resolved" || stateValue === "unsupported" || stateValue === "ignored" || stateValue === "active" || stateValue === "all"
         ? stateValue
         : stateInput,
       sort: sortValue === "updated_desc" || sortValue === "source_symbol_asc" || sortValue === "occurrence_count_desc" || sortValue === "last_seen_desc"
@@ -1692,7 +1879,7 @@ function UnresolvedTab({
   const selectedVisibleCount = visibleDurableKeys.filter((key) => selectedKeys.has(key)).length;
   const allVisibleSelected = visibleDurableKeys.length > 0 && selectedVisibleCount === visibleDurableKeys.length;
   const selectedCount = selectedScope?.count ?? 0;
-  const canRepairSelected = capability.supportsRepair && selectedCount > 0 && busyAction === null;
+  const canRepairSelected = initialState === "active" && capability.supportsRepair && selectedCount > 0 && busyAction === null;
   const canRenewSelected = capability.supportsRenew && selectedCount > 0 && busyAction === null;
   const matchingErrorCode = diagnosis?.errorCode ?? visibleDurableRows[0]?.item.errorCode ?? "symbol_unresolved";
   const renewScopeBlockedReason = selectedScope
@@ -1751,6 +1938,9 @@ function UnresolvedTab({
   const canReopen = actionSupported(capability, "reopen_unresolved");
   const canRerun = actionSupported(capability, "rerun_backfill");
   const lifecycleUnavailable = "Available for durable unresolved rows only.";
+  const linkedContextSearch = initialState === "all" && initialSearch.trim().length > 0;
+  const linkedContextHasDurableRow = visibleDurableRows.length > 0;
+  const linkedContextHasActiveRow = visibleDurableRows.some((row) => row.item.state === "active");
   const rowRerunTitle = (row: (typeof rows)[number]) => {
     if (!canRerun) return rerunDisabledReason;
     if (!row.item || row.item.state !== "resolved") return "Rerun is disabled until this durable row is resolved or mapped.";
@@ -1813,10 +2003,11 @@ function UnresolvedTab({
           ref={stateInputRef}
           className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground xl:w-40"
           value={stateInput}
-          onChange={(event) => setStateInput(event.target.value as ProviderUnresolvedItemDto["state"])}
+          onChange={(event) => setStateInput(event.target.value as ProviderUnresolvedItemDto["state"] | "all")}
           data-testid="provider-console-unresolved-state"
         >
           <option value="active">State: active</option>
+          <option value="all">State: all</option>
           <option value="resolved">State: resolved</option>
           <option value="unsupported">State: unsupported</option>
           <option value="ignored">State: ignored</option>
@@ -1840,6 +2031,15 @@ function UnresolvedTab({
           {routePending ? "Applying..." : "Apply filters"}
         </Button>
       </div>
+      {linkedContextSearch && !linkedContextHasActiveRow ? (
+        <Reason
+          tone="info"
+          title={linkedContextHasDurableRow ? "Linked context has no active unresolved row" : "No unresolved row found for this linked context"}
+          body={linkedContextHasDurableRow
+            ? "This mapping link is showing all lifecycle states for the searched source symbol because no active unresolved row exists in the current result set."
+            : "No durable unresolved row exists for this searched source symbol. The mapping may have been created directly from repair evidence or the item may already be outside unresolved tracking."}
+        />
+      ) : null}
       <div className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
         <span>
           <strong>{formatNumber(selectedCount)} rows selected.</strong>{" "}
@@ -2147,7 +2347,7 @@ function RepairScopePanel({
 }: {
   selectedProviderId: string;
   errorCode: string;
-  state: ProviderUnresolvedItemDto["state"];
+  state: ProviderUnresolvedItemDto["state"] | "all";
   search: string;
   resolverMode: ProviderFixerDashboardDiagnosticsDto["resolverMode"];
   guardrails: ProviderFixerDashboardGuardrailSettingsDto;
@@ -2444,7 +2644,12 @@ function OperationsTab({
   operations,
   operationColumns,
   selectedOperation,
+  requestedOperationMissing,
+  requestedOperationId,
   selectedProviderId,
+  initialOutcomeState,
+  initialOutcomeAction,
+  inspectorRef,
   onOpenLogs,
   onOpenIncidents,
   onOpenUnresolved,
@@ -2456,6 +2661,8 @@ function OperationsTab({
   outcomesPage,
   outcomesLimit,
   outcomesTotal,
+  onOutcomeRouteChange,
+  onInspectOperation,
   page,
   limit,
   total,
@@ -2463,7 +2670,12 @@ function OperationsTab({
   operations: ProviderFixerDashboardOperationDto[];
   operationColumns: DataTableColumn<ProviderFixerDashboardOperationDto>[];
   selectedOperation: ProviderFixerDashboardOperationDto | null;
+  requestedOperationMissing: boolean;
+  requestedOperationId: string;
   selectedProviderId: string;
+  initialOutcomeState: ProviderOperationOutcomeDto["state"] | "all";
+  initialOutcomeAction: string;
+  inspectorRef: MutableRefObject<HTMLDivElement | null>;
   onOpenLogs: (operationId: string) => void;
   onOpenIncidents: () => void;
   onOpenUnresolved: () => void;
@@ -2475,6 +2687,12 @@ function OperationsTab({
   outcomesPage: number;
   outcomesLimit: number;
   outcomesTotal: number;
+  onOutcomeRouteChange: (next: {
+    page?: number;
+    state?: ProviderOperationOutcomeDto["state"] | "all";
+    action?: string;
+  }) => void;
+  onInspectOperation: (operationId: string) => void;
   page: number;
   limit: number;
   total: number;
@@ -2489,12 +2707,45 @@ function OperationsTab({
         filter: selectedOperation.preview.frozenScope.filter,
       }
     : selectedScope;
+  const currentOperation =
+    operations.find((operation) => operation.phase === "running")
+    ?? operations.find((operation) => operation.phase === "paused")
+    ?? operations.find((operation) => operation.phase === "preparing_preview")
+    ?? operations.find((operation) => operation.phase === "queued")
+    ?? progressOperation;
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid gap-4">
+      {currentOperation ? (
+        <Card className="px-4 py-4 hover:translate-y-0" data-testid="provider-console-current-operation-banner">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Current operation</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm text-foreground">{currentOperation.id}</span>
+                <span className={cn("rounded-full px-2 py-1 text-xs font-semibold", phaseTone[currentOperation.phase])}>
+                  {currentOperation.phase}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {operationProgress(currentOperation)}% complete across {formatNumber(currentOperation.matchCount)} matched rows.
+                </span>
+              </div>
+            </div>
+            {selectedOperation?.id !== currentOperation.id ? (
+              <Button size="sm" variant="secondary" onClick={() => onInspectOperation(currentOperation.id)}>
+                Inspect current operation
+              </Button>
+            ) : (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                Inspector focused
+              </span>
+            )}
+          </div>
+        </Card>
+      ) : null}
       <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
         <div>
           <h3 className="text-xl font-semibold text-foreground">Provider operations</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Operation summaries and durable per-item progress.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Operation history stays paginated. Inspect a row to open the selected-operation inspector below.</p>
         </div>
         <DataTable
           data-testid="provider-console-operations-table"
@@ -2505,39 +2756,24 @@ function OperationsTab({
         />
         <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
       </Card>
-      <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
-        <h3 className="text-xl font-semibold text-foreground">Live progress</h3>
-        {progressOperation ? (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-mono text-muted-foreground">{progressOperation.id}</span>
-              <span>{operationProgress(progressOperation)}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${operationProgress(progressOperation)}%` }} />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {progressOperation.phase === "preparing_preview"
-                ? "Preparing preview samples from the frozen scope."
-                : `${progressOperation.phase.replace(/_/g, " ")} progress from durable operation outcomes.`}
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <Metric label="Matched" value={formatNumber(progressOperation.matchCount)} detail="Frozen operation scope" />
-              <Metric label="Rate cap" value={`${progressOperation.effectiveRateCapPerMinute ?? 250}/min`} detail="Effective provider operation budget" />
-              <Metric label="Processed" value={formatNumber(outcomeSummary.processed)} detail={`${formatNumber(outcomeSummary.succeeded)} succeeded, ${formatNumber(outcomeSummary.skipped)} skipped`} />
-              <Metric label="Failed" value={formatNumber(outcomeSummary.failed + outcomeSummary.rateLimited)} detail="Failures and rate-limit pauses" />
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">No running operation.</p>
+      <div
+        ref={inspectorRef}
+        tabIndex={-1}
+        className="scroll-mt-24 outline-none"
+        data-testid="provider-console-operation-inspector-focus"
+      >
+      <Card
+        className={cn(
+          "space-y-4 px-4 py-4 hover:translate-y-0 transition-colors",
+          selectedOperation ? "ring-2 ring-primary/30" : "",
         )}
-      </Card>
-      <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2" data-testid="provider-console-operation-details">
+        data-testid="provider-console-operation-inspector"
+      >
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h3 className="text-xl font-semibold text-foreground">Operation details</h3>
+            <h3 className="text-xl font-semibold text-foreground">Selected operation inspector</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selected operation context, durable scope, budget state, and related provider-console views.
+              Progress, scope, durable outcomes, and related provider-console views for the selected operation.
             </p>
           </div>
           {selectedOperation ? (
@@ -2554,6 +2790,13 @@ function OperationsTab({
             </div>
           ) : null}
         </div>
+        {requestedOperationMissing ? (
+          <Reason
+            tone="warning"
+            title="Selected operation is not loaded on this page"
+            body={`Operation ${requestedOperationId} is in the URL, but the current operations response did not include it. Inspect another loaded row or load the page that contains it.`}
+          />
+        ) : null}
         {selectedOperation ? (
           <div className="grid gap-3 md:grid-cols-4">
             <Metric label="Provider" value={selectedProviderId} detail={selectedOperation.market ?? "Provider market"} />
@@ -2562,38 +2805,95 @@ function OperationsTab({
             <Metric label="Rate cap" value={`${selectedOperation.effectiveRateCapPerMinute ?? 250}/min`} detail={`${formatNumber(selectedOperation.autoPauseFailureCount ?? 0)} auto-pause failures`} />
           </div>
         ) : (
-          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Select an operation to inspect details.</p>
+          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Select an operation to inspect details and outcomes.</p>
         )}
         {selectedOperation ? (
-          <RepairScopePanel
-            selectedProviderId={selectedProviderId}
-            errorCode={selectedOperation.preview.frozenScope?.filter?.errorCode ?? selectedOperation.preview.scopeLabel}
-            state={selectedOperation.preview.state ?? "active"}
-            search={selectedOperation.preview.search ?? ""}
-            resolverMode="quote_first"
-            guardrails={{
-              dangerousMatchThreshold: selectedOperation.dangerous ? selectedOperation.matchCount : Number.MAX_SAFE_INTEGER,
-              previewSampleLimit: selectedOperation.preview.sampleCount,
-              uiPageSize: selectedOperation.preview.sampleCount,
-              autoPauseFailureThresholdPerMinute: selectedOperation.autoPauseFailureThresholdPerMinute ?? 0,
-              previewTokenTtlSeconds: 0,
-              healthWarningUnresolvedThreshold: 0,
-              healthCriticalUnresolvedThreshold: 0,
-            }}
-            scope={operationScope}
-            currentPreview={selectedOperation.preview}
-            title="Selected operation scope"
-          />
+          <>
+            <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-mono text-muted-foreground">{selectedOperation.id}</span>
+                <span>{operationProgress(selectedOperation)}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${operationProgress(selectedOperation)}%` }} />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {selectedOperation.phase === "preparing_preview"
+                  ? "Preparing preview samples from the frozen scope."
+                  : `${selectedOperation.phase.replace(/_/g, " ")} progress from durable operation outcomes.`}
+              </p>
+            </div>
+            {selectedOperation.preview ? (
+              <RepairScopePanel
+                selectedProviderId={selectedProviderId}
+                errorCode={selectedOperation.preview.frozenScope?.filter?.errorCode ?? selectedOperation.preview.scopeLabel}
+                state={selectedOperation.preview.state ?? "active"}
+                search={selectedOperation.preview.search ?? ""}
+                resolverMode="quote_first"
+                guardrails={{
+                  dangerousMatchThreshold: selectedOperation.dangerous ? selectedOperation.matchCount : Number.MAX_SAFE_INTEGER,
+                  previewSampleLimit: selectedOperation.preview.sampleCount,
+                  uiPageSize: selectedOperation.preview.sampleCount,
+                  autoPauseFailureThresholdPerMinute: selectedOperation.autoPauseFailureThresholdPerMinute ?? 0,
+                  previewTokenTtlSeconds: 0,
+                  healthWarningUnresolvedThreshold: 0,
+                  healthCriticalUnresolvedThreshold: 0,
+                }}
+                scope={operationScope}
+                currentPreview={selectedOperation.preview}
+                title="Selected operation scope"
+              />
+            ) : (
+              <Reason
+                tone="info"
+                title="No preview snapshot stored"
+                body="This operation does not expose a frozen preview scope. Progress and outcomes remain available below."
+              />
+            )}
+          </>
         ) : null}
-      </Card>
-      <Card className="space-y-4 px-4 py-4 hover:translate-y-0 xl:col-span-2">
         <div>
-          <h3 className="text-xl font-semibold text-foreground">Operation item outcomes</h3>
+          <h4 className="text-lg font-semibold text-foreground">Operation item outcomes</h4>
           <p className="mt-1 text-sm text-muted-foreground">Durable token-level results for the selected provider operation.</p>
         </div>
+        <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto]">
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            <span>Outcome state</span>
+            <select
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+              value={initialOutcomeState}
+              onChange={(event) => onOutcomeRouteChange({ state: event.target.value as ProviderOperationOutcomeDto["state"] | "all", page: 1 })}
+              data-testid="provider-console-operation-outcome-state"
+            >
+              <option value="all">All states</option>
+              <option value="pending">Pending</option>
+              <option value="running">Running</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+              <option value="skipped">Skipped</option>
+              <option value="rate_limited">Rate limited</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            <span>Action contains</span>
+            <input
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+              value={initialOutcomeAction}
+              onChange={(event) => onOutcomeRouteChange({ action: event.target.value, page: 1 })}
+              placeholder="repair_mapping"
+              data-testid="provider-console-operation-outcome-action"
+            />
+          </label>
+          <div className="md:self-end">
+            <Button size="sm" variant="secondary" onClick={() => onOutcomeRouteChange({ state: "all", action: "", page: 1 })}>
+              Reset filters
+            </Button>
+          </div>
+        </div>
         {outcomes.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="min-w-[820px] w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Token</th>
@@ -2609,7 +2909,7 @@ function OperationsTab({
                     <td className="px-3 py-3 font-mono font-semibold">{outcome.sourceSymbol}</td>
                     <td className="px-3 py-3">{outcome.action.replace(/_/g, " ")}</td>
                     <td className="px-3 py-3"><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">{outcome.state.replace(/_/g, " ")}</span></td>
-                    <td className="px-3 py-3">{outcome.message ?? outcome.errorCode ?? "-"}</td>
+                    <td className="px-3 py-3 break-words">{outcome.message ?? outcome.errorCode ?? "-"}</td>
                     <td className="px-3 py-3 font-mono text-muted-foreground">{formatTimestamp(outcome.updatedAt)}</td>
                   </tr>
                 ))}
@@ -2619,8 +2919,9 @@ function OperationsTab({
         ) : (
           <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No item outcomes recorded for this operation yet.</p>
         )}
-        <Pagination page={outcomesPage} limit={outcomesLimit} total={outcomesTotal} onPageChange={() => undefined} />
+        <Pagination page={outcomesPage} limit={outcomesLimit} total={outcomesTotal} onPageChange={(nextPage) => onOutcomeRouteChange({ page: nextPage })} />
       </Card>
+      </div>
     </div>
   );
 }
@@ -2631,6 +2932,7 @@ function IncidentsTab({
   page,
   limit,
   total,
+  onPageChange,
   onSetStatus,
   busyAction,
 }: {
@@ -2639,6 +2941,7 @@ function IncidentsTab({
   page: number;
   limit: number;
   total: number;
+  onPageChange: (page: number) => void;
   onSetStatus: (incidentId: string, status: ProviderIncidentDto["status"]) => void;
   busyAction: string | null;
 }) {
@@ -2744,7 +3047,7 @@ function IncidentsTab({
       ) : (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No open incidents for this provider.</p>
       )}
-      <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+      <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
     </Card>
   );
 }
@@ -2755,12 +3058,14 @@ function ActivityTab({
   page,
   limit,
   total,
+  onPageChange,
 }: {
   selectedProviderId: string;
   items: ProviderActivityItemDto[];
   page: number;
   limit: number;
   total: number;
+  onPageChange: (page: number) => void;
 }) {
   return (
     <Card className="space-y-4 px-4 py-4 hover:translate-y-0">
@@ -2792,7 +3097,7 @@ function ActivityTab({
           <Reason tone="info" title={`No recent activity for ${selectedProviderId}`} body="Activity will populate from provider operation logs, incidents, unresolved items, and mappings." />
         )}
       </div>
-      <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+      <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
     </Card>
   );
 }
@@ -2809,6 +3114,7 @@ function LogsTab({
   onPreviewPurge,
   onExecutePurge,
   busyAction,
+  onPageChange,
 }: {
   logs: ProviderFixerDashboardLogEntryDto[];
   page: number;
@@ -2821,6 +3127,7 @@ function LogsTab({
   onPreviewPurge: () => void;
   onExecutePurge: () => void;
   busyAction: string | null;
+  onPageChange: (page: number) => void;
 }) {
   const purgeReady =
     !!purgePreview
@@ -2875,7 +3182,7 @@ function LogsTab({
       ) : (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No raw provider logs for this scope.</p>
       )}
-      <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+      <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
     </Card>
   );
 }
@@ -2887,6 +3194,7 @@ function MappingsTab({
   page,
   limit,
   total,
+  search,
   currentPreview,
   evidenceColumns,
   onReverifyMapping,
@@ -2894,6 +3202,8 @@ function MappingsTab({
   onRerunMapping,
   onOpenUnresolvedMapping,
   onOpenMappingOperation,
+  onPageChange,
+  onSearchChange,
   busyAction,
 }: {
   selectedProviderId: string;
@@ -2902,6 +3212,7 @@ function MappingsTab({
   page: number;
   limit: number;
   total: number;
+  search: string;
   currentPreview: ProviderFixerDashboardOperationDto["preview"] | null;
   evidenceColumns: DataTableColumn<NonNullable<ProviderFixerDashboardOperationDto["preview"]>["evidenceSample"][number]>[];
   onReverifyMapping: (mapping: ProviderResolutionMappingDto) => void;
@@ -2909,6 +3220,8 @@ function MappingsTab({
   onRerunMapping: (mapping: ProviderResolutionMappingDto) => void;
   onOpenUnresolvedMapping: (mapping: ProviderResolutionMappingDto) => void;
   onOpenMappingOperation: (mapping: ProviderResolutionMappingDto) => void;
+  onPageChange: (page: number) => void;
+  onSearchChange: (search: string) => void;
   busyAction: string | null;
 }) {
   const evidenceRows = currentPreview?.evidenceSample ?? [];
@@ -2926,11 +3239,111 @@ function MappingsTab({
         <h3 className="text-xl font-semibold text-foreground">Mappings</h3>
         <p className="mt-1 text-sm text-muted-foreground">Durable source catalog to provider-symbol bindings where supported.</p>
       </div>
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="grid gap-1 text-sm text-muted-foreground">
+          <span>Search mappings</span>
+          <input
+            className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Source symbol, provider symbol, or operation ID"
+            data-testid="provider-console-mappings-search"
+          />
+        </label>
+        <div className="md:self-end">
+          <Button size="sm" variant="secondary" onClick={() => onSearchChange("")}>
+            Clear search
+          </Button>
+        </div>
+      </div>
       {capability.supportsMappings ? (
         mappings.length > 0 ? (
           <>
-            <div className="overflow-hidden rounded-xl border border-border">
-              <table className="w-full text-sm">
+            <div className="grid gap-3 md:hidden" data-testid="provider-console-mappings-cards">
+              {mappings.map((mapping) => {
+                const linkedOperationId = mappingLinkedOperation(mapping.evidence);
+                return (
+                  <article key={`${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}-card`} className="rounded-xl border border-border bg-card p-4 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-mono font-semibold text-foreground">{mapping.sourceSymbol}</p>
+                        <p className="mt-1 font-mono text-muted-foreground">{mapping.resolvedSymbol}</p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                        {mapping.resolverMode?.replace(/_/g, " ") ?? "manual"}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">Verified {formatTimestamp(mapping.verifiedAt)}</p>
+                    <p className="mt-3 break-words text-sm text-muted-foreground">{mappingEvidenceSummary(mapping.evidence)}</p>
+                    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                      <button
+                        type="button"
+                        className="block font-mono text-blue-700 underline-offset-2 hover:underline"
+                        onClick={() => onOpenUnresolvedMapping(mapping)}
+                        data-testid={`provider-console-mapping-unresolved-link-${mapping.sourceSymbol}-mobile`}
+                      >
+                        Unresolved: {mapping.sourceSymbol}
+                      </button>
+                      {linkedOperationId ? (
+                        <button
+                          type="button"
+                          className="block font-mono text-blue-700 underline-offset-2 hover:underline"
+                          onClick={() => onOpenMappingOperation(mapping)}
+                          data-testid={`provider-console-mapping-operation-link-${mapping.sourceSymbol}-mobile`}
+                        >
+                          Operation: {linkedOperationId}
+                        </button>
+                      ) : (
+                        <span>Operation: not linked</span>
+                      )}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" disabled={!reverifySupported || busyAction !== null} onClick={() => onReverifyMapping(mapping)}>
+                        Reverify
+                      </Button>
+                      <Button size="sm" variant="secondary" disabled={!rerunSupported || busyAction !== null} onClick={() => onRerunMapping(mapping)}>
+                        Rerun
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!revertSupported || busyAction !== null}
+                        onClick={() => {
+                          const key = `${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}`;
+                          setRevertTarget(revertTarget === key ? null : key);
+                          setRevertConfirmation("");
+                        }}
+                      >
+                        Revert
+                      </Button>
+                    </div>
+                    {revertTarget === `${mapping.providerId}-${mapping.marketCode}-${mapping.sourceSymbol}` ? (
+                      <div className="mt-4 space-y-2 rounded-xl border border-red-200 bg-red-50 p-3">
+                        <p className="text-xs text-red-800">
+                          Type <span className="font-mono">{`REVERT ${mapping.sourceSymbol}`}</span> to remove this mapping.
+                        </p>
+                        <input
+                          className="min-h-10 w-full rounded-md border border-red-300 bg-white px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-red-500"
+                          value={revertConfirmation}
+                          onChange={(event) => setRevertConfirmation(event.target.value)}
+                          placeholder={`REVERT ${mapping.sourceSymbol}`}
+                        />
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={revertConfirmation.trim() !== `REVERT ${mapping.sourceSymbol}` || busyAction !== null}
+                          onClick={() => onRevertMapping(mapping, revertConfirmation.trim())}
+                        >
+                          Execute revert
+                        </Button>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
+              <table className="min-w-[980px] w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-3 py-3">Source</th>
@@ -3061,7 +3474,7 @@ function MappingsTab({
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} limit={limit} total={total} onPageChange={() => undefined} />
+            <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
           </>
         ) : evidenceRows.length > 0 ? (
           <DataTable
