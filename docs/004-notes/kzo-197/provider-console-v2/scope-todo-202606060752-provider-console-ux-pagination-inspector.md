@@ -26,12 +26,17 @@ Locked on 2026-06-06 after grill alignment. Do not expand this todo with new pro
 Current audit status:
 
 - Implementation is present in the active KZO-197 provider guardrails branch.
+- Latest implementation commit: `11276d5c fix(providers): KZO-197: submit unresolved filters reliably`.
 - Focused API, web component, web typecheck, web build, and targeted OAuth E2E checks were run during implementation.
 - Full local repository gates passed on 2026-06-06:
   `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run test --prefix apps/api`,
   `npm run test:integration:full:host`, `npm run test:e2e:bypass:mem --prefix apps/web`,
   `npm run test:e2e:oauth:mem --prefix apps/web`, and `npm run test:http --prefix apps/api`.
-- Commit, push, CI monitoring, dev deployment, and Chrome-extension dev validation remain pending.
+- After the latest filter-submit regression fix, these focused gates passed:
+  `npm run test --prefix apps/web -- AdminProvidersClient.test.tsx`, `npx eslint .`, and `npm run typecheck`.
+- Latest commit was pushed to PR #204 and CI run `27049483868` passed.
+- Dev deployment run `27049655875` failed in the remote deploy step with exit code `255`; inspect deployment logs before rerunning or validating the latest filter fix on dev.
+- Chrome-extension dev validation against commit `7dbe521f` passed for provider status, sub-tab rendering, pagination, direct filtered URLs, select-all behavior, and absence of console errors, but found the unresolved filter Apply/Enter bug fixed by `11276d5c`.
 
 Known code findings from the grill:
 
@@ -40,6 +45,10 @@ Known code findings from the grill:
 - Operation outcomes are loaded from the selected/fallback operation on the server, but `View details` only updates local `selectedOperationId`, so outcomes can appear to disappear when another operation is staged or enqueued.
 - Mapping linked context pushes route params, but selected operation lookup only searches the currently loaded operations page.
 - The mappings table uses `overflow-hidden`, so narrow viewports clip instead of horizontal scrolling.
+
+Latest validation finding:
+
+- Direct unresolved filter URLs worked on dev, but the rendered search form did not submit through Apply/Enter. The fix converts the unresolved filter controls to a real form submit path and adds a component regression test.
 
 ## Locked Decisions
 
@@ -89,9 +98,11 @@ Known code findings from the grill:
 - [x] Ensure mapping evidence/context text wraps where appropriate while symbols and operation IDs remain monospaced and copyable.
 - [x] Wire incidents, activity, and logs pagination with URL params; keep logs `operationId` filtering and reset `logsPage=1` when `operationId` changes.
 - [x] Add or update component tests for pagination handlers, operation inspect selection, sticky selected operation behavior, mapping linked context, `unresolvedState=all`, and mappings responsive rendering.
+- [x] Add a regression test that the unresolved filter form submits and updates route state.
 - [x] Add or update API/integration tests for `state=all`, mappings search, selected operation include/fetch, and operation outcome filters/pagination.
 - [x] Add or update E2E coverage for provider console pagination, Inspect flow, mapping linked context, and responsive mappings on desktop/mobile.
 - [x] Run the smallest relevant test scope first, then required broader gates for touched areas.
+- [ ] Inspect failed dev deployment run `27049655875`, rerun or fix deployment as needed, then validate the latest branch on dev through Chrome.
 
 ## Acceptance Criteria
 
