@@ -865,14 +865,26 @@ export function AdminProvidersClient({
     window.setTimeout(() => setToast({ title: "Refresh complete", body: "Provider console data was refreshed from local API state." }), 500);
   }
 
-  async function runAction<T>(actionName: string, action: () => Promise<T>, onSuccess?: (result: T) => void): Promise<void> {
+  async function runAction<T>(
+    actionName: string,
+    action: () => Promise<T>,
+    options?: {
+      onSuccess?: (result: T) => void;
+      refreshOnSuccess?: boolean;
+      successToast?: { title: string; body: string } | null;
+    },
+  ): Promise<void> {
     setBusyAction(actionName);
     setActionError(null);
     try {
       const result = await action();
-      onSuccess?.(result);
-      setToast({ title: "Provider operation updated", body: "The operation state changed. Refreshing console data." });
-      refreshPreservingScroll();
+      options?.onSuccess?.(result);
+      if (options?.successToast) {
+        setToast(options.successToast);
+      } else {
+        setToast({ title: "Provider operation updated", body: "The operation state changed. Refreshing console data." });
+      }
+      if (options?.refreshOnSuccess ?? true) refreshPreservingScroll();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Provider operation failed.";
       setActionError(message);
@@ -958,11 +970,13 @@ export function AdminProvidersClient({
         errorCode: row.errorCode,
         scope: effectiveScope,
       }),
-      (result) => {
-        setSelectedOperationId(result.operation.id);
-        setConfirmationChecked(false);
-        setTypedConfirmation("");
-        setActiveTab("fixer");
+      {
+        onSuccess: (result) => {
+          setSelectedOperationId(result.operation.id);
+          setConfirmationChecked(false);
+          setTypedConfirmation("");
+          setActiveTab("fixer");
+        },
       },
     );
   }
@@ -998,10 +1012,12 @@ export function AdminProvidersClient({
         acknowledged: !dangerous,
         typedConfirmation,
       }),
-      (result) => {
-        setSelectedOperationId(result.operation.id);
-        clearUnresolvedSelection();
-        setActiveTab("operations");
+      {
+        onSuccess: (result) => {
+          setSelectedOperationId(result.operation.id);
+          clearUnresolvedSelection();
+          setActiveTab("operations");
+        },
       },
     );
   }
@@ -1014,10 +1030,15 @@ export function AdminProvidersClient({
         errorCode: row?.errorCode ?? diagnostics.errorCode,
         ...(scope ? { scope } : {}),
       }),
-      (result) => {
-        if (!result.operation?.id) return;
-        setSelectedOperationId(result.operation.id);
-        setToast({ title: "Operation created", body: `Renew created ${result.operation.id}. Open Operations to inspect progress.` });
+      {
+        onSuccess: (result) => {
+          if (!result.operation?.id) return;
+          setSelectedOperationId(result.operation.id);
+        },
+        successToast: {
+          title: "Operation created",
+          body: "Renew created a provider operation. Open Operations to inspect progress.",
+        },
       },
     );
   }
@@ -1030,6 +1051,16 @@ export function AdminProvidersClient({
         acknowledged: confirmationChecked,
         typedConfirmation: typedConfirmation.trim(),
       }),
+      {
+        onSuccess: () => {
+          selectOperation(selectedOperation.id, { focusInspector: true, announce: false });
+        },
+        refreshOnSuccess: false,
+        successToast: {
+          title: "Repair started",
+          body: `Inspecting ${selectedOperation.id} in Operations while the provider operation runs.`,
+        },
+      },
     );
   }
 
@@ -1063,10 +1094,15 @@ export function AdminProvidersClient({
         sourceSymbol: mapping.sourceSymbol,
         resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
       }),
-      (result: { operation: ProviderFixerDashboardOperationDto }) => {
-        if (!result.operation?.id) return;
-        setSelectedOperationId(result.operation.id);
-        setToast({ title: "Reverify started", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      {
+        onSuccess: (result: { operation: ProviderFixerDashboardOperationDto }) => {
+          if (!result.operation?.id) return;
+          setSelectedOperationId(result.operation.id);
+        },
+        successToast: {
+          title: "Reverify started",
+          body: `Created a provider operation for ${mapping.sourceSymbol}. Use Inspect in Operations to review it.`,
+        },
       },
     );
   }
@@ -1078,10 +1114,15 @@ export function AdminProvidersClient({
         sourceSymbol: mapping.sourceSymbol,
         typedConfirmation,
       }),
-      (result: { operation: ProviderFixerDashboardOperationDto }) => {
-        if (!result.operation?.id) return;
-        setSelectedOperationId(result.operation.id);
-        setToast({ title: "Revert started", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      {
+        onSuccess: (result: { operation: ProviderFixerDashboardOperationDto }) => {
+          if (!result.operation?.id) return;
+          setSelectedOperationId(result.operation.id);
+        },
+        successToast: {
+          title: "Revert started",
+          body: `Created a provider operation for ${mapping.sourceSymbol}. Use Inspect in Operations to review it.`,
+        },
       },
     );
   }
@@ -1094,10 +1135,15 @@ export function AdminProvidersClient({
         resolverMode: mapping.resolverMode ?? diagnostics.resolverMode,
         acknowledged: true,
       }),
-      (result: { operation: ProviderFixerDashboardOperationDto }) => {
-        if (!result.operation?.id) return;
-        setSelectedOperationId(result.operation.id);
-        setToast({ title: "Rerun queued", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      {
+        onSuccess: (result: { operation: ProviderFixerDashboardOperationDto }) => {
+          if (!result.operation?.id) return;
+          setSelectedOperationId(result.operation.id);
+        },
+        successToast: {
+          title: "Rerun queued",
+          body: `Created a provider operation for ${mapping.sourceSymbol}. Use Inspect in Operations to review it.`,
+        },
       },
     );
   }
@@ -1110,10 +1156,15 @@ export function AdminProvidersClient({
         resolverMode: diagnostics.resolverMode,
         acknowledged: true,
       }),
-      (result: { operation: ProviderFixerDashboardOperationDto }) => {
-        if (!result.operation?.id) return;
-        setSelectedOperationId(result.operation.id);
-        setToast({ title: "Rerun queued", body: `Created ${result.operation.id}. Use Inspect in Operations to review it.` });
+      {
+        onSuccess: (result: { operation: ProviderFixerDashboardOperationDto }) => {
+          if (!result.operation?.id) return;
+          setSelectedOperationId(result.operation.id);
+        },
+        successToast: {
+          title: "Rerun queued",
+          body: `Created a provider operation for ${item.sourceSymbol}. Use Inspect in Operations to review it.`,
+        },
       },
     );
   }
@@ -1509,7 +1560,13 @@ export function AdminProvidersClient({
                     }],
                   },
                 }),
-                (result) => setSelectedOperationId(result.operation.id),
+                {
+                  onSuccess: (result) => setSelectedOperationId(result.operation.id),
+                  successToast: {
+                    title: "Renew started",
+                    body: `Created a provider operation for ${item.sourceSymbol}. Use Inspect in Operations to review it.`,
+                  },
+                },
               );
             }}
             onToggleItem={toggleUnresolvedRow}
