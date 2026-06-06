@@ -1290,6 +1290,7 @@ export interface ListProviderOperationsOptions {
   providerId?: string;
   marketCode?: MarketCode;
   phases?: ProviderOperationPhase[];
+  includeOperationId?: string;
   page: number;
   limit: number;
 }
@@ -1384,6 +1385,7 @@ export interface UpsertProviderOperationOutcomeInput {
 export interface ListProviderOperationOutcomesOptions {
   operationId: string;
   state?: ProviderOperationOutcomeState;
+  action?: string;
   page: number;
   limit: number;
 }
@@ -1505,7 +1507,7 @@ export interface UpsertProviderUnresolvedItemInput {
 export interface ListProviderUnresolvedItemsOptions {
   providerId?: string;
   marketCode?: MarketCode;
-  state?: ProviderUnresolvedItemState;
+  state?: ProviderUnresolvedItemState | "all";
   errorCode?: string;
   search?: string;
   sort?: "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";

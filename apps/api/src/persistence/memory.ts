@@ -5592,7 +5592,7 @@ export class MemoryPersistence implements Persistence {
       .filter((row) => {
         if (options.providerId && row.providerId !== options.providerId) return false;
         if (options.marketCode && row.marketCode !== options.marketCode) return false;
-        if (options.state && row.state !== options.state) return false;
+        if (options.state && options.state !== "all" && row.state !== options.state) return false;
         if (options.errorCode && row.errorCode !== options.errorCode) return false;
         if (search && !`${row.sourceSymbol} ${row.providerSymbol ?? ""} ${row.errorCode}`.toUpperCase().includes(search)) return false;
         return true;
@@ -5744,8 +5744,15 @@ export class MemoryPersistence implements Persistence {
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const offset = (page - 1) * limit;
+    const items = filtered.slice(offset, offset + limit);
+    if (options.includeOperationId) {
+      const selected = filtered.find((row) => row.id === options.includeOperationId);
+      if (selected && !items.some((row) => row.id === selected.id)) {
+        items.push(selected);
+      }
+    }
     return {
-      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      items: items.map((row) => ({ ...row })),
       total: filtered.length,
       page,
       limit,
@@ -5894,6 +5901,7 @@ export class MemoryPersistence implements Persistence {
     const filtered = [...this.providerOperationOutcomes.values()]
       .filter((row) => row.operationId === options.operationId)
       .filter((row) => !options.state || row.state === options.state)
+      .filter((row) => !options.action || row.action === options.action)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const allForOperation = [...this.providerOperationOutcomes.values()]
       .filter((row) => row.operationId === options.operationId);
@@ -5968,7 +5976,7 @@ export class MemoryPersistence implements Persistence {
         if (options.providerId && row.providerId !== options.providerId) return false;
         if (marketCode && row.marketCode !== marketCode) return false;
         if (search) {
-          const haystack = `${row.sourceSymbol} ${row.resolvedSymbol} ${row.resolverMode ?? ""}`.toLowerCase();
+          const haystack = `${row.sourceSymbol} ${row.resolvedSymbol} ${row.resolverMode ?? ""} ${JSON.stringify(row.evidence ?? {})}`.toLowerCase();
           if (!haystack.includes(search)) return false;
         }
         return true;

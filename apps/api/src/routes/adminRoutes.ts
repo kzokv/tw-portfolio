@@ -3380,7 +3380,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     const query = z
       .object({
         marketCode: providerFixerMarketCodeSchema.optional(),
-        state: z.enum(["active", "resolved", "unsupported", "ignored"]).default("active"),
+        state: z.enum(["all", "active", "resolved", "unsupported", "ignored"]).default("active"),
         errorCode: providerFixerErrorCodeSchema.optional(),
         search: z.string().trim().max(120).optional(),
         sort: z.enum(["last_seen_desc", "updated_desc", "source_symbol_asc", "occurrence_count_desc"]).default("last_seen_desc"),
@@ -4594,6 +4594,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         providerId: providerFixerProviderSchema.optional(),
         marketCode: providerFixerMarketCodeSchema.optional(),
         phase: providerFixerPhaseSchema.optional(),
+        includeOperationId: z.string().trim().min(1).max(120).optional(),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(200).default(25),
       })
@@ -4606,14 +4607,29 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       providerId,
       marketCode: query.marketCode,
       phases: query.phase ? [query.phase as ProviderOperationPhase] : undefined,
+      includeOperationId: query.includeOperationId,
       page: query.page,
       limit: query.limit,
     });
     const guardrails = providerFixerGuardrailsFromConfig(config);
-    const operations = result.items.map((operation) => providerFixerOperationToDto(operation, guardrails));
+    const selectedOperationRecord = query.includeOperationId
+      ? result.items.find((operation) => operation.id === query.includeOperationId)
+        ?? await app.persistence.getProviderOperation(query.includeOperationId)
+      : null;
+    const selectedOperation = selectedOperationRecord
+      && (!providerId || selectedOperationRecord.providerId === providerId)
+      && (!query.marketCode || selectedOperationRecord.marketCode === query.marketCode)
+      && (!query.phase || selectedOperationRecord.phase === query.phase)
+        ? providerFixerOperationToDto(selectedOperationRecord, guardrails)
+        : null;
+    const operations = result.items
+      .filter((operation) => operation.id !== query.includeOperationId)
+      .map((operation) => providerFixerOperationToDto(operation, guardrails));
+    const stagedOperation = operations.find((operation) => operation.phase === "preview" || operation.phase === "staged")
+      ?? (selectedOperation && (selectedOperation.phase === "preview" || selectedOperation.phase === "staged") ? selectedOperation : null);
     return {
-      stagedOperation:
-        operations.find((operation) => operation.phase === "preview" || operation.phase === "staged") ?? null,
+      stagedOperation,
+      selectedOperation,
       operations,
       total: result.total,
       page: result.page,
@@ -4635,14 +4651,16 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     const query = z
       .object({
-        state: z.enum(["pending", "running", "succeeded", "failed", "skipped", "rate_limited", "cancelled"]).optional(),
+        state: z.enum(["all", "pending", "running", "succeeded", "failed", "skipped", "rate_limited", "cancelled"]).optional(),
+        action: z.string().trim().min(1).max(120).optional(),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(200).default(25),
       })
       .parse(req.query ?? {});
     const result = await app.persistence.listProviderOperationOutcomes({
       operationId,
-      state: query.state,
+      state: query.state === "all" ? undefined : query.state,
+      action: query.action,
       page: query.page,
       limit: query.limit,
     });

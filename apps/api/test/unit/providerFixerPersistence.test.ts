@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 
 describe("Provider Fixer persistence contract", () => {
@@ -164,6 +164,130 @@ describe("Provider Fixer persistence contract", () => {
           sourceSymbol: "035900",
           state: "active",
         }),
+      ]),
+    });
+  });
+
+  it("supports unresolved all-state queries, mapping evidence search, outcome action filters, and includeOperationId", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T01:00:00.000Z"));
+    await persistence.createProviderOperation({
+      id: "op-kr-older",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 1,
+      scopeQuery: "older",
+    });
+    vi.setSystemTime(new Date("2026-06-03T02:00:00.000Z"));
+    await persistence.createProviderOperation({
+      id: "op-kr-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "rerun_backfill",
+      phase: "completed",
+      matchCount: 1,
+      scopeQuery: "selected",
+    });
+    vi.useRealTimers();
+    await persistence.upsertProviderUnresolvedItem({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+    });
+    await persistence.updateProviderUnresolvedItemState({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      sourceSymbol: "005930",
+      state: "ignored",
+      actorUserId: "admin-1",
+    });
+    await persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "op-linked-123" },
+      verifiedByUserId: "admin-1",
+    });
+    await persistence.upsertProviderOperationOutcome({
+      operationId: "op-kr-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930.KS",
+      action: "repair_mapping",
+      state: "succeeded",
+    });
+    await persistence.upsertProviderOperationOutcome({
+      operationId: "op-kr-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "000660",
+      providerSymbol: "000660.KS",
+      action: "renew_evidence",
+      state: "failed",
+    });
+
+    await expect(
+      persistence.listProviderUnresolvedItems({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        state: "all",
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "ignored" })],
+    });
+
+    await expect(
+      persistence.listProviderResolutionMappings({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        search: "op-linked-123",
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", resolvedSymbol: "005930.KS" })],
+    });
+
+    await expect(
+      persistence.listProviderOperationOutcomes({
+        operationId: "op-kr-selected",
+        action: "renew_evidence",
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ action: "renew_evidence", sourceSymbol: "000660" })],
+    });
+
+    await expect(
+      persistence.listProviderOperations({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        includeOperationId: "op-kr-older",
+        page: 1,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: "op-kr-selected" }),
+        expect.objectContaining({ id: "op-kr-older" }),
       ]),
     });
   });

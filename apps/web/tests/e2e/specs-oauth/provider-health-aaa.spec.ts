@@ -553,8 +553,8 @@ test.describe.serial("provider console rail interaction — desktop + mobile", (
 
     await page.getByTestId("provider-console-operations-table").waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
-      /live progress|operation details|operation item outcomes/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
-      "operations tab exposes progress and durable outcome surfaces",
+      /current operation|selected operation inspector|operation outcomes/i.test((await page.getByTestId("provider-console-page").textContent()) ?? ""),
+      "operations tab exposes the current-operation banner and selected-operation inspector",
     );
 
     await page.getByTestId("provider-console-subtab-logs").click();

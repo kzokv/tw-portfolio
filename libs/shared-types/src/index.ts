@@ -2054,6 +2054,7 @@ export interface ProviderFixerDashboardDiagnosticsResponse {
 
 export interface ProviderFixerDashboardOperationsResponse {
   stagedOperation: ProviderFixerDashboardOperationDto | null;
+  selectedOperation?: ProviderFixerDashboardOperationDto | null;
   operations: ProviderFixerDashboardOperationDto[];
   total: number;
   page: number;
@@ -2092,6 +2093,7 @@ export interface ProviderLogPurgeExecuteResponse {
 }
 
 export type ProviderUnresolvedItemState = "active" | "resolved" | "unsupported" | "ignored";
+export type ProviderUnresolvedListState = ProviderUnresolvedItemState | "all";
 
 export interface ProviderUnresolvedItemDto {
   providerId: string;
@@ -2167,6 +2169,7 @@ export type ProviderOperationOutcomeState =
   | "skipped"
   | "rate_limited"
   | "cancelled";
+export type ProviderOperationOutcomeListState = ProviderOperationOutcomeState | "all";
 
 export interface ProviderOperationOutcomeDto {
   operationId: string;
