@@ -12683,7 +12683,7 @@ export class PostgresPersistence implements Persistence {
       where.push(`market_code = $${i++}`);
       params.push(options.marketCode);
     }
-    if (options.state) {
+    if (options.state && options.state !== "all") {
       where.push(`state = $${i++}`);
       params.push(options.state);
     }
@@ -12964,8 +12964,20 @@ export class PostgresPersistence implements Persistence {
          OFFSET $${i++}`,
       [...params, limit, offset],
     );
+    const rows = rowsResult.rows.map(mapProviderOperationRow);
+    if (options.includeOperationId && !rows.some((row) => row.id === options.includeOperationId)) {
+      const selected = await this.getProviderOperation(options.includeOperationId);
+      if (
+        selected
+        && (!options.providerId || selected.providerId === options.providerId)
+        && (!options.marketCode || selected.marketCode === options.marketCode)
+        && (!options.phases || options.phases.length === 0 || options.phases.includes(selected.phase))
+      ) {
+        rows.push(selected);
+      }
+    }
     return {
-      items: rowsResult.rows.map(mapProviderOperationRow),
+      items: rows,
       total: parseInt(countResult.rows[0]?.count ?? "0", 10),
       page,
       limit,
@@ -13132,6 +13144,10 @@ export class PostgresPersistence implements Persistence {
       where.push(`state = $${i++}`);
       params.push(options.state);
     }
+    if (options.action) {
+      where.push(`action = $${i++}`);
+      params.push(options.action);
+    }
     const whereClause = where.join(" AND ");
     const countResult = await this.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
@@ -13257,7 +13273,12 @@ export class PostgresPersistence implements Persistence {
       params.push(options.marketCode);
     }
     if (options.search?.trim()) {
-      where.push(`(source_symbol ILIKE $${i} OR resolved_symbol ILIKE $${i} OR COALESCE(resolver_mode, '') ILIKE $${i})`);
+      where.push(`(
+        source_symbol ILIKE $${i}
+        OR resolved_symbol ILIKE $${i}
+        OR COALESCE(resolver_mode, '') ILIKE $${i}
+        OR COALESCE(evidence::text, '') ILIKE $${i}
+      )`);
       params.push(`%${options.search.trim()}%`);
       i++;
     }

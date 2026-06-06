@@ -614,6 +614,182 @@ describe("Provider Fixer admin routes", () => {
     expect(mismatchedExecute.statusCode).toBe(404);
   });
 
+  it("searches provider mappings by source and resolved symbol", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "OP-MAPPING-1" },
+      verifiedByUserId: admin.userId,
+    });
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "000660",
+      resolvedSymbol: "000660.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "OP-MAPPING-2" },
+      verifiedByUserId: admin.userId,
+    });
+
+    const bySource = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/mappings?search=005930&page=1&limit=10",
+      headers,
+    });
+    expect(bySource.statusCode).toBe(200);
+    expect(bySource.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", resolvedSymbol: "005930.KS" })],
+    });
+
+    const byResolved = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/mappings?search=000660.KS&page=1&limit=10",
+      headers,
+    });
+    expect(byResolved.statusCode).toBe(200);
+    expect(byResolved.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "000660", resolvedSymbol: "000660.KS" })],
+    });
+  });
+
+  it("filters and paginates operation outcomes by state", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const operation = await app.persistence.createProviderOperation({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+    });
+
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+      action: "repair_mapping",
+      state: "succeeded",
+      message: "resolved",
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "000660",
+      providerSymbol: "000660",
+      action: "repair_mapping",
+      state: "failed",
+      errorCode: "provider_symbol_unresolved",
+      message: "failed",
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "035720",
+      providerSymbol: "035720",
+      action: "repair_mapping",
+      state: "succeeded",
+      message: "resolved again",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${operation.id}/outcomes?state=succeeded&page=1&limit=1`,
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      summary: { total: 3, succeeded: 2, failed: 1, processed: 3 },
+      items: [expect.objectContaining({ state: "succeeded" })],
+    });
+    expect((response.json() as { items: Array<{ sourceSymbol: string }> }).items).toHaveLength(1);
+  });
+
+  it("returns an included selected operation off-page and filters outcomes by action", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T01:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-page-2",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "renew_evidence",
+      phase: "completed",
+      matchCount: 1,
+      scopeQuery: "page-2",
+    });
+    vi.setSystemTime(new Date("2026-06-03T02:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 2,
+      scopeQuery: "selected",
+    });
+    vi.useRealTimers();
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: "provider-op-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930.KS",
+      action: "repair_mapping",
+      state: "succeeded",
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: "provider-op-selected",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "000660",
+      providerSymbol: "000660.KS",
+      action: "renew_evidence",
+      state: "failed",
+    });
+
+    const operations = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations?page=2&limit=1&includeOperationId=provider-op-selected",
+      headers,
+    });
+    expect(operations.statusCode).toBe(200);
+    expect(operations.json()).toMatchObject({
+      selectedOperation: { id: "provider-op-selected", providerId: "yahoo-finance-kr" },
+      operations: [expect.objectContaining({ id: "provider-op-page-2" })],
+      total: 2,
+      page: 2,
+      limit: 1,
+    });
+
+    const outcomes = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/operations/provider-op-selected/outcomes?state=all&action=renew_evidence&page=1&limit=10",
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 2, failed: 1, succeeded: 1 },
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "000660", action: "renew_evidence", state: "failed" })],
+    });
+  });
+
   it("returns preparing_preview for dangerous filter previews and promotes them to preview asynchronously", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -715,6 +891,59 @@ describe("Provider Fixer admin routes", () => {
         expect.objectContaining({ sourceSymbol: "000660" }),
         expect.objectContaining({ sourceSymbol: "005930" }),
       ],
+    });
+  });
+
+  it("supports unresolved state=all and mappings search by linked operation id", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.updateProviderUnresolvedItemState({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      sourceSymbol: "005930",
+      state: "ignored",
+      actorUserId: admin.userId,
+      reason: "reviewed",
+    });
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { operationId: "mapping-op-123" },
+      verifiedByUserId: admin.userId,
+    });
+
+    const active = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=active&page=1&limit=10",
+      headers,
+    });
+    expect(active.statusCode).toBe(200);
+    expect(active.json()).toMatchObject({ total: 0, items: [] });
+
+    const all = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/unresolved?state=all&page=1&limit=10",
+      headers,
+    });
+    expect(all.statusCode).toBe(200);
+    expect(all.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", state: "ignored" })],
+    });
+
+    const mappings = await app.inject({
+      method: "GET",
+      url: "/admin/providers/yahoo-finance-kr/mappings?search=mapping-op-123&page=1&limit=10",
+      headers,
+    });
+    expect(mappings.statusCode).toBe(200);
+    expect(mappings.json()).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ sourceSymbol: "005930", resolvedSymbol: "005930.KS" })],
     });
   });
 

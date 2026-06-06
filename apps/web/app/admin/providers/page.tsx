@@ -63,9 +63,9 @@ function positiveIntQueryValue(value: string | string[] | undefined, fallback: n
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function unresolvedStateQueryValue(value: string | string[] | undefined): "active" | "resolved" | "unsupported" | "ignored" {
+function unresolvedStateQueryValue(value: string | string[] | undefined): "active" | "resolved" | "unsupported" | "ignored" | "all" {
   const state = firstOptionalQueryValue(value);
-  return state === "resolved" || state === "unsupported" || state === "ignored" ? state : "active";
+  return state === "resolved" || state === "unsupported" || state === "ignored" || state === "all" ? state : "active";
 }
 
 function unresolvedSortQueryValue(value: string | string[] | undefined): ProviderUnresolvedSort {
@@ -86,7 +86,15 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
   const unresolvedSort = unresolvedSortQueryValue(query.unresolvedSort);
   const unresolvedPage = positiveIntQueryValue(query.unresolvedPage, 1);
   const operationsPage = positiveIntQueryValue(query.operationsPage, 1);
+  const incidentsPage = positiveIntQueryValue(query.incidentsPage, 1);
+  const activityPage = positiveIntQueryValue(query.activityPage, 1);
+  const logsPage = positiveIntQueryValue(query.logsPage, 1);
+  const mappingsPage = positiveIntQueryValue(query.mappingsPage, 1);
+  const operationOutcomesPage = positiveIntQueryValue(query.operationOutcomesPage, 1);
   const operationId = firstOptionalQueryValue(query.operationId);
+  const mappingsSearch = firstOptionalQueryValue(query.mappingsSearch) ?? "";
+  const operationOutcomeState = firstOptionalQueryValue(query.operationOutcomeState);
+  const operationOutcomeAction = firstOptionalQueryValue(query.operationOutcomeAction) ?? "";
 
   const [providersData, summaryData] = await Promise.all([
     getJson<AdminProvidersResponse>("/admin/providers"),
@@ -104,19 +112,19 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       `/admin/providers/${encodeURIComponent(providerId)}/unresolved?state=${encodeURIComponent(unresolvedState)}&errorCode=${encodeURIComponent(errorCode)}&search=${encodeURIComponent(unresolvedSearch)}&sort=${encodeURIComponent(unresolvedSort)}&page=${unresolvedPage}&limit=${pageLimit}`,
     ),
     getJson<ProviderIncidentsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/incidents?status=open&page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/incidents?status=open&page=${incidentsPage}&limit=${pageLimit}`,
     ),
     getJson<ProviderResolutionMappingsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/mappings?page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/mappings?page=${mappingsPage}&limit=${pageLimit}&search=${encodeURIComponent(mappingsSearch)}`,
     ),
     getJson<ProviderActivityResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/activity?page=1&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/activity?page=${activityPage}&limit=${pageLimit}`,
     ),
     getJson<ProviderFixerDashboardOperationsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/operations?page=${operationsPage}&limit=${pageLimit}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/operations?page=${operationsPage}&limit=${pageLimit}${operationId ? `&includeOperationId=${encodeURIComponent(operationId)}` : ""}`,
     ),
     getJson<ProviderFixerDashboardLogsResponse>(
-      `/admin/providers/${encodeURIComponent(providerId)}/logs?page=1&limit=${pageLimit}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
+      `/admin/providers/${encodeURIComponent(providerId)}/logs?page=${logsPage}&limit=${pageLimit}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
     ),
   ]);
 
@@ -126,13 +134,14 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       ? [operationsData.stagedOperation, ...operationsData.operations]
       : operationsData.operations;
   const selectedOperationForOutcomes =
-    (operationId ? operations.find((operation) => operation.id === operationId && operation.providerId === providerId) : null)
+    operationsData.selectedOperation
+    ?? (operationId ? operations.find((operation) => operation.id === operationId && operation.providerId === providerId) : null)
     ?? operationsData.stagedOperation
     ?? operations[0]
     ?? null;
   const outcomesData = selectedOperationForOutcomes
     ? await getJson<ProviderOperationOutcomesResponse>(
-        `/admin/providers/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(selectedOperationForOutcomes.id)}/outcomes?page=1&limit=${pageLimit}`,
+        `/admin/providers/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(selectedOperationForOutcomes.id)}/outcomes?page=${operationOutcomesPage}&limit=${pageLimit}${operationOutcomeState && operationOutcomeState !== "all" ? `&state=${encodeURIComponent(operationOutcomeState)}` : ""}${operationOutcomeAction.trim() ? `&action=${encodeURIComponent(operationOutcomeAction.trim())}` : ""}`,
       )
     : {
         items: [],
@@ -182,8 +191,11 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       activityLimit={activityData.limit}
       activityTotal={activityData.total}
       stagedOperation={operationsData.stagedOperation}
-      operations={operations}
+      operations={operationsData.selectedOperation && !operations.some((operation) => operation.id === operationsData.selectedOperation?.id)
+        ? [operationsData.selectedOperation, ...operations]
+        : operations}
       initialOperationId={selectedOperationForOutcomes?.id}
+      initialRequestedOperationId={operationId}
       operationsPage={operationsData.page}
       operationsLimit={operationsData.limit}
       operationsTotal={operationsData.total}
@@ -196,6 +208,17 @@ export default async function AdminProvidersPage({ searchParams }: AdminProvider
       logsPage={logsData.page}
       logsLimit={logsData.limit}
       logsTotal={logsData.total}
+      initialMappingsSearch={mappingsSearch}
+      initialOperationOutcomeState={operationOutcomeState === "pending"
+        || operationOutcomeState === "running"
+        || operationOutcomeState === "succeeded"
+        || operationOutcomeState === "failed"
+        || operationOutcomeState === "skipped"
+        || operationOutcomeState === "rate_limited"
+        || operationOutcomeState === "cancelled"
+        ? operationOutcomeState
+        : "all"}
+      initialOperationOutcomeAction={operationOutcomeAction}
     />
   );
 }

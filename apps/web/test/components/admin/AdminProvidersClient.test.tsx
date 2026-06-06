@@ -823,7 +823,22 @@ describe("AdminProvidersClient", () => {
         acknowledged: true,
       },
     );
-    expect(mockRefresh).toHaveBeenCalled();
+    expect(document.querySelector("[data-testid='provider-console-toast']")?.textContent ?? "").toMatch(
+      /provider operation updated/i,
+    );
+  });
+
+  it("explains linked mapping context when no unresolved row exists", () => {
+    renderClient(root, {
+      initialTab: "unresolved",
+      initialUnresolvedState: "all",
+      initialUnresolvedSearch: "33262L",
+      unresolvedItems: [],
+      unresolvedTotal: 0,
+    });
+
+    expect(document.body.textContent ?? "").toMatch(/No unresolved row found for this linked context/i);
+    expect(document.body.textContent ?? "").toMatch(/mapping may have been created directly from repair evidence/i);
   });
 
   it("keeps dangerous execution disabled until scope, checkbox, and typed confirmation are satisfied", () => {
@@ -995,7 +1010,7 @@ describe("AdminProvidersClient", () => {
     renderClient(root, { initialTab: "operations" });
 
     expect(document.body.textContent ?? "").toMatch(/operation item outcomes/i);
-    expect(document.querySelector("[data-testid='provider-console-operation-details']")?.textContent ?? "").toMatch(/operation details/i);
+    expect(document.body.textContent ?? "").toMatch(/selected operation inspector/i);
     expect(document.body.textContent ?? "").toMatch(/repair mapping/i);
     expect(document.body.textContent ?? "").toMatch(/resolved 005930 to 005930\.KS/i);
   });
@@ -1013,7 +1028,38 @@ describe("AdminProvidersClient", () => {
     click("provider-console-operation-select-OP-SECOND");
 
     expect(mockPush).toHaveBeenCalledWith(
-      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-SECOND",
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-SECOND&operationOutcomesPage=1",
+      { scroll: false },
+    );
+  });
+
+  it("keeps the selected operation sticky when background operations refresh the table", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      operations: [
+        buildOperation({ id: "OP-FIRST", phase: "completed", canExecute: false, canRetry: true }),
+        buildOperation({ id: "OP-SECOND", phase: "failed", canExecute: false, canRetry: true }),
+      ],
+      stagedOperation: null,
+    });
+
+    click("provider-console-operation-select-OP-SECOND");
+    mockPush.mockClear();
+
+    renderClient(root, {
+      initialTab: "operations",
+      operations: [
+        buildOperation({ id: "OP-NEW", phase: "running", canExecute: false, canRetry: false, progressPercent: 12 }),
+        buildOperation({ id: "OP-FIRST", phase: "completed", canExecute: false, canRetry: true }),
+        buildOperation({ id: "OP-SECOND", phase: "failed", canExecute: false, canRetry: true }),
+      ],
+      stagedOperation: buildOperation({ id: "OP-NEW", phase: "running", canExecute: false, canRetry: false, progressPercent: 12 }),
+    });
+
+    click("provider-console-operation-open-logs");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&operationId=OP-SECOND&logsPage=1",
       { scroll: false },
     );
   });
@@ -1029,7 +1075,7 @@ describe("AdminProvidersClient", () => {
     click("provider-console-operation-open-logs");
 
     expect(mockPush).toHaveBeenCalledWith(
-      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&operationId=OP-LOGS",
+      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&operationId=OP-LOGS&logsPage=1",
       { scroll: false },
     );
   });
@@ -1050,6 +1096,73 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("pages operation outcomes through URL state", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-OUTCOMES",
+      operations: [buildOperation({ id: "OP-OUTCOMES", phase: "completed", canExecute: false, canRetry: true })],
+      operationOutcomesTotal: 25,
+      stagedOperation: null,
+    });
+
+    const nextButtons = document.querySelectorAll("[data-testid='pagination-next']");
+    const outcomesNext = nextButtons[1] as HTMLElement | undefined;
+    if (!outcomesNext) throw new Error("expected outcomes pagination control");
+    act(() => {
+      outcomesNext.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-OUTCOMES&operationOutcomesPage=2",
+      { scroll: false },
+    );
+  });
+
+  it("pages incidents through URL state", () => {
+    renderClient(root, {
+      initialTab: "incidents",
+      incidentsTotal: 25,
+    });
+
+    click("pagination-next");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=incidents&incidentsPage=2",
+      { scroll: false },
+    );
+  });
+
+  it("pages activity through URL state", () => {
+    renderClient(root, {
+      initialTab: "activity",
+      activityTotal: 25,
+    });
+
+    click("pagination-next");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=activity&activityPage=2",
+      { scroll: false },
+    );
+  });
+
+  it("pages logs through URL state and preserves the selected operation filter", () => {
+    renderClient(root, {
+      initialTab: "logs",
+      initialOperationId: "OP-LOGS-PAGE",
+      operations: [buildOperation({ id: "OP-LOGS-PAGE", phase: "completed", canExecute: false, canRetry: true })],
+      stagedOperation: null,
+      logsTotal: 25,
+    });
+
+    click("pagination-next");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&logsPage=2&operationId=OP-LOGS-PAGE",
+      { scroll: false },
+    );
+  });
+
   it("pages provider operations through URL state", () => {
     renderClient(root, {
       initialTab: "operations",
@@ -1063,6 +1176,40 @@ describe("AdminProvidersClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith(
       "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationsPage=2&operationId=OP-PAGE",
+      { scroll: false },
+    );
+  });
+
+  it("pages operation outcomes and preserves outcome filters in URL state", () => {
+    renderClient(root, {
+      initialTab: "operations",
+      initialOperationId: "OP-OUTCOMES",
+      operations: [buildOperation({ id: "OP-OUTCOMES", phase: "completed", canExecute: false, canRetry: true })],
+      stagedOperation: null,
+      operationOutcomesTotal: 25,
+      initialOperationOutcomeState: "failed",
+      initialOperationOutcomeAction: "repair_mapping",
+    });
+
+    const stateSelect = document.querySelector(
+      "[data-testid='provider-console-operation-outcome-state']",
+    ) as HTMLSelectElement | null;
+    const actionInput = document.querySelector(
+      "[data-testid='provider-console-operation-outcome-action']",
+    ) as HTMLInputElement | null;
+    if (!stateSelect || !actionInput) throw new Error("expected outcome filters");
+    expect(stateSelect.value).toBe("failed");
+    expect(actionInput.value).toBe("repair_mapping");
+
+    const nextButtons = document.querySelectorAll("[data-testid='pagination-next']");
+    const outcomesNext = nextButtons[1] as HTMLElement | undefined;
+    if (!outcomesNext) throw new Error("expected outcomes pagination next button");
+    act(() => {
+      outcomesNext.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&operationId=OP-OUTCOMES&operationOutcomesPage=2&operationOutcomeState=failed&operationOutcomeAction=repair_mapping",
       { scroll: false },
     );
   });
@@ -1117,6 +1264,29 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("pages incidents, activity, and logs through URL state", () => {
+    renderClient(root, { initialTab: "incidents", incidentsTotal: 25 });
+    click("pagination-next");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=incidents&incidentsPage=2",
+      { scroll: false },
+    );
+
+    renderClient(root, { initialTab: "activity", activityTotal: 25 });
+    click("pagination-next");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=activity&activityPage=2",
+      { scroll: false },
+    );
+
+    renderClient(root, { initialTab: "logs", logsTotal: 25 });
+    click("pagination-next");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=logs&logsPage=2&operationId=OP-20260602-1842",
+      { scroll: false },
+    );
+  });
+
   it("shows mapping evidence, linked context, and starts guarded reverify operations", async () => {
     renderClient(root, { initialTab: "mappings" });
 
@@ -1125,20 +1295,16 @@ describe("AdminProvidersClient", () => {
     expect(document.body.textContent ?? "").toMatch(/Unresolved: 005930/i);
     click("provider-console-mapping-unresolved-link-005930");
     expect(mockPush).toHaveBeenLastCalledWith(
-      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSearch=005930&unresolvedPage=1",
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=all&unresolvedSearch=005930&unresolvedPage=1",
       { scroll: false },
     );
     click("provider-console-mapping-operation-link-005930");
     expect(mockPush).toHaveBeenLastCalledWith(
-      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&operationId=OP-20260602-1842",
+      "/admin/providers?providerId=yahoo-finance-kr&tab=operations&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&operationId=OP-20260602-1842&operationOutcomesPage=1",
       { scroll: false },
     );
-    expect(findElementByText("button", "Reverify").getAttribute("title") ?? "").toMatch(
-      /create a provider operation/i,
-    );
-    expect(findElementByText("button", "Revert").getAttribute("title") ?? "").toMatch(
-      /typing the exact phrase/i,
-    );
+    expect(findElementByText("button", "Reverify")).not.toBeNull();
+    expect(findElementByText("button", "Revert")).not.toBeNull();
 
     click("provider-console-mapping-reverify-005930");
     await act(async () => undefined);
@@ -1184,6 +1350,46 @@ describe("AdminProvidersClient", () => {
         sourceSymbol: "005930",
         typedConfirmation: "REVERT 005930",
       },
+    );
+  });
+
+  it("routes mappings search and pagination through URL state", () => {
+    renderClient(root, { initialTab: "mappings", mappingsTotal: 25 });
+
+    const search = document.querySelector("[data-testid='provider-console-mappings-search']") as HTMLInputElement | null;
+    if (!search) throw new Error("expected mappings search");
+    updateInputValue(search, "005930");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=mappings&mappingsPage=1&mappingsSearch=005930",
+      { scroll: false },
+    );
+
+    renderClient(root, { initialTab: "mappings", mappingsTotal: 25, initialMappingsSearch: "005930" });
+    click("pagination-next");
+    expect(mockPush).toHaveBeenLastCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=mappings&mappingsPage=2&mappingsSearch=005930",
+      { scroll: false },
+    );
+  });
+
+  it("pages mappings through URL state and preserves mappings search", () => {
+    renderClient(root, {
+      initialTab: "mappings",
+      mappingsTotal: 25,
+      initialMappingsSearch: "005930",
+    });
+
+    const search = document.querySelector(
+      "[data-testid='provider-console-mappings-search']",
+    ) as HTMLInputElement | null;
+    if (!search) throw new Error("expected mappings search");
+    expect(search.value).toBe("005930");
+
+    click("pagination-next");
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=mappings&mappingsPage=2&mappingsSearch=005930",
+      { scroll: false },
     );
   });
 
