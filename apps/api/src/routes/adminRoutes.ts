@@ -105,6 +105,15 @@ import {
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const fxBaseCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
+type StoppedProviderOperationPhase = Extract<ProviderOperationPhase, "cancelled" | "paused">;
+
+class ProviderOperationStoppedError extends Error {
+  constructor(public readonly operation: ProviderOperationRecord & { phase: StoppedProviderOperationPhase }) {
+    super(`Provider operation ${operation.phase}.`);
+    this.name = "ProviderOperationStoppedError";
+  }
+}
+
 function catalogSyncRerunSingletonKey(marketCode: MarketCode): string {
   return `${CATALOG_SYNC_QUEUE}:${marketCode}`;
 }
@@ -971,6 +980,9 @@ async function reserveProviderOperationBudget(
   requestCount = 1,
 ): Promise<void> {
   const latest = await app.persistence.getProviderOperation(operation.id);
+  if (latest?.phase === "cancelled" || latest?.phase === "paused") {
+    throw new ProviderOperationStoppedError(latest as ProviderOperationRecord & { phase: StoppedProviderOperationPhase });
+  }
   const metadata = asRecord(latest?.metadata) ?? asRecord(operation.metadata) ?? {};
   const capPerMinute = numberField(metadata.effectiveRateCapPerMinute) ?? 250;
   const safeCapPerMinute = Math.max(0.01, capPerMinute);
@@ -1311,7 +1323,32 @@ async function refreshProviderOperationProgressFromOutcomes(
   });
 }
 
-async function returnCancelledProviderOperationIfCancelled(
+function isExpiredProviderOperationPreview(operation: ProviderOperationRecord, now = Date.now()): boolean {
+  return (
+    (operation.phase === "preview" || operation.phase === "staged")
+    && operation.previewExpiresAt != null
+    && new Date(operation.previewExpiresAt).getTime() <= now
+  );
+}
+
+async function getStoppedProviderOperation(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+): Promise<(ProviderOperationRecord & { phase: StoppedProviderOperationPhase }) | null> {
+  const current = await app.persistence.getProviderOperation(operation.id);
+  if (current?.phase !== "cancelled" && current?.phase !== "paused") return null;
+  return current as ProviderOperationRecord & { phase: StoppedProviderOperationPhase };
+}
+
+async function throwIfProviderOperationStopped(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+): Promise<void> {
+  const stopped = await getStoppedProviderOperation(app, operation);
+  if (stopped) throw new ProviderOperationStoppedError(stopped);
+}
+
+async function returnStoppedProviderOperationIfStopped(
   app: FastifyInstance,
   operation: ProviderOperationRecord,
   context: {
@@ -1321,12 +1358,12 @@ async function returnCancelledProviderOperationIfCancelled(
   message: string,
   result: Record<string, unknown>,
 ): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> } | null> {
-  const current = await app.persistence.getProviderOperation(operation.id);
-  if (current?.phase !== "cancelled") return null;
+  const current = await getStoppedProviderOperation(app, operation);
+  if (!current) return null;
   const refreshed = await refreshProviderOperationProgressFromOutcomes(app, current.id) ?? current;
   await app.persistence.createProviderOperationLog({
     operationId: refreshed.id,
-    phase: "cancelled",
+    phase: refreshed.phase,
     level: "warning",
     message,
     context: {
@@ -1342,7 +1379,7 @@ async function returnCancelledProviderOperationIfCancelled(
   });
   return {
     operation: providerFixerOperationToDto(refreshed, context.guardrails),
-    result: { status: "cancelled", ...result },
+    result: { status: refreshed.phase, ...result },
   };
 }
 
@@ -1369,13 +1406,7 @@ async function findOtherActiveProviderOperationExecution(
   const now = Date.now();
   return active.items.find((row) => {
     if (row.id === scope.operationId) return false;
-    if (
-      (row.phase === "preview" || row.phase === "staged")
-      && row.previewExpiresAt
-      && new Date(row.previewExpiresAt).getTime() <= now
-    ) {
-      return false;
-    }
+    if (isExpiredProviderOperationPreview(row, now)) return false;
     return true;
   }) ?? null;
 }
@@ -1575,6 +1606,7 @@ async function executeProviderFixerMappings(
     items: providerFixerFrozenSelectedItemsFromMetadata(operation.metadata),
   });
   for (const row of scopeItems) {
+    await throwIfProviderOperationStopped(app, operation);
     scanned += 1;
     const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
     const providerSymbol = row.providerSymbol ?? sourceSymbol;
@@ -1666,6 +1698,7 @@ async function executeProviderFixerMappings(
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
       throw err;
     }
+    await throwIfProviderOperationStopped(app, operation);
   }
   if (mappedTickers.length > 0) {
     await app.persistence.resolveProviderUnresolvedItems({
@@ -1696,6 +1729,7 @@ async function enqueueProviderFixerBackfills(
   let enqueued = 0;
   let skippedExisting = 0;
   for (const ticker of [...new Set(tickers)]) {
+    await throwIfProviderOperationStopped(app, operation);
     const payload = {
       ticker,
       marketCode: "KR",
@@ -1735,24 +1769,38 @@ async function completeProviderFixerOperation(
   let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
   try {
     result = await executeProviderFixerMappings(app, operation, context.actorUserId);
-    const cancelled = await returnCancelledProviderOperationIfCancelled(
+    const stopped = await returnStoppedProviderOperationIfStopped(
       app,
       operation,
       context,
-      `execute_cancelled provider=${operation.providerId} market=${operation.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned}`,
+      `execute_stopped provider=${operation.providerId} market=${operation.marketCode} phase=stopped applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned}`,
       { ...result, backfills: { enqueued: 0, skippedExisting: 0 } },
     );
-    if (cancelled) return cancelled;
+    if (stopped) return stopped;
     backfills = await enqueueProviderFixerBackfills(app, operation, result.mappedTickers);
-    const cancelledAfterBackfills = await returnCancelledProviderOperationIfCancelled(
+    const stoppedAfterBackfills = await returnStoppedProviderOperationIfStopped(
       app,
       operation,
       context,
-      `execute_cancelled provider=${operation.providerId} market=${operation.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
+      `execute_stopped provider=${operation.providerId} market=${operation.marketCode} phase=stopped applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
       { ...result, backfills },
     );
-    if (cancelledAfterBackfills) return cancelledAfterBackfills;
+    if (stoppedAfterBackfills) return stoppedAfterBackfills;
   } catch (err) {
+    if (err instanceof ProviderOperationStoppedError) {
+      const actionLabel = err.operation.phase === "cancelled" ? "execute_cancelled" : "execute_stopped";
+      const stopped = await returnStoppedProviderOperationIfStopped(
+        app,
+        err.operation,
+        context,
+        `${actionLabel} provider=${err.operation.providerId} market=${err.operation.marketCode} phase=${err.operation.phase}`,
+        { applied: 0, skipped: 0, scanned: 0, backfills: { enqueued: 0, skippedExisting: 0 } },
+      );
+      return stopped ?? {
+        operation: providerFixerOperationToDto(err.operation, context.guardrails),
+        result: { status: err.operation.phase },
+      };
+    }
     const message = err instanceof Error ? err.message : "Provider fixer execution failed";
     const isRateLimited = err instanceof RateLimitedError;
     const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? asRecord(operation.metadata) ?? {};
@@ -1893,6 +1941,7 @@ async function renewProviderFixerEvidence(
   });
   const rows = await listProviderUnresolvedScopeItems(app, operation.providerId, scope);
   for (const row of rows) {
+      await throwIfProviderOperationStopped(app, operation);
       scanned += 1;
       const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
       const providerSymbol = row.providerSymbol ?? sourceSymbol;
@@ -1969,6 +2018,7 @@ async function renewProviderFixerEvidence(
         throw err;
       }
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+      await throwIfProviderOperationStopped(app, operation);
   }
   return { succeeded, skipped, scanned };
 }
@@ -1987,6 +2037,19 @@ async function completeProviderRenewEvidenceOperation(
   try {
     result = await renewProviderFixerEvidence(app, operation);
   } catch (err) {
+    if (err instanceof ProviderOperationStoppedError) {
+      const stopped = await returnStoppedProviderOperationIfStopped(
+        app,
+        err.operation,
+        context,
+        `renew_stopped provider=${err.operation.providerId} market=${err.operation.marketCode} phase=${err.operation.phase}`,
+        { succeeded: 0, skipped: 0, scanned: 0 },
+      );
+      return stopped ?? {
+        operation: providerFixerOperationToDto(err.operation, context.guardrails),
+        result: { status: err.operation.phase },
+      };
+    }
     const message = err instanceof Error ? err.message : "Provider evidence renewal failed.";
     const isRateLimited = err instanceof RateLimitedError;
     const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? asRecord(operation.metadata) ?? {};
@@ -2168,6 +2231,7 @@ async function completeProviderRerunBackfillOperation(
   });
 
   try {
+    await throwIfProviderOperationStopped(app, operation);
     const backfills = await enqueueProviderFixerBackfills(app, operation, [sourceSymbol]);
     const succeeded = backfills.enqueued > 0;
     const state = succeeded ? "succeeded" : "skipped";
@@ -2237,6 +2301,19 @@ async function completeProviderRerunBackfillOperation(
     });
     return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", backfills } };
   } catch (err) {
+    if (err instanceof ProviderOperationStoppedError) {
+      const stopped = await returnStoppedProviderOperationIfStopped(
+        app,
+        err.operation,
+        context,
+        `rerun_stopped provider=${err.operation.providerId} market=${err.operation.marketCode} phase=${err.operation.phase}`,
+        { sourceSymbol, resolvedSymbol },
+      );
+      return stopped ?? {
+        operation: providerFixerOperationToDto(err.operation, context.guardrails),
+        result: { status: err.operation.phase, sourceSymbol, resolvedSymbol },
+      };
+    }
     const message = err instanceof Error ? err.message : "Provider backfill rerun failed.";
     const failed = await app.persistence.updateProviderOperation({
       id: operation.id,
@@ -2644,6 +2721,19 @@ async function completeProviderMappingReverifyOperation(
     });
     return { operation: providerFixerOperationToDto(completed, context.guardrails), result: { status: "completed", verification } };
   } catch (err) {
+    if (err instanceof ProviderOperationStoppedError) {
+      const stopped = await returnStoppedProviderOperationIfStopped(
+        app,
+        err.operation,
+        context,
+        `reverify_stopped provider=${err.operation.providerId} market=${err.operation.marketCode} phase=${err.operation.phase}`,
+        { sourceSymbol, resolvedSymbol },
+      );
+      return stopped ?? {
+        operation: providerFixerOperationToDto(err.operation, context.guardrails),
+        result: { status: err.operation.phase, sourceSymbol, resolvedSymbol },
+      };
+    }
     const isRateLimited = err instanceof RateLimitedError;
     const message = err instanceof Error ? err.message : "Provider mapping reverify failed.";
     const latestMetadata = asRecord((await app.persistence.getProviderOperation(operation.id))?.metadata) ?? metadata;
@@ -2800,6 +2890,7 @@ async function completeProviderMappingRevertOperation(
   });
 
   try {
+    await throwIfProviderOperationStopped(app, operation);
     const deleted = await app.persistence.deleteProviderResolutionMapping({
       providerId: operation.providerId,
       marketCode: operation.marketCode,
@@ -2892,6 +2983,19 @@ async function completeProviderMappingRevertOperation(
       result: { status: "completed", deleted: Boolean(deleted) },
     };
   } catch (err) {
+    if (err instanceof ProviderOperationStoppedError) {
+      const stopped = await returnStoppedProviderOperationIfStopped(
+        app,
+        err.operation,
+        context,
+        `revert_stopped provider=${err.operation.providerId} market=${err.operation.marketCode} phase=${err.operation.phase}`,
+        { sourceSymbol, resolvedSymbol },
+      );
+      return stopped ?? {
+        operation: providerFixerOperationToDto(err.operation, context.guardrails),
+        result: { status: err.operation.phase, sourceSymbol, resolvedSymbol },
+      };
+    }
     const message = err instanceof Error ? err.message : "Provider mapping revert failed.";
     const failed = await app.persistence.updateProviderOperation({
       id: operation.id,
@@ -3014,6 +3118,7 @@ async function maybeStartNextQueuedProviderOperation(
     guardrails: ProviderFixerDashboardGuardrailSettingsDto;
   },
 ): Promise<ProviderOperationRecord | null> {
+  const now = Date.now();
   const active = (
     await app.persistence.listProviderOperations({
       providerId,
@@ -3022,7 +3127,7 @@ async function maybeStartNextQueuedProviderOperation(
       page: 1,
       limit: 50,
     })
-  ).items[0] ?? null;
+  ).items.find((row) => !isExpiredProviderOperationPreview(row, now)) ?? null;
   if (active) return null;
   const queued = await app.persistence.listProviderOperations({
     providerId,
