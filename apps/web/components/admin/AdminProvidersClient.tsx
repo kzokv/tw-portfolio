@@ -301,8 +301,16 @@ function previewMatchesScope(
 ): boolean {
   if (!preview || !scope || !preview.frozenScope) return false;
   if (preview.frozenScope.type !== scope.type) return false;
-  if (preview.frozenScope.filterFingerprint !== scope.filterFingerprint) return false;
-  if (scope.type === "filter") return preview.frozenScope.matchCount === scope.count;
+  if (scope.type === "filter") {
+    const frozenFilter = preview.frozenScope.filter;
+    return !!frozenFilter
+      && preview.frozenScope.matchCount === scope.count
+      && frozenFilter.providerId === scope.filter?.providerId
+      && frozenFilter.marketCode === scope.filter?.marketCode
+      && frozenFilter.errorCode === scope.filter?.errorCode
+      && frozenFilter.state === scope.filter?.state
+      && (frozenFilter.search?.trim() || null) === (scope.filter?.search?.trim() || null);
+  }
   const previewKeys = preview.frozenScope.selectedItems.map(unresolvedItemKey).sort();
   const scopeKeys = scope.selectedItems.map(unresolvedItemKey).sort();
   return previewKeys.length === scopeKeys.length && previewKeys.every((key, index) => key === scopeKeys[index]);
@@ -632,7 +640,10 @@ export function AdminProvidersClient({
   ]);
   const typedConfirmationRequired = currentPreview?.confirmationMode === "typed";
   const currentPreviewExpired = previewExpired(currentPreview);
-  const scopeMatchesPreview = previewMatchesScope(currentPreview, selectedScope);
+  const frozenPreviewScopeAvailable = !!currentPreview?.frozenScope;
+  const scopeMatchesPreview = selectedScope
+    ? previewMatchesScope(currentPreview, selectedScope)
+    : frozenPreviewScopeAvailable;
   const executeBlockers: ExecuteBlocker[] = [
     {
       label: "Token still valid",
@@ -645,9 +656,9 @@ export function AdminProvidersClient({
       help: "Choose a staged operation before executing.",
     },
     {
-      label: "Scope selected",
-      satisfied: !!selectedScope,
-      help: "Pick visible rows or explicitly choose all matching before previewing repair.",
+      label: "Frozen scope available",
+      satisfied: frozenPreviewScopeAvailable,
+      help: "Create a preview first so execution uses an immutable selected-row or all-matching snapshot.",
     },
     {
       label: "Scope matches preview",
@@ -672,7 +683,7 @@ export function AdminProvidersClient({
   ];
   const executeDisabled =
     busyAction !== null
-    || !selectedScope
+    || !frozenPreviewScopeAvailable
     || !scopeMatchesPreview
     || currentPreviewExpired
     || !selectedOperation?.canExecute
@@ -1360,6 +1371,17 @@ export function AdminProvidersClient({
           >
             Inspect
           </Button>
+          {row.canExecute ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              title="Open the selected-operation inspector to review guardrails and execute this preview."
+              onClick={() => selectOperation(row.id, { focusInspector: true, announce: true })}
+              data-testid={`provider-console-operation-execute-review-${row.id}`}
+            >
+              Execute
+            </Button>
+          ) : null}
           {row.canPause ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "pause")}>Pause</Button> : null}
           {row.canResume ? <Button size="sm" variant="ghost" onClick={() => mutateOperation(row.id, "resume")}>Resume</Button> : null}
           <Button
@@ -1647,6 +1669,12 @@ export function AdminProvidersClient({
             onPageChange={applyOperationsPage}
             progressOperation={progressOperation}
             selectedScope={selectedScope}
+            confirmationChecked={confirmationChecked}
+            typedConfirmation={typedConfirmation}
+            typedConfirmationRequired={typedConfirmationRequired}
+            executeDisabled={executeDisabled}
+            executeBlockers={executeBlockers}
+            busyAction={busyAction}
             outcomes={visibleOperationOutcomes}
             outcomeSummary={operationOutcomeSummary}
             outcomesPage={operationOutcomesPage}
@@ -1654,6 +1682,9 @@ export function AdminProvidersClient({
             outcomesTotal={operationOutcomesTotal}
             onOutcomeRouteChange={applyOperationOutcomeFilters}
             onInspectOperation={(operationId) => selectOperation(operationId, { focusInspector: true, announce: true })}
+            setConfirmationChecked={setConfirmationChecked}
+            setTypedConfirmation={setTypedConfirmation}
+            onExecute={executeSelectedOperation}
             page={operationsPage}
             limit={operationsLimit}
             total={operationsTotal}
@@ -2716,6 +2747,12 @@ function OperationsTab({
   onPageChange,
   progressOperation,
   selectedScope,
+  confirmationChecked,
+  typedConfirmation,
+  typedConfirmationRequired,
+  executeDisabled,
+  executeBlockers,
+  busyAction,
   outcomes,
   outcomeSummary,
   outcomesPage,
@@ -2723,6 +2760,9 @@ function OperationsTab({
   outcomesTotal,
   onOutcomeRouteChange,
   onInspectOperation,
+  setConfirmationChecked,
+  setTypedConfirmation,
+  onExecute,
   page,
   limit,
   total,
@@ -2742,6 +2782,12 @@ function OperationsTab({
   onPageChange: (page: number) => void;
   progressOperation: ProviderFixerDashboardOperationDto | null;
   selectedScope: UnresolvedScopeSelection | null;
+  confirmationChecked: boolean;
+  typedConfirmation: string;
+  typedConfirmationRequired: boolean;
+  executeDisabled: boolean;
+  executeBlockers: ExecuteBlocker[];
+  busyAction: string | null;
   outcomes: ProviderOperationOutcomeDto[];
   outcomeSummary: ProviderOperationOutcomeSummaryDto;
   outcomesPage: number;
@@ -2753,6 +2799,9 @@ function OperationsTab({
     action?: string;
   }) => void;
   onInspectOperation: (operationId: string) => void;
+  setConfirmationChecked: (checked: boolean) => void;
+  setTypedConfirmation: (value: string) => void;
+  onExecute: () => void;
   page: number;
   limit: number;
   total: number;
@@ -2884,25 +2933,79 @@ function OperationsTab({
               </p>
             </div>
             {selectedOperation.preview ? (
-              <RepairScopePanel
-                selectedProviderId={selectedProviderId}
-                errorCode={selectedOperation.preview.frozenScope?.filter?.errorCode ?? selectedOperation.preview.scopeLabel}
-                state={selectedOperation.preview.state ?? "active"}
-                search={selectedOperation.preview.search ?? ""}
-                resolverMode="quote_first"
-                guardrails={{
-                  dangerousMatchThreshold: selectedOperation.dangerous ? selectedOperation.matchCount : Number.MAX_SAFE_INTEGER,
-                  previewSampleLimit: selectedOperation.preview.sampleCount,
-                  uiPageSize: selectedOperation.preview.sampleCount,
-                  autoPauseFailureThresholdPerMinute: selectedOperation.autoPauseFailureThresholdPerMinute ?? 0,
-                  previewTokenTtlSeconds: 0,
-                  healthWarningUnresolvedThreshold: 0,
-                  healthCriticalUnresolvedThreshold: 0,
-                }}
-                scope={operationScope}
-                currentPreview={selectedOperation.preview}
-                title="Selected operation scope"
-              />
+              <>
+                <RepairScopePanel
+                  selectedProviderId={selectedProviderId}
+                  errorCode={selectedOperation.preview.frozenScope?.filter?.errorCode ?? selectedOperation.preview.scopeLabel}
+                  state={selectedOperation.preview.state ?? "active"}
+                  search={selectedOperation.preview.search ?? ""}
+                  resolverMode="quote_first"
+                  guardrails={{
+                    dangerousMatchThreshold: selectedOperation.dangerous ? selectedOperation.matchCount : Number.MAX_SAFE_INTEGER,
+                    previewSampleLimit: selectedOperation.preview.sampleCount,
+                    uiPageSize: selectedOperation.preview.sampleCount,
+                    autoPauseFailureThresholdPerMinute: selectedOperation.autoPauseFailureThresholdPerMinute ?? 0,
+                    previewTokenTtlSeconds: 0,
+                    healthWarningUnresolvedThreshold: 0,
+                    healthCriticalUnresolvedThreshold: 0,
+                  }}
+                  scope={operationScope}
+                  currentPreview={selectedOperation.preview}
+                  title="Selected operation scope"
+                />
+                {selectedOperation.canExecute ? (
+                  <div className="grid gap-3 rounded-xl border border-border bg-card p-3" data-testid="provider-console-operation-execute-guardrails">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Execute guardrails</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Execute uses this operation's frozen preview token. It does not depend on the current unresolved table selection.
+                      </p>
+                    </div>
+                    <ul className="space-y-2 text-sm" data-testid="provider-console-operation-execute-blockers">
+                      {executeBlockers.map((blocker) => (
+                        <li key={blocker.label} className="flex items-start gap-2">
+                          <span className={cn("mt-1 h-2.5 w-2.5 rounded-full", blocker.satisfied ? "bg-emerald-500" : "bg-amber-500")} aria-hidden="true" />
+                          <span>
+                            <strong className="text-foreground">{blocker.label}</strong>
+                            <span className="block text-muted-foreground">{blocker.help}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={confirmationChecked}
+                        onChange={(event) => setConfirmationChecked(event.target.checked)}
+                        data-testid="provider-console-operation-confirm-checkbox"
+                      />
+                      <span>{selectedOperation.preview.acknowledgementLabel}</span>
+                    </label>
+                    {typedConfirmationRequired ? (
+                      <label className="grid gap-1 text-sm text-muted-foreground">
+                        <span>Type confirmation phrase</span>
+                        <input
+                          className="h-10 rounded-lg border border-input bg-background px-3 font-mono text-foreground"
+                          value={typedConfirmation}
+                          onChange={(event) => setTypedConfirmation(event.target.value)}
+                          placeholder={selectedOperation.preview.confirmationText ?? ""}
+                          data-testid="provider-console-operation-typed-confirmation"
+                        />
+                      </label>
+                    ) : null}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        disabled={executeDisabled}
+                        onClick={onExecute}
+                        data-testid="provider-console-operation-execute-button"
+                        title={executeDisabled ? "Execution stays disabled until this preview has a valid token and matching acknowledgement." : "Execute the selected operation preview."}
+                      >
+                        {busyAction === "execute-repair" ? "Executing..." : "Execute operation"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <Reason
                 tone="info"
