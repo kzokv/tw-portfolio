@@ -1241,6 +1241,12 @@ Option examples:
 
 **Exit codes:** `0` = success; `1` = validation or deployment failure (including after rollback).
 
+**Long-running build diagnostics**
+
+- GitHub Actions deploys keep the SSH session alive with client-side keepalives while the remote deploy script runs.
+- `deploy.sh` emits periodic heartbeat log lines during long image builds, migrations, and `docker compose up` so a quiet Docker build does not look like a stalled or dead SSH session.
+- If a deploy still fails with `client_loop: send disconnect: Broken pipe`, treat it as a WARP/SSH transport interruption first. Check whether the remote deploy log continued under `~/.local/state/vakwen/<environment>/logs/deploy/` before assuming the app build failed.
+
 ---
 
 ## 6. Health Checks
