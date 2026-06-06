@@ -1328,6 +1328,15 @@ describe("Provider Fixer admin routes", () => {
       phase: "queued",
       metadata: expect.objectContaining({ queuedBehindOperationId: "active-provider-lock" }),
     });
+    await app.persistence.createProviderOperation({
+      id: "expired-preview-beside-queued-rerun",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "resolver_repair",
+      phase: "preview",
+      previewExpiresAt: "2026-06-03T00:00:00.000Z",
+      matchCount: 1,
+    });
 
     const cancel = await app.inject({
       method: "POST",
@@ -2255,6 +2264,91 @@ describe("Provider Fixer admin routes", () => {
     expect(logs.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ phase: "cancelled", message: expect.stringContaining("execute_cancelled") }),
+      ]),
+    );
+  });
+
+  it("keeps paused provider fixer execution paused when background repair observes the pause", async () => {
+    let resolveVerification: (value: {
+      verified: boolean;
+      checkedSymbol: string;
+      resolverMode: "quote_first";
+    }) => void = () => undefined;
+    const verificationStarted = vi.fn();
+    verifyResolvedSymbol
+      .mockResolvedValueOnce({
+        verified: true,
+        checkedSymbol: "005930.KS",
+        resolverMode: "quote_first",
+      })
+      .mockImplementationOnce(() => {
+        verificationStarted();
+        return new Promise((resolve) => {
+          resolveVerification = resolve;
+        });
+      });
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    expect(preview.statusCode).toBe(201);
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: {
+        previewToken: previewBody.operation.preview.token,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(() => expect(verificationStarted).toHaveBeenCalled());
+
+    const pause = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/pause`,
+      headers,
+    });
+    expect(pause.statusCode).toBe(200);
+    expect(pause.json()).toMatchObject({ operation: { phase: "paused" } });
+
+    resolveVerification({
+      verified: true,
+      checkedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+    });
+
+    await vi.waitFor(async () => {
+      await expect(
+        app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
+      ).resolves.toMatchObject({ resolvedSymbol: "005930.KS" });
+    });
+    await expect(app.persistence.getProviderOperation(previewBody.operation.id)).resolves.toMatchObject({
+      phase: "paused",
+      completedAt: null,
+    });
+    const logs = await app.persistence.listProviderOperationLogs({
+      operationId: previewBody.operation.id,
+      page: 1,
+      limit: 20,
+    });
+    expect(logs.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ phase: "paused", message: expect.stringContaining("execute_stopped") }),
       ]),
     );
   });
