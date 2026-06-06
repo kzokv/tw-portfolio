@@ -28,7 +28,7 @@ User reconfirmed on 2026-06-06 that the scope is locked and should be written to
 Current audit status:
 
 - Implementation is present in the active KZO-197 provider guardrails branch.
-- Latest implementation commit: `11276d5c fix(providers): KZO-197: submit unresolved filters reliably`.
+- Latest implementation commit: `79fd1bac fix(providers): KZO-197: prevent preview event payload leak`.
 - Focused API, web component, web typecheck, web build, and targeted OAuth E2E checks were run during implementation.
 - Full local repository gates passed on 2026-06-06:
   `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run test --prefix apps/api`,
@@ -36,9 +36,10 @@ Current audit status:
   `npm run test:e2e:oauth:mem --prefix apps/web`, and `npm run test:http --prefix apps/api`.
 - After the latest filter-submit regression fix, these focused gates passed:
   `npm run test --prefix apps/web -- AdminProvidersClient.test.tsx`, `npx eslint .`, and `npm run typecheck`.
-- Latest commit was pushed to PR #204 and CI run `27049483868` passed.
-- Dev deployment run `27049655875` failed in the remote deploy step with exit code `255`; inspect deployment logs before rerunning or validating the latest filter fix on dev.
+- Latest commit was pushed to PR #204 and CI run `27053062748` passed.
+- Dev deployment run `27053226906` completed successfully in `13m27s`.
 - Chrome-extension dev validation against commit `7dbe521f` passed for provider status, sub-tab rendering, pagination, direct filtered URLs, select-all behavior, and absence of console errors, but found the unresolved filter Apply/Enter bug fixed by `11276d5c`.
+- Chrome-extension dev validation after deployment run `27053226906` passed for `yahoo-finance-kr` backlog status, Fixer preview routing to the backend without circular JSON serialization, unresolved pagination after route settle, select-visible checkbox behavior, Operations `Inspect` inspector rendering, and absence of captured console warnings/errors.
 
 Known code findings from the grill:
 
@@ -56,6 +57,7 @@ Post-lock follow-up findings:
 
 - Dev deployment run `27049655875` failed during the remote deploy step with `client_loop: send disconnect: Broken pipe` while the web image build was still progressing. The failure appears transport/quiet-build related rather than an application compile failure.
 - Provider repair execution now needs to route the user directly into the Operations inspector for the created operation, while row-level renew/rerun/reverify/revert actions should keep the user in context and provide explicit Inspect guidance.
+- Dev validation after `02150528` found Fixer `Preview repair` was passing the React click event into the preview request body, causing `Converting circular structure to JSON`. Commit `79fd1bac` wraps action callbacks and adds a regression test so preview requests send only the intended scope payload.
 
 ## Locked Decisions
 
@@ -113,7 +115,7 @@ Post-lock follow-up findings:
 - [x] Add runbook guidance for diagnosing long-running build disconnects and distinguishing SSH transport failure from application build failure.
 - [x] Route guarded repair execution to the selected Operations inspector and preserve action-specific toast guidance for provider row/mapping actions.
 - [x] Add regression coverage for guarded repair execution selecting and focusing the Operations inspector.
-- [ ] Inspect failed dev deployment run `27049655875`, rerun or fix deployment as needed, then validate the latest branch on dev through Chrome.
+- [x] Inspect failed dev deployment run `27049655875`, rerun or fix deployment as needed, then validate the latest branch on dev through Chrome.
 
 ## Acceptance Criteria
 
