@@ -1987,15 +1987,18 @@ function UnresolvedTab({
           <Button disabled={!canRepairSelected} onClick={previewSelectedScope} title={canRepairSelected ? actionHelp.repair : "Select at least one durable active unresolved row before previewing repair."}>Repair selected</Button>
         </div>
       </div>
-      <div className="flex flex-col gap-2 xl:flex-row xl:flex-wrap">
+      <form
+        className="flex flex-col gap-2 xl:flex-row xl:flex-wrap"
+        onSubmit={(event) => {
+          event.preventDefault();
+          applyCurrentFilters();
+        }}
+      >
         <input
           ref={searchInputRef}
           className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground xl:min-w-[220px] xl:flex-1"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") applyCurrentFilters();
-          }}
           placeholder="Search symbol, provider symbol, error"
           data-testid="provider-console-unresolved-search"
         />
@@ -2027,10 +2030,10 @@ function UnresolvedTab({
         <div className="min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm xl:w-56" title={diagnosis?.errorCode ?? "all"}>
           <span className="block truncate">Error: {diagnosis?.errorCode ?? "all"}</span>
         </div>
-        <Button variant="secondary" onClick={() => applyCurrentFilters()} disabled={routePending} data-testid="provider-console-unresolved-apply">
+        <Button type="submit" variant="secondary" disabled={routePending} data-testid="provider-console-unresolved-apply">
           {routePending ? "Applying..." : "Apply filters"}
         </Button>
-      </div>
+      </form>
       {linkedContextSearch && !linkedContextHasActiveRow ? (
         <Reason
           tone="info"

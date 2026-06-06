@@ -617,6 +617,24 @@ describe("AdminProvidersClient", () => {
     );
   });
 
+  it("submits unresolved filters from the filter form", () => {
+    renderClient(root, { initialTab: "unresolved" });
+
+    const search = document.querySelector("[data-testid='provider-console-unresolved-search']") as HTMLInputElement | null;
+    const form = search?.closest("form");
+    if (!search || !form) throw new Error("expected unresolved filter form");
+
+    updateInputValue(search, "000660");
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/admin/providers?providerId=yahoo-finance-kr&tab=unresolved&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved&unresolvedState=active&unresolvedSort=last_seen_desc&unresolvedPage=1&unresolvedSearch=000660",
+      { scroll: false },
+    );
+  });
+
   it("supports unresolved sort, select-all matching, and recently resolved shortcut", () => {
     renderClient(root, { initialTab: "unresolved", unresolvedTotal: 1842 });
 
