@@ -5815,7 +5815,10 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         marketCode: row.marketCode,
       }))]);
     }
-    return allMatchingTargets(marketCode, body.filters);
+    const filters = body.categories.includes("admin_state_reset")
+      ? { ...(body.filters ?? {}), supportState: body.filters?.supportState ?? "all" }
+      : body.filters;
+    return allMatchingTargets(marketCode, filters);
   }
 
   function unsupportedPurgeCategories(marketCode: MarketCode, body: MarketDataPurgeBody): AdminMarketDataPurgePreviewResponse["unsupportedCategories"] {
@@ -6477,8 +6480,9 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       })
       .parse(req.query ?? {});
     const workspace = MARKET_DATA_WORKSPACES[marketCode];
-    const providerId = query.providerId;
-    if (providerId && !providerIdsForMarket(marketCode).includes(providerId)) {
+    const workspaceProviderIds = providerIdsForMarket(marketCode);
+    const providerId = query.providerId ?? (marketCode === "FX" ? workspace.defaultBackfillProviderId ?? workspaceProviderIds[0] : undefined);
+    if (providerId && !workspaceProviderIds.includes(providerId)) {
       throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
     }
     const config = await loadAppConfigDto(app);
@@ -6490,7 +6494,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       limit: query.limit,
     });
     const items = result.items
-      .filter((operation) => providerIdsForMarket(marketCode).includes(operation.providerId))
+      .filter((operation) => workspaceProviderIds.includes(operation.providerId))
       .map((operation) => providerFixerOperationToDto(operation, guardrails));
     return {
       marketCode,
