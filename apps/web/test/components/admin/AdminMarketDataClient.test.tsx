@@ -45,9 +45,11 @@ import { AdminMarketDataWorkspaceClient } from "../../../components/admin/AdminM
 import {
   bulkUpdateProviderUnresolvedState,
   executeMarketBackfill,
+  executeMarketPurge,
   executeProviderRepair,
   mutateProviderOperation,
   previewMarketBackfill,
+  previewMarketPurge,
   previewProviderRepair,
   renewProviderEvidence,
   rerunProviderResolvedUnresolvedItem,
@@ -63,8 +65,10 @@ const bulkUpdateProviderUnresolvedStateMock = vi.mocked(bulkUpdateProviderUnreso
 const updateProviderUnresolvedStateMock = vi.mocked(updateProviderUnresolvedState);
 const executeProviderRepairMock = vi.mocked(executeProviderRepair);
 const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);
+const executeMarketPurgeMock = vi.mocked(executeMarketPurge);
 const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
 const previewMarketBackfillMock = vi.mocked(previewMarketBackfill);
+const previewMarketPurgeMock = vi.mocked(previewMarketPurge);
 const previewProviderRepairMock = vi.mocked(previewProviderRepair);
 const renewProviderEvidenceMock = vi.mocked(renewProviderEvidence);
 const rerunProviderResolvedUnresolvedItemMock = vi.mocked(rerunProviderResolvedUnresolvedItem);
@@ -524,6 +528,93 @@ describe("AdminMarketDataWorkspaceClient", () => {
       previewToken: "BF-TOKEN",
       acknowledged: true,
       typedConfirmation: "",
+    });
+  });
+
+  it("executes purge against the previewed request and clears stale previews when controls change", async () => {
+    previewMarketPurgeMock.mockResolvedValue({
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      categories: ["price_bars"],
+      affectedInstrumentCount: 1,
+      affectedUserCount: 0,
+      affectedAccountCount: 0,
+      estimatedRows: 5,
+      unsupportedCategories: [],
+      linkedRefill: { available: true, mode: "full_history", warning: null },
+      confirmation: { level: "typed", text: "PURGE AU", reason: null },
+    });
+    executeMarketPurgeMock.mockResolvedValueOnce({
+      operationId: "OP-PURGE",
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      status: "completed",
+      categories: ["price_bars"],
+      affectedInstrumentCount: 1,
+      deletedRows: 5,
+      linkedBackfillOperationId: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="purge"
+          overview={{ ...overview(), tabs: ["overview", "purge"] }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          logs={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const refillCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
+      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("Enqueue backfill")) as HTMLInputElement;
+    await act(async () => {
+      refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview purge")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(previewMarketPurgeMock).toHaveBeenCalledWith("AU", expect.objectContaining({
+      categories: ["price_bars"],
+      fullHistory: true,
+      enqueueBackfillAfterPurge: true,
+    }));
+
+    await act(async () => {
+      refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).not.toContain("Purge estimate");
+    await act(async () => {
+      refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview purge")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const confirmation = container.querySelector("input[placeholder='PURGE AU']") as HTMLInputElement;
+    updateInputValue(confirmation, "PURGE AU");
+    await act(async () => undefined);
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Execute purge")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(executeMarketPurgeMock).toHaveBeenCalledWith("AU", {
+      categories: ["price_bars"],
+      fullHistory: true,
+      startDate: undefined,
+      endDate: undefined,
+      enqueueBackfillAfterPurge: true,
+      typedConfirmation: "PURGE AU",
     });
   });
 

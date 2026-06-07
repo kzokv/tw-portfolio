@@ -20,6 +20,7 @@ import type {
   AdminMarketDataOverviewResponse,
   AdminMarketDataPurgeCategory,
   AdminMarketDataPurgeExecuteResponse,
+  AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
   AdminMarketWorkspaceTab,
 } from "@vakwen/shared-types";
@@ -930,32 +931,43 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
   const [endDate, setEndDate] = useState("");
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataPurgePreviewResponse | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<AdminMarketDataPurgePreviewRequest | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataPurgeExecuteResponse | null>(null);
+
+  useEffect(() => {
+    setPreview(null);
+    setPreviewRequest(null);
+    setExecuteResult(null);
+    setTypedConfirmation("");
+  }, [selected, enqueueBackfill, fullHistory, startDate, endDate]);
 
   function toggle(category: AdminMarketDataPurgeCategory) {
     setSelected((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
   }
 
-  async function runPreview() {
-    const result = await previewMarketPurge(marketCode, {
+  function buildPurgeRequest(): AdminMarketDataPurgePreviewRequest {
+    return {
       categories: selected,
       fullHistory,
       startDate: fullHistory || !startDate ? undefined : startDate,
       endDate: fullHistory || !endDate ? undefined : endDate,
       enqueueBackfillAfterPurge: enqueueBackfill,
-    });
+    };
+  }
+
+  async function runPreview() {
+    const request = buildPurgeRequest();
+    const result = await previewMarketPurge(marketCode, request);
     setPreview(result);
+    setPreviewRequest(request);
     setExecuteResult(null);
     setTypedConfirmation("");
   }
 
   async function runExecute() {
+    if (!previewRequest) return;
     const result = await executeMarketPurge(marketCode, {
-      categories: selected,
-      fullHistory,
-      startDate: fullHistory || !startDate ? undefined : startDate,
-      endDate: fullHistory || !endDate ? undefined : endDate,
-      enqueueBackfillAfterPurge: enqueueBackfill,
+      ...previewRequest,
       typedConfirmation,
     });
     setExecuteResult(result);
@@ -1045,7 +1057,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
           <button
             type="button"
             onClick={() => void runExecute()}
-            disabled={typedConfirmation !== preview.confirmation.text}
+            disabled={!previewRequest || typedConfirmation !== preview.confirmation.text}
             className="rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
           >
             Execute purge

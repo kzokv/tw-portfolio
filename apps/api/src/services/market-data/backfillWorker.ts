@@ -621,20 +621,21 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // both daily-refresh AND admin_rerun-triggered AU catalog warm-up.
       // Previously gated on `isDailyRefresh`, which left AU warm-up batches
       // permanently incomplete (jobs ran but never reported into the batch).
-      if (batchId && updateBatchTickerResult) {
-        await trackBatchResult(
-          batchId,
-          ticker,
-          { status: "success", barsCount, dividendsCount },
-          log,
-        );
-      }
       await recordOperationLog(
         "running",
         "info",
         `job_completed provider=${healthProviderId} market=${market} ticker=${ticker} bars=${barsCount} dividends=${dividendsCount}`,
         { barsCount, dividendsCount },
       );
+      if (batchId && updateBatchTickerResult) {
+        await trackBatchResult(
+          batchId,
+          ticker,
+          { status: "success", barsCount, dividendsCount },
+          log,
+          { providerOperationId, providerId: healthProviderId, marketCode: market },
+        );
+      }
     } catch (err) {
       // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
       // so the job effectively pauses until the limiter releases.
@@ -716,7 +717,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // carrying a `batchId`. Mirrors the success-path gate. Non-last retries
       // do NOT report to the batch — the job will be retried by pg-boss.
       if (isLastRetry && batchId && updateBatchTickerResult) {
-        await trackBatchResult(batchId, ticker, { status: "failed", reason }, log);
+        await trackBatchResult(
+          batchId,
+          ticker,
+          { status: "failed", reason },
+          log,
+          { providerOperationId, providerId: healthProviderId, marketCode: market },
+        );
       }
 
       throw err; // Re-throw so pg-boss handles retry
@@ -728,6 +735,11 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     ticker: string,
     result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
     logger: BackfillWorkerDeps["log"],
+    operationContext?: {
+      providerOperationId?: string;
+      providerId: ProviderId;
+      marketCode: MarketCode;
+    },
   ): Promise<void> {
     try {
       const counters = await updateBatchTickerResult!(batchId, ticker, result);
@@ -740,9 +752,64 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       if (counters.jobsSucceeded + counters.jobsFailed >= counters.jobsTotal && onBatchComplete) {
         logger.info({ batchId, ...counters }, "batch_fan_in_complete");
         await onBatchComplete(batchId);
+        await completeProviderOperationBatch(batchId, counters, operationContext, logger);
       }
     } catch (err) {
       logger.warn({ batchId, ticker, err }, "batch_result_tracking_failed");
+    }
+  }
+
+  async function completeProviderOperationBatch(
+    batchId: string,
+    counters: { jobsSucceeded: number; jobsFailed: number; jobsTotal: number },
+    operationContext: {
+      providerOperationId?: string;
+      providerId: ProviderId;
+      marketCode: MarketCode;
+    } | undefined,
+    logger: BackfillWorkerDeps["log"],
+  ): Promise<void> {
+    if (!operationContext?.providerOperationId || !providerOperationLogger) return;
+    try {
+      const operation = await providerOperationLogger.getProviderOperation(operationContext.providerOperationId);
+      if (!operation || (operation.phase !== "running" && operation.phase !== "queued")) return;
+      const phase: ProviderOperationPhase = counters.jobsFailed > 0 ? "failed" : "completed";
+      const completedAt = new Date().toISOString();
+      await providerOperationLogger.updateProviderOperation({
+        id: operation.id,
+        phase,
+        completedAt,
+        metadata: {
+          ...(operation.metadata ?? {}),
+          batchId,
+          jobsSucceeded: counters.jobsSucceeded,
+          jobsFailed: counters.jobsFailed,
+          jobsTotal: counters.jobsTotal,
+          progressPercent: 100,
+        },
+      });
+      await providerOperationLogger.createProviderOperationLog({
+        operationId: operation.id,
+        phase,
+        level: counters.jobsFailed > 0 ? "warning" : "info",
+        message: `backfill_batch_${phase} provider=${operation.providerId} market=${operation.marketCode} batch=${batchId}`,
+        context: {
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          batchId,
+          jobsSucceeded: counters.jobsSucceeded,
+          jobsFailed: counters.jobsFailed,
+          jobsTotal: counters.jobsTotal,
+        },
+      });
+    } catch (err) {
+      logger.warn({
+        err,
+        batchId,
+        providerOperationId: operationContext.providerOperationId,
+        providerId: operationContext.providerId,
+        marketCode: operationContext.marketCode,
+      }, "provider_operation_batch_completion_failed");
     }
   }
 }

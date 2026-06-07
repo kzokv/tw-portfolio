@@ -349,4 +349,51 @@ test.describe("admin market-data instruments", () => {
     assertString(executeBody.operationId, "purge execute operationId");
     assertEqual(executeBody.linkedBackfillOperationId, null, "purge execute linkedBackfillOperationId");
   });
+
+  test("[purge-preview]: admin-state reset includes retired instruments in matching scope", async ({
+    instrumentsApi,
+    request,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "market-data-admin-purge-retired-sub",
+      email: "market-data-admin-purge-retired@example.com",
+      name: "Market Data Admin Purge Retired",
+      role: "admin",
+    });
+    const seed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "AUPURGERET1",
+        marketCode: "AU",
+        name: "AU purge retired fixture",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+    await assertStatus(seed, 200);
+    const support = await request.post("/admin/market-data/AU/instruments/support-state", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        ticker: "AUPURGERET1",
+        marketCode: "AU",
+        supportState: "retired_by_admin",
+      },
+    });
+    await assertStatus(support, 200);
+
+    const preview = await request.post("/admin/market-data/AU/purge/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        providerId: "yahoo-finance-au",
+        categories: ["admin_state_reset"],
+        fullHistory: true,
+        filters: { search: "AUPURGERET1" },
+      },
+    });
+
+    await assertStatus(preview, 200);
+    const previewBody = assertRecord(await preview.json(), "purge retired preview body");
+    assertEqual(previewBody.marketCode, "AU", "purge retired preview marketCode");
+    assertEqual(previewBody.providerId, "yahoo-finance-au", "purge retired preview providerId");
+    assertEqual(previewBody.affectedInstrumentCount, 1, "purge retired preview affectedInstrumentCount");
+  });
 });

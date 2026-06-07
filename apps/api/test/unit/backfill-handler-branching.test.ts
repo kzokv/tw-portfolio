@@ -187,6 +187,69 @@ describe("backfill handler trigger branching", () => {
     }));
   });
 
+  it("completes operation-backed backfill batches after every queued job reports", async () => {
+    const deps = createDeps();
+    const onBatchComplete = vi.fn().mockResolvedValue(undefined);
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-batch",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "running",
+        metadata: { source: "preview" },
+      }),
+      updateProviderOperation: vi.fn().mockResolvedValue({}),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const updateBatchTickerResult = vi.fn().mockResolvedValue({
+      jobsSucceeded: 2,
+      jobsFailed: 0,
+      jobsTotal: 2,
+    });
+    const handler = createBackfillHandler({
+      ...deps,
+      updateBatchTickerResult,
+      onBatchComplete,
+      providerOperationLogger,
+    } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        batchId: "batch-1",
+        providerOperationId: "provider-op-batch",
+      }) as never,
+    ]);
+
+    expect(updateBatchTickerResult).toHaveBeenCalledWith("batch-1", "2330", {
+      status: "success",
+      barsCount: 1,
+      dividendsCount: 1,
+    });
+    expect(onBatchComplete).toHaveBeenCalledWith("batch-1");
+    expect(providerOperationLogger.updateProviderOperation).toHaveBeenCalledWith({
+      id: "provider-op-batch",
+      phase: "completed",
+      completedAt: expect.any(String),
+      metadata: expect.objectContaining({
+        source: "preview",
+        batchId: "batch-1",
+        jobsSucceeded: 2,
+        jobsFailed: 0,
+        jobsTotal: 2,
+        progressPercent: 100,
+      }),
+    });
+    expect(providerOperationLogger.createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "provider-op-batch",
+      phase: "completed",
+      level: "info",
+      message: expect.stringContaining("backfill_batch_completed"),
+      context: expect.objectContaining({ batchId: "batch-1", jobsTotal: 2 }),
+    }));
+  });
+
   it("requeues operation-backed jobs while the provider operation is paused", async () => {
     const deps = createDeps();
     const providerOperationLogger = {

@@ -808,6 +808,44 @@ describe("Provider Fixer admin routes", () => {
     expect((response.json() as { items: Array<{ sourceSymbol: string }> }).items).toHaveLength(1);
   });
 
+  it("filters FX market operations before pagination", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T01:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_rates",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.setSystemTime(new Date("2026-06-03T02:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-kr-newer",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/FX/operations?page=1&limit=1",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      marketCode: "FX",
+      total: 1,
+      items: [expect.objectContaining({ id: "provider-op-fx", providerId: "frankfurter" })],
+    });
+  });
+
   it("returns an included selected operation off-page and filters outcomes by action", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
