@@ -533,6 +533,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
 
   it("executes purge against the previewed request and clears stale previews when controls change", async () => {
     previewMarketPurgeMock.mockResolvedValue({
+      operationId: "OP-PURGE-PREVIEW",
+      previewToken: "purge-token",
+      tokenExpiresAt: "2026-06-01T00:30:00.000Z",
       marketCode: "AU",
       providerId: "yahoo-finance-au",
       categories: ["price_bars"],
@@ -609,11 +612,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
 
     expect(executeMarketPurgeMock).toHaveBeenCalledWith("AU", {
-      categories: ["price_bars"],
-      fullHistory: true,
-      startDate: undefined,
-      endDate: undefined,
-      enqueueBackfillAfterPurge: true,
+      operationId: "OP-PURGE-PREVIEW",
+      previewToken: "purge-token",
       typedConfirmation: "PURGE AU",
     });
   });

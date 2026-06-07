@@ -2500,6 +2500,9 @@ export interface AdminMarketDataPurgePreviewRequest {
 }
 
 export interface AdminMarketDataPurgePreviewResponse {
+  operationId: string;
+  previewToken: string;
+  tokenExpiresAt: string;
   marketCode: MarketCode;
   providerId: string;
   categories: AdminMarketDataPurgeCategory[];
@@ -2520,7 +2523,9 @@ export interface AdminMarketDataPurgePreviewResponse {
   };
 }
 
-export interface AdminMarketDataPurgeExecuteRequest extends AdminMarketDataPurgePreviewRequest {
+export interface AdminMarketDataPurgeExecuteRequest {
+  operationId: string;
+  previewToken: string;
   typedConfirmation: string;
 }
 

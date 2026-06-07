@@ -333,10 +333,17 @@ test.describe("admin market-data instruments", () => {
     assertEqual(previewBody.estimatedRows, 1, "purge preview estimatedRows");
     assertEqual(previewConfirmation.level, "typed", "purge preview confirmation.level");
     assertEqual(previewConfirmation.text, "PURGE TW", "purge preview confirmation.text");
+    assertString(previewBody.operationId, "purge preview operationId");
+    assertString(previewBody.previewToken, "purge preview previewToken");
+    assertString(previewBody.tokenExpiresAt, "purge preview tokenExpiresAt");
 
     const execute = await request.post("/admin/market-data/TW/purge/execute", {
       headers: { cookie: admin.cookieHeader },
-      data: { ...body, typedConfirmation: "PURGE TW" },
+      data: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        typedConfirmation: "PURGE TW",
+      },
     });
 
     await assertStatus(execute, 200);
@@ -348,6 +355,155 @@ test.describe("admin market-data instruments", () => {
     assertEqual(executeBody.deletedRows, 1, "purge execute deletedRows");
     assertString(executeBody.operationId, "purge execute operationId");
     assertEqual(executeBody.linkedBackfillOperationId, null, "purge execute linkedBackfillOperationId");
+  });
+
+  test("[backfill-preview]: newer preview supersedes older preview before execute", async ({
+    instrumentsApi,
+    request,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "market-data-admin-backfill-supersede-sub",
+      email: "market-data-admin-backfill-supersede@example.com",
+      name: "Market Data Admin Backfill Supersede",
+      role: "admin",
+    });
+    const seed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "TWMDFS1",
+        marketCode: "TW",
+        name: "TW market-data supersede fixture",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+    await assertStatus(seed, 200);
+    const previewBody = {
+      scope: "selected_catalog_rows",
+      providerId: "finmind-tw",
+      selectedCatalogRows: [{ ticker: "TWMDFS1", marketCode: "TW" }],
+    };
+
+    const firstPreview = await request.post("/admin/market-data/TW/backfill/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: previewBody,
+    });
+    await assertStatus(firstPreview, 200);
+    const first = assertRecord(await firstPreview.json(), "first backfill preview body");
+
+    const secondPreview = await request.post("/admin/market-data/TW/backfill/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: previewBody,
+    });
+    await assertStatus(secondPreview, 200);
+    const second = assertRecord(await secondPreview.json(), "second backfill preview body");
+
+    const staleExecute = await request.post("/admin/market-data/TW/backfill/execute", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        operationId: first.operationId,
+        previewToken: first.previewToken,
+        acknowledged: true,
+      },
+    });
+    await assertStatus(staleExecute, 400);
+
+    const freshExecute = await request.post("/admin/market-data/TW/backfill/execute", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        operationId: second.operationId,
+        previewToken: second.previewToken,
+        acknowledged: true,
+      },
+    });
+    await assertStatus(freshExecute, 200);
+  });
+
+  test("[purge-execute]: execution uses the frozen preview snapshot", async ({
+    instrumentsApi,
+    marketDataApi,
+    request,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "market-data-admin-purge-snapshot-sub",
+      email: "market-data-admin-purge-snapshot@example.com",
+      name: "Market Data Admin Purge Snapshot",
+      role: "admin",
+    });
+    const firstSeed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "TWPURGESNAP1",
+        marketCode: "TW",
+        name: "TW purge snapshot fixture 1",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+    await assertStatus(firstSeed, 200);
+    await assertStatus(await marketDataApi.actions.seedDailyBars([
+      {
+        ticker: "TWPURGESNAP1",
+        marketCode: "TW",
+        barDate: "2026-01-02",
+        open: 10,
+        high: 12,
+        low: 9,
+        close: 11,
+        volume: 1000,
+        source: "finmind-tw",
+      },
+    ]), 200);
+
+    const preview = await request.post("/admin/market-data/TW/purge/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        providerId: "finmind-tw",
+        categories: ["price_bars"],
+        fullHistory: true,
+        filters: { search: "TWPURGESNAP" },
+      },
+    });
+    await assertStatus(preview, 200);
+    const previewBody = assertRecord(await preview.json(), "purge snapshot preview body");
+    assertEqual(previewBody.affectedInstrumentCount, 1, "purge snapshot preview affectedInstrumentCount");
+
+    const secondSeed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "TWPURGESNAP2",
+        marketCode: "TW",
+        name: "TW purge snapshot fixture 2",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+    await assertStatus(secondSeed, 200);
+    await assertStatus(await marketDataApi.actions.seedDailyBars([
+      {
+        ticker: "TWPURGESNAP2",
+        marketCode: "TW",
+        barDate: "2026-01-02",
+        open: 20,
+        high: 22,
+        low: 19,
+        close: 21,
+        volume: 2000,
+        source: "finmind-tw",
+      },
+    ]), 200);
+
+    const execute = await request.post("/admin/market-data/TW/purge/execute", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        typedConfirmation: "PURGE TW",
+      },
+    });
+    await assertStatus(execute, 200);
+    const executeBody = assertRecord(await execute.json(), "purge snapshot execute body");
+    assertEqual(executeBody.deletedRows, 1, "purge snapshot execute deletedRows");
+
+    const secondPrice = await marketDataApi.actions.getPrice("TWPURGESNAP2", "2026-01-02", "TW");
+    await assertStatus(secondPrice, 200);
   });
 
   test("[purge-preview]: admin-state reset includes retired instruments in matching scope", async ({
