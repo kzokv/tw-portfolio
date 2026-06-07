@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type {
   AdminMarketDataDelistingOverrideAction,
+  AdminMarketDataBackfillTargetDto,
   AdminInstrumentSupportState,
   AdminMarketCode,
   AdminMarketDataActionDto,
@@ -21,32 +22,19 @@ import type {
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewResponse,
   AdminMarketWorkspaceTab,
-  ProviderFixerDashboardOperationDto,
-  ProviderResolutionMappingDto,
-  ProviderResolutionMappingsResponse,
-  ProviderUnresolvedItemDto,
-  ProviderUnresolvedItemsResponse,
-  ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
-import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
 import {
-  bulkUpdateProviderUnresolvedState,
-  executeProviderRepair,
   executeMarketBackfill,
   executeMarketAction,
   executeMarketPurge,
-  previewProviderRepair,
   previewMarketBackfill,
   previewMarketPurge,
-  renewProviderEvidence,
-  reverifyProviderMapping,
-  revertProviderMapping,
-  rerunProviderMapping,
-  updateProviderUnresolvedState,
   updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
+import { Card } from "../ui/Card";
+import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
 
 interface AdminMarketDataLandingClientProps {
   data: AdminMarketDataLandingResponse;
@@ -61,7 +49,9 @@ interface AdminMarketDataWorkspaceClientProps {
   instrumentQuery?: InstrumentQuery;
   operations: AdminMarketDataOperationsResponse | null;
   logs: AdminMarketDataLogsResponse | null;
+  providerFilterId?: string;
   krMappings: KrMappingsData | null;
+  krOperations?: KrOperationsData | null;
 }
 
 interface InstrumentQuery {
@@ -73,21 +63,6 @@ interface InstrumentQuery {
   instrumentType: string;
   backfillStatus: string;
   sort: string;
-}
-
-interface KrMappingsData {
-  unresolved: ProviderUnresolvedItemsResponse;
-  mappings: ProviderResolutionMappingsResponse;
-  query: {
-    unresolvedPage: number;
-    unresolvedLimit: number;
-    unresolvedState: ProviderUnresolvedListState;
-    unresolvedSearch: string;
-    unresolvedSort: "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
-    mappingsPage: number;
-    mappingsLimit: number;
-    mappingsSearch: string;
-  };
 }
 
 const tabLabels: Record<AdminMarketWorkspaceTab, string> = {
@@ -248,7 +223,9 @@ export function AdminMarketDataWorkspaceClient({
   instrumentQuery,
   operations,
   logs,
+  providerFilterId = "",
   krMappings,
+  krOperations,
 }: AdminMarketDataWorkspaceClientProps) {
   const tabSet = new Set(overview.tabs);
   const safeTab = tabSet.has(tab) ? tab : "overview";
@@ -296,12 +273,23 @@ export function AdminMarketDataWorkspaceClient({
           initialQuery={instrumentQuery ?? defaultInstrumentQuery(instruments)}
         />
       )}
-      {safeTab === "backfill" && marketCode !== "FX" && <BackfillPanel marketCode={marketCode} actions={actions} />}
+      {safeTab === "backfill" && marketCode !== "FX" && instruments && (
+        <BackfillPanel
+          marketCode={marketCode}
+          actions={actions}
+          instruments={instruments}
+          initialQuery={instrumentQuery ?? defaultInstrumentQuery(instruments)}
+        />
+      )}
       {safeTab === "mappings" && <MappingsPanel marketCode={marketCode} actions={actions} krMappings={krMappings} />}
       {safeTab === "purge" && marketCode !== "FX" && <PurgePanel marketCode={marketCode} />}
       {safeTab === "refresh-rates" && <RefreshRatesPanel actions={actions} />}
-      {safeTab === "operations" && operations && <OperationsPanel operations={operations} />}
-      {safeTab === "logs" && logs && <LogsPanel logs={logs} />}
+      {safeTab === "operations" && marketCode === "KR" && krOperations
+        ? <KrOperationsPanel data={krOperations} />
+        : safeTab === "operations" && operations
+          ? <OperationsPanel operations={operations} currentProviderId={providerFilterId} />
+          : null}
+      {safeTab === "logs" && logs && <LogsPanel logs={logs} currentProviderId={providerFilterId} />}
     </div>
   );
 }
@@ -343,7 +331,7 @@ function defaultInstrumentQuery(instruments: AdminMarketDataInstrumentsResponse)
   };
 }
 
-function queryPath(marketCode: string, query: InstrumentQuery, page = query.page): string {
+function queryPath(marketCode: string, tab: "instruments" | "backfill", query: InstrumentQuery, page = query.page): string {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("limit", String(query.limit));
@@ -355,7 +343,7 @@ function queryPath(marketCode: string, query: InstrumentQuery, page = query.page
   if (query.search.trim()) {
     params.set("search", query.search.trim());
   }
-  return `/admin/market-data/${marketCode}/instruments?${params.toString()}`;
+  return `/admin/market-data/${marketCode}/${tab}?${params.toString()}`;
 }
 
 function InstrumentsPanel({
@@ -383,7 +371,7 @@ function InstrumentsPanel({
   }
 
   function applyFilters() {
-    router.push(queryPath(instruments.marketCode, { ...filters, page: 1 }, 1));
+    router.push(queryPath(instruments.marketCode, "instruments", { ...filters, page: 1 }, 1));
   }
 
   async function setSupportState(row: AdminMarketDataInstrumentDto, supportState: AdminInstrumentSupportState) {
@@ -532,7 +520,7 @@ function InstrumentsPanel({
         </p>
         <div className="flex gap-2">
           <Link
-            href={queryPath(instruments.marketCode, filters, Math.max(1, instruments.page - 1))}
+            href={queryPath(instruments.marketCode, "instruments", filters, Math.max(1, instruments.page - 1))}
             aria-disabled={instruments.page <= 1}
             className={cn(
               "rounded border border-border px-3 py-2",
@@ -542,7 +530,7 @@ function InstrumentsPanel({
             Previous
           </Link>
           <Link
-            href={queryPath(instruments.marketCode, filters, Math.min(totalPages, instruments.page + 1))}
+            href={queryPath(instruments.marketCode, "instruments", filters, Math.min(totalPages, instruments.page + 1))}
             aria-disabled={instruments.page >= totalPages}
             className={cn(
               "rounded border border-border px-3 py-2",
@@ -584,31 +572,117 @@ function FilterSelect({
   );
 }
 
-function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarketCode, "FX">; actions: AdminMarketDataActionDto[] }) {
-  const [scope, setScope] = useState("user_owned_or_monitored");
-  const [manualTargets, setManualTargets] = useState("");
+function targetFromInstrument(row: AdminMarketDataInstrumentDto): AdminMarketDataBackfillTargetDto {
+  return {
+    ticker: row.ticker,
+    marketCode: row.marketCode,
+    name: row.name,
+    instrumentType: row.instrumentType,
+    status: row.status,
+    supportState: row.supportState,
+    backfillStatus: row.backfillStatus,
+    providerIds: row.providerIds,
+  };
+}
+
+function BackfillPanel({
+  marketCode,
+  actions,
+  instruments,
+  initialQuery,
+}: {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  actions: AdminMarketDataActionDto[];
+  instruments: AdminMarketDataInstrumentsResponse;
+  initialQuery: InstrumentQuery;
+}) {
+  const router = useRouter();
+  const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
+  const [mode, setMode] = useState<"owned" | "supported">("owned");
+  const [filters, setFilters] = useState<InstrumentQuery>(initialQuery);
+  const [providerId, setProviderId] = useState(backfillActions[0]?.providerId ?? actions.find((item) => item.action === "backfill_catalog_rows")?.providerId ?? "");
+  const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
+  const [includeDemoUsers, setIncludeDemoUsers] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataBackfillPreviewResponse | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataBackfillExecuteResponse | null>(null);
-  const action = actions.find((item) => item.action === "backfill_catalog_rows");
-  const providerId = action?.providerId;
+  const [targetModalOpen, setTargetModalOpen] = useState(false);
+  const [targetModalFilter, setTargetModalFilter] = useState("");
+  const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
+  const selectedRows = instruments.items
+    .filter((row) => selectedTickers.includes(row.ticker))
+    .map(targetFromInstrument);
+  const selectedRequestTargets = selectedRows.map((row) => ({
+    ticker: row.ticker,
+    marketCode: row.marketCode,
+  }));
+  const previewTargets = preview?.targets ?? [];
+  const filteredPreviewTargets = previewTargets.filter((target) => {
+    const query = targetModalFilter.trim().toUpperCase();
+    return !query || target.ticker.toUpperCase().includes(query) || (target.name ?? "").toUpperCase().includes(query);
+  });
 
-  function parsedTargets() {
-    return manualTargets
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((ticker) => ({ ticker, marketCode }));
+  useEffect(() => {
+    setFilters(initialQuery);
+  }, [initialQuery]);
+
+  function clearFrozenPreview() {
+    setPreview(null);
+    setExecuteResult(null);
+    setAcknowledged(false);
+    setTypedConfirmation("");
   }
 
-  async function runPreview() {
-    const targets = parsedTargets();
+  function updateMode(nextMode: "owned" | "supported") {
+    setMode(nextMode);
+    clearFrozenPreview();
+  }
+
+  function updateProvider(nextProviderId: string) {
+    setProviderId(nextProviderId);
+    clearFrozenPreview();
+  }
+
+  function updateFilter(key: keyof InstrumentQuery, value: string) {
+    setFilters((current) => ({ ...current, [key]: key === "limit" ? Number.parseInt(value, 10) || current.limit : value }));
+    clearFrozenPreview();
+  }
+
+  function applyFilters() {
+    clearFrozenPreview();
+    router.push(queryPath(instruments.marketCode, "backfill", { ...filters, page: 1 }, 1));
+  }
+
+  function toggleTicker(ticker: string) {
+    setSelectedTickers((current) => current.includes(ticker) ? current.filter((item) => item !== ticker) : [...current, ticker]);
+    clearFrozenPreview();
+  }
+
+  function setDemoUsers(checked: boolean) {
+    setIncludeDemoUsers(checked);
+    clearFrozenPreview();
+  }
+
+  function previewFilters(): Record<string, string | number | boolean | null> {
+    const scoped = (value: string) => value === "all" ? null : value;
+    return {
+      status: scoped(filters.status),
+      supportState: scoped(filters.supportState),
+      search: filters.search.trim() || null,
+      instrumentType: scoped(filters.instrumentType),
+      backfillStatus: scoped(filters.backfillStatus),
+      sort: filters.sort === "ticker_asc" ? null : filters.sort,
+    };
+  }
+
+  async function runPreview(scope: "user_owned_or_monitored" | "selected_catalog_rows" | "all_matching") {
     const result = await previewMarketBackfill(marketCode, {
-      scope: scope as AdminMarketDataBackfillPreviewResponse["scope"],
+      scope,
       providerId,
-      manualTargets: targets,
-      selectedCatalogRows: targets,
+      includeDemoUsers: scope === "user_owned_or_monitored" ? includeDemoUsers : undefined,
+      selectedCatalogRows: scope === "selected_catalog_rows" ? selectedRequestTargets : undefined,
+      filters: scope === "all_matching" ? previewFilters() : undefined,
     });
     setPreview(result);
     setExecuteResult(null);
@@ -617,12 +691,9 @@ function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarke
   }
 
   async function runExecute() {
-    const targets = parsedTargets();
     const result = await executeMarketBackfill(marketCode, {
-      scope: scope as AdminMarketDataBackfillPreviewResponse["scope"],
-      providerId,
-      manualTargets: targets,
-      selectedCatalogRows: targets,
+      operationId: preview?.operationId ?? "",
+      previewToken: preview?.previewToken ?? "",
       acknowledged,
       typedConfirmation,
     });
@@ -632,35 +703,157 @@ function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarke
   return (
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-backfill">
       <h2 className="text-base font-semibold text-foreground">Backfill preview</h2>
-      <p className="mt-2 text-sm text-muted-foreground">Catalog sync repairs instrument rows. Backfill writes historical bars, dividends, or derived data and requires preview.</p>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-        <label className="text-sm font-medium text-foreground">
-          Scope
-          <select value={scope} onChange={(event) => setScope(event.target.value)} className="mt-2 w-full rounded border border-border bg-background px-3 py-2 text-sm">
-            <option value="user_owned_or_monitored">User-owned or monitored</option>
-            <option value="selected_catalog_rows">Selected catalog rows</option>
-            <option value="manual_targets">Manual targets</option>
-            <option value="all_matching">All matching filters</option>
-          </select>
-        </label>
-        <label className="text-sm font-medium text-foreground">
-          Manual tickers
-          <textarea value={manualTargets} onChange={(event) => setManualTargets(event.target.value)} rows={4} className="mt-2 w-full rounded border border-border bg-background px-3 py-2 text-sm" />
-        </label>
+      <p className="mt-2 text-sm text-muted-foreground">Backfill writes historical bars and dividends from the owning provider. Preview freezes the exact target list before execution.</p>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <label className="text-sm font-medium text-foreground">
+            Backfill mode
+            <select value={mode} onChange={(event) => updateMode(event.target.value as "owned" | "supported")} className="mt-2 w-full rounded border border-border bg-background px-3 py-2 text-sm">
+              <option value="owned">Owned or monitored</option>
+              <option value="supported">Supported instruments</option>
+            </select>
+          </label>
+          {backfillActions.length > 1 ? (
+            <label className="text-sm font-medium text-foreground">
+              Provider
+              <select value={providerId} onChange={(event) => updateProvider(event.target.value)} className="mt-2 w-full rounded border border-border bg-background px-3 py-2 text-sm">
+                {backfillActions.map((action) => (
+                  <option key={action.providerId} value={action.providerId}>{action.providerId}</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="rounded border border-border px-3 py-2 text-sm text-muted-foreground">
+              Provider <span className="font-medium text-foreground">{providerId || "unassigned"}</span>
+            </div>
+          )}
+          {mode === "owned" ? (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input type="checkbox" checked={includeDemoUsers} onChange={(event) => setDemoUsers(event.target.checked)} />
+              Include demo users
+            </label>
+          ) : null}
+        </div>
+        <div className="rounded border border-border p-4">
+          {mode === "owned" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This collects all supported instruments that appear in open positions or monitored tickers across users. Demo users are excluded unless selected.
+              </p>
+              <button type="button" onClick={() => void runPreview("user_owned_or_monitored")} className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                Preview owned or monitored
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(4,minmax(8rem,auto))_auto]">
+                <label className="text-sm font-medium text-foreground">
+                  Search
+                  <input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Ticker or name" />
+                </label>
+                <FilterSelect label="Status" value={filters.status} options={instruments.filters.status} onChange={(value) => updateFilter("status", value)} />
+                <FilterSelect label="Support" value={filters.supportState} options={instruments.filters.supportState} onChange={(value) => updateFilter("supportState", value)} />
+                <FilterSelect label="Type" value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
+                <FilterSelect label="Backfill" value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
+                <div className="flex items-end gap-2">
+                  <button type="button" onClick={applyFilters} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Apply</button>
+                  <Link href={`/admin/market-data/${marketCode}/backfill`} className="rounded border border-border px-3 py-2 text-sm text-muted-foreground">Reset</Link>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded border border-border">
+                <table className="min-w-full divide-y divide-border text-sm">
+                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3">Select</th>
+                      <th className="px-4 py-3">Ticker</th>
+                      <th className="px-4 py-3">Support</th>
+                      <th className="px-4 py-3">Backfill</th>
+                      <th className="px-4 py-3">Providers</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {instruments.items.map((row) => (
+                      <tr key={`${row.marketCode}:${row.ticker}`}>
+                        <td className="px-4 py-3">
+                          <input aria-label={`Select ${row.ticker}`} type="checkbox" checked={selectedTickers.includes(row.ticker)} onChange={() => toggleTicker(row.ticker)} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-foreground">{row.ticker}</p>
+                          <p className="mt-1 max-w-[18rem] truncate text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{row.supportState}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{row.backfillStatus}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{row.providerIds.join(", ") || "none"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <p>Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
+                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">Preview selected</button>
+                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground">Preview all matching filters</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <button type="button" onClick={() => void runPreview()} className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-        Preview backfill
-      </button>
       {preview && (
         <div className="mt-4 space-y-4">
           <PreviewSummary title="Backfill estimate" rows={[
             ["Provider", preview.providerId],
+            ["Scope", preview.scope],
             ["Matches", String(preview.matchCount)],
             ["Jobs", String(preview.estimatedJobCount)],
             ["Affected users", String(preview.affectedUserCount)],
             ["Affected accounts", String(preview.affectedAccountCount)],
+            ["Preview expires", new Date(preview.tokenExpiresAt).toLocaleString()],
+            ["Demo users", includeDemoUsers ? "included" : "excluded"],
             ["Confirmation", preview.confirmation.text ?? preview.confirmation.level],
           ]} />
+          {preview.unsupportedRows.length > 0 && (
+            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="font-medium">Unsupported rows skipped</p>
+              {preview.unsupportedRows.slice(0, 10).map((row) => (
+                <p key={`${row.marketCode}:${row.ticker}`}>{row.ticker}: {row.reason}</p>
+              ))}
+            </div>
+          )}
+          <div className="rounded border border-border p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-medium text-foreground">Frozen targets: {previewTargets.length.toLocaleString()}</p>
+              {previewTargets.length > 100 ? (
+                <button type="button" onClick={() => setTargetModalOpen(true)} className="rounded border border-border px-3 py-2 text-sm text-foreground">
+                  View target details
+                </button>
+              ) : null}
+            </div>
+            {previewTargets.length <= 100 ? (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full divide-y divide-border text-sm">
+                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                    <tr><th className="px-3 py-2">Ticker</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Backfill</th><th className="px-3 py-2">Support</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {previewTargets.map((target) => (
+                      <tr key={`${target.marketCode}:${target.ticker}`}>
+                        <td className="px-3 py-2 font-medium text-foreground">{target.ticker}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{target.name ?? "Unnamed"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{target.backfillStatus ?? "unknown"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{target.supportState ?? "unknown"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">Large previews show a summary by default. Open details to filter the frozen list before executing.</p>
+            )}
+          </div>
           {preview.confirmation.level === "typed" ? (
             <label className="block text-sm font-medium text-foreground">
               Type confirmation
@@ -680,11 +873,41 @@ function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarke
           <button
             type="button"
             onClick={() => void runExecute()}
-            disabled={preview.confirmation.level === "typed" ? typedConfirmation !== preview.confirmation.text : !acknowledged}
+            disabled={previewTargets.length === 0 || (preview.confirmation.level === "typed" ? typedConfirmation !== preview.confirmation.text : !acknowledged)}
             className="rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
           >
             Execute backfill
           </button>
+          {targetModalOpen ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-label="Frozen backfill targets">
+              <div className="max-h-full w-full max-w-4xl overflow-hidden rounded bg-background shadow-xl">
+                <div className="border-b border-border px-5 py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <h3 className="text-base font-semibold text-foreground">Frozen backfill targets</h3>
+                    <button type="button" onClick={() => setTargetModalOpen(false)} className="rounded border border-border px-3 py-1.5 text-sm">Close</button>
+                  </div>
+                  <input value={targetModalFilter} onChange={(event) => setTargetModalFilter(event.target.value)} className="mt-3 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Filter frozen targets" />
+                </div>
+                <div className="max-h-[70vh] overflow-auto">
+                  <table className="min-w-full divide-y divide-border text-sm">
+                    <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                      <tr><th className="px-4 py-3">Ticker</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Backfill</th><th className="px-4 py-3">Support</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredPreviewTargets.map((target) => (
+                        <tr key={`${target.marketCode}:${target.ticker}`}>
+                          <td className="px-4 py-3 font-medium text-foreground">{target.ticker}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{target.name ?? "Unnamed"}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{target.backfillStatus ?? "unknown"}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{target.supportState ?? "unknown"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
       {executeResult && <PreviewSummary title="Backfill operation" rows={[
@@ -698,653 +921,6 @@ function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarke
   );
 }
 
-const yahooKrProviderId = "yahoo-finance-kr";
-const yahooKrErrorCode = "yahoo_finance_kr_symbol_unresolved";
-
-function formatTimestamp(value: string | null): string {
-  if (!value) return "never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
-  return `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
-}
-
-function mappingLinkedOperation(evidence: Record<string, unknown> | null): string | null {
-  const raw = evidence?.operationId ?? evidence?.providerOperationId;
-  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
-}
-
-function mappingEvidenceSummary(mapping: ProviderResolutionMappingDto): string {
-  const evidence = mapping.evidence;
-  for (const key of ["candidate", "candidateSymbol", "exchangeHint", "note"]) {
-    const value = evidence?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "Stored durable mapping";
-}
-
-function csvCell(value: unknown): string {
-  const text = value == null ? "" : String(value);
-  if (!/[",\n\r]/.test(text)) return text;
-  return `"${text.replaceAll("\"", "\"\"")}"`;
-}
-
-function exportUnresolvedCsv(items: ProviderUnresolvedItemDto[], filename: string) {
-  const headers = [
-    "providerId",
-    "marketCode",
-    "errorCode",
-    "sourceSymbol",
-    "providerSymbol",
-    "state",
-    "occurrenceCount",
-    "firstSeenAt",
-    "lastSeenAt",
-    "updatedAt",
-    "resolvedAt",
-    "resolvedByOperationId",
-  ];
-  const rows = items.map((item) => [
-    item.providerId,
-    item.marketCode,
-    item.errorCode,
-    item.sourceSymbol,
-    item.providerSymbol ?? "",
-    item.state,
-    item.occurrenceCount,
-    item.firstSeenAt,
-    item.lastSeenAt,
-    item.updatedAt,
-    item.resolvedAt ?? "",
-    item.resolvedByOperationId ?? "",
-  ]);
-  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(href);
-}
-
-function krMappingsPath(query: Partial<KrMappingsData["query"]>): string {
-  const params = new URLSearchParams();
-  const merged: KrMappingsData["query"] = {
-    unresolvedPage: query.unresolvedPage ?? 1,
-    unresolvedLimit: query.unresolvedLimit ?? 25,
-    unresolvedState: query.unresolvedState ?? "active",
-    unresolvedSearch: query.unresolvedSearch ?? "",
-    unresolvedSort: query.unresolvedSort ?? "last_seen_desc",
-    mappingsPage: query.mappingsPage ?? 1,
-    mappingsLimit: query.mappingsLimit ?? 25,
-    mappingsSearch: query.mappingsSearch ?? "",
-  };
-  if (merged.unresolvedPage !== 1) params.set("unresolvedPage", String(merged.unresolvedPage));
-  if (merged.unresolvedLimit !== 25) params.set("unresolvedLimit", String(merged.unresolvedLimit));
-  if (merged.unresolvedState !== "active") params.set("unresolvedState", merged.unresolvedState);
-  if (merged.unresolvedSearch.trim()) params.set("unresolvedSearch", merged.unresolvedSearch.trim());
-  if (merged.unresolvedSort !== "last_seen_desc") params.set("unresolvedSort", merged.unresolvedSort);
-  if (merged.mappingsPage !== 1) params.set("mappingsPage", String(merged.mappingsPage));
-  if (merged.mappingsLimit !== 25) params.set("mappingsLimit", String(merged.mappingsLimit));
-  if (merged.mappingsSearch.trim()) params.set("mappingsSearch", merged.mappingsSearch.trim());
-  const queryString = params.toString();
-  return `/admin/market-data/KR/mappings${queryString ? `?${queryString}` : ""}`;
-}
-
-function MappingsPanel({
-  marketCode,
-  actions,
-  krMappings,
-}: {
-  marketCode: AdminMarketCode;
-  actions: AdminMarketDataActionDto[];
-  krMappings: KrMappingsData | null;
-}) {
-  if (marketCode !== "KR" || !krMappings) {
-    return (
-      <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
-        <h2 className="text-base font-semibold text-foreground">Provider mappings</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Mappings are not available for this market.</p>
-      </Card>
-    );
-  }
-  return <KrMappingsPanel actions={actions} data={krMappings} />;
-}
-
-function KrMappingsPanel({
-  actions,
-  data,
-}: {
-  actions: AdminMarketDataActionDto[];
-  data: KrMappingsData;
-}) {
-  const router = useRouter();
-  const mappingAction = actions.find((action) => action.action === "repair_mapping");
-  const [unresolvedSearch, setUnresolvedSearch] = useState(data.query.unresolvedSearch);
-  const [unresolvedState, setUnresolvedState] = useState<ProviderUnresolvedListState>(data.query.unresolvedState);
-  const [unresolvedSort, setUnresolvedSort] = useState<KrMappingsData["query"]["unresolvedSort"]>(data.query.unresolvedSort);
-  const [mappingsSearch, setMappingsSearch] = useState(data.query.mappingsSearch);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [preview, setPreview] = useState<ProviderFixerDashboardOperationDto | null>(null);
-  const [typedConfirmation, setTypedConfirmation] = useState("");
-  const [acknowledged, setAcknowledged] = useState(false);
-  const [revertTarget, setRevertTarget] = useState<string | null>(null);
-  const [revertConfirmation, setRevertConfirmation] = useState("");
-
-  useEffect(() => {
-    setUnresolvedSearch(data.query.unresolvedSearch);
-    setUnresolvedState(data.query.unresolvedState);
-    setUnresolvedSort(data.query.unresolvedSort);
-    setMappingsSearch(data.query.mappingsSearch);
-    setSelectedKeys(new Set());
-    setAllMatchingSelected(false);
-  }, [data.query]);
-
-  const visibleItems = data.unresolved.items;
-  const visibleKeys = visibleItems.map(unresolvedItemKey);
-  const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
-  const selectedItems = visibleItems.filter((item) => selectedKeys.has(unresolvedItemKey(item)));
-  const selectedCount = allMatchingSelected ? data.unresolved.total : selectedItems.length;
-  const activeFilterSelected = data.query.unresolvedState === "active";
-
-  function pushQuery(next: Partial<KrMappingsData["query"]>) {
-    router.push(krMappingsPath({ ...data.query, ...next }));
-  }
-
-  function selectedScope() {
-    if (allMatchingSelected) {
-      return {
-        type: "filter" as const,
-        marketCode: "KR" as const,
-        errorCode: yahooKrErrorCode,
-        state: "active" as const,
-        ...(data.query.unresolvedSearch.trim() ? { search: data.query.unresolvedSearch.trim() } : {}),
-      };
-    }
-    return {
-      type: "selected_items" as const,
-      items: selectedItems.map((item) => ({
-        providerId: item.providerId,
-        marketCode: item.marketCode,
-        errorCode: item.errorCode,
-        sourceSymbol: item.sourceSymbol,
-      })),
-    };
-  }
-
-  function toggleVisible(checked: boolean) {
-    setAllMatchingSelected(false);
-    setSelectedKeys((current) => {
-      const next = new Set(current);
-      for (const item of visibleItems) {
-        const key = unresolvedItemKey(item);
-        if (checked) next.add(key);
-        else next.delete(key);
-      }
-      return next;
-    });
-  }
-
-  async function runWithMessage<T>(label: string, task: () => Promise<T>, success: (result: T) => string) {
-    setBusyAction(label);
-    setMessage(null);
-    try {
-      const result = await task();
-      setMessage(success(result));
-      router.refresh();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : `${label} failed`);
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function setUnresolvedStateForItem(item: ProviderUnresolvedItemDto, state: Exclude<ProviderUnresolvedItemDto["state"], "resolved">) {
-    await runWithMessage(
-      `state-${item.sourceSymbol}`,
-      () => updateProviderUnresolvedState({
-        providerId: item.providerId,
-        marketCode: item.marketCode,
-        errorCode: item.errorCode,
-        sourceSymbol: item.sourceSymbol,
-        state,
-      }),
-      (result) => `Set unresolved item ${result.item.sourceSymbol} to ${result.item.state}.`,
-    );
-  }
-
-  async function bulkSetState(state: "unsupported" | "ignored") {
-    if (selectedCount === 0) return;
-    const scope = selectedScope();
-    const typedConfirmationForFilter = scope.type === "filter"
-      ? state === "ignored"
-        ? `IGNORE ${selectedCount} MATCHING ACTIVE`
-        : `MARK ${selectedCount} MATCHING UNSUPPORTED`
-      : undefined;
-    await runWithMessage(
-      `bulk-${state}`,
-      () => bulkUpdateProviderUnresolvedState({
-        providerId: yahooKrProviderId,
-        state,
-        scope,
-        acknowledged: scope.type === "selected_items",
-        typedConfirmation: typedConfirmationForFilter,
-      }),
-      (result) => `Updated ${result.updatedCount} unresolved rows.`,
-    );
-  }
-
-  async function previewSelectedRepair() {
-    if (selectedCount === 0) return;
-    await runWithMessage(
-      "preview-repair",
-      () => previewProviderRepair({
-        providerId: yahooKrProviderId,
-        marketCode: "KR",
-        errorCode: yahooKrErrorCode,
-        resolverMode: "quote_first",
-        scope: selectedScope(),
-      }),
-      (result) => {
-        setPreview(result.operation);
-        setTypedConfirmation("");
-        setAcknowledged(false);
-        return `Repair preview created for ${result.operation.matchCount} rows.`;
-      },
-    );
-  }
-
-  async function renewSelectedEvidence() {
-    if (selectedCount === 0) return;
-    await runWithMessage(
-      "renew-evidence",
-      () => renewProviderEvidence({
-        providerId: yahooKrProviderId,
-        marketCode: "KR",
-        errorCode: yahooKrErrorCode,
-        resolverMode: "quote_first",
-        scope: selectedScope(),
-      }),
-      (result) => `Renew evidence started: ${result.operation.id}`,
-    );
-  }
-
-  async function executePreview() {
-    if (!preview?.preview.token) return;
-    await runWithMessage(
-      "execute-repair",
-      () => executeProviderRepair({
-        providerId: yahooKrProviderId,
-        operationId: preview.id,
-        previewToken: preview.preview.token,
-        acknowledged: true,
-        typedConfirmation: preview.preview.confirmationText ?? typedConfirmation,
-      }),
-      (result) => {
-        setPreview(result.operation);
-        return `Repair operation ${result.operation.id} started.`;
-      },
-    );
-  }
-
-  const executeDisabled = !preview
-    || busyAction !== null
-    || (preview.preview.confirmationText ? typedConfirmation !== preview.preview.confirmationText : !acknowledged);
-
-  return (
-    <div className="space-y-5" data-testid="market-data-mappings">
-      <Card className="px-5 py-4 hover:translate-y-0">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">KR mapping repair</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.
-            </p>
-          </div>
-          {mappingAction ? <ActionChips marketCode="KR" actions={[mappingAction]} /> : null}
-        </div>
-        {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
-      </Card>
-
-      <Card className="overflow-hidden p-0 hover:translate-y-0">
-        <div className="border-b border-border px-5 py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <h3 className="text-base font-semibold text-foreground">Unique unresolved instruments</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Durable unresolved rows from Yahoo Finance KR. Resolver behavior is unchanged; this panel only scopes admin repair work.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={selectedCount === 0 || busyAction !== null}
-              onClick={() => void previewSelectedRepair()}
-              className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              Repair selected
-            </button>
-          </div>
-          <form
-            className="mt-4 grid gap-3 lg:grid-cols-[minmax(10rem,1fr)_12rem_14rem_auto]"
-            onSubmit={(event) => {
-              event.preventDefault();
-              pushQuery({
-                unresolvedPage: 1,
-                unresolvedSearch,
-                unresolvedState,
-                unresolvedSort,
-              });
-            }}
-          >
-            <label className="text-sm font-medium text-foreground">
-              Search
-              <input
-                value={unresolvedSearch}
-                onChange={(event) => setUnresolvedSearch(event.target.value)}
-                placeholder="Search symbol, provider symbol, error"
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                data-testid="provider-console-unresolved-search"
-              />
-            </label>
-            <label className="text-sm font-medium text-foreground">
-              State
-              <select
-                value={unresolvedState}
-                onChange={(event) => setUnresolvedState(event.target.value as ProviderUnresolvedListState)}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                data-testid="provider-console-unresolved-state"
-              >
-                <option value="active">active</option>
-                <option value="all">all</option>
-                <option value="resolved">resolved</option>
-                <option value="unsupported">unsupported</option>
-                <option value="ignored">ignored</option>
-              </select>
-            </label>
-            <label className="text-sm font-medium text-foreground">
-              Sort
-              <select
-                value={unresolvedSort}
-                onChange={(event) => setUnresolvedSort(event.target.value as KrMappingsData["query"]["unresolvedSort"])}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                data-testid="provider-console-unresolved-sort"
-              >
-                <option value="last_seen_desc">last seen</option>
-                <option value="updated_desc">recently updated</option>
-                <option value="occurrence_count_desc">most occurrences</option>
-                <option value="source_symbol_asc">source symbol</option>
-              </select>
-            </label>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-                data-testid="provider-console-unresolved-apply"
-              >
-                Apply filters
-              </button>
-            </div>
-          </form>
-          <div className="mt-4 flex flex-col gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
-            <span><strong>{selectedCount.toLocaleString()} rows selected.</strong> {data.unresolved.total.toLocaleString()} rows match this filter.</span>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={!activeFilterSelected || data.unresolved.total === 0}
-                onClick={() => {
-                  setSelectedKeys(new Set());
-                  setAllMatchingSelected((current) => !current);
-                }}
-                className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
-                data-testid="provider-console-select-all-matching"
-              >
-                {allMatchingSelected ? "Clear all matching" : "Select all matching"}
-              </button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Repair</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">Renew</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">Ignore</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">Unsupported</button>
-              <button
-                type="button"
-                disabled={visibleItems.length === 0}
-                onClick={() => exportUnresolvedCsv(visibleItems, "yahoo-finance-kr-unresolved.csv")}
-                className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
-                data-testid="provider-console-unresolved-export"
-              >
-                Export CSV
-              </button>
-              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Clear selection</button>
-              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">Recently resolved</button>
-            </div>
-          </div>
-          {preview ? (
-            <div className="mt-4 rounded border border-border bg-muted/30 p-4">
-              <h4 className="text-sm font-semibold text-foreground">Repair preview</h4>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Operation {preview.id} matches {preview.matchCount.toLocaleString()} rows. Execute uses the frozen preview token.
-              </p>
-              {preview.preview.confirmationText ? (
-                <label className="mt-3 block text-sm font-medium text-foreground">
-                  Type confirmation
-                  <input
-                    value={typedConfirmation}
-                    onChange={(event) => setTypedConfirmation(event.target.value)}
-                    placeholder={preview.preview.confirmationText}
-                    className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                  />
-                </label>
-              ) : (
-                <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                  <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
-                  I reviewed the preview and understand this writes verified KR mappings only.
-                </label>
-              )}
-              <button
-                type="button"
-                disabled={executeDisabled}
-                onClick={() => void executePreview()}
-                className="mt-3 rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
-              >
-                Execute operation
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    disabled={visibleItems.length === 0 || allMatchingSelected}
-                    onChange={(event) => toggleVisible(event.target.checked)}
-                    aria-label="Select visible rows"
-                    data-testid="provider-console-select-visible"
-                  />
-                </th>
-                <th className="px-5 py-3">Source symbol</th>
-                <th className="px-5 py-3">State</th>
-                <th className="px-5 py-3">Evidence</th>
-                <th className="px-5 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {visibleItems.map((item) => {
-                const key = unresolvedItemKey(item);
-                const selected = selectedKeys.has(key);
-                return (
-                  <tr key={key}>
-                    <td className="px-5 py-4">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={allMatchingSelected}
-                        onChange={(event) => {
-                          setSelectedKeys((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) next.add(key);
-                            else next.delete(key);
-                            return next;
-                          });
-                        }}
-                        aria-label={`Select ${item.sourceSymbol}`}
-                        data-testid={`provider-console-select-row-${item.sourceSymbol}`}
-                      />
-                    </td>
-                    <td className="px-5 py-4">
-                      <p className="font-mono font-semibold text-foreground">{item.sourceSymbol}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{item.providerSymbol ?? item.sourceSymbol}</p>
-                    </td>
-                    <td className="px-5 py-4 text-muted-foreground">{item.state}</td>
-                    <td className="px-5 py-4 text-muted-foreground">
-                      {item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {item.state !== "active" ? (
-                          <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "active")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-reopen-${item.sourceSymbol}`}>Reopen</button>
-                        ) : (
-                          <>
-                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "unsupported")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-unsupported-${item.sourceSymbol}`}>Unsupported</button>
-                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "ignored")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-ignore-${item.sourceSymbol}`}>Ignore</button>
-                          </>
-                        )}
-                        <button type="button" disabled={item.state !== "resolved" || busyAction !== null} onClick={() => pushQuery({ mappingsSearch: item.sourceSymbol, mappingsPage: 1 })} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-rerun-${item.sourceSymbol}`}>Rerun</button>
-                      </div>
-                      <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
-                    </td>
-                  </tr>
-                );
-              })}
-              {visibleItems.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No unresolved rows match this filter.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: Math.max(1, data.query.unresolvedPage - 1) })}>Previous</Link>
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: data.query.unresolvedPage + 1 })}>Next</Link>
-        </div>
-      </Card>
-
-      <Card className="overflow-hidden p-0 hover:translate-y-0">
-        <div className="border-b border-border px-5 py-4">
-          <h3 className="text-base font-semibold text-foreground">Durable KR mappings</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Stored Yahoo Finance KR bindings with evidence and operation links.</p>
-          <form
-            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
-            onSubmit={(event) => {
-              event.preventDefault();
-              pushQuery({ mappingsSearch, mappingsPage: 1 });
-            }}
-          >
-            <input
-              value={mappingsSearch}
-              onChange={(event) => setMappingsSearch(event.target.value)}
-              placeholder="Source symbol, provider symbol, or operation ID"
-              className="rounded border border-border bg-background px-3 py-2 text-sm"
-              data-testid="provider-console-mappings-search"
-            />
-            <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Search mappings</button>
-          </form>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3">Source</th>
-                <th className="px-5 py-3">Resolved</th>
-                <th className="px-5 py-3">Evidence</th>
-                <th className="px-5 py-3">Links</th>
-                <th className="px-5 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.mappings.items.map((mapping) => {
-                const key = `${mapping.providerId}:${mapping.marketCode}:${mapping.sourceSymbol}`;
-                const linkedOperationId = mappingLinkedOperation(mapping.evidence);
-                const phrase = `REVERT ${mapping.sourceSymbol}`;
-                const revertOpen = revertTarget === key;
-                const revertReady = revertConfirmation.trim() === phrase;
-                return (
-                  <tr key={key}>
-                    <td className="px-5 py-4 font-mono font-semibold text-foreground">{mapping.sourceSymbol}</td>
-                    <td className="px-5 py-4 font-mono text-muted-foreground">{mapping.resolvedSymbol}</td>
-                    <td className="px-5 py-4 text-muted-foreground">{mappingEvidenceSummary(mapping)}; verified {formatTimestamp(mapping.verifiedAt)}</td>
-                    <td className="px-5 py-4 text-xs">
-                      <button
-                        type="button"
-                        className="block font-mono text-primary underline-offset-4 hover:underline"
-                        onClick={() => pushQuery({ unresolvedState: "all", unresolvedSearch: mapping.sourceSymbol, unresolvedPage: 1 })}
-                        data-testid={`provider-console-mapping-unresolved-link-${mapping.sourceSymbol}`}
-                      >
-                        Unresolved: {mapping.sourceSymbol}
-                      </button>
-                      {linkedOperationId ? (
-                        <Link
-                          className="mt-1 block font-mono text-primary underline-offset-4 hover:underline"
-                          href={`/admin/market-data/KR/operations?providerId=${encodeURIComponent(mapping.providerId)}&operationId=${encodeURIComponent(linkedOperationId)}`}
-                          data-testid={`provider-console-mapping-operation-link-${mapping.sourceSymbol}`}
-                        >
-                          Operation: {linkedOperationId}
-                        </Link>
-                      ) : null}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("reverify", () => reverifyProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: "quote_first" }), (result) => `Reverify started: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}>Reverify</button>
-                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("rerun-mapping", () => rerunProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: "quote_first" }), (result) => `Rerun queued: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-rerun-${mapping.sourceSymbol}`}>Rerun</button>
-                        <button type="button" disabled={busyAction !== null} onClick={() => { setRevertTarget(revertOpen ? null : key); setRevertConfirmation(""); }} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-revert-open-${mapping.sourceSymbol}`}>Revert</button>
-                      </div>
-                      {revertOpen ? (
-                        <div className="mt-3 grid gap-2">
-                          <p className="text-xs text-red-700">Type {phrase} to remove this mapping.</p>
-                          <input
-                            value={revertConfirmation}
-                            onChange={(event) => setRevertConfirmation(event.target.value)}
-                            placeholder={phrase}
-                            className="rounded border border-red-300 bg-background px-3 py-2 text-sm"
-                            data-testid={`provider-console-mapping-revert-confirmation-${mapping.sourceSymbol}`}
-                          />
-                          <button
-                            type="button"
-                            disabled={!revertReady || busyAction !== null}
-                            onClick={() => void runWithMessage("revert-mapping", () => revertProviderMapping({ providerId: mapping.providerId, mapping, typedConfirmation: revertConfirmation.trim() }), (result) => `Revert started: ${result.operation.id}`)}
-                            className="rounded bg-destructive px-3 py-2 text-xs font-medium text-destructive-foreground disabled:opacity-50"
-                            data-testid={`provider-console-mapping-revert-execute-${mapping.sourceSymbol}`}
-                          >
-                            Execute revert
-                          </button>
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-              {data.mappings.items.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No durable mappings match this filter.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: Math.max(1, data.query.mappingsPage - 1) })}>Previous</Link>
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: data.query.mappingsPage + 1 })}>Next</Link>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX"> }) {
   const [selected, setSelected] = useState<AdminMarketDataPurgeCategory[]>(["price_bars"]);
@@ -1496,11 +1072,65 @@ function RefreshRatesPanel({ actions }: { actions: AdminMarketDataActionDto[] })
   );
 }
 
-function OperationsPanel({ operations }: { operations: AdminMarketDataOperationsResponse }) {
+
+function ProviderFilterLinks({
+  currentProviderId,
+  marketCode,
+  providers,
+  tab,
+}: {
+  currentProviderId: string;
+  marketCode: AdminMarketCode;
+  providers: Array<{ providerId: string; label: string; role: string }>;
+  tab: "operations" | "logs";
+}) {
+  if (providers.length <= 1) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2" data-testid={`market-data-${tab}-provider-filter`}>
+      <Link
+        href={`/admin/market-data/${marketCode}/${tab}`}
+        className={cn(
+          "rounded border border-border px-2.5 py-1 text-xs font-medium",
+          currentProviderId ? "text-muted-foreground hover:text-foreground" : "bg-primary text-primary-foreground",
+        )}
+      >
+        All providers
+      </Link>
+      {providers.map((provider) => (
+        <Link
+          key={provider.providerId}
+          href={`/admin/market-data/${marketCode}/${tab}?providerId=${encodeURIComponent(provider.providerId)}`}
+          className={cn(
+            "rounded border border-border px-2.5 py-1 text-xs font-medium",
+            currentProviderId === provider.providerId ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+          title={`${provider.label}: ${provider.role}`}
+        >
+          {provider.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function OperationsPanel({
+  operations,
+  currentProviderId,
+}: {
+  operations: AdminMarketDataOperationsResponse;
+  currentProviderId: string;
+}) {
   return (
     <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-operations">
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-base font-semibold text-foreground">Operations</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Use the provider filter when a market has multiple provider-owned operation streams.</p>
+        <ProviderFilterLinks
+          currentProviderId={currentProviderId}
+          marketCode={operations.marketCode}
+          providers={operations.providers}
+          tab="operations"
+        />
       </div>
       <ul className="divide-y divide-border">
         {operations.items.map((operation) => (
@@ -1517,11 +1147,24 @@ function OperationsPanel({ operations }: { operations: AdminMarketDataOperations
   );
 }
 
-function LogsPanel({ logs }: { logs: AdminMarketDataLogsResponse }) {
+function LogsPanel({
+  logs,
+  currentProviderId,
+}: {
+  logs: AdminMarketDataLogsResponse;
+  currentProviderId: string;
+}) {
   return (
     <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-logs">
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-base font-semibold text-foreground">Logs</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Provider filters keep raw diagnostics separated when several providers serve this market.</p>
+        <ProviderFilterLinks
+          currentProviderId={currentProviderId}
+          marketCode={logs.marketCode}
+          providers={logs.providers}
+          tab="logs"
+        />
       </div>
       <ul className="divide-y divide-border">
         {logs.items.map((log) => (

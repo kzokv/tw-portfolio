@@ -34,35 +34,48 @@ The UX is market-first. Execution remains provider-owned.
 14. Catalog repair/sync and historical data backfill are separate explicit actions.
 15. Catalog rows can stay broad because they are comparatively cheap and support search/discovery.
 16. Historical bars, dividends, and derived data are storage-heavy and must remain selective by default.
-17. Backfill uses shared scopes across markets: `user_owned_or_monitored`, `selected_catalog_rows`, `manual_targets`, and `all_matching`.
-18. `user_owned_or_monitored` means open positions in active accounts or manual monitored tickers, excluding demo users unless explicitly included.
-19. `TW` and `US` default backfill scope is `user_owned_or_monitored`.
-20. `AU` and `KR` default broad repair scope can target pending/failed catalog rows, but only through preview; no silent all-market warm-up.
-21. Admins may backfill non-user-owned `TW`/`US` instruments only through selected catalog rows, manual/uploaded `(ticker, marketCode)` targets, or all-matching preview with typed confirmation.
-22. Broad backfill previews must show match count, affected users/accounts, estimated job count, estimated storage impact, provider budget notes, and typed confirmation text when dangerous.
-23. `yahoo-finance-kr` mapping repair persists verified mappings only and does not automatically enqueue backfill.
-24. KR backfill after mapping is an explicit separate action.
-25. The shipped KR resolver feature is not changed in this scope: do not alter resolver ranking, suffix rules, quote/chart fallback, or exact KR repair semantics.
-26. Settings ticker repair stays narrow and user-facing: exact `(ticker, marketCode)` targets only. Admin market workspace owns purge, broad backfill, all-matching, and provider operation controls.
-27. Add explicit instrument support states separate from purge and provider delisting: `listed`, `delisted`, `excluded_from_delisting_detection`, `retired_by_admin`, and `unsupported_by_provider`.
-28. Retirement does not delete stored data, does not purge bars/dividends, and does not hide existing holdings. It disables or warns on future selection/backfill unless explicitly overridden.
-29. Support/retirement controls apply to all catalog-capable markets. AU/KR delisting override remains separate and AU/KR-only.
-30. Purge data and retirement are separate operator intents.
-31. Purge in this scope includes stored data and optional admin state reset; catalog-row deletion is out of scope.
-32. `Purge all` means purge all selected categories only, not every possible destructive category.
-33. Purge supports full-history bars/dividends by default and advanced date-range purge for bars/dividends.
-34. Provider logs/outcomes/error-trail purge uses operation/date filters, not price-date semantics.
-35. Purge may offer `enqueue backfill after purge` for bars/dividends, default off, with clear UI guidance explaining delete-only vs delete-then-refill.
-36. Date-range purge refills the same range only where the worker supports it; otherwise the UI must warn that refill is full-history or disable linked refill.
-37. New queue-backed operations must preserve operation correlation so workers can update provider operation logs, progress, outcomes, and audit trails.
-38. Mockups must be regenerated as eight screenshots: desktop and mobile for AU Instruments, TW/US Backfill, AU Purge data, and KR Mapping/Fixers.
+17. Backfill uses shared scopes across markets: `user_owned_or_monitored`, `selected_catalog_rows`, and `all_matching`.
+18. Hard-delete `manual_targets` from backend and UI. Do not alias it to another scope; old requests using `scope: "manual_targets"` should fail validation.
+19. `user_owned_or_monitored` means all matching open positions in active accounts or manual monitored tickers across all non-demo users, excluding demo users unless explicitly included.
+20. `TW` and `US` default backfill mode is `user_owned_or_monitored`; their supported-instrument picker defaults to listed, supported, all backfill statuses.
+21. `AU` and `KR` default supported-instrument picker filters target listed, supported, pending/failed rows; no silent all-market warm-up.
+22. Admins may backfill non-user-owned instruments only through the supported-instrument picker (`selected_catalog_rows`) or all-matching filter preview (`all_matching`) with typed confirmation when broad.
+23. Backfill preview must disclose the exact frozen target list, not only counts. It must also show affected users/accounts, estimated jobs, estimated storage impact, provider budget notes, unsupported rows, and confirmation requirements.
+24. Backfill preview creates a provider operation with compact frozen target rows in `market_data.provider_operations.metadata` JSONB and returns `operationId`, `previewToken`, `tokenExpiresAt`, and `targets`.
+25. Backfill execute stays market-first at `POST /admin/market-data/:marketCode/backfill/execute`, but it must require `operationId + previewToken` and execute the frozen preview scope. Execute must reject expired/stale/missing preview tokens.
+26. Backfill UI is a two-mode flow: `Owned or monitored` and `Supported instruments`. Do not expose backend scope names directly as the main control.
+27. Supported-instrument mode uses a searchable/filterable checkbox table sourced from current market instruments. It supports `Preview selected` and `Preview all matching filters`.
+28. Editing mode, provider, filters, selected rows, or demo-user inclusion after preview marks the preview stale and requires a new preview.
+29. Preview target rows include operational verification fields: ticker, name, market, instrument type, backfill status, provider ids, and unsupported reason when rejected. Do not show per-user identities in this screen.
+30. Large previews use summary-first UI: show target table inline when `targetCount <= 100`; show summary plus `View target details` modal when `targetCount > 100`; typed confirmation is required at `targetCount >= 100`; backend rejects previews above 5,000 targets.
+31. The target-details modal searches and filters the frozen preview list, not live catalog rows.
+32. Backfill provider selection is capability-based. Show a provider switcher only when multiple providers for the market support backfill execution; otherwise show fixed provider context.
+33. Backfill preview/execution operations appear in market Operations/Logs with provider, scope label, and target count.
+34. Unsupported rows are shown separately, skipped from execution, and preview is executable only when at least one supported target remains.
+35. A backfillable supported instrument must match the route market, exist in `market_data.instruments`, be non-delisted, have `supportState === supported`, and have a backfill-capable provider. `ready` rows remain selectable for intentional re-backfill.
+36. `yahoo-finance-kr` mapping repair persists verified mappings only and does not automatically enqueue backfill.
+37. KR backfill after mapping is an explicit separate action.
+38. The shipped KR resolver feature is not changed in this scope: do not alter resolver ranking, suffix rules, quote/chart fallback, exact KR repair semantics, provider route behavior, selectors, or tests.
+39. Settings ticker repair stays narrow and user-facing: exact `(ticker, marketCode)` targets only. Admin market workspace owns purge, broad backfill, all-matching, and provider operation controls.
+40. Add explicit instrument support states separate from purge and provider delisting: `listed`, `delisted`, `excluded_from_delisting_detection`, `retired_by_admin`, and `unsupported_by_provider`.
+41. Retirement does not delete stored data, does not purge bars/dividends, and does not hide existing holdings. It disables or warns on future selection/backfill unless explicitly overridden.
+42. Support/retirement controls apply to all catalog-capable markets. AU/KR delisting override remains separate and AU/KR-only.
+43. Purge data and retirement are separate operator intents.
+44. Purge in this scope includes stored data and optional admin state reset; catalog-row deletion is out of scope.
+45. `Purge all` means purge all selected categories only, not every possible destructive category.
+46. Purge supports full-history bars/dividends by default and advanced date-range purge for bars/dividends.
+47. Provider logs/outcomes/error-trail purge uses operation/date filters, not price-date semantics.
+48. Purge may offer `enqueue backfill after purge` for bars/dividends, default off, with clear UI guidance explaining delete-only vs delete-then-refill.
+49. Date-range purge refills the same range only where the worker supports it; otherwise the UI must warn that refill is full-history or disable linked refill.
+50. New queue-backed operations must preserve operation correlation so workers can update provider operation logs, progress, outcomes, and audit trails.
+51. Mockups must be regenerated as eight screenshots: desktop and mobile for AU Instruments, TW/US Backfill, AU Purge data, and KR Mapping/Fixers.
 
 ## Market Scope
 
 | Market workspace | Canonical route examples | Visible providers | Primary flows | Default storage stance |
 | --- | --- | --- | --- | --- |
-| `TW` | `/admin/market-data/TW/instruments`, `/admin/market-data/TW/backfill` | `finmind-tw` | Sync catalog, inspect instruments, retire/support state, user-owned/selected/manual/all-matching backfill, purge stored data | Catalog broad; historical data defaults to user-owned/monitored. |
-| `US` | `/admin/market-data/US/instruments`, `/admin/market-data/US/backfill` | `finmind-us` | Sync catalog, inspect instruments, retire/support state, user-owned/selected/manual/all-matching backfill, purge stored data | Same as TW; broad US history is dangerous by default. |
+| `TW` | `/admin/market-data/TW/instruments`, `/admin/market-data/TW/backfill` | `finmind-tw` | Sync catalog, inspect instruments, retire/support state, owned/monitored backfill, supported-instrument picker backfill, all-matching backfill, purge stored data | Catalog broad; historical data defaults to owned/monitored. |
+| `US` | `/admin/market-data/US/instruments`, `/admin/market-data/US/backfill` | `finmind-us` | Sync catalog, inspect instruments, retire/support state, owned/monitored backfill, supported-instrument picker backfill, all-matching backfill, purge stored data | Same as TW; broad US history is dangerous by default. |
 | `AU` | `/admin/market-data/AU/instruments`, `/admin/market-data/AU/purge` | `twelve-data-au`, `yahoo-finance-au`, `asx-gics-csv` | Sync catalog, sync GICS, inspect instruments, delisting override, retire/support state, pending/failed backfill, purge bars/dividends/enrichment data | Catalog/enrichment broad; historical bars/dividends require preview. |
 | `KR` | `/admin/market-data/KR/mappings`, `/admin/market-data/KR/backfill` | `twelve-data-kr`, `yahoo-finance-kr` | Sync catalog, repair Yahoo mappings, inspect instruments, retire/support state, explicit backfill, purge bars/dividends/mapping data | Mapping repair only; backfill explicit after mapping/catalog state is known. |
 | `FX` | `/admin/market-data/FX/overview`, `/admin/market-data/FX/operations` | `frankfurter` | Refresh FX rates, inspect operations/logs | No instruments/backfill/purge in this scope. |
@@ -73,21 +86,33 @@ The UX is market-first. Execution remains provider-owned.
 | --- | --- | --- | --- |
 | `finmind-tw` | TW market data and catalog | `TW` Instruments, Backfill, Purge, Operations | `sync_catalog`, `backfill_catalog_rows` |
 | `finmind-us` | US market data and catalog | `US` Instruments, Backfill, Purge, Operations | `sync_catalog`, `backfill_catalog_rows` |
-| `twelve-data-au` | AU catalog | `AU` Instruments, Backfill, Operations | `sync_catalog`, `backfill_catalog_rows` |
-| `yahoo-finance-au` | AU bars/dividends/metadata/search | `AU` Backfill, Purge, Operations | provider-owned bar/dividend backfill execution |
+| `twelve-data-au` | AU catalog/evidence | `AU` Instruments, Operations | `sync_catalog` |
+| `yahoo-finance-au` | AU bars/dividends/metadata/search | `AU` Backfill, Purge, Operations | `backfill_catalog_rows` provider-owned bar/dividend execution |
 | `asx-gics-csv` | AU enrichment | `AU` Instruments/Purge enrichment sections, Operations | `sync_asx_gics` |
-| `twelve-data-kr` | KR catalog | `KR` Instruments, Backfill, Operations | `sync_catalog`, `backfill_catalog_rows` |
-| `yahoo-finance-kr` | KR bars/dividends/metadata/search and durable mapping | `KR` Mappings, Backfill, Purge, Operations | `repair_mapping`; explicit backfill only after mapping/catalog state is known |
+| `twelve-data-kr` | KR catalog/evidence | `KR` Instruments, Operations | `sync_catalog` |
+| `yahoo-finance-kr` | KR bars/dividends/metadata/search and durable mapping | `KR` Mappings, Backfill, Purge, Operations | `repair_mapping`, `backfill_catalog_rows`; explicit backfill only after mapping/catalog state is known |
 | `frankfurter` | FX rates | `FX` Overview, Refresh rates, Operations, Logs | `refresh_fx_rates` |
 
 ## Backfill Scope Rules
 
 | Scope | Meaning | Markets | Guardrails |
 | --- | --- | --- | --- |
-| `user_owned_or_monitored` | Open positions in active accounts or manual monitored tickers; excludes demo users unless included explicitly | `TW`, `US`, `AU`, `KR` | Default for `TW`/`US`; preview still required before enqueue. |
-| `selected_catalog_rows` | Admin checks exact instrument rows from the market Instruments table | `TW`, `US`, `AU`, `KR` | Preview and explicit execute. |
-| `manual_targets` | Admin enters/uploads exact `(ticker, marketCode)` targets | `TW`, `US`, `AU`, `KR` | Validate exact market, show invalid/unsupported rows before execute. |
-| `all_matching` | All rows matching current filter, such as pending/failed catalog rows | `TW`, `US`, `AU`, `KR` | Typed dangerous confirmation when broad or above threshold. |
+| `user_owned_or_monitored` | All matching open positions in active accounts or manual monitored tickers across all non-demo users; demo users included only when explicitly checked | `TW`, `US`, `AU`, `KR` | Default mode for `TW`/`US`; exact frozen preview required before enqueue. |
+| `selected_catalog_rows` | Admin checks exact supported instrument rows from the market Backfill supported-instruments picker | `TW`, `US`, `AU`, `KR` | Backend revalidates support/delisting/provider capability; exact frozen preview required before enqueue. |
+| `all_matching` | All supported instruments matching current Backfill picker filters, such as AU/KR pending/failed catalog rows | `TW`, `US`, `AU`, `KR` | Typed dangerous confirmation at `targetCount >= 100`; backend rejects above 5,000 targets. |
+
+`manual_targets` is hard-deleted from backend and UI. It must not remain as a hidden API compatibility branch or alias.
+
+### Backfill Preview/Execute Rules
+
+- Preview creates a provider operation and stores the frozen target list in compact JSONB metadata.
+- Preview response returns `operationId`, `previewToken`, `tokenExpiresAt`, `targets`, aggregate counts, unsupported rows, provider budget notes, and confirmation requirements.
+- Execute stays market-first at `POST /admin/market-data/:marketCode/backfill/execute` and requires `operationId + previewToken`.
+- Execute must reject expired, missing, or stale preview tokens and must execute only the frozen target list reviewed by the admin.
+- `<= 100` targets render inline; `> 100` targets render summary-first with a target-details modal; `>= 100` requires typed confirmation; `> 5,000` is rejected at preview.
+- Target details search/filter the frozen preview list, not live catalog rows.
+- Unsupported rows are shown separately and skipped; preview is executable only when at least one supported target remains.
+- Backfill operations appear in Operations/Logs with provider, target count, and scope label.
 
 ## Purge Scope Rules
 
@@ -129,7 +154,7 @@ Market-data BFF routes are the public admin UI API. Exact names can be adjusted 
 - `GET /admin/market-data/:marketCode/operations`
 - `GET /admin/market-data/:marketCode/logs`
 - `POST /admin/market-data/:marketCode/backfill/preview`
-- `POST /admin/market-data/:marketCode/backfill/execute`
+- `POST /admin/market-data/:marketCode/backfill/execute` (requires `operationId + previewToken` from preview)
 - `POST /admin/market-data/:marketCode/purge/preview`
 - `POST /admin/market-data/:marketCode/purge/execute`
 - `POST /admin/market-data/:marketCode/instruments/support-state`
@@ -149,9 +174,9 @@ Execute routes must require explicit provider/action selection where more than o
 - [x] Add instrument filters for `status`, `supportState`, `search`, `instrumentType`, `backfillStatus`, `sort`, `page`, and `limit`.
 - [x] Add support-state persistence/API/UI for `retired_by_admin` and `unsupported_by_provider`, separate from delisting/exclusion.
 - [x] Keep AU/KR delisting override controls separate from support/retirement controls.
-- [x] Add explicit backfill scopes for user-owned/monitored instruments, selected catalog rows, manual/uploaded targets, and all-matching filters.
+- [x] Add initial market-data backfill preview/execute scaffolding. The target-scope contract is superseded by the hard-delete/frozen-preview follow-up below.
 - [x] Add backfill preview responses with match count, affected users/accounts, estimated job count, estimated storage impact, provider budget notes, unsupported rows, and typed confirmation text when dangerous.
-- [x] Allow TW/US non-user-owned backfill only through selected catalog rows, manual/uploaded targets, or all-matching preview with typed confirmation.
+- [x] Add initial TW/US non-user-owned backfill guardrails through explicit targets or all-matching preview with typed confirmation. The explicit-target path is superseded by the supported-instrument picker follow-up below.
 - [x] Keep AU/KR pending/failed catalog-row backfill, but require preview/estimate before enqueueing all pending/failed rows.
 - [x] Add retention/provenance metadata for admin-triggered backfill batches or provider operations, or document the inference path if explicit storage metadata is deferred.
 - [x] Add queue-backed provider operations for catalog sync, catalog-row backfill, FX refresh, ASX GICS sync, and KR mapping repair.
@@ -164,6 +189,19 @@ Execute routes must require explicit provider/action selection where more than o
 - [x] Add focused API, persistence, web component, and E2E coverage for market-data landing, market workspace tabs, backfill preview/execute, purge preview/execute, support-state mutation, KR mapping-only repair, and Settings exact-market repair.
 - [x] Run focused E2E or equivalent updates for the changed admin/market-data flows.
 - [x] Regenerate mockup source and screenshots for the eight locked views.
+- [x] Hard-delete `manual_targets` from shared types, backend schema/route handling, web service payloads, UI, API HTTP tests, E2E tests, and docs.
+- [x] Add frozen backfill preview provider-operation creation with compact target metadata, `operationId`, `previewToken`, `tokenExpiresAt`, exact `targets`, and preview expiry handling.
+- [x] Change market-data backfill execute to require `operationId + previewToken`, reject stale/expired/missing previews, and enqueue only the frozen reviewed targets.
+- [x] Redesign Backfill UI into two modes: `Owned or monitored` and `Supported instruments`.
+- [x] Add Backfill supported-instruments checkbox/filter picker using instrument-list DTO semantics and URL query params for shareable filters.
+- [x] Add `Preview selected` and `Preview all matching filters`; mark preview stale after mode/provider/filter/selection/demo-user changes.
+- [x] Render exact preview targets inline up to 100 rows and summary plus target-details modal above 100 rows; modal must filter the frozen preview list.
+- [x] Add `Include demo users` checkbox for owned/monitored mode, default off, and disclose the setting in preview.
+- [x] Add capability-based Backfill provider switcher only when multiple providers support backfill execution for the market.
+- [x] Preserve unsupported-row partial preview semantics: show rejected rows separately, skip them, and disable execute when no supported target remains.
+- [x] Keep KR resolver UI/features intact while changing Backfill: do not alter KR resolver route behavior, mapping semantics, selectors, or tests.
+- [x] Rewrite API HTTP and OAuth E2E backfill coverage from manual ticker input to supported-instrument picker and frozen preview token execution.
+- [x] Regenerate the TW/US Backfill desktop/mobile mockups to show the two-mode picker, exact preview summary, and details modal.
 
 ## Mockup Requirements
 
@@ -171,8 +209,8 @@ Regenerate `docs/mockups/provider-fixers/provider-fixers-mockup.html` and screen
 
 1. `01-au-instruments-desktop.png`
 2. `02-au-instruments-mobile.png`
-3. `03-tw-backfill-desktop.png`
-4. `04-tw-backfill-mobile.png`
+3. `03-tw-backfill-desktop.png` - must show two-mode Backfill flow, supported-instrument picker, exact preview summary, and large-target details affordance.
+4. `04-tw-backfill-mobile.png` - must show the same Backfill flow in mobile layout.
 5. `05-au-purge-desktop.png`
 6. `06-au-purge-mobile.png`
 7. `07-kr-mapping-desktop.png`
@@ -183,7 +221,10 @@ Each screenshot must use the canonical `/admin/market-data` mental model and sho
 ## Non-Critical Gaps To Track
 
 - Storage estimate can start as row-count based if byte-level estimates are not cheap.
-- Retention/provenance can be stored explicitly or inferred from batch/operation metadata in the first implementation pass.
+- Retention/provenance can be inferred from provider operation metadata in the first implementation pass.
+- Historical provider operations may still contain `manual_targets` in old freeform metadata or `scopeQuery`; no parser should depend on that value.
+- The Postgres owned/monitored query uses legacy market fallback for older position data; follow-up data quality work may be needed if stale trades lack market codes.
+- Frozen preview targets must be stored compactly to keep JSONB metadata bounded under the 5,000-target hard limit.
 - Derived/cache purge should not be implemented without clear existing invalidation/deletion boundaries.
 - FX purge is intentionally out of scope for now.
 - `asx-gics-csv` Instruments details can reuse existing AU fields unless GICS fields are cheap to expose.

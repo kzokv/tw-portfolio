@@ -82,7 +82,7 @@ test.describe.serial("admin market-data console", () => {
     );
   });
 
-  test("[market-data-backfill]: TW manual target preview explains guarded execution", async ({
+  test("[market-data-backfill]: TW supported-instrument preview explains guarded execution", async ({
     appShell,
     page,
   }) => {
@@ -93,17 +93,23 @@ test.describe.serial("admin market-data console", () => {
       barsBackfillStatus: "pending",
     });
 
-    await appShell.actions.navigateToRoute("/admin/market-data/TW/backfill");
+    await appShell.actions.navigateToRoute("/admin/market-data/TW/backfill?search=TWE2EBF1&supportState=supported&backfillStatus=pending");
     await page.waitForLoadState("load");
 
     await page.getByTestId("market-data-backfill").waitFor({ state: "visible" });
-    await page.getByLabel("Scope").selectOption("manual_targets");
-    await page.getByLabel("Manual tickers").fill("TWE2EBF1");
-    await page.getByRole("button", { name: "Preview backfill" }).click();
+    await page.getByLabel("Backfill mode").selectOption("supported");
+    await page.getByLabel("Select TWE2EBF1").check();
+    await page.getByRole("button", { name: "Preview selected" }).click();
 
     const backfillPanel = page.getByTestId("market-data-backfill");
     await page.getByText("Backfill estimate").waitFor({ state: "visible" });
-    await backfillPanel.getByText("finmind-tw", { exact: true }).waitFor({ state: "visible" });
+    await backfillPanel
+      .getByRole("definition")
+      .filter({ hasText: /^finmind-tw$/ })
+      .waitFor({ state: "visible" });
+    await backfillPanel
+      .getByRole("cell", { name: "TWE2EBF1", exact: true })
+      .waitFor({ state: "visible" });
     await page.getByText("I reviewed the preview").waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
       await page.getByRole("button", { name: "Execute backfill" }).isDisabled(),

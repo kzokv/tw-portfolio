@@ -36,6 +36,7 @@ import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataBackfillTargetDto,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataBackfillPreviewRequest,
@@ -830,7 +831,6 @@ const marketDataInstrumentSortSchema = z.enum(["ticker_asc", "ticker_desc", "upd
 const marketDataBackfillScopeSchema = z.enum([
   "user_owned_or_monitored",
   "selected_catalog_rows",
-  "manual_targets",
   "all_matching",
 ]);
 const marketDataTargetSchema = z.object({
@@ -5231,9 +5231,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       scope: marketDataBackfillScopeSchema,
       providerId: providerFixerProviderSchema.optional(),
       selectedCatalogRows: z.array(marketDataTargetSchema).optional(),
-      manualTargets: z.array(marketDataTargetSchema).optional(),
       filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
       includeDemoUsers: z.boolean().optional(),
+    })
+    .strict();
+  const marketDataBackfillExecuteBodySchema = z
+    .object({
+      operationId: userScopedIdSchema,
+      previewToken: z.string().trim().min(1).max(80),
       acknowledged: z.boolean().optional(),
       typedConfirmation: z.string().trim().max(160).optional(),
     })
@@ -5274,7 +5279,11 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   type MarketDataBackfillBody = z.infer<typeof marketDataBackfillBodySchema>;
   type MarketDataPurgeBody = z.infer<typeof marketDataPurgeBodySchema>;
   type MarketDataWorkspaceMarketCode = Exclude<AdminMarketCode, "FX">;
-  type MarketDataTarget = { ticker: string; marketCode: MarketDataWorkspaceMarketCode };
+  type MarketDataTarget = AdminMarketDataBackfillTargetDto & { marketCode: MarketDataWorkspaceMarketCode };
+  type MarketDataBackfillPreviewDraft =
+    Omit<AdminMarketDataBackfillPreviewResponse, "operationId" | "previewToken" | "tokenExpiresAt" | "targets">
+    & { targets: MarketDataTarget[] };
+  const maxBackfillPreviewTargets = 5_000;
 
   function uniqueMarketDataTargets(targets: readonly MarketDataTarget[]): MarketDataTarget[] {
     const seen = new Set<string>();
@@ -5284,9 +5293,37 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       const key = `${ticker}|${target.marketCode}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ ticker, marketCode: target.marketCode });
+      out.push({ ...target, ticker, marketCode: target.marketCode });
     }
     return out;
+  }
+
+  function marketDataBackfillTargetFromInstrument(row: Awaited<ReturnType<typeof app.persistence.instrumentAdminGet>>): MarketDataTarget | null {
+    if (!row) return null;
+    const dto = adminInstrumentRowToMarketDataDto(row);
+    return {
+      ticker: dto.ticker,
+      marketCode: dto.marketCode as MarketDataWorkspaceMarketCode,
+      name: dto.name,
+      instrumentType: dto.instrumentType,
+      status: dto.status,
+      supportState: dto.supportState,
+      backfillStatus: dto.backfillStatus,
+      providerIds: dto.providerIds,
+    };
+  }
+
+  function compactBackfillTarget(target: MarketDataTarget): MarketDataTarget {
+    return {
+      ticker: target.ticker,
+      marketCode: target.marketCode,
+      name: target.name ?? null,
+      instrumentType: target.instrumentType ?? null,
+      status: target.status ?? null,
+      supportState: target.supportState ?? null,
+      backfillStatus: target.backfillStatus ?? null,
+      providerIds: target.providerIds ?? [],
+    };
   }
 
   function assertMarketDataProvider(marketCode: AdminMarketCode, providerId: string | undefined): string {
@@ -5336,7 +5373,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
           backfillStatus,
           sort: "ticker_asc",
         });
-        targets.push(...result.items.map((row) => ({ ticker: row.ticker, marketCode: row.marketCode as MarketDataWorkspaceMarketCode })));
+        targets.push(...result.items.map((row) => compactBackfillTarget(adminInstrumentRowToMarketDataDto(row) as MarketDataTarget)));
         if (page * result.limit >= result.total) break;
         page += 1;
       }
@@ -5355,20 +5392,20 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       if (target.marketCode !== marketCode) {
         throw routeError(400, "target_market_mismatch", "Backfill targets must match the route market");
       }
-      const row = await app.persistence.instrumentAdminGet(target.ticker, target.marketCode);
+      const row = marketDataBackfillTargetFromInstrument(await app.persistence.instrumentAdminGet(target.ticker, target.marketCode));
       if (!row) {
         unsupportedRows.push({ ...target, reason: "Instrument is not present in the provider catalog." });
         continue;
       }
-      if (row.delistedAt) {
-        unsupportedRows.push({ ...target, reason: "Instrument is delisted; undelete or select another target before backfill." });
+      if (row.status === "delisted") {
+        unsupportedRows.push({ ...row, reason: "Instrument is delisted; undelete or select another target before backfill." });
         continue;
       }
       if (options.requireSupported && row.supportState !== "supported") {
-        unsupportedRows.push({ ...target, reason: `Instrument support state is ${row.supportState}.` });
+        unsupportedRows.push({ ...row, reason: `Instrument support state is ${row.supportState}.` });
         continue;
       }
-      valid.push(target);
+      valid.push(row);
     }
     return { targets: valid, unsupportedRows };
   }
@@ -5376,24 +5413,28 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   async function buildBackfillPreview(
     marketCode: MarketDataWorkspaceMarketCode,
     body: MarketDataBackfillBody,
-  ): Promise<AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] }> {
+  ): Promise<MarketDataBackfillPreviewDraft> {
     const providerId = assertMarketDataProvider(marketCode, body.providerId);
     let targets: MarketDataTarget[] = [];
     let unsupportedRows: AdminMarketDataBackfillPreviewResponse["unsupportedRows"] = [];
     if (body.scope === "user_owned_or_monitored") {
-      targets = (await app.persistence.listAdminMarketDataBackfillTargets({
+      const listedTargets = (await app.persistence.listAdminMarketDataBackfillTargets({
         marketCode,
         includeDemoUsers: body.includeDemoUsers,
       })).map((target) => ({ ticker: target.ticker, marketCode: target.marketCode as MarketDataWorkspaceMarketCode }));
+      const validated = await validateExplicitTargets(marketCode, listedTargets, { requireSupported: true });
+      targets = validated.targets;
+      unsupportedRows = validated.unsupportedRows;
     } else if (body.scope === "all_matching") {
       targets = await allMatchingTargets(marketCode, body.filters);
     } else {
-      const explicitTargets = body.scope === "selected_catalog_rows"
-        ? body.selectedCatalogRows ?? []
-        : body.manualTargets ?? [];
+      const explicitTargets = body.selectedCatalogRows ?? [];
       const validated = await validateExplicitTargets(marketCode, explicitTargets, { requireSupported: true });
       targets = validated.targets;
       unsupportedRows = validated.unsupportedRows;
+    }
+    if (targets.length > maxBackfillPreviewTargets) {
+      throw routeError(400, "market_backfill_preview_too_large", `Backfill preview matched ${targets.length} targets; narrow filters below ${maxBackfillPreviewTargets}`);
     }
     const ownership = await app.persistence.countAdminMarketDataTargetOwnership({ targets });
     const matchCount = targets.length;
@@ -5415,6 +5456,149 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         reason: dangerous ? "Broad backfill requires typed confirmation." : "Preview is required before enqueue.",
       },
       targets,
+    };
+  }
+
+  function backfillPreviewMetadata(preview: MarketDataBackfillPreviewDraft, body: MarketDataBackfillBody): Record<string, unknown> {
+    return {
+      marketDataBff: true,
+      source: "preview",
+      scope: preview.scope,
+      filters: body.filters ?? null,
+      includeDemoUsers: body.includeDemoUsers === true,
+      selectedCatalogRows: body.selectedCatalogRows?.map((target) => ({ ticker: target.ticker, marketCode: target.marketCode })) ?? null,
+      frozenBackfillTargets: preview.targets.map(compactBackfillTarget),
+      unsupportedRows: preview.unsupportedRows,
+      estimatedStorageRows: preview.estimatedStorageRows,
+      affectedUserCount: preview.affectedUserCount,
+      affectedAccountCount: preview.affectedAccountCount,
+      providerBudgetNotes: preview.providerBudgetNotes,
+      confirmationText: preview.confirmation.text,
+      confirmationLevel: preview.confirmation.level,
+      confirmationReason: preview.confirmation.reason,
+      progressPercent: null,
+    };
+  }
+
+  function backfillTargetsFromMetadata(metadata: Record<string, unknown> | null): MarketDataTarget[] {
+    const rows = asRecord(metadata)?.frozenBackfillTargets;
+    if (!Array.isArray(rows)) return [];
+    return uniqueMarketDataTargets(rows.flatMap((item) => {
+      const row = asRecord(item);
+      const ticker = stringField(row?.ticker);
+      const parsedMarket = providerFixerMarketCodeSchema.safeParse(row?.marketCode);
+      if (!ticker || !parsedMarket.success) return [];
+      return [compactBackfillTarget({
+        ticker,
+        marketCode: parsedMarket.data,
+        name: stringField(row?.name),
+        instrumentType: stringField(row?.instrumentType) as MarketDataTarget["instrumentType"],
+        status: stringField(row?.status) as MarketDataTarget["status"],
+        supportState: stringField(row?.supportState) as MarketDataTarget["supportState"],
+        backfillStatus: stringField(row?.backfillStatus) as MarketDataTarget["backfillStatus"],
+        providerIds: Array.isArray(row?.providerIds) ? row.providerIds.flatMap((providerId) => stringField(providerId) ?? []) : [],
+      })];
+    }));
+  }
+
+  function backfillPreviewFromOperation(operation: ProviderOperationRecord): MarketDataBackfillPreviewDraft {
+    const metadata = asRecord(operation.metadata);
+    const scope = marketDataBackfillScopeSchema.parse(metadata?.scope);
+    const targets = backfillTargetsFromMetadata(metadata);
+    const unsupportedRows = Array.isArray(metadata?.unsupportedRows)
+      ? metadata.unsupportedRows.flatMap((item) => {
+          const row = asRecord(item);
+          const ticker = stringField(row?.ticker);
+          const parsedMarket = providerFixerMarketCodeSchema.safeParse(row?.marketCode);
+          const reason = stringField(row?.reason);
+          if (!ticker || !parsedMarket.success || !reason) return [];
+          return [{ ...compactBackfillTarget({ ticker, marketCode: parsedMarket.data as MarketDataWorkspaceMarketCode }), reason }];
+        })
+      : [];
+    const confirmationLevel = metadata?.confirmationLevel === "typed" || metadata?.confirmationLevel === "none" ? metadata.confirmationLevel : "checkbox";
+    return {
+      marketCode: operation.marketCode as MarketDataWorkspaceMarketCode,
+      providerId: operation.providerId,
+      scope,
+      matchCount: operation.matchCount ?? targets.length,
+      affectedUserCount: numberField(metadata?.affectedUserCount) ?? 0,
+      affectedAccountCount: numberField(metadata?.affectedAccountCount) ?? 0,
+      estimatedJobCount: targets.length,
+      estimatedStorageRows: numberField(metadata?.estimatedStorageRows),
+      providerBudgetNotes: Array.isArray(metadata?.providerBudgetNotes)
+        ? metadata.providerBudgetNotes.flatMap((note) => stringField(note) ?? [])
+        : [],
+      unsupportedRows,
+      confirmation: {
+        level: confirmationLevel,
+        text: stringField(metadata?.confirmationText),
+        reason: stringField(metadata?.confirmationReason),
+      },
+      targets,
+    };
+  }
+
+  async function createBackfillPreviewOperation(
+    context: { actorUserId: string; ipAddress?: string },
+    preview: MarketDataBackfillPreviewDraft,
+    body: MarketDataBackfillBody,
+  ): Promise<AdminMarketDataBackfillPreviewResponse> {
+    await ensureProviderHealthRow(preview.providerId);
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const token = newProviderFixerToken();
+    const now = Date.now();
+    const tokenExpiresAt = new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString();
+    const operation = await app.persistence.createProviderOperation({
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationType: "backfill_catalog_rows",
+      phase: "preview",
+      errorCode: "admin_market_data_backfill",
+      scopeQuery: `${preview.marketCode}:${preview.scope}`,
+      snapshotHash: hashProviderFixerToken(`${preview.marketCode}:${preview.providerId}:${preview.scope}:${preview.matchCount}:${JSON.stringify(body.filters ?? {})}:${now}`).slice(0, 12),
+      previewTokenHash: hashProviderFixerToken(token),
+      previewExpiresAt: tokenExpiresAt,
+      matchCount: preview.matchCount,
+      sample: preview.targets.slice(0, 20),
+      metadata: {
+        previewTokenDisplay: token,
+        ...backfillPreviewMetadata(preview, body),
+      },
+      actorUserId: context.actorUserId,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "preview",
+      level: preview.matchCount > 0 ? "info" : "warning",
+      message: `market_data_backfill_preview provider=${preview.providerId} market=${preview.marketCode} scope=${preview.scope} matched=${preview.matchCount}`,
+      context: {
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+        unsupportedCount: preview.unsupportedRows.length,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "market_data_backfill_preview",
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+      },
+    });
+    return {
+      ...preview,
+      operationId: operation.id,
+      previewToken: token,
+      tokenExpiresAt,
+      targets: preview.targets,
     };
   }
 
@@ -5459,7 +5643,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   async function createBackfillOperation(
     context: { actorUserId: string; ipAddress?: string },
-    preview: AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] },
+    preview: MarketDataBackfillPreviewDraft,
     source: "manual_execute" | "linked_refill",
     options: { ignoreActiveOperationId?: string } = {},
   ): Promise<{ operation: ProviderOperationRecord; batchId: string | null; enqueuedJobCount: number; skippedExistingJobCount: number }> {
@@ -5540,6 +5724,81 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         enqueuedJobCount: queued.enqueuedJobCount,
         skippedExistingJobCount: queued.skippedExistingJobCount,
         source,
+      },
+    });
+    return { operation: updated, ...queued };
+  }
+
+  async function executeBackfillPreviewOperation(
+    context: { actorUserId: string; ipAddress?: string },
+    operation: ProviderOperationRecord,
+    preview: MarketDataBackfillPreviewDraft,
+  ): Promise<{ operation: ProviderOperationRecord; batchId: string | null; enqueuedJobCount: number; skippedExistingJobCount: number }> {
+    await assertNoOtherProviderOperationExecution(app, {
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      operationId: operation.id,
+    });
+    const startedAt = new Date().toISOString();
+    const running = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: app.boss && preview.targets.length > 0 ? "running" : "completed",
+      startedAt,
+      completedAt: app.boss && preview.targets.length > 0 ? null : startedAt,
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        source: "manual_execute",
+        progressPercent: preview.targets.length === 0 || !app.boss ? 100 : 0,
+      },
+    });
+    const queued = await enqueueMarketDataBackfillTargets(running, preview.targets);
+    const finalPhase = queued.enqueuedJobCount > 0 ? "running" : "completed";
+    const updated = await app.persistence.updateProviderOperation({
+      id: running.id,
+      phase: finalPhase,
+      completedAt: finalPhase === "completed" ? new Date().toISOString() : null,
+      legacyBatchId: queued.batchId,
+      previewTokenHash: null,
+      previewExpiresAt: null,
+      metadata: {
+        ...(asRecord(running.metadata) ?? {}),
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        progressPercent: finalPhase === "completed" ? 100 : 0,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: updated.id,
+      phase: updated.phase,
+      level: "info",
+      message: `market_data_backfill_${finalPhase} provider=${preview.providerId} market=${preview.marketCode} scope=${preview.scope} matched=${preview.matchCount} enqueued=${queued.enqueuedJobCount}`,
+      context: {
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        source: "manual_execute",
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: updated.id,
+        action: "market_data_backfill_execute",
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        source: "manual_execute",
       },
     });
     return { operation: updated, ...queued };
@@ -6292,13 +6551,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   app.post("/market-data/:marketCode/backfill/preview", async (req): Promise<AdminMarketDataBackfillPreviewResponse> => {
     requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (marketCode === "FX") throw routeError(404, "market_backfill_not_supported", "FX backfill is out of scope");
     const market = providerFixerMarketCodeSchema.parse(marketCode);
     const body = marketDataBackfillBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataBackfillPreviewRequest;
-    const { targets: internalTargets, ...preview } = await buildBackfillPreview(market, body);
-    void internalTargets;
-    return preview;
+    const preview = await buildBackfillPreview(market, body);
+    return createBackfillPreviewOperation({ actorUserId: sessionUserId, ipAddress }, preview, body);
   });
 
   app.post("/market-data/:marketCode/backfill/execute", async (req): Promise<AdminMarketDataBackfillExecuteResponse> => {
@@ -6307,8 +6566,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (marketCode === "FX") throw routeError(404, "market_backfill_not_supported", "FX backfill is out of scope");
     const market = providerFixerMarketCodeSchema.parse(marketCode);
-    const body = marketDataBackfillBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataBackfillExecuteRequest;
-    const preview = await buildBackfillPreview(market, body);
+    const body = marketDataBackfillExecuteBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataBackfillExecuteRequest;
+    const operation = await app.persistence.getProviderOperation(body.operationId);
+    if (!operation) {
+      throw routeError(404, "market_backfill_preview_not_found", "Backfill preview operation was not found");
+    }
+    if (operation.marketCode !== market || operation.operationType !== "backfill_catalog_rows") {
+      throw routeError(400, "market_backfill_preview_mismatch", "Backfill preview operation does not belong to this market");
+    }
+    if (operation.phase !== "preview" && operation.phase !== "staged") {
+      throw routeError(400, "market_backfill_preview_stale", "Backfill preview is no longer executable; run preview again");
+    }
+    assertProviderFixerPreviewToken(operation, body.previewToken);
+    const preview = backfillPreviewFromOperation(operation);
     if (preview.confirmation.level === "typed") {
       if (body.typedConfirmation !== preview.confirmation.text) {
         throw routeError(400, "market_backfill_typed_confirmation_required", "Backfill requires the matching typed confirmation");
@@ -6316,10 +6586,10 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     } else if (body.acknowledged !== true) {
       throw routeError(400, "market_backfill_acknowledgement_required", "Backfill requires acknowledgement after preview");
     }
-    const result = await createBackfillOperation(
+    const result = await executeBackfillPreviewOperation(
       { actorUserId: sessionUserId, ipAddress },
+      operation,
       preview,
-      "manual_execute",
     );
     return {
       operationId: result.operation.id,
@@ -6403,7 +6673,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     });
     let linkedBackfillOperationId: string | null = null;
     if (body.enqueueBackfillAfterPurge === true && preview.linkedRefill.available) {
-      const refillPreview: AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] } = {
+      const refillPreview: MarketDataBackfillPreviewDraft = {
         marketCode,
         providerId: preview.providerId,
         scope: "selected_catalog_rows",

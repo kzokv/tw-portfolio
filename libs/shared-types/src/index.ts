@@ -2305,7 +2305,6 @@ export type AdminMarketWorkspaceTab =
 export type AdminMarketDataBackfillScope =
   | "user_owned_or_monitored"
   | "selected_catalog_rows"
-  | "manual_targets"
   | "all_matching";
 export type AdminMarketDataPurgeCategory =
   | "price_bars"
@@ -2432,13 +2431,18 @@ export interface AdminMarketDataLogsResponse {
 export interface AdminMarketDataBackfillTargetDto {
   ticker: string;
   marketCode: MarketCode;
+  name?: string | null;
+  instrumentType?: InstrumentType | null;
+  status?: AdminInstrumentStatus | null;
+  supportState?: AdminInstrumentSupportState | null;
+  backfillStatus?: AdminMarketDataInstrumentDto["backfillStatus"] | null;
+  providerIds?: string[];
 }
 
 export interface AdminMarketDataBackfillPreviewRequest {
   scope: AdminMarketDataBackfillScope;
   providerId?: string;
   selectedCatalogRows?: AdminMarketDataBackfillTargetDto[];
-  manualTargets?: AdminMarketDataBackfillTargetDto[];
   filters?: Record<string, string | number | boolean | null>;
   includeDemoUsers?: boolean;
 }
@@ -2447,12 +2451,16 @@ export interface AdminMarketDataBackfillPreviewResponse {
   marketCode: MarketCode;
   providerId: string;
   scope: AdminMarketDataBackfillScope;
+  operationId: string;
+  previewToken: string;
+  tokenExpiresAt: string;
   matchCount: number;
   affectedUserCount: number;
   affectedAccountCount: number;
   estimatedJobCount: number;
   estimatedStorageRows: number | null;
   providerBudgetNotes: string[];
+  targets: AdminMarketDataBackfillTargetDto[];
   unsupportedRows: Array<AdminMarketDataBackfillTargetDto & { reason: string }>;
   confirmation: {
     level: AdminMarketDataConfirmationLevel;
@@ -2461,7 +2469,9 @@ export interface AdminMarketDataBackfillPreviewResponse {
   };
 }
 
-export interface AdminMarketDataBackfillExecuteRequest extends AdminMarketDataBackfillPreviewRequest {
+export interface AdminMarketDataBackfillExecuteRequest {
+  operationId: string;
+  previewToken: string;
   acknowledged?: boolean;
   typedConfirmation?: string;
 }
