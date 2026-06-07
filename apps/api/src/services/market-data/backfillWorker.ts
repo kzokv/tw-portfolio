@@ -636,6 +636,12 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           { providerOperationId, providerId: healthProviderId, marketCode: market },
         );
       }
+      await recordOperationLog(
+        "running",
+        "info",
+        `job_completed provider=${healthProviderId} market=${market} ticker=${ticker} bars=${barsCount} dividends=${dividendsCount}`,
+        { barsCount, dividendsCount },
+      );
     } catch (err) {
       // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
       // so the job effectively pauses until the limiter releases.
