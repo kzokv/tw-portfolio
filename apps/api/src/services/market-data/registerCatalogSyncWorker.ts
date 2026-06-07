@@ -40,6 +40,7 @@ const CATALOG_SYNC_QUEUE_OPTIONS = {
  */
 export const CatalogSyncJobDataSchema = z.object({
   pendingMarkets: z.array(z.enum(MARKET_CODES)).optional(),
+  providerOperationId: z.string().optional(),
 });
 
 export type CatalogSyncJobData = z.infer<typeof CatalogSyncJobDataSchema>;
@@ -64,7 +65,7 @@ export interface CatalogSyncWorkerDeps {
     // KZO-195 — admin notification fan-out on delisted>0 / guardTripped.
     | "listAdminUserIds"
     | "createNotification"
-  >;
+  > & Partial<Pick<Persistence, "getProviderOperation" | "updateProviderOperation" | "createProviderOperationLog">>;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
   enqueueDailyRefreshFn?: typeof enqueueDailyRefresh;
   runCatalogSyncFn?: typeof runCatalogSync;
@@ -95,6 +96,63 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
   const enqueueDailyRefreshFn = deps.enqueueDailyRefreshFn ?? enqueueDailyRefresh;
   const runCatalogSyncFn = deps.runCatalogSyncFn ?? runCatalogSync;
 
+  async function logProviderOperation(
+    providerOperationId: string | undefined,
+    phase: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled",
+    message: string,
+    context: Record<string, unknown>,
+    level: "info" | "warning" | "error" = "info",
+  ): Promise<void> {
+    if (!providerOperationId) return;
+    if (!persistence.createProviderOperationLog) return;
+    try {
+      await persistence.createProviderOperationLog({
+        operationId: providerOperationId,
+        phase,
+        level,
+        message,
+        context,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "catalog_sync_provider_operation_log_failed");
+    }
+  }
+
+  async function updateProviderOperation(
+    providerOperationId: string | undefined,
+    input: Omit<Parameters<Persistence["updateProviderOperation"]>[0], "id">,
+  ): Promise<void> {
+    if (!providerOperationId) return;
+    if (!persistence.getProviderOperation || !persistence.updateProviderOperation) return;
+    try {
+      const current = await persistence.getProviderOperation(providerOperationId);
+      await persistence.updateProviderOperation({
+        id: providerOperationId,
+        ...input,
+        metadata: input.metadata
+          ? { ...(current?.metadata ?? {}), ...input.metadata }
+          : input.metadata,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "catalog_sync_provider_operation_update_failed");
+    }
+  }
+
+  async function shouldRunProviderOperation(providerOperationId: string | undefined): Promise<boolean> {
+    if (!providerOperationId) return true;
+    if (!persistence.getProviderOperation) return true;
+    const operation = await persistence.getProviderOperation(providerOperationId);
+    if (operation?.phase !== "paused" && operation?.phase !== "cancelled") return true;
+    await logProviderOperation(
+      providerOperationId,
+      operation.phase,
+      `catalog_sync_skipped provider=${operation.providerId} market=${operation.marketCode} phase=${operation.phase}`,
+      { providerId: operation.providerId, marketCode: operation.marketCode },
+      "warning",
+    );
+    return false;
+  }
+
   // KZO-200: best-effort health record. Mirrors `safeRecordOutcome` in the
   // backfill worker — never throws into the caller's path because the
   // aggregator's own errors should not fail a successful sync.
@@ -118,6 +176,7 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
     // Companion). A malformed job must NOT trigger the daily-refresh enqueue side effect
     // in the `finally` clause — let the ZodError propagate straight to pg-boss.
     const parsed = CatalogSyncJobDataSchema.parse(job.data);
+    const { providerOperationId } = parsed;
 
     // Resolve target markets. `undefined` (cron's `{}`) means every registered market.
     // An explicit `pendingMarkets: []` would mean "nothing to do" — handle as a clean no-op.
@@ -137,6 +196,18 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
     let activeMarket: StrictMarketCode | null = null;
 
     try {
+      if (!(await shouldRunProviderOperation(providerOperationId))) return;
+      await updateProviderOperation(providerOperationId, {
+        phase: "running",
+        startedAt: new Date().toISOString(),
+        metadata: { progressPercent: 0, pendingMarkets: targetMarkets },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        "running",
+        `catalog_sync_started markets=${targetMarkets.join(",")}`,
+        { pendingMarkets: targetMarkets },
+      );
       for (const market of targetMarkets) {
         activeMarket = market;
         const catalogProvider = catalogRegistry.get(market);
@@ -218,6 +289,17 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
       }
       activeMarket = null;
       log.info({ completedMarkets }, "catalog_sync_completed");
+      await updateProviderOperation(providerOperationId, {
+        phase: "completed",
+        completedAt: new Date().toISOString(),
+        metadata: { progressPercent: 100, completedMarkets },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        "completed",
+        `catalog_sync_completed markets=${completedMarkets.join(",")}`,
+        { completedMarkets },
+      );
     } catch (error) {
       // KZO-170 S6: provider rate limit → reschedule with remaining markets only.
       // `completedMarkets` is the set we already processed before the error fired, so
@@ -232,13 +314,33 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
         }
         const delaySec = error.retryAfterSeconds;
         const remaining: StrictMarketCode[] = targetMarkets.filter((m) => !completedMarkets.includes(m));
+        await updateProviderOperation(providerOperationId, {
+          phase: "queued",
+          metadata: {
+            progressPercent: targetMarkets.length > 0 ? Math.round((completedMarkets.length / targetMarkets.length) * 100) : 100,
+            completedMarkets,
+            remainingMarkets: remaining,
+            rateLimited: true,
+            retryAfterSeconds: delaySec,
+          },
+        });
+        await logProviderOperation(
+          providerOperationId,
+          "queued",
+          `catalog_sync_rate_limited_rescheduled remaining=${remaining.join(",")} retry_after=${delaySec}`,
+          { completedMarkets, remainingMarkets: remaining, retryAfterSeconds: delaySec },
+          "warning",
+        );
         log.info(
           { delaySec, completedMarkets, remaining },
           "catalog_sync_rate_limited: rescheduling per-market",
         );
         const id = await boss.send(
           CATALOG_SYNC_QUEUE,
-          { pendingMarkets: remaining } satisfies CatalogSyncJobData,
+          {
+            pendingMarkets: remaining,
+            ...(providerOperationId ? { providerOperationId } : {}),
+          } satisfies CatalogSyncJobData,
           {
             startAfter: delaySec,
             singletonKey: CATALOG_SYNC_QUEUE,
@@ -263,6 +365,26 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
           errorMessage: error instanceof Error ? error.message : String(error),
         });
       }
+      const terminal = job.retryCount >= job.retryLimit;
+      await updateProviderOperation(providerOperationId, {
+        phase: terminal ? "failed" : "running",
+        completedAt: terminal ? new Date().toISOString() : null,
+        metadata: {
+          progressPercent: targetMarkets.length > 0 ? Math.round((completedMarkets.length / targetMarkets.length) * 100) : 0,
+          completedMarkets,
+          failedMarket: activeMarket,
+          failureReason: error instanceof Error ? error.message : String(error),
+          retryCount: job.retryCount,
+          retryLimit: job.retryLimit,
+        },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        terminal ? "failed" : "running",
+        `catalog_sync_${terminal ? "failed" : "attempt_failed"} market=${activeMarket ?? "unknown"} reason=${error instanceof Error ? error.message : String(error)}`,
+        { completedMarkets, failedMarket: activeMarket, retryCount: job.retryCount, retryLimit: job.retryLimit },
+        terminal ? "error" : "warning",
+      );
       log.error({ error }, "catalog_sync_failed");
       throw error;
     } finally {

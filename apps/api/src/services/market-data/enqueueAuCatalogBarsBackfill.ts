@@ -52,6 +52,7 @@ export async function enqueueAuCatalogBarsBackfill(
     trigger: BackfillJobData["trigger"];
     marketCode?: MarketCode;
     resolverMode?: BackfillJobData["resolverMode"];
+    providerOperationId?: string;
   },
 ): Promise<{ tickerCount: number; batchId: string | null }> {
   const marketCode = options.marketCode ?? "AU";
@@ -98,6 +99,7 @@ export async function enqueueAuCatalogBarsBackfill(
           marketCode,
           trigger: options.trigger,
           batchId,
+          ...(options.providerOperationId ? { providerOperationId: options.providerOperationId } : {}),
           ...(options.resolverMode ? { resolverMode: options.resolverMode } : {}),
           includeBars: true,
           includeDividends: true,

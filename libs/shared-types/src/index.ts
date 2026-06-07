@@ -2393,6 +2393,24 @@ export interface AdminMarketDataActionsResponse {
   actions: AdminMarketDataActionDto[];
 }
 
+export interface AdminMarketDataActionExecuteRequest {
+  action: ProviderOperationAction;
+  providerId?: string;
+  acknowledged?: boolean;
+  resolverMode?: "quote_first" | "chart_probe_v1";
+  resolverModeRiskAccepted?: boolean;
+}
+
+export interface AdminMarketDataActionExecuteResponse {
+  operationId: string;
+  marketCode: AdminMarketCode;
+  providerId: string;
+  action: ProviderOperationAction;
+  status: "queued" | "completed";
+  jobId: string | null;
+  message: string;
+}
+
 export interface AdminMarketDataOperationsResponse {
   marketCode: AdminMarketCode;
   providers: AdminMarketDataProviderChipDto[];

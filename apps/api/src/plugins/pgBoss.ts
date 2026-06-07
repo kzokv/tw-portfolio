@@ -21,6 +21,7 @@ import {
   ASX_GICS_SYNC_QUEUE,
   registerAsxGicsSyncWorker,
 } from "../services/market-data/asxGicsSyncWorker.js";
+import { registerProviderOperationExecutionWorker } from "../services/market-data/providerOperationExecutionWorker.js";
 import { getEffectiveAsxGicsRefreshCron } from "../services/appConfig/asxGicsCron.js";
 import { AsxGicsCatalogProvider } from "../services/market-data/providers/asxGicsCatalog.js";
 import { MockAsxGicsCatalogProvider } from "../services/market-data/providers/mockAsxGicsCatalog.js";
@@ -127,6 +128,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
 
   await registerBackfillWorker(app, boss, backfillDeps);
   await registerCatalogSyncWorker(app, boss, catalogDeps);
+  await registerProviderOperationExecutionWorker(app, boss);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
   // KZO-194: kick the catalog-sync queue once on startup so a fresh deploy doesn't
   // wait up to 72h (Fri afternoon → Mon 17:30 UTC, the next CATALOG_SYNC_CRON tick)
@@ -188,6 +190,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   await registerAsxGicsSyncWorker(app, boss, {
     provider: asxGicsProvider,
     pool,
+    persistence: app.persistence,
     log: app.log,
     providerHealth: app.providerHealth,
   });
