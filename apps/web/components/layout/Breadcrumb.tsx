@@ -4,7 +4,7 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useBreadcrumbContext, type BreadcrumbItem } from "./BreadcrumbProvider";
-import { resolveBreadcrumbTitle } from "../../lib/breadcrumb-titles";
+import { resolveExactBreadcrumbTitle } from "../../lib/breadcrumb-titles";
 import { useOptionalAppShellData } from "./AppShellDataContext";
 import type { AppDictionary } from "../../lib/i18n/types";
 import {
@@ -126,7 +126,7 @@ function resolveSegmentLabel(
 ): string {
   const localized = dict ? resolveLocalizedLabel(prefix, dict) : null;
   if (localized) return localized;
-  const fallback = resolveBreadcrumbTitle(prefix);
+  const fallback = resolveExactBreadcrumbTitle(prefix);
   if (fallback) return fallback;
   return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
 }

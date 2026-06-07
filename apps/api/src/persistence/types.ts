@@ -1257,6 +1257,7 @@ export type ProviderOperationPhase =
   | "cancelled";
 
 export type ProviderOperationLogLevel = "info" | "warning" | "error";
+export type ProviderOperationMarketCode = MarketCode | "FX";
 
 export type ProviderOperationScopeType = "selected_items" | "filter";
 
@@ -1278,7 +1279,7 @@ export interface ProviderOperationFilterScope {
 export interface ProviderOperationRecord {
   id: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   operationType: string;
   phase: ProviderOperationPhase;
   errorCode: string | null;
@@ -1302,7 +1303,7 @@ export interface ProviderOperationRecord {
 export interface CreateProviderOperationInput {
   id?: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   operationType: string;
   phase: ProviderOperationPhase;
   errorCode?: string | null;
@@ -1342,7 +1343,7 @@ export interface UpdateProviderOperationInput {
 
 export interface ListProviderOperationsOptions {
   providerId?: string;
-  marketCode?: MarketCode;
+  marketCode?: ProviderOperationMarketCode;
   phases?: ProviderOperationPhase[];
   includeOperationId?: string;
   page: number;
@@ -1405,7 +1406,7 @@ export type ProviderOperationOutcomeState =
 export interface ProviderOperationOutcomeRecord {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   sourceSymbol: string;
   providerSymbol: string | null;
   action: string;
@@ -1423,7 +1424,7 @@ export interface ProviderOperationOutcomeRecord {
 export interface UpsertProviderOperationOutcomeInput {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   sourceSymbol: string;
   providerSymbol?: string | null;
   action: string;

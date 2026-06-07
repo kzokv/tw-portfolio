@@ -62,5 +62,14 @@ export function resolveBreadcrumbTitle(pathname: string): string | null {
   return null;
 }
 
+/**
+ * Resolve only an exact path label. Breadcrumb segment fallback calls this so
+ * deeper paths such as `/admin/market-data/KR/overview` do not label every
+ * child segment as the longest matching parent.
+ */
+export function resolveExactBreadcrumbTitle(pathname: string): string | null {
+  return BREADCRUMB_FALLBACK_MAP.find((entry) => entry.pathname === pathname)?.label ?? null;
+}
+
 /** Exposed for unit tests / debugging. */
 export const __BREADCRUMB_FALLBACK_MAP = BREADCRUMB_FALLBACK_MAP;
