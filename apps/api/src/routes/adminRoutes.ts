@@ -48,6 +48,7 @@ import type {
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   AdminMarketDataProviderChipDto,
+  AdminMarketDataPurgeExecuteRequest,
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
@@ -5244,7 +5245,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     })
     .strict();
 
-  const marketDataPurgeBodySchema = z
+  const marketDataPurgePreviewBodySchema = z
     .object({
       providerId: providerFixerProviderSchema.optional(),
       categories: z.array(z.enum([
@@ -5263,7 +5264,6 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       endDate: isoDateSchema.optional(),
       enqueueBackfillAfterPurge: z.boolean().optional(),
       filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
-      typedConfirmation: z.string().trim().max(160).optional(),
     })
     .strict()
     .superRefine((value, ctx) => {
@@ -5275,14 +5275,31 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         });
       }
     });
+  const marketDataPurgeExecuteBodySchema = z
+    .object({
+      operationId: userScopedIdSchema,
+      previewToken: z.string().trim().min(1).max(80),
+      typedConfirmation: z.string().trim().min(1).max(160),
+    })
+    .strict();
 
   type MarketDataBackfillBody = z.infer<typeof marketDataBackfillBodySchema>;
-  type MarketDataPurgeBody = z.infer<typeof marketDataPurgeBodySchema>;
+  type MarketDataPurgeBody = z.infer<typeof marketDataPurgePreviewBodySchema>;
   type MarketDataWorkspaceMarketCode = Exclude<AdminMarketCode, "FX">;
   type MarketDataTarget = AdminMarketDataBackfillTargetDto & { marketCode: MarketDataWorkspaceMarketCode };
   type MarketDataBackfillPreviewDraft =
     Omit<AdminMarketDataBackfillPreviewResponse, "operationId" | "previewToken" | "tokenExpiresAt" | "targets">
     & { targets: MarketDataTarget[] };
+  type MarketDataPurgePreviewDraft =
+    Omit<AdminMarketDataPurgePreviewResponse, "operationId" | "previewToken" | "tokenExpiresAt">
+    & {
+      targets: MarketDataTarget[];
+      deletedRows: number;
+      fullHistory?: boolean;
+      startDate?: string;
+      endDate?: string;
+      enqueueBackfillAfterPurge?: boolean;
+    };
   const maxBackfillPreviewTargets = 5_000;
 
   function uniqueMarketDataTargets(targets: readonly MarketDataTarget[]): MarketDataTarget[] {
@@ -5538,12 +5555,60 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     };
   }
 
+  async function cancelActiveMarketDataPreviews(input: {
+    providerId: string;
+    marketCode: MarketDataWorkspaceMarketCode;
+    operationType: string;
+  }): Promise<void> {
+    const active = await app.persistence.listProviderOperations({
+      providerId: input.providerId,
+      marketCode: input.marketCode,
+      phases: ["preparing_preview", "preview", "staged"],
+      page: 1,
+      limit: 100,
+    });
+    const nowMs = Date.now();
+    const cancelledAt = new Date(nowMs).toISOString();
+    for (const operation of active.items) {
+      if (operation.operationType !== input.operationType) continue;
+      if (isExpiredProviderOperationPreview(operation, nowMs)) continue;
+      const cancelled = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "cancelled",
+        cancelledAt,
+        previewTokenHash: null,
+        previewExpiresAt: null,
+        metadata: {
+          ...(asRecord(operation.metadata) ?? {}),
+          supersededByPreview: true,
+          supersededAt: cancelledAt,
+        },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: cancelled.id,
+        phase: "cancelled",
+        level: "info",
+        message: `market_data_preview_superseded provider=${cancelled.providerId} market=${cancelled.marketCode} action=${cancelled.operationType}`,
+        context: {
+          providerId: cancelled.providerId,
+          marketCode: cancelled.marketCode,
+          operationType: cancelled.operationType,
+        },
+      });
+    }
+  }
+
   async function createBackfillPreviewOperation(
     context: { actorUserId: string; ipAddress?: string },
     preview: MarketDataBackfillPreviewDraft,
     body: MarketDataBackfillBody,
   ): Promise<AdminMarketDataBackfillPreviewResponse> {
     await ensureProviderHealthRow(preview.providerId);
+    await cancelActiveMarketDataPreviews({
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationType: "backfill_catalog_rows",
+    });
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
     const token = newProviderFixerToken();
@@ -5847,7 +5912,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   async function buildPurgePreview(
     marketCode: MarketDataWorkspaceMarketCode,
     body: MarketDataPurgeBody,
-  ): Promise<AdminMarketDataPurgePreviewResponse & { targets: MarketDataTarget[]; deletedRows: number }> {
+  ): Promise<MarketDataPurgePreviewDraft> {
     const providerId = assertMarketDataProvider(marketCode, body.providerId);
     const targets = await resolvePurgeTargets(marketCode, body);
     const unsupportedCategories = unsupportedPurgeCategories(marketCode, body);
@@ -5890,6 +5955,187 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       },
       targets,
       deletedRows: counts.total,
+      fullHistory: body.fullHistory,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      enqueueBackfillAfterPurge: body.enqueueBackfillAfterPurge,
+    };
+  }
+
+  function purgePreviewMetadata(preview: MarketDataPurgePreviewDraft): Record<string, unknown> {
+    return {
+      marketDataBff: true,
+      source: "preview",
+      categories: preview.categories,
+      frozenPurgeTargets: preview.targets.map(compactBackfillTarget),
+      estimatedRows: preview.estimatedRows,
+      deletedRows: preview.deletedRows,
+      unsupportedCategories: preview.unsupportedCategories,
+      linkedRefill: preview.linkedRefill,
+      affectedUserCount: preview.affectedUserCount,
+      affectedAccountCount: preview.affectedAccountCount,
+      confirmationText: preview.confirmation.text,
+      confirmationLevel: preview.confirmation.level,
+      confirmationReason: preview.confirmation.reason,
+      linkedRefillRequested: preview.enqueueBackfillAfterPurge === true,
+      fullHistory: preview.fullHistory,
+      dateRange: preview.fullHistory === false ? { startDate: preview.startDate ?? null, endDate: preview.endDate ?? null } : null,
+      progressPercent: null,
+    };
+  }
+
+  function purgeTargetsFromMetadata(metadata: Record<string, unknown> | null): MarketDataTarget[] {
+    const rows = asRecord(metadata)?.frozenPurgeTargets;
+    if (!Array.isArray(rows)) return [];
+    return uniqueMarketDataTargets(rows.flatMap((item) => {
+      const row = asRecord(item);
+      const ticker = stringField(row?.ticker);
+      const parsedMarket = providerFixerMarketCodeSchema.safeParse(row?.marketCode);
+      if (!ticker || !parsedMarket.success) return [];
+      return [compactBackfillTarget({
+        ticker,
+        marketCode: parsedMarket.data,
+        name: stringField(row?.name),
+        instrumentType: stringField(row?.instrumentType) as MarketDataTarget["instrumentType"],
+        status: stringField(row?.status) as MarketDataTarget["status"],
+        supportState: stringField(row?.supportState) as MarketDataTarget["supportState"],
+        backfillStatus: stringField(row?.backfillStatus) as MarketDataTarget["backfillStatus"],
+        providerIds: Array.isArray(row?.providerIds) ? row.providerIds.flatMap((providerId) => stringField(providerId) ?? []) : [],
+      })];
+    }));
+  }
+
+  function purgePreviewFromOperation(operation: ProviderOperationRecord): MarketDataPurgePreviewDraft {
+    const metadata = asRecord(operation.metadata);
+    const categories = Array.isArray(metadata?.categories)
+      ? metadata.categories.flatMap((category) => {
+          const parsed = z.enum([
+            "price_bars",
+            "dividends",
+            "backfill_jobs",
+            "provider_operation_outcomes",
+            "provider_error_trail",
+            "provider_resolution_mappings",
+            "asx_gics_enrichment",
+            "admin_state_reset",
+          ]).safeParse(category);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [];
+    const unsupportedCategories = Array.isArray(metadata?.unsupportedCategories)
+      ? metadata.unsupportedCategories.flatMap((item) => {
+          const row = asRecord(item);
+          const category = categories.find((value) => value === row?.category);
+          const reason = stringField(row?.reason);
+          return category && reason ? [{ category, reason }] : [];
+        })
+      : [];
+    const linkedRefillRecord = asRecord(metadata?.linkedRefill);
+    const targets = purgeTargetsFromMetadata(metadata);
+    const dateRange = asRecord(metadata?.dateRange);
+    return {
+      marketCode: operation.marketCode as MarketDataWorkspaceMarketCode,
+      providerId: operation.providerId,
+      categories,
+      affectedInstrumentCount: operation.matchCount ?? targets.length,
+      affectedUserCount: numberField(metadata?.affectedUserCount) ?? 0,
+      affectedAccountCount: numberField(metadata?.affectedAccountCount) ?? 0,
+      estimatedRows: numberField(metadata?.estimatedRows),
+      unsupportedCategories,
+      linkedRefill: {
+        available: linkedRefillRecord?.available === true,
+        mode: linkedRefillRecord?.mode === "same_range" || linkedRefillRecord?.mode === "full_history" ? linkedRefillRecord.mode : null,
+        warning: stringField(linkedRefillRecord?.warning),
+      },
+      confirmation: {
+        level: metadata?.confirmationLevel === "typed" || metadata?.confirmationLevel === "checkbox" || metadata?.confirmationLevel === "none"
+          ? metadata.confirmationLevel
+          : "typed",
+        text: stringField(metadata?.confirmationText),
+        reason: stringField(metadata?.confirmationReason),
+      },
+      targets,
+      deletedRows: numberField(metadata?.deletedRows) ?? 0,
+      fullHistory: metadata?.fullHistory === false ? false : metadata?.fullHistory === true ? true : undefined,
+      startDate: stringField(dateRange?.startDate) ?? undefined,
+      endDate: stringField(dateRange?.endDate) ?? undefined,
+      enqueueBackfillAfterPurge: metadata?.linkedRefillRequested === true,
+    };
+  }
+
+  async function createPurgePreviewOperation(
+    context: { actorUserId: string; ipAddress?: string },
+    preview: MarketDataPurgePreviewDraft,
+  ): Promise<AdminMarketDataPurgePreviewResponse> {
+    await ensureProviderHealthRow(preview.providerId);
+    await cancelActiveMarketDataPreviews({
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationType: "purge_market_data",
+    });
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const token = newProviderFixerToken();
+    const now = Date.now();
+    const tokenExpiresAt = new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString();
+    const operation = await app.persistence.createProviderOperation({
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationType: "purge_market_data",
+      phase: "preview",
+      errorCode: "admin_market_data_purge",
+      scopeQuery: `${preview.marketCode}:purge`,
+      snapshotHash: hashProviderFixerToken(`${preview.marketCode}:${preview.providerId}:purge:${preview.deletedRows}:${now}`).slice(0, 12),
+      previewTokenHash: hashProviderFixerToken(token),
+      previewExpiresAt: tokenExpiresAt,
+      matchCount: preview.affectedInstrumentCount,
+      sample: preview.targets.slice(0, 20),
+      metadata: {
+        previewTokenDisplay: token,
+        ...purgePreviewMetadata(preview),
+      },
+      actorUserId: context.actorUserId,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "preview",
+      level: preview.deletedRows > 0 ? "warning" : "info",
+      message: `market_data_purge_preview provider=${preview.providerId} market=${preview.marketCode} categories=${preview.categories.join(",")} rows=${preview.deletedRows}`,
+      context: {
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        categories: preview.categories,
+        deletedRows: preview.deletedRows,
+        matchCount: preview.affectedInstrumentCount,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "market_data_purge_preview",
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        categories: preview.categories,
+        deletedRows: preview.deletedRows,
+      },
+    });
+    return {
+      operationId: operation.id,
+      previewToken: token,
+      tokenExpiresAt,
+      marketCode: preview.marketCode,
+      providerId: preview.providerId,
+      categories: preview.categories,
+      affectedInstrumentCount: preview.affectedInstrumentCount,
+      affectedUserCount: preview.affectedUserCount,
+      affectedAccountCount: preview.affectedAccountCount,
+      estimatedRows: preview.estimatedRows,
+      unsupportedCategories: preview.unsupportedCategories,
+      linkedRefill: preview.linkedRefill,
+      confirmation: preview.confirmation,
     };
   }
 
@@ -6610,14 +6856,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   app.post("/market-data/:marketCode/purge/preview", async (req): Promise<AdminMarketDataPurgePreviewResponse> => {
     requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (marketCode === "FX") throw routeError(404, "market_purge_not_supported", "FX purge is out of scope");
     const market = providerFixerMarketCodeSchema.parse(marketCode);
-    const body = marketDataPurgeBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataPurgePreviewRequest;
-    const { targets: internalTargets, deletedRows: internalDeletedRows, ...preview } = await buildPurgePreview(market, body);
-    void internalTargets;
-    void internalDeletedRows;
-    return preview;
+    const body = marketDataPurgePreviewBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataPurgePreviewRequest;
+    const preview = await buildPurgePreview(market, body);
+    return createPurgePreviewOperation({ actorUserId: sessionUserId, ipAddress }, preview);
   });
 
   app.post("/market-data/:marketCode/purge/execute", async (req): Promise<AdminMarketDataPurgeExecuteResponse> => {
@@ -6626,11 +6871,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (marketCode === "FX") throw routeError(404, "market_purge_not_supported", "FX purge is out of scope");
     const market = providerFixerMarketCodeSchema.parse(marketCode);
-    const body = marketDataPurgeBodySchema.parse(req.body ?? {});
-    if (typeof body.typedConfirmation !== "string") {
-      throw routeError(400, "market_purge_typed_confirmation_required", "Purge requires the matching typed confirmation");
+    const body = marketDataPurgeExecuteBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataPurgeExecuteRequest;
+    const operation = await app.persistence.getProviderOperation(body.operationId);
+    if (!operation) {
+      throw routeError(404, "market_purge_preview_not_found", "Purge preview operation was not found");
     }
-    const preview = await buildPurgePreview(market, body);
+    if (operation.marketCode !== market || operation.operationType !== "purge_market_data") {
+      throw routeError(400, "market_purge_preview_mismatch", "Purge preview operation does not belong to this market");
+    }
+    if (operation.phase !== "preview" && operation.phase !== "staged") {
+      throw routeError(400, "market_purge_preview_stale", "Purge preview is no longer executable; run preview again");
+    }
+    assertProviderFixerPreviewToken(operation, body.previewToken);
+    const preview = purgePreviewFromOperation(operation);
     if (body.typedConfirmation !== preview.confirmation.text) {
       throw routeError(400, "market_purge_typed_confirmation_required", "Purge requires the matching typed confirmation");
     }
@@ -6638,31 +6891,21 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     await assertNoOtherProviderOperationExecution(app, {
       providerId: preview.providerId,
       marketCode: market,
+      operationId: operation.id,
     });
     const startedAt = new Date().toISOString();
-    const operation = await app.persistence.createProviderOperation({
-      providerId: preview.providerId,
-      marketCode: market,
-      operationType: "purge_market_data",
+    const running = await app.persistence.updateProviderOperation({
+      id: operation.id,
       phase: "running",
-      errorCode: "admin_market_data_purge",
-      scopeQuery: `${market}:purge`,
-      snapshotHash: hashProviderFixerToken(`${market}:${preview.providerId}:purge:${preview.deletedRows}:${startedAt}`).slice(0, 12),
-      matchCount: preview.affectedInstrumentCount,
-      sample: preview.targets.slice(0, 20),
+      startedAt,
       metadata: {
         marketDataBff: true,
-        categories: preview.categories,
-        estimatedRows: preview.deletedRows,
-        unsupportedCategories: preview.unsupportedCategories,
-        linkedRefillRequested: body.enqueueBackfillAfterPurge === true,
-        dateRange: body.fullHistory === false ? { startDate: body.startDate ?? null, endDate: body.endDate ?? null } : null,
+        ...(asRecord(operation.metadata) ?? {}),
+        source: "manual_execute",
         progressPercent: 0,
       },
-      actorUserId: sessionUserId,
-      startedAt,
     });
-    const supportedCategories: MarketDataPurgeBody["categories"] = body.categories.filter((category: MarketDataPurgeBody["categories"][number]) =>
+    const supportedCategories: MarketDataPurgeBody["categories"] = preview.categories.filter((category: MarketDataPurgeBody["categories"][number]) =>
       !preview.unsupportedCategories.some((unsupported) => unsupported.category === category),
     );
     const counts = await app.persistence.purgeAdminMarketData({
@@ -6670,13 +6913,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode: market,
       categories: supportedCategories,
       targets: preview.targets,
-      fullHistory: body.fullHistory,
-      startDate: body.startDate ?? null,
-      endDate: body.endDate ?? null,
+      fullHistory: preview.fullHistory,
+      startDate: preview.startDate ?? null,
+      endDate: preview.endDate ?? null,
       dryRun: false,
     });
     let linkedBackfillOperationId: string | null = null;
-    if (body.enqueueBackfillAfterPurge === true && preview.linkedRefill.available) {
+    if (preview.enqueueBackfillAfterPurge === true && preview.linkedRefill.available) {
       const refillPreview: MarketDataBackfillPreviewDraft = {
         marketCode,
         providerId: preview.providerId,
@@ -6695,16 +6938,18 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         { actorUserId: sessionUserId, ipAddress },
         refillPreview,
         "linked_refill",
-        { ignoreActiveOperationId: operation.id },
+        { ignoreActiveOperationId: running.id },
       );
       linkedBackfillOperationId = refill.operation.id;
     }
     const completed = await app.persistence.updateProviderOperation({
-      id: operation.id,
+      id: running.id,
       phase: "completed",
       completedAt: new Date().toISOString(),
+      previewTokenHash: null,
+      previewExpiresAt: null,
       metadata: {
-        ...(asRecord(operation.metadata) ?? {}),
+        ...(asRecord(running.metadata) ?? {}),
         progressPercent: 100,
         deletedRows: counts.total,
         deleteCounts: counts,
@@ -6745,7 +6990,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode: market,
       providerId: preview.providerId,
       status: "completed",
-      categories: body.categories,
+      categories: preview.categories,
       affectedInstrumentCount: preview.affectedInstrumentCount,
       deletedRows: counts.total,
       linkedBackfillOperationId,

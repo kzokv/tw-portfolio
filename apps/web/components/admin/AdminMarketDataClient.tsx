@@ -931,12 +931,10 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
   const [endDate, setEndDate] = useState("");
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataPurgePreviewResponse | null>(null);
-  const [previewRequest, setPreviewRequest] = useState<AdminMarketDataPurgePreviewRequest | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataPurgeExecuteResponse | null>(null);
 
   useEffect(() => {
     setPreview(null);
-    setPreviewRequest(null);
     setExecuteResult(null);
     setTypedConfirmation("");
   }, [selected, enqueueBackfill, fullHistory, startDate, endDate]);
@@ -959,15 +957,15 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
     const request = buildPurgeRequest();
     const result = await previewMarketPurge(marketCode, request);
     setPreview(result);
-    setPreviewRequest(request);
     setExecuteResult(null);
     setTypedConfirmation("");
   }
 
   async function runExecute() {
-    if (!previewRequest) return;
+    if (!preview) return;
     const result = await executeMarketPurge(marketCode, {
-      ...previewRequest,
+      operationId: preview.operationId,
+      previewToken: preview.previewToken,
       typedConfirmation,
     });
     setExecuteResult(result);
@@ -1057,7 +1055,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
           <button
             type="button"
             onClick={() => void runExecute()}
-            disabled={!previewRequest || typedConfirmation !== preview.confirmation.text}
+            disabled={!preview || typedConfirmation !== preview.confirmation.text}
             className="rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
           >
             Execute purge
