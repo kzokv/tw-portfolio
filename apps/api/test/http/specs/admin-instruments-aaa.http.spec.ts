@@ -86,6 +86,94 @@ test.describe("admin market-data instruments", () => {
     assertEqual(body.error, "admin_role_required", "member error body.error");
   });
 
+  test("[delisting-override]: admin mutates AU delisting override separately from support state", async ({
+    instrumentsApi,
+    request,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "market-data-admin-delisting-override-sub",
+      email: "market-data-admin-delisting-override@example.com",
+      name: "Market Data Admin Delisting Override",
+      role: "admin",
+    });
+    const seed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "AUOVR1",
+        marketCode: "AU",
+        name: "AU override fixture 1",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+      {
+        ticker: "AUOVR2",
+        marketCode: "AU",
+        name: "AU override fixture 2",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+        delistedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+    await assertStatus(seed, 200);
+
+    const exclude = await request.post("/admin/market-data/AU/instruments/delisting-override", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        ticker: "AUOVR1",
+        marketCode: "AU",
+        action: "exclude_from_delisting_detection",
+      },
+    });
+
+    await assertStatus(exclude, 200);
+    const excludeBody = assertRecord(await exclude.json(), "exclude body");
+    const excluded = assertRecord(excludeBody.instrument, "exclude body.instrument");
+    assertEqual(excluded.ticker, "AUOVR1", "excluded.ticker");
+    assertEqual(excluded.status, "excluded", "excluded.status");
+    assertEqual(excluded.supportState, "supported", "excluded.supportState");
+    assertEqual(excluded.delistingDetectionExcluded, true, "excluded.delistingDetectionExcluded");
+
+    const include = await request.post("/admin/market-data/AU/instruments/delisting-override", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        ticker: "AUOVR1",
+        marketCode: "AU",
+        action: "include_in_delisting_detection",
+      },
+    });
+
+    await assertStatus(include, 200);
+    const includeBody = assertRecord(await include.json(), "include body");
+    const included = assertRecord(includeBody.instrument, "include body.instrument");
+    assertEqual(included.status, "listed", "included.status");
+    assertEqual(included.delistingDetectionExcluded, false, "included.delistingDetectionExcluded");
+
+    const clear = await request.post("/admin/market-data/AU/instruments/delisting-override", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        ticker: "AUOVR2",
+        marketCode: "AU",
+        action: "clear_delisted_state",
+      },
+    });
+
+    await assertStatus(clear, 200);
+    const clearBody = assertRecord(await clear.json(), "clear body");
+    const cleared = assertRecord(clearBody.instrument, "clear body.instrument");
+    assertEqual(cleared.ticker, "AUOVR2", "cleared.ticker");
+    assertEqual(cleared.status, "listed", "cleared.status");
+    assertEqual(cleared.delistedAt, null, "cleared.delistedAt");
+
+    const unsupported = await request.post("/admin/market-data/TW/instruments/delisting-override", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        ticker: "2330",
+        marketCode: "TW",
+        action: "exclude_from_delisting_detection",
+      },
+    });
+    await assertStatus(unsupported, 400);
+  });
+
   test("[retired-route]: standalone /admin/instruments is no longer a backend route", async ({
     request,
   }) => {

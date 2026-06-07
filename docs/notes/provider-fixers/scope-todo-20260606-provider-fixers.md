@@ -148,7 +148,7 @@ Execute routes must require explicit provider/action selection where more than o
 - [x] Add market-level operations aggregation with provider filters and provider chips.
 - [x] Add instrument filters for `status`, `supportState`, `search`, `instrumentType`, `backfillStatus`, `sort`, `page`, and `limit`.
 - [x] Add support-state persistence/API/UI for `retired_by_admin` and `unsupported_by_provider`, separate from delisting/exclusion.
-- [ ] Keep AU/KR delisting override controls separate from support/retirement controls.
+- [x] Keep AU/KR delisting override controls separate from support/retirement controls.
 - [x] Add explicit backfill scopes for user-owned/monitored instruments, selected catalog rows, manual/uploaded targets, and all-matching filters.
 - [x] Add backfill preview responses with match count, affected users/accounts, estimated job count, estimated storage impact, provider budget notes, unsupported rows, and typed confirmation text when dangerous.
 - [x] Allow TW/US non-user-owned backfill only through selected catalog rows, manual/uploaded targets, or all-matching preview with typed confirmation.

@@ -2517,6 +2517,21 @@ export interface AdminMarketDataSupportStateResponse {
   instrument: AdminMarketDataInstrumentDto;
 }
 
+export type AdminMarketDataDelistingOverrideAction =
+  | "exclude_from_delisting_detection"
+  | "include_in_delisting_detection"
+  | "clear_delisted_state";
+
+export interface AdminMarketDataDelistingOverrideRequest {
+  ticker: string;
+  marketCode: MarketCode;
+  action: AdminMarketDataDelistingOverrideAction;
+}
+
+export interface AdminMarketDataDelistingOverrideResponse {
+  instrument: AdminMarketDataInstrumentDto;
+}
+
 // ── Dividend ledger aggregates (KZO-135) ────────────────────────────────────
 
 export type CurrencyAmounts = Record<string, number>;

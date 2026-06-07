@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
+  AdminMarketDataDelistingOverrideAction,
   AdminInstrumentSupportState,
   AdminMarketCode,
   AdminMarketDataActionDto,
@@ -27,6 +28,7 @@ import {
   executeMarketPurge,
   previewMarketBackfill,
   previewMarketPurge,
+  updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
 
@@ -288,7 +290,14 @@ function InstrumentsPanel({
   const [rows, setRows] = useState(instruments.items);
   const [filters, setFilters] = useState<InstrumentQuery>(initialQuery);
   const [savingTicker, setSavingTicker] = useState<string | null>(null);
+  const [savingDelistingTicker, setSavingDelistingTicker] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
+  const delistingOverrideSupported = instruments.marketCode === "AU" || instruments.marketCode === "KR";
+
+  useEffect(() => {
+    setRows(instruments.items);
+    setFilters(initialQuery);
+  }, [initialQuery, instruments.items]);
 
   function updateFilter(key: keyof InstrumentQuery, value: string) {
     setFilters((current) => ({ ...current, [key]: key === "limit" ? Number.parseInt(value, 10) || current.limit : value }));
@@ -309,6 +318,20 @@ function InstrumentsPanel({
       setRows((current) => current.map((item) => item.ticker === row.ticker ? result.instrument : item));
     } finally {
       setSavingTicker(null);
+    }
+  }
+
+  async function setDelistingOverride(row: AdminMarketDataInstrumentDto, action: AdminMarketDataDelistingOverrideAction) {
+    setSavingDelistingTicker(row.ticker);
+    try {
+      const result = await updateMarketInstrumentDelistingOverride({
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+        action,
+      });
+      setRows((current) => current.map((item) => item.ticker === row.ticker ? result.instrument : item));
+    } finally {
+      setSavingDelistingTicker(null);
     }
   }
 
@@ -351,7 +374,8 @@ function InstrumentsPanel({
               <th className="px-5 py-3">Support</th>
               <th className="px-5 py-3">Backfill</th>
               <th className="px-5 py-3">Providers</th>
-              <th className="px-5 py-3">Actions</th>
+              <th className="px-5 py-3">Support controls</th>
+              <th className="px-5 py-3">Delisting override</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -385,6 +409,38 @@ function InstrumentsPanel({
                       </button>
                     ))}
                   </div>
+                </td>
+                <td className="px-5 py-4">
+                  {delistingOverrideSupported ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={savingDelistingTicker === row.ticker || row.delistingDetectionExcluded}
+                        onClick={() => void setDelistingOverride(row, "exclude_from_delisting_detection")}
+                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                      >
+                        Exclude detection
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingDelistingTicker === row.ticker || !row.delistingDetectionExcluded}
+                        onClick={() => void setDelistingOverride(row, "include_in_delisting_detection")}
+                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                      >
+                        Include detection
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingDelistingTicker === row.ticker || !row.delistedAt}
+                        onClick={() => void setDelistingOverride(row, "clear_delisted_state")}
+                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                      >
+                        Clear delisted
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">AU/KR only</span>
+                  )}
                 </td>
               </tr>
             ))}

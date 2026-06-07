@@ -3,6 +3,9 @@ import type {
   AdminMarketCode,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataDelistingOverrideAction,
+  AdminMarketDataDelistingOverrideRequest,
+  AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketDataPurgeExecuteRequest,
@@ -50,6 +53,18 @@ export function updateMarketInstrumentSupportState(input: {
   const body: AdminMarketDataSupportStateRequest = input;
   return postJson(
     `/admin/market-data/${encodeURIComponent(input.marketCode)}/instruments/support-state`,
+    body,
+  );
+}
+
+export function updateMarketInstrumentDelistingOverride(input: {
+  ticker: string;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  action: AdminMarketDataDelistingOverrideAction;
+}): Promise<AdminMarketDataDelistingOverrideResponse> {
+  const body: AdminMarketDataDelistingOverrideRequest = input;
+  return postJson(
+    `/admin/market-data/${encodeURIComponent(input.marketCode)}/instruments/delisting-override`,
     body,
   );
 }
