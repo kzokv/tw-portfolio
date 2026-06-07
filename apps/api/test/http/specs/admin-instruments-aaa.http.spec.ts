@@ -162,6 +162,7 @@ test.describe("admin market-data instruments", () => {
 
   test("[purge-execute]: admin previews and executes a targeted market-data purge", async ({
     instrumentsApi,
+    marketDataApi,
     request,
   }) => {
     const admin = await createOauthSession(request, {
@@ -180,9 +181,23 @@ test.describe("admin market-data instruments", () => {
       },
     ]);
     await assertStatus(seed, 200);
+    const bars = await marketDataApi.actions.seedDailyBars([
+      {
+        ticker: "TWMDF2",
+        marketCode: "TW",
+        barDate: "2026-01-02",
+        open: 10,
+        high: 12,
+        low: 9,
+        close: 11,
+        volume: 1000,
+        source: "finmind-tw",
+      },
+    ]);
+    await assertStatus(bars, 200);
     const body = {
       providerId: "finmind-tw",
-      categories: ["provider_error_trail"],
+      categories: ["price_bars"],
       targets: [{ ticker: "TWMDF2", marketCode: "TW" }],
       fullHistory: true,
       enqueueBackfillAfterPurge: false,
@@ -198,8 +213,9 @@ test.describe("admin market-data instruments", () => {
     const previewConfirmation = assertRecord(previewBody.confirmation, "purge preview confirmation");
     assertEqual(previewBody.marketCode, "TW", "purge preview marketCode");
     assertEqual(previewBody.providerId, "finmind-tw", "purge preview providerId");
-    assertEqual(Array.isArray(previewBody.categories) ? previewBody.categories.join(",") : null, "provider_error_trail", "purge preview categories");
+    assertEqual(Array.isArray(previewBody.categories) ? previewBody.categories.join(",") : null, "price_bars", "purge preview categories");
     assertEqual(previewBody.affectedInstrumentCount, 1, "purge preview affectedInstrumentCount");
+    assertEqual(previewBody.estimatedRows, 1, "purge preview estimatedRows");
     assertEqual(previewConfirmation.level, "typed", "purge preview confirmation.level");
     assertEqual(previewConfirmation.text, "PURGE TW", "purge preview confirmation.text");
 
@@ -214,6 +230,7 @@ test.describe("admin market-data instruments", () => {
     assertEqual(executeBody.providerId, "finmind-tw", "purge execute providerId");
     assertEqual(executeBody.status, "completed", "purge execute status");
     assertEqual(executeBody.affectedInstrumentCount, 1, "purge execute affectedInstrumentCount");
+    assertEqual(executeBody.deletedRows, 1, "purge execute deletedRows");
     assertString(executeBody.operationId, "purge execute operationId");
     assertEqual(executeBody.linkedBackfillOperationId, null, "purge execute linkedBackfillOperationId");
   });
