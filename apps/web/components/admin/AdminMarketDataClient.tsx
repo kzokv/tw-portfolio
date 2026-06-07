@@ -747,7 +747,7 @@ function BackfillPanel({
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(4,minmax(8rem,auto))_auto]">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_repeat(4,minmax(8rem,10rem))_minmax(9rem,auto)]">
                 <label className="text-sm font-medium text-foreground">
                   Search
                   <input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Ticker or name" />
@@ -756,9 +756,9 @@ function BackfillPanel({
                 <FilterSelect label="Support" value={filters.supportState} options={instruments.filters.supportState} onChange={(value) => updateFilter("supportState", value)} />
                 <FilterSelect label="Type" value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
                 <FilterSelect label="Backfill" value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
-                <div className="flex items-end gap-2">
-                  <button type="button" onClick={applyFilters} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Apply</button>
-                  <Link href={`/admin/market-data/${marketCode}/backfill`} className="rounded border border-border px-3 py-2 text-sm text-muted-foreground">Reset</Link>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end xl:justify-end">
+                  <button type="button" onClick={applyFilters} className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:w-auto">Apply</button>
+                  <Link href={`/admin/market-data/${marketCode}/backfill`} className="w-full rounded border border-border px-3 py-2 text-center text-sm text-muted-foreground sm:w-auto">Reset</Link>
                 </div>
               </div>
               <div className="overflow-x-auto rounded border border-border">
@@ -792,7 +792,7 @@ function BackfillPanel({
               </div>
               <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                 <p>Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 sm:justify-end">
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
                   <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">Preview selected</button>
@@ -911,13 +911,27 @@ function BackfillPanel({
           ) : null}
         </div>
       )}
-      {executeResult && <PreviewSummary title="Backfill operation" rows={[
-        ["Operation", executeResult.operationId],
-        ["Status", executeResult.status],
-        ["Enqueued", String(executeResult.enqueuedJobCount)],
-        ["Skipped existing", String(executeResult.skippedExistingJobCount)],
-        ["Batch", executeResult.batchId ?? "none"],
-      ]} />}
+      {executeResult && (
+        <div className="mt-4 space-y-3">
+          <div
+            role="status"
+            data-testid="market-data-backfill-created-notice"
+            className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+          >
+            <p className="font-medium">Backfill job created</p>
+            <p className="mt-1">
+              Operation {executeResult.operationId} is {executeResult.status}. Enqueued {executeResult.enqueuedJobCount.toLocaleString()} jobs and skipped {executeResult.skippedExistingJobCount.toLocaleString()} existing jobs.
+            </p>
+          </div>
+          <PreviewSummary title="Backfill operation" rows={[
+            ["Operation", executeResult.operationId],
+            ["Status", executeResult.status],
+            ["Enqueued", String(executeResult.enqueuedJobCount)],
+            ["Skipped existing", String(executeResult.skippedExistingJobCount)],
+            ["Batch", executeResult.batchId ?? "none"],
+          ]} />
+        </div>
+      )}
     </Card>
   );
 }

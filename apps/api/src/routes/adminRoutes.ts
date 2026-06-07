@@ -89,6 +89,7 @@ import {
 import type {
   AppConfigPlainField,
   ProviderOperationOutcomeRecord,
+  ProviderOperationOutcomeState,
   ProviderOperationPhase,
   ProviderOperationRecord,
   SaveAiConnectorPolicySettingsInput,
@@ -141,6 +142,13 @@ const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const fxBaseCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 type StoppedProviderOperationPhase = Extract<ProviderOperationPhase, "cancelled" | "paused">;
+
+const YAHOO_KR_OPERATION_RATE_SAFETY_MULTIPLIER = 0.75;
+const RESUMABLE_PROVIDER_OUTCOME_STATES = new Set<ProviderOperationOutcomeState>([
+  "pending",
+  "running",
+  "rate_limited",
+]);
 
 class ProviderOperationStoppedError extends Error {
   constructor(public readonly operation: ProviderOperationRecord & { phase: StoppedProviderOperationPhase }) {
@@ -502,7 +510,10 @@ function providerOperationRateCapPerMinute(providerId: string, config: AppConfig
     return config.effectiveYahooAuProviderRateLimitPerMinute;
   }
   if (providerId === "yahoo-finance-kr") {
-    return config.effectiveYahooKrProviderRateLimitPerMinute;
+    return Math.max(
+      0.01,
+      Math.round(config.effectiveYahooKrProviderRateLimitPerMinute * YAHOO_KR_OPERATION_RATE_SAFETY_MULTIPLIER * 100) / 100,
+    );
   }
   if (providerId === "frankfurter") {
     return config.effectiveFrankfurterProviderRateLimitPerMinute;
@@ -1511,6 +1522,25 @@ function providerOperationOutcomeToDto(record: ProviderOperationOutcomeRecord): 
   };
 }
 
+async function listProviderOperationOutcomeStates(
+  app: FastifyInstance,
+  operationId: string,
+  action: string,
+): Promise<Map<string, ProviderOperationOutcomeState>> {
+  const states = new Map<string, ProviderOperationOutcomeState>();
+  let page = 1;
+  const limit = 500;
+  while (true) {
+    const outcomes = await app.persistence.listProviderOperationOutcomes({ operationId, action, page, limit });
+    for (const outcome of outcomes.items) {
+      states.set(outcome.sourceSymbol, outcome.state);
+    }
+    if (page * limit >= outcomes.total || outcomes.items.length === 0) break;
+    page += 1;
+  }
+  return states;
+}
+
 async function refreshProviderOperationProgressFromOutcomes(
   app: FastifyInstance,
   operationId: string,
@@ -1821,10 +1851,15 @@ async function executeProviderFixerMappings(
     type: "selected_items",
     items: providerFixerFrozenSelectedItemsFromMetadata(operation.metadata),
   });
+  const priorOutcomeStates = await listProviderOperationOutcomeStates(app, operation.id, "repair_mapping");
   for (const row of scopeItems) {
     await throwIfProviderOperationStopped(app, operation);
-    scanned += 1;
     const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
+    const priorState = priorOutcomeStates.get(sourceSymbol);
+    if (priorState && !RESUMABLE_PROVIDER_OUTCOME_STATES.has(priorState)) {
+      continue;
+    }
+    scanned += 1;
     const providerSymbol = row.providerSymbol ?? sourceSymbol;
     await app.persistence.upsertProviderOperationOutcome({
       operationId: operation.id,
@@ -2151,10 +2186,15 @@ async function renewProviderFixerEvidence(
     errorCode: operation.errorCode,
   });
   const rows = await listProviderUnresolvedScopeItems(app, operation.providerId, scope);
+  const priorOutcomeStates = await listProviderOperationOutcomeStates(app, operation.id, "renew_evidence");
   for (const row of rows) {
       await throwIfProviderOperationStopped(app, operation);
-      scanned += 1;
       const sourceSymbol = row.sourceSymbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
+      const priorState = priorOutcomeStates.get(sourceSymbol);
+      if (priorState && !RESUMABLE_PROVIDER_OUTCOME_STATES.has(priorState)) {
+        continue;
+      }
+      scanned += 1;
       const providerSymbol = row.providerSymbol ?? sourceSymbol;
       await app.persistence.upsertProviderOperationOutcome({
         operationId: operation.id,
