@@ -529,6 +529,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
       acknowledged: true,
       typedConfirmation: "",
     });
+    expect(container.querySelector("[data-testid='market-data-backfill-created-notice']")?.textContent)
+      .toContain("Backfill job created");
+    expect(container.textContent).toContain("Operation OP-BACKFILL-PREVIEW is completed");
   });
 
   it("executes purge against the previewed request and clears stale previews when controls change", async () => {

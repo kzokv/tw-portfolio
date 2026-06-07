@@ -1820,7 +1820,7 @@ describe("Provider Fixer admin routes", () => {
       headers,
     });
     expect(summary.statusCode).toBe(200);
-    expect(summary.json()).toMatchObject({ summary: { effectiveRateCapPerMinute: 1 } });
+    expect(summary.json()).toMatchObject({ summary: { effectiveRateCapPerMinute: 0.75 } });
 
     const preview = await app.inject({
       method: "POST",
@@ -1834,7 +1834,7 @@ describe("Provider Fixer admin routes", () => {
       },
     });
     expect(preview.statusCode).toBe(201);
-    expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 1 } });
+    expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 0.75 } });
   });
 
   it("pauses provider repair when the admin operation budget is exhausted", async () => {
@@ -1924,7 +1924,7 @@ describe("Provider Fixer admin routes", () => {
         failureName: "RateLimitedError",
         operationBudgetConsumed: 1,
         operationBudgetCapPerWindow: 1,
-        operationBudgetWindowMs: 60_000,
+        operationBudgetWindowMs: 80_000,
       }),
     });
     const outcomes = await app.inject({
@@ -2349,6 +2349,119 @@ describe("Provider Fixer admin routes", () => {
         expect.objectContaining({ phase: "running", message: expect.stringContaining("resumed provider=yahoo-finance-kr") }),
         expect.objectContaining({ phase: "completed", message: expect.stringContaining("execute_completed") }),
       ]),
+    });
+  });
+
+  it("resumes provider fixer execution from pending unresolved rows without reprocessing terminal outcomes", async () => {
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "KR";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "035720",
+      name: "Kakao",
+      instrumentType: "STOCK",
+      marketCode: "KR",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "KOSPI",
+      catalogMicCode: "XKRX",
+    });
+    await app.persistence.insertProviderErrorTrailEntry({
+      providerId: "yahoo-finance-kr",
+      errorClass: "other",
+      errorMessage: "yahoo_finance_kr_symbol_unresolved: 035720",
+      context: { ticker: "035720", marketCode: "KR" },
+    });
+    verifyResolvedSymbol.mockResolvedValueOnce({
+      verified: true,
+      checkedSymbol: "035720.KS",
+      resolverMode: "quote_first",
+    });
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const operation = await app.persistence.createProviderOperation({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "paused",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      resolverMode: "quote_first",
+      matchCount: 2,
+      metadata: {
+        effectiveRateCapPerMinute: 250,
+        frozenScope: {
+          type: "selected_items",
+          filterFingerprint: "resume-pending-scope",
+          matchCount: 2,
+          selectedItems: [
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "005930",
+            },
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "035720",
+            },
+          ],
+          filter: null,
+        },
+      },
+      actorUserId: admin.userId,
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+      action: "repair_mapping",
+      state: "succeeded",
+      message: "Resolved 005930 to 005930.KS before pause.",
+      evidence: { candidateSymbol: "005930.KS" },
+    });
+
+    const resume = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${operation.id}/resume`,
+      headers,
+    });
+    expect(resume.statusCode).toBe(200);
+    expect(resume.json()).toMatchObject({ operation: { phase: "running" } });
+    await vi.waitFor(async () => {
+      const current = await app.persistence.getProviderOperation(operation.id);
+      expect(current?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenCalledTimes(1);
+    expect(verifyResolvedSymbol).toHaveBeenCalledWith("035720", "035720.KS", { resolverMode: "quote_first" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 2, processed: 2, succeeded: 2 },
+      items: expect.arrayContaining([
+        expect.objectContaining({ sourceSymbol: "005930", state: "succeeded" }),
+        expect.objectContaining({ sourceSymbol: "035720", state: "succeeded" }),
+      ]),
+    });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "035720")).resolves.toMatchObject({
+      resolvedSymbol: "035720.KS",
+      verifiedByUserId: admin.userId,
     });
   });
 
