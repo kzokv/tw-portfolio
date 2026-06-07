@@ -34,6 +34,8 @@ import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataDelistingOverrideRequest,
+  AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketDataInstrumentDto,
@@ -5848,6 +5850,40 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       body.supportState as AdminInstrumentSupportState,
       sessionUserId,
     );
+    return { instrument: adminInstrumentRowToMarketDataDto(row) };
+  });
+
+  app.post("/market-data/:marketCode/instruments/delisting-override", async (req): Promise<AdminMarketDataDelistingOverrideResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode !== "AU" && marketCode !== "KR") {
+      throw routeError(400, "delisting_override_not_supported", "Delisting overrides are only available for AU and KR instruments");
+    }
+    const body = z
+      .object({
+        ticker: z.string().trim().min(1).max(40),
+        marketCode: providerFixerMarketCodeSchema,
+        action: z.enum([
+          "exclude_from_delisting_detection",
+          "include_in_delisting_detection",
+          "clear_delisted_state",
+        ]),
+      })
+      .strict()
+      .parse(req.body ?? {}) satisfies AdminMarketDataDelistingOverrideRequest;
+    if (body.marketCode !== marketCode) {
+      throw routeError(400, "market_mismatch", "Instrument marketCode must match the route market");
+    }
+    const row =
+      body.action === "clear_delisted_state"
+        ? await app.persistence.undeleteInstrument(body.ticker, body.marketCode, sessionUserId)
+        : await app.persistence.setInstrumentDelistingDetectionExcluded(
+            body.ticker,
+            body.marketCode,
+            body.action === "exclude_from_delisting_detection",
+            sessionUserId,
+          );
     return { instrument: adminInstrumentRowToMarketDataDto(row) };
   });
 
