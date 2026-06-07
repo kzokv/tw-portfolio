@@ -2041,15 +2041,15 @@ Notifications are posted to all admin users when:
 
 Notifications on `degraded` transitions are intentionally suppressed — `degraded` is informational and does not require immediate operator action.
 
-#### Provider Console
+#### Market-data Admin Console
 
-The Providers page is the provider operations console at `/admin/providers`. Use the provider-scoped tabs to diagnose provider errors, inspect unresolved instruments, preview guarded repair operations, and execute confirmed provider work through `/admin/providers/:providerId/*` APIs.
+The admin UI surface is the market-data console at `/admin/market-data`. Use the market workspaces to diagnose provider errors, inspect instrument support/backfill state, preview guarded backfill and purge operations, and review provider-scoped operations/logs without leaving the market-first workflow. Provider-scoped `/admin/providers/:providerId/*` APIs remain backend/back-compatible execution surfaces, not the primary UI destination.
 
-Provider console flow:
+Provider fixer flow:
 
 1. **Diagnose:** reads durable unresolved items plus provider error history and shows unresolved counts by provider/market.
 2. **Preview:** stores a query-backed operation with match count, sample rows, snapshot hash, preview token, and expiry. KR samples use Twelve Data catalog evidence to propose `.KS` / `.KQ`, then verify the sample candidate against Yahoo before showing it as verified.
-3. **Execute:** requires the preview token and acknowledgement. Dangerous scopes also require the typed confirmation shown in the preview. Provider-scoped Execute returns `202`, marks the operation running, completes work in the background, writes only Yahoo-verified KR mappings to `market_data.provider_resolution_mappings`, and enqueues KR backfill jobs for mapped tickers.
+3. **Execute:** requires the preview token and acknowledgement. Dangerous scopes also require the typed confirmation shown in the preview. Provider-scoped Execute returns `202`, marks the operation running, completes work in the background, and writes only Yahoo-verified KR mappings to `market_data.provider_resolution_mappings`. KR mapping repair is mapping-only; any KR bars/dividends backfill is a separate explicit market-data backfill action.
 4. **Audit/logs:** each preview/execute/control action writes a `provider_fixer_operation` audit row and a provider operation log row.
 
 Guardrail settings live in `/admin/settings?tab=provider-health`:
@@ -2083,11 +2083,11 @@ WHERE provider_id = 'yahoo-finance-kr'
   AND source_symbol = '<bare_krx_ticker>';
 ```
 
-- Already-enqueued KR backfill jobs are idempotent daily-bar/dividend upserts. Let them finish unless the broader pg-boss queue is unhealthy.
+- KR backfill jobs are not automatically enqueued by mapping repair. If an admin explicitly started KR backfill after mapping, those jobs are idempotent daily-bar/dividend upserts. Let them finish unless the broader pg-boss queue is unhealthy.
 
 #### Back-compatible Re-run API
 
-`POST /admin/providers/:providerId/rerun` remains as a temporary API surface for existing tests and external callers. The admin UI should not call it directly for provider repair. The route dispatches provider-wide refresh jobs:
+`POST /admin/providers/:providerId/rerun` remains as a temporary API surface for existing tests and external callers. The admin UI should use `/admin/market-data` market actions for provider repair/backfill/purge flows. The route dispatches provider-wide refresh jobs:
 
 - **`finmind-tw`:** enqueues daily-refresh for the TW market (all monitored TW tickers).
 - **`finmind-us`:** enqueues daily-refresh for the US market.
@@ -2098,7 +2098,7 @@ WHERE provider_id = 'yahoo-finance-kr'
 - **`twelve-data-kr`:** re-syncs the KR instrument catalog from Twelve Data (metadata only, no bars).
 - **`asx-gics-csv`:** re-runs the ASX GICS sector + industry-group enrichment from the S&P/ASX CSV.
 
-**Per-provider cooldown (KZO-197/KR):** the cooldown is per-provider. Yahoo market providers (`yahoo-finance-au`, `yahoo-finance-kr`) default to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
+**Per-provider cooldown (KZO-197/KR):** the cooldown is per-provider. Yahoo market providers (`yahoo-finance-au`, `yahoo-finance-kr`) default to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value is visible through market-data action metadata and remains present in the back-compatible `/admin/providers` DTO as `rerunCooldownMs`.
 
 **KR resolver repair guardrail:** `quote_first` is the safe default for KR admin reruns. `chart_probe_v1` is a repair mode for unresolved KR symbols; it probes Yahoo chart data across `.KS` / `.KQ` candidates and may increase upstream calls. The back-compatible API rejects `chart_probe_v1` unless `resolverModeRiskAccepted=true`, and resolver-mode payloads are rejected for non-KR providers.
 
@@ -2171,7 +2171,7 @@ ORDER BY provider_id;
 
 If a provider is stuck in `down` after a genuine recovery:
 1. Check `last_successful_run` — if it's current (≥ today's settled trading day), the status will update on the next worker run.
-2. Trigger Re-run now from `/admin/providers`.
+2. Trigger the provider refresh from `/admin/market-data` for the affected market, or use the back-compatible `POST /admin/providers/:providerId/rerun` API if operating from scripts.
 3. Watch API logs for `provider_health_outcome_recorded` (info) confirming the success outcome was processed.
 
 ---
@@ -2477,7 +2477,7 @@ Default values (env vars):
 
 4. **If persistent:** raise `CATALOG_ABSENCE_GUARD_PERCENT` or `CATALOG_ABSENCE_GUARD_FLOOR` temporarily via `/admin/settings` to allow the sync to proceed. Review notification again on the next run.
 
-5. **If a genuine bulk exchange event occurred**: clear the guard by raising the threshold, then manually verify each absent ticker. Use `/admin/instruments` to exclude tickers that are legitimately still trading despite the API gap.
+5. **If a genuine bulk exchange event occurred**: clear the guard by raising the threshold, then manually verify each absent ticker. AU/KR delisting override controls are tracked separately from support/retirement controls; until they are exposed in `/admin/market-data`, use an admin SQL runbook or a focused maintenance script to set `delisting_detection_excluded` for tickers that are legitimately still trading despite the API gap.
 
 ### Runbook: Instruments auto-delisted (info notification)
 
@@ -2485,10 +2485,10 @@ Default values (env vars):
 
 **Investigation:**
 
-1. Navigate to `/admin/instruments`. Filter by **Status: Delisted**.
+1. Navigate to `/admin/market-data/AU/instruments` or `/admin/market-data/KR/instruments` and filter by **Status: Delisted**.
 2. For each ticker: verify against the exchange's official announcements. If the delisting is genuine, no action required.
-3. **If false positive (instrument still trading):** click **Undelete**. This clears `delisted_at`, resets `absence_streak = 0`, sets `last_seen_in_catalog_at = NOW()`, and writes an audit row. The instrument will be re-evaluated on the next sync run.
-4. **To prevent recurrence for a specific ticker:** click **Exclude** after undeleting. The instrument will never be auto-delisted again until explicitly re-included.
+3. **If false positive (instrument still trading):** use the AU/KR delisting override flow once exposed, or run the focused maintenance path that clears `delisted_at`, resets `absence_streak = 0`, sets `last_seen_in_catalog_at = NOW()`, and writes an audit row. The instrument will be re-evaluated on the next sync run.
+4. **To prevent recurrence for a specific ticker:** set the delisting-detection exclusion after undeleting. The instrument will never be auto-delisted again until explicitly re-included.
 
 ### Runbook: When to undelete vs. exclude
 
@@ -2501,7 +2501,7 @@ Default values (env vars):
 
 ### Admin UI location
 
-`/admin` → **Instruments** (sidebar entry). The page displays catalog instruments with their absence/delisting state. A read-only threshold panel at the bottom links to `/admin/settings` for adjustments.
+`/admin` → **Market data** → affected market → **Instruments**. The workspace displays catalog instruments with their absence/delisting, support, and backfill state. Threshold knobs remain under `/admin/settings` for adjustments. AU/KR delisting override controls are separate from support/retirement controls and are tracked as a follow-up until exposed in the market workspace.
 
 **Audit log:** all undelete and exclusion-toggle actions are visible at `/admin/audit-log` with action codes `instrument_undelete` and `instrument_exclusion_toggle`.
 
@@ -2654,7 +2654,7 @@ UPDATE public.app_config
 SET yahoo_au_rerun_cooldown_ms = 300000   -- 5 min, for example
 WHERE id = 1;
 ```
-The change takes effect on the next `GET /admin/providers` call (TTL cache refresh). No restart required.
+The change takes effect on the next market-data/provider health read (including the back-compatible `GET /admin/providers` DTO). No restart required.
 
 To reset to the env-default (30 min):
 ```sql

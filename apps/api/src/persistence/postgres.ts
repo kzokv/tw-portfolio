@@ -122,6 +122,9 @@ import type {
   AiConnectorAccessLogRecord,
   AiConnectorCredentialRecord,
   AiConnectorConnectionRecord,
+  AdminMarketDataBackfillTargetRow,
+  AdminMarketDataPurgeCounts,
+  AdminMarketDataPurgeInput,
   McpOAuthAuthorizationCodeRecord,
   McpOAuthAuthorizationRequestRecord,
   AiTransactionDraftBatchAggregate,
@@ -10656,6 +10659,8 @@ export class PostgresPersistence implements Persistence {
     market_code: string;
     name: string | null;
     instrument_type: string | null;
+    support_state: "supported" | "retired_by_admin" | "unsupported_by_provider";
+    bars_backfill_status: "pending" | "backfilling" | "ready" | "failed";
     delisted_at: Date | string | null;
     status_reason: string | null;
     last_seen_in_catalog_at: Date | string | null;
@@ -10670,6 +10675,8 @@ export class PostgresPersistence implements Persistence {
       marketCode: row.market_code,
       name: row.name,
       instrumentType: row.instrument_type,
+      supportState: row.support_state,
+      barsBackfillStatus: row.bars_backfill_status,
       delistedAt: toIso(row.delisted_at),
       statusReason: row.status_reason,
       lastSeenInCatalogAt: toIso(row.last_seen_in_catalog_at),
@@ -10684,7 +10691,8 @@ export class PostgresPersistence implements Persistence {
     marketCode: string,
   ): Promise<import("./types.js").AdminInstrumentRow | null> {
     const r = await this.pool.query(
-      `SELECT ticker, market_code, name, instrument_type, delisted_at, status_reason,
+      `SELECT ticker, market_code, name, instrument_type, support_state, bars_backfill_status,
+              delisted_at, status_reason,
               last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at
          FROM market_data.instruments
         WHERE ticker = $1 AND market_code = $2`,
@@ -10698,6 +10706,12 @@ export class PostgresPersistence implements Persistence {
     marketCode: string;
     page: number;
     limit: number;
+    status?: "listed" | "delisted" | "excluded" | "all";
+    supportState?: import("./types.js").AdminInstrumentRow["supportState"] | "all";
+    search?: string;
+    instrumentType?: import("@vakwen/domain").InstrumentType | "all";
+    backfillStatus?: "pending" | "backfilling" | "ready" | "failed" | "all";
+    sort?: "ticker_asc" | "ticker_desc" | "updated_desc" | "updated_asc";
   }): Promise<{
     items: import("./types.js").AdminInstrumentRow[];
     total: number;
@@ -10707,24 +10721,336 @@ export class PostgresPersistence implements Persistence {
     const page = Math.max(1, Math.floor(opts.page) || 1);
     const limit = Math.min(500, Math.max(1, Math.floor(opts.limit) || 50));
     const offset = (page - 1) * limit;
+    const where: string[] = ["market_code = $1"];
+    const params: unknown[] = [opts.marketCode];
+    if (opts.status && opts.status !== "all") {
+      if (opts.status === "delisted") {
+        where.push("delisted_at IS NOT NULL");
+      } else if (opts.status === "excluded") {
+        where.push("delisted_at IS NULL AND delisting_detection_excluded = TRUE");
+      } else {
+        where.push("delisted_at IS NULL AND delisting_detection_excluded = FALSE");
+      }
+    }
+    if (opts.supportState && opts.supportState !== "all") {
+      params.push(opts.supportState);
+      where.push(`support_state = $${params.length}`);
+    }
+    if (opts.instrumentType && opts.instrumentType !== "all") {
+      params.push(opts.instrumentType);
+      where.push(`instrument_type = $${params.length}`);
+    }
+    if (opts.backfillStatus && opts.backfillStatus !== "all") {
+      params.push(opts.backfillStatus);
+      where.push(`bars_backfill_status = $${params.length}`);
+    }
+    const search = opts.search?.trim();
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`(ticker ILIKE $${params.length} OR name ILIKE $${params.length})`);
+    }
+    const whereSql = where.join(" AND ");
+    const orderBy =
+      opts.sort === "ticker_desc"
+        ? "ticker DESC"
+        : opts.sort === "updated_asc"
+          ? "updated_at ASC, ticker ASC"
+          : opts.sort === "updated_desc"
+            ? "updated_at DESC, ticker ASC"
+            : "ticker ASC";
     const totalRes = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
          FROM market_data.instruments
-        WHERE market_code = $1`,
-      [opts.marketCode],
+        WHERE ${whereSql}`,
+      params,
     );
     const total = Number(totalRes.rows[0]?.count ?? "0");
+    const rowsParams = [...params, limit, offset];
     const rowsRes = await this.pool.query(
-      `SELECT ticker, market_code, name, instrument_type, delisted_at, status_reason,
+      `SELECT ticker, market_code, name, instrument_type, support_state, bars_backfill_status,
+              delisted_at, status_reason,
               last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at
          FROM market_data.instruments
-        WHERE market_code = $1
-        ORDER BY ticker ASC
-        LIMIT $2 OFFSET $3`,
-      [opts.marketCode, limit, offset],
+        WHERE ${whereSql}
+        ORDER BY ${orderBy}
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      rowsParams,
     );
     const items = rowsRes.rows.map((row) => this._mapAdminInstrumentRow(row));
     return { items, total, page, limit };
+  }
+
+  async listAdminMarketDataBackfillTargets(options: {
+    marketCode: MarketCode;
+    includeDemoUsers?: boolean;
+  }): Promise<AdminMarketDataBackfillTargetRow[]> {
+    const params: unknown[] = [options.marketCode];
+    const demoPredicate = options.includeDemoUsers === true ? "" : "AND u.is_demo = FALSE";
+    const result = await this.pool.query<{ ticker: string; market_code: string }>(
+      `WITH monitored AS (
+         SELECT ums.user_id, ums.ticker, ums.market_code, NULL::text AS account_id
+           FROM user_monitored_tickers ums
+         UNION
+         SELECT DISTINCT a.user_id, l.ticker,
+                COALESCE(
+                  (SELECT te.market_code
+                     FROM trade_events te
+                    WHERE te.account_id = l.account_id
+                      AND te.ticker = l.ticker
+                    LIMIT 1),
+                  'TW'
+                ) AS market_code,
+                l.account_id
+           FROM lots l
+           JOIN accounts a ON a.id = l.account_id
+          WHERE a.deleted_at IS NULL
+            AND l.open_quantity > 0
+       )
+       SELECT DISTINCT i.ticker, i.market_code
+         FROM monitored m
+         JOIN users u ON u.id = m.user_id
+         JOIN market_data.instruments i
+           ON i.ticker = m.ticker
+          AND i.market_code = m.market_code
+        WHERE i.market_code = $1
+          ${demoPredicate}
+          AND i.delisted_at IS NULL
+          AND i.support_state = 'supported'
+        ORDER BY i.ticker, i.market_code`,
+      params,
+    );
+    return result.rows.map((row) => ({
+      ticker: row.ticker,
+      marketCode: row.market_code as MarketCode,
+    }));
+  }
+
+  async countAdminMarketDataTargetOwnership(options: {
+    targets: AdminMarketDataBackfillTargetRow[];
+  }): Promise<{ userCount: number; accountCount: number }> {
+    if (options.targets.length === 0) return { userCount: 0, accountCount: 0 };
+    const tickers = options.targets.map((target) => target.ticker);
+    const marketCodes = options.targets.map((target) => target.marketCode);
+    const result = await this.pool.query<{ user_count: string; account_count: string }>(
+      `WITH targets AS (
+         SELECT *
+           FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code)
+       ),
+       manual AS (
+         SELECT ums.user_id, NULL::text AS account_id
+           FROM user_monitored_tickers ums
+           JOIN targets t ON t.ticker = ums.ticker AND t.market_code = ums.market_code
+       ),
+       positions AS (
+         SELECT DISTINCT a.user_id, l.account_id
+           FROM lots l
+           JOIN accounts a ON a.id = l.account_id
+           JOIN targets t
+             ON t.ticker = l.ticker
+            AND t.market_code = COALESCE(
+              (SELECT te.market_code
+                 FROM trade_events te
+                WHERE te.account_id = l.account_id
+                  AND te.ticker = l.ticker
+                LIMIT 1),
+              'TW'
+            )
+          WHERE a.deleted_at IS NULL
+            AND l.open_quantity > 0
+       ),
+       combined AS (
+         SELECT user_id, account_id FROM manual
+         UNION ALL
+         SELECT user_id, account_id FROM positions
+       )
+       SELECT count(DISTINCT user_id)::text AS user_count,
+              (count(DISTINCT account_id) FILTER (WHERE account_id IS NOT NULL))::text AS account_count
+         FROM combined`,
+      [tickers, marketCodes],
+    );
+    return {
+      userCount: Number(result.rows[0]?.user_count ?? "0"),
+      accountCount: Number(result.rows[0]?.account_count ?? "0"),
+    };
+  }
+
+  async purgeAdminMarketData(input: AdminMarketDataPurgeInput): Promise<AdminMarketDataPurgeCounts> {
+    const empty: AdminMarketDataPurgeCounts = {
+      priceBars: 0,
+      dividends: 0,
+      backfillJobs: 0,
+      providerOperationOutcomes: 0,
+      providerErrorTrail: 0,
+      providerResolutionMappings: 0,
+      asxGicsEnrichment: 0,
+      adminStateReset: 0,
+      total: 0,
+    };
+    if (input.targets.length === 0) return empty;
+    const tickers = input.targets.map((target) => target.ticker);
+    const marketCodes = input.targets.map((target) => target.marketCode);
+    const datePredicate = input.fullHistory === false
+      ? {
+          bars: "AND ($3::date IS NULL OR bar_date >= $3::date) AND ($4::date IS NULL OR bar_date <= $4::date)",
+          dividends: "AND ($3::date IS NULL OR ex_dividend_date >= $3::date) AND ($4::date IS NULL OR ex_dividend_date <= $4::date)",
+          params: [input.startDate ?? null, input.endDate ?? null] as const,
+        }
+      : {
+          bars: "",
+          dividends: "",
+          params: [null, null] as const,
+        };
+    const counts = { ...empty };
+    const client = await this.pool.connect();
+    const countOrDelete = async (countSql: string, deleteSql: string, params: unknown[]): Promise<number> => {
+      if (input.dryRun) {
+        const result = await client.query<{ count: string }>(countSql, params);
+        return Number(result.rows[0]?.count ?? "0");
+      }
+      const result = await client.query(deleteSql, params);
+      return result.rowCount ?? 0;
+    };
+    try {
+      await client.query("BEGIN");
+      if (input.categories.includes("price_bars")) {
+        const params = [tickers, marketCodes, ...datePredicate.params];
+        counts.priceBars = await countOrDelete(
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           SELECT count(*)::text AS count
+             FROM market_data.daily_bars b
+             JOIN targets t ON t.ticker = b.ticker AND t.market_code = b.market_code
+            WHERE TRUE ${datePredicate.bars}`,
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           DELETE FROM market_data.daily_bars b
+            USING targets t
+            WHERE t.ticker = b.ticker
+              AND t.market_code = b.market_code
+              ${datePredicate.bars}`,
+          params,
+        );
+      }
+      if (input.categories.includes("dividends")) {
+        const params = [tickers, marketCodes, ...datePredicate.params];
+        counts.dividends = await countOrDelete(
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           SELECT count(*)::text AS count
+             FROM market_data.dividend_events d
+             JOIN targets t ON t.ticker = d.ticker AND t.market_code = d.market_code
+            WHERE NOT EXISTS (
+                    SELECT 1 FROM dividend_ledger_entries dle WHERE dle.dividend_event_id = d.id
+                  )
+              ${datePredicate.dividends}`,
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           DELETE FROM market_data.dividend_events d
+            USING targets t
+            WHERE t.ticker = d.ticker
+              AND t.market_code = d.market_code
+              AND NOT EXISTS (
+                    SELECT 1 FROM dividend_ledger_entries dle WHERE dle.dividend_event_id = d.id
+                  )
+              ${datePredicate.dividends}`,
+          params,
+        );
+      }
+      if (input.categories.includes("provider_operation_outcomes")) {
+        counts.providerOperationOutcomes = await countOrDelete(
+          `SELECT count(*)::text AS count
+             FROM market_data.provider_operation_outcomes
+            WHERE provider_id = $1
+              AND market_code = $2
+              AND source_symbol = ANY($3::text[])`,
+          `DELETE FROM market_data.provider_operation_outcomes
+            WHERE provider_id = $1
+              AND market_code = $2
+              AND source_symbol = ANY($3::text[])`,
+          [input.providerId, input.marketCode, tickers],
+        );
+      }
+      if (input.categories.includes("provider_error_trail")) {
+        counts.providerErrorTrail = await countOrDelete(
+          `SELECT count(*)::text AS count
+             FROM market_data.provider_error_trail
+            WHERE provider_id = $1
+              AND (context->>'marketCode' IS NULL OR context->>'marketCode' = $2)
+              AND COALESCE(context->>'ticker', context->>'symbol', context->>'sourceSymbol', '') = ANY($3::text[])`,
+          `DELETE FROM market_data.provider_error_trail
+            WHERE provider_id = $1
+              AND (context->>'marketCode' IS NULL OR context->>'marketCode' = $2)
+              AND COALESCE(context->>'ticker', context->>'symbol', context->>'sourceSymbol', '') = ANY($3::text[])`,
+          [input.providerId, input.marketCode, tickers],
+        );
+      }
+      if (input.categories.includes("provider_resolution_mappings")) {
+        counts.providerResolutionMappings = await countOrDelete(
+          `SELECT count(*)::text AS count
+             FROM market_data.provider_resolution_mappings
+            WHERE provider_id = $1
+              AND market_code = $2
+              AND source_symbol = ANY($3::text[])`,
+          `DELETE FROM market_data.provider_resolution_mappings
+            WHERE provider_id = $1
+              AND market_code = $2
+              AND source_symbol = ANY($3::text[])`,
+          [input.providerId, input.marketCode, tickers],
+        );
+      }
+      if (input.categories.includes("asx_gics_enrichment") && input.marketCode === "AU") {
+        counts.asxGicsEnrichment = await countOrDelete(
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           SELECT count(*)::text AS count
+             FROM market_data.instruments i
+             JOIN targets t ON t.ticker = i.ticker AND t.market_code = i.market_code
+            WHERE i.market_code = 'AU'
+              AND i.gics_industry_group IS NOT NULL`,
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           UPDATE market_data.instruments i
+              SET gics_industry_group = NULL,
+                  updated_at = CURRENT_TIMESTAMP
+             FROM targets t
+            WHERE t.ticker = i.ticker
+              AND t.market_code = i.market_code
+              AND i.market_code = 'AU'
+              AND i.gics_industry_group IS NOT NULL`,
+          [tickers, marketCodes],
+        );
+      }
+      if (input.categories.includes("admin_state_reset")) {
+        counts.adminStateReset = await countOrDelete(
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           SELECT count(*)::text AS count
+             FROM market_data.instruments i
+             JOIN targets t ON t.ticker = i.ticker AND t.market_code = i.market_code
+            WHERE i.support_state <> 'supported'
+               OR i.bars_backfill_status <> 'pending'`,
+          `WITH targets AS (SELECT * FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code))
+           UPDATE market_data.instruments i
+              SET support_state = 'supported',
+                  bars_backfill_status = 'pending',
+                  updated_at = CURRENT_TIMESTAMP
+             FROM targets t
+            WHERE t.ticker = i.ticker
+              AND t.market_code = i.market_code
+              AND (i.support_state <> 'supported' OR i.bars_backfill_status <> 'pending')`,
+          [tickers, marketCodes],
+        );
+      }
+      counts.total =
+        counts.priceBars
+        + counts.dividends
+        + counts.backfillJobs
+        + counts.providerOperationOutcomes
+        + counts.providerErrorTrail
+        + counts.providerResolutionMappings
+        + counts.asxGicsEnrichment
+        + counts.adminStateReset;
+      await client.query(input.dryRun ? "ROLLBACK" : "COMMIT");
+      return counts;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async undeleteInstrument(
@@ -10758,7 +11084,8 @@ export class PostgresPersistence implements Persistence {
                 last_seen_in_catalog_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
           WHERE ticker = $1 AND market_code = $2
-          RETURNING ticker, market_code, name, instrument_type, delisted_at, status_reason,
+          RETURNING ticker, market_code, name, instrument_type, support_state, bars_backfill_status,
+                    delisted_at, status_reason,
                     last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at`,
         [ticker, marketCode],
       );
@@ -10817,7 +11144,8 @@ export class PostgresPersistence implements Persistence {
             SET delisting_detection_excluded = $3,
                 updated_at = CURRENT_TIMESTAMP
           WHERE ticker = $1 AND market_code = $2
-          RETURNING ticker, market_code, name, instrument_type, delisted_at, status_reason,
+          RETURNING ticker, market_code, name, instrument_type, support_state, bars_backfill_status,
+                    delisted_at, status_reason,
                     last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at`,
         [ticker, marketCode, excluded],
       );
@@ -10832,6 +11160,59 @@ export class PostgresPersistence implements Persistence {
             marketCode,
             before: { delistingDetectionExcluded: before.rows[0].delisting_detection_excluded },
             after: { delistingDetectionExcluded: excluded },
+          }),
+        ],
+      );
+      await client.query("COMMIT");
+      return this._mapAdminInstrumentRow(r.rows[0]);
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setInstrumentSupportState(
+    ticker: string,
+    marketCode: string,
+    supportState: import("./types.js").AdminInstrumentRow["supportState"],
+    actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const before = await client.query<{ support_state: string }>(
+        `SELECT support_state
+           FROM market_data.instruments
+          WHERE ticker = $1 AND market_code = $2`,
+        [ticker, marketCode],
+      );
+      if (before.rowCount === 0) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "instrument_not_found", `Instrument not found: ${ticker}/${marketCode}`);
+      }
+      const r = await client.query(
+        `UPDATE market_data.instruments
+            SET support_state = $3,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE ticker = $1 AND market_code = $2
+          RETURNING ticker, market_code, name, instrument_type, support_state, bars_backfill_status,
+                    delisted_at, status_reason,
+                    last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at`,
+        [ticker, marketCode, supportState],
+      );
+      await client.query(
+        `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+         VALUES ($1, $2, 'instrument_support_state_update', NULL, $3::jsonb, NULL)`,
+        [
+          randomUUID(),
+          actorUserId,
+          JSON.stringify({
+            ticker,
+            marketCode,
+            before: { supportState: before.rows[0].support_state },
+            after: { supportState },
           }),
         ],
       );

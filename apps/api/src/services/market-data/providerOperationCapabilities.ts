@@ -18,6 +18,10 @@ interface ProviderCapabilityDefinition {
 }
 
 const DEFAULT_DISABLED_REASONS: Record<ProviderOperationAction, string> = {
+  sync_catalog: "Catalog sync is unavailable for this provider.",
+  backfill_catalog_rows: "Catalog-row backfill is unavailable for this provider.",
+  refresh_fx_rates: "FX refresh is unavailable for this provider.",
+  sync_asx_gics: "ASX GICS sync is unavailable for this provider.",
   renew_evidence: "Renew is unavailable for this provider.",
   repair_mapping: "Repair is unavailable because this provider has no mapping resolver.",
   rerun_backfill: "Rerun is unavailable for this provider or provider plan.",
@@ -32,6 +36,7 @@ const DEFAULT_DISABLED_REASONS: Record<ProviderOperationAction, string> = {
 };
 
 const WRITE_PROVIDER_ACTIONS: Partial<Record<ProviderOperationAction, ProviderOperationGuardrailLevel>> = {
+  backfill_catalog_rows: "typed_preview",
   renew_evidence: "checkbox",
   rerun_backfill: "checkbox",
   purge_logs: "typed_preview",
@@ -95,7 +100,10 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsRerun: true,
     supportsResolverModes: false,
     emptyMappingReason: "FinMind TW has no provider-symbol mapping resolver yet.",
-    supportedActions: WRITE_PROVIDER_ACTIONS,
+    supportedActions: {
+      sync_catalog: "checkbox",
+      ...WRITE_PROVIDER_ACTIONS,
+    },
   },
   "finmind-us": {
     supportsMappings: false,
@@ -104,7 +112,10 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsRerun: true,
     supportsResolverModes: false,
     emptyMappingReason: "FinMind US has no provider-symbol mapping resolver yet.",
-    supportedActions: WRITE_PROVIDER_ACTIONS,
+    supportedActions: {
+      sync_catalog: "checkbox",
+      ...WRITE_PROVIDER_ACTIONS,
+    },
   },
   "twelve-data-kr": {
     supportsMappings: false,
@@ -114,6 +125,8 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsResolverModes: false,
     emptyMappingReason: "Twelve Data KR is catalog evidence for KR bindings; Yahoo KR owns the durable provider mapping.",
     supportedActions: {
+      sync_catalog: "checkbox",
+      backfill_catalog_rows: "typed_preview",
       renew_evidence: "checkbox",
       purge_logs: "typed_preview",
       normalize_errors: "checkbox",
@@ -134,6 +147,8 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsResolverModes: false,
     emptyMappingReason: "Twelve Data AU is catalog metadata only in this console.",
     supportedActions: {
+      sync_catalog: "checkbox",
+      backfill_catalog_rows: "typed_preview",
       renew_evidence: "checkbox",
       purge_logs: "typed_preview",
       normalize_errors: "checkbox",
@@ -153,7 +168,13 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsRerun: true,
     supportsResolverModes: false,
     emptyMappingReason: "Frankfurter refreshes FX rates and does not use symbol mappings.",
-    supportedActions: WRITE_PROVIDER_ACTIONS,
+    supportedActions: {
+      refresh_fx_rates: "checkbox",
+      renew_evidence: "checkbox",
+      purge_logs: "typed_preview",
+      normalize_errors: "checkbox",
+      refresh_health: "none",
+    },
   },
   "asx-gics-csv": {
     supportsMappings: false,
@@ -162,7 +183,13 @@ const PROVIDER_CAPABILITY_DEFINITIONS: Record<string, ProviderCapabilityDefiniti
     supportsRerun: true,
     supportsResolverModes: false,
     emptyMappingReason: "ASX GICS CSV enriches catalog classifications and does not use provider-symbol mappings.",
-    supportedActions: WRITE_PROVIDER_ACTIONS,
+    supportedActions: {
+      sync_asx_gics: "checkbox",
+      renew_evidence: "checkbox",
+      purge_logs: "typed_preview",
+      normalize_errors: "checkbox",
+      refresh_health: "none",
+    },
   },
 };
 

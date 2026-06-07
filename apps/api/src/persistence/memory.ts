@@ -96,6 +96,9 @@ import type {
   AiConnectorCredentialRecord,
   AiConnectorConnectionRecord,
   AiConnectorPolicySettingsRecord,
+  AdminMarketDataBackfillTargetRow,
+  AdminMarketDataPurgeCounts,
+  AdminMarketDataPurgeInput,
   AiTransactionDraftBatchAggregate,
   ApproveMcpOAuthAuthorizationRequestInput,
   ApproveMcpOAuthAuthorizationRequestResult,
@@ -222,6 +225,7 @@ interface MemoryInstrument {
   catalogExchangeRaw?: string | null;
   catalogMicCode?: string | null;
   barsBackfillStatus: string;
+  supportState?: "supported" | "retired_by_admin" | "unsupported_by_provider";
   lastRepairAt?: string | null;
   delistedAt?: string;
   /** KZO-196 — GICS industry-group label (AU only); null on non-AU and pre-sync rows. */
@@ -4278,6 +4282,12 @@ export class MemoryPersistence implements Persistence {
     marketCode: string;
     page: number;
     limit: number;
+    status?: "listed" | "delisted" | "excluded" | "all";
+    supportState?: import("./types.js").AdminInstrumentRow["supportState"] | "all";
+    search?: string;
+    instrumentType?: import("@vakwen/domain").InstrumentType | "all";
+    backfillStatus?: "pending" | "backfilling" | "ready" | "failed" | "all";
+    sort?: "ticker_asc" | "ticker_desc" | "updated_desc" | "updated_asc";
   }): Promise<{
     items: import("./types.js").AdminInstrumentRow[];
     total: number;
@@ -4286,12 +4296,220 @@ export class MemoryPersistence implements Persistence {
   }> {
     const page = Math.max(1, Math.floor(opts.page) || 1);
     const limit = Math.min(500, Math.max(1, Math.floor(opts.limit) || 50));
+    const search = opts.search?.trim().toLowerCase() ?? "";
     const all = [...this._adminInstrumentMemRows.values()]
       .filter((row) => row.marketCode === opts.marketCode)
-      .sort((a, b) => a.ticker.localeCompare(b.ticker));
+      .filter((row) => {
+        const status = row.delistedAt ? "delisted" : row.delistingDetectionExcluded ? "excluded" : "listed";
+        if (opts.status && opts.status !== "all" && status !== opts.status) return false;
+        if (opts.supportState && opts.supportState !== "all" && row.supportState !== opts.supportState) {
+          return false;
+        }
+        if (opts.instrumentType && opts.instrumentType !== "all" && row.instrumentType !== opts.instrumentType) {
+          return false;
+        }
+        if (opts.backfillStatus && opts.backfillStatus !== "all" && row.barsBackfillStatus !== opts.backfillStatus) {
+          return false;
+        }
+        if (search && !row.ticker.toLowerCase().includes(search) && !(row.name ?? "").toLowerCase().includes(search)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        switch (opts.sort) {
+          case "ticker_desc":
+            return b.ticker.localeCompare(a.ticker);
+          case "updated_asc":
+            return a.updatedAt.localeCompare(b.updatedAt);
+          case "updated_desc":
+            return b.updatedAt.localeCompare(a.updatedAt);
+          case "ticker_asc":
+          default:
+            return a.ticker.localeCompare(b.ticker);
+        }
+      });
     const offset = (page - 1) * limit;
     const items = all.slice(offset, offset + limit);
     return { items, total: all.length, page, limit };
+  }
+
+  async listAdminMarketDataBackfillTargets(options: {
+    marketCode: MarketCode;
+    includeDemoUsers?: boolean;
+  }): Promise<AdminMarketDataBackfillTargetRow[]> {
+    const targets = new Map<string, AdminMarketDataBackfillTargetRow>();
+    for (const [userId, selections] of this.monitoredTickers.entries()) {
+      const user = [...this.usersByEmail.values()].find((candidate) => candidate.id === userId);
+      if (!options.includeDemoUsers && user?.isDemo === true) continue;
+      for (const selection of selections.values()) {
+        if (selection.marketCode !== options.marketCode) continue;
+        const instrument = this.instruments.get(instrumentCatalogKey(selection.ticker, selection.marketCode));
+        if (!instrument || instrument.delistedAt || instrument.supportState === "retired_by_admin" || instrument.supportState === "unsupported_by_provider") {
+          continue;
+        }
+        targets.set(instrumentCatalogKey(selection.ticker, selection.marketCode), {
+          ticker: selection.ticker,
+          marketCode: selection.marketCode as MarketCode,
+        });
+      }
+    }
+    for (const [userId, store] of this.stores.entries()) {
+      const user = [...this.usersByEmail.values()].find((candidate) => candidate.id === userId);
+      if (!options.includeDemoUsers && user?.isDemo === true) continue;
+      for (const lot of store.accounting.projections.lots) {
+        if (lot.openQuantity <= 0) continue;
+        const trade = store.accounting.facts.tradeEvents.find(
+          (candidate) => candidate.accountId === lot.accountId && candidate.ticker === lot.ticker,
+        );
+        const marketCode = trade?.marketCode;
+        if (marketCode !== options.marketCode) continue;
+        const instrument = this.instruments.get(instrumentCatalogKey(lot.ticker, marketCode));
+        if (!instrument || instrument.delistedAt || instrument.supportState === "retired_by_admin" || instrument.supportState === "unsupported_by_provider") {
+          continue;
+        }
+        targets.set(instrumentCatalogKey(lot.ticker, marketCode), {
+          ticker: lot.ticker,
+          marketCode: marketCode as MarketCode,
+        });
+      }
+    }
+    return [...targets.values()].sort((a, b) => {
+      const ticker = a.ticker.localeCompare(b.ticker);
+      return ticker !== 0 ? ticker : a.marketCode.localeCompare(b.marketCode);
+    });
+  }
+
+  async countAdminMarketDataTargetOwnership(options: {
+    targets: AdminMarketDataBackfillTargetRow[];
+  }): Promise<{ userCount: number; accountCount: number }> {
+    const targetKeys = new Set(options.targets.map((target) => instrumentCatalogKey(target.ticker, target.marketCode)));
+    const userIds = new Set<string>();
+    const accountIds = new Set<string>();
+    for (const [userId, selections] of this.monitoredTickers.entries()) {
+      if ([...selections.values()].some((selection) => targetKeys.has(instrumentCatalogKey(selection.ticker, selection.marketCode)))) {
+        userIds.add(userId);
+      }
+    }
+    for (const [userId, store] of this.stores.entries()) {
+      for (const lot of store.accounting.projections.lots) {
+        if (lot.openQuantity <= 0) continue;
+        const trade = store.accounting.facts.tradeEvents.find(
+          (candidate) => candidate.accountId === lot.accountId && candidate.ticker === lot.ticker,
+        );
+        if (!trade?.marketCode || !targetKeys.has(instrumentCatalogKey(lot.ticker, trade.marketCode))) continue;
+        userIds.add(userId);
+        accountIds.add(lot.accountId);
+      }
+    }
+    return { userCount: userIds.size, accountCount: accountIds.size };
+  }
+
+  async purgeAdminMarketData(input: AdminMarketDataPurgeInput): Promise<AdminMarketDataPurgeCounts> {
+    const targetKeys = new Set(input.targets.map((target) => instrumentCatalogKey(target.ticker, target.marketCode)));
+    const targetTickers = new Set(input.targets.map((target) => target.ticker));
+    const inDateRange = (date: string): boolean => {
+      if (input.fullHistory !== false) return true;
+      if (input.startDate && date < input.startDate) return false;
+      if (input.endDate && date > input.endDate) return false;
+      return true;
+    };
+    const counts: AdminMarketDataPurgeCounts = {
+      priceBars: 0,
+      dividends: 0,
+      backfillJobs: 0,
+      providerOperationOutcomes: 0,
+      providerErrorTrail: 0,
+      providerResolutionMappings: 0,
+      asxGicsEnrichment: 0,
+      adminStateReset: 0,
+      total: 0,
+    };
+    const shouldDeleteBars = input.categories.includes("price_bars");
+    const shouldDeleteDividends = input.categories.includes("dividends");
+    if (shouldDeleteBars) {
+      for (let i = this.dailyBars.length - 1; i >= 0; i--) {
+        const row = this.dailyBars[i]!;
+        if (!targetKeys.has(instrumentCatalogKey(row.ticker, row.marketCode))) continue;
+        if (!inDateRange(row.barDate)) continue;
+        counts.priceBars++;
+        if (!input.dryRun) this.dailyBars.splice(i, 1);
+      }
+    }
+    if (shouldDeleteDividends) {
+      for (const store of this.stores.values()) {
+        for (let i = store.marketData.dividendEvents.length - 1; i >= 0; i--) {
+          const event = store.marketData.dividendEvents[i]!;
+          if (!targetTickers.has(event.ticker)) continue;
+          if (!inDateRange(event.exDividendDate)) continue;
+          const linked = store.accounting.facts.dividendLedgerEntries.some((entry) => entry.dividendEventId === event.id);
+          if (linked) continue;
+          counts.dividends++;
+          if (!input.dryRun) store.marketData.dividendEvents.splice(i, 1);
+        }
+      }
+    }
+    if (input.categories.includes("provider_operation_outcomes")) {
+      for (const [key, row] of [...this.providerOperationOutcomes.entries()]) {
+        if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
+        if (targetTickers.size > 0 && !targetTickers.has(row.sourceSymbol)) continue;
+        counts.providerOperationOutcomes++;
+        if (!input.dryRun) this.providerOperationOutcomes.delete(key);
+      }
+    }
+    if (input.categories.includes("provider_error_trail")) {
+      for (let i = this.providerErrorTrail.length - 1; i >= 0; i--) {
+        const row = this.providerErrorTrail[i]!;
+        if (row.providerId !== input.providerId) continue;
+        const context = row.context ?? {};
+        if (context.marketCode && context.marketCode !== input.marketCode) continue;
+        const symbol = String(context.ticker ?? context.symbol ?? context.sourceSymbol ?? "");
+        if (targetTickers.size > 0 && symbol && !targetTickers.has(symbol)) continue;
+        counts.providerErrorTrail++;
+        if (!input.dryRun) this.providerErrorTrail.splice(i, 1);
+      }
+    }
+    if (input.categories.includes("provider_resolution_mappings")) {
+      for (const [key, row] of [...this.providerResolutionMappings.entries()]) {
+        if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
+        if (targetTickers.size > 0 && !targetTickers.has(row.sourceSymbol)) continue;
+        counts.providerResolutionMappings++;
+        if (!input.dryRun) this.providerResolutionMappings.delete(key);
+      }
+    }
+    if (input.categories.includes("asx_gics_enrichment") && input.marketCode === "AU") {
+      for (const [key, instrument] of this.instruments.entries()) {
+        if (instrument.marketCode !== "AU" || !instrument.gicsIndustryGroup) continue;
+        if (targetKeys.size > 0 && !targetKeys.has(instrumentCatalogKey(instrument.ticker, instrument.marketCode))) continue;
+        counts.asxGicsEnrichment++;
+        if (!input.dryRun) this.instruments.set(key, { ...instrument, gicsIndustryGroup: null });
+      }
+    }
+    if (input.categories.includes("admin_state_reset")) {
+      for (const [key, row] of this._adminInstrumentMemRows.entries()) {
+        if (row.marketCode !== input.marketCode) continue;
+        if (targetKeys.size > 0 && !targetKeys.has(instrumentCatalogKey(row.ticker, row.marketCode))) continue;
+        counts.adminStateReset++;
+        if (!input.dryRun) {
+          this._adminInstrumentMemRows.set(key, {
+            ...row,
+            supportState: "supported",
+            barsBackfillStatus: "pending",
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+    counts.total =
+      counts.priceBars
+      + counts.dividends
+      + counts.backfillJobs
+      + counts.providerOperationOutcomes
+      + counts.providerErrorTrail
+      + counts.providerResolutionMappings
+      + counts.asxGicsEnrichment
+      + counts.adminStateReset;
+    return counts;
   }
 
   async undeleteInstrument(
@@ -4316,6 +4534,8 @@ export class MemoryPersistence implements Persistence {
           marketCode,
           name: null,
           instrumentType: null,
+          supportState: "supported",
+          barsBackfillStatus: "pending",
           delistedAt: null,
           statusReason: null,
           lastSeenInCatalogAt: now,
@@ -4343,11 +4563,42 @@ export class MemoryPersistence implements Persistence {
           marketCode,
           name: null,
           instrumentType: null,
+          supportState: "supported",
+          barsBackfillStatus: "pending",
           delistedAt: null,
           statusReason: null,
           lastSeenInCatalogAt: null,
           absenceStreak: 0,
           delistingDetectionExcluded: excluded,
+          updatedAt: now,
+        };
+    this._adminInstrumentMemRows.set(key, next);
+    return next;
+  }
+
+  async setInstrumentSupportState(
+    ticker: string,
+    marketCode: string,
+    supportState: import("./types.js").AdminInstrumentRow["supportState"],
+    _actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const key = this._adminInstrumentKey(ticker, marketCode);
+    const existing = this._adminInstrumentMemRows.get(key);
+    const now = new Date().toISOString();
+    const next: import("./types.js").AdminInstrumentRow = existing
+      ? { ...existing, supportState, updatedAt: now }
+      : {
+          ticker,
+          marketCode,
+          name: null,
+          instrumentType: null,
+          supportState,
+          barsBackfillStatus: "pending",
+          delistedAt: null,
+          statusReason: null,
+          lastSeenInCatalogAt: null,
+          absenceStreak: 0,
+          delistingDetectionExcluded: false,
           updatedAt: now,
         };
     this._adminInstrumentMemRows.set(key, next);
@@ -4474,8 +4725,8 @@ export class MemoryPersistence implements Persistence {
       instrumentCatalogKey(instrument.ticker, instrument.marketCode),
       instrument,
     );
-    // KZO-195 — mirror into the admin-instruments map so `listAdminInstruments`
-    // (and the route's GET /admin/instruments) sees rows seeded via test
+    // Mirror into the admin instrument map so `listAdminInstruments`
+    // (and the admin market-data instruments route) sees rows seeded via test
     // helpers, including the E2E `/__e2e/seed-instruments` endpoint which
     // passes a userId. Catalog instruments are global by design; the admin-row
     // store is independent of the per-user catalog. Iter 8 (KZO-195) removed
@@ -4492,6 +4743,12 @@ export class MemoryPersistence implements Persistence {
       marketCode: instrument.marketCode,
       name: instrument.name,
       instrumentType: instrument.instrumentType,
+      supportState: existing?.supportState ?? "supported",
+      barsBackfillStatus: (instrument.barsBackfillStatus ?? existing?.barsBackfillStatus ?? "pending") as
+        | "pending"
+        | "backfilling"
+        | "ready"
+        | "failed",
       delistedAt: instrument.delistedAt ?? existing?.delistedAt ?? null,
       statusReason: existing?.statusReason ?? null,
       // Preserve admin-set absence-detection state across re-seeds

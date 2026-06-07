@@ -54,8 +54,7 @@ type NavKey =
   | "users"
   | "invites"
   | "audit-log"
-  | "providers"
-  | "instruments";
+  | "market-data";
 
 interface NavItem {
   key: NavKey;
@@ -432,8 +431,13 @@ function getAdminNavItems(labels?: Partial<Record<NavKey, string>>): NavItem[] {
     { key: "users", href: "/admin/users", label: labels?.users ?? "Users", icon: Users },
     { key: "invites", href: "/admin/invites", label: labels?.invites ?? "Invites", icon: Mail },
     { key: "audit-log", href: "/admin/audit-log", label: labels?.["audit-log"] ?? "Audit Log", icon: ClipboardList },
-    { key: "providers", href: "/admin/providers", label: labels?.providers ?? "Providers", icon: Activity },
-    { key: "instruments", href: "/admin/instruments", label: labels?.instruments ?? "Instruments", icon: LineChart },
+    {
+      key: "market-data",
+      href: "/admin/market-data",
+      label: labels?.["market-data"] ?? "Market Data",
+      icon: Activity,
+      isActiveOverride: (pathname) => pathname.startsWith("/admin/market-data"),
+    },
     { key: "settings", href: "/admin/settings", label: labels?.settings ?? "Settings", icon: Settings },
   ];
 }
