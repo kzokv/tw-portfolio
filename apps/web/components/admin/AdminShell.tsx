@@ -85,8 +85,7 @@ export function AdminShell({
                 users: dict.shell.nav.users,
                 invites: dict.shell.nav.invites,
                 "audit-log": dict.shell.nav.auditLog,
-                providers: dict.shell.nav.providers,
-                instruments: dict.shell.nav.instruments,
+                "market-data": "Market Data",
                 settings: dict.shell.nav.settings,
               },
             }}

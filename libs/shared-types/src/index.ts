@@ -1867,6 +1867,10 @@ export interface ProviderHealthStatusDto {
 }
 
 export const PROVIDER_OPERATION_ACTIONS = [
+  "sync_catalog",
+  "backfill_catalog_rows",
+  "refresh_fx_rates",
+  "sync_asx_gics",
   "renew_evidence",
   "repair_mapping",
   "rerun_backfill",
@@ -2174,7 +2178,7 @@ export type ProviderOperationOutcomeListState = ProviderOperationOutcomeState | 
 export interface ProviderOperationOutcomeDto {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: AdminMarketCode;
   sourceSymbol: string;
   providerSymbol: string | null;
   action: string;
@@ -2251,6 +2255,7 @@ export interface ProviderActivityResponse {
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────
 
 export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";
+export type AdminInstrumentSupportState = "supported" | "retired_by_admin" | "unsupported_by_provider";
 
 export interface AdminInstrumentDto {
   ticker: string;
@@ -2258,6 +2263,7 @@ export interface AdminInstrumentDto {
   name: string | null;
   instrumentType: InstrumentType;
   status: AdminInstrumentStatus;
+  supportState: AdminInstrumentSupportState;
   /**
    * Reason captured when the row was stamped delisted. For absence-detected
    * rows this is `"absence_detected"`; provider-feed rows carry whatever
@@ -2282,6 +2288,281 @@ export interface AdminInstrumentsResponse {
   page: number;
   limit: number;
   thresholds: AdminInstrumentsThresholdsDto;
+}
+
+// ── Admin market-data console ───────────────────────────────────────────────
+
+export type AdminMarketCode = MarketCode | "FX";
+export type AdminMarketWorkspaceTab =
+  | "overview"
+  | "instruments"
+  | "backfill"
+  | "mappings"
+  | "purge"
+  | "operations"
+  | "logs"
+  | "refresh-rates";
+export type AdminMarketDataBackfillScope =
+  | "user_owned_or_monitored"
+  | "selected_catalog_rows"
+  | "all_matching";
+export type AdminMarketDataPurgeCategory =
+  | "price_bars"
+  | "dividends"
+  | "backfill_jobs"
+  | "provider_operation_outcomes"
+  | "provider_error_trail"
+  | "provider_resolution_mappings"
+  | "asx_gics_enrichment"
+  | "admin_state_reset";
+export type AdminMarketDataConfirmationLevel = "none" | "checkbox" | "typed";
+
+export interface AdminMarketDataProviderChipDto {
+  providerId: string;
+  label: string;
+  role: string;
+}
+
+export interface AdminMarketDataTileDto {
+  marketCode: AdminMarketCode;
+  label: string;
+  href: string;
+  providers: AdminMarketDataProviderChipDto[];
+  healthStatus: ProviderHealthStatus;
+  unresolvedCount: number;
+  pendingBackfillCount: number;
+  failedBackfillCount: number;
+  latestOperation: {
+    id: string;
+    providerId: string;
+    action: ProviderOperationAction;
+    phase: ProviderFixerDashboardOperationPhase;
+    updatedAt: string;
+  } | null;
+  nextAction: string | null;
+}
+
+export interface AdminMarketDataLandingResponse {
+  markets: AdminMarketDataTileDto[];
+}
+
+export interface AdminMarketDataOverviewResponse {
+  marketCode: AdminMarketCode;
+  label: string;
+  tabs: AdminMarketWorkspaceTab[];
+  providers: AdminMarketDataProviderChipDto[];
+  healthStatus: ProviderHealthStatus;
+  unresolvedCount: number;
+  pendingBackfillCount: number;
+  failedBackfillCount: number;
+  latestOperation: AdminMarketDataTileDto["latestOperation"];
+  guidance: string[];
+}
+
+export interface AdminMarketDataInstrumentDto extends AdminInstrumentDto {
+  providerIds: string[];
+  backfillStatus: "pending" | "backfilling" | "ready" | "failed" | "unknown";
+}
+
+export interface AdminMarketDataInstrumentsResponse extends AdminInstrumentsResponse {
+  marketCode: MarketCode;
+  filters: {
+    status: Array<AdminInstrumentStatus | "all">;
+    supportState: Array<AdminInstrumentSupportState | "all">;
+    backfillStatus: Array<AdminMarketDataInstrumentDto["backfillStatus"] | "all">;
+    instrumentType: Array<InstrumentType | "all">;
+    sort: string[];
+  };
+  items: AdminMarketDataInstrumentDto[];
+}
+
+export interface AdminMarketDataActionDto {
+  action: ProviderOperationAction;
+  providerId: string;
+  label: string;
+  description: string;
+  supported: boolean;
+  disabledReason: string | null;
+  guardrail: ProviderOperationGuardrailLevel;
+  providerBudgetNotes: string[];
+}
+
+export interface AdminMarketDataActionsResponse {
+  marketCode: AdminMarketCode;
+  actions: AdminMarketDataActionDto[];
+}
+
+export interface AdminMarketDataActionExecuteRequest {
+  action: ProviderOperationAction;
+  providerId?: string;
+  acknowledged?: boolean;
+  resolverMode?: "quote_first" | "chart_probe_v1";
+  resolverModeRiskAccepted?: boolean;
+}
+
+export interface AdminMarketDataActionExecuteResponse {
+  operationId: string;
+  marketCode: AdminMarketCode;
+  providerId: string;
+  action: ProviderOperationAction;
+  status: "queued" | "completed";
+  jobId: string | null;
+  message: string;
+}
+
+export interface AdminMarketDataOperationsResponse {
+  marketCode: AdminMarketCode;
+  providers: AdminMarketDataProviderChipDto[];
+  items: ProviderFixerDashboardOperationDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminMarketDataLogsResponse {
+  marketCode: AdminMarketCode;
+  providers: AdminMarketDataProviderChipDto[];
+  items: ProviderFixerDashboardLogEntryDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminMarketDataBackfillTargetDto {
+  ticker: string;
+  marketCode: MarketCode;
+  name?: string | null;
+  instrumentType?: InstrumentType | null;
+  status?: AdminInstrumentStatus | null;
+  supportState?: AdminInstrumentSupportState | null;
+  backfillStatus?: AdminMarketDataInstrumentDto["backfillStatus"] | null;
+  providerIds?: string[];
+}
+
+export interface AdminMarketDataBackfillPreviewRequest {
+  scope: AdminMarketDataBackfillScope;
+  providerId?: string;
+  selectedCatalogRows?: AdminMarketDataBackfillTargetDto[];
+  filters?: Record<string, string | number | boolean | null>;
+  includeDemoUsers?: boolean;
+}
+
+export interface AdminMarketDataBackfillPreviewResponse {
+  marketCode: MarketCode;
+  providerId: string;
+  scope: AdminMarketDataBackfillScope;
+  operationId: string;
+  previewToken: string;
+  tokenExpiresAt: string;
+  matchCount: number;
+  affectedUserCount: number;
+  affectedAccountCount: number;
+  estimatedJobCount: number;
+  estimatedStorageRows: number | null;
+  providerBudgetNotes: string[];
+  targets: AdminMarketDataBackfillTargetDto[];
+  unsupportedRows: Array<AdminMarketDataBackfillTargetDto & { reason: string }>;
+  confirmation: {
+    level: AdminMarketDataConfirmationLevel;
+    text: string | null;
+    reason: string | null;
+  };
+}
+
+export interface AdminMarketDataBackfillExecuteRequest {
+  operationId: string;
+  previewToken: string;
+  acknowledged?: boolean;
+  typedConfirmation?: string;
+}
+
+export interface AdminMarketDataBackfillExecuteResponse {
+  operationId: string;
+  marketCode: MarketCode;
+  providerId: string;
+  scope: AdminMarketDataBackfillScope;
+  status: "queued" | "completed";
+  matchCount: number;
+  enqueuedJobCount: number;
+  skippedExistingJobCount: number;
+  batchId: string | null;
+}
+
+export interface AdminMarketDataPurgePreviewRequest {
+  providerId?: string;
+  categories: AdminMarketDataPurgeCategory[];
+  targets?: AdminMarketDataBackfillTargetDto[];
+  fullHistory?: boolean;
+  startDate?: string;
+  endDate?: string;
+  enqueueBackfillAfterPurge?: boolean;
+  filters?: Record<string, string | number | boolean | null>;
+}
+
+export interface AdminMarketDataPurgePreviewResponse {
+  operationId: string;
+  previewToken: string;
+  tokenExpiresAt: string;
+  marketCode: MarketCode;
+  providerId: string;
+  categories: AdminMarketDataPurgeCategory[];
+  affectedInstrumentCount: number;
+  affectedUserCount: number;
+  affectedAccountCount: number;
+  estimatedRows: number | null;
+  unsupportedCategories: Array<{ category: AdminMarketDataPurgeCategory; reason: string }>;
+  linkedRefill: {
+    available: boolean;
+    mode: "same_range" | "full_history" | null;
+    warning: string | null;
+  };
+  confirmation: {
+    level: AdminMarketDataConfirmationLevel;
+    text: string | null;
+    reason: string | null;
+  };
+}
+
+export interface AdminMarketDataPurgeExecuteRequest {
+  operationId: string;
+  previewToken: string;
+  typedConfirmation: string;
+}
+
+export interface AdminMarketDataPurgeExecuteResponse {
+  operationId: string;
+  marketCode: MarketCode;
+  providerId: string;
+  status: "completed";
+  categories: AdminMarketDataPurgeCategory[];
+  affectedInstrumentCount: number;
+  deletedRows: number | null;
+  linkedBackfillOperationId: string | null;
+}
+
+export interface AdminMarketDataSupportStateRequest {
+  ticker: string;
+  marketCode: MarketCode;
+  supportState: AdminInstrumentSupportState;
+}
+
+export interface AdminMarketDataSupportStateResponse {
+  instrument: AdminMarketDataInstrumentDto;
+}
+
+export type AdminMarketDataDelistingOverrideAction =
+  | "exclude_from_delisting_detection"
+  | "include_in_delisting_detection"
+  | "clear_delisted_state";
+
+export interface AdminMarketDataDelistingOverrideRequest {
+  ticker: string;
+  marketCode: MarketCode;
+  action: AdminMarketDataDelistingOverrideAction;
+}
+
+export interface AdminMarketDataDelistingOverrideResponse {
+  instrument: AdminMarketDataInstrumentDto;
 }
 
 // ── Dividend ledger aggregates (KZO-135) ────────────────────────────────────

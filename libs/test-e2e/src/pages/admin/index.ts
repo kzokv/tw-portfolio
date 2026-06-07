@@ -1,1 +1,1 @@
-export * from "./AdminInstrumentsPage.js";
+export {};

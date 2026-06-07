@@ -24,8 +24,7 @@ const BREADCRUMB_FALLBACK_MAP: ReadonlyArray<BreadcrumbFallbackEntry> = [
   { pathname: "/admin/users", label: "Users" },
   { pathname: "/admin/invites", label: "Invites" },
   { pathname: "/admin/audit-log", label: "Audit Log" },
-  { pathname: "/admin/providers", label: "Provider Console" },
-  { pathname: "/admin/instruments", label: "Instruments" },
+  { pathname: "/admin/market-data", label: "Market Data" },
   { pathname: "/admin/settings", label: "Settings" },
   { pathname: "/admin", label: "Admin" },
 
@@ -61,6 +60,15 @@ export function resolveBreadcrumbTitle(pathname: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Resolve only an exact path label. Breadcrumb segment fallback calls this so
+ * deeper paths such as `/admin/market-data/KR/overview` do not label every
+ * child segment as the longest matching parent.
+ */
+export function resolveExactBreadcrumbTitle(pathname: string): string | null {
+  return BREADCRUMB_FALLBACK_MAP.find((entry) => entry.pathname === pathname)?.label ?? null;
 }
 
 /** Exposed for unit tests / debugging. */

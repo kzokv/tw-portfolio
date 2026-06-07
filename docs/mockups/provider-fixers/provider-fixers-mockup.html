@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Market Data Provider Fixers Mockup</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --line: #d8e0eb;
+      --line-strong: #b8c5d6;
+      --ink: #101827;
+      --text: #243044;
+      --muted: #66758a;
+      --blue: #2563eb;
+      --blue-soft: #dbeafe;
+      --green: #15803d;
+      --green-soft: #dcfce7;
+      --amber: #b45309;
+      --amber-soft: #fef3c7;
+      --red: #b91c1c;
+      --red-soft: #fee2e2;
+      --slate: #1b2638;
+      --shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .screen {
+      display: none;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      background: #172033;
+      color: #dbe4f0;
+      padding: 18px 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 20px;
+      color: #ffffff;
+      font-weight: 750;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      background: #e2e8f0;
+      color: #172033;
+      font-size: 13px;
+    }
+
+    .nav-title {
+      padding: 14px 10px 8px;
+      color: #91a0b4;
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    .nav-item.active {
+      background: #263247;
+      color: #ffffff;
+    }
+
+    .nav-icon {
+      width: 18px;
+      color: #94a3b8;
+      text-align: center;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 22px 28px 38px;
+    }
+
+    .topbar,
+    .row-between {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .topbar {
+      margin-bottom: 14px;
+    }
+
+    .breadcrumbs {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      color: var(--ink);
+      font-size: 19px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .toolbar,
+    .chips {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #ffffff;
+    }
+
+    .button.danger {
+      border-color: #fca5a5;
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .button.disabled {
+      border-color: var(--line);
+      background: #eef2f7;
+      color: #91a0b4;
+    }
+
+    .market-strip,
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #eaf0f7;
+      overflow-x: auto;
+    }
+
+    .market-strip {
+      margin: 14px 0 12px;
+    }
+
+    .tabs {
+      margin: 12px 0 16px;
+    }
+
+    .market-tab,
+    .tab {
+      min-height: 34px;
+      padding: 7px 12px;
+      border-radius: 6px;
+      color: #4b5a6f;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .market-tab.active,
+    .tab.active {
+      background: #ffffff;
+      color: var(--blue);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .pill.ok {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .pill.info {
+      background: var(--blue-soft);
+      color: #1d4ed8;
+    }
+
+    .pill.warn {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .pill.danger {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .pill.muted {
+      background: #edf2f7;
+      color: #526071;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .panel,
+    .table-wrap,
+    .scope-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .panel {
+      padding: 14px;
+    }
+
+    .metric {
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: 24px;
+      font-weight: 850;
+    }
+
+    .metric-note {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .filter-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 140px 160px 170px 160px auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .field,
+    .select,
+    .input-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #ffffff;
+      color: #334155;
+      font-size: 13px;
+      min-width: 0;
+    }
+
+    .field span,
+    .select span,
+    .input-box span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #4b5a6f;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .ticker {
+      color: var(--ink);
+      font-weight: 850;
+    }
+
+    .name {
+      margin-top: 2px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .icon-btn {
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--text);
+      font-weight: 850;
+    }
+
+    .footer-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: #fbfcfe;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .scope-card {
+      padding: 14px;
+      min-height: 142px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .scope-card.active {
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .scope-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #ffffff;
+      font-size: 13px;
+    }
+
+    .check-box {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      background: #ffffff;
+    }
+
+    .check-box.checked {
+      border-color: var(--blue);
+      background: var(--blue);
+    }
+
+    .check-box.checked::after {
+      content: "";
+      width: 5px;
+      height: 10px;
+      border: solid #ffffff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    .kv {
+      display: grid;
+      gap: 8px;
+    }
+
+    .kv-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 34px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      background: #f8fafc;
+      font-size: 13px;
+    }
+
+    .kv-row span:first-child {
+      color: var(--muted);
+    }
+
+    .callout {
+      display: flex;
+      gap: 10px;
+      padding: 11px 12px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e40af;
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .callout.warn {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: #78350f;
+    }
+
+    .progress {
+      height: 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      background: var(--blue);
+    }
+
+    .mobile-shell {
+      width: 390px;
+      min-height: 100vh;
+      margin: 0 auto;
+      border-left: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      background: var(--bg);
+    }
+
+    .mobile-top {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .mobile-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .mobile-top strong {
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .mobile-top span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .mobile-body {
+      padding: 14px;
+    }
+
+    .mobile-market-strip,
+    .mobile-tabs {
+      display: flex;
+      gap: 4px;
+      margin-top: 12px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #eaf0f7;
+      overflow-x: auto;
+    }
+
+    .mobile-card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mobile-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: var(--shadow);
+      padding: 13px;
+    }
+
+    .mobile-card + .mobile-card {
+      margin-top: 0;
+    }
+
+    .mobile-actions {
+      position: sticky;
+      bottom: 0;
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+    }
+
+    .wide {
+      width: 100%;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        display: block;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .main {
+        padding: 16px;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .filter-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="screen" data-screen="au-instruments-desktop">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">TW</span><span>Portfolio Admin</span></div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item"><span class="nav-icon">#</span> Overview</div>
+        <div class="nav-item active"><span class="nav-icon">M</span> Market data</div>
+        <div class="nav-item"><span class="nav-icon">U</span> Users</div>
+        <div class="nav-item"><span class="nav-icon">A</span> Audit log</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <div class="breadcrumbs">Admin / Market data / AU / Instruments</div>
+            <h1>AU Market Data</h1>
+            <div class="subtle">Catalog, bars, and enrichment stay provider-owned inside one market workspace.</div>
+          </div>
+          <div class="toolbar">
+            <button class="button">Refresh</button>
+            <button class="button primary">Sync catalog</button>
+            <button class="button">Sync GICS</button>
+          </div>
+        </div>
+        <nav class="market-strip">
+          <div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab active">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div>
+        </nav>
+        <div class="chips">
+          <span class="pill info">catalog: twelve-data-au</span>
+          <span class="pill ok">bars/dividends: yahoo-finance-au</span>
+          <span class="pill muted">enrichment: asx-gics-csv</span>
+        </div>
+        <nav class="tabs">
+          <div class="tab">Overview</div><div class="tab active">Instruments</div><div class="tab">Backfill</div><div class="tab">Purge data</div><div class="tab">Operations</div><div class="tab">Logs</div>
+        </nav>
+        <div class="grid-4">
+          <div class="metric"><div class="metric-label">AU instruments</div><div class="metric-value">2,418</div><div class="metric-note">catalog rows</div></div>
+          <div class="metric"><div class="metric-label">Pending/failed</div><div class="metric-value">36</div><div class="metric-note">preview before enqueue</div></div>
+          <div class="metric"><div class="metric-label">Retired</div><div class="metric-value">9</div><div class="metric-note">app support state</div></div>
+          <div class="metric"><div class="metric-label">Delisting override</div><div class="metric-value">7</div><div class="metric-note">AU/KR only</div></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="filter-row">
+          <div class="field"><span>Search ticker, ISIN, or name</span></div>
+          <div class="select"><span>Status: listed</span></div>
+          <div class="select"><span>Support: active</span></div>
+          <div class="select"><span>Backfill: failed</span></div>
+          <div class="select"><span>Sort: oldest data</span></div>
+          <button class="button">Apply</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <colgroup>
+              <col style="width: 25%" /><col style="width: 13%" /><col style="width: 15%" /><col style="width: 14%" /><col style="width: 17%" /><col style="width: 16%" />
+            </colgroup>
+            <thead>
+              <tr><th>Instrument</th><th>Catalog status</th><th>Support state</th><th>Backfill</th><th>Owning providers</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><div class="ticker">BHP.AX</div><div class="name">BHP Group Limited</div></td>
+                <td><span class="pill ok">listed</span></td>
+                <td><span class="pill ok">supported</span></td>
+                <td><span class="pill danger">failed</span></td>
+                <td><div class="chips"><span class="pill info">TD</span><span class="pill ok">Yahoo</span></div></td>
+                <td><div class="row-actions"><button class="icon-btn">B</button><button class="icon-btn">R</button><button class="icon-btn">D</button></div></td>
+              </tr>
+              <tr>
+                <td><div class="ticker">ABC.AX</div><div class="name">Abacus Storage King</div></td>
+                <td><span class="pill warn">delisted</span></td>
+                <td><span class="pill muted">retired</span></td>
+                <td><span class="pill muted">skipped</span></td>
+                <td><div class="chips"><span class="pill info">TD</span><span class="pill muted">ASX GICS</span></div></td>
+                <td><div class="row-actions"><button class="icon-btn">U</button><button class="icon-btn">S</button></div></td>
+              </tr>
+              <tr>
+                <td><div class="ticker">WES.AX</div><div class="name">Wesfarmers Limited</div></td>
+                <td><span class="pill ok">listed</span></td>
+                <td><span class="pill warn">unsupported</span></td>
+                <td><span class="pill warn">pending</span></td>
+                <td><div class="chips"><span class="pill info">TD</span><span class="pill ok">Yahoo</span></div></td>
+                <td><div class="row-actions"><button class="icon-btn">B</button><button class="icon-btn">S</button></div></td>
+              </tr>
+              <tr>
+                <td><div class="ticker">VAS.AX</div><div class="name">Vanguard Australian Shares Index ETF</div></td>
+                <td><span class="pill ok">listed</span></td>
+                <td><span class="pill ok">supported</span></td>
+                <td><span class="pill ok">ready</span></td>
+                <td><div class="chips"><span class="pill info">TD</span><span class="pill ok">Yahoo</span><span class="pill muted">GICS</span></div></td>
+                <td><div class="row-actions"><button class="icon-btn">P</button><button class="icon-btn">R</button></div></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="footer-strip"><span>Showing failed/pending AU rows. Delisting override is separate from retirement.</span><div class="toolbar"><button class="button">Previous</button><button class="button">Next</button></div></div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="au-instruments-mobile">
+    <div class="mobile-shell">
+      <div class="mobile-top">
+        <div class="mobile-top-row"><div><strong>AU Market Data</strong><span>/admin/market-data/AU/instruments</span></div><button class="icon-btn">F</button></div>
+        <div class="mobile-market-strip"><div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab active">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></div>
+        <div class="mobile-tabs"><div class="tab active">Instruments</div><div class="tab">Backfill</div><div class="tab">Purge</div><div class="tab">Ops</div></div>
+      </div>
+      <div class="mobile-body stack">
+        <div class="chips"><span class="pill info">twelve-data-au</span><span class="pill ok">yahoo-finance-au</span><span class="pill muted">asx-gics-csv</span></div>
+        <div class="grid-2">
+          <div class="metric"><div class="metric-label">Rows</div><div class="metric-value">2,418</div></div>
+          <div class="metric"><div class="metric-label">Failed</div><div class="metric-value">36</div></div>
+        </div>
+        <div class="field"><span>Search ticker, status, support state</span></div>
+        <div class="mobile-card-list">
+          <div class="mobile-card">
+            <div class="row-between"><div><div class="ticker">BHP.AX</div><div class="name">BHP Group Limited</div></div><span class="pill danger">failed</span></div>
+            <div class="chips" style="margin-top:10px"><span class="pill ok">listed</span><span class="pill ok">supported</span><span class="pill info">TD catalog</span><span class="pill ok">Yahoo data</span></div>
+            <div class="toolbar" style="margin-top:10px"><button class="button">Backfill</button><button class="button">Retire</button><button class="button">Purge</button></div>
+          </div>
+          <div class="mobile-card">
+            <div class="row-between"><div><div class="ticker">ABC.AX</div><div class="name">Abacus Storage King</div></div><span class="pill warn">delisted</span></div>
+            <div class="chips" style="margin-top:10px"><span class="pill muted">retired</span><span class="pill muted">override available</span></div>
+            <div class="toolbar" style="margin-top:10px"><button class="button">Unretire</button><button class="button">Undelete</button></div>
+          </div>
+          <div class="mobile-card">
+            <div class="row-between"><div><div class="ticker">WES.AX</div><div class="name">Wesfarmers Limited</div></div><span class="pill warn">pending</span></div>
+            <div class="chips" style="margin-top:10px"><span class="pill ok">listed</span><span class="pill warn">unsupported</span></div>
+            <div class="toolbar" style="margin-top:10px"><button class="button">Support state</button><button class="button">Preview</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="mobile-actions"><button class="button primary wide">Sync catalog</button><button class="button wide">Sync GICS</button></div>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="tw-backfill-desktop">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">TW</span><span>Portfolio Admin</span></div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item active"><span class="nav-icon">M</span> Market data</div>
+        <div class="nav-item"><span class="nav-icon">J</span> Jobs</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div><div class="breadcrumbs">Admin / Market data / TW / Backfill</div><h1>TW Backfill</h1><div class="subtle">Use owned/monitored scope or pick supported catalog rows. Preview freezes the exact targets before execution.</div></div>
+          <div class="toolbar"><button class="button">Sync catalog first</button><button class="button primary">Preview selected</button></div>
+        </div>
+        <nav class="market-strip"><div class="market-tab active">TW</div><div class="market-tab">US</div><div class="market-tab">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></nav>
+        <div class="chips"><span class="pill info">provider: finmind-tw</span><span class="pill warn">budget: 600/hr shared</span><span class="pill ok">frozen preview required</span></div>
+        <nav class="tabs"><div class="tab">Overview</div><div class="tab">Instruments</div><div class="tab active">Backfill</div><div class="tab">Purge data</div><div class="tab">Operations</div><div class="tab">Logs</div></nav>
+        <div class="grid-3">
+          <div class="scope-card"><div class="scope-top"><h3>Owned or monitored</h3><span class="pill ok">safe</span></div><p class="subtle">All supported instruments in open positions or monitored tickers across users. Demo users optional.</p><strong>1,284 targets</strong></div>
+          <div class="scope-card active"><div class="scope-top"><h3>Supported instruments</h3><span class="pill info">active</span></div><p class="subtle">Filter current catalog rows, check exact tickers, or preview all matching filters.</p><strong>12 selected</strong></div>
+          <div class="scope-card"><div class="scope-top"><h3>Large previews</h3><span class="pill danger">typed</span></div><p class="subtle">100+ targets require typed confirmation. 5,000+ targets are rejected until narrowed.</p><strong>details modal</strong></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="grid-2">
+          <div class="panel stack">
+            <div class="row-between"><h2>Supported instrument picker</h2><span class="pill info">URL filters</span></div>
+            <div class="grid-3">
+              <div class="field"><span>Search: 2330</span></div>
+              <div class="field"><span>Support: supported</span></div>
+              <div class="field"><span>Backfill: pending</span></div>
+            </div>
+            <div class="table-wrap" style="box-shadow:none">
+              <table>
+                <thead><tr><th></th><th>Ticker</th><th>Support</th><th>Backfill</th><th>Providers</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="check-box checked"></span></td><td><div class="ticker">2330</div><div class="name">Taiwan Semiconductor</div></td><td><span class="pill ok">supported</span></td><td><span class="pill warn">pending</span></td><td>finmind-tw</td></tr>
+                  <tr><td><span class="check-box checked"></span></td><td><div class="ticker">0050</div><div class="name">Yuanta Taiwan 50 ETF</div></td><td><span class="pill ok">supported</span></td><td><span class="pill warn">pending</span></td><td>finmind-tw</td></tr>
+                  <tr><td><span class="check-box"></span></td><td><div class="ticker">2317</div><div class="name">Hon Hai Precision</div></td><td><span class="pill ok">supported</span></td><td><span class="pill ok">ready</span></td><td>finmind-tw</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="toolbar"><button class="button primary">Preview selected</button><button class="button">Preview all matching filters</button></div>
+          </div>
+          <div class="panel stack">
+            <div class="row-between"><h2>Frozen preview</h2><span class="pill ok">token valid 30m</span></div>
+            <div class="kv">
+              <div class="kv-row"><span>Scope</span><strong>selected_catalog_rows</strong></div>
+              <div class="kv-row"><span>Operation</span><strong>OP-BF-20260607</strong></div>
+              <div class="kv-row"><span>Exact targets</span><strong>12 rows</strong></div>
+              <div class="kv-row"><span>Affected users</span><strong>3 users / 4 accounts</strong></div>
+              <div class="kv-row"><span>Estimated jobs</span><strong>12</strong></div>
+              <div class="kv-row"><span>Unsupported</span><strong>2 skipped</strong></div>
+            </div>
+            <div class="table-wrap" style="box-shadow:none">
+              <table>
+                <thead><tr><th>Ticker</th><th>Name</th><th>Status</th></tr></thead>
+                <tbody>
+                  <tr><td class="ticker">2330</td><td>Taiwan Semiconductor</td><td><span class="pill warn">pending</span></td></tr>
+                  <tr><td class="ticker">0050</td><td>Yuanta Taiwan 50 ETF</td><td><span class="pill warn">pending</span></td></tr>
+                  <tr><td class="ticker">00679B</td><td>Cathay US Treasury 1-3Y</td><td><span class="pill warn">pending</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="toolbar"><button class="button primary">Execute backfill</button><button class="button">View target details</button></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="tw-backfill-mobile">
+    <div class="mobile-shell">
+      <div class="mobile-top">
+        <div class="mobile-top-row"><div><strong>TW Backfill</strong><span>/admin/market-data/TW/backfill</span></div><button class="icon-btn">P</button></div>
+        <div class="mobile-market-strip"><div class="market-tab active">TW</div><div class="market-tab">US</div><div class="market-tab">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></div>
+        <div class="mobile-tabs"><div class="tab">Inst</div><div class="tab active">Backfill</div><div class="tab">Purge</div><div class="tab">Ops</div></div>
+      </div>
+      <div class="mobile-body stack">
+        <div class="chips"><span class="pill info">finmind-tw</span><span class="pill ok">frozen preview</span></div>
+        <div class="scope-card"><div class="scope-top"><h3>Owned or monitored</h3><span class="pill ok">safe</span></div><p class="subtle">All supported instruments across user positions and monitors. Demo users optional.</p><strong>1,284 targets</strong></div>
+        <div class="scope-card active"><div class="scope-top"><h3>Supported instruments</h3><span class="pill info">selected</span></div><p class="subtle">Filter current catalog rows and check exact tickers.</p><strong>12 selected</strong></div>
+        <div class="field"><span>Search 2330 / support supported / backfill pending</span></div>
+        <div class="mobile-card-list">
+          <div class="mobile-card"><div class="row-between"><div><div class="ticker">2330</div><div class="name">Taiwan Semiconductor</div></div><span class="check-box checked"></span></div><div class="chips" style="margin-top:10px"><span class="pill ok">supported</span><span class="pill warn">pending</span></div></div>
+          <div class="mobile-card"><div class="row-between"><div><div class="ticker">0050</div><div class="name">Yuanta Taiwan 50 ETF</div></div><span class="check-box checked"></span></div><div class="chips" style="margin-top:10px"><span class="pill ok">supported</span><span class="pill warn">pending</span></div></div>
+        </div>
+        <div class="mobile-card">
+          <div class="row-between"><h2>Frozen preview</h2><span class="pill ok">30m</span></div>
+          <div class="kv" style="margin-top:10px">
+            <div class="kv-row"><span>Scope</span><strong>selected rows</strong></div>
+            <div class="kv-row"><span>Targets</span><strong>12 exact</strong></div>
+            <div class="kv-row"><span>Users</span><strong>3</strong></div>
+            <div class="kv-row"><span>Unsupported</span><strong>2 skipped</strong></div>
+            <div class="kv-row"><span>Provider</span><strong>finmind-tw</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="mobile-actions"><button class="button primary wide">Execute backfill</button><button class="button wide">Preview all filters</button></div>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="au-purge-desktop">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">TW</span><span>Portfolio Admin</span></div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item active"><span class="nav-icon">M</span> Market data</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div><div class="breadcrumbs">Admin / Market data / AU / Purge data</div><h1>AU Purge Data</h1><div class="subtle">Delete stored data only, or delete then explicitly refill. Retirement and catalog deletion are separate.</div></div>
+          <div class="toolbar"><button class="button">Dry-run</button><button class="button danger">Purge selected</button></div>
+        </div>
+        <nav class="market-strip"><div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab active">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></nav>
+        <div class="chips"><span class="pill info">catalog: twelve-data-au</span><span class="pill ok">data: yahoo-finance-au</span><span class="pill muted">enrichment: asx-gics-csv</span></div>
+        <nav class="tabs"><div class="tab">Overview</div><div class="tab">Instruments</div><div class="tab">Backfill</div><div class="tab active">Purge data</div><div class="tab">Operations</div><div class="tab">Logs</div></nav>
+        <div class="grid-2">
+          <div class="panel stack">
+            <div class="row-between"><h2>Selected data categories</h2><span class="pill warn">dry-run required</span></div>
+            <div class="grid-2">
+              <div class="check-row"><span class="check-box checked"></span><span>Price bars</span></div>
+              <div class="check-row"><span class="check-box checked"></span><span>Dividends</span></div>
+              <div class="check-row"><span class="check-box checked"></span><span>Backfill/refresh history</span></div>
+              <div class="check-row"><span class="check-box checked"></span><span>Provider operation logs</span></div>
+              <div class="check-row"><span class="check-box"></span><span>Provider error trail</span></div>
+              <div class="check-row"><span class="check-box checked"></span><span>ASX GICS enrichment</span></div>
+              <div class="check-row"><span class="check-box"></span><span>Admin state reset</span></div>
+              <div class="check-row"><span class="check-box"></span><span>Retirement state</span></div>
+            </div>
+            <div class="callout warn"><strong>!</strong><span>Purge all selected deletes only checked categories. Retirement state and catalog rows are never included automatically.</span></div>
+          </div>
+          <div class="panel stack">
+            <div class="row-between"><h2>Purge mode</h2><span class="pill info">full history</span></div>
+            <div class="grid-2">
+              <div class="scope-card active"><h3>Full history</h3><p class="subtle">Reset selected instruments completely for checked data categories.</p></div>
+              <div class="scope-card"><h3>Date range</h3><p class="subtle">Advanced bad-window cleanup for bars/dividends only.</p></div>
+            </div>
+            <div class="check-row"><span class="check-box"></span><span>Enqueue backfill after purge</span><span class="pill muted">off</span></div>
+            <div class="callout"><strong>i</strong><span>Delete-only frees disk and leaves data empty. Delete-then-refill queues new provider jobs after purge.</span></div>
+            <div class="toolbar"><button class="button primary">Execute purge</button><button class="button">Type PURGE AU</button></div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="panel stack">
+          <div class="row-between"><h2>Dry-run preview</h2><span class="pill danger">typed confirmation required</span></div>
+          <div class="grid-4">
+            <div class="metric"><div class="metric-label">Instruments</div><div class="metric-value">12</div><div class="metric-note">selected catalog rows</div></div>
+            <div class="metric"><div class="metric-label">Rows removed</div><div class="metric-value">842k</div><div class="metric-note">bars/dividends/logs</div></div>
+            <div class="metric"><div class="metric-label">Storage impact</div><div class="metric-value">640 MB</div><div class="metric-note">estimated</div></div>
+            <div class="metric"><div class="metric-label">Refill jobs</div><div class="metric-value">0</div><div class="metric-note">toggle is off</div></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="au-purge-mobile">
+    <div class="mobile-shell">
+      <div class="mobile-top">
+        <div class="mobile-top-row"><div><strong>AU Purge Data</strong><span>/admin/market-data/AU/purge</span></div><button class="icon-btn">D</button></div>
+        <div class="mobile-market-strip"><div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab active">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></div>
+        <div class="mobile-tabs"><div class="tab">Inst</div><div class="tab">Backfill</div><div class="tab active">Purge</div><div class="tab">Ops</div></div>
+      </div>
+      <div class="mobile-body stack">
+        <div class="callout warn"><strong>!</strong><span>Purge deletes selected data categories. Retirement and catalog deletion are separate.</span></div>
+        <div class="mobile-card stack">
+          <h2>Categories</h2>
+          <div class="check-row"><span class="check-box checked"></span><span>Price bars</span></div>
+          <div class="check-row"><span class="check-box checked"></span><span>Dividends</span></div>
+          <div class="check-row"><span class="check-box checked"></span><span>Refresh history</span></div>
+          <div class="check-row"><span class="check-box checked"></span><span>ASX GICS enrichment</span></div>
+          <div class="check-row"><span class="check-box"></span><span>Admin state reset</span></div>
+        </div>
+        <div class="mobile-card stack">
+          <div class="row-between"><h2>Mode</h2><span class="pill info">full history</span></div>
+          <div class="check-row"><span class="check-box checked"></span><span>Full history</span></div>
+          <div class="check-row"><span class="check-box"></span><span>Date range</span></div>
+          <div class="check-row"><span class="check-box"></span><span>Enqueue backfill after purge</span><span class="pill muted">off</span></div>
+          <p class="subtle">Delete-only frees disk. Delete-then-refill queues provider jobs after purge.</p>
+          <button class="button primary wide">Execute purge</button>
+        </div>
+        <div class="mobile-card">
+          <div class="row-between"><h2>Preview</h2><span class="pill danger">confirm</span></div>
+          <div class="kv" style="margin-top:10px">
+            <div class="kv-row"><span>Instruments</span><strong>12</strong></div>
+            <div class="kv-row"><span>Rows</span><strong>842k</strong></div>
+            <div class="kv-row"><span>Storage</span><strong>640 MB</strong></div>
+            <div class="kv-row"><span>Refill jobs</span><strong>0</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="mobile-actions"><button class="button primary wide">Run dry-run</button><button class="button danger wide">Purge all selected</button></div>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="kr-mapping-desktop">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">TW</span><span>Portfolio Admin</span></div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item active"><span class="nav-icon">M</span> Market data</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div><div class="breadcrumbs">Admin / Market data / KR / Mappings</div><h1>KR Mappings</h1><div class="subtle">Yahoo KR owns durable mappings. Mapping repair does not automatically backfill.</div></div>
+          <div class="toolbar"><button class="button">Sync KR catalog</button><button class="button primary">Repair mappings</button><button class="button">Preview backfill</button></div>
+        </div>
+        <nav class="market-strip"><div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab">AU</div><div class="market-tab active">KR</div><div class="market-tab">FX</div></nav>
+        <div class="chips"><span class="pill info">catalog: twelve-data-kr</span><span class="pill warn">mapping/data: yahoo-finance-kr</span><span class="pill ok">repair_mapping outcome: per-symbol</span></div>
+        <nav class="tabs"><div class="tab">Overview</div><div class="tab">Instruments</div><div class="tab active">Mappings</div><div class="tab">Backfill</div><div class="tab">Purge data</div><div class="tab">Operations</div><div class="tab">Logs</div></nav>
+        <div class="grid-3">
+          <div class="scope-card active"><div class="scope-top"><h3>Repair mappings</h3><span class="pill warn">Yahoo KR</span></div><p class="subtle">Verify unresolved KR symbols and persist durable mappings only.</p><button class="button primary">Queue mapping repair</button></div>
+          <div class="scope-card"><div class="scope-top"><h3>Backfill rows</h3><span class="pill info">separate</span></div><p class="subtle">Explicit action after mappings/catalog state are known.</p><button class="button">Preview backfill</button></div>
+          <div class="scope-card"><div class="scope-top"><h3>Sync catalog</h3><span class="pill info">Twelve Data KR</span></div><p class="subtle">Catalog sync updates instruments, not Yahoo mappings.</p><button class="button">Sync catalog</button></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="grid-2">
+          <div class="table-wrap">
+            <table>
+              <colgroup><col style="width:23%" /><col style="width:23%" /><col style="width:17%" /><col style="width:20%" /><col style="width:17%" /></colgroup>
+              <thead><tr><th>Source</th><th>Candidate</th><th>State</th><th>Evidence</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr><td class="ticker">005930</td><td>005930.KS</td><td><span class="pill ok">verified</span></td><td>quote + exchange</td><td><button class="button">Persist</button></td></tr>
+                <tr><td class="ticker">035720</td><td>035720.KQ</td><td><span class="pill warn">candidate</span></td><td>chart probe</td><td><button class="button">Review</button></td></tr>
+                <tr><td class="ticker">000660</td><td>-</td><td><span class="pill danger">missing</span></td><td>no Yahoo match</td><td><button class="button disabled">Skip</button></td></tr>
+              </tbody>
+            </table>
+            <div class="footer-strip"><span>Mapping repair persists mappings only. It does not enqueue backfill.</span><button class="button">Export</button></div>
+          </div>
+          <div class="panel stack">
+            <div class="row-between"><h2>Operation contract</h2><span class="pill warn">mapping-only</span></div>
+            <div class="kv">
+              <div class="kv-row"><span>Repair provider</span><strong>yahoo-finance-kr</strong></div>
+              <div class="kv-row"><span>Catalog provider</span><strong>twelve-data-kr</strong></div>
+              <div class="kv-row"><span>Backfill side effect</span><strong>none</strong></div>
+              <div class="kv-row"><span>Separate next action</span><strong>backfill_catalog_rows</strong></div>
+            </div>
+            <div class="callout warn"><strong>!</strong><span>After mappings are repaired, use Backfill to preview jobs and storage before downloading KR bars/dividends.</span></div>
+            <div class="timeline-row" style="display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center"><span>repair_mapping</span><div><strong>34 rows</strong><div class="progress"><div class="bar" style="width:45%"></div></div></div><span class="pill warn">queued</span></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen" data-screen="kr-mapping-mobile">
+    <div class="mobile-shell">
+      <div class="mobile-top">
+        <div class="mobile-top-row"><div><strong>KR Mappings</strong><span>/admin/market-data/KR/mappings</span></div><button class="icon-btn">K</button></div>
+        <div class="mobile-market-strip"><div class="market-tab">TW</div><div class="market-tab">US</div><div class="market-tab">AU</div><div class="market-tab active">KR</div><div class="market-tab">FX</div></div>
+        <div class="mobile-tabs"><div class="tab">Inst</div><div class="tab active">Mappings</div><div class="tab">Backfill</div><div class="tab">Ops</div></div>
+      </div>
+      <div class="mobile-body stack">
+        <div class="chips"><span class="pill info">twelve-data-kr</span><span class="pill warn">yahoo-finance-kr</span></div>
+        <div class="callout warn"><strong>!</strong><span>Mapping repair persists verified Yahoo symbols only. Backfill is a separate previewed action.</span></div>
+        <div class="mobile-card">
+          <div class="row-between"><div><div class="ticker">005930</div><div class="name">Samsung Electronics</div></div><span class="pill ok">verified</span></div>
+          <div class="kv" style="margin-top:10px"><div class="kv-row"><span>Candidate</span><strong>005930.KS</strong></div><div class="kv-row"><span>Evidence</span><strong>quote + exchange</strong></div></div>
+          <div class="toolbar" style="margin-top:10px"><button class="button">Persist</button><button class="button">Backfill later</button></div>
+        </div>
+        <div class="mobile-card">
+          <div class="row-between"><div><div class="ticker">035720</div><div class="name">Kakao Corp</div></div><span class="pill warn">candidate</span></div>
+          <div class="kv" style="margin-top:10px"><div class="kv-row"><span>Candidate</span><strong>035720.KQ</strong></div><div class="kv-row"><span>Evidence</span><strong>chart probe</strong></div></div>
+          <div class="toolbar" style="margin-top:10px"><button class="button">Review</button><button class="button">Skip</button></div>
+        </div>
+        <div class="mobile-card">
+          <h2>Operation contract</h2>
+          <div class="kv" style="margin-top:10px">
+            <div class="kv-row"><span>Repair</span><strong>Yahoo KR</strong></div>
+            <div class="kv-row"><span>Side effect</span><strong>none</strong></div>
+            <div class="kv-row"><span>Next</span><strong>Preview backfill</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="mobile-actions"><button class="button primary wide">Queue mapping repair</button><button class="button wide">Preview KR backfill</button></div>
+    </div>
+  </section>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("screen") || "au-instruments-desktop";
+    const screens = Array.from(document.querySelectorAll(".screen"));
+    const selected = screens.find((screen) => screen.dataset.screen === requested) || screens[0];
+    selected.classList.add("active");
+  </script>
+</body>
+</html>

@@ -1052,12 +1052,66 @@ export interface AdminInstrumentRow {
   marketCode: string;
   name: string | null;
   instrumentType: string | null;
+  supportState: "supported" | "retired_by_admin" | "unsupported_by_provider";
+  barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
   delistedAt: string | null;
   statusReason: string | null;
   lastSeenInCatalogAt: string | null;
   absenceStreak: number;
   delistingDetectionExcluded: boolean;
   updatedAt: string;
+}
+
+export interface AdminMarketDataBackfillTargetRow {
+  ticker: string;
+  marketCode: MarketCode;
+}
+
+export interface ListAdminMarketDataBackfillTargetsOptions {
+  marketCode: MarketCode;
+  includeDemoUsers?: boolean;
+}
+
+export interface CountAdminMarketDataTargetOwnershipOptions {
+  targets: AdminMarketDataBackfillTargetRow[];
+}
+
+export interface AdminMarketDataTargetOwnershipCounts {
+  userCount: number;
+  accountCount: number;
+}
+
+export type AdminMarketDataPurgeCategory =
+  | "price_bars"
+  | "dividends"
+  | "backfill_jobs"
+  | "provider_operation_outcomes"
+  | "provider_error_trail"
+  | "provider_resolution_mappings"
+  | "asx_gics_enrichment"
+  | "admin_state_reset";
+
+export interface AdminMarketDataPurgeInput {
+  providerId: string;
+  marketCode: MarketCode;
+  categories: AdminMarketDataPurgeCategory[];
+  targets: AdminMarketDataBackfillTargetRow[];
+  fullHistory?: boolean;
+  startDate?: string | null;
+  endDate?: string | null;
+  dryRun: boolean;
+}
+
+export interface AdminMarketDataPurgeCounts {
+  priceBars: number;
+  dividends: number;
+  backfillJobs: number;
+  providerOperationOutcomes: number;
+  providerErrorTrail: number;
+  providerResolutionMappings: number;
+  asxGicsEnrichment: number;
+  adminStateReset: number;
+  total: number;
 }
 
 export interface CatalogSyncResult {
@@ -1203,6 +1257,7 @@ export type ProviderOperationPhase =
   | "cancelled";
 
 export type ProviderOperationLogLevel = "info" | "warning" | "error";
+export type ProviderOperationMarketCode = MarketCode | "FX";
 
 export type ProviderOperationScopeType = "selected_items" | "filter";
 
@@ -1224,7 +1279,7 @@ export interface ProviderOperationFilterScope {
 export interface ProviderOperationRecord {
   id: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   operationType: string;
   phase: ProviderOperationPhase;
   errorCode: string | null;
@@ -1248,7 +1303,7 @@ export interface ProviderOperationRecord {
 export interface CreateProviderOperationInput {
   id?: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   operationType: string;
   phase: ProviderOperationPhase;
   errorCode?: string | null;
@@ -1288,7 +1343,7 @@ export interface UpdateProviderOperationInput {
 
 export interface ListProviderOperationsOptions {
   providerId?: string;
-  marketCode?: MarketCode;
+  marketCode?: ProviderOperationMarketCode;
   phases?: ProviderOperationPhase[];
   includeOperationId?: string;
   page: number;
@@ -1351,7 +1406,7 @@ export type ProviderOperationOutcomeState =
 export interface ProviderOperationOutcomeRecord {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   sourceSymbol: string;
   providerSymbol: string | null;
   action: string;
@@ -1369,7 +1424,7 @@ export interface ProviderOperationOutcomeRecord {
 export interface UpsertProviderOperationOutcomeInput {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: ProviderOperationMarketCode;
   sourceSymbol: string;
   providerSymbol?: string | null;
   action: string;
@@ -2276,10 +2331,9 @@ export interface Persistence {
     options?: UpsertInstrumentCatalogOptions,
   ): Promise<CatalogSyncResult>;
 
-  // KZO-195 — admin overrides for absence-based delisting detection.
-  // The route layer (`POST /admin/instruments/:ticker/:marketCode/{undelete,exclude}`)
-  // calls these. The persistence layer writes the audit row in the same
-  // transaction as the mutation, so the route is a thin pass-through.
+  // Admin overrides for absence-based delisting detection and support state.
+  // Route handlers supply the explicit marketCode so mutations never spill
+  // across exchanges that share a ticker.
   instrumentAdminGet(ticker: string, marketCode: string): Promise<AdminInstrumentRow | null>;
   undeleteInstrument(
     ticker: string,
@@ -2292,19 +2346,38 @@ export interface Persistence {
     excluded: boolean,
     actorUserId: string,
   ): Promise<AdminInstrumentRow>;
-  // KZO-195 — paginated admin listing for `/admin/instruments`. Filters by
-  // marketCode; returns items + total count + page/limit echo. Caller (route
-  // layer) layers the `thresholds` block on top of this.
+  setInstrumentSupportState(
+    ticker: string,
+    marketCode: string,
+    supportState: AdminInstrumentRow["supportState"],
+    actorUserId: string,
+  ): Promise<AdminInstrumentRow>;
+  // Paginated admin market-data instrument listing. Filters by marketCode;
+  // returns items + total count + page/limit echo. Caller layers the
+  // `thresholds` block on top of this.
   listAdminInstruments(opts: {
     marketCode: string;
     page: number;
     limit: number;
+    status?: "listed" | "delisted" | "excluded" | "all";
+    supportState?: AdminInstrumentRow["supportState"] | "all";
+    search?: string;
+    instrumentType?: InstrumentType | "all";
+    backfillStatus?: "pending" | "backfilling" | "ready" | "failed" | "all";
+    sort?: "ticker_asc" | "ticker_desc" | "updated_desc" | "updated_asc";
   }): Promise<{
     items: AdminInstrumentRow[];
     total: number;
     page: number;
     limit: number;
   }>;
+  listAdminMarketDataBackfillTargets(
+    options: ListAdminMarketDataBackfillTargetsOptions,
+  ): Promise<AdminMarketDataBackfillTargetRow[]>;
+  countAdminMarketDataTargetOwnership(
+    options: CountAdminMarketDataTargetOwnershipOptions,
+  ): Promise<AdminMarketDataTargetOwnershipCounts>;
+  purgeAdminMarketData(input: AdminMarketDataPurgeInput): Promise<AdminMarketDataPurgeCounts>;
 
   // KZO-164: FX rates (Frankfurter v2 ingestion). All three methods are required because
   // `fxRefreshWorker.ts` and the admin routes consume them through the `Persistence`

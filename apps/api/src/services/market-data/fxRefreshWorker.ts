@@ -26,7 +26,11 @@ export type StoredQuote = (typeof STORED_QUOTES)[number];
 
 export interface FxRefreshWorkerDeps {
   fxProvider: FxRateProvider;
-  persistence: Pick<Persistence, "getLatestFxRateDate" | "upsertFxRates">;
+  persistence: Pick<
+    Persistence,
+    | "getLatestFxRateDate"
+    | "upsertFxRates"
+  > & Partial<Pick<Persistence, "getProviderOperation" | "updateProviderOperation" | "createProviderOperationLog">>;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
   /** Test seam — defaults to `today_utc()`. */
   now?: () => string;
@@ -58,6 +62,63 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
   const { fxProvider, persistence, log, providerHealth } = deps;
   const storedQuotesSet = new Set<string>(STORED_QUOTES);
 
+  async function logProviderOperation(
+    providerOperationId: string | undefined,
+    phase: "running" | "paused" | "completed" | "failed" | "cancelled",
+    message: string,
+    context: Record<string, unknown>,
+    level: "info" | "warning" | "error" = "info",
+  ): Promise<void> {
+    if (!providerOperationId) return;
+    if (!persistence.createProviderOperationLog) return;
+    try {
+      await persistence.createProviderOperationLog({
+        operationId: providerOperationId,
+        phase,
+        level,
+        message,
+        context,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "fx_refresh_provider_operation_log_failed");
+    }
+  }
+
+  async function updateProviderOperation(
+    providerOperationId: string | undefined,
+    input: Omit<Parameters<Persistence["updateProviderOperation"]>[0], "id">,
+  ): Promise<void> {
+    if (!providerOperationId) return;
+    if (!persistence.getProviderOperation || !persistence.updateProviderOperation) return;
+    try {
+      const current = await persistence.getProviderOperation(providerOperationId);
+      await persistence.updateProviderOperation({
+        id: providerOperationId,
+        ...input,
+        metadata: input.metadata
+          ? { ...(current?.metadata ?? {}), ...input.metadata }
+          : input.metadata,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "fx_refresh_provider_operation_update_failed");
+    }
+  }
+
+  async function shouldRunProviderOperation(providerOperationId: string | undefined): Promise<boolean> {
+    if (!providerOperationId) return true;
+    if (!persistence.getProviderOperation) return true;
+    const operation = await persistence.getProviderOperation(providerOperationId);
+    if (operation?.phase !== "paused" && operation?.phase !== "cancelled") return true;
+    await logProviderOperation(
+      providerOperationId,
+      operation.phase,
+      `fx_refresh_skipped provider=${operation.providerId} phase=${operation.phase}`,
+      { providerId: operation.providerId, marketCode: operation.marketCode },
+      "warning",
+    );
+    return false;
+  }
+
   async function safeRecordOutcome(outcome: import("./providerHealth.js").ProviderOutcome): Promise<void> {
     if (!providerHealth) return;
     try {
@@ -81,9 +142,22 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
       startDate: data.startDate ?? "",
       endDate: data.endDate ?? "",
       bases,
+      providerOperationId: data.providerOperationId,
     };
 
     try {
+      if (!(await shouldRunProviderOperation(normalized.providerOperationId))) return;
+      await updateProviderOperation(normalized.providerOperationId, {
+        phase: "running",
+        startedAt: new Date().toISOString(),
+        metadata: { progressPercent: 0, bases: normalized.bases },
+      });
+      await logProviderOperation(
+        normalized.providerOperationId,
+        "running",
+        `fx_refresh_started bases=${normalized.bases.join(",")}`,
+        { trigger, bases: normalized.bases },
+      );
       const window = await deriveFetchWindow(normalized, persistence, deps.now);
 
       const collected: FxRate[] = [];
@@ -118,6 +192,21 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
       // KZO-177: feed the success outcome to the health aggregator AFTER the
       // upsert lands, so a partial failure never reports as a healthy run.
       await safeRecordOutcome({ kind: "success" });
+      await updateProviderOperation(normalized.providerOperationId, {
+        phase: "completed",
+        completedAt: new Date().toISOString(),
+        metadata: {
+          progressPercent: 100,
+          rowsUpserted: upserted,
+          dateRange: { startDate: window.startDate, endDate: window.endDate },
+        },
+      });
+      await logProviderOperation(
+        normalized.providerOperationId,
+        "completed",
+        `fx_refresh_completed rows_upserted=${upserted}`,
+        { trigger, rowsUpserted: upserted, dateRange: { startDate: window.startDate, endDate: window.endDate } },
+      );
     } catch (error) {
       log.error({ error, trigger }, "fx_refresh_failed");
       // KZO-177: classify outcome before re-throw. Frankfurter has no rate
@@ -137,6 +226,24 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
           context: { trigger },
         });
       }
+      const terminal = job.retryCount >= job.retryLimit;
+      await updateProviderOperation(normalized.providerOperationId, {
+        phase: terminal ? "failed" : "running",
+        completedAt: terminal ? new Date().toISOString() : null,
+        metadata: {
+          progressPercent: 0,
+          failureReason: error instanceof Error ? error.message : String(error),
+          retryCount: job.retryCount,
+          retryLimit: job.retryLimit,
+        },
+      });
+      await logProviderOperation(
+        normalized.providerOperationId,
+        terminal ? "failed" : "running",
+        `fx_refresh_${terminal ? "failed" : "attempt_failed"} reason=${error instanceof Error ? error.message : String(error)}`,
+        { trigger, retryCount: job.retryCount, retryLimit: job.retryLimit },
+        terminal ? "error" : "warning",
+      );
       throw error;
     }
   };

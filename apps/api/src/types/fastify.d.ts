@@ -6,6 +6,7 @@ import type { PgBoss } from "pg-boss";
 import type { UserRole } from "../persistence/types.js";
 import type { MarketDataRegistry } from "../services/market-data/registry.js";
 import type { FundamentalsRegistry } from "../services/fundamentals/types.js";
+import type { ProviderOperationExecutionJobData } from "../services/market-data/providerOperationExecutionWorker.js";
 
 interface RequestImpersonationContext {
   active: boolean;
@@ -35,6 +36,7 @@ declare module "fastify" {
     boss: PgBoss | null;
     marketDataRegistry: MarketDataRegistry;
     fundamentalsRegistry: FundamentalsRegistry;
+    providerOperationExecutor?: (job: ProviderOperationExecutionJobData) => Promise<void>;
   }
   interface FastifyRequest {
     __sessionType?: "demo" | "oauth";

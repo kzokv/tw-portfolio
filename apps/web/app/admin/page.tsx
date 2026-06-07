@@ -1,24 +1,22 @@
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
-  AdminInstrumentsResponse,
-  AdminProvidersResponse,
+  AdminMarketDataLandingResponse,
   AdminUserListResponse,
 } from "@vakwen/shared-types";
 import { getJson } from "../../lib/api";
 import { AdminOverviewClient } from "../../components/admin/AdminOverviewClient";
 
 export default async function AdminPage() {
-  const [users, invites, providers, instruments, activity] = await Promise.all([
+  const [users, invites, marketData, activity] = await Promise.all([
     getJson<AdminUserListResponse>("/admin/users?page=1&limit=1&status=active"),
     getJson<AdminInviteListResponse>("/admin/invites?page=1&limit=1&status=pending"),
-    getJson<AdminProvidersResponse>("/admin/providers"),
-    getJson<AdminInstrumentsResponse>("/admin/instruments?marketCode=AU&page=1&limit=1"),
+    getJson<AdminMarketDataLandingResponse>("/admin/market-data"),
     getJson<AdminAuditLogResponse>("/admin/audit-log?page=1&limit=5"),
   ]);
 
   const lastUpdatedAt = [
-    ...providers.providers.map((provider) => provider.updatedAt),
+    ...marketData.markets.flatMap((market) => market.latestOperation ? [market.latestOperation.updatedAt] : []),
     ...activity.items.map((entry) => entry.createdAt),
   ].sort().at(-1) ?? new Date().toISOString();
 
@@ -26,8 +24,7 @@ export default async function AdminPage() {
     <AdminOverviewClient
       activeUsers={users.total}
       pendingInvites={invites.total}
-      instrumentCount={instruments.total}
-      providers={providers.providers}
+      markets={marketData.markets}
       recentActivity={activity.items}
       lastUpdatedAt={lastUpdatedAt}
     />

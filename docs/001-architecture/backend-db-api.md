@@ -1736,7 +1736,7 @@ else                                    → Branch 3: bare upsert (US / Yahoo pr
 
 US enablement path (future): flip `FinMindUsStockMarketDataProvider.absenceDetectionEnabled = true` — no persistence changes required.
 
-**Admin surface:** `/admin/instruments` — paginated AU instrument list with undelete (`POST /admin/instruments/:ticker/:marketCode/undelete`) and exclude toggle (`POST /admin/instruments/:ticker/:marketCode/exclude`) actions. Threshold knobs at `/admin/settings` → Catalog Absence section. See `docs/002-operations/runbook.md §23` for the operational playbook.
+**Admin surface:** `/admin/market-data/:marketCode/instruments` — market-scoped instrument list with status/support/backfill filters. Support-state mutations use the market-data BFF (`POST /admin/market-data/:marketCode/instruments/support-state`) and are separate from AU/KR delisting override semantics. The legacy standalone `/admin/instruments` backend/UI routes are retired; AU/KR undelete/exclusion controls remain a separate follow-up from support/retirement controls. Threshold knobs stay at `/admin/settings` → Catalog Absence section. See `docs/002-operations/runbook.md §23` for the operational playbook.
 
 **GICS enrichment (KZO-196):**
 
@@ -1789,12 +1789,14 @@ Status is computed on read from `computeStatus({ lastSuccessfulRun, latestSettle
 
 `latestSettledTradingDay(market, now)` is provided by the `TradingCalendarCache` wrapper (from KZO-173), which caches `getDistinctBarDates` results per request.
 
-Two admin routes are served by `adminRoutes.ts`:
+The provider health backend remains provider-scoped for back-compatible callers and operation attribution, while the admin UI uses the market-first `/admin/market-data` BFF:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/admin/providers` | Returns all 6 provider rows (including `asx-gics-csv` added in KZO-196) + last 10 error trail entries per row |
-| `POST` | `/admin/providers/:providerId/rerun` | Enqueues a provider-wide daily refresh; 60s cooldown via `last_manual_rerun_at`; writes `provider_health_rerun` audit entry. For `asx-gics-csv`, enqueues the singleton-keyed `asx-gics-sync` pg-boss job |
+| `GET` | `/admin/market-data` | Market-data landing DTO for the admin UI, aggregating market health, unresolved counts, pending/failed backfill counts, latest operation, and next action metadata |
+| `GET` | `/admin/market-data/:marketCode/*` | Market workspace BFF for overview, actions, instruments, operations, logs, backfill preview/execute, purge preview/execute, and support-state mutation |
+| `GET` | `/admin/providers` | Back-compatible provider DTO for tests/external callers; returns provider rows plus recent error trail entries per row |
+| `POST` | `/admin/providers/:providerId/rerun` | Back-compatible provider-wide refresh API; writes `provider_health_rerun` audit entry. For `asx-gics-csv`, enqueues the singleton-keyed `asx-gics-sync` pg-boss job |
 
 Holdings freshness (`dashboardFreshness.ts`):
 

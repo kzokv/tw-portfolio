@@ -329,6 +329,46 @@ describe("fxRefreshWorker — structured log emission", () => {
     ) as Record<string, unknown> | undefined;
     expect(completedEntry?.trigger).toBe("manual");
   });
+
+  it("updates and logs a correlated provider operation on success", async () => {
+    const deps = createDeps();
+    const getProviderOperation = vi.fn().mockResolvedValue({
+      id: "op-fx-1",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      phase: "queued",
+      metadata: { marketDataBff: true },
+    });
+    const updateProviderOperation = vi.fn().mockResolvedValue({});
+    const createProviderOperationLog = vi.fn().mockResolvedValue({});
+    deps.persistence.upsertFxRates.mockResolvedValue(12);
+    const handler = createFxRefreshHandler({
+      ...deps,
+      persistence: {
+        ...deps.persistence,
+        getProviderOperation,
+        updateProviderOperation,
+        createProviderOperationLog,
+      },
+    } as never);
+
+    await handler([cronJob({ providerOperationId: "op-fx-1" })]);
+
+    expect(updateProviderOperation).toHaveBeenCalledWith(expect.objectContaining({
+      id: "op-fx-1",
+      phase: "running",
+    }));
+    expect(updateProviderOperation).toHaveBeenCalledWith(expect.objectContaining({
+      id: "op-fx-1",
+      phase: "completed",
+      metadata: expect.objectContaining({ rowsUpserted: 12, progressPercent: 100 }),
+    }));
+    expect(createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "op-fx-1",
+      phase: "completed",
+      message: expect.stringContaining("fx_refresh_completed"),
+    }));
+  });
 });
 
 // ── Audit log: cron path does NOT write audit ────────────────────────────────

@@ -193,7 +193,12 @@ async function countAuRows(pool: Pool): Promise<number> {
 
 /** Minimal jobs array — handler ignores payload, but pg-boss's signature
  *  expects `JobWithMetadata<unknown>[]`. */
-const NO_JOBS: JobWithMetadata<unknown>[] = [];
+const EMPTY_GICS_SYNC_JOB = {
+  data: {},
+  retryCount: 0,
+  retryLimit: 0,
+} as JobWithMetadata<unknown>;
+const GICS_SYNC_JOBS = [EMPTY_GICS_SYNC_JOB];
 
 describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
   let pool: Pool;
@@ -239,7 +244,7 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     const { log, records } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
 
-    const metrics = await handler(NO_JOBS);
+    const metrics = await handler(GICS_SYNC_JOBS);
 
     expect((await readAuRow(pool, "AUGICS01"))?.gics_industry_group).toBe("Banks");
     expect((await readAuRow(pool, "AUGICS02"))?.gics_industry_group).toBe("Materials");
@@ -262,12 +267,12 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     const { log } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
 
-    const m1 = await handler(NO_JOBS);
+    const m1 = await handler(GICS_SYNC_JOBS);
     expect(m1.rowsUpdated).toBe(1);
     const after1 = await readAuRow(pool, "AUGICS01");
     const t1 = after1!.updated_at.getTime();
 
-    const m2 = await handler(NO_JOBS);
+    const m2 = await handler(GICS_SYNC_JOBS);
     const after2 = await readAuRow(pool, "AUGICS01");
     const t2 = after2!.updated_at.getTime();
 
@@ -289,7 +294,7 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     ]);
     const { log, records } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
-    const metrics = await handler(NO_JOBS);
+    const metrics = await handler(GICS_SYNC_JOBS);
 
     const after = await countAuRows(pool);
     expect(after).toBe(1);
@@ -316,14 +321,14 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     ]);
     const { log } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
-    await handler(NO_JOBS);
+    await handler(GICS_SYNC_JOBS);
     expect((await readAuRow(pool, "AUGICS02"))?.gics_industry_group).toBe("Materials");
 
     // Tick 2: AUGICS02 disappears from the CSV — its value must be preserved.
     provider.setRows([
       { ticker: "AUGICS01", companyName: "Banks Co", gicsIndustryGroup: "Banks" },
     ]);
-    const metrics = await handler(NO_JOBS);
+    const metrics = await handler(GICS_SYNC_JOBS);
 
     const r2 = await readAuRow(pool, "AUGICS02");
     expect(r2?.gics_industry_group).toBe("Materials"); // leave-stale
@@ -342,7 +347,7 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     ]);
     const { log } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
-    await handler(NO_JOBS);
+    await handler(GICS_SYNC_JOBS);
 
     const r = await readAuRow(pool, "AUGICS01");
     expect(r?.gics_industry_group).toBe("Synthetic Group XYZ");
@@ -356,7 +361,7 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     ]);
     const { log, records } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
-    const metrics = await handler(NO_JOBS);
+    const metrics = await handler(GICS_SYNC_JOBS);
 
     expect(metrics.rowsParsed).toBe(1);
     expect(pickRecord(records, "gics_sync_failed")).toBeUndefined();
@@ -382,7 +387,7 @@ describePostgres("KZO-196 — ASX GICS catalog sync (Postgres-direct)", () => {
     const provider = new StaticAsxGicsProvider(rows);
     const { log, records } = makeCapturingLogger();
     const handler = createAsxGicsSyncHandler({ provider, pool, log });
-    const metrics = await handler(NO_JOBS);
+    const metrics = await handler(GICS_SYNC_JOBS);
 
     expect(metrics.rowsParsed).toBeGreaterThan(5000);
     expect(pickRecord(records, "gics_sync_failed")).toBeUndefined();

@@ -90,6 +90,141 @@ describe("Provider Fixer admin routes", () => {
     if (app) await app.close();
   });
 
+  it("executes market-data provider actions with durable operation ids", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn()
+      .mockResolvedValueOnce("catalog-sync-tw")
+      .mockResolvedValueOnce("provider-op-kr")
+      .mockResolvedValueOnce("fx-refresh-job");
+    app.boss = { send: bossSend } as never;
+
+    const catalog = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/actions/execute",
+      headers,
+      payload: {
+        action: "sync_catalog",
+        providerId: "finmind-tw",
+        acknowledged: true,
+      },
+    });
+
+    expect(catalog.statusCode).toBe(200);
+    const catalogBody = catalog.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(catalogBody).toMatchObject({
+      marketCode: "TW",
+      providerId: "finmind-tw",
+      action: "sync_catalog",
+      status: "queued",
+      jobId: "catalog-sync-tw",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "catalog-sync",
+      { pendingMarkets: ["TW"], providerOperationId: catalogBody.operationId },
+      expect.objectContaining({ singletonKey: "catalog-sync:TW", priority: 5 }),
+    );
+    await expect(app.persistence.getProviderOperation(catalogBody.operationId)).resolves.toMatchObject({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      operationType: "sync_catalog",
+      phase: "queued",
+    });
+
+    const repair = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/KR/actions/execute",
+      headers,
+      payload: {
+        action: "repair_mapping",
+        providerId: "yahoo-finance-kr",
+        acknowledged: true,
+        resolverMode: "quote_first",
+      },
+    });
+
+    expect(repair.statusCode).toBe(200);
+    const repairBody = repair.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(repairBody).toMatchObject({
+      marketCode: "KR",
+      providerId: "yahoo-finance-kr",
+      action: "repair_mapping",
+      status: "queued",
+      jobId: "provider-op-kr",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "provider-operation-execution",
+      { operationId: repairBody.operationId, actorUserId: admin.userId, ipAddress: expect.any(String) },
+      expect.objectContaining({ singletonKey: `provider-operation-execution:${repairBody.operationId}`, priority: 10 }),
+    );
+    await expect(app.persistence.getProviderOperation(repairBody.operationId)).resolves.toMatchObject({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "queued",
+      metadata: expect.objectContaining({ marketDataBff: true, mappingOnly: true }),
+    });
+
+    const fxRefresh = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/FX/actions/execute",
+      headers,
+      payload: {
+        action: "refresh_fx_rates",
+        providerId: "frankfurter",
+        acknowledged: true,
+      },
+    });
+
+    expect(fxRefresh.statusCode).toBe(200);
+    const fxRefreshBody = fxRefresh.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(fxRefreshBody).toMatchObject({
+      marketCode: "FX",
+      providerId: "frankfurter",
+      action: "refresh_fx_rates",
+      status: "queued",
+      jobId: "fx-refresh-job",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "fx-refresh",
+      expect.objectContaining({ trigger: "manual", providerOperationId: fxRefreshBody.operationId }),
+      expect.objectContaining({ singletonKey: "fx-refresh", priority: 5 }),
+    );
+    await expect(app.persistence.getProviderOperation(fxRefreshBody.operationId)).resolves.toMatchObject({
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_fx_rates",
+      phase: "queued",
+      metadata: expect.objectContaining({ marketDataBff: true }),
+    });
+    expect(bossSend).not.toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("previews unresolved KR errors and executes confirmed durable mapping writes", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -232,6 +367,11 @@ describe("Provider Fixer admin routes", () => {
     await vi.waitFor(async () => {
       const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
       expect(operation?.phase).toBe("completed");
+      expect(operation?.metadata).toMatchObject({
+        mappingOnly: true,
+        enqueuedBackfillCount: 0,
+        skippedExistingBackfillCount: 0,
+      });
     });
     const outcomes = await app.inject({
       method: "GET",
@@ -250,17 +390,7 @@ describe("Provider Fixer admin routes", () => {
       ],
     });
     expect(verifyResolvedSymbol).toHaveBeenCalledWith("005930", "005930.KS", { resolverMode: "quote_first" });
-    expect(bossSend).toHaveBeenCalledWith(
-      "finmind-backfill",
-      expect.objectContaining({
-        ticker: "005930",
-        marketCode: "KR",
-        trigger: "admin_rerun",
-        resolverMode: "quote_first",
-        providerOperationId: previewBody.operation.id,
-      }),
-      expect.objectContaining({ singletonKey: "005930:KR:quote_first", priority: 10 }),
-    );
+    expect(bossSend).not.toHaveBeenCalled();
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toMatchObject({
@@ -717,6 +847,44 @@ describe("Provider Fixer admin routes", () => {
       items: [expect.objectContaining({ state: "succeeded" })],
     });
     expect((response.json() as { items: Array<{ sourceSymbol: string }> }).items).toHaveLength(1);
+  });
+
+  it("filters FX market operations before pagination", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T01:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_rates",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.setSystemTime(new Date("2026-06-03T02:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-kr-newer",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/FX/operations?page=1&limit=1",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      marketCode: "FX",
+      total: 1,
+      items: [expect.objectContaining({ id: "provider-op-fx", providerId: "frankfurter" })],
+    });
   });
 
   it("returns an included selected operation off-page and filters outcomes by action", async () => {
@@ -1652,7 +1820,7 @@ describe("Provider Fixer admin routes", () => {
       headers,
     });
     expect(summary.statusCode).toBe(200);
-    expect(summary.json()).toMatchObject({ summary: { effectiveRateCapPerMinute: 1 } });
+    expect(summary.json()).toMatchObject({ summary: { effectiveRateCapPerMinute: 0.75 } });
 
     const preview = await app.inject({
       method: "POST",
@@ -1666,7 +1834,7 @@ describe("Provider Fixer admin routes", () => {
       },
     });
     expect(preview.statusCode).toBe(201);
-    expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 1 } });
+    expect(preview.json()).toMatchObject({ operation: { effectiveRateCapPerMinute: 0.75 } });
   });
 
   it("pauses provider repair when the admin operation budget is exhausted", async () => {
@@ -1756,7 +1924,7 @@ describe("Provider Fixer admin routes", () => {
         failureName: "RateLimitedError",
         operationBudgetConsumed: 1,
         operationBudgetCapPerWindow: 1,
-        operationBudgetWindowMs: 60_000,
+        operationBudgetWindowMs: 80_000,
       }),
     });
     const outcomes = await app.inject({
@@ -2181,6 +2349,119 @@ describe("Provider Fixer admin routes", () => {
         expect.objectContaining({ phase: "running", message: expect.stringContaining("resumed provider=yahoo-finance-kr") }),
         expect.objectContaining({ phase: "completed", message: expect.stringContaining("execute_completed") }),
       ]),
+    });
+  });
+
+  it("resumes provider fixer execution from pending unresolved rows without reprocessing terminal outcomes", async () => {
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "KR";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "035720",
+      name: "Kakao",
+      instrumentType: "STOCK",
+      marketCode: "KR",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "KOSPI",
+      catalogMicCode: "XKRX",
+    });
+    await app.persistence.insertProviderErrorTrailEntry({
+      providerId: "yahoo-finance-kr",
+      errorClass: "other",
+      errorMessage: "yahoo_finance_kr_symbol_unresolved: 035720",
+      context: { ticker: "035720", marketCode: "KR" },
+    });
+    verifyResolvedSymbol.mockResolvedValueOnce({
+      verified: true,
+      checkedSymbol: "035720.KS",
+      resolverMode: "quote_first",
+    });
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const operation = await app.persistence.createProviderOperation({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "paused",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      resolverMode: "quote_first",
+      matchCount: 2,
+      metadata: {
+        effectiveRateCapPerMinute: 250,
+        frozenScope: {
+          type: "selected_items",
+          filterFingerprint: "resume-pending-scope",
+          matchCount: 2,
+          selectedItems: [
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "005930",
+            },
+            {
+              providerId: "yahoo-finance-kr",
+              marketCode: "KR",
+              errorCode: "yahoo_finance_kr_symbol_unresolved",
+              sourceSymbol: "035720",
+            },
+          ],
+          filter: null,
+        },
+      },
+      actorUserId: admin.userId,
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      providerSymbol: "005930",
+      action: "repair_mapping",
+      state: "succeeded",
+      message: "Resolved 005930 to 005930.KS before pause.",
+      evidence: { candidateSymbol: "005930.KS" },
+    });
+
+    const resume = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${operation.id}/resume`,
+      headers,
+    });
+    expect(resume.statusCode).toBe(200);
+    expect(resume.json()).toMatchObject({ operation: { phase: "running" } });
+    await vi.waitFor(async () => {
+      const current = await app.persistence.getProviderOperation(operation.id);
+      expect(current?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenCalledTimes(1);
+    expect(verifyResolvedSymbol).toHaveBeenCalledWith("035720", "035720.KS", { resolverMode: "quote_first" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    expect(outcomes.json()).toMatchObject({
+      summary: { total: 2, processed: 2, succeeded: 2 },
+      items: expect.arrayContaining([
+        expect.objectContaining({ sourceSymbol: "005930", state: "succeeded" }),
+        expect.objectContaining({ sourceSymbol: "035720", state: "succeeded" }),
+      ]),
+    });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "035720")).resolves.toMatchObject({
+      resolvedSymbol: "035720.KS",
+      verifiedByUserId: admin.userId,
     });
   });
 
