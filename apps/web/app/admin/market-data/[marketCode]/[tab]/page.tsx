@@ -7,6 +7,8 @@ import type {
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   AdminMarketWorkspaceTab,
+  ProviderResolutionMappingsResponse,
+  ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../../../lib/api";
 import { AdminMarketDataWorkspaceClient } from "../../../../../components/admin/AdminMarketDataClient";
@@ -25,6 +27,17 @@ interface InstrumentQuery {
   instrumentType: string;
   backfillStatus: string;
   sort: string;
+}
+
+interface KrMappingQuery {
+  unresolvedPage: number;
+  unresolvedLimit: number;
+  unresolvedState: "active" | "resolved" | "unsupported" | "ignored" | "all";
+  unresolvedSearch: string;
+  unresolvedSort: "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
+  mappingsPage: number;
+  mappingsLimit: number;
+  mappingsSearch: string;
 }
 
 const marketCodes = new Set(["TW", "US", "AU", "KR", "FX"]);
@@ -64,6 +77,31 @@ function instrumentQueryFromSearchParams(query: Record<string, string | string[]
   };
 }
 
+function unresolvedStateQueryValue(value: string | string[] | undefined): KrMappingQuery["unresolvedState"] {
+  const state = firstOptionalQueryValue(value);
+  return state === "resolved" || state === "unsupported" || state === "ignored" || state === "all" ? state : "active";
+}
+
+function unresolvedSortQueryValue(value: string | string[] | undefined): KrMappingQuery["unresolvedSort"] {
+  const sort = firstOptionalQueryValue(value);
+  return sort === "updated_desc" || sort === "source_symbol_asc" || sort === "occurrence_count_desc"
+    ? sort
+    : "last_seen_desc";
+}
+
+function krMappingQueryFromSearchParams(query: Record<string, string | string[] | undefined>): KrMappingQuery {
+  return {
+    unresolvedPage: positiveIntQueryValue(query.unresolvedPage, 1),
+    unresolvedLimit: positiveIntQueryValue(query.unresolvedLimit, 25),
+    unresolvedState: unresolvedStateQueryValue(query.unresolvedState),
+    unresolvedSearch: firstOptionalQueryValue(query.unresolvedSearch) ?? "",
+    unresolvedSort: unresolvedSortQueryValue(query.unresolvedSort),
+    mappingsPage: positiveIntQueryValue(query.mappingsPage, 1),
+    mappingsLimit: positiveIntQueryValue(query.mappingsLimit, 25),
+    mappingsSearch: firstOptionalQueryValue(query.mappingsSearch) ?? "",
+  };
+}
+
 function instrumentQueryString(filters: InstrumentQuery): string {
   const params = new URLSearchParams();
   params.set("page", String(filters.page));
@@ -92,6 +130,7 @@ export default async function AdminMarketDataWorkspacePage({
   const marketCode = resolvedParams.marketCode as AdminMarketCode;
   const tab = resolvedParams.tab as AdminMarketWorkspaceTab;
   const instrumentQuery = instrumentQueryFromSearchParams(query);
+  const krMappingQuery = krMappingQueryFromSearchParams(query);
   const page = instrumentQuery.page;
   const limit = instrumentQuery.limit;
   const providerId = firstOptionalQueryValue(query.providerId);
@@ -120,6 +159,17 @@ export default async function AdminMarketDataWorkspacePage({
           `/admin/market-data/${encodeURIComponent(marketCode)}/logs?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
         )
       : null;
+  const krMappings =
+    marketCode === "KR" && tab === "mappings"
+      ? await Promise.all([
+          getJson<ProviderUnresolvedItemsResponse>(
+            `/admin/providers/yahoo-finance-kr/unresolved?state=${encodeURIComponent(krMappingQuery.unresolvedState)}&errorCode=yahoo_finance_kr_symbol_unresolved&search=${encodeURIComponent(krMappingQuery.unresolvedSearch)}&sort=${encodeURIComponent(krMappingQuery.unresolvedSort)}&page=${krMappingQuery.unresolvedPage}&limit=${krMappingQuery.unresolvedLimit}`,
+          ),
+          getJson<ProviderResolutionMappingsResponse>(
+            `/admin/providers/yahoo-finance-kr/mappings?page=${krMappingQuery.mappingsPage}&limit=${krMappingQuery.mappingsLimit}&search=${encodeURIComponent(krMappingQuery.mappingsSearch)}`,
+          ),
+        ]).then(([unresolved, mappings]) => ({ unresolved, mappings, query: krMappingQuery }))
+      : null;
 
   return (
     <AdminMarketDataWorkspaceClient
@@ -131,6 +181,7 @@ export default async function AdminMarketDataWorkspacePage({
       instrumentQuery={instrumentQuery}
       operations={operations}
       logs={logs}
+      krMappings={krMappings}
     />
   );
 }
