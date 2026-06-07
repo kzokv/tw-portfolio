@@ -21,15 +21,29 @@ import type {
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewResponse,
   AdminMarketWorkspaceTab,
+  ProviderFixerDashboardOperationDto,
+  ProviderResolutionMappingDto,
+  ProviderResolutionMappingsResponse,
+  ProviderUnresolvedItemDto,
+  ProviderUnresolvedItemsResponse,
+  ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
 import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
 import {
+  bulkUpdateProviderUnresolvedState,
+  executeProviderRepair,
   executeMarketBackfill,
   executeMarketAction,
   executeMarketPurge,
+  previewProviderRepair,
   previewMarketBackfill,
   previewMarketPurge,
+  renewProviderEvidence,
+  reverifyProviderMapping,
+  revertProviderMapping,
+  rerunProviderMapping,
+  updateProviderUnresolvedState,
   updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
@@ -47,6 +61,7 @@ interface AdminMarketDataWorkspaceClientProps {
   instrumentQuery?: InstrumentQuery;
   operations: AdminMarketDataOperationsResponse | null;
   logs: AdminMarketDataLogsResponse | null;
+  krMappings: KrMappingsData | null;
 }
 
 interface InstrumentQuery {
@@ -58,6 +73,21 @@ interface InstrumentQuery {
   instrumentType: string;
   backfillStatus: string;
   sort: string;
+}
+
+interface KrMappingsData {
+  unresolved: ProviderUnresolvedItemsResponse;
+  mappings: ProviderResolutionMappingsResponse;
+  query: {
+    unresolvedPage: number;
+    unresolvedLimit: number;
+    unresolvedState: ProviderUnresolvedListState;
+    unresolvedSearch: string;
+    unresolvedSort: "last_seen_desc" | "updated_desc" | "source_symbol_asc" | "occurrence_count_desc";
+    mappingsPage: number;
+    mappingsLimit: number;
+    mappingsSearch: string;
+  };
 }
 
 const tabLabels: Record<AdminMarketWorkspaceTab, string> = {
@@ -218,6 +248,7 @@ export function AdminMarketDataWorkspaceClient({
   instrumentQuery,
   operations,
   logs,
+  krMappings,
 }: AdminMarketDataWorkspaceClientProps) {
   const tabSet = new Set(overview.tabs);
   const safeTab = tabSet.has(tab) ? tab : "overview";
@@ -266,7 +297,7 @@ export function AdminMarketDataWorkspaceClient({
         />
       )}
       {safeTab === "backfill" && marketCode !== "FX" && <BackfillPanel marketCode={marketCode} actions={actions} />}
-      {safeTab === "mappings" && <MappingsPanel actions={actions} />}
+      {safeTab === "mappings" && <MappingsPanel marketCode={marketCode} actions={actions} krMappings={krMappings} />}
       {safeTab === "purge" && marketCode !== "FX" && <PurgePanel marketCode={marketCode} />}
       {safeTab === "refresh-rates" && <RefreshRatesPanel actions={actions} />}
       {safeTab === "operations" && operations && <OperationsPanel operations={operations} />}
@@ -667,14 +698,651 @@ function BackfillPanel({ marketCode, actions }: { marketCode: Exclude<AdminMarke
   );
 }
 
-function MappingsPanel({ actions }: { actions: AdminMarketDataActionDto[] }) {
+const yahooKrProviderId = "yahoo-finance-kr";
+const yahooKrErrorCode = "yahoo_finance_kr_symbol_unresolved";
+
+function formatTimestamp(value: string | null): string {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
+  return `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
+}
+
+function mappingLinkedOperation(evidence: Record<string, unknown> | null): string | null {
+  const raw = evidence?.operationId ?? evidence?.providerOperationId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+function mappingEvidenceSummary(mapping: ProviderResolutionMappingDto): string {
+  const evidence = mapping.evidence;
+  for (const key of ["candidate", "candidateSymbol", "exchangeHint", "note"]) {
+    const value = evidence?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "Stored durable mapping";
+}
+
+function csvCell(value: unknown): string {
+  const text = value == null ? "" : String(value);
+  if (!/[",\n\r]/.test(text)) return text;
+  return `"${text.replaceAll("\"", "\"\"")}"`;
+}
+
+function exportUnresolvedCsv(items: ProviderUnresolvedItemDto[], filename: string) {
+  const headers = [
+    "providerId",
+    "marketCode",
+    "errorCode",
+    "sourceSymbol",
+    "providerSymbol",
+    "state",
+    "occurrenceCount",
+    "firstSeenAt",
+    "lastSeenAt",
+    "updatedAt",
+    "resolvedAt",
+    "resolvedByOperationId",
+  ];
+  const rows = items.map((item) => [
+    item.providerId,
+    item.marketCode,
+    item.errorCode,
+    item.sourceSymbol,
+    item.providerSymbol ?? "",
+    item.state,
+    item.occurrenceCount,
+    item.firstSeenAt,
+    item.lastSeenAt,
+    item.updatedAt,
+    item.resolvedAt ?? "",
+    item.resolvedByOperationId ?? "",
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
+function krMappingsPath(query: Partial<KrMappingsData["query"]>): string {
+  const params = new URLSearchParams();
+  const merged: KrMappingsData["query"] = {
+    unresolvedPage: query.unresolvedPage ?? 1,
+    unresolvedLimit: query.unresolvedLimit ?? 25,
+    unresolvedState: query.unresolvedState ?? "active",
+    unresolvedSearch: query.unresolvedSearch ?? "",
+    unresolvedSort: query.unresolvedSort ?? "last_seen_desc",
+    mappingsPage: query.mappingsPage ?? 1,
+    mappingsLimit: query.mappingsLimit ?? 25,
+    mappingsSearch: query.mappingsSearch ?? "",
+  };
+  if (merged.unresolvedPage !== 1) params.set("unresolvedPage", String(merged.unresolvedPage));
+  if (merged.unresolvedLimit !== 25) params.set("unresolvedLimit", String(merged.unresolvedLimit));
+  if (merged.unresolvedState !== "active") params.set("unresolvedState", merged.unresolvedState);
+  if (merged.unresolvedSearch.trim()) params.set("unresolvedSearch", merged.unresolvedSearch.trim());
+  if (merged.unresolvedSort !== "last_seen_desc") params.set("unresolvedSort", merged.unresolvedSort);
+  if (merged.mappingsPage !== 1) params.set("mappingsPage", String(merged.mappingsPage));
+  if (merged.mappingsLimit !== 25) params.set("mappingsLimit", String(merged.mappingsLimit));
+  if (merged.mappingsSearch.trim()) params.set("mappingsSearch", merged.mappingsSearch.trim());
+  const queryString = params.toString();
+  return `/admin/market-data/KR/mappings${queryString ? `?${queryString}` : ""}`;
+}
+
+function MappingsPanel({
+  marketCode,
+  actions,
+  krMappings,
+}: {
+  marketCode: AdminMarketCode;
+  actions: AdminMarketDataActionDto[];
+  krMappings: KrMappingsData | null;
+}) {
+  if (marketCode !== "KR" || !krMappings) {
+    return (
+      <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
+        <h2 className="text-base font-semibold text-foreground">Provider mappings</h2>
+        <p className="mt-2 text-sm text-muted-foreground">Mappings are not available for this market.</p>
+      </Card>
+    );
+  }
+  return <KrMappingsPanel actions={actions} data={krMappings} />;
+}
+
+function KrMappingsPanel({
+  actions,
+  data,
+}: {
+  actions: AdminMarketDataActionDto[];
+  data: KrMappingsData;
+}) {
+  const router = useRouter();
   const mappingAction = actions.find((action) => action.action === "repair_mapping");
+  const [unresolvedSearch, setUnresolvedSearch] = useState(data.query.unresolvedSearch);
+  const [unresolvedState, setUnresolvedState] = useState<ProviderUnresolvedListState>(data.query.unresolvedState);
+  const [unresolvedSort, setUnresolvedSort] = useState<KrMappingsData["query"]["unresolvedSort"]>(data.query.unresolvedSort);
+  const [mappingsSearch, setMappingsSearch] = useState(data.query.mappingsSearch);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ProviderFixerDashboardOperationDto | null>(null);
+  const [typedConfirmation, setTypedConfirmation] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [revertTarget, setRevertTarget] = useState<string | null>(null);
+  const [revertConfirmation, setRevertConfirmation] = useState("");
+
+  useEffect(() => {
+    setUnresolvedSearch(data.query.unresolvedSearch);
+    setUnresolvedState(data.query.unresolvedState);
+    setUnresolvedSort(data.query.unresolvedSort);
+    setMappingsSearch(data.query.mappingsSearch);
+    setSelectedKeys(new Set());
+    setAllMatchingSelected(false);
+  }, [data.query]);
+
+  const visibleItems = data.unresolved.items;
+  const visibleKeys = visibleItems.map(unresolvedItemKey);
+  const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
+  const selectedItems = visibleItems.filter((item) => selectedKeys.has(unresolvedItemKey(item)));
+  const selectedCount = allMatchingSelected ? data.unresolved.total : selectedItems.length;
+  const activeFilterSelected = data.query.unresolvedState === "active";
+
+  function pushQuery(next: Partial<KrMappingsData["query"]>) {
+    router.push(krMappingsPath({ ...data.query, ...next }));
+  }
+
+  function selectedScope() {
+    if (allMatchingSelected) {
+      return {
+        type: "filter" as const,
+        marketCode: "KR" as const,
+        errorCode: yahooKrErrorCode,
+        state: "active" as const,
+        ...(data.query.unresolvedSearch.trim() ? { search: data.query.unresolvedSearch.trim() } : {}),
+      };
+    }
+    return {
+      type: "selected_items" as const,
+      items: selectedItems.map((item) => ({
+        providerId: item.providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+      })),
+    };
+  }
+
+  function toggleVisible(checked: boolean) {
+    setAllMatchingSelected(false);
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      for (const item of visibleItems) {
+        const key = unresolvedItemKey(item);
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  }
+
+  async function runWithMessage<T>(label: string, task: () => Promise<T>, success: (result: T) => string) {
+    setBusyAction(label);
+    setMessage(null);
+    try {
+      const result = await task();
+      setMessage(success(result));
+      router.refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : `${label} failed`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function setUnresolvedStateForItem(item: ProviderUnresolvedItemDto, state: Exclude<ProviderUnresolvedItemDto["state"], "resolved">) {
+    await runWithMessage(
+      `state-${item.sourceSymbol}`,
+      () => updateProviderUnresolvedState({
+        providerId: item.providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+        state,
+      }),
+      (result) => `Set unresolved item ${result.item.sourceSymbol} to ${result.item.state}.`,
+    );
+  }
+
+  async function bulkSetState(state: "unsupported" | "ignored") {
+    if (selectedCount === 0) return;
+    const scope = selectedScope();
+    const typedConfirmationForFilter = scope.type === "filter"
+      ? state === "ignored"
+        ? `IGNORE ${selectedCount} MATCHING ACTIVE`
+        : `MARK ${selectedCount} MATCHING UNSUPPORTED`
+      : undefined;
+    await runWithMessage(
+      `bulk-${state}`,
+      () => bulkUpdateProviderUnresolvedState({
+        providerId: yahooKrProviderId,
+        state,
+        scope,
+        acknowledged: scope.type === "selected_items",
+        typedConfirmation: typedConfirmationForFilter,
+      }),
+      (result) => `Updated ${result.updatedCount} unresolved rows.`,
+    );
+  }
+
+  async function previewSelectedRepair() {
+    if (selectedCount === 0) return;
+    await runWithMessage(
+      "preview-repair",
+      () => previewProviderRepair({
+        providerId: yahooKrProviderId,
+        marketCode: "KR",
+        errorCode: yahooKrErrorCode,
+        resolverMode: "quote_first",
+        scope: selectedScope(),
+      }),
+      (result) => {
+        setPreview(result.operation);
+        setTypedConfirmation("");
+        setAcknowledged(false);
+        return `Repair preview created for ${result.operation.matchCount} rows.`;
+      },
+    );
+  }
+
+  async function renewSelectedEvidence() {
+    if (selectedCount === 0) return;
+    await runWithMessage(
+      "renew-evidence",
+      () => renewProviderEvidence({
+        providerId: yahooKrProviderId,
+        marketCode: "KR",
+        errorCode: yahooKrErrorCode,
+        resolverMode: "quote_first",
+        scope: selectedScope(),
+      }),
+      (result) => `Renew evidence started: ${result.operation.id}`,
+    );
+  }
+
+  async function executePreview() {
+    if (!preview?.preview.token) return;
+    await runWithMessage(
+      "execute-repair",
+      () => executeProviderRepair({
+        providerId: yahooKrProviderId,
+        operationId: preview.id,
+        previewToken: preview.preview.token,
+        acknowledged: true,
+        typedConfirmation: preview.preview.confirmationText ?? typedConfirmation,
+      }),
+      (result) => {
+        setPreview(result.operation);
+        return `Repair operation ${result.operation.id} started.`;
+      },
+    );
+  }
+
+  const executeDisabled = !preview
+    || busyAction !== null
+    || (preview.preview.confirmationText ? typedConfirmation !== preview.preview.confirmationText : !acknowledged);
+
   return (
-    <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
-      <h2 className="text-base font-semibold text-foreground">KR mapping repair</h2>
-      <p className="mt-2 text-sm text-muted-foreground">Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.</p>
-      {mappingAction ? <ActionChips marketCode="KR" actions={[mappingAction]} /> : <p className="mt-4 text-sm text-muted-foreground">Mappings are not available for this market.</p>}
-    </Card>
+    <div className="space-y-5" data-testid="market-data-mappings">
+      <Card className="px-5 py-4 hover:translate-y-0">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">KR mapping repair</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.
+            </p>
+          </div>
+          {mappingAction ? <ActionChips marketCode="KR" actions={[mappingAction]} /> : null}
+        </div>
+        {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
+      </Card>
+
+      <Card className="overflow-hidden p-0 hover:translate-y-0">
+        <div className="border-b border-border px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-foreground">Unique unresolved instruments</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Durable unresolved rows from Yahoo Finance KR. Resolver behavior is unchanged; this panel only scopes admin repair work.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={selectedCount === 0 || busyAction !== null}
+              onClick={() => void previewSelectedRepair()}
+              className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            >
+              Repair selected
+            </button>
+          </div>
+          <form
+            className="mt-4 grid gap-3 lg:grid-cols-[minmax(10rem,1fr)_12rem_14rem_auto]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              pushQuery({
+                unresolvedPage: 1,
+                unresolvedSearch,
+                unresolvedState,
+                unresolvedSort,
+              });
+            }}
+          >
+            <label className="text-sm font-medium text-foreground">
+              Search
+              <input
+                value={unresolvedSearch}
+                onChange={(event) => setUnresolvedSearch(event.target.value)}
+                placeholder="Search symbol, provider symbol, error"
+                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                data-testid="provider-console-unresolved-search"
+              />
+            </label>
+            <label className="text-sm font-medium text-foreground">
+              State
+              <select
+                value={unresolvedState}
+                onChange={(event) => setUnresolvedState(event.target.value as ProviderUnresolvedListState)}
+                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                data-testid="provider-console-unresolved-state"
+              >
+                <option value="active">active</option>
+                <option value="all">all</option>
+                <option value="resolved">resolved</option>
+                <option value="unsupported">unsupported</option>
+                <option value="ignored">ignored</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-foreground">
+              Sort
+              <select
+                value={unresolvedSort}
+                onChange={(event) => setUnresolvedSort(event.target.value as KrMappingsData["query"]["unresolvedSort"])}
+                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                data-testid="provider-console-unresolved-sort"
+              >
+                <option value="last_seen_desc">last seen</option>
+                <option value="updated_desc">recently updated</option>
+                <option value="occurrence_count_desc">most occurrences</option>
+                <option value="source_symbol_asc">source symbol</option>
+              </select>
+            </label>
+            <div className="flex items-end">
+              <button
+                type="submit"
+                className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+                data-testid="provider-console-unresolved-apply"
+              >
+                Apply filters
+              </button>
+            </div>
+          </form>
+          <div className="mt-4 flex flex-col gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
+            <span><strong>{selectedCount.toLocaleString()} rows selected.</strong> {data.unresolved.total.toLocaleString()} rows match this filter.</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!activeFilterSelected || data.unresolved.total === 0}
+                onClick={() => {
+                  setSelectedKeys(new Set());
+                  setAllMatchingSelected((current) => !current);
+                }}
+                className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                data-testid="provider-console-select-all-matching"
+              >
+                {allMatchingSelected ? "Clear all matching" : "Select all matching"}
+              </button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Repair</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">Renew</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">Ignore</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">Unsupported</button>
+              <button
+                type="button"
+                disabled={visibleItems.length === 0}
+                onClick={() => exportUnresolvedCsv(visibleItems, "yahoo-finance-kr-unresolved.csv")}
+                className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                data-testid="provider-console-unresolved-export"
+              >
+                Export CSV
+              </button>
+              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Clear selection</button>
+              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">Recently resolved</button>
+            </div>
+          </div>
+          {preview ? (
+            <div className="mt-4 rounded border border-border bg-muted/30 p-4">
+              <h4 className="text-sm font-semibold text-foreground">Repair preview</h4>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Operation {preview.id} matches {preview.matchCount.toLocaleString()} rows. Execute uses the frozen preview token.
+              </p>
+              {preview.preview.confirmationText ? (
+                <label className="mt-3 block text-sm font-medium text-foreground">
+                  Type confirmation
+                  <input
+                    value={typedConfirmation}
+                    onChange={(event) => setTypedConfirmation(event.target.value)}
+                    placeholder={preview.preview.confirmationText}
+                    className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </label>
+              ) : (
+                <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+                  I reviewed the preview and understand this writes verified KR mappings only.
+                </label>
+              )}
+              <button
+                type="button"
+                disabled={executeDisabled}
+                onClick={() => void executePreview()}
+                className="mt-3 rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
+              >
+                Execute operation
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-border text-sm">
+            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-5 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    disabled={visibleItems.length === 0 || allMatchingSelected}
+                    onChange={(event) => toggleVisible(event.target.checked)}
+                    aria-label="Select visible rows"
+                    data-testid="provider-console-select-visible"
+                  />
+                </th>
+                <th className="px-5 py-3">Source symbol</th>
+                <th className="px-5 py-3">State</th>
+                <th className="px-5 py-3">Evidence</th>
+                <th className="px-5 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {visibleItems.map((item) => {
+                const key = unresolvedItemKey(item);
+                const selected = selectedKeys.has(key);
+                return (
+                  <tr key={key}>
+                    <td className="px-5 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={allMatchingSelected}
+                        onChange={(event) => {
+                          setSelectedKeys((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                            return next;
+                          });
+                        }}
+                        aria-label={`Select ${item.sourceSymbol}`}
+                        data-testid={`provider-console-select-row-${item.sourceSymbol}`}
+                      />
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-mono font-semibold text-foreground">{item.sourceSymbol}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.providerSymbol ?? item.sourceSymbol}</p>
+                    </td>
+                    <td className="px-5 py-4 text-muted-foreground">{item.state}</td>
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {item.state !== "active" ? (
+                          <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "active")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-reopen-${item.sourceSymbol}`}>Reopen</button>
+                        ) : (
+                          <>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "unsupported")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-unsupported-${item.sourceSymbol}`}>Unsupported</button>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "ignored")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-ignore-${item.sourceSymbol}`}>Ignore</button>
+                          </>
+                        )}
+                        <button type="button" disabled={item.state !== "resolved" || busyAction !== null} onClick={() => pushQuery({ mappingsSearch: item.sourceSymbol, mappingsPage: 1 })} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-rerun-${item.sourceSymbol}`}>Rerun</button>
+                      </div>
+                      <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
+                    </td>
+                  </tr>
+                );
+              })}
+              {visibleItems.length === 0 ? (
+                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No unresolved rows match this filter.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: Math.max(1, data.query.unresolvedPage - 1) })}>Previous</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: data.query.unresolvedPage + 1 })}>Next</Link>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden p-0 hover:translate-y-0">
+        <div className="border-b border-border px-5 py-4">
+          <h3 className="text-base font-semibold text-foreground">Durable KR mappings</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Stored Yahoo Finance KR bindings with evidence and operation links.</p>
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              pushQuery({ mappingsSearch, mappingsPage: 1 });
+            }}
+          >
+            <input
+              value={mappingsSearch}
+              onChange={(event) => setMappingsSearch(event.target.value)}
+              placeholder="Source symbol, provider symbol, or operation ID"
+              className="rounded border border-border bg-background px-3 py-2 text-sm"
+              data-testid="provider-console-mappings-search"
+            />
+            <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Search mappings</button>
+          </form>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-border text-sm">
+            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-5 py-3">Source</th>
+                <th className="px-5 py-3">Resolved</th>
+                <th className="px-5 py-3">Evidence</th>
+                <th className="px-5 py-3">Links</th>
+                <th className="px-5 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.mappings.items.map((mapping) => {
+                const key = `${mapping.providerId}:${mapping.marketCode}:${mapping.sourceSymbol}`;
+                const linkedOperationId = mappingLinkedOperation(mapping.evidence);
+                const phrase = `REVERT ${mapping.sourceSymbol}`;
+                const revertOpen = revertTarget === key;
+                const revertReady = revertConfirmation.trim() === phrase;
+                return (
+                  <tr key={key}>
+                    <td className="px-5 py-4 font-mono font-semibold text-foreground">{mapping.sourceSymbol}</td>
+                    <td className="px-5 py-4 font-mono text-muted-foreground">{mapping.resolvedSymbol}</td>
+                    <td className="px-5 py-4 text-muted-foreground">{mappingEvidenceSummary(mapping)}; verified {formatTimestamp(mapping.verifiedAt)}</td>
+                    <td className="px-5 py-4 text-xs">
+                      <button
+                        type="button"
+                        className="block font-mono text-primary underline-offset-4 hover:underline"
+                        onClick={() => pushQuery({ unresolvedState: "all", unresolvedSearch: mapping.sourceSymbol, unresolvedPage: 1 })}
+                        data-testid={`provider-console-mapping-unresolved-link-${mapping.sourceSymbol}`}
+                      >
+                        Unresolved: {mapping.sourceSymbol}
+                      </button>
+                      {linkedOperationId ? (
+                        <Link
+                          className="mt-1 block font-mono text-primary underline-offset-4 hover:underline"
+                          href={`/admin/market-data/KR/operations?providerId=${encodeURIComponent(mapping.providerId)}&operationId=${encodeURIComponent(linkedOperationId)}`}
+                          data-testid={`provider-console-mapping-operation-link-${mapping.sourceSymbol}`}
+                        >
+                          Operation: {linkedOperationId}
+                        </Link>
+                      ) : null}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("reverify", () => reverifyProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: "quote_first" }), (result) => `Reverify started: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}>Reverify</button>
+                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("rerun-mapping", () => rerunProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: "quote_first" }), (result) => `Rerun queued: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-rerun-${mapping.sourceSymbol}`}>Rerun</button>
+                        <button type="button" disabled={busyAction !== null} onClick={() => { setRevertTarget(revertOpen ? null : key); setRevertConfirmation(""); }} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-revert-open-${mapping.sourceSymbol}`}>Revert</button>
+                      </div>
+                      {revertOpen ? (
+                        <div className="mt-3 grid gap-2">
+                          <p className="text-xs text-red-700">Type {phrase} to remove this mapping.</p>
+                          <input
+                            value={revertConfirmation}
+                            onChange={(event) => setRevertConfirmation(event.target.value)}
+                            placeholder={phrase}
+                            className="rounded border border-red-300 bg-background px-3 py-2 text-sm"
+                            data-testid={`provider-console-mapping-revert-confirmation-${mapping.sourceSymbol}`}
+                          />
+                          <button
+                            type="button"
+                            disabled={!revertReady || busyAction !== null}
+                            onClick={() => void runWithMessage("revert-mapping", () => revertProviderMapping({ providerId: mapping.providerId, mapping, typedConfirmation: revertConfirmation.trim() }), (result) => `Revert started: ${result.operation.id}`)}
+                            className="rounded bg-destructive px-3 py-2 text-xs font-medium text-destructive-foreground disabled:opacity-50"
+                            data-testid={`provider-console-mapping-revert-execute-${mapping.sourceSymbol}`}
+                          >
+                            Execute revert
+                          </button>
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+              {data.mappings.items.length === 0 ? (
+                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No durable mappings match this filter.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: Math.max(1, data.query.mappingsPage - 1) })}>Previous</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: data.query.mappingsPage + 1 })}>Next</Link>
+        </div>
+      </Card>
+    </div>
   );
 }
 
