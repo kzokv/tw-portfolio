@@ -31,6 +31,8 @@ import type {
   AdminInstrumentSupportState,
   AdminMarketCode,
   AdminMarketDataActionDto,
+  AdminMarketDataActionExecuteRequest,
+  AdminMarketDataActionExecuteResponse,
   AdminMarketDataActionsResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
@@ -101,6 +103,11 @@ import {
 import { today_utc } from "../services/market-data/deriveFetchWindow.js";
 import { enqueueDailyRefresh } from "../services/market-data/dailyRefreshEnqueue.js";
 import { CATALOG_SYNC_QUEUE } from "../services/market-data/registerCatalogSyncWorker.js";
+import { ASX_GICS_SYNC_QUEUE, ASX_GICS_SYNC_SINGLETON_KEY } from "../services/market-data/asxGicsSyncWorker.js";
+import {
+  PROVIDER_OPERATION_EXECUTION_QUEUE,
+  providerOperationExecutionSingletonKey,
+} from "../services/market-data/providerOperationExecutionWorker.js";
 import {
   BACKFILL_QUEUE,
   getBackfillSingletonKey,
@@ -830,6 +837,21 @@ const marketDataTargetSchema = z.object({
   ticker: z.string().trim().min(1).max(40),
   marketCode: providerFixerMarketCodeSchema,
 }).strict();
+const marketDataActionExecuteBodySchema = z
+  .object({
+    action: z.enum([
+      "sync_catalog",
+      "backfill_catalog_rows",
+      "refresh_fx_rates",
+      "sync_asx_gics",
+      "repair_mapping",
+    ]),
+    providerId: providerFixerProviderSchema.optional(),
+    acknowledged: z.boolean().optional(),
+    resolverMode: providerFixerResolverModeSchema.optional(),
+    resolverModeRiskAccepted: z.boolean().optional(),
+  })
+  .strict();
 
 function providerIdsForMarket(marketCode: AdminMarketCode): string[] {
   return MARKET_DATA_WORKSPACES[marketCode].providers.map((provider) => provider.providerId);
@@ -5751,6 +5773,296 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     });
   }
 
+  async function createMarketDataProviderOperation(input: {
+    marketCode: AdminMarketCode;
+    providerId: string;
+    action: ProviderOperationAction;
+    actorUserId: string;
+    matchCount?: number;
+    sample?: unknown[];
+    metadata?: Record<string, unknown>;
+    phase?: ProviderOperationPhase;
+  }): Promise<ProviderOperationRecord> {
+    await ensureProviderHealthRow(input.providerId);
+    if (input.marketCode !== "FX") {
+      await assertNoOtherProviderOperationExecution(app, {
+        providerId: input.providerId,
+        marketCode: input.marketCode,
+      });
+    }
+    const now = new Date().toISOString();
+    return app.persistence.createProviderOperation({
+      providerId: input.providerId,
+      marketCode: input.marketCode,
+      operationType: input.action,
+      phase: input.phase ?? (app.boss ? "queued" : "completed"),
+      errorCode: `admin_market_data_${input.action}`,
+      scopeQuery: `${input.marketCode}:${input.action}`,
+      snapshotHash: hashProviderFixerToken(`${input.marketCode}:${input.providerId}:${input.action}:${now}`).slice(0, 12),
+      matchCount: input.matchCount ?? 0,
+      sample: input.sample ?? [],
+      metadata: {
+        marketDataBff: true,
+        progressPercent: app.boss ? 0 : 100,
+        ...(input.metadata ?? {}),
+      },
+      actorUserId: input.actorUserId,
+      startedAt: app.boss ? null : now,
+      completedAt: app.boss ? null : now,
+    });
+  }
+
+  async function finalizeCollapsedMarketActionOperation(
+    operation: ProviderOperationRecord,
+    context: { actorUserId: string; ipAddress?: string; jobId: string | null; singletonKey: string; queueAvailable: boolean },
+  ): Promise<ProviderOperationRecord> {
+    if (context.jobId !== null || !context.queueAvailable) return operation;
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        skippedExistingJobCount: 1,
+        singletonKey: context.singletonKey,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: completed.id,
+      phase: "completed",
+      level: "warning",
+      message: `market_data_action_skipped_existing_job provider=${completed.providerId} market=${completed.marketCode} action=${completed.operationType}`,
+      context: { providerId: completed.providerId, marketCode: completed.marketCode, singletonKey: context.singletonKey },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: completed.id,
+        action: "market_data_action_skipped_existing_job",
+        providerId: completed.providerId,
+        marketCode: completed.marketCode,
+        operationType: completed.operationType,
+        singletonKey: context.singletonKey,
+      },
+    });
+    return completed;
+  }
+
+  async function createKrMappingRepairOperation(
+    body: AdminMarketDataActionExecuteRequest,
+    context: { actorUserId: string; ipAddress?: string },
+  ): Promise<ProviderOperationRecord> {
+    const providerId = "yahoo-finance-kr";
+    const resolverMode = body.resolverMode ?? "quote_first";
+    if (body.resolverModeRiskAccepted !== undefined && resolverMode !== "chart_probe_v1") {
+      throw routeError(400, "resolver_mode_risk_acceptance_unexpected", "resolverModeRiskAccepted is only valid with chart_probe_v1");
+    }
+    if (resolverMode === "chart_probe_v1" && body.resolverModeRiskAccepted !== true) {
+      throw routeError(400, "resolver_mode_risk_acceptance_required", "chart_probe_v1 requires explicit resolverModeRiskAccepted=true");
+    }
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const scope = {
+      type: "filter",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      state: "active",
+    } satisfies ProviderFixerScopeInput;
+    await assertNoOtherProviderOperationExecution(app, { providerId, marketCode: "KR" });
+    const scopeItems = await listProviderUnresolvedScopeItems(app, providerId, scope);
+    const scopeSnapshot = await buildProviderFixerScopeSnapshot(app, providerId, "KR", scope, scopeItems);
+    const sample = await buildProviderFixerEvidenceSample(
+      app,
+      providerId,
+      "KR",
+      scopeItems,
+      resolverMode,
+      guardrails.previewSampleLimit,
+      { verifyCandidate: false },
+    );
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: app.boss ? "queued" : "running",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      resolverMode,
+      scopeQuery: providerFixerScopeLabel(scope, providerId),
+      snapshotHash: scopeSnapshot.snapshotHash,
+      matchCount: scopeSnapshot.matchCount,
+      sample: sample.sample,
+      metadata: {
+        marketDataBff: true,
+        mappingOnly: true,
+        scope,
+        frozenScope: providerFixerFrozenScopeMetadata(providerId, scope, scopeItems),
+        scopeType: scope.type,
+        scopeFingerprint: providerFixerScopeFingerprint(scope),
+        scopeSummary: providerFixerScopeSummary(scope, scopeSnapshot.matchCount),
+        effectiveRateCapPerMinute: providerOperationRateCapPerMinute(providerId, config),
+        autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
+        progressPercent: app.boss ? 0 : null,
+      },
+      actorUserId: context.actorUserId,
+      startedAt: app.boss ? null : new Date().toISOString(),
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: operation.phase,
+      level: scopeSnapshot.matchCount > 0 ? "info" : "warning",
+      message: `market_data_mapping_repair_${operation.phase} provider=${providerId} market=KR matched=${scopeSnapshot.matchCount} mapping_only=true`,
+      context: { providerId, marketCode: "KR", matchCount: scopeSnapshot.matchCount, resolverMode, mappingOnly: true },
+    });
+    return operation;
+  }
+
+  async function executeMarketDataAction(
+    marketCode: AdminMarketCode,
+    body: AdminMarketDataActionExecuteRequest,
+    context: { actorUserId: string; ipAddress?: string },
+  ): Promise<AdminMarketDataActionExecuteResponse> {
+    if (body.action === "backfill_catalog_rows") {
+      throw routeError(400, "market_action_uses_preview_execute", "Backfill requires the preview/execute backfill flow");
+    }
+    if (body.acknowledged !== true) {
+      throw routeError(400, "market_action_acknowledgement_required", "Action execution requires acknowledgement");
+    }
+    const providerId = marketDataProviderForAction(marketCode, body.action);
+    if (!providerId) {
+      throw routeError(400, "market_action_unsupported", "Action is not supported for this market");
+    }
+    if (body.providerId && body.providerId !== providerId) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not own this action for the selected market");
+    }
+
+    if (body.action === "repair_mapping") {
+      const operation = await createKrMappingRepairOperation(body, context);
+      if (!app.boss) {
+        const config = await loadAppConfigDto(app);
+        await completeProviderFixerOperation(app, operation, {
+          actorUserId: context.actorUserId,
+          ipAddress: context.ipAddress,
+          guardrails: providerFixerGuardrailsFromConfig(config),
+          dangerous: false,
+          throwOnFailure: true,
+        });
+        return {
+          operationId: operation.id,
+          marketCode,
+          providerId,
+          action: body.action,
+          status: "completed",
+          jobId: null,
+          message: "KR mapping repair completed without queue dispatch.",
+        };
+      }
+      const jobId = await app.boss.send(
+        PROVIDER_OPERATION_EXECUTION_QUEUE,
+        { operationId: operation.id, actorUserId: context.actorUserId, ipAddress: context.ipAddress },
+        { singletonKey: providerOperationExecutionSingletonKey(operation.id), priority: 10 },
+      );
+      const updated = await finalizeCollapsedMarketActionOperation(operation, {
+        ...context,
+        jobId,
+        singletonKey: providerOperationExecutionSingletonKey(operation.id),
+        queueAvailable: true,
+      });
+      return {
+        operationId: updated.id,
+        marketCode,
+        providerId,
+        action: body.action,
+        status: updated.phase === "completed" ? "completed" : "queued",
+        jobId,
+        message: "KR mapping repair queued; it persists mappings only and does not backfill price data.",
+      };
+    }
+
+    const operation = await createMarketDataProviderOperation({
+      marketCode,
+      providerId,
+      action: body.action,
+      actorUserId: context.actorUserId,
+      metadata: { providerBudgetNotes: marketDataProviderBudgetNotes(marketCode, body.action) },
+    });
+    let jobId: string | null = null;
+    let singletonKey = "";
+    if (app.boss) {
+      if (body.action === "sync_catalog") {
+        singletonKey = catalogSyncRerunSingletonKey(marketCode);
+        jobId = await app.boss.send(
+          CATALOG_SYNC_QUEUE,
+          { pendingMarkets: [marketCode], providerOperationId: operation.id },
+          { singletonKey, priority: 5 },
+        );
+      } else if (body.action === "refresh_fx_rates") {
+        const today = today_utc();
+        singletonKey = "fx-refresh";
+        jobId = await app.boss.send(
+          FX_REFRESH_QUEUE,
+          {
+            trigger: "manual" as const,
+            startDate: today,
+            endDate: today,
+            bases: [...STORED_QUOTES],
+            providerOperationId: operation.id,
+          },
+          { singletonKey, priority: 5 },
+        );
+      } else if (body.action === "sync_asx_gics") {
+        singletonKey = ASX_GICS_SYNC_SINGLETON_KEY;
+        jobId = await app.boss.send(
+          ASX_GICS_SYNC_QUEUE,
+          { providerOperationId: operation.id },
+          { singletonKey, priority: 5 },
+        );
+      }
+    }
+    const updated = await finalizeCollapsedMarketActionOperation(operation, {
+      ...context,
+      jobId,
+      singletonKey: singletonKey || `${marketCode}:${body.action}`,
+      queueAvailable: app.boss !== null,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: updated.id,
+      phase: updated.phase,
+      level: "info",
+      message: `market_data_action_${updated.phase} provider=${providerId} market=${marketCode} action=${body.action}`,
+      context: { providerId, marketCode, action: body.action, jobId, singletonKey },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: updated.id,
+        action: "market_data_action_execute",
+        providerId,
+        marketCode,
+        operationType: body.action,
+        jobId,
+        singletonKey,
+      },
+    });
+    return {
+      operationId: updated.id,
+      marketCode,
+      providerId,
+      action: body.action,
+      status: updated.phase === "completed" ? "completed" : "queued",
+      jobId,
+      message: app.boss === null
+        ? "Queue unavailable; operation recorded without dispatch."
+        : jobId === null
+          ? "Existing singleton job already covers this action."
+          : "Provider-owned action queued.",
+    };
+  }
+
   app.get("/market-data", async (req): Promise<AdminMarketDataLandingResponse> => {
     requireAdminRole(req);
     const markets = await Promise.all((["TW", "US", "AU", "KR", "FX"] as const).map(marketTile));
@@ -5767,6 +6079,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     return { marketCode, actions: marketDataActions(marketCode) };
+  });
+
+  app.post("/market-data/:marketCode/actions/execute", async (req): Promise<AdminMarketDataActionExecuteResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    const body = marketDataActionExecuteBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataActionExecuteRequest;
+    return executeMarketDataAction(marketCode, body, { actorUserId: sessionUserId, ipAddress });
   });
 
   app.get("/market-data/:marketCode/instruments", async (req): Promise<AdminMarketDataInstrumentsResponse> => {
@@ -6160,6 +6480,20 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 }
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
+  app.providerOperationExecutor = async ({ operationId, actorUserId, ipAddress }) => {
+    const operation = await app.persistence.getProviderOperation(operationId);
+    if (!operation) {
+      throw routeError(404, "provider_operation_not_found", "Provider operation not found");
+    }
+    const config = await loadAppConfigDto(app);
+    await completeProviderFixerOperation(app, operation, {
+      actorUserId,
+      ipAddress,
+      guardrails: providerFixerGuardrailsFromConfig(config),
+      dangerous: (operation.matchCount ?? 0) >= config.effectiveProviderFixerDangerousMatchThreshold,
+      throwOnFailure: true,
+    });
+  };
   registerProviderFixerAdminRoutes(app);
   registerMarketDataAdminRoutes(app);
 

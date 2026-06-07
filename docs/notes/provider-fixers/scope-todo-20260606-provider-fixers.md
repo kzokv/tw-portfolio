@@ -154,7 +154,7 @@ Execute routes must require explicit provider/action selection where more than o
 - [x] Allow TW/US non-user-owned backfill only through selected catalog rows, manual/uploaded targets, or all-matching preview with typed confirmation.
 - [x] Keep AU/KR pending/failed catalog-row backfill, but require preview/estimate before enqueueing all pending/failed rows.
 - [x] Add retention/provenance metadata for admin-triggered backfill batches or provider operations, or document the inference path if explicit storage metadata is deferred.
-- [ ] Add queue-backed provider operations for catalog sync, catalog-row backfill, FX refresh, ASX GICS sync, and KR mapping repair.
+- [x] Add queue-backed provider operations for catalog sync, catalog-row backfill, FX refresh, ASX GICS sync, and KR mapping repair.
 - [x] Change KR mapping repair to mapping-only and keep rerun/backfill explicit.
 - [x] Add Purge data dry-run/execute API and UI with selectable categories, full-history/date-range bars/dividends purge, optional linked refill, typed confirmation, audit logging, and provider/data-type capability checks.
 - [x] Keep catalog-row deletion out of scope.

@@ -275,6 +275,7 @@ export interface FxRefreshJobData {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   bases: readonly AccountDefaultCurrency[];
+  providerOperationId?: string;
 }
 
 /**

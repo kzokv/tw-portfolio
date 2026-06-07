@@ -195,4 +195,50 @@ describe("catalog sync worker", () => {
       expect.stringContaining("catalog_sync_rate_limit_reschedule_dropped"),
     );
   });
+
+  it("preserves providerOperationId when a correlated catalog sync is rescheduled", async () => {
+    const deps = createDeps();
+    const getProviderOperation = vi.fn().mockResolvedValue({
+      id: "op-catalog-1",
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      phase: "queued",
+      metadata: { marketDataBff: true },
+    });
+    const updateProviderOperation = vi.fn().mockResolvedValue({});
+    const createProviderOperationLog = vi.fn().mockResolvedValue({});
+    const runCatalogSyncFn = vi.fn().mockRejectedValue(new RateLimitedError({ msUntilAvailable: 30_000 }));
+    const enqueueDailyRefreshFn = vi.fn();
+
+    const handler = createCatalogSyncHandler({
+      boss: deps.boss,
+      catalogRegistry: deps.catalogRegistry as never,
+      persistence: {
+        ...deps.persistence,
+        getProviderOperation,
+        updateProviderOperation,
+        createProviderOperationLog,
+      } as never,
+      log: deps.log,
+      runCatalogSyncFn,
+      enqueueDailyRefreshFn,
+    });
+
+    await handler([createJob({ providerOperationId: "op-catalog-1" } as never)]);
+
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      CATALOG_SYNC_QUEUE,
+      { pendingMarkets: ["TW"], providerOperationId: "op-catalog-1" },
+      expect.objectContaining({ startAfter: 30, singletonKey: CATALOG_SYNC_QUEUE }),
+    );
+    expect(updateProviderOperation).toHaveBeenCalledWith(expect.objectContaining({
+      id: "op-catalog-1",
+      phase: "queued",
+    }));
+    expect(createProviderOperationLog).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: "op-catalog-1",
+      phase: "queued",
+      message: expect.stringContaining("catalog_sync_rate_limited_rescheduled"),
+    }));
+  });
 });

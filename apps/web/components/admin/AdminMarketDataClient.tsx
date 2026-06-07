@@ -8,6 +8,7 @@ import type {
   AdminInstrumentSupportState,
   AdminMarketCode,
   AdminMarketDataActionDto,
+  AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteResponse,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketDataInstrumentDto,
@@ -25,6 +26,7 @@ import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
 import {
   executeMarketBackfill,
+  executeMarketAction,
   executeMarketPurge,
   previewMarketBackfill,
   previewMarketPurge,
@@ -87,21 +89,67 @@ function marketTone(status: AdminMarketDataLandingResponse["markets"][number]["h
   return "bg-slate-400";
 }
 
-function ActionChips({ actions }: { actions: AdminMarketDataActionDto[] }) {
+function ActionChips({ marketCode, actions }: { marketCode: AdminMarketCode; actions: AdminMarketDataActionDto[] }) {
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [result, setResult] = useState<AdminMarketDataActionExecuteResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runAction(action: AdminMarketDataActionDto) {
+    if (action.action === "backfill_catalog_rows") return;
+    setRunningAction(action.action);
+    setError(null);
+    try {
+      const response = await executeMarketAction(marketCode, {
+        action: action.action,
+        providerId: action.providerId,
+        acknowledged: true,
+        ...(action.action === "repair_mapping" ? { resolverMode: "quote_first" as const } : {}),
+      });
+      setResult(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setRunningAction(null);
+    }
+  }
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {actions.map((action) => (
-        <span
-          key={`${action.providerId}:${action.action}`}
-          className={cn(
-            "rounded border px-2.5 py-1 text-xs",
-            action.supported ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-800",
-          )}
-          title={action.disabledReason ?? action.description}
-        >
-          {action.label} - {action.providerId}
-        </span>
-      ))}
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action) => {
+          const executable = action.supported && action.action !== "backfill_catalog_rows";
+          return (
+            <div
+              key={`${action.providerId}:${action.action}`}
+              className={cn(
+                "flex max-w-full items-center gap-2 rounded border px-2.5 py-1 text-xs",
+                action.supported ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-800",
+              )}
+              title={action.disabledReason ?? action.description}
+            >
+              <span className="min-w-0">
+                {action.label} - {action.providerId}
+              </span>
+              {executable ? (
+                <button
+                  type="button"
+                  disabled={runningAction === action.action}
+                  onClick={() => void runAction(action)}
+                  className="rounded bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {runningAction === action.action ? "Running" : "Run"}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      {result ? (
+        <p className="text-xs text-muted-foreground">
+          {result.message} Operation {result.operationId} is {result.status}.
+        </p>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -245,7 +293,7 @@ function OverviewPanel({ overview, actions }: { overview: AdminMarketDataOvervie
       <Card className="px-5 py-4 hover:translate-y-0">
         <h2 className="text-base font-semibold text-foreground">Provider-owned actions</h2>
         <p className="mt-2 text-sm text-muted-foreground">The market workspace previews scope and guardrails; execution remains attributed to the owning provider.</p>
-        <div className="mt-4"><ActionChips actions={actions} /></div>
+        <div className="mt-4"><ActionChips marketCode={overview.marketCode} actions={actions} /></div>
       </Card>
     </div>
   );
@@ -625,7 +673,7 @@ function MappingsPanel({ actions }: { actions: AdminMarketDataActionDto[] }) {
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
       <h2 className="text-base font-semibold text-foreground">KR mapping repair</h2>
       <p className="mt-2 text-sm text-muted-foreground">Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.</p>
-      {mappingAction ? <ActionChips actions={[mappingAction]} /> : <p className="mt-4 text-sm text-muted-foreground">Mappings are not available for this market.</p>}
+      {mappingAction ? <ActionChips marketCode="KR" actions={[mappingAction]} /> : <p className="mt-4 text-sm text-muted-foreground">Mappings are not available for this market.</p>}
     </Card>
   );
 }
@@ -775,7 +823,7 @@ function RefreshRatesPanel({ actions }: { actions: AdminMarketDataActionDto[] })
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-refresh-rates">
       <h2 className="text-base font-semibold text-foreground">FX refresh</h2>
       <p className="mt-2 text-sm text-muted-foreground">FX is lightweight here: refresh rates, operations, and logs only.</p>
-      <div className="mt-4"><ActionChips actions={actions} /></div>
+      <div className="mt-4"><ActionChips marketCode="FX" actions={actions} /></div>
     </Card>
   );
 }

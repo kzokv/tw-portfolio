@@ -90,6 +90,100 @@ describe("Provider Fixer admin routes", () => {
     if (app) await app.close();
   });
 
+  it("executes market-data provider actions with durable operation ids", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn()
+      .mockResolvedValueOnce("catalog-sync-tw")
+      .mockResolvedValueOnce("provider-op-kr");
+    app.boss = { send: bossSend } as never;
+
+    const catalog = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/actions/execute",
+      headers,
+      payload: {
+        action: "sync_catalog",
+        providerId: "finmind-tw",
+        acknowledged: true,
+      },
+    });
+
+    expect(catalog.statusCode).toBe(200);
+    const catalogBody = catalog.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(catalogBody).toMatchObject({
+      marketCode: "TW",
+      providerId: "finmind-tw",
+      action: "sync_catalog",
+      status: "queued",
+      jobId: "catalog-sync-tw",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "catalog-sync",
+      { pendingMarkets: ["TW"], providerOperationId: catalogBody.operationId },
+      expect.objectContaining({ singletonKey: "catalog-sync:TW", priority: 5 }),
+    );
+    await expect(app.persistence.getProviderOperation(catalogBody.operationId)).resolves.toMatchObject({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      operationType: "sync_catalog",
+      phase: "queued",
+    });
+
+    const repair = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/KR/actions/execute",
+      headers,
+      payload: {
+        action: "repair_mapping",
+        providerId: "yahoo-finance-kr",
+        acknowledged: true,
+        resolverMode: "quote_first",
+      },
+    });
+
+    expect(repair.statusCode).toBe(200);
+    const repairBody = repair.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(repairBody).toMatchObject({
+      marketCode: "KR",
+      providerId: "yahoo-finance-kr",
+      action: "repair_mapping",
+      status: "queued",
+      jobId: "provider-op-kr",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "provider-operation-execution",
+      { operationId: repairBody.operationId, actorUserId: admin.userId, ipAddress: expect.any(String) },
+      expect.objectContaining({ singletonKey: `provider-operation-execution:${repairBody.operationId}`, priority: 10 }),
+    );
+    await expect(app.persistence.getProviderOperation(repairBody.operationId)).resolves.toMatchObject({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "queued",
+      metadata: expect.objectContaining({ marketDataBff: true, mappingOnly: true }),
+    });
+    expect(bossSend).not.toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("previews unresolved KR errors and executes confirmed durable mapping writes", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };

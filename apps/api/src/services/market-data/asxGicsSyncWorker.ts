@@ -20,7 +20,9 @@
  */
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
+import { z } from "zod";
 import type { AppInstance } from "../../app.js";
+import type { Persistence } from "../../persistence/types.js";
 import type { AsxGicsProvider, RawAsxGicsRow } from "./providers/asxGicsCatalog.js";
 import { AsxGicsFetchError, AsxGicsParseError } from "./providers/asxGicsCatalog.js";
 import { RateLimitedError } from "./types.js";
@@ -30,6 +32,14 @@ import { classifyProviderError } from "./backfillWorker.js";
 
 export const ASX_GICS_SYNC_QUEUE = "asx-gics-sync";
 export const ASX_GICS_SYNC_SINGLETON_KEY = "asx-gics-sync";
+
+export const AsxGicsSyncJobDataSchema = z
+  .object({
+    providerOperationId: z.string().optional(),
+  })
+  .strict();
+
+export type AsxGicsSyncJobData = z.infer<typeof AsxGicsSyncJobDataSchema>;
 
 const ASX_GICS_QUEUE_OPTIONS = {
   ...DEFAULT_MARKET_DATA_QUEUE_OPTIONS,
@@ -53,6 +63,7 @@ export interface AsxGicsSyncMetrics {
 export interface AsxGicsSyncWorkerDeps {
   provider: AsxGicsProvider;
   pool: Pool;
+  persistence?: Pick<Persistence, "getProviderOperation" | "updateProviderOperation" | "createProviderOperationLog">;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
   /** Provider-health aggregator (KZO-177). Optional for memory-backed tests. */
   providerHealth?: ProviderHealthService;
@@ -63,7 +74,61 @@ export interface AsxGicsSyncWorkerDeps {
  * pg-boss. Mirrors the pattern from `backfillWorker.ts`.
  */
 export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
-  const { provider, pool, log, providerHealth } = deps;
+  const { provider, pool, persistence, log, providerHealth } = deps;
+
+  async function logProviderOperation(
+    providerOperationId: string | undefined,
+    phase: "running" | "paused" | "completed" | "failed" | "cancelled",
+    message: string,
+    context: Record<string, unknown>,
+    level: "info" | "warning" | "error" = "info",
+  ): Promise<void> {
+    if (!providerOperationId || !persistence) return;
+    try {
+      await persistence.createProviderOperationLog({
+        operationId: providerOperationId,
+        phase,
+        level,
+        message,
+        context,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "asx_gics_provider_operation_log_failed");
+    }
+  }
+
+  async function updateProviderOperation(
+    providerOperationId: string | undefined,
+    input: Omit<Parameters<Persistence["updateProviderOperation"]>[0], "id">,
+  ): Promise<void> {
+    if (!providerOperationId || !persistence) return;
+    try {
+      const current = await persistence.getProviderOperation(providerOperationId);
+      await persistence.updateProviderOperation({
+        id: providerOperationId,
+        ...input,
+        metadata: input.metadata
+          ? { ...(current?.metadata ?? {}), ...input.metadata }
+          : input.metadata,
+      });
+    } catch (err) {
+      log.warn({ err, providerOperationId }, "asx_gics_provider_operation_update_failed");
+    }
+  }
+
+  async function shouldRunProviderOperation(providerOperationId: string | undefined): Promise<boolean> {
+    if (!providerOperationId || !persistence) return true;
+    const operation = await persistence.getProviderOperation(providerOperationId);
+    if (operation?.phase !== "paused" && operation?.phase !== "cancelled") return true;
+    await logProviderOperation(
+      providerOperationId,
+      operation.phase,
+      `gics_sync_skipped provider=${operation.providerId} market=${operation.marketCode} phase=${operation.phase}`,
+      { providerId: operation.providerId, marketCode: operation.marketCode },
+      "warning",
+    );
+    return false;
+  }
 
   async function safeRecordOutcome(
     outcome: Parameters<ProviderHealthService["recordOutcome"]>[1],
@@ -81,8 +146,31 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
     }
   }
 
-  return async (_jobs: JobWithMetadata<unknown>[]): Promise<AsxGicsSyncMetrics> => {
+  return async ([job]: JobWithMetadata<unknown>[]): Promise<AsxGicsSyncMetrics> => {
+    const data = AsxGicsSyncJobDataSchema.parse(job.data ?? {});
+    const { providerOperationId } = data;
     const startedAt = Date.now();
+    if (!(await shouldRunProviderOperation(providerOperationId))) {
+      return {
+        rowsParsed: 0,
+        rowsUpdated: 0,
+        rowsUnchanged: 0,
+        rowsUnmatchedAsx: 0,
+        rowsMissingFromCsv: 0,
+        durationMs: 0,
+      };
+    }
+    await updateProviderOperation(providerOperationId, {
+      phase: "running",
+      startedAt: new Date().toISOString(),
+      metadata: { progressPercent: 0 },
+    });
+    await logProviderOperation(
+      providerOperationId,
+      "running",
+      "gics_sync_started provider=asx-gics-csv market=AU",
+      { providerId: "asx-gics-csv", marketCode: "AU" },
+    );
     log.info({ providerId: "asx-gics-csv" }, "gics_sync_started");
 
     let rows: RawAsxGicsRow[];
@@ -92,6 +180,13 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
       // Re-throw transient errors first per typed-transient-error-catch-audit.md.
       if (err instanceof RateLimitedError) {
         await safeRecordOutcome({ kind: "rate_limit", errorMessage: err.message });
+        await logProviderOperation(
+          providerOperationId,
+          "running",
+          `gics_sync_rate_limited reason=${err.message}`,
+          { providerId: "asx-gics-csv", marketCode: "AU", retryAfterSeconds: err.retryAfterSeconds },
+          "warning",
+        );
         throw err;
       }
       const errorClass = err instanceof AsxGicsParseError
@@ -102,6 +197,24 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log.error({ err, stage: "fetch" }, "gics_sync_failed");
       await safeRecordOutcome({ kind: "error", errorClass, errorMessage });
+      const terminal = job.retryCount >= job.retryLimit;
+      await updateProviderOperation(providerOperationId, {
+        phase: terminal ? "failed" : "running",
+        completedAt: terminal ? new Date().toISOString() : null,
+        metadata: {
+          progressPercent: 0,
+          failureReason: errorMessage,
+          retryCount: job.retryCount,
+          retryLimit: job.retryLimit,
+        },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        terminal ? "failed" : "running",
+        `gics_sync_${terminal ? "failed" : "attempt_failed"} stage=fetch reason=${errorMessage}`,
+        { providerId: "asx-gics-csv", marketCode: "AU", retryCount: job.retryCount, retryLimit: job.retryLimit },
+        terminal ? "error" : "warning",
+      );
       throw err;
     }
 
@@ -142,6 +255,24 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
         errorClass: classifyProviderError(err),
         errorMessage,
       });
+      const terminal = job.retryCount >= job.retryLimit;
+      await updateProviderOperation(providerOperationId, {
+        phase: terminal ? "failed" : "running",
+        completedAt: terminal ? new Date().toISOString() : null,
+        metadata: {
+          progressPercent: 0,
+          failureReason: errorMessage,
+          retryCount: job.retryCount,
+          retryLimit: job.retryLimit,
+        },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        terminal ? "failed" : "running",
+        `gics_sync_${terminal ? "failed" : "attempt_failed"} stage=load_db_tickers reason=${errorMessage}`,
+        { providerId: "asx-gics-csv", marketCode: "AU", retryCount: job.retryCount, retryLimit: job.retryLimit },
+        terminal ? "error" : "warning",
+      );
       throw err;
     }
 
@@ -207,6 +338,13 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
     } catch (err) {
       if (err instanceof RateLimitedError) {
         await safeRecordOutcome({ kind: "rate_limit", errorMessage: err.message });
+        await logProviderOperation(
+          providerOperationId,
+          "running",
+          `gics_sync_rate_limited reason=${err.message}`,
+          { providerId: "asx-gics-csv", marketCode: "AU", retryAfterSeconds: err.retryAfterSeconds },
+          "warning",
+        );
         throw err;
       }
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -216,6 +354,24 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
         errorClass: classifyProviderError(err),
         errorMessage,
       });
+      const terminal = job.retryCount >= job.retryLimit;
+      await updateProviderOperation(providerOperationId, {
+        phase: terminal ? "failed" : "running",
+        completedAt: terminal ? new Date().toISOString() : null,
+        metadata: {
+          progressPercent: 0,
+          failureReason: errorMessage,
+          retryCount: job.retryCount,
+          retryLimit: job.retryLimit,
+        },
+      });
+      await logProviderOperation(
+        providerOperationId,
+        terminal ? "failed" : "running",
+        `gics_sync_${terminal ? "failed" : "attempt_failed"} stage=apply_updates reason=${errorMessage}`,
+        { providerId: "asx-gics-csv", marketCode: "AU", retryCount: job.retryCount, retryLimit: job.retryLimit },
+        terminal ? "error" : "warning",
+      );
       throw err;
     }
 
@@ -230,6 +386,17 @@ export function createAsxGicsSyncHandler(deps: AsxGicsSyncWorkerDeps) {
     };
     log.info({ ...metrics, providerId: "asx-gics-csv" }, "gics_sync_completed");
     await safeRecordOutcome({ kind: "success" });
+    await updateProviderOperation(providerOperationId, {
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: { progressPercent: 100, ...metrics },
+    });
+    await logProviderOperation(
+      providerOperationId,
+      "completed",
+      `gics_sync_completed updated=${rowsUpdated} unmatched=${rowsUnmatchedAsx}`,
+      { providerId: "asx-gics-csv", marketCode: "AU", ...metrics },
+    );
     return metrics;
   };
 }

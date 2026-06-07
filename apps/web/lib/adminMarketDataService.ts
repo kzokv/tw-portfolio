@@ -1,6 +1,8 @@
 import type {
   AdminInstrumentSupportState,
   AdminMarketCode,
+  AdminMarketDataActionExecuteRequest,
+  AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
   AdminMarketDataDelistingOverrideAction,
@@ -16,6 +18,13 @@ import type {
   AdminMarketDataSupportStateResponse,
 } from "@vakwen/shared-types";
 import { postJson } from "./api";
+
+export function executeMarketAction(
+  marketCode: AdminMarketCode,
+  input: AdminMarketDataActionExecuteRequest,
+): Promise<AdminMarketDataActionExecuteResponse> {
+  return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/actions/execute`, input);
+}
 
 export function previewMarketBackfill(
   marketCode: Exclude<AdminMarketCode, "FX">,

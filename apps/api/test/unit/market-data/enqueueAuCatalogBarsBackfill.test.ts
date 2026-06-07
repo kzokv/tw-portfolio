@@ -174,6 +174,55 @@ describe("enqueueAuCatalogBarsBackfill (KZO-197)", () => {
     );
   });
 
+  it("forwards providerOperationId into AU and KR catalog warm-up payloads", async () => {
+    const boss = { send: vi.fn().mockResolvedValue("job-1") };
+    const persistence = {
+      listAuCatalogBarsBackfillCandidates: vi.fn().mockResolvedValue([
+        { ticker: "AUWARM01", marketCode: "AU" as const },
+      ]),
+      listCatalogBarsBackfillCandidates: vi.fn().mockResolvedValue([
+        { ticker: "005930", marketCode: "KR" as const },
+      ]),
+      createRefreshBatch: vi.fn()
+        .mockResolvedValueOnce("batch-au-op")
+        .mockResolvedValueOnce("batch-kr-op"),
+    };
+    const log = { info: vi.fn() };
+
+    await enqueueAuCatalogBarsBackfill(boss, persistence, log, {
+      trigger: "admin_rerun",
+      providerOperationId: "op-au-backfill",
+    });
+    await enqueueAuCatalogBarsBackfill(boss, persistence, log, {
+      trigger: "admin_rerun",
+      marketCode: "KR",
+      resolverMode: "quote_first",
+      providerOperationId: "op-kr-backfill",
+    });
+
+    expect(boss.send).toHaveBeenNthCalledWith(
+      1,
+      BACKFILL_QUEUE,
+      expect.objectContaining({
+        ticker: "AUWARM01",
+        marketCode: "AU",
+        providerOperationId: "op-au-backfill",
+      }),
+      expect.objectContaining({ singletonKey: "AUWARM01:AU" }),
+    );
+    expect(boss.send).toHaveBeenNthCalledWith(
+      2,
+      BACKFILL_QUEUE,
+      expect.objectContaining({
+        ticker: "005930",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        providerOperationId: "op-kr-backfill",
+      }),
+      expect.objectContaining({ singletonKey: "005930:KR:quote_first" }),
+    );
+  });
+
   it("rejects non-AU warm-up when the generic market candidate query is unavailable", async () => {
     const boss = { send: vi.fn().mockResolvedValue("job-kr-1") };
     const persistence = {
