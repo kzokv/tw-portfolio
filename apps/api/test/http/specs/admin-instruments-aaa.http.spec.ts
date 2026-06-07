@@ -35,6 +35,13 @@ function assertString(value: unknown, label: string): void {
   }
 }
 
+function assertArray(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array`);
+  }
+  return value;
+}
+
 test.describe("admin market-data instruments", () => {
   test("[support-state]: admin can mark an AU instrument retired via /admin/market-data", async ({
     request,
@@ -211,10 +218,20 @@ test.describe("admin market-data instruments", () => {
       },
     ]);
     await assertStatus(seed, 200);
+    const removedManualPreview = await request.post("/admin/market-data/TW/backfill/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        scope: "manual_targets",
+        providerId: "finmind-tw",
+        manualTargets: [{ ticker: "TWMDF1", marketCode: "TW" }],
+      },
+    });
+    await assertStatus(removedManualPreview, 400);
+
     const body = {
-      scope: "manual_targets",
+      scope: "selected_catalog_rows",
       providerId: "finmind-tw",
-      manualTargets: [{ ticker: "TWMDF1", marketCode: "TW" }],
+      selectedCatalogRows: [{ ticker: "TWMDF1", marketCode: "TW" }],
     };
 
     const preview = await request.post("/admin/market-data/TW/backfill/preview", {
@@ -227,20 +244,30 @@ test.describe("admin market-data instruments", () => {
     const previewConfirmation = assertRecord(previewBody.confirmation, "backfill preview confirmation");
     assertEqual(previewBody.marketCode, "TW", "backfill preview marketCode");
     assertEqual(previewBody.providerId, "finmind-tw", "backfill preview providerId");
-    assertEqual(previewBody.scope, "manual_targets", "backfill preview scope");
+    assertEqual(previewBody.scope, "selected_catalog_rows", "backfill preview scope");
     assertEqual(previewBody.matchCount, 1, "backfill preview matchCount");
     assertEqual(previewConfirmation.level, "checkbox", "backfill preview confirmation.level");
+    assertString(previewBody.operationId, "backfill preview operationId");
+    assertString(previewBody.previewToken, "backfill preview previewToken");
+    assertString(previewBody.tokenExpiresAt, "backfill preview tokenExpiresAt");
+    const previewTargets = assertArray(previewBody.targets, "backfill preview targets");
+    assertEqual(previewTargets.length, 1, "backfill preview targets.length");
+    assertEqual(assertRecord(previewTargets[0], "backfill preview target").ticker, "TWMDF1", "backfill preview target.ticker");
 
     const execute = await request.post("/admin/market-data/TW/backfill/execute", {
       headers: { cookie: admin.cookieHeader },
-      data: { ...body, acknowledged: true },
+      data: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
     });
 
     await assertStatus(execute, 200);
     const executeBody = assertRecord(await execute.json(), "backfill execute body");
     assertEqual(executeBody.marketCode, "TW", "backfill execute marketCode");
     assertEqual(executeBody.providerId, "finmind-tw", "backfill execute providerId");
-    assertEqual(executeBody.scope, "manual_targets", "backfill execute scope");
+    assertEqual(executeBody.scope, "selected_catalog_rows", "backfill execute scope");
     assertEqual(executeBody.matchCount, 1, "backfill execute matchCount");
     if (executeBody.status !== "queued" && executeBody.status !== "completed") {
       throw new Error(`backfill execute status must be queued or completed, received ${String(executeBody.status)}`);

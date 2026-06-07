@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataInstrumentsResponse,
+  AdminMarketDataLogsResponse,
+  AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   ProviderFixerDashboardOperationDto,
+  ProviderFixerDashboardOperationsResponse,
+  ProviderOperationOutcomesResponse,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemsResponse,
+  ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
 
 const mockPush = vi.hoisted(() => vi.fn());
@@ -26,6 +31,8 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   previewMarketBackfill: vi.fn(),
   previewMarketPurge: vi.fn(),
   renewProviderEvidence: vi.fn(),
+  rerunProviderResolvedUnresolvedItem: vi.fn(),
+  mutateProviderOperation: vi.fn(),
   reverifyProviderMapping: vi.fn(),
   revertProviderMapping: vi.fn(),
   rerunProviderMapping: vi.fn(),
@@ -37,8 +44,13 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
 import { AdminMarketDataWorkspaceClient } from "../../../components/admin/AdminMarketDataClient";
 import {
   bulkUpdateProviderUnresolvedState,
+  executeMarketBackfill,
+  executeProviderRepair,
+  mutateProviderOperation,
+  previewMarketBackfill,
   previewProviderRepair,
   renewProviderEvidence,
+  rerunProviderResolvedUnresolvedItem,
   reverifyProviderMapping,
   revertProviderMapping,
   rerunProviderMapping,
@@ -49,8 +61,13 @@ import {
 const updateMarketInstrumentDelistingOverrideMock = vi.mocked(updateMarketInstrumentDelistingOverride);
 const bulkUpdateProviderUnresolvedStateMock = vi.mocked(bulkUpdateProviderUnresolvedState);
 const updateProviderUnresolvedStateMock = vi.mocked(updateProviderUnresolvedState);
+const executeProviderRepairMock = vi.mocked(executeProviderRepair);
+const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);
+const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
+const previewMarketBackfillMock = vi.mocked(previewMarketBackfill);
 const previewProviderRepairMock = vi.mocked(previewProviderRepair);
 const renewProviderEvidenceMock = vi.mocked(renewProviderEvidence);
+const rerunProviderResolvedUnresolvedItemMock = vi.mocked(rerunProviderResolvedUnresolvedItem);
 const reverifyProviderMappingMock = vi.mocked(reverifyProviderMapping);
 const rerunProviderMappingMock = vi.mocked(rerunProviderMapping);
 const revertProviderMappingMock = vi.mocked(revertProviderMapping);
@@ -112,11 +129,26 @@ function actions(): AdminMarketDataActionsResponse["actions"] {
   return [];
 }
 
+function backfillActions(): AdminMarketDataActionsResponse["actions"] {
+  return [
+    {
+      action: "backfill_catalog_rows",
+      providerId: "yahoo-finance-au",
+      label: "Backfill catalog rows",
+      description: "Backfill provider-owned bars and dividends.",
+      supported: true,
+      disabledReason: null,
+      guardrail: "typed_preview",
+      providerBudgetNotes: ["Preview freezes exact targets."],
+    },
+  ];
+}
+
 function krOverview(): AdminMarketDataOverviewResponse {
   return {
     marketCode: "KR",
     label: "Korea",
-    tabs: ["overview", "mappings"],
+    tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "logs"],
     providers: [
       { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
       { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
@@ -159,7 +191,7 @@ function operation(id: string): ProviderFixerDashboardOperationDto {
       page: 1,
       totalPages: 1,
       token: "preview-token",
-      tokenExpiresAt: "2026-01-01T00:00:00.000Z",
+      tokenExpiresAt: "2999-01-01T00:00:00.000Z",
       snapshotHash: "snapshot",
       matchCount: 1,
       sampleCount: 1,
@@ -169,8 +201,26 @@ function operation(id: string): ProviderFixerDashboardOperationDto {
       scopeSummary: "1 selected unresolved row",
       search: null,
       state: "active",
-      frozenScope: null,
-      evidenceSample: [],
+      frozenScope: {
+        type: "selected_items",
+        filterFingerprint: "selected",
+        matchCount: 1,
+        selectedItems: [{
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          sourceSymbol: "005930",
+        }],
+        filter: null,
+      },
+      evidenceSample: [{
+        symbol: "005930",
+        providerSymbol: "005930",
+        candidateSymbol: "005930.KS",
+        exchangeHint: "quote strict",
+        verificationStatus: "verified",
+        note: "strict quote match",
+      }],
     },
     canExecute: true,
     canPause: false,
@@ -239,15 +289,110 @@ function krMappingData() {
     unresolved: krUnresolved(),
     mappings: krMappings(),
     query: {
+      resolverMode: "quote_first" as const,
       unresolvedPage: 1,
       unresolvedLimit: 25,
-      unresolvedState: "active" as const,
+      unresolvedState: "active" as ProviderUnresolvedListState,
       unresolvedSearch: "",
       unresolvedSort: "last_seen_desc" as const,
       mappingsPage: 1,
       mappingsLimit: 25,
       mappingsSearch: "",
     },
+  };
+}
+
+function krOperationsData() {
+  const selected = operation("OP-PREVIEW");
+  const operations: ProviderFixerDashboardOperationsResponse = {
+    stagedOperation: selected,
+    selectedOperation: selected,
+    operations: [selected],
+    total: 1,
+    page: 1,
+    limit: 25,
+  };
+  const outcomes: ProviderOperationOutcomesResponse = {
+    items: [
+      {
+        operationId: selected.id,
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        providerSymbol: "005930.KS",
+        action: "repair_mapping",
+        state: "succeeded",
+        message: "Mapping persisted",
+        errorCode: null,
+        jobId: "job-1",
+        evidence: { operationId: selected.id },
+        startedAt: "2026-01-02T00:00:00.000Z",
+        completedAt: "2026-01-02T00:01:00.000Z",
+        updatedAt: "2026-01-02T00:01:00.000Z",
+      },
+    ],
+    summary: {
+      total: 1,
+      processed: 1,
+      pending: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 0,
+      skipped: 0,
+      rateLimited: 0,
+      cancelled: 0,
+      progressPercent: 100,
+    },
+    total: 1,
+    page: 1,
+    limit: 25,
+  };
+  return {
+    operations,
+    selectedOperationId: selected.id,
+    outcomes,
+    query: {
+      operationsPage: 1,
+      operationsLimit: 25,
+      operationOutcomesPage: 1,
+      operationOutcomesLimit: 25,
+      operationOutcomeState: "all" as const,
+      operationOutcomeAction: "",
+    },
+  };
+}
+
+function auOperations(): AdminMarketDataOperationsResponse {
+  return {
+    marketCode: "AU",
+    providers: [
+      { providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog" },
+      { providerId: "yahoo-finance-au", label: "Yahoo Finance AU", role: "Bars, dividends, metadata" },
+      { providerId: "asx-gics-csv", label: "ASX GICS CSV", role: "GICS enrichment" },
+    ],
+    items: [{ ...operation("OP-AU"), providerId: "yahoo-finance-au", market: "AU", phase: "completed" }],
+    total: 1,
+    page: 1,
+    limit: 25,
+  };
+}
+
+function auLogs(): AdminMarketDataLogsResponse {
+  return {
+    marketCode: "AU",
+    providers: auOperations().providers,
+    items: [
+      {
+        id: "log-1",
+        occurredAt: "2026-01-02T00:00:00.000Z",
+        phase: "completed",
+        message: "Backfill completed",
+        operationId: "OP-AU",
+      },
+    ],
+    total: 1,
+    page: 1,
+    limit: 25,
   };
 }
 
@@ -270,6 +415,116 @@ describe("AdminMarketDataWorkspaceClient", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+  });
+
+  it("previews and executes selected supported instruments with a frozen backfill token", async () => {
+    previewMarketBackfillMock.mockResolvedValueOnce({
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      scope: "selected_catalog_rows",
+      operationId: "OP-BACKFILL-PREVIEW",
+      previewToken: "BF-TOKEN",
+      tokenExpiresAt: "2999-01-01T00:00:00.000Z",
+      matchCount: 1,
+      affectedUserCount: 0,
+      affectedAccountCount: 0,
+      estimatedJobCount: 1,
+      estimatedStorageRows: 2,
+      providerBudgetNotes: ["Preview freezes exact targets."],
+      targets: [{
+        ticker: "AUBF1",
+        marketCode: "AU",
+        name: "AU Backfill Fixture",
+        instrumentType: "STOCK",
+        status: "listed",
+        supportState: "supported",
+        backfillStatus: "pending",
+        providerIds: ["yahoo-finance-au"],
+      }],
+      unsupportedRows: [],
+      confirmation: {
+        level: "checkbox",
+        text: null,
+        reason: "Preview is required before enqueue.",
+      },
+    });
+    executeMarketBackfillMock.mockResolvedValueOnce({
+      operationId: "OP-BACKFILL-PREVIEW",
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      scope: "selected_catalog_rows",
+      status: "completed",
+      matchCount: 1,
+      enqueuedJobCount: 0,
+      skippedExistingJobCount: 0,
+      batchId: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="backfill"
+          overview={{ ...overview(), tabs: ["overview", "instruments", "backfill"] }}
+          actions={backfillActions()}
+          instruments={instruments("AUBF1", "AU Backfill Fixture")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "listed",
+            supportState: "supported",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "pending",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          logs={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const modeSelect = container.querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      modeSelect.value = "supported";
+      modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const rowCheckbox = container.querySelector("input[aria-label='Select AUBF1']") as HTMLInputElement;
+    await act(async () => {
+      rowCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview selected")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(previewMarketBackfillMock).toHaveBeenCalledWith("AU", expect.objectContaining({
+      scope: "selected_catalog_rows",
+      providerId: "yahoo-finance-au",
+      selectedCatalogRows: [expect.objectContaining({ ticker: "AUBF1", marketCode: "AU" })],
+    }));
+    expect(container.textContent).toContain("Frozen targets: 1");
+    expect(container.textContent).toContain("AUBF1");
+
+    const acknowledge = [...container.querySelectorAll("input[type='checkbox']")]
+      .find((input) => !(input as HTMLInputElement).getAttribute("aria-label")) as HTMLInputElement;
+    await act(async () => {
+      acknowledge.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Execute backfill")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(executeMarketBackfillMock).toHaveBeenCalledWith("AU", {
+      operationId: "OP-BACKFILL-PREVIEW",
+      previewToken: "BF-TOKEN",
+      acknowledged: true,
+      typedConfirmation: "",
+    });
   });
 
   it("preserves KR unresolved filters, row lifecycle action, and repair preview under market-data mappings", async () => {
@@ -346,6 +601,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
     await act(async () => {
       container.querySelector("[data-testid='provider-console-select-all-matching']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("MARK 1 MATCHING UNSUPPORTED");
     await act(async () => {
       container.querySelector("[data-testid='provider-console-bulk-unsupported']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -355,6 +611,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
       typedConfirmation: "MARK 1 MATCHING UNSUPPORTED",
       scope: expect.objectContaining({ type: "filter", state: "active" }),
     }));
+    promptSpy.mockRestore();
   });
 
   it("preserves KR mapping links and mapping actions under market-data mappings", async () => {
@@ -406,6 +663,147 @@ describe("AdminMarketDataWorkspaceClient", () => {
       providerId: "yahoo-finance-kr",
       typedConfirmation: "REVERT 005930",
     }));
+  });
+
+  it("reruns resolved KR unresolved rows through the provider mapping API", async () => {
+    rerunProviderResolvedUnresolvedItemMock.mockResolvedValueOnce({ operation: operation("OP-RERUN-ROW") });
+    const data = krMappingData();
+    data.query.unresolvedState = "resolved";
+    data.unresolved.items = data.unresolved.items.map((item) => ({
+      ...item,
+      state: "resolved" as const,
+      resolvedAt: "2026-01-02T00:00:00.000Z",
+      resolvedByOperationId: "OP-PREVIEW",
+    }));
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="mappings"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          logs={null}
+          krMappings={data}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-unresolved-rerun-005930']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(rerunProviderResolvedUnresolvedItemMock).toHaveBeenCalledWith({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolverMode: "quote_first",
+    });
+  });
+
+  it("preserves KR operation inspector execution, outcomes, and retry controls", async () => {
+    const data = krOperationsData();
+    const retryable = {
+      ...operation("OP-FAILED"),
+      phase: "failed" as const,
+      canExecute: false,
+      canRetry: true,
+    };
+    data.operations.operations = [data.operations.operations[0]!, retryable];
+    executeProviderRepairMock.mockResolvedValueOnce({ operation: operation("OP-EXECUTED") });
+    mutateProviderOperationMock.mockResolvedValueOnce({ operation: operation("OP-RETRY") });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          logs={null}
+          krMappings={null}
+          krOperations={data}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-testid='market-data-kr-operations']")).not.toBeNull();
+    expect(container.textContent).toContain("Operation item outcomes");
+    expect(container.textContent).toContain("repair_mapping");
+
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-operation-execute-button']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(executeProviderRepairMock).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "yahoo-finance-kr",
+      operationId: "OP-PREVIEW",
+      previewToken: "preview-token",
+      acknowledged: true,
+    }));
+
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mutateProviderOperationMock).toHaveBeenCalledWith({
+      providerId: "yahoo-finance-kr",
+      operationId: "OP-FAILED",
+      action: "retry",
+    });
+  });
+
+  it("shows provider filters for multi-provider market operation streams", async () => {
+    const operations = auOperations();
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="operations"
+          overview={{ ...overview(), tabs: ["overview", "operations", "logs"], providers: operations.providers }}
+          actions={actions()}
+          instruments={null}
+          operations={operations}
+          logs={null}
+          providerFilterId="yahoo-finance-au"
+          krMappings={null}
+        />,
+      );
+    });
+
+    const filter = container.querySelector("[data-testid='market-data-operations-provider-filter']");
+    expect(filter?.textContent ?? "").toContain("All providers");
+    expect(filter?.textContent ?? "").toContain("Yahoo Finance AU");
+    const yahooLink = [...container.querySelectorAll("a")]
+      .find((link) => link.textContent === "Yahoo Finance AU");
+    expect(yahooLink?.getAttribute("href")).toBe("/admin/market-data/AU/operations?providerId=yahoo-finance-au");
+
+    const logs = auLogs();
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="logs"
+          overview={{ ...overview(), tabs: ["overview", "operations", "logs"], providers: logs.providers }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          logs={logs}
+          providerFilterId="asx-gics-csv"
+          krMappings={null}
+        />,
+      );
+    });
+
+    const logsFilter = container.querySelector("[data-testid='market-data-logs-provider-filter']");
+    expect(logsFilter?.textContent ?? "").toContain("ASX GICS CSV");
+    const asxLink = [...container.querySelectorAll("a")]
+      .find((link) => link.textContent === "ASX GICS CSV");
+    expect(asxLink?.getAttribute("href")).toBe("/admin/market-data/AU/logs?providerId=asx-gics-csv");
   });
 
   afterEach(() => {

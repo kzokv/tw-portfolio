@@ -176,6 +176,17 @@ export function executeProviderRepair(input: {
   );
 }
 
+export function mutateProviderOperation(input: {
+  providerId: string;
+  operationId: string;
+  action: "pause" | "resume" | "cancel" | "retry";
+}): Promise<{ operation: ProviderFixerDashboardOperationDto }> {
+  return postJson(
+    `/admin/providers/${encodeURIComponent(input.providerId)}/operations/${encodeURIComponent(input.operationId)}/${input.action}`,
+    {},
+  );
+}
+
 export function reverifyProviderMapping(input: {
   providerId: string;
   mapping: Pick<ProviderResolutionMappingDto, "marketCode" | "sourceSymbol" | "resolvedSymbol">;
@@ -197,6 +208,20 @@ export function rerunProviderMapping(input: {
   return postJson(`/admin/providers/${encodeURIComponent(input.providerId)}/mappings/rerun`, {
     marketCode: input.mapping.marketCode,
     sourceSymbol: input.mapping.sourceSymbol,
+    resolverMode: input.resolverMode,
+    acknowledged: true,
+  });
+}
+
+export function rerunProviderResolvedUnresolvedItem(input: {
+  providerId: string;
+  marketCode: ProviderUnresolvedItemDto["marketCode"];
+  sourceSymbol: string;
+  resolverMode: "quote_first" | "chart_probe_v1";
+}): Promise<{ operation: ProviderFixerDashboardOperationDto }> {
+  return postJson(`/admin/providers/${encodeURIComponent(input.providerId)}/mappings/rerun`, {
+    marketCode: input.marketCode,
+    sourceSymbol: input.sourceSymbol,
     resolverMode: input.resolverMode,
     acknowledged: true,
   });

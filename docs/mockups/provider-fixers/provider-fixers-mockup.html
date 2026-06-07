@@ -822,44 +822,59 @@
       </aside>
       <main class="main">
         <div class="topbar">
-          <div><div class="breadcrumbs">Admin / Market data / TW / Backfill</div><h1>TW Backfill</h1><div class="subtle">Default scope is user-owned or monitored; non-user-owned rows need explicit selection or typed confirmation.</div></div>
-          <div class="toolbar"><button class="button">Sync catalog first</button><button class="button primary">Preview backfill</button></div>
+          <div><div class="breadcrumbs">Admin / Market data / TW / Backfill</div><h1>TW Backfill</h1><div class="subtle">Use owned/monitored scope or pick supported catalog rows. Preview freezes the exact targets before execution.</div></div>
+          <div class="toolbar"><button class="button">Sync catalog first</button><button class="button primary">Preview selected</button></div>
         </div>
         <nav class="market-strip"><div class="market-tab active">TW</div><div class="market-tab">US</div><div class="market-tab">AU</div><div class="market-tab">KR</div><div class="market-tab">FX</div></nav>
-        <div class="chips"><span class="pill info">provider: finmind-tw</span><span class="pill warn">budget: 600/hr shared</span><span class="pill ok">scope preview required</span></div>
+        <div class="chips"><span class="pill info">provider: finmind-tw</span><span class="pill warn">budget: 600/hr shared</span><span class="pill ok">frozen preview required</span></div>
         <nav class="tabs"><div class="tab">Overview</div><div class="tab">Instruments</div><div class="tab active">Backfill</div><div class="tab">Purge data</div><div class="tab">Operations</div><div class="tab">Logs</div></nav>
-        <div class="grid-4">
-          <div class="scope-card active"><div class="scope-top"><h3>User-owned or monitored</h3><span class="pill ok">default</span></div><p class="subtle">Open active-account positions plus manual monitored tickers. Demo users excluded.</p><strong>1,284 targets</strong></div>
-          <div class="scope-card"><div class="scope-top"><h3>Selected catalog rows</h3><span class="pill info">explicit</span></div><p class="subtle">Use checked instruments from the TW Instruments table.</p><strong>12 selected</strong></div>
-          <div class="scope-card"><div class="scope-top"><h3>Manual targets</h3><span class="pill info">upload</span></div><p class="subtle">Exact ticker plus market pairs. Invalid rows are rejected before execute.</p><strong>0 uploaded</strong></div>
-          <div class="scope-card"><div class="scope-top"><h3>All matching</h3><span class="pill danger">dangerous</span></div><p class="subtle">Current filter across all pages. Requires typed confirmation.</p><strong>3,912 rows</strong></div>
+        <div class="grid-3">
+          <div class="scope-card"><div class="scope-top"><h3>Owned or monitored</h3><span class="pill ok">safe</span></div><p class="subtle">All supported instruments in open positions or monitored tickers across users. Demo users optional.</p><strong>1,284 targets</strong></div>
+          <div class="scope-card active"><div class="scope-top"><h3>Supported instruments</h3><span class="pill info">active</span></div><p class="subtle">Filter current catalog rows, check exact tickers, or preview all matching filters.</p><strong>12 selected</strong></div>
+          <div class="scope-card"><div class="scope-top"><h3>Large previews</h3><span class="pill danger">typed</span></div><p class="subtle">100+ targets require typed confirmation. 5,000+ targets are rejected until narrowed.</p><strong>details modal</strong></div>
         </div>
         <div style="height:14px"></div>
         <div class="grid-2">
           <div class="panel stack">
-            <div class="row-between"><h2>Preview</h2><span class="pill ok">safe default</span></div>
-            <div class="kv">
-              <div class="kv-row"><span>Scope</span><strong>user_owned_or_monitored</strong></div>
-              <div class="kv-row"><span>Affected users</span><strong>42 non-demo users</strong></div>
-              <div class="kv-row"><span>Jobs to enqueue</span><strong>1,284</strong></div>
-              <div class="kv-row"><span>Estimated storage</span><strong>1.8 GB</strong></div>
-              <div class="kv-row"><span>Provider operation</span><strong>backfill_catalog_rows</strong></div>
+            <div class="row-between"><h2>Supported instrument picker</h2><span class="pill info">URL filters</span></div>
+            <div class="grid-3">
+              <div class="field"><span>Search: 2330</span></div>
+              <div class="field"><span>Support: supported</span></div>
+              <div class="field"><span>Backfill: pending</span></div>
             </div>
-            <div class="callout"><strong>i</strong><span>Catalog sync is separate. This preview stores historical bars/dividends only for the selected scope.</span></div>
-          </div>
-          <div class="panel stack">
-            <div class="row-between"><h2>Manual target validation</h2><span class="pill muted">exact market</span></div>
             <div class="table-wrap" style="box-shadow:none">
               <table>
-                <thead><tr><th>Ticker</th><th>Market</th><th>Status</th></tr></thead>
+                <thead><tr><th></th><th>Ticker</th><th>Support</th><th>Backfill</th><th>Providers</th></tr></thead>
                 <tbody>
-                  <tr><td class="ticker">0050</td><td>TW</td><td><span class="pill ok">valid</span></td></tr>
-                  <tr><td class="ticker">2330</td><td>TW</td><td><span class="pill ok">valid</span></td></tr>
-                  <tr><td class="ticker">0050</td><td>AU</td><td><span class="pill danger">wrong market</span></td></tr>
+                  <tr><td><span class="check-box checked"></span></td><td><div class="ticker">2330</div><div class="name">Taiwan Semiconductor</div></td><td><span class="pill ok">supported</span></td><td><span class="pill warn">pending</span></td><td>finmind-tw</td></tr>
+                  <tr><td><span class="check-box checked"></span></td><td><div class="ticker">0050</div><div class="name">Yuanta Taiwan 50 ETF</div></td><td><span class="pill ok">supported</span></td><td><span class="pill warn">pending</span></td><td>finmind-tw</td></tr>
+                  <tr><td><span class="check-box"></span></td><td><div class="ticker">2317</div><div class="name">Hon Hai Precision</div></td><td><span class="pill ok">supported</span></td><td><span class="pill ok">ready</span></td><td>finmind-tw</td></tr>
                 </tbody>
               </table>
             </div>
-            <div class="toolbar"><button class="button primary">Execute backfill</button><button class="button danger">All matching requires phrase</button></div>
+            <div class="toolbar"><button class="button primary">Preview selected</button><button class="button">Preview all matching filters</button></div>
+          </div>
+          <div class="panel stack">
+            <div class="row-between"><h2>Frozen preview</h2><span class="pill ok">token valid 30m</span></div>
+            <div class="kv">
+              <div class="kv-row"><span>Scope</span><strong>selected_catalog_rows</strong></div>
+              <div class="kv-row"><span>Operation</span><strong>OP-BF-20260607</strong></div>
+              <div class="kv-row"><span>Exact targets</span><strong>12 rows</strong></div>
+              <div class="kv-row"><span>Affected users</span><strong>3 users / 4 accounts</strong></div>
+              <div class="kv-row"><span>Estimated jobs</span><strong>12</strong></div>
+              <div class="kv-row"><span>Unsupported</span><strong>2 skipped</strong></div>
+            </div>
+            <div class="table-wrap" style="box-shadow:none">
+              <table>
+                <thead><tr><th>Ticker</th><th>Name</th><th>Status</th></tr></thead>
+                <tbody>
+                  <tr><td class="ticker">2330</td><td>Taiwan Semiconductor</td><td><span class="pill warn">pending</span></td></tr>
+                  <tr><td class="ticker">0050</td><td>Yuanta Taiwan 50 ETF</td><td><span class="pill warn">pending</span></td></tr>
+                  <tr><td class="ticker">00679B</td><td>Cathay US Treasury 1-3Y</td><td><span class="pill warn">pending</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="toolbar"><button class="button primary">Execute backfill</button><button class="button">View target details</button></div>
           </div>
         </div>
       </main>
@@ -874,21 +889,26 @@
         <div class="mobile-tabs"><div class="tab">Inst</div><div class="tab active">Backfill</div><div class="tab">Purge</div><div class="tab">Ops</div></div>
       </div>
       <div class="mobile-body stack">
-        <div class="chips"><span class="pill info">finmind-tw</span><span class="pill ok">preview required</span></div>
-        <div class="scope-card active"><div class="scope-top"><h3>User-owned or monitored</h3><span class="pill ok">default</span></div><p class="subtle">Open active-account positions plus monitored tickers. Demo users excluded.</p><strong>1,284 targets</strong></div>
-        <div class="scope-card"><div class="scope-top"><h3>Selected catalog rows</h3><span class="pill info">explicit</span></div><p class="subtle">Use checked rows from Instruments.</p><strong>12 selected</strong></div>
-        <div class="scope-card"><div class="scope-top"><h3>All matching</h3><span class="pill danger">typed phrase</span></div><p class="subtle">Requires storage estimate and confirmation before enqueue.</p><strong>3,912 rows</strong></div>
+        <div class="chips"><span class="pill info">finmind-tw</span><span class="pill ok">frozen preview</span></div>
+        <div class="scope-card"><div class="scope-top"><h3>Owned or monitored</h3><span class="pill ok">safe</span></div><p class="subtle">All supported instruments across user positions and monitors. Demo users optional.</p><strong>1,284 targets</strong></div>
+        <div class="scope-card active"><div class="scope-top"><h3>Supported instruments</h3><span class="pill info">selected</span></div><p class="subtle">Filter current catalog rows and check exact tickers.</p><strong>12 selected</strong></div>
+        <div class="field"><span>Search 2330 / support supported / backfill pending</span></div>
+        <div class="mobile-card-list">
+          <div class="mobile-card"><div class="row-between"><div><div class="ticker">2330</div><div class="name">Taiwan Semiconductor</div></div><span class="check-box checked"></span></div><div class="chips" style="margin-top:10px"><span class="pill ok">supported</span><span class="pill warn">pending</span></div></div>
+          <div class="mobile-card"><div class="row-between"><div><div class="ticker">0050</div><div class="name">Yuanta Taiwan 50 ETF</div></div><span class="check-box checked"></span></div><div class="chips" style="margin-top:10px"><span class="pill ok">supported</span><span class="pill warn">pending</span></div></div>
+        </div>
         <div class="mobile-card">
-          <div class="row-between"><h2>Preview</h2><span class="pill ok">safe</span></div>
+          <div class="row-between"><h2>Frozen preview</h2><span class="pill ok">30m</span></div>
           <div class="kv" style="margin-top:10px">
-            <div class="kv-row"><span>Users</span><strong>42</strong></div>
-            <div class="kv-row"><span>Jobs</span><strong>1,284</strong></div>
-            <div class="kv-row"><span>Storage</span><strong>1.8 GB</strong></div>
+            <div class="kv-row"><span>Scope</span><strong>selected rows</strong></div>
+            <div class="kv-row"><span>Targets</span><strong>12 exact</strong></div>
+            <div class="kv-row"><span>Users</span><strong>3</strong></div>
+            <div class="kv-row"><span>Unsupported</span><strong>2 skipped</strong></div>
             <div class="kv-row"><span>Provider</span><strong>finmind-tw</strong></div>
           </div>
         </div>
       </div>
-      <div class="mobile-actions"><button class="button primary wide">Execute backfill</button><button class="button wide">Upload manual targets</button></div>
+      <div class="mobile-actions"><button class="button primary wide">Execute backfill</button><button class="button wide">Preview all filters</button></div>
     </div>
   </section>
 
