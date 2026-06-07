@@ -36,6 +36,7 @@ import {
 } from "../../lib/adminMarketDataService";
 import { Card } from "../ui/Card";
 import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
+import { formatUtcTimestamp } from "./adminFormat";
 
 interface AdminMarketDataLandingClientProps {
   data: AdminMarketDataLandingResponse;
@@ -812,7 +813,7 @@ function BackfillPanel({
             ["Jobs", String(preview.estimatedJobCount)],
             ["Affected users", String(preview.affectedUserCount)],
             ["Affected accounts", String(preview.affectedAccountCount)],
-            ["Preview expires", new Date(preview.tokenExpiresAt).toLocaleString()],
+            ["Preview expires", formatUtcTimestamp(preview.tokenExpiresAt)],
             ["Demo users", includeDemoUsers ? "included" : "excluded"],
             ["Confirmation", preview.confirmation.text ?? preview.confirmation.level],
           ]} />

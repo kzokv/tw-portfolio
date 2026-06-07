@@ -29,6 +29,7 @@ import {
   reverifyProviderMapping,
   updateProviderUnresolvedState,
 } from "../../lib/adminMarketDataService";
+import { formatUtcTimestamp } from "./adminFormat";
 
 export interface KrMappingsData {
   unresolved: ProviderUnresolvedItemsResponse;
@@ -77,10 +78,7 @@ const yahooKrProviderId = "yahoo-finance-kr";
 const yahooKrErrorCode = "yahoo_finance_kr_symbol_unresolved";
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return "never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return formatUtcTimestamp(value);
 }
 
 function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
