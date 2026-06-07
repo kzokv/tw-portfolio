@@ -232,6 +232,11 @@ describe("Provider Fixer admin routes", () => {
     await vi.waitFor(async () => {
       const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
       expect(operation?.phase).toBe("completed");
+      expect(operation?.metadata).toMatchObject({
+        mappingOnly: true,
+        enqueuedBackfillCount: 0,
+        skippedExistingBackfillCount: 0,
+      });
     });
     const outcomes = await app.inject({
       method: "GET",
@@ -250,17 +255,7 @@ describe("Provider Fixer admin routes", () => {
       ],
     });
     expect(verifyResolvedSymbol).toHaveBeenCalledWith("005930", "005930.KS", { resolverMode: "quote_first" });
-    expect(bossSend).toHaveBeenCalledWith(
-      "finmind-backfill",
-      expect.objectContaining({
-        ticker: "005930",
-        marketCode: "KR",
-        trigger: "admin_rerun",
-        resolverMode: "quote_first",
-        providerOperationId: previewBody.operation.id,
-      }),
-      expect.objectContaining({ singletonKey: "005930:KR:quote_first", priority: 10 }),
-    );
+    expect(bossSend).not.toHaveBeenCalled();
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toMatchObject({

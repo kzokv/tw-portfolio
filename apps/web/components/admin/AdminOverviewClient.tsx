@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { AdminAuditLogEntryDto, ProviderHealthStatusDto } from "@vakwen/shared-types";
+import type { AdminAuditLogEntryDto, AdminMarketDataTileDto } from "@vakwen/shared-types";
 import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
 import { formatAdminRelativeTime, useAdminI18n } from "./admin-i18n";
@@ -9,8 +9,7 @@ import { formatAdminRelativeTime, useAdminI18n } from "./admin-i18n";
 interface AdminOverviewClientProps {
   activeUsers: number;
   pendingInvites: number;
-  instrumentCount: number;
-  providers: ProviderHealthStatusDto[];
+  markets: AdminMarketDataTileDto[];
   recentActivity: AdminAuditLogEntryDto[];
   lastUpdatedAt: string;
 }
@@ -19,7 +18,7 @@ function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-function providerTone(status: ProviderHealthStatusDto["status"]): string {
+function providerTone(status: AdminMarketDataTileDto["healthStatus"]): string {
   switch (status) {
     case "healthy":
       return "bg-emerald-500";
@@ -35,14 +34,14 @@ function providerTone(status: ProviderHealthStatusDto["status"]): string {
 export function AdminOverviewClient({
   activeUsers,
   pendingInvites,
-  instrumentCount,
-  providers,
+  markets,
   recentActivity,
   lastUpdatedAt,
 }: AdminOverviewClientProps) {
   const dict = useAdminI18n();
   const locale = dict.common.justNow === "剛剛" ? "zh-TW" : "en";
-  const providersNeedingAttention = providers.filter((provider) => provider.status !== "healthy");
+  const marketsNeedingAttention = markets.filter((market) => market.healthStatus !== "healthy");
+  const pendingBackfillTotal = markets.reduce((sum, market) => sum + market.pendingBackfillCount, 0);
 
   return (
     <div className="space-y-6" data-testid="admin-overview-page">
@@ -77,19 +76,17 @@ export function AdminOverviewClient({
           <p className="mt-2 text-sm text-muted-foreground">{dict.overview.pendingInvitesDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-instruments">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.auInstruments}</p>
-          <p className="mt-3 text-3xl font-semibold text-foreground">{instrumentCount.toLocaleString()}</p>
-          <p className="mt-2 text-sm text-muted-foreground">{dict.overview.auInstrumentsDescription}</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Pending backfill</p>
+          <p className="mt-3 text-3xl font-semibold text-foreground">{pendingBackfillTotal.toLocaleString()}</p>
+          <p className="mt-2 text-sm text-muted-foreground">Rows queued for explicit market preview.</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-providers">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.providersNeedingAttention}</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Markets needing attention</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">
-            {providersNeedingAttention.length.toLocaleString()}
+            {marketsNeedingAttention.length.toLocaleString()}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {dict.overview.providersSummary
-              .replace("{healthy}", String(providers.length - providersNeedingAttention.length))
-              .replace("{total}", String(providers.length))}
+            {markets.length - marketsNeedingAttention.length} healthy of {markets.length} market workspaces.
           </p>
         </Card>
       </div>
@@ -98,35 +95,41 @@ export function AdminOverviewClient({
         <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="admin-overview-provider-health">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold text-foreground">{dict.overview.providerHealth}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{dict.overview.providerHealthDescription}</p>
+              <h2 className="text-base font-semibold text-foreground">Market data</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Inspect each market with provider ownership visible.</p>
             </div>
             <Link
-              href="/admin/providers"
+              href="/admin/market-data"
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
-              {dict.overview.openProviders}
+              Open market data
             </Link>
           </div>
           <ul className="divide-y divide-border">
-            {providers.map((provider) => (
+            {markets.map((market) => (
               <li
-                key={provider.providerId}
+                key={market.marketCode}
                 className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
-                data-testid={`admin-overview-provider-${provider.providerId}`}
+                data-testid={`admin-overview-market-${market.marketCode}`}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={cn("h-2.5 w-2.5 rounded-full", providerTone(provider.status))} aria-hidden="true" />
-                    <p className="truncate font-medium text-foreground">{provider.providerId}</p>
+                    <span className={cn("h-2.5 w-2.5 rounded-full", providerTone(market.healthStatus))} aria-hidden="true" />
+                    <Link href={market.href} className="truncate font-medium text-foreground underline-offset-4 hover:underline">
+                      {market.marketCode} - {market.label}
+                    </Link>
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {dict.overview.lastSuccess} {provider.lastSuccessfulRun ? formatAdminRelativeTime(provider.lastSuccessfulRun, locale, dict) : dict.common.never}
-                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {market.providers.map((provider) => (
+                      <span key={provider.providerId} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                        {provider.providerId}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="text-left text-sm text-muted-foreground sm:text-right">
-                  <p>{dict.overview.errors24h.replace("{count}", String(provider.errorCount24h))}</p>
-                  <p className="mt-1">{dict.overview.rateLimits24h.replace("{count}", String(provider.rateLimitCount24h))}</p>
+                  <p>{market.unresolvedCount.toLocaleString()} unresolved</p>
+                  <p className="mt-1">{market.pendingBackfillCount.toLocaleString()} pending / {market.failedBackfillCount.toLocaleString()} failed</p>
                 </div>
               </li>
             ))}

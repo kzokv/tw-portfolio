@@ -24,8 +24,7 @@ const BREADCRUMB_FALLBACK_MAP: ReadonlyArray<BreadcrumbFallbackEntry> = [
   { pathname: "/admin/users", label: "Users" },
   { pathname: "/admin/invites", label: "Invites" },
   { pathname: "/admin/audit-log", label: "Audit Log" },
-  { pathname: "/admin/providers", label: "Provider Console" },
-  { pathname: "/admin/instruments", label: "Instruments" },
+  { pathname: "/admin/market-data", label: "Market Data" },
   { pathname: "/admin/settings", label: "Settings" },
   { pathname: "/admin", label: "Admin" },
 

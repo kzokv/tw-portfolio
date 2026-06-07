@@ -26,6 +26,30 @@ import type {
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemUpdateResponse,
   ProviderUnresolvedItemsResponse,
+  AdminInstrumentDto,
+  AdminInstrumentStatus,
+  AdminInstrumentSupportState,
+  AdminMarketCode,
+  AdminMarketDataActionDto,
+  AdminMarketDataActionsResponse,
+  AdminMarketDataBackfillExecuteRequest,
+  AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataBackfillPreviewRequest,
+  AdminMarketDataBackfillPreviewResponse,
+  AdminMarketDataInstrumentDto,
+  AdminMarketDataInstrumentsResponse,
+  AdminMarketDataLandingResponse,
+  AdminMarketDataLogsResponse,
+  AdminMarketDataOperationsResponse,
+  AdminMarketDataOverviewResponse,
+  AdminMarketDataProviderChipDto,
+  AdminMarketDataPurgeExecuteResponse,
+  AdminMarketDataPurgePreviewRequest,
+  AdminMarketDataPurgePreviewResponse,
+  AdminMarketDataSupportStateRequest,
+  AdminMarketDataSupportStateResponse,
+  AdminMarketWorkspaceTab,
+  ProviderOperationAction,
 } from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
@@ -734,6 +758,173 @@ const PROVIDER_FIXER_DEFAULT_PROVIDER_IDS = [
   "finmind-tw",
   "finmind-us",
 ] as const;
+
+interface MarketDataWorkspaceDefinition {
+  marketCode: AdminMarketCode;
+  label: string;
+  tabs: AdminMarketWorkspaceTab[];
+  providers: AdminMarketDataProviderChipDto[];
+  defaultBackfillProviderId?: string;
+}
+
+const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinition> = {
+  TW: {
+    marketCode: "TW",
+    label: "Taiwan",
+    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    providers: [{ providerId: "finmind-tw", label: "FinMind TW", role: "Catalog and historical data" }],
+    defaultBackfillProviderId: "finmind-tw",
+  },
+  US: {
+    marketCode: "US",
+    label: "United States",
+    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    providers: [{ providerId: "finmind-us", label: "FinMind US", role: "Catalog and historical data" }],
+    defaultBackfillProviderId: "finmind-us",
+  },
+  AU: {
+    marketCode: "AU",
+    label: "Australia",
+    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    providers: [
+      { providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog" },
+      { providerId: "yahoo-finance-au", label: "Yahoo Finance AU", role: "Bars, dividends, metadata" },
+      { providerId: "asx-gics-csv", label: "ASX GICS CSV", role: "GICS enrichment" },
+    ],
+    defaultBackfillProviderId: "yahoo-finance-au",
+  },
+  KR: {
+    marketCode: "KR",
+    label: "Korea",
+    tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "logs"],
+    providers: [
+      { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
+      { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
+    ],
+    defaultBackfillProviderId: "yahoo-finance-kr",
+  },
+  FX: {
+    marketCode: "FX",
+    label: "Foreign exchange",
+    tabs: ["overview", "refresh-rates", "operations", "logs"],
+    providers: [{ providerId: "frankfurter", label: "Frankfurter", role: "FX rates" }],
+  },
+};
+
+const marketDataWorkspaceParamSchema = z.object({
+  marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
+});
+const marketDataInstrumentStatusSchema = z.enum(["listed", "delisted", "excluded", "all"]);
+const marketDataSupportStateSchema = z.enum(["supported", "retired_by_admin", "unsupported_by_provider"]);
+const marketDataBackfillStatusSchema = z.enum(["pending", "backfilling", "ready", "failed", "all"]);
+const marketDataInstrumentSortSchema = z.enum(["ticker_asc", "ticker_desc", "updated_desc", "updated_asc"]);
+const marketDataBackfillScopeSchema = z.enum([
+  "user_owned_or_monitored",
+  "selected_catalog_rows",
+  "manual_targets",
+  "all_matching",
+]);
+const marketDataTargetSchema = z.object({
+  ticker: z.string().trim().min(1).max(40),
+  marketCode: providerFixerMarketCodeSchema,
+}).strict();
+
+function providerIdsForMarket(marketCode: AdminMarketCode): string[] {
+  return MARKET_DATA_WORKSPACES[marketCode].providers.map((provider) => provider.providerId);
+}
+
+function marketDataProviderForAction(marketCode: AdminMarketCode, action: ProviderOperationAction): string | null {
+  if (action === "refresh_fx_rates") return marketCode === "FX" ? "frankfurter" : null;
+  if (action === "sync_asx_gics") return marketCode === "AU" ? "asx-gics-csv" : null;
+  if (action === "sync_catalog") {
+    if (marketCode === "TW") return "finmind-tw";
+    if (marketCode === "US") return "finmind-us";
+    if (marketCode === "AU") return "twelve-data-au";
+    if (marketCode === "KR") return "twelve-data-kr";
+  }
+  if (action === "repair_mapping") return marketCode === "KR" ? "yahoo-finance-kr" : null;
+  if (action === "backfill_catalog_rows") {
+    return MARKET_DATA_WORKSPACES[marketCode].defaultBackfillProviderId ?? null;
+  }
+  return null;
+}
+
+function marketDataActionLabel(action: ProviderOperationAction): string {
+  switch (action) {
+    case "sync_catalog":
+      return "Sync catalog";
+    case "backfill_catalog_rows":
+      return "Backfill catalog rows";
+    case "refresh_fx_rates":
+      return "Refresh FX rates";
+    case "sync_asx_gics":
+      return "Sync ASX GICS";
+    case "repair_mapping":
+      return "Repair KR mappings";
+    default:
+      return action.replaceAll("_", " ");
+  }
+}
+
+function marketDataActionDescription(action: ProviderOperationAction): string {
+  switch (action) {
+    case "sync_catalog":
+      return "Fetch the provider-owned instrument catalog for this market.";
+    case "backfill_catalog_rows":
+      return "Queue historical data backfill for an explicit previewed scope.";
+    case "refresh_fx_rates":
+      return "Queue a Frankfurter FX-rate refresh.";
+    case "sync_asx_gics":
+      return "Refresh ASX GICS enrichment for AU catalog rows.";
+    case "repair_mapping":
+      return "Persist verified Yahoo Finance KR mappings only; backfill remains a separate action.";
+    default:
+      return "Provider-owned operation.";
+  }
+}
+
+function marketDataProviderBudgetNotes(marketCode: AdminMarketCode, action: ProviderOperationAction): string[] {
+  if (marketCode === "US" && action === "backfill_catalog_rows") {
+    return ["Broad US history is storage-heavy; selected/manual/all-matching scopes require preview."];
+  }
+  if (marketCode === "KR" && action === "repair_mapping") {
+    return ["Mapping repair does not enqueue historical bars or dividends."];
+  }
+  if ((marketCode === "AU" || marketCode === "KR") && action === "backfill_catalog_rows") {
+    return ["Pending/failed catalog-row repair is allowed only after preview."];
+  }
+  if (marketCode === "FX") return ["FX has no instruments, backfill, purge, or retirement controls in this scope."];
+  return [];
+}
+
+function adminInstrumentRowStatus(row: import("../persistence/types.js").AdminInstrumentRow): AdminInstrumentStatus {
+  if (row.delistedAt) return "delisted";
+  return row.delistingDetectionExcluded ? "excluded" : "listed";
+}
+
+function adminInstrumentRowToDto(row: import("../persistence/types.js").AdminInstrumentRow): AdminInstrumentDto {
+  return {
+    ticker: row.ticker,
+    marketCode: row.marketCode as import("@vakwen/shared-types").MarketCode,
+    name: row.name,
+    instrumentType: (row.instrumentType ?? "STOCK") as import("@vakwen/domain").InstrumentType,
+    status: adminInstrumentRowStatus(row),
+    supportState: row.supportState,
+    statusReason: row.statusReason,
+    absenceStreak: row.absenceStreak,
+    lastSeenInCatalogAt: row.lastSeenInCatalogAt,
+    delistedAt: row.delistedAt,
+    delistingDetectionExcluded: row.delistingDetectionExcluded,
+  };
+}
+
+function adminInstrumentRowToMarketDataDto(row: import("../persistence/types.js").AdminInstrumentRow): AdminMarketDataInstrumentDto {
+  return {
+    ...adminInstrumentRowToDto(row),
+    providerIds: providerIdsForMarket(row.marketCode as AdminMarketCode),
+    backfillStatus: row.barsBackfillStatus,
+  };
+}
 
 function providerFixerMarketCode(providerId: string, requested?: MarketCode): ProviderFixerMarketCode {
   const parsed = providerFixerMarketCodeSchema.safeParse(requested);
@@ -1766,7 +1957,10 @@ async function completeProviderFixerOperation(
   },
 ): Promise<{ operation: ProviderFixerDashboardOperationDto; result: Record<string, unknown> }> {
   let result: Awaited<ReturnType<typeof executeProviderFixerMappings>>;
-  let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
+  const backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>> = {
+    enqueued: 0,
+    skippedExisting: 0,
+  };
   try {
     result = await executeProviderFixerMappings(app, operation, context.actorUserId);
     const stopped = await returnStoppedProviderOperationIfStopped(
@@ -1777,15 +1971,6 @@ async function completeProviderFixerOperation(
       { ...result, backfills: { enqueued: 0, skippedExisting: 0 } },
     );
     if (stopped) return stopped;
-    backfills = await enqueueProviderFixerBackfills(app, operation, result.mappedTickers);
-    const stoppedAfterBackfills = await returnStoppedProviderOperationIfStopped(
-      app,
-      operation,
-      context,
-      `execute_stopped provider=${operation.providerId} market=${operation.marketCode} phase=stopped applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
-      { ...result, backfills },
-    );
-    if (stoppedAfterBackfills) return stoppedAfterBackfills;
   } catch (err) {
     if (err instanceof ProviderOperationStoppedError) {
       const actionLabel = err.operation.phase === "cancelled" ? "execute_cancelled" : "execute_stopped";
@@ -1885,13 +2070,14 @@ async function completeProviderFixerOperation(
       scannedRowCount: result.scanned,
       enqueuedBackfillCount: backfills.enqueued,
       skippedExistingBackfillCount: backfills.skippedExisting,
+      mappingOnly: true,
     },
   });
   await app.persistence.createProviderOperationLog({
     operationId: completed.id,
     phase: "completed",
     level: result.skipped > 0 ? "warning" : "info",
-    message: `execute_completed provider=${completed.providerId} market=${completed.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
+    message: `execute_completed provider=${completed.providerId} market=${completed.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} mapping_only=true enqueued_backfills=0`,
     context: { providerId: completed.providerId, marketCode: completed.marketCode, ...result, backfills },
   });
   await app.persistence.appendAuditLog({
@@ -5015,8 +5201,931 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
   });
 }
 
+function registerMarketDataAdminRoutes(app: FastifyInstance): void {
+  const marketDataBackfillBodySchema = z
+    .object({
+      scope: marketDataBackfillScopeSchema,
+      providerId: providerFixerProviderSchema.optional(),
+      selectedCatalogRows: z.array(marketDataTargetSchema).optional(),
+      manualTargets: z.array(marketDataTargetSchema).optional(),
+      filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+      includeDemoUsers: z.boolean().optional(),
+      acknowledged: z.boolean().optional(),
+      typedConfirmation: z.string().trim().max(160).optional(),
+    })
+    .strict();
+
+  const marketDataPurgeBodySchema = z
+    .object({
+      providerId: providerFixerProviderSchema.optional(),
+      categories: z.array(z.enum([
+        "price_bars",
+        "dividends",
+        "backfill_jobs",
+        "provider_operation_outcomes",
+        "provider_error_trail",
+        "provider_resolution_mappings",
+        "asx_gics_enrichment",
+        "admin_state_reset",
+      ])).min(1),
+      targets: z.array(marketDataTargetSchema).optional(),
+      fullHistory: z.boolean().optional(),
+      startDate: isoDateSchema.optional(),
+      endDate: isoDateSchema.optional(),
+      enqueueBackfillAfterPurge: z.boolean().optional(),
+      filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+      typedConfirmation: z.string().trim().max(160).optional(),
+    })
+    .strict()
+    .superRefine((value, ctx) => {
+      if (value.fullHistory === false && value.startDate && value.endDate && value.startDate > value.endDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "startDate must be before or equal to endDate",
+          path: ["startDate"],
+        });
+      }
+    });
+
+  type MarketDataBackfillBody = z.infer<typeof marketDataBackfillBodySchema>;
+  type MarketDataPurgeBody = z.infer<typeof marketDataPurgeBodySchema>;
+  type MarketDataWorkspaceMarketCode = Exclude<AdminMarketCode, "FX">;
+  type MarketDataTarget = { ticker: string; marketCode: MarketDataWorkspaceMarketCode };
+
+  function uniqueMarketDataTargets(targets: readonly MarketDataTarget[]): MarketDataTarget[] {
+    const seen = new Set<string>();
+    const out: MarketDataTarget[] = [];
+    for (const target of targets) {
+      const ticker = target.ticker.trim().toUpperCase();
+      const key = `${ticker}|${target.marketCode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ticker, marketCode: target.marketCode });
+    }
+    return out;
+  }
+
+  function assertMarketDataProvider(marketCode: AdminMarketCode, providerId: string | undefined): string {
+    const resolved = providerId ?? MARKET_DATA_WORKSPACES[marketCode].defaultBackfillProviderId ?? providerIdsForMarket(marketCode)[0];
+    if (!resolved || !providerIdsForMarket(marketCode).includes(resolved)) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    }
+    return resolved;
+  }
+
+  async function ensureProviderHealthRow(providerId: string): Promise<void> {
+    const existing = await app.persistence.getProviderHealthStatus(providerId);
+    if (existing) return;
+    await app.persistence.upsertProviderHealthStatus({ providerId, status: "healthy" });
+  }
+
+  async function allMatchingTargets(
+    marketCode: MarketDataWorkspaceMarketCode,
+    filters: Record<string, string | number | boolean | null> | undefined,
+  ): Promise<MarketDataTarget[]> {
+    const filterBackfillStatus = typeof filters?.backfillStatus === "string"
+      ? filters.backfillStatus as "pending" | "backfilling" | "ready" | "failed" | "all"
+      : undefined;
+    const defaultBackfillStatuses: Array<"pending" | "failed"> =
+      filterBackfillStatus === undefined && (marketCode === "AU" || marketCode === "KR")
+        ? ["pending", "failed"]
+        : [];
+    const statuses = defaultBackfillStatuses.length > 0
+      ? defaultBackfillStatuses
+      : [filterBackfillStatus ?? "all"];
+    const targets: MarketDataTarget[] = [];
+    for (const backfillStatus of statuses) {
+      let page = 1;
+      while (true) {
+        const result = await app.persistence.listAdminInstruments({
+          marketCode,
+          page,
+          limit: 500,
+          status: typeof filters?.status === "string" ? filters.status as "listed" | "delisted" | "excluded" | "all" : "listed",
+          supportState: typeof filters?.supportState === "string"
+            ? filters.supportState as AdminInstrumentSupportState | "all"
+            : "supported",
+          search: typeof filters?.search === "string" ? filters.search : undefined,
+          instrumentType: typeof filters?.instrumentType === "string"
+            ? filters.instrumentType as import("@vakwen/domain").InstrumentType | "all"
+            : "all",
+          backfillStatus,
+          sort: "ticker_asc",
+        });
+        targets.push(...result.items.map((row) => ({ ticker: row.ticker, marketCode: row.marketCode as MarketDataWorkspaceMarketCode })));
+        if (page * result.limit >= result.total) break;
+        page += 1;
+      }
+    }
+    return uniqueMarketDataTargets(targets);
+  }
+
+  async function validateExplicitTargets(
+    marketCode: MarketDataWorkspaceMarketCode,
+    targets: readonly MarketDataTarget[],
+    options: { requireSupported: boolean },
+  ): Promise<{ targets: MarketDataTarget[]; unsupportedRows: AdminMarketDataBackfillPreviewResponse["unsupportedRows"] }> {
+    const valid: MarketDataTarget[] = [];
+    const unsupportedRows: AdminMarketDataBackfillPreviewResponse["unsupportedRows"] = [];
+    for (const target of uniqueMarketDataTargets(targets)) {
+      if (target.marketCode !== marketCode) {
+        throw routeError(400, "target_market_mismatch", "Backfill targets must match the route market");
+      }
+      const row = await app.persistence.instrumentAdminGet(target.ticker, target.marketCode);
+      if (!row) {
+        unsupportedRows.push({ ...target, reason: "Instrument is not present in the provider catalog." });
+        continue;
+      }
+      if (row.delistedAt) {
+        unsupportedRows.push({ ...target, reason: "Instrument is delisted; undelete or select another target before backfill." });
+        continue;
+      }
+      if (options.requireSupported && row.supportState !== "supported") {
+        unsupportedRows.push({ ...target, reason: `Instrument support state is ${row.supportState}.` });
+        continue;
+      }
+      valid.push(target);
+    }
+    return { targets: valid, unsupportedRows };
+  }
+
+  async function buildBackfillPreview(
+    marketCode: MarketDataWorkspaceMarketCode,
+    body: MarketDataBackfillBody,
+  ): Promise<AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] }> {
+    const providerId = assertMarketDataProvider(marketCode, body.providerId);
+    let targets: MarketDataTarget[] = [];
+    let unsupportedRows: AdminMarketDataBackfillPreviewResponse["unsupportedRows"] = [];
+    if (body.scope === "user_owned_or_monitored") {
+      targets = (await app.persistence.listAdminMarketDataBackfillTargets({
+        marketCode,
+        includeDemoUsers: body.includeDemoUsers,
+      })).map((target) => ({ ticker: target.ticker, marketCode: target.marketCode as MarketDataWorkspaceMarketCode }));
+    } else if (body.scope === "all_matching") {
+      targets = await allMatchingTargets(marketCode, body.filters);
+    } else {
+      const explicitTargets = body.scope === "selected_catalog_rows"
+        ? body.selectedCatalogRows ?? []
+        : body.manualTargets ?? [];
+      const validated = await validateExplicitTargets(marketCode, explicitTargets, { requireSupported: true });
+      targets = validated.targets;
+      unsupportedRows = validated.unsupportedRows;
+    }
+    const ownership = await app.persistence.countAdminMarketDataTargetOwnership({ targets });
+    const matchCount = targets.length;
+    const dangerous = body.scope === "all_matching" || matchCount >= 100;
+    return {
+      marketCode,
+      providerId,
+      scope: body.scope,
+      matchCount,
+      affectedUserCount: ownership.userCount,
+      affectedAccountCount: ownership.accountCount,
+      estimatedJobCount: matchCount,
+      estimatedStorageRows: matchCount === 0 ? 0 : matchCount * 2,
+      providerBudgetNotes: marketDataProviderBudgetNotes(marketCode, "backfill_catalog_rows"),
+      unsupportedRows,
+      confirmation: {
+        level: dangerous ? "typed" : "checkbox",
+        text: dangerous ? `BACKFILL ${marketCode} ${matchCount}` : null,
+        reason: dangerous ? "Broad backfill requires typed confirmation." : "Preview is required before enqueue.",
+      },
+      targets,
+    };
+  }
+
+  async function enqueueMarketDataBackfillTargets(
+    operation: ProviderOperationRecord,
+    targets: readonly MarketDataTarget[],
+  ): Promise<{ batchId: string | null; enqueuedJobCount: number; skippedExistingJobCount: number }> {
+    if (!app.boss || targets.length === 0) {
+      return { batchId: null, enqueuedJobCount: 0, skippedExistingJobCount: 0 };
+    }
+    const batchId = await app.persistence.createRefreshBatch(null, targets.length);
+    let enqueuedJobCount = 0;
+    let skippedExistingJobCount = 0;
+    for (const target of targets) {
+      const resolverMode: MarketDataResolverMode | undefined = target.marketCode === "KR" ? "quote_first" : undefined;
+      const payload = {
+        ticker: target.ticker,
+        marketCode: target.marketCode,
+        trigger: "admin_rerun",
+        includeBars: true,
+        includeDividends: true,
+        batchId,
+        providerOperationId: operation.id,
+        ...(resolverMode ? { resolverMode } : {}),
+      } satisfies BackfillJobData;
+      const jobId = await app.boss.send(
+        BACKFILL_QUEUE,
+        payload,
+        {
+          singletonKey: getBackfillSingletonKey(target.ticker, target.marketCode, resolverMode),
+          priority: 10,
+        },
+      );
+      if (jobId === null) {
+        skippedExistingJobCount += 1;
+      } else {
+        enqueuedJobCount += 1;
+      }
+    }
+    return { batchId, enqueuedJobCount, skippedExistingJobCount };
+  }
+
+  async function createBackfillOperation(
+    context: { actorUserId: string; ipAddress?: string },
+    preview: AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] },
+    source: "manual_execute" | "linked_refill",
+    options: { ignoreActiveOperationId?: string } = {},
+  ): Promise<{ operation: ProviderOperationRecord; batchId: string | null; enqueuedJobCount: number; skippedExistingJobCount: number }> {
+    await ensureProviderHealthRow(preview.providerId);
+    await assertNoOtherProviderOperationExecution(app, {
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationId: options.ignoreActiveOperationId,
+    });
+    const now = new Date().toISOString();
+    const operation = await app.persistence.createProviderOperation({
+      providerId: preview.providerId,
+      marketCode: preview.marketCode,
+      operationType: "backfill_catalog_rows",
+      phase: app.boss && preview.targets.length > 0 ? "running" : "completed",
+      errorCode: "admin_market_data_backfill",
+      scopeQuery: `${preview.marketCode}:${preview.scope}`,
+      snapshotHash: hashProviderFixerToken(`${preview.marketCode}:${preview.providerId}:${preview.scope}:${preview.matchCount}:${now}`).slice(0, 12),
+      matchCount: preview.matchCount,
+      sample: preview.targets.slice(0, 20),
+      metadata: {
+        marketDataBff: true,
+        source,
+        scope: preview.scope,
+        estimatedStorageRows: preview.estimatedStorageRows,
+        affectedUserCount: preview.affectedUserCount,
+        affectedAccountCount: preview.affectedAccountCount,
+        providerBudgetNotes: preview.providerBudgetNotes,
+        progressPercent: preview.targets.length === 0 || !app.boss ? 100 : 0,
+      },
+      actorUserId: context.actorUserId,
+      startedAt: now,
+      completedAt: app.boss && preview.targets.length > 0 ? null : now,
+    });
+    const queued = await enqueueMarketDataBackfillTargets(operation, preview.targets);
+    const finalPhase = queued.enqueuedJobCount > 0 ? "running" : "completed";
+    const updated = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: finalPhase,
+      completedAt: finalPhase === "completed" ? new Date().toISOString() : null,
+      legacyBatchId: queued.batchId,
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        progressPercent: finalPhase === "completed" ? 100 : 0,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: updated.id,
+      phase: updated.phase,
+      level: "info",
+      message: `market_data_backfill_${finalPhase} provider=${preview.providerId} market=${preview.marketCode} scope=${preview.scope} matched=${preview.matchCount} enqueued=${queued.enqueuedJobCount}`,
+      context: {
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        source,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: context.actorUserId,
+      action: "provider_fixer_operation",
+      ipAddress: context.ipAddress,
+      metadata: {
+        operationId: updated.id,
+        action: "market_data_backfill_execute",
+        providerId: preview.providerId,
+        marketCode: preview.marketCode,
+        scope: preview.scope,
+        matchCount: preview.matchCount,
+        batchId: queued.batchId,
+        enqueuedJobCount: queued.enqueuedJobCount,
+        skippedExistingJobCount: queued.skippedExistingJobCount,
+        source,
+      },
+    });
+    return { operation: updated, ...queued };
+  }
+
+  async function resolvePurgeTargets(
+    marketCode: MarketDataWorkspaceMarketCode,
+    body: MarketDataPurgeBody,
+  ): Promise<MarketDataTarget[]> {
+    if (body.targets && body.targets.length > 0) {
+      const validated = await validateExplicitTargets(marketCode, body.targets, { requireSupported: false });
+      return uniqueMarketDataTargets([...validated.targets, ...validated.unsupportedRows.map((row) => ({
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+      }))]);
+    }
+    return allMatchingTargets(marketCode, body.filters);
+  }
+
+  function unsupportedPurgeCategories(marketCode: MarketCode, body: MarketDataPurgeBody): AdminMarketDataPurgePreviewResponse["unsupportedCategories"] {
+    const unsupported: AdminMarketDataPurgePreviewResponse["unsupportedCategories"] = [];
+    if (body.categories.includes("provider_resolution_mappings") && marketCode !== "KR") {
+      unsupported.push({
+        category: "provider_resolution_mappings",
+        reason: "Only KR Yahoo mappings support durable provider mappings in this scope.",
+      });
+    }
+    if (body.categories.includes("asx_gics_enrichment") && marketCode !== "AU") {
+      unsupported.push({
+        category: "asx_gics_enrichment",
+        reason: "ASX GICS enrichment is AU-only.",
+      });
+    }
+    if (body.categories.includes("backfill_jobs")) {
+      unsupported.push({
+        category: "backfill_jobs",
+        reason: "Refresh batch records are aggregate job history; target-safe deletion needs batch-item provenance and is intentionally skipped.",
+      });
+    }
+    return unsupported;
+  }
+
+  async function buildPurgePreview(
+    marketCode: MarketDataWorkspaceMarketCode,
+    body: MarketDataPurgeBody,
+  ): Promise<AdminMarketDataPurgePreviewResponse & { targets: MarketDataTarget[]; deletedRows: number }> {
+    const providerId = assertMarketDataProvider(marketCode, body.providerId);
+    const targets = await resolvePurgeTargets(marketCode, body);
+    const unsupportedCategories = unsupportedPurgeCategories(marketCode, body);
+    const supportedCategorySet = new Set(body.categories.filter((category) =>
+      !unsupportedCategories.some((unsupported) => unsupported.category === category),
+    ));
+    const counts = await app.persistence.purgeAdminMarketData({
+      providerId,
+      marketCode,
+      categories: [...supportedCategorySet],
+      targets,
+      fullHistory: body.fullHistory,
+      startDate: body.startDate ?? null,
+      endDate: body.endDate ?? null,
+      dryRun: true,
+    });
+    const ownership = await app.persistence.countAdminMarketDataTargetOwnership({ targets });
+    const linkedRefillAvailable =
+      body.enqueueBackfillAfterPurge === true
+      && (body.categories.includes("price_bars") || body.categories.includes("dividends"))
+      && targets.length > 0;
+    return {
+      marketCode,
+      providerId,
+      categories: body.categories,
+      affectedInstrumentCount: targets.length,
+      affectedUserCount: ownership.userCount,
+      affectedAccountCount: ownership.accountCount,
+      estimatedRows: counts.total,
+      unsupportedCategories,
+      linkedRefill: {
+        available: linkedRefillAvailable,
+        mode: linkedRefillAvailable && body.fullHistory === false ? "same_range" : linkedRefillAvailable ? "full_history" : null,
+        warning: linkedRefillAvailable ? null : "Linked refill is available only when price bars or dividends are selected and the preview has targets.",
+      },
+      confirmation: {
+        level: "typed",
+        text: `PURGE ${marketCode}`,
+        reason: "Purge is destructive and requires typed confirmation.",
+      },
+      targets,
+      deletedRows: counts.total,
+    };
+  }
+
+  async function unresolvedCountForProviders(providerIds: string[], marketCode: AdminMarketCode): Promise<number> {
+    if (marketCode === "FX") return 0;
+    const totals = await Promise.all(
+      providerIds.map(async (providerId) => {
+        const result = await app.persistence.listProviderUnresolvedItems({
+          providerId,
+          marketCode,
+          state: "active",
+          page: 1,
+          limit: 1,
+        });
+        return result.total;
+      }),
+    );
+    return totals.reduce((sum, count) => sum + count, 0);
+  }
+
+  async function backfillCount(marketCode: AdminMarketCode, status: "pending" | "failed"): Promise<number> {
+    if (marketCode === "FX") return 0;
+    const result = await app.persistence.listAdminInstruments({
+      marketCode,
+      page: 1,
+      limit: 1,
+      backfillStatus: status,
+    });
+    return result.total;
+  }
+
+  async function latestMarketOperation(marketCode: AdminMarketCode): Promise<AdminMarketDataLandingResponse["markets"][number]["latestOperation"]> {
+    const workspace = MARKET_DATA_WORKSPACES[marketCode];
+    const byProvider = await Promise.all(
+      workspace.providers.map(async (provider) => {
+        const result = await app.persistence.listProviderOperations({
+          providerId: provider.providerId,
+          page: 1,
+          limit: 1,
+        });
+        return result.items[0] ?? null;
+      }),
+    );
+    const latest = byProvider
+      .filter((operation): operation is ProviderOperationRecord => operation !== null)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    if (!latest) return null;
+    return {
+      id: latest.id,
+      providerId: latest.providerId,
+      action: latest.operationType as ProviderOperationAction,
+      phase: latest.phase,
+      updatedAt: latest.updatedAt,
+    };
+  }
+
+  async function healthStatusForProviders(providerIds: string[]): Promise<ProviderHealthStatusDto["status"]> {
+    const rows = await Promise.all(providerIds.map((providerId) => app.persistence.getProviderHealthStatus(providerId)));
+    const statuses = rows.map((row) => row?.status ?? "awaiting");
+    if (statuses.includes("down")) return "down";
+    if (statuses.includes("degraded")) return "degraded";
+    if (statuses.includes("awaiting")) return "awaiting";
+    return "healthy";
+  }
+
+  async function marketTile(marketCode: AdminMarketCode): Promise<AdminMarketDataLandingResponse["markets"][number]> {
+    const workspace = MARKET_DATA_WORKSPACES[marketCode];
+    const providerIds = providerIdsForMarket(marketCode);
+    const [healthStatus, unresolvedCount, pendingBackfillCount, failedBackfillCount, latestOperation] =
+      await Promise.all([
+        healthStatusForProviders(providerIds),
+        unresolvedCountForProviders(providerIds, marketCode),
+        backfillCount(marketCode, "pending"),
+        backfillCount(marketCode, "failed"),
+        latestMarketOperation(marketCode),
+      ]);
+    return {
+      marketCode,
+      label: workspace.label,
+      href: `/admin/market-data/${marketCode}/overview`,
+      providers: workspace.providers,
+      healthStatus,
+      unresolvedCount,
+      pendingBackfillCount,
+      failedBackfillCount,
+      latestOperation,
+      nextAction:
+        marketCode === "FX"
+          ? "Refresh FX rates"
+          : failedBackfillCount > 0
+            ? "Preview failed backfill"
+            : pendingBackfillCount > 0
+              ? "Preview pending backfill"
+              : "Inspect instruments",
+    };
+  }
+
+  async function marketOverview(marketCode: AdminMarketCode): Promise<AdminMarketDataOverviewResponse> {
+    const tile = await marketTile(marketCode);
+    return {
+      marketCode,
+      label: tile.label,
+      tabs: MARKET_DATA_WORKSPACES[marketCode].tabs,
+      providers: tile.providers,
+      healthStatus: tile.healthStatus,
+      unresolvedCount: tile.unresolvedCount,
+      pendingBackfillCount: tile.pendingBackfillCount,
+      failedBackfillCount: tile.failedBackfillCount,
+      latestOperation: tile.latestOperation,
+      guidance:
+        marketCode === "KR"
+          ? ["KR mapping repair only persists verified mappings. Backfill is a separate explicit action."]
+          : marketCode === "FX"
+            ? ["FX supports refresh, operations, and logs only in this scope."]
+            : ["Catalog sync and historical backfill are separate provider-owned actions."],
+    };
+  }
+
+  function marketDataActions(marketCode: AdminMarketCode): AdminMarketDataActionDto[] {
+    const actionSet: ProviderOperationAction[] =
+      marketCode === "FX"
+        ? ["refresh_fx_rates"]
+        : marketCode === "AU"
+          ? ["sync_catalog", "sync_asx_gics", "backfill_catalog_rows"]
+          : marketCode === "KR"
+            ? ["sync_catalog", "repair_mapping", "backfill_catalog_rows"]
+            : ["sync_catalog", "backfill_catalog_rows"];
+    return actionSet.map((action) => {
+      const providerId = marketDataProviderForAction(marketCode, action);
+      const capability = providerId ? listProviderOperationCapabilities([providerId])[0] : null;
+      const actionCapability = capability?.actions.find((item) => item.action === action);
+      const supported = actionCapability?.supported === true;
+      return {
+        action,
+        providerId: providerId ?? "unassigned",
+        label: marketDataActionLabel(action),
+        description: marketDataActionDescription(action),
+        supported,
+        disabledReason: supported ? null : actionCapability?.reason ?? "No provider owns this action for the selected market.",
+        guardrail: actionCapability?.guardrail ?? "none",
+        providerBudgetNotes: marketDataProviderBudgetNotes(marketCode, action),
+      };
+    });
+  }
+
+  app.get("/market-data", async (req): Promise<AdminMarketDataLandingResponse> => {
+    requireAdminRole(req);
+    const markets = await Promise.all((["TW", "US", "AU", "KR", "FX"] as const).map(marketTile));
+    return { markets };
+  });
+
+  app.get("/market-data/:marketCode/overview", async (req): Promise<AdminMarketDataOverviewResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    return marketOverview(marketCode);
+  });
+
+  app.get("/market-data/:marketCode/actions", async (req): Promise<AdminMarketDataActionsResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    return { marketCode, actions: marketDataActions(marketCode) };
+  });
+
+  app.get("/market-data/:marketCode/instruments", async (req): Promise<AdminMarketDataInstrumentsResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_instruments_not_supported", "FX does not expose instruments in this scope");
+    }
+    const query = z
+      .object({
+        status: marketDataInstrumentStatusSchema.default("all"),
+        supportState: z.union([marketDataSupportStateSchema, z.literal("all")]).default("all"),
+        search: z.string().trim().max(120).optional(),
+        instrumentType: z.union([z.enum(["STOCK", "ETF", "BOND_ETF"]), z.literal("all")]).default("all"),
+        backfillStatus: marketDataBackfillStatusSchema.default("all"),
+        sort: marketDataInstrumentSortSchema.default("ticker_asc"),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(req.query ?? {});
+
+    const { items, total, page, limit } = await app.persistence.listAdminInstruments({
+      marketCode,
+      page: query.page,
+      limit: query.limit,
+      status: query.status,
+      supportState: query.supportState,
+      search: query.search,
+      instrumentType: query.instrumentType,
+      backfillStatus: query.backfillStatus,
+      sort: query.sort,
+    });
+    const {
+      getEffectiveCatalogAbsenceThreshold,
+      getEffectiveCatalogAbsenceGuardPercent,
+      getEffectiveCatalogAbsenceGuardFloor,
+    } = await import("../services/appConfig/catalogAbsence.js");
+
+    return {
+      marketCode,
+      items: items.map(adminInstrumentRowToMarketDataDto),
+      total,
+      page,
+      limit,
+      thresholds: {
+        catalogAbsenceThreshold: getEffectiveCatalogAbsenceThreshold(),
+        catalogAbsenceGuardPercent: getEffectiveCatalogAbsenceGuardPercent(),
+        catalogAbsenceGuardFloor: getEffectiveCatalogAbsenceGuardFloor(),
+      },
+      filters: {
+        status: ["all", "listed", "delisted", "excluded"],
+        supportState: ["all", "supported", "retired_by_admin", "unsupported_by_provider"],
+        backfillStatus: ["all", "pending", "backfilling", "ready", "failed"],
+        instrumentType: ["all", "STOCK", "ETF", "BOND_ETF"],
+        sort: ["ticker_asc", "ticker_desc", "updated_desc", "updated_asc"],
+      },
+    };
+  });
+
+  app.post("/market-data/:marketCode/instruments/support-state", async (req): Promise<AdminMarketDataSupportStateResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_instruments_not_supported", "FX does not expose instruments in this scope");
+    }
+    const body = z
+      .object({
+        ticker: z.string().trim().min(1).max(40),
+        marketCode: providerFixerMarketCodeSchema,
+        supportState: marketDataSupportStateSchema,
+      })
+      .strict()
+      .parse(req.body ?? {}) satisfies AdminMarketDataSupportStateRequest;
+    if (body.marketCode !== marketCode) {
+      throw routeError(400, "market_mismatch", "Instrument marketCode must match the route market");
+    }
+    const row = await app.persistence.setInstrumentSupportState(
+      body.ticker,
+      body.marketCode,
+      body.supportState as AdminInstrumentSupportState,
+      sessionUserId,
+    );
+    return { instrument: adminInstrumentRowToMarketDataDto(row) };
+  });
+
+  app.get("/market-data/:marketCode/operations", async (req): Promise<AdminMarketDataOperationsResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    const query = z
+      .object({
+        providerId: providerFixerProviderSchema.optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const workspace = MARKET_DATA_WORKSPACES[marketCode];
+    const providerId = query.providerId;
+    if (providerId && !providerIdsForMarket(marketCode).includes(providerId)) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    }
+    const config = await loadAppConfigDto(app);
+    const guardrails = providerFixerGuardrailsFromConfig(config);
+    const result = await app.persistence.listProviderOperations({
+      providerId,
+      marketCode: marketCode === "FX" ? undefined : marketCode,
+      page: query.page,
+      limit: query.limit,
+    });
+    const items = result.items
+      .filter((operation) => providerIdsForMarket(marketCode).includes(operation.providerId))
+      .map((operation) => providerFixerOperationToDto(operation, guardrails));
+    return {
+      marketCode,
+      providers: workspace.providers,
+      items,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
+  });
+
+  app.get("/market-data/:marketCode/logs", async (req): Promise<AdminMarketDataLogsResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    const query = z
+      .object({
+        providerId: providerFixerProviderSchema.optional(),
+        operationId: z.string().trim().min(1).max(120).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const workspace = MARKET_DATA_WORKSPACES[marketCode];
+    const providerIds = query.providerId ? [query.providerId] : providerIdsForMarket(marketCode);
+    if (query.providerId && !providerIdsForMarket(marketCode).includes(query.providerId)) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    }
+    const operationIds = query.operationId
+      ? [query.operationId]
+      : (await Promise.all(providerIds.map(async (providerId) => app.persistence.listProviderOperations({
+          providerId,
+          marketCode: marketCode === "FX" ? undefined : marketCode,
+          page: 1,
+          limit: Math.max(query.limit, 25),
+        })))).flatMap((result) => result.items.map((operation) => operation.id));
+    const entries = (
+      await Promise.all(operationIds.map(async (operationId) => {
+        const logs = await app.persistence.listProviderOperationLogs({ operationId, page: 1, limit: query.limit });
+        return logs.items.map((log): AdminMarketDataLogsResponse["items"][number] => ({
+          id: String(log.id),
+          occurredAt: log.createdAt,
+          phase: log.phase,
+          message: log.message,
+          operationId: log.operationId,
+        }));
+      }))
+    ).flat().sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const offset = (query.page - 1) * query.limit;
+    return {
+      marketCode,
+      providers: workspace.providers,
+      items: entries.slice(offset, offset + query.limit),
+      total: entries.length,
+      page: query.page,
+      limit: query.limit,
+    };
+  });
+
+  app.post("/market-data/:marketCode/backfill/preview", async (req): Promise<AdminMarketDataBackfillPreviewResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_backfill_not_supported", "FX backfill is out of scope");
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataBackfillBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataBackfillPreviewRequest;
+    const { targets: internalTargets, ...preview } = await buildBackfillPreview(market, body);
+    void internalTargets;
+    return preview;
+  });
+
+  app.post("/market-data/:marketCode/backfill/execute", async (req): Promise<AdminMarketDataBackfillExecuteResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_backfill_not_supported", "FX backfill is out of scope");
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataBackfillBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataBackfillExecuteRequest;
+    const preview = await buildBackfillPreview(market, body);
+    if (preview.confirmation.level === "typed") {
+      if (body.typedConfirmation !== preview.confirmation.text) {
+        throw routeError(400, "market_backfill_typed_confirmation_required", "Backfill requires the matching typed confirmation");
+      }
+    } else if (body.acknowledged !== true) {
+      throw routeError(400, "market_backfill_acknowledgement_required", "Backfill requires acknowledgement after preview");
+    }
+    const result = await createBackfillOperation(
+      { actorUserId: sessionUserId, ipAddress },
+      preview,
+      "manual_execute",
+    );
+    return {
+      operationId: result.operation.id,
+      marketCode: market,
+      providerId: preview.providerId,
+      scope: preview.scope,
+      status: result.operation.phase === "running" ? "queued" : "completed",
+      matchCount: preview.matchCount,
+      enqueuedJobCount: result.enqueuedJobCount,
+      skippedExistingJobCount: result.skippedExistingJobCount,
+      batchId: result.batchId,
+    };
+  });
+
+  app.post("/market-data/:marketCode/purge/preview", async (req): Promise<AdminMarketDataPurgePreviewResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_purge_not_supported", "FX purge is out of scope");
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataPurgeBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataPurgePreviewRequest;
+    const { targets: internalTargets, deletedRows: internalDeletedRows, ...preview } = await buildPurgePreview(market, body);
+    void internalTargets;
+    void internalDeletedRows;
+    return preview;
+  });
+
+  app.post("/market-data/:marketCode/purge/execute", async (req): Promise<AdminMarketDataPurgeExecuteResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_purge_not_supported", "FX purge is out of scope");
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataPurgeBodySchema.parse(req.body ?? {});
+    if (typeof body.typedConfirmation !== "string") {
+      throw routeError(400, "market_purge_typed_confirmation_required", "Purge requires the matching typed confirmation");
+    }
+    const preview = await buildPurgePreview(market, body);
+    if (body.typedConfirmation !== preview.confirmation.text) {
+      throw routeError(400, "market_purge_typed_confirmation_required", "Purge requires the matching typed confirmation");
+    }
+    await ensureProviderHealthRow(preview.providerId);
+    await assertNoOtherProviderOperationExecution(app, {
+      providerId: preview.providerId,
+      marketCode: market,
+    });
+    const startedAt = new Date().toISOString();
+    const operation = await app.persistence.createProviderOperation({
+      providerId: preview.providerId,
+      marketCode: market,
+      operationType: "purge_market_data",
+      phase: "running",
+      errorCode: "admin_market_data_purge",
+      scopeQuery: `${market}:purge`,
+      snapshotHash: hashProviderFixerToken(`${market}:${preview.providerId}:purge:${preview.deletedRows}:${startedAt}`).slice(0, 12),
+      matchCount: preview.affectedInstrumentCount,
+      sample: preview.targets.slice(0, 20),
+      metadata: {
+        marketDataBff: true,
+        categories: preview.categories,
+        estimatedRows: preview.deletedRows,
+        unsupportedCategories: preview.unsupportedCategories,
+        linkedRefillRequested: body.enqueueBackfillAfterPurge === true,
+        dateRange: body.fullHistory === false ? { startDate: body.startDate ?? null, endDate: body.endDate ?? null } : null,
+        progressPercent: 0,
+      },
+      actorUserId: sessionUserId,
+      startedAt,
+    });
+    const supportedCategories: MarketDataPurgeBody["categories"] = body.categories.filter((category: MarketDataPurgeBody["categories"][number]) =>
+      !preview.unsupportedCategories.some((unsupported) => unsupported.category === category),
+    );
+    const counts = await app.persistence.purgeAdminMarketData({
+      providerId: preview.providerId,
+      marketCode: market,
+      categories: supportedCategories,
+      targets: preview.targets,
+      fullHistory: body.fullHistory,
+      startDate: body.startDate ?? null,
+      endDate: body.endDate ?? null,
+      dryRun: false,
+    });
+    let linkedBackfillOperationId: string | null = null;
+    if (body.enqueueBackfillAfterPurge === true && preview.linkedRefill.available) {
+      const refillPreview: AdminMarketDataBackfillPreviewResponse & { targets: MarketDataTarget[] } = {
+        marketCode,
+        providerId: preview.providerId,
+        scope: "selected_catalog_rows",
+        matchCount: preview.targets.length,
+        affectedUserCount: preview.affectedUserCount,
+        affectedAccountCount: preview.affectedAccountCount,
+        estimatedJobCount: preview.targets.length,
+        estimatedStorageRows: preview.targets.length * 2,
+        providerBudgetNotes: marketDataProviderBudgetNotes(market, "backfill_catalog_rows"),
+        unsupportedRows: [],
+        confirmation: { level: "checkbox", text: null, reason: "Linked refill follows a confirmed purge." },
+        targets: preview.targets,
+      };
+      const refill = await createBackfillOperation(
+        { actorUserId: sessionUserId, ipAddress },
+        refillPreview,
+        "linked_refill",
+        { ignoreActiveOperationId: operation.id },
+      );
+      linkedBackfillOperationId = refill.operation.id;
+    }
+    const completed = await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        deletedRows: counts.total,
+        deleteCounts: counts,
+        linkedBackfillOperationId,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: completed.id,
+      phase: "completed",
+      level: "warning",
+      message: `market_data_purge_completed provider=${preview.providerId} market=${market} deleted_rows=${counts.total}`,
+      context: {
+        providerId: preview.providerId,
+        marketCode: market,
+        categories: supportedCategories,
+        deletedRows: counts.total,
+        deleteCounts: counts,
+        unsupportedCategories: preview.unsupportedCategories,
+        linkedBackfillOperationId,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: completed.id,
+        action: "market_data_purge_execute",
+        providerId: preview.providerId,
+        marketCode: market,
+        categories: supportedCategories,
+        deletedRows: counts.total,
+        linkedBackfillOperationId,
+      },
+    });
+    return {
+      operationId: completed.id,
+      marketCode: market,
+      providerId: preview.providerId,
+      status: "completed",
+      categories: body.categories,
+      affectedInstrumentCount: preview.affectedInstrumentCount,
+      deletedRows: counts.total,
+      linkedBackfillOperationId,
+    };
+  });
+}
+
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   registerProviderFixerAdminRoutes(app);
+  registerMarketDataAdminRoutes(app);
 
   app.get("/users", async (req) => {
     const query = req.query as Record<string, string | undefined>;
@@ -5865,105 +6974,4 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return { status: "queued" as const, providerId, tickerCount, jobId };
   });
 
-  // ── KZO-195 — Admin instruments listing + overrides ─────────────────────
-
-  app.get("/instruments", async (req): Promise<import("@vakwen/shared-types").AdminInstrumentsResponse> => {
-    requireAdminRole(req);
-    const query = z
-      .object({
-        marketCode: z.enum(MARKET_CODES).default("AU"),
-        page: z.coerce.number().int().min(1).default(1),
-        limit: z.coerce.number().int().min(1).max(200).default(50),
-      })
-      .parse(req.query ?? {});
-
-    const { items, total, page, limit } = await app.persistence.listAdminInstruments({
-      marketCode: query.marketCode,
-      page: query.page,
-      limit: query.limit,
-    });
-
-    const {
-      getEffectiveCatalogAbsenceThreshold,
-      getEffectiveCatalogAbsenceGuardPercent,
-      getEffectiveCatalogAbsenceGuardFloor,
-    } = await import("../services/appConfig/catalogAbsence.js");
-
-    const dtoItems: import("@vakwen/shared-types").AdminInstrumentDto[] = items.map((row) => {
-      const status: import("@vakwen/shared-types").AdminInstrumentStatus = row.delistedAt
-        ? "delisted"
-        : row.delistingDetectionExcluded
-          ? "excluded"
-          : "listed";
-      return {
-        ticker: row.ticker,
-        marketCode: row.marketCode as import("@vakwen/shared-types").MarketCode,
-        name: row.name,
-        // The persistence row carries `instrumentType` as `string | null`.
-        // Default unknown rows to "STOCK" — safest fallback for UI rendering.
-        instrumentType: (row.instrumentType ?? "STOCK") as import("@vakwen/domain").InstrumentType,
-        status,
-        statusReason: row.statusReason,
-        absenceStreak: row.absenceStreak,
-        lastSeenInCatalogAt: row.lastSeenInCatalogAt,
-        delistedAt: row.delistedAt,
-        delistingDetectionExcluded: row.delistingDetectionExcluded,
-      };
-    });
-
-    return {
-      items: dtoItems,
-      total,
-      page,
-      limit,
-      thresholds: {
-        catalogAbsenceThreshold: getEffectiveCatalogAbsenceThreshold(),
-        catalogAbsenceGuardPercent: getEffectiveCatalogAbsenceGuardPercent(),
-        catalogAbsenceGuardFloor: getEffectiveCatalogAbsenceGuardFloor(),
-      },
-    };
-  });
-
-  //
-  // Both override routes (undelete + exclude) are admin-only via the standard
-  // `requireAdminRole` gate.
-  // They mutate `market_data.instruments` directly via dedicated persistence
-  // methods (see `instrumentAdminUndelete` / `instrumentAdminToggleExclude`)
-  // and write per-action audit rows so operator history is durable.
-
-  app.post("/instruments/:ticker/:marketCode/undelete", async (req) => {
-    requireAdminRole(req);
-    const { sessionUserId } = resolveAdminContext(req, app);
-    const { ticker, marketCode } = z
-      .object({
-        ticker: z.string().min(1).max(40),
-        marketCode: z.enum(MARKET_CODES),
-      })
-      .parse(req.params);
-
-    // Persistence layer owns existence checks AND audit-row write (KZO-195).
-    // Postgres throws routeError(404, "instrument_not_found", …) when the
-    // composite (ticker, market_code) row is missing; memory backend
-    // create-on-writes for test affordance.
-    return app.persistence.undeleteInstrument(ticker, marketCode, sessionUserId);
-  });
-
-  app.post("/instruments/:ticker/:marketCode/exclude", async (req) => {
-    requireAdminRole(req);
-    const { sessionUserId } = resolveAdminContext(req, app);
-    const { ticker, marketCode } = z
-      .object({
-        ticker: z.string().min(1).max(40),
-        marketCode: z.enum(MARKET_CODES),
-      })
-      .parse(req.params);
-    const body = z.object({ excluded: z.boolean() }).parse(req.body ?? {});
-
-    return app.persistence.setInstrumentDelistingDetectionExcluded(
-      ticker,
-      marketCode,
-      body.excluded,
-      sessionUserId,
-    );
-  });
 };

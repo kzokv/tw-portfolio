@@ -627,10 +627,6 @@ const ADMIN_ROUTE_KEYS = new Set([
   "POST /admin/providers/:providerId/operations/:operationId/resume",
   "POST /admin/providers/:providerId/operations/:operationId/cancel",
   "POST /admin/providers/:providerId/operations/:operationId/retry",
-  // KZO-195: admin instruments listing + overrides.
-  "GET /admin/instruments",
-  "POST /admin/instruments/:ticker/:marketCode/undelete",
-  "POST /admin/instruments/:ticker/:marketCode/exclude",
 ]);
 const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "POST /admin/users/:id/impersonate",
