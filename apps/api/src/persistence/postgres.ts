@@ -10898,7 +10898,7 @@ export class PostgresPersistence implements Persistence {
       : {
           bars: "",
           dividends: "",
-          params: [null, null] as const,
+          params: [] as const,
         };
     const counts = { ...empty };
     const client = await this.pool.connect();
