@@ -13930,7 +13930,7 @@ function mapProviderOperationRow(row: ProviderOperationRowSql): ProviderOperatio
   return {
     id: row.id,
     providerId: row.provider_id,
-    marketCode: row.market_code as MarketCode,
+    marketCode: row.market_code as ProviderOperationRecord["marketCode"],
     operationType: row.operation_type,
     phase: row.phase as ProviderOperationPhase,
     errorCode: row.error_code,
@@ -13968,7 +13968,7 @@ function mapProviderOperationOutcomeRow(row: ProviderOperationOutcomeRowSql): Pr
   return {
     operationId: row.operation_id,
     providerId: row.provider_id,
-    marketCode: row.market_code as MarketCode,
+    marketCode: row.market_code as ProviderOperationOutcomeRecord["marketCode"],
     sourceSymbol: row.source_symbol,
     providerSymbol: row.provider_symbol,
     action: row.action,

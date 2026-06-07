@@ -793,6 +793,94 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
   });
 
+  it("repairs an active KR unresolved row without requiring manual selection first", async () => {
+    previewProviderRepairMock.mockResolvedValueOnce({ operation: operation("OP-PREVIEW-SINGLE") });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="mappings"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          logs={null}
+          krMappings={krMappingData()}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-unresolved-repair-005930']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(previewProviderRepairMock).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      errorCode: "yahoo_finance_kr_symbol_unresolved",
+      scope: {
+        type: "selected_items",
+        items: [{
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          errorCode: "yahoo_finance_kr_symbol_unresolved",
+          sourceSymbol: "005930",
+        }],
+      },
+    }));
+  });
+
+  it("executes KR repair from the frozen preview scope after visible selection resets", async () => {
+    previewProviderRepairMock.mockResolvedValueOnce({ operation: operation("OP-PREVIEW") });
+    executeProviderRepairMock.mockResolvedValueOnce({ operation: operation("OP-EXECUTED") });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="mappings"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          logs={null}
+          krMappings={krMappingData()}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-select-row-005930']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Repair selected")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Clear selection")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container.querySelector("[data-testid='provider-console-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const executeButton = container.querySelector("[data-testid='provider-console-execute-button']") as HTMLButtonElement;
+    expect(executeButton.disabled).toBe(false);
+    await act(async () => {
+      executeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(executeProviderRepairMock).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "yahoo-finance-kr",
+      operationId: "OP-PREVIEW",
+      previewToken: "preview-token",
+      acknowledged: true,
+    }));
+  });
+
   it("preserves KR operation inspector execution, outcomes, and retry controls", async () => {
     const data = krOperationsData();
     const retryable = {

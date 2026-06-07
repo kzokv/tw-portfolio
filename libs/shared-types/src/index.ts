@@ -2178,7 +2178,7 @@ export type ProviderOperationOutcomeListState = ProviderOperationOutcomeState | 
 export interface ProviderOperationOutcomeDto {
   operationId: string;
   providerId: string;
-  marketCode: MarketCode;
+  marketCode: AdminMarketCode;
   sourceSymbol: string;
   providerSymbol: string | null;
   action: string;

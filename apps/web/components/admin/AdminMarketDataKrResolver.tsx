@@ -301,6 +301,7 @@ function KrMappingsPanel({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<ProviderFixerDashboardOperationDto | null>(null);
+  const [previewScopeDetails, setPreviewScopeDetails] = useState<KrSelectedScope | null>(null);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [revertTarget, setRevertTarget] = useState<string | null>(null);
@@ -313,7 +314,21 @@ function KrMappingsPanel({
     setMappingsSearch(data.query.mappingsSearch);
     setSelectedKeys(new Set());
     setAllMatchingSelected(false);
-  }, [data.query]);
+    setPreview(null);
+    setPreviewScopeDetails(null);
+    setTypedConfirmation("");
+    setAcknowledged(false);
+  }, [
+    data.query.resolverMode,
+    data.query.unresolvedPage,
+    data.query.unresolvedLimit,
+    data.query.unresolvedState,
+    data.query.unresolvedSearch,
+    data.query.unresolvedSort,
+    data.query.mappingsPage,
+    data.query.mappingsLimit,
+    data.query.mappingsSearch,
+  ]);
 
   const visibleItems = data.unresolved.items;
   const visibleKeys = visibleItems.map(unresolvedItemKey);
@@ -357,7 +372,7 @@ function KrMappingsPanel({
   }, [allMatchingSelected, data.query.unresolvedSearch, data.unresolved.total, selectedItems]);
   const selectedCount = selectedScopeDetails?.count ?? 0;
   const previewIsExpired = previewExpired(preview);
-  const previewMatchesCurrentScope = krPreviewMatchesScope(preview, selectedScopeDetails);
+  const previewMatchesCurrentScope = krPreviewMatchesScope(preview, previewScopeDetails ?? selectedScopeDetails);
 
   function pushQuery(next: Partial<KrMappingsData["query"]>) {
     router.push(krMappingsPath({ ...data.query, ...next }));
@@ -441,10 +456,7 @@ function KrMappingsPanel({
     );
   }
 
-  async function previewSelectedRepair() {
-    if (selectedCount === 0) return;
-    const scope = selectedScope();
-    if (!scope) return;
+  async function previewRepairScope(scopeDetails: KrSelectedScope) {
     await runWithMessage(
       "preview-repair",
       () => previewProviderRepair({
@@ -452,15 +464,42 @@ function KrMappingsPanel({
         marketCode: "KR",
         errorCode: yahooKrErrorCode,
         resolverMode,
-        scope,
+        scope: scopeDetails.scope,
       }),
       (result) => {
         setPreview(result.operation);
+        setPreviewScopeDetails(scopeDetails);
         setTypedConfirmation("");
         setAcknowledged(false);
         return `Repair preview created for ${result.operation.matchCount} rows.`;
       },
     );
+  }
+
+  async function previewSelectedRepair() {
+    if (selectedCount === 0 || !selectedScopeDetails) return;
+    await previewRepairScope(selectedScopeDetails);
+  }
+
+  async function previewUnresolvedItemRepair(item: ProviderUnresolvedItemDto) {
+    const scope: KrRepairScope = {
+      type: "selected_items",
+      items: [{
+        providerId: item.providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+      }],
+    };
+    setAllMatchingSelected(false);
+    setSelectedKeys(new Set([unresolvedItemKey(item)]));
+    await previewRepairScope({
+      type: "selected_items",
+      count: 1,
+      label: `Repair ${item.sourceSymbol}`,
+      fingerprint: krSelectedScopeFingerprint(scope),
+      scope,
+    });
   }
 
   async function renewSelectedEvidence() {
@@ -699,8 +738,8 @@ function KrMappingsPanel({
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div><dt className="text-xs text-muted-foreground">Provider</dt><dd className="mt-1 font-medium text-foreground">{yahooKrProviderId}</dd></div>
               <div><dt className="text-xs text-muted-foreground">Resolver mode</dt><dd className="mt-1 font-medium text-foreground">{resolverMode.replace(/_/g, " ")}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Scope</dt><dd className="mt-1 font-medium text-foreground">{selectedScopeDetails?.type === "filter" ? "All matching filter" : selectedScopeDetails ? "Selected rows" : "None selected"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Count</dt><dd className="mt-1 font-medium text-foreground">{selectedCount.toLocaleString()}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Scope</dt><dd className="mt-1 font-medium text-foreground">{previewScopeDetails?.type === "filter" || selectedScopeDetails?.type === "filter" ? "All matching filter" : previewScopeDetails || selectedScopeDetails ? "Selected rows" : "None selected"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Count</dt><dd className="mt-1 font-medium text-foreground">{(previewScopeDetails?.count ?? selectedCount).toLocaleString()}</dd></div>
             </dl>
           </div>
           {preview ? (
@@ -840,6 +879,7 @@ function KrMappingsPanel({
                           <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "active")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-reopen-${item.sourceSymbol}`}>Reopen</button>
                         ) : (
                           <>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void previewUnresolvedItemRepair(item)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-repair-${item.sourceSymbol}`}>Repair</button>
                             <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "unsupported")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-unsupported-${item.sourceSymbol}`}>Unsupported</button>
                             <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "ignored")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-ignore-${item.sourceSymbol}`}>Ignore</button>
                           </>

@@ -95,7 +95,8 @@ describe("Provider Fixer admin routes", () => {
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const bossSend = vi.fn()
       .mockResolvedValueOnce("catalog-sync-tw")
-      .mockResolvedValueOnce("provider-op-kr");
+      .mockResolvedValueOnce("provider-op-kr")
+      .mockResolvedValueOnce("fx-refresh-job");
     app.boss = { send: bossSend } as never;
 
     const catalog = await app.inject({
@@ -176,6 +177,46 @@ describe("Provider Fixer admin routes", () => {
       operationType: "repair_mapping",
       phase: "queued",
       metadata: expect.objectContaining({ marketDataBff: true, mappingOnly: true }),
+    });
+
+    const fxRefresh = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/FX/actions/execute",
+      headers,
+      payload: {
+        action: "refresh_fx_rates",
+        providerId: "frankfurter",
+        acknowledged: true,
+      },
+    });
+
+    expect(fxRefresh.statusCode).toBe(200);
+    const fxRefreshBody = fxRefresh.json() as {
+      operationId: string;
+      marketCode: string;
+      providerId: string;
+      action: string;
+      status: string;
+      jobId: string | null;
+    };
+    expect(fxRefreshBody).toMatchObject({
+      marketCode: "FX",
+      providerId: "frankfurter",
+      action: "refresh_fx_rates",
+      status: "queued",
+      jobId: "fx-refresh-job",
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      "fx-refresh",
+      expect.objectContaining({ trigger: "manual", providerOperationId: fxRefreshBody.operationId }),
+      expect.objectContaining({ singletonKey: "fx-refresh", priority: 5 }),
+    );
+    await expect(app.persistence.getProviderOperation(fxRefreshBody.operationId)).resolves.toMatchObject({
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_fx_rates",
+      phase: "queued",
+      metadata: expect.objectContaining({ marketDataBff: true }),
     });
     expect(bossSend).not.toHaveBeenCalledWith(
       "finmind-backfill",
