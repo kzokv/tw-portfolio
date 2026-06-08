@@ -11,6 +11,7 @@ import { AllocationSnapshotCard } from "../../../components/dashboard/Allocation
 import { BiggestMoversCard } from "../../../components/dashboard/BiggestMoversCard";
 import { DashboardCommandModules } from "../../../components/dashboard/DashboardClient";
 import { DashboardHero } from "../../../components/dashboard/DashboardHero";
+import { DashboardHoldingsPreview } from "../../../components/dashboard/DashboardHoldingsPreview";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
 // Phase 5d — SummarySection deleted; the dashboard hero is now a slim
@@ -169,6 +170,12 @@ describe("dashboard components", () => {
 
     const html = renderToStaticMarkup(
       <DashboardHero
+        fxRates={[{
+          fromCurrency: "TWD",
+          toCurrency: "AUD",
+          rate: 0.049,
+          asOf: "2026-06-08",
+        }]}
         holdingGroups={groups}
         summary={{
           asOf: "2026-06-08",
@@ -193,9 +200,55 @@ describe("dashboard components", () => {
 
     expect(html).toContain('data-testid="dashboard-hero-currency"');
     expect(html).toContain("Current report baseline is AUD");
+    expect(html).toContain('data-testid="dashboard-hero-fx-rates"');
+    expect(html).toContain("TWD to AUD");
+    expect(html).toContain("0.049");
     expect(html).toContain('data-testid="dashboard-hero-market-strip"');
     expect(html).toContain('href="/reports?tab=market&amp;scope=TW&amp;currencyMode=specified&amp;currency=AUD&amp;range=1Y"');
     expect(html).toContain("AUD");
+  });
+
+  it("renders dashboard holdings as a compact reporting-currency preview with native price disclosure", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        fxRates={[{
+          fromCurrency: "TWD",
+          toCurrency: "AUD",
+          rate: 0.049,
+          asOf: "2026-06-08",
+        }]}
+        groups={[reportingGroup]}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(html).toContain('data-testid="dashboard-holdings-preview"');
+    expect(html).toContain('href="/tickers/2330?marketCode=TW"');
+    expect(html).toContain("AUD 60K");
+    expect(html).toContain("A$30.00");
+    expect(html).toContain("Native NT$610");
+    expect(html).toContain("Open Portfolio Report");
+    expect(html).not.toContain('data-testid="holdings-table"');
   });
 
   it("does not label native holding values as reporting-currency market values", () => {
