@@ -83,6 +83,9 @@
 - `smooth-page-performance-boundaries.md` — Authenticated page loads keep `AppShell` lightweight, route primary reads page-owned, enrichment deferred, hot reads instrumented, and portfolio-context reads based on `contextUserId`. Promoted from the deployed shared-portfolio performance incident.
 - 2026-06-02 addendum — route-primary payloads may seed AppShell account/fee-profile config to avoid duplicate first-paint fetches, but seeded shell/route data and command/search indexes must refresh or clear on shared-owner context switches.
 
+## Promoted to .claude/rules/ (dashboard-reporting-ui, 2026-06-08)
+- `reporting-server-authoritative-dtos.md` — Formal report pages and MCP report tools must use server report DTOs as the accounting/currency boundary; client code formats and refreshes DTOs but does not reconstruct report accounting or chart series from raw transactions.
+
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.
 

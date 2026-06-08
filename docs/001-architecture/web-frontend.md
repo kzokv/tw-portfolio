@@ -57,19 +57,21 @@ This section is the implementation baseline for authenticated route performance 
 | Route | Primary content boundary | Allowed secondary/enrichment after first paint |
 |---|---|---|
 | `/dashboard` | dashboard summary, grouped holdings preview, action center, enough shared-context data to explain whose portfolio is visible | performance chart series, richer quote/freshness decoration, non-critical controls |
+| `/reports` | active report tab, validated URL state, report summary cards, bounded detail rows | follow-up refreshes of the same report DTO, tab switches, mobile detail sheets |
 | `/portfolio` | grouped holdings page data and allocation-basis-aware table render | deeper quote freshness, optional breakdowns, non-blocking preference refresh |
 | `/transactions` | recent transactions, lightweight account options, route-local status needed to submit/edit safely | richer verification details, non-critical badges, post-render refreshes |
 | `/cash-ledger` | first-page ledger rows, human account labels, balances/filters required to understand the page | later pages, optional aggregates, non-critical enrichment |
-| `/tickers/[ticker]` | ticker-scoped history plus primary holding/account context needed for fallback stats | richer quote, fundamental, and reporting overlays |
+| `/tickers/[ticker]` | ticker identity, scoped position summary, recent transactions, and account breakdown needed to render the page without waiting for chart/fundamental work | chart, fundamentals, refresh metadata, richer overlays |
 | `/settings/tickers` | monitored ticker list and current selection state | full instrument catalog, browse/search rows, repair metadata beyond monitored rows |
 | `/settings/ai-connectors` | connector summary and policy | recent access logs and expanded history |
 
 ### Current route-owned endpoints
 
 - `/dashboard` server-renders from `GET /dashboard/primary`; client enrichment refreshes from `GET /dashboard/enrichment` and chart data from `GET /dashboard/performance`.
+- `/reports` server-renders from one of `GET /reports/daily-review`, `GET /reports/portfolio`, or `GET /reports/market`, selected from validated URL state. Client refreshes reuse the same report endpoint and may restore a short-lived cached DTO before revalidation.
 - `/portfolio` server-renders from `GET /portfolio/primary`; client enrichment refreshes from `GET /portfolio/enrichment`.
 - `/transactions` server-renders from `GET /transactions/primary`; the payload seeds recent rows, transaction account options, and AppShell's portfolio config, while AI inbox details remain tab-owned.
-- `/tickers/[ticker]` uses `GET /dashboard/primary` only for primary holding/account context; it must not use dashboard enrichment as a route bootstrap dependency.
+- `/tickers/[ticker]` currently server-seeds from route-owned composition over dashboard primary data, filtered transaction history, and instrument metadata. Backend `GET /tickers/:ticker/primary` and `GET /tickers/:ticker/enrichment` now exist, but the web route has not fully switched to them yet.
 - `/settings/tickers` first loads `GET /monitored-tickers`; `GET /instruments` is triggered only when the catalog surface opens.
 - `/settings/ai-connectors` first loads `GET /ai/connectors/summary`; recent access uses `GET /ai/connectors/logs`.
 - Legacy broad reads such as `GET /dashboard/overview`, `GET /portfolio/page-data`, and `GET /ai/connectors` remain compatibility surfaces and must not become route-primary dependencies for new UI code.
@@ -82,6 +84,7 @@ This section is the implementation baseline for authenticated route performance 
 - Shell command/search bootstrap should use a narrow catalog endpoint such as `/portfolio/instrument-index`, and it must remain non-blocking for route content.
 - A route may reuse data structures that also appear elsewhere, but ownership still belongs to the route that needs them for first useful content.
 - Existing content should remain mounted during refresh whenever the prior state is still valid. Use local skeletons or loading affordances instead of blanking the whole shell.
+- Route DTO caches are allowed for short-lived stale-while-revalidate restore. Cache keys must include route identity plus the state dimensions that change DTO semantics, and invalidation must prefer correctness over reuse.
 - Page components and route-owned hooks should name primary versus secondary fetches clearly so reviewers can tell which data is allowed to block first render.
 
 ### Performance budgets

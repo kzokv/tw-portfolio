@@ -32,14 +32,22 @@ This section defines the backend contract for the authenticated page-performance
 | Surface | Primary endpoint | Secondary/enrichment endpoint |
 |---|---|---|
 | Dashboard | `GET /dashboard/primary` | `GET /dashboard/enrichment`, `GET /dashboard/performance` |
+| Reports | `GET /reports/daily-review`, `GET /reports/portfolio`, `GET /reports/market` | follow-up reads hit the same route-specific report endpoint with updated query state |
 | Portfolio holdings | `GET /portfolio/primary` | `GET /portfolio/enrichment` |
 | Transactions | `GET /transactions/primary` | `GET /portfolio/transactions`, AI inbox routes |
+| Ticker detail | route-level primary composition today; backend split is `GET /tickers/:ticker/primary` | `GET /tickers/:ticker/enrichment` |
 | Settings tickers | `GET /monitored-tickers` | `GET /instruments` when catalog browse/search opens |
 | AI connector settings | `GET /ai/connectors/summary` | `GET /ai/connectors/logs` |
 
 Compatibility endpoints remain for older callers: `GET /dashboard/overview`, `GET /portfolio/page-data`, and `GET /ai/connectors`. New route-primary UI must use the primary endpoints above.
 
-Temporary exception: `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still hydrate the in-memory domain store through `loadStore()` so grouped holdings, fee-profile config, and recent transaction ordering stay identical while the route split lands. They deliberately skip quote resolution, freshness classification, FX/reporting translation, performance series, and dividend enrichment. The next backend optimization step is replacing those primary handlers with narrower Postgres projections once the UI contract is stable.
+Temporary exceptions:
+
+- `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still hydrate the in-memory domain store through `loadStore()` so grouped holdings, fee-profile config, and recent transaction ordering stay identical while the route split lands. They deliberately skip quote resolution, freshness classification, FX/reporting translation, performance series, and dividend enrichment.
+- Report routes currently build from `persistence.loadStore(userId)` plus in-memory scoping, quote resolution, FX translation, and bounded paging. They are route-specific contracts, but not yet narrow Postgres projections.
+- The ticker web route has not fully switched to `GET /tickers/:ticker/primary`; current page boot still composes from dashboard primary data plus filtered transaction history, while `GET /tickers/:ticker/enrichment` defines the intended richer follow-up contract.
+
+The next backend optimization step is replacing these transitional read paths with narrower Postgres projections once the UI contract is stable.
 
 ### Target budgets
 
