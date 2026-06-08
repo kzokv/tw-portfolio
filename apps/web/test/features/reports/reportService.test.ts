@@ -32,4 +32,16 @@ describe("reportService", () => {
 
     expect(getJson).toHaveBeenCalledWith("/reports/portfolio?scope=all&currencyMode=specified&currency=AUD&range=5Y&limit=25");
   });
+
+  it("passes cancellation options to the report request", async () => {
+    const state = parseReportRouteState({ tab: "market", scope: "TW", currencyMode: "auto", range: "1Y" });
+    const controller = new AbortController();
+
+    await fetchReport("market", state, { signal: controller.signal });
+
+    expect(getJson).toHaveBeenCalledWith(
+      "/reports/market?scope=TW&currencyMode=auto&range=1Y&limit=25",
+      { signal: controller.signal },
+    );
+  });
 });

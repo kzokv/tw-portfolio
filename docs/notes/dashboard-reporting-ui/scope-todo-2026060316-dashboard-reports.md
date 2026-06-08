@@ -155,7 +155,7 @@ superseded_by: null
 - [x] Report cards and detail rows link tickers to `/tickers/{ticker}?marketCode={market}` so Top holdings, Market detail, and holding detail cards can open ticker pages.
 - [x] Report holding rows now include explicit native currency price/value fields, reporting price fields, and row-level FX rate so report cards/tables can disclose original price when reporting currency differs.
 - [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes plus signed money/percent labels for positive/negative/neutral values.
-- [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget and renders the client shell with cache/silent refresh when the active scoped report is slow.
+- [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget, aborts the underlying report fetch when the budget expires, and renders the client shell with cache/silent refresh when the active scoped report is slow.
 - [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty, and each connector shows inherited/default/override tool availability instead of hiding the catalog behind saved overrides.
 
 ## Open Items
@@ -229,6 +229,16 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits after the managed integration/e2e gates found no orphan app/test runners; only the expected local gateway and system Postgres listeners remained.
+- [x] 2026-06-08 local full-gate rerun after scoped-report server-seed abort fix:
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 515 tests.
+  - `npm run test --prefix apps/api` passed: 1,476 tests, 410 skipped.
+  - `npm run test:integration:full:host` passed: 799 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 257 tests, 9 skipped, 1 flaky retry that passed on retry.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits before the API HTTP gate found no orphan app/test runners.
 
 ## Mockups
 

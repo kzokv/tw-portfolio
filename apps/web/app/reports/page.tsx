@@ -18,10 +18,14 @@ interface ReportsPageProps {
 const REPORT_SERVER_SEED_TIMEOUT_MS = 1_500;
 
 async function fetchInitialReportWithinPaintBudget(state: ReportRouteState): Promise<AnyReportDto | null> {
-  const reportPromise = fetchReport(state.tab, state).catch(() => null);
+  const controller = new AbortController();
+  const reportPromise = fetchReport(state.tab, state, { signal: controller.signal }).catch(() => null);
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<null>((resolve) => {
-    timeoutId = setTimeout(() => resolve(null), REPORT_SERVER_SEED_TIMEOUT_MS);
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, REPORT_SERVER_SEED_TIMEOUT_MS);
   });
 
   try {
