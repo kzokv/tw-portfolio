@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -61,6 +61,7 @@ import {
   TableRow,
 } from "../ui/shadcn/table";
 import { useReportData } from "../../features/reports/hooks/useReportData";
+import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import {
   parseReportRouteState,
   reportRouteStateToSearchParams,
@@ -68,6 +69,7 @@ import {
   type ReportTab,
 } from "../../features/reports/reportState";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
+import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 
 type OptionalFxRateDto = {
@@ -119,15 +121,22 @@ export function ReportsClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { locale, uiDict } = useAppShellData();
+  const { contextRefreshSignal, locale, sessionUserId, uiDict } = useAppShellData();
   const [state, setState] = useState(() => parseReportRouteState(searchParams ?? reportRouteStateToSearchParams(initialState)));
-  const report = useReportData({ initialReport, locale, state });
+  const { effectiveRanges } = useEffectiveRanges();
+  const cacheScope = getRouteDtoContextScope(sessionUserId);
+  const report = useReportData({ cacheScope, contextRefreshSignal, initialReport, locale, state });
 
-  function updateState(patch: Partial<ReportRouteState>) {
+  const updateState = useCallback((patch: Partial<ReportRouteState>) => {
     const next = { ...state, ...patch };
     setState(next);
     router.replace(`/reports?${reportRouteStateToSearchParams(next).toString()}`, { scroll: false });
-  }
+  }, [router, state]);
+
+  useEffect(() => {
+    if (effectiveRanges.length === 0 || effectiveRanges.includes(state.range)) return;
+    updateState({ range: effectiveRanges[0] });
+  }, [effectiveRanges, state.range, updateState]);
 
   const restoredLabel = report.restoredAt
     ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
@@ -146,7 +155,7 @@ export function ReportsClient({
               <CardTitle className="mt-2 text-2xl sm:text-3xl">{uiDict.navigation.reportsLabel}</CardTitle>
               <CardDescription className="mt-2 max-w-3xl leading-6">{uiDict.navigation.reportsDescription}</CardDescription>
             </div>
-            <ReportControls state={state} onChange={updateState} />
+            <ReportControls ranges={effectiveRanges} state={state} onChange={updateState} />
           </div>
         </CardHeader>
         <CardContent>
@@ -211,12 +220,15 @@ export function ReportsClient({
 }
 
 function ReportControls({
+  ranges,
   state,
   onChange,
 }: {
+  ranges: string[];
   state: ReportRouteState;
   onChange: (patch: Partial<ReportRouteState>) => void;
 }) {
+  const rangeOptions = ranges.length > 0 ? ranges : [state.range];
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="reports-controls">
       <ControlSelect label="Scope" value={state.scope} onValueChange={(scope) => onChange({ scope: scope as ReportRouteState["scope"] })}>
@@ -233,7 +245,7 @@ function ReportControls({
         {ACCOUNT_DEFAULT_CURRENCIES.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}
       </ControlSelect>
       <ControlSelect label="Range" value={state.range} onValueChange={(range) => onChange({ range })}>
-        {["1M", "3M", "YTD", "1Y", "5Y"].map((range) => <SelectItem key={range} value={range}>{range}</SelectItem>)}
+        {rangeOptions.map((range) => <SelectItem key={range} value={range}>{range}</SelectItem>)}
       </ControlSelect>
     </div>
   );
@@ -384,6 +396,11 @@ function SummaryGrid({
     { label: "Realized P&L", toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
     { label: "Daily change", detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
     { label: "Income", value: summary.incomeAmount },
+    {
+      label: "Upcoming income",
+      detail: `${formatNumber(summary.upcomingDividendCount, locale)} dividend(s)`,
+      value: summary.upcomingDividendAmount,
+    },
   ];
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="reports-summary-grid">

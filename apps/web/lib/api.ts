@@ -68,6 +68,7 @@ import {
   clearContextCookie,
   readContextCookie,
 } from "./context";
+import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "./routeDtoCache";
 
 export class ApiError extends Error {
   constructor(
@@ -283,6 +284,7 @@ async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T>
       // Session is terminating — drop any outbound-share context cookie so the
       // next login starts in the user's own context (KZO-146 design slice 17).
       clearContextCookie();
+      clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
       // Demo session expired — redirect to login with message
       if (sessionStorage.getItem("isDemo")) {
         sessionStorage.removeItem("isDemo");

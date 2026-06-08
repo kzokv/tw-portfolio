@@ -57,12 +57,13 @@ export function DashboardClient({
   const {
     uiDict: dict,
     locale,
+    sessionUserId,
     isSharedContext,
     recomputeAction,
     openRecomputeConfirm,
     contextRefreshSignal,
   } = useAppShellData();
-  const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(), locale);
+  const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
   const dashboard = useDashboardPrimaryData({
     cacheKey,
     initialTransaction: DEFAULT_TRANSACTION,

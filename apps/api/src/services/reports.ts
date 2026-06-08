@@ -239,7 +239,6 @@ function scopeStore(store: Store, scope: ReportScope): Store {
   const scopedDividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) =>
     marketDividendEventIds.has(entry.dividendEventId));
   const scopedDividendLedgerIds = new Set(scopedDividendLedgerEntries.map((entry) => entry.id));
-  const scopedDividendEventIds = new Set(scopedDividendLedgerEntries.map((entry) => entry.dividendEventId));
   const scopedAccountIds = new Set([
     ...scopedHoldings.map((holding) => holding.accountId),
     ...scopedTrades.map((trade) => trade.accountId),
@@ -274,7 +273,7 @@ function scopeStore(store: Store, scope: ReportScope): Store {
     },
     marketData: {
       ...store.marketData,
-      dividendEvents: store.marketData.dividendEvents.filter((entry) => scopedDividendEventIds.has(entry.id)),
+      dividendEvents: store.marketData.dividendEvents.filter((entry) => marketDividendEventIds.has(entry.id)),
     },
   };
 }
@@ -455,6 +454,8 @@ async function buildSummaryTotals(
     dailyChangeAmount: translatedSummary.dailyChangeAmount,
     dailyChangePercent: translatedSummary.dailyChangePercent,
     incomeAmount,
+    upcomingDividendCount: translatedSummary.upcomingDividendCount,
+    upcomingDividendAmount: translatedSummary.upcomingDividendAmount,
   };
 }
 

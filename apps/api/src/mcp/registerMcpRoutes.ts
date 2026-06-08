@@ -118,12 +118,14 @@ function extractPendingContext(extra: unknown): PendingToolRequestContext | unde
   return (extraPayload as { pendingContext?: PendingToolRequestContext }).pendingContext;
 }
 
-function toReportInput(args: unknown): BuildReportInput {
+export function toReportInput(args: unknown): BuildReportInput {
   if (!args || typeof args !== "object" || Array.isArray(args)) return {};
   const input = args as BuildReportInput & { reportingCurrency?: string };
+  const currency = input.currency ?? input.reportingCurrency;
   return {
     ...input,
-    currency: input.currency ?? input.reportingCurrency,
+    currency,
+    currencyMode: input.currencyMode ?? (currency ? "specified" : undefined),
   };
 }
 
