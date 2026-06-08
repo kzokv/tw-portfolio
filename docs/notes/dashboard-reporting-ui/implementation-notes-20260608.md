@@ -21,6 +21,8 @@ This note records the current dashboard reporting UI contracts and known limits.
 
 Route state is URL-backed on the web side. Invalid `tab`, `scope`, `currencyMode`, or `currency` values fall back predictably in the client parser instead of throwing.
 
+The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route renders the report shell first and lets the client cache/silent-refresh path populate the data instead of blocking first paint.
+
 ## Scope and currency semantics
 
 - `scope=all` means the full visible portfolio context.
@@ -40,6 +42,7 @@ All three report DTOs share:
 - `query`: resolved scope/currency/range/as-of metadata
 - `summary`: server-authoritative totals for cost basis, market value, unrealized P&L, realized P&L, daily change, daily change %, and income
 - `fxStatus`: `complete | partial | missing`, plus `reportingCurrency`, `nativeCurrencies`, and missing FX pairs
+- `fxRates`: resolved conversion rows `{ fromCurrency, toCurrency, rate, asOf }` used to explain visible cross-market conversions
 - `dataHealth`: holding count plus missing/provisional/stale quote and missing FX counts
 
 Per-report sections:
@@ -90,7 +93,9 @@ Dashboard is the primary daily command surface.
 
 - The command modules rendered above the card grid are `Today`, `Market Pulse`, and `Portfolio Health`.
 - The hero exposes the active reporting currency and writes changes through `PATCH /user-preferences`.
+- The hero lists resolved FX conversion rows when the active reporting currency differs from one or more native holding currencies.
 - The hero market strip deep-links into `/reports?tab=market...` using the active reporting currency.
+- The dashboard holdings module is a compact top-holdings preview, not the full portfolio holdings table. It prioritizes reporting-currency value/price, sorting, market filtering, ticker links, and tap/click detail disclosure for native price and FX rate.
 - The command palette registry includes `/reports` as a first-class route command with `reports`, `analysis`, `daily`, and `market` keywords.
 
 This keeps dashboard as the launch surface and `/reports` as the structured analysis surface.
@@ -135,6 +140,8 @@ Tool descriptions explicitly stay on the descriptive side of the advice boundary
 
 - allowed: descriptive portfolio state, health, performance, holdings, deterministic observations
 - not allowed: investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice
+
+The AI Connector settings page also renders the server-provided tool catalog so users can discover the MCP report tools even when no connector-level tool override has been saved yet.
 
 ## Current read-path and performance limitations
 
