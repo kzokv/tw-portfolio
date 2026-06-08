@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortfolioPageData } from "../../../../features/portfolio/services/portfolioService";
 import { usePortfolioPrimaryData } from "../../../../features/portfolio/hooks/usePortfolioPageData";
+import { buildRouteDtoCacheKey, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/portfolio/services/portfolioService", () => ({
   fetchPortfolioEnrichmentData: vi.fn(),
@@ -13,6 +14,23 @@ import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPrimaryData,
 } from "../../../../features/portfolio/services/portfolioService";
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size;
+      },
+    },
+  });
+}
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -54,7 +72,7 @@ function createDeferred<T>() {
 }
 
 function Harness({ initialData = null }: { initialData?: PortfolioPageData | null }) {
-  result = usePortfolioPrimaryData(initialData);
+  result = usePortfolioPrimaryData(initialData, buildRouteDtoCacheKey("portfolio-primary", "self"));
   return null;
 }
 
@@ -63,9 +81,11 @@ describe("usePortfolioPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
+    installLocalStorageMock();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.localStorage.clear();
     vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
@@ -100,6 +120,26 @@ describe("usePortfolioPrimaryData", () => {
     expect(fetchPortfolioPrimaryData).toHaveBeenCalledTimes(1);
     expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
     expect(result.isBootstrapping).toBe(false);
+  });
+
+  it("restores cached portfolio data before refreshing in the background", async () => {
+    const cached = pageDataWithAccount("cached");
+    const refreshed = pageDataWithAccount("fresh");
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+    vi.mocked(fetchPortfolioPrimaryData).mockResolvedValue(refreshed);
+    vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(refreshed);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.accounts[0]?.id).toBe("cached");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.data.accounts[0]?.id).toBe("fresh");
   });
 
   it("ignores stale enrichment responses after a newer refresh starts", async () => {

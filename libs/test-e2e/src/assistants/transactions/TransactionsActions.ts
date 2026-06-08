@@ -134,7 +134,10 @@ export class TransactionsActions extends AppBaseActions {
       (r) => {
         if (r.request().method() !== "GET" || !r.ok()) return false;
         const url = new URL(r.url());
-        return url.pathname.endsWith("/portfolio/transactions") && url.searchParams.has("limit");
+        return (
+          url.pathname.endsWith("/transactions/primary") ||
+          (url.pathname.endsWith("/portfolio/transactions") && url.searchParams.has("limit"))
+        );
       },
     );
   }
