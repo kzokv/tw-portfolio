@@ -25,6 +25,8 @@ import {
 import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
+  AiConnectorPolicySettingsDto,
+  AiConnectorSummaryDto,
   AiConnectorScope,
   DashboardOverviewDto,
   DashboardPerformanceRange,
@@ -110,6 +112,7 @@ import {
   type UpdateFxTransferResult,
 } from "../services/fxTransferService.js";
 import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
+import { buildFxConversionRateRows } from "../services/fxConversionRates.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
 import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
@@ -130,6 +133,7 @@ import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
 import { routeError } from "../lib/routeError.js";
+import { listMcpToolDefinitions } from "../mcp/tools.js";
 import {
   requireAdminRole,
   requireShareGrantorRole,
@@ -770,6 +774,23 @@ function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord) {
     denialReason: record.denialReason,
     createdAt: record.createdAt,
   };
+}
+
+function buildAiConnectorToolCatalog(
+  policy: Pick<AiConnectorPolicySettingsDto, "groupToggles">,
+) {
+  return listMcpToolDefinitions().map((tool) => {
+    const group = connectorGroupForScope(tool.scope);
+    return {
+      name: tool.name,
+      description: tool.description,
+      scope: tool.scope,
+      accessKind: tool.accessKind,
+      group,
+      enabledByPolicy: policy.groupToggles[group],
+      annotations: tool.annotations,
+    };
+  });
 }
 
 function buildAiDraftDeepLink(app: FastifyInstance, batchId: string, contextUserId: string): string {
@@ -1802,6 +1823,7 @@ function buildDashboardPrimaryOverview(
       upcomingDividendAmount: null,
       openIssueCount: integrityIssue ? 1 : 0,
     },
+    fxRates: [],
     holdings,
     holdingGroups,
     dividends: {
@@ -4649,7 +4671,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           overview.summary.asOf,
           app.persistence,
         ));
-      return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          [
+            ...overview.holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+            ...overview.dividends.upcoming.map((dividend) => dividend.currency as AccountDefaultCurrency),
+          ],
+          reportingCurrency,
+          overview.summary.asOf,
+        ));
+      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
     });
   });
 
@@ -4715,7 +4747,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           overview.summary.asOf,
           app.persistence,
         ));
-      return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          [
+            ...overview.holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+            ...overview.dividends.upcoming.map((dividend) => dividend.currency as AccountDefaultCurrency),
+          ],
+          reportingCurrency,
+          overview.summary.asOf,
+        ));
+      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
     });
   });
 
@@ -5586,7 +5628,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         connections: connections.map(toAiConnectorConnectionDto),
         policy,
-      };
+        toolCatalog: buildAiConnectorToolCatalog(policy),
+      } satisfies AiConnectorSummaryDto;
     });
   });
 

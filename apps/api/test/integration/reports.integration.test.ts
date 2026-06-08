@@ -115,6 +115,7 @@ describe("report routes", () => {
         scope: "TW",
         reportingCurrency: "TWD",
       }),
+      fxRates: [],
       summary: expect.objectContaining({
         costBasisAmount: expect.any(Number),
       }),
@@ -141,6 +142,7 @@ describe("report routes", () => {
         scope: "all",
         range: "1Y",
       }),
+      fxRates: [],
       allocation: expect.objectContaining({
         byMarket: expect.arrayContaining([
           expect.objectContaining({ key: "TW" }),
@@ -164,6 +166,7 @@ describe("report routes", () => {
         scope: "TW",
         reportingCurrency: "TWD",
       }),
+      fxRates: [],
       detail: expect.objectContaining({
         limit: 1,
         rows: [
@@ -173,6 +176,89 @@ describe("report routes", () => {
         ],
       }),
     }));
+  });
+
+  it("adds resolved FX conversion rows to report DTOs for mixed-currency holdings", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const accountFeeProfile = {
+      ...feeProfile,
+      id: "fp-usd-1",
+      accountId: "acc-usd-1",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(accountFeeProfile);
+    store.accounts.push({
+      id: "acc-usd-1",
+      userId,
+      name: "US Broker",
+      feeProfileId: accountFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-usd-1",
+      ticker: "AAPL",
+      quantity: 5,
+      costBasisAmount: 500,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-trade-usd-1",
+      userId,
+      accountId: "acc-usd-1",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 5,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T14:30:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertFxRates([
+      {
+        date: "2026-06-03",
+        baseCurrency: "USD",
+        quoteCurrency: "TWD",
+        rate: 32,
+        source: "test",
+      },
+    ]);
+
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(portfolioReport.statusCode).toBe(200);
+    expect(portfolioReport.json()).toEqual(expect.objectContaining({
+      fxStatus: expect.objectContaining({
+        status: "complete",
+        missingRatePairs: [],
+      }),
+      fxRates: [
+        expect.objectContaining({
+          fromCurrency: "USD",
+          toCurrency: "TWD",
+          rate: 32,
+          asOf: expect.any(String),
+        }),
+      ],
+    }));
+    expect(portfolioReport.json().fxRates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ fromCurrency: "TWD", toCurrency: "TWD" }),
+    ]));
   });
 
   it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {

@@ -33,6 +33,7 @@ describe("dashboard overview", () => {
           upcomingDividendAmount: null,
           openIssueCount: 0,
         }),
+        fxRates: [],
         holdings: [],
         dividends: {
           upcoming: [],
@@ -73,6 +74,81 @@ describe("dashboard overview", () => {
         feeProfileBindings: expect.any(Array),
       }),
     );
+  });
+
+  it("adds overview FX conversion rows for mixed-currency holdings", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const accountFeeProfile = {
+      ...feeProfile,
+      id: "fp-usd-1",
+      accountId: "acc-usd-1",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(accountFeeProfile);
+    store.accounts.push({
+      id: "acc-usd-1",
+      userId: "user-1",
+      name: "US Broker",
+      feeProfileId: accountFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-usd-1",
+      ticker: "AAPL",
+      quantity: 5,
+      costBasisAmount: 500,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "dashboard-usd-trade-1",
+      userId: "user-1",
+      accountId: "acc-usd-1",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 5,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: accountFeeProfile,
+      tradeTimestamp: "2026-06-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T14:30:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertFxRates([
+      {
+        date: "2026-06-03",
+        baseCurrency: "USD",
+        quoteCurrency: "TWD",
+        rate: 32,
+        source: "test",
+      },
+    ]);
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      fxRates: [
+        expect.objectContaining({
+          fromCurrency: "USD",
+          toCurrency: "TWD",
+          rate: 32,
+          asOf: expect.any(String),
+        }),
+      ],
+    }));
+    expect(response.json().fxRates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ fromCurrency: "TWD", toCurrency: "TWD" }),
+    ]));
   });
 
   it("returns holdings and dividend overview details when accounting facts exist", async () => {
