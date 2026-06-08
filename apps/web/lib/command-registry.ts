@@ -61,6 +61,7 @@ export function getRouteCommandItems(dict: AppDictionary): RouteCommandItem[] {
   const cp = dict.commandPalette;
   return [
     { kind: "route", key: "dashboard",          label: cp.routeDashboard,        href: "/dashboard",          keywords: ["dashboard", "home"] },
+    { kind: "route", key: "reports",            label: cp.routeReports,          href: "/reports",            keywords: ["reports", "analysis", "daily", "market"] },
     { kind: "route", key: "portfolio",          label: cp.routePortfolio,        href: "/portfolio",          keywords: ["portfolio", "holdings"] },
     { kind: "route", key: "transactions",       label: cp.routeTransactions,     href: "/transactions",       keywords: ["transactions", "trades"] },
     { kind: "route", key: "cash-ledger",        label: cp.routeCashLedger,       href: "/cash-ledger",        keywords: ["cash", "ledger"] },

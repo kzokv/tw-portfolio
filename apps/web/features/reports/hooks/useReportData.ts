@@ -1,0 +1,105 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AnyReportDto } from "../services/reportService";
+import { fetchReport } from "../services/reportService";
+import type { ReportRouteState } from "../reportState";
+import { buildRouteDtoCacheKey, getRouteDtoContextScope, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
+import { resolveErrorMessage } from "../../../lib/utils";
+import type { LocaleCode } from "@vakwen/shared-types";
+
+export function useReportData({
+  initialReport,
+  locale,
+  state,
+}: {
+  initialReport: AnyReportDto | null;
+  locale: LocaleCode;
+  state: ReportRouteState;
+}) {
+  const cacheKey = useMemo(
+    () => buildRouteDtoCacheKey(
+      "reports",
+      state.tab,
+      getRouteDtoContextScope(),
+      locale,
+      state.scope,
+      state.currencyMode,
+      state.currencyMode === "specified" ? state.currency : "auto",
+      state.range,
+    ),
+    [locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
+  );
+  const initialCached = initialReport === null ? readRouteDtoCache<AnyReportDto>(cacheKey) : null;
+  const [data, setData] = useState<AnyReportDto | null>(initialReport ?? initialCached?.payload ?? null);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null && initialCached === null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [restoredFromCache, setRestoredFromCache] = useState(initialReport === null && initialCached !== null);
+  const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const initialReportConsumedRef = useRef(false);
+  const requestVersionRef = useRef(0);
+
+  const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
+    requestVersionRef.current += 1;
+    const version = requestVersionRef.current;
+    setIsRefreshing(true);
+    try {
+      if (!bypassCache) {
+        const cached = readRouteDtoCache<AnyReportDto>(cacheKey);
+        if (cached) {
+          setData(cached.payload);
+          setRestoredFromCache(true);
+          setRestoredAt(cached.savedAt);
+        }
+      }
+      const next = await fetchReport(state.tab, state);
+      if (version !== requestVersionRef.current) return;
+      setData(next);
+      writeRouteDtoCache(cacheKey, next);
+      setErrorMessage("");
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
+    } catch (error) {
+      if (version !== requestVersionRef.current) return;
+      setErrorMessage(resolveErrorMessage(error));
+    } finally {
+      if (version === requestVersionRef.current) setIsRefreshing(false);
+    }
+  }, [cacheKey, state]);
+
+  useEffect(() => {
+    const shouldUseInitialReport = !initialReportConsumedRef.current && initialReport !== null;
+    const cached = shouldUseInitialReport ? null : readRouteDtoCache<AnyReportDto>(cacheKey);
+    if (shouldUseInitialReport) {
+      initialReportConsumedRef.current = true;
+      setData(initialReport);
+      writeRouteDtoCache(cacheKey, initialReport);
+      setIsBootstrapping(false);
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
+      return;
+    }
+    if (cached) {
+      setData(cached.payload);
+      setIsBootstrapping(false);
+      setRestoredFromCache(true);
+      setRestoredAt(cached.savedAt);
+      void refresh();
+      return;
+    }
+    setData(null);
+    setIsBootstrapping(true);
+    void refresh({ bypassCache: true }).finally(() => setIsBootstrapping(false));
+  }, [cacheKey, initialReport, refresh]);
+
+  return {
+    data,
+    errorMessage,
+    isBootstrapping,
+    isRefreshing,
+    refresh,
+    restoredFromCache,
+    restoredAt,
+  };
+}

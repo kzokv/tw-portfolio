@@ -40,6 +40,7 @@ const BREADCRUMB_FALLBACK_MAP: ReadonlyArray<BreadcrumbFallbackEntry> = [
 
   // Top-level user routes
   { pathname: "/dashboard", label: "Dashboard" },
+  { pathname: "/reports", label: "Reports" },
   { pathname: "/portfolio", label: "Portfolio" },
   { pathname: "/transactions", label: "Transactions" },
   { pathname: "/cash-ledger", label: "Cash Ledger" },

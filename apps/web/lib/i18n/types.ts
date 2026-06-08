@@ -21,6 +21,8 @@ export interface AppDictionary {
   navigation: {
     dashboardLabel: string;
     dashboardDescription: string;
+    reportsLabel: string;
+    reportsDescription: string;
     portfolioLabel: string;
     portfolioDescription: string;
     transactionsLabel: string;
@@ -53,6 +55,7 @@ export interface AppDictionary {
     groupTickers: string;
     groupActions: string;
     routeDashboard: string;
+    routeReports: string;
     routePortfolio: string;
     routeTransactions: string;
     routeCashLedger: string;
