@@ -14,9 +14,17 @@ export type ReportDtoByTab = {
 
 export type AnyReportDto = ReportDtoByTab[ReportTab];
 
+interface FetchReportOptions {
+  signal?: AbortSignal;
+}
+
 export async function fetchReport<TTab extends ReportTab>(
   tab: TTab,
   state: ReportRouteState,
+  options: FetchReportOptions = {},
 ): Promise<ReportDtoByTab[TTab]> {
-  return getJson<ReportDtoByTab[TTab]>(reportApiPath(tab, state));
+  const path = reportApiPath(tab, state);
+  return options.signal
+    ? getJson<ReportDtoByTab[TTab]>(path, { signal: options.signal })
+    : getJson<ReportDtoByTab[TTab]>(path);
 }
