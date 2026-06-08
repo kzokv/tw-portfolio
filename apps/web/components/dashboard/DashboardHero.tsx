@@ -152,7 +152,9 @@ export function DashboardHero({
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {marketValues.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{dict.dashboardHome.holdingsEmpty}</p>
+              <p className="text-sm text-muted-foreground">
+                {holdingGroups.length === 0 ? dict.dashboardHome.holdingsEmpty : dict.dashboardHome.noMarketValue}
+              </p>
             ) : marketValues.map((market) => (
               <Link
                 key={market.marketCode}
@@ -178,7 +180,8 @@ function buildMarketValues(
 ): Array<{ marketCode: string; value: number }> {
   const values = new Map<string, number>();
   for (const group of groups) {
-    const amount = group.reportingMarketValueAmount ?? group.reportingCostBasisAmount ?? group.marketValueAmount ?? group.costBasisAmount;
+    const amount = group.reportingMarketValueAmount;
+    if (amount === null) continue;
     values.set(group.marketCode, (values.get(group.marketCode) ?? 0) + amount);
   }
   return [...values.entries()]
