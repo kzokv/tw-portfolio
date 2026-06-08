@@ -48,7 +48,7 @@ export interface RawDashboardOverviewSummary {
   openIssueCount: number;
 }
 
-export interface RawDashboardOverview extends Omit<DashboardOverviewDto, "summary"> {
+export interface RawDashboardOverview extends Omit<DashboardOverviewDto, "summary" | "fxRates"> {
   summary: RawDashboardOverviewSummary;
 }
 
