@@ -5912,6 +5912,92 @@ export class PostgresPersistence implements Persistence {
     });
   }
 
+  async getAggregatedSnapshotsInReportingCurrencyForScope(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
+    pairs: readonly import("./types.js").HoldingSnapshotScopePair[],
+  ): Promise<AggregatedSnapshotPoint[]> {
+    if (pairs.length === 0) return [];
+    const accountIds = pairs.map((pair) => pair.accountId);
+    const tickers = pairs.map((pair) => pair.ticker);
+    const result = await this.pool.query<{
+      snapshot_date: string;
+      total_cost_basis: string;
+      total_market_value: string | null;
+      total_unrealized_pnl: string | null;
+      cumulative_realized_pnl: string;
+      cumulative_dividends: string;
+      is_provisional: boolean;
+      fx_available: boolean;
+    }>(
+      `WITH scoped_pairs AS (
+         SELECT DISTINCT account_id, ticker
+           FROM UNNEST($5::text[], $6::text[]) AS pair(account_id, ticker)
+       )
+       SELECT s.snapshot_date::text,
+              SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
+              CASE WHEN bool_or(s.is_provisional) THEN NULL ELSE
+                SUM(s.value_native           * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END)
+              END AS total_market_value,
+              CASE WHEN bool_or(s.is_provisional) THEN NULL ELSE
+                SUM(s.unrealized_pnl_native  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END)
+              END AS total_unrealized_pnl,
+              SUM(s.cumulative_realized_pnl  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_realized_pnl,
+              SUM(s.cumulative_dividends     * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_dividends,
+              bool_or(s.is_provisional) AS is_provisional,
+              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available
+         FROM daily_holding_snapshots s
+         JOIN scoped_pairs pair
+           ON pair.account_id = s.account_id
+          AND pair.ticker = s.ticker
+         LEFT JOIN LATERAL (
+           SELECT rate FROM market_data.fx_rates
+           WHERE base_currency = s.currency
+             AND quote_currency = $4
+             AND date <= s.snapshot_date
+           ORDER BY date DESC LIMIT 1
+         ) fx ON s.currency <> $4
+        WHERE s.user_id = $1
+          AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+          AND s.snapshot_date >= $2::date
+          AND s.snapshot_date <= $3::date
+        GROUP BY s.snapshot_date
+        ORDER BY s.snapshot_date ASC`,
+      [userId, startDate, endDate, reportingCurrency, accountIds, tickers],
+    );
+    return result.rows.map(row => {
+      const fxAvailable = row.fx_available;
+      const totalCostBasisRaw = row.total_cost_basis !== null ? Number(row.total_cost_basis) : null;
+      const totalMarketValue = fxAvailable && row.total_market_value !== null ? Number(row.total_market_value) : null;
+      const totalUnrealizedPnl = fxAvailable && row.total_unrealized_pnl !== null ? Number(row.total_unrealized_pnl) : null;
+      const cumulativeRealizedPnlRaw = row.cumulative_realized_pnl !== null ? Number(row.cumulative_realized_pnl) : null;
+      const cumulativeDividendsRaw = row.cumulative_dividends !== null ? Number(row.cumulative_dividends) : null;
+      const totalCostBasis = fxAvailable ? (totalCostBasisRaw ?? 0) : 0;
+      const cumulativeRealizedPnl = fxAvailable ? (cumulativeRealizedPnlRaw ?? 0) : 0;
+      const cumulativeDividends = fxAvailable ? (cumulativeDividendsRaw ?? 0) : 0;
+      const totalReturnAmount = fxAvailable && totalMarketValue !== null
+        ? totalMarketValue + cumulativeRealizedPnl + cumulativeDividends - totalCostBasis
+        : null;
+      const totalReturnPercent = totalReturnAmount !== null && totalCostBasis > 0
+        ? (totalReturnAmount / totalCostBasis) * 100
+        : null;
+      return {
+        date: row.snapshot_date,
+        totalCostBasis,
+        totalMarketValue,
+        totalUnrealizedPnl,
+        cumulativeRealizedPnl,
+        cumulativeDividends,
+        totalReturnAmount,
+        totalReturnPercent,
+        isProvisional: row.is_provisional,
+        fxAvailable,
+      };
+    });
+  }
+
   async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
     const result = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM daily_holding_snapshots

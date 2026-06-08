@@ -157,6 +157,7 @@ superseded_by: null
 - [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes plus signed money/percent labels for positive/negative/neutral values.
 - [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget, aborts the underlying report fetch when the budget expires, and renders the client shell with cache/silent refresh when the active scoped report is slow.
 - [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty, and each connector shows inherited/default/override tool availability instead of hiding the catalog behind saved overrides.
+- [x] TW/single-market scoped reports no longer fail after initial paint during client refresh due to scoped performance fanout. Scoped performance now aggregates all scoped `(accountId, ticker)` snapshot contributors in one persistence query via `getAggregatedSnapshotsInReportingCurrencyForScope()` instead of fanning out `getHoldingSnapshotsForTicker()` per holding.
 
 ## Open Items
 
@@ -167,7 +168,8 @@ superseded_by: null
 - [x] `/dividends`, `/cash-ledger`, and `/settings/accounts` page-performance tuning remains out of this PR except for report data dependencies.
 - [ ] `/settings/fee-config` still uses `loadUserStore`; optimize in a follow-up unless this release needs it to meet transaction/portfolio first-paint goals.
 - [ ] `/dashboard/primary`, `/portfolio/primary`, and `/transactions/primary` may still need narrow Postgres projections after this scope stabilizes. Do targeted read-model optimization where feasible, but do not rewrite accounting projections wholesale in this PR.
-- [ ] Scoped report performance still needs a narrow Postgres projection follow-up once the report contract is stable. This branch removed the serial snapshot bottleneck by using bounded parallel scoped `(accountId, ticker)` snapshot fetches, short-circuiting empty scoped histories, and memoizing per-date FX lookups, but it still calls `getHoldingSnapshotsForTicker()` per scoped pair instead of a single report-specific projection query.
+- [x] Scoped report performance now has a narrow Postgres projection for report charts. Single-market scopes aggregate the requested `(accountId, ticker)` snapshot contributors in one FX-aware query and preserve memory/Postgres parity for missing FX and provisional rows.
+- [ ] Broader report assembly still starts from `loadStore(userId)`. A narrower report-specific read model may still be needed after this report contract stabilizes, but the previous per-holding scoped performance fanout is no longer the active bottleneck.
 - [x] Existing mockups remain durable. Regenerate screenshots only if implementation materially diverges from the locked UI structure.
 - [ ] Dashboard holdings preview currently derives the displayed converted unit price as `reportingMarketValueAmount / quantity` because the dashboard holding-group DTO does not yet expose an explicit server `reportingUnitPriceAmount`. Formal report rows now expose explicit reporting/native unit price fields; add the same dedicated dashboard DTO field if downstream consumers need auditable per-share converted price lineage on the dashboard.
 - [x] Dashboard holdings preview UX/test-selector refinements are validated. Focused web component coverage and affected dashboard/mobile E2E assertions passed from the main session after the preview-root selector, daily-change/no-market-data copy, native-price disclosure, and E2E page-object updates.
@@ -239,6 +241,20 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before the API HTTP gate found no orphan app/test runners.
+- [x] 2026-06-08 local full-gate rerun after scoped-report single-query aggregate fix and duplicate-pair hardening:
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 515 tests.
+  - `npm run test --prefix apps/api` passed: 1,476 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 801 tests, 1 skipped; includes Postgres scoped aggregate tests `INT-7` and `INT-8`, including duplicate scoped pair inputs that must not double-count report performance values.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits before the long-running gates and after the final HTTP gate found no orphan app/test runners.
+- [x] Follow-up validation after the scoped aggregate-query fix:
+  - `npx vitest run test/integration/reports.integration.test.ts` from `apps/api`
+  - Verified scoped portfolio/market reports call `getAggregatedSnapshotsInReportingCurrencyForScope()` and do not call `getHoldingSnapshotsForTicker()` per scoped pair.
+  - Verified the Postgres scoped-pair CTE deduplicates account/ticker inputs before joining snapshot rows.
 
 ## Mockups
 

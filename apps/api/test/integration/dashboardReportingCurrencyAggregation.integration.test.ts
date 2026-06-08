@@ -480,4 +480,79 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     expect(point.cumulativeRealizedPnl).toBe(0);
     expect(point.cumulativeDividends).toBe(0);
   });
+
+  it("INT-7: scoped aggregate filters by account+ticker pair and forward-fills FX in Postgres", async () => {
+    await ensureAccount("acc-usd-included", "USD");
+    await ensureAccount("acc-usd-excluded", "USD");
+    await ensureAccount("acc-twd-excluded", "TWD");
+    const date = "2026-04-25";
+    await seedSnapshots([
+      { accountId: "acc-usd-included", ticker: "AAPL", date, currency: "USD",
+        quantity: 10, costBasisNative: 1_000, valueNative: 1_200,
+        unrealizedPnlNative: 200, cumulativeRealizedPnl: 50, cumulativeDividends: 10 },
+      { accountId: "acc-usd-excluded", ticker: "AAPL", date, currency: "USD",
+        quantity: 20, costBasisNative: 2_000, valueNative: 2_400,
+        unrealizedPnlNative: 400, cumulativeRealizedPnl: 100, cumulativeDividends: 20 },
+      { accountId: "acc-twd-excluded", ticker: "2330", date, currency: "TWD",
+        quantity: 100, costBasisNative: 100_000, valueNative: 120_000,
+        unrealizedPnlNative: 20_000, cumulativeRealizedPnl: 0, cumulativeDividends: 0 },
+    ]);
+    const forwardFilledRate = 31.25;
+    await seedFxRate("USD", "TWD", "2026-04-20", forwardFilledRate);
+
+    const points = await persistence!.getAggregatedSnapshotsInReportingCurrencyForScope(
+      userId,
+      date,
+      date,
+      "TWD",
+      [
+        { accountId: "acc-usd-included", ticker: "AAPL" },
+        { accountId: "acc-usd-included", ticker: "AAPL" },
+      ],
+    );
+
+    expect(points).toHaveLength(1);
+    const [point] = points;
+    expect(point.fxAvailable).toBe(true);
+    expect(point.totalCostBasis).toBeCloseTo(1_000 * forwardFilledRate, 2);
+    expect(point.totalMarketValue).toBeCloseTo(1_200 * forwardFilledRate, 2);
+    expect(point.totalUnrealizedPnl).toBeCloseTo(200 * forwardFilledRate, 2);
+    expect(point.cumulativeRealizedPnl).toBeCloseTo(50 * forwardFilledRate, 2);
+    expect(point.cumulativeDividends).toBeCloseTo(10 * forwardFilledRate, 2);
+  });
+
+  it("INT-8: scoped aggregate treats any provisional contributor as date-level nullable report value", async () => {
+    await ensureAccount("acc-twd", "TWD");
+    const date = "2026-04-26";
+    await seedSnapshots([
+      { accountId: "acc-twd", ticker: "2330", date, currency: "TWD",
+        quantity: 100, costBasisNative: 100_000, valueNative: 120_000,
+        unrealizedPnlNative: 20_000, cumulativeRealizedPnl: 0, cumulativeDividends: 0 },
+      { accountId: "acc-twd", ticker: "2317", date, currency: "TWD",
+        quantity: 100, costBasisNative: 80_000, valueNative: 90_000,
+        unrealizedPnlNative: 10_000, cumulativeRealizedPnl: 0, cumulativeDividends: 0,
+        isProvisional: true },
+    ]);
+
+    const points = await persistence!.getAggregatedSnapshotsInReportingCurrencyForScope(
+      userId,
+      date,
+      date,
+      "TWD",
+      [
+        { accountId: "acc-twd", ticker: "2330" },
+        { accountId: "acc-twd", ticker: "2317" },
+      ],
+    );
+
+    expect(points).toHaveLength(1);
+    const [point] = points;
+    expect(point.fxAvailable).toBe(true);
+    expect(point.isProvisional).toBe(true);
+    expect(point.totalCostBasis).toBeCloseTo(180_000, 2);
+    expect(point.totalMarketValue).toBeNull();
+    expect(point.totalUnrealizedPnl).toBeNull();
+    expect(point.totalReturnAmount).toBeNull();
+    expect(point.totalReturnPercent).toBeNull();
+  });
 });
