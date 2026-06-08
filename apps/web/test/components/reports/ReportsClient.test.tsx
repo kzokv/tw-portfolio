@@ -90,11 +90,19 @@ const fixture: DailyReviewReportDto = {
       marketCode: "AU",
       accountCount: 1,
       quantity: 5,
+      nativeCurrency: "AUD",
+      nativeAverageCostPerShare: 200,
+      nativeCurrentUnitPrice: 240,
+      nativeCostBasisAmount: 1000,
+      nativeMarketValueAmount: 1200,
       reportingCurrency: "AUD",
+      reportingAverageCostPerShare: 200,
+      reportingCurrentUnitPrice: 240,
       reportingCostBasisAmount: 1000,
       reportingMarketValueAmount: 1200,
       reportingUnrealizedPnlAmount: 200,
       reportingAllocationPercent: 100,
+      fxRateToReporting: 1,
       dailyChangeAmount: 10,
       dailyChangePercent: 0.8,
       quoteStatus: "current",
@@ -163,6 +171,14 @@ describe("ReportsClient", () => {
         ...fixture.holdings,
         rows: [{
           ...fixture.holdings.rows[0]!,
+          nativeCurrency: "USD",
+          nativeAverageCostPerShare: 100,
+          nativeCurrentUnitPrice: 150,
+          nativeCostBasisAmount: 500,
+          nativeMarketValueAmount: 750,
+          reportingAverageCostPerShare: 152,
+          reportingCurrentUnitPrice: 228,
+          fxRateToReporting: 1.52,
           reportingUnrealizedPnlAmount: -200,
           dailyChangeAmount: -10,
           dailyChangePercent: -0.8,
@@ -178,9 +194,12 @@ describe("ReportsClient", () => {
 
     const tickerLinks = Array.from(document.querySelectorAll("a")).map((anchor) => anchor.getAttribute("href"));
     expect(tickerLinks).toContain("/tickers/BHP?marketCode=AU");
+    expect(document.body.textContent).toContain("Open ticker");
 
-    const negativeValue = Array.from(document.querySelectorAll("p, span, h3")).find((node) => node.textContent?.includes("AUD -10"));
+    const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
+      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-rose-600"));
     expect(negativeValue?.className).toContain("text-rose-600");
+    expect(document.body.textContent).toContain("Native $150.00");
 
     const fxRates = document.querySelector("[data-testid='reports-fx-rates']");
     expect(fxRates?.textContent).toContain("USD to AUD");
@@ -193,6 +212,10 @@ describe("ReportsClient", () => {
     });
 
     expect(document.body.textContent).toContain("Daily change %");
+    expect(document.body.textContent).toContain("Reporting price");
+    expect(document.body.textContent).toContain("Native price");
+    expect(document.body.textContent).toContain("FX rate");
+    expect(document.body.textContent).toContain("1.52");
     const detailPercent = Array.from(document.querySelectorAll("span")).find((node) => node.textContent?.includes("-0.8%"));
     expect(detailPercent?.className).toContain("text-rose-600");
   });
