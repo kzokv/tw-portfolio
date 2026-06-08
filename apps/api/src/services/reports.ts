@@ -33,6 +33,7 @@ import { resolveReportContext } from "./reportContext.js";
 import { buildFxConversionRateRows } from "./fxConversionRates.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store } from "../types/store.js";
+import type { AggregatedSnapshotPoint } from "../persistence/types.js";
 
 export interface BuildReportInput {
   scope?: string;
@@ -53,8 +54,6 @@ interface PreparedReportData {
   scopedStore: Store;
   asOf: string;
 }
-
-const SCOPED_REPORT_SNAPSHOT_CONCURRENCY = 8;
 
 export async function buildDailyReviewReport(
   app: FastifyInstance,
@@ -512,98 +511,26 @@ async function buildReportPerformance(
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
   const { startDate, endDate } = resolveRangeBounds(range, query.asOf, earliestTradeDate);
-  const pairs = [...new Set(scopedStore.accounting.facts.tradeEvents.map((trade) => `${trade.accountId}:${trade.ticker}`))]
-    .map((key) => {
-      const [accountId, ticker] = key.split(":");
-      return { accountId, ticker };
+  const scopedPairs = new Map<string, { accountId: string; ticker: string }>();
+  for (const trade of scopedStore.accounting.facts.tradeEvents) {
+    scopedPairs.set(`${trade.accountId}\0${trade.ticker}`, {
+      accountId: trade.accountId,
+      ticker: trade.ticker,
     });
+  }
+  const pairs = [...scopedPairs.values()];
   if (pairs.length === 0) {
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
 
-  const snapshotGroups = await mapWithConcurrency(
+  const aggregated = await app.persistence.getAggregatedSnapshotsInReportingCurrencyForScope(
+    userId,
+    startDate,
+    endDate,
+    query.reportingCurrency,
     pairs,
-    SCOPED_REPORT_SNAPSHOT_CONCURRENCY,
-    async (pair) => ({
-      ...pair,
-      snapshots: await app.persistence.getHoldingSnapshotsForTicker(userId, pair.accountId, pair.ticker, startDate, endDate),
-    }),
   );
-  const byDate = new Map<string, DashboardPerformanceDto["points"][number]>();
-  const fxRateCache = new Map<string, Promise<number | null>>();
-
-  for (const group of snapshotGroups) {
-    for (const snapshot of group.snapshots) {
-      const current = byDate.get(snapshot.snapshotDate) ?? {
-        date: snapshot.snapshotDate,
-        totalCostAmount: 0,
-        marketValueAmount: 0,
-        unrealizedPnlAmount: 0,
-        cumulativeRealizedPnlAmount: 0,
-        cumulativeDividendsAmount: 0,
-        totalReturnAmount: 0,
-        totalReturnPercent: null,
-        fxAvailable: true,
-      };
-      const fx = await getReportFxRate(
-        app,
-        fxRateCache,
-        snapshot.currency as AccountDefaultCurrency,
-        query.reportingCurrency,
-        snapshot.snapshotDate,
-      );
-      if (fx === null) {
-        current.fxAvailable = false;
-        current.totalCostAmount = null;
-        current.marketValueAmount = null;
-        current.unrealizedPnlAmount = null;
-        current.cumulativeRealizedPnlAmount = null;
-        current.cumulativeDividendsAmount = null;
-        current.totalReturnAmount = null;
-        current.totalReturnPercent = null;
-        byDate.set(snapshot.snapshotDate, current);
-        continue;
-      }
-      if (current.totalCostAmount !== null) current.totalCostAmount += snapshot.costBasisNative * fx;
-      if (current.marketValueAmount !== null) current.marketValueAmount += (snapshot.valueNative ?? 0) * fx;
-      if (current.unrealizedPnlAmount !== null) {
-        current.unrealizedPnlAmount = snapshot.unrealizedPnlNative === null
-          ? null
-          : current.unrealizedPnlAmount + (snapshot.unrealizedPnlNative * fx);
-      }
-      if (current.cumulativeRealizedPnlAmount !== null) current.cumulativeRealizedPnlAmount += snapshot.cumulativeRealizedPnl * fx;
-      if (current.cumulativeDividendsAmount !== null) current.cumulativeDividendsAmount += snapshot.cumulativeDividends * fx;
-      byDate.set(snapshot.snapshotDate, current);
-    }
-  }
-
-  const points = [...byDate.values()]
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .map((point) => {
-      const totalReturnAmount =
-        point.marketValueAmount === null
-          || point.totalCostAmount === null
-          || point.cumulativeRealizedPnlAmount === null
-          || point.cumulativeDividendsAmount === null
-          ? null
-          : roundToDecimal(
-            point.marketValueAmount - point.totalCostAmount + point.cumulativeRealizedPnlAmount + point.cumulativeDividendsAmount,
-            2,
-          );
-      const totalReturnPercent = totalReturnAmount !== null && point.totalCostAmount && point.totalCostAmount > 0
-        ? roundToDecimal((totalReturnAmount / point.totalCostAmount) * 100, 4)
-        : null;
-      return {
-        ...point,
-        totalCostAmount: point.totalCostAmount === null ? null : roundToDecimal(point.totalCostAmount, 2),
-        marketValueAmount: point.marketValueAmount === null ? null : roundToDecimal(point.marketValueAmount, 2),
-        unrealizedPnlAmount: point.unrealizedPnlAmount === null ? null : roundToDecimal(point.unrealizedPnlAmount, 2),
-        cumulativeRealizedPnlAmount: point.cumulativeRealizedPnlAmount === null ? null : roundToDecimal(point.cumulativeRealizedPnlAmount, 2),
-        cumulativeDividendsAmount: point.cumulativeDividendsAmount === null ? null : roundToDecimal(point.cumulativeDividendsAmount, 2),
-        totalReturnAmount,
-        totalReturnPercent,
-      };
-    });
+  const points = mapAggregatedPerformancePoints(aggregated);
   const fxStatus = points.length === 0
     ? "complete"
     : points.every((point) => point.fxAvailable)
@@ -620,6 +547,20 @@ async function buildReportPerformance(
   };
 }
 
+function mapAggregatedPerformancePoints(aggregated: AggregatedSnapshotPoint[]): DashboardPerformanceDto["points"] {
+  return aggregated.map((point) => ({
+    date: point.date,
+    totalCostAmount: point.fxAvailable ? roundToDecimal(point.totalCostBasis, 2) : null,
+    marketValueAmount: point.fxAvailable && point.totalMarketValue !== null ? roundToDecimal(point.totalMarketValue, 2) : null,
+    unrealizedPnlAmount: point.fxAvailable && point.totalUnrealizedPnl !== null ? roundToDecimal(point.totalUnrealizedPnl, 2) : null,
+    cumulativeRealizedPnlAmount: point.fxAvailable ? roundToDecimal(point.cumulativeRealizedPnl, 2) : null,
+    cumulativeDividendsAmount: point.fxAvailable ? roundToDecimal(point.cumulativeDividends, 2) : null,
+    totalReturnAmount: point.fxAvailable && point.totalReturnAmount !== null ? roundToDecimal(point.totalReturnAmount, 2) : null,
+    totalReturnPercent: point.fxAvailable && point.totalReturnPercent !== null ? roundToDecimal(point.totalReturnPercent, 4) : null,
+    fxAvailable: point.fxAvailable,
+  }));
+}
+
 function emptyScopedPerformance(
   range: string,
   reportingCurrency: AccountDefaultCurrency,
@@ -630,44 +571,6 @@ function emptyScopedPerformance(
     reportingCurrency,
     fxStatus: "complete",
   };
-}
-
-async function getReportFxRate(
-  app: FastifyInstance,
-  cache: Map<string, Promise<number | null>>,
-  baseCurrency: AccountDefaultCurrency,
-  reportingCurrency: AccountDefaultCurrency,
-  asOf: string,
-): Promise<number | null> {
-  if (baseCurrency === reportingCurrency) return 1;
-  const key = `${baseCurrency}:${reportingCurrency}:${asOf}`;
-  let pending = cache.get(key);
-  if (!pending) {
-    pending = app.persistence.getFxRate(baseCurrency, reportingCurrency, asOf);
-    cache.set(key, pending);
-  }
-  return pending;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= items.length) return;
-      results[index] = await mapper(items[index] as T);
-    }
-  }));
-
-  return results;
 }
 
 function buildMarketAllocations(groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>): AllocationBucketDto[] {
