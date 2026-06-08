@@ -51,7 +51,7 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
       holdingsTable: this.locate("holdings-table", "Holdings Table"),
       holdingsSection: this.locate("dashboard-holdings-section", "Holdings Section"),
-      heroPanel: this.locate("dashboard-intro", "Dashboard Hero Panel"),
+      heroPanel: this.locate("dashboard-hero", "Dashboard Hero Panel"),
       dashboardHero: this.locate("dashboard-hero", "Dashboard Hero (Phase 5d)"),
       dashboardHeroTotal: this.locate("dashboard-hero-total", "Dashboard Hero Total"),
       dashboardHeroDayDelta: this.locate("dashboard-hero-day-delta", "Dashboard Hero Day Δ"),

@@ -26,6 +26,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     navigation: {
       dashboardLabel: "Dashboard",
       dashboardDescription: "Daily review of portfolio shape, dividend flow, and system health.",
+      reportsLabel: "Reports",
+      reportsDescription: "Structured daily, portfolio, and market reports with scope and currency controls.",
       portfolioLabel: "Portfolio",
       portfolioDescription: "Focused holdings review with ticker filtering and allocation context.",
       transactionsLabel: "Transactions",
@@ -242,6 +244,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     navigation: {
       dashboardLabel: "儀表板",
       dashboardDescription: "先看投資組合輪廓、股利節奏與系統健康，再決定下一步。",
+      reportsLabel: "報表",
+      reportsDescription: "依市場範圍與幣別檢視每日、投資組合與市場報表。",
       portfolioLabel: "持倉",
       portfolioDescription: "把持倉檢視拉成主要畫面，方便依標的與帳戶快速聚焦。",
       transactionsLabel: "交易",
