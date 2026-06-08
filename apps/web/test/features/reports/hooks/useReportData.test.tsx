@@ -19,7 +19,7 @@ const state: ReportRouteState = {
   currency: "AUD",
   range: "1Y",
 };
-const cacheScope = "session:user-a:context:self";
+const defaultCacheScope = "session:user-a:context:self";
 const locale = "en";
 
 let result: ReturnType<typeof useReportData>;
@@ -82,7 +82,7 @@ function buildReport(title: string, asOf: string): DailyReviewReportDto {
   };
 }
 
-function reportCacheKey() {
+function reportCacheKey(cacheScope = defaultCacheScope) {
   return buildRouteDtoCacheKey(
     "reports",
     state.tab,
@@ -96,9 +96,11 @@ function reportCacheKey() {
 }
 
 function Harness({
+  cacheScope = defaultCacheScope,
   contextRefreshSignal,
   initialReport,
 }: {
+  cacheScope?: string;
   contextRefreshSignal: number;
   initialReport: DailyReviewReportDto;
 }) {
@@ -147,12 +149,40 @@ describe("useReportData", () => {
     expect(fetchReport).not.toHaveBeenCalled();
 
     act(() => {
-      root.render(<Harness contextRefreshSignal={1} initialReport={second} />);
+      root.render(<Harness contextRefreshSignal={0} initialReport={second} />);
     });
     await act(async () => {});
 
     expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Second seed");
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey())?.payload.suggestions[0]?.title).toBe("Second seed");
     expect(fetchReport).not.toHaveBeenCalled();
+  });
+
+  it("revalidates instead of caching a stale server report after context changes", async () => {
+    const first = buildReport("Self seed", "2026-06-08");
+    const staleOwnerSeed = buildReport("Stale self seed", "2026-06-08");
+    const ownerReport = buildReport("Owner refresh", "2026-06-09");
+    const ownerCacheScope = "session:user-a:context:owner-1";
+    vi.mocked(fetchReport).mockResolvedValue(ownerReport);
+
+    act(() => {
+      root.render(<Harness contextRefreshSignal={0} initialReport={first} />);
+    });
+    await act(async () => {});
+
+    act(() => {
+      root.render(
+        <Harness
+          cacheScope={ownerCacheScope}
+          contextRefreshSignal={1}
+          initialReport={staleOwnerSeed}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    expect(fetchReport).toHaveBeenCalledTimes(1);
+    expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Owner refresh");
+    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
   });
 });
