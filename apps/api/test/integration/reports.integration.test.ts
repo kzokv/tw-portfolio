@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { signSessionCookie } from "../../src/auth/googleOAuth.js";
 import { buildApp } from "../../src/app.js";
+import { buildPortfolioReport } from "../../src/services/reports.js";
 let app: Awaited<ReturnType<typeof buildApp>>;
 let cookieHeader: string;
 let userId: string;
@@ -172,6 +173,34 @@ describe("report routes", () => {
         ],
       }),
     }));
+  });
+
+  it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?range=foo",
+      headers: { cookie: cookieHeader },
+    });
+    expect(portfolioReport.statusCode).toBe(400);
+    expect(portfolioReport.json()).toEqual(expect.objectContaining({
+      error: "invalid_report_range",
+      message: expect.stringContaining("range must be one of"),
+    }));
+
+    const dailyReview = await app.inject({
+      method: "GET",
+      url: "/reports/daily-review?range=foo",
+      headers: { cookie: cookieHeader },
+    });
+    expect(dailyReview.statusCode).toBe(400);
+    expect(dailyReview.json()).toEqual(expect.objectContaining({
+      error: "invalid_report_range",
+    }));
+
+    await expect(buildPortfolioReport(app, userId, { range: "foo" })).rejects.toMatchObject({
+      statusCode: 400,
+      code: "invalid_report_range",
+    });
   });
 
   it("scopes market reports by holding market instead of account currency", async () => {
