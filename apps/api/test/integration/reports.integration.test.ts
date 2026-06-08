@@ -13,6 +13,13 @@ const testOAuthConfig = {
   sessionSecret: "test-session-secret-that-is-long-enough-32chars!!",
 };
 
+function relativeIsoDate(daysFromToday: number): string {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + daysFromToday);
+  return date.toISOString().slice(0, 10);
+}
+
 describe("report routes", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
@@ -532,6 +539,143 @@ describe("report routes", () => {
       "TWD",
       [{ accountId: "acc-1", ticker: "2330" }],
     );
+  });
+
+  it("preserves scoped upcoming dividend events that do not have ledger rows", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usdFeeProfile = {
+      ...feeProfile,
+      id: "fp-us-upcoming-dividend",
+      accountId: "acc-us-upcoming-dividend",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(usdFeeProfile);
+    store.accounts.push({
+      id: "acc-us-upcoming-dividend",
+      userId,
+      name: "US Broker",
+      feeProfileId: usdFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.instruments.push(
+      {
+        ticker: "2330",
+        type: "STOCK",
+        marketCode: "TW",
+        isProvisional: false,
+      },
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    );
+    store.accounting.projections.holdings.push(
+      {
+        accountId: "acc-1",
+        ticker: "2330",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+      },
+      {
+        accountId: "acc-us-upcoming-dividend",
+        ticker: "AAPL",
+        quantity: 5,
+        costBasisAmount: 500,
+        currency: "USD",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-tw-upcoming-dividend-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: relativeIsoDate(-10),
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: `${relativeIsoDate(-10)}T09:00:00.000Z`,
+        bookingSequence: 1,
+        bookedAt: `${relativeIsoDate(-10)}T09:00:00.000Z`,
+      },
+      {
+        id: "report-us-upcoming-dividend-trade",
+        userId,
+        accountId: "acc-us-upcoming-dividend",
+        ticker: "AAPL",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 5,
+        unitPrice: 100,
+        priceCurrency: "USD",
+        tradeDate: relativeIsoDate(-10),
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: usdFeeProfile,
+        tradeTimestamp: `${relativeIsoDate(-10)}T14:30:00.000Z`,
+        bookingSequence: 1,
+        bookedAt: `${relativeIsoDate(-10)}T14:30:00.000Z`,
+      },
+    );
+    store.marketData.dividendEvents.push(
+      {
+        id: "report-tw-upcoming-dividend-event",
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: relativeIsoDate(10),
+        paymentDate: relativeIsoDate(20),
+        cashDividendPerShare: 3,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+      {
+        id: "report-us-upcoming-dividend-event",
+        ticker: "AAPL",
+        eventType: "CASH",
+        exDividendDate: relativeIsoDate(10),
+        paymentDate: relativeIsoDate(20),
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    for (const endpoint of ["daily-review", "portfolio", "market"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/reports/${endpoint}?scope=TW&currencyMode=specified&currency=TWD&limit=5`,
+        headers: { cookie: cookieHeader },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(expect.objectContaining({
+        query: expect.objectContaining({
+          scope: "TW",
+          reportingCurrency: "TWD",
+        }),
+        summary: expect.objectContaining({
+          upcomingDividendCount: 1,
+          upcomingDividendAmount: 30,
+        }),
+      }));
+    }
   });
 
   it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {

@@ -26,6 +26,7 @@ export interface AppShellTransactionAccountOption {
 export interface AppShellData {
   uiDict: ReturnType<typeof getDictionary>;
   locale: LocaleCode;
+  sessionUserId: string | null;
   isSharedContext: boolean;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   mutations: ReturnType<typeof useTransactionMutations>;

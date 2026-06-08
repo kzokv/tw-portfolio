@@ -35,13 +35,14 @@ export function TransactionsClient({
   const {
     uiDict: dict,
     locale,
+    sessionUserId,
     isSharedContext,
     transactionSubmission,
     transactionAccountOptions,
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("transactions");
-  const cacheKey = buildRouteDtoCacheKey("transactions-primary", getRouteDtoContextScope(), locale);
+  const cacheKey = buildRouteDtoCacheKey("transactions-primary", getRouteDtoContextScope(sessionUserId), locale);
   const seededPrimaryData = contextRefreshSignal === 0 ? initialPrimaryData : null;
   const primary = useTransactionsPrimaryData(seededPrimaryData, cacheKey);
   const addPanelRef = useRef<HTMLDivElement | null>(null);

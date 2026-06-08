@@ -20,6 +20,7 @@ import type { useRecomputeAction as useRecomputeActionType } from "../../feature
 interface BuildAppShellDataValueOptions {
   uiDict: AppDictionary;
   locale: LocaleCode;
+  sessionUserId: string | null;
   isSharedContext: boolean;
   transactionSubmission: ReturnType<typeof useTransactionSubmissionType>;
   mutations: ReturnType<typeof useTransactionMutationsType>;
@@ -48,6 +49,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
   const {
     uiDict,
     locale,
+    sessionUserId,
     isSharedContext,
     transactionSubmission,
     mutations,
@@ -71,6 +73,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     () => ({
       uiDict,
       locale,
+      sessionUserId,
       isSharedContext,
       transactionSubmission,
       mutations,
@@ -104,6 +107,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       openRecomputeConfirm,
       recomputeAction,
       refreshPortfolioConfig,
+      sessionUserId,
       setShowIntegrityDialog,
       showIntegrityDialog,
       transactionAccountOptions,

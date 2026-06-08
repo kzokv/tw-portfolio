@@ -3,9 +3,11 @@ import {
   buildRouteDtoCacheKey,
   clearRouteDtoCacheByPrefix,
   getRouteDtoCachePrefix,
+  getRouteDtoContextScope,
   readRouteDtoCache,
   writeRouteDtoCache,
 } from "../../lib/routeDtoCache";
+import { clearContextCookie, writeContextCookie } from "../../lib/context";
 
 function installLocalStorageMock() {
   const store = new Map<string, string>();
@@ -28,6 +30,7 @@ describe("routeDtoCache", () => {
   beforeEach(() => {
     installLocalStorageMock();
     window.localStorage.clear();
+    clearContextCookie();
     vi.useRealTimers();
   });
 
@@ -63,5 +66,14 @@ describe("routeDtoCache", () => {
 
     expect(readRouteDtoCache(dashboardKey)).toBeNull();
     expect(readRouteDtoCache(portfolioKey)).toBeNull();
+  });
+
+  it("partitions context scope by signed-in user and selected portfolio owner", () => {
+    expect(getRouteDtoContextScope("user-a")).toBe("session:user-a:context:self");
+    expect(getRouteDtoContextScope("user-b")).toBe("session:user-b:context:self");
+
+    writeContextCookie("owner-1");
+
+    expect(getRouteDtoContextScope("user-a")).toBe("session:user-a:context:owner-1");
   });
 });

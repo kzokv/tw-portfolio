@@ -2,7 +2,7 @@
 
 import { readContextCookie } from "./context";
 
-const CACHE_VERSION = "2026-06-08-dashboard-reporting-ui-v1";
+const CACHE_VERSION = "2026-06-09-dashboard-reporting-ui-v2";
 const KEY_PREFIX = "vakwen:route-dto-cache";
 const DEFAULT_TTL_MS = 3 * 60 * 1000;
 
@@ -31,8 +31,10 @@ export function buildRouteDtoCacheKey(...parts: Array<string | number | null | u
   return [KEY_PREFIX, ...normalized].join(":");
 }
 
-export function getRouteDtoContextScope(): string {
-  return readContextCookie() ?? "self";
+export function getRouteDtoContextScope(sessionUserId?: string | null): string {
+  const ownerScope = readContextCookie() ?? "self";
+  const sessionScope = sessionUserId?.trim() || "unknown";
+  return `session:${sessionScope}:context:${ownerScope}`;
 }
 
 export function readRouteDtoCache<T>(key: string): { payload: T; savedAt: number } | null {

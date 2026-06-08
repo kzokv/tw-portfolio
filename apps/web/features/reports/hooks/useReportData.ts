@@ -4,15 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AnyReportDto } from "../services/reportService";
 import { fetchReport } from "../services/reportService";
 import type { ReportRouteState } from "../reportState";
-import { buildRouteDtoCacheKey, getRouteDtoContextScope, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
+import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
 import type { LocaleCode } from "@vakwen/shared-types";
 
 export function useReportData({
+  cacheScope,
+  contextRefreshSignal,
   initialReport,
   locale,
   state,
 }: {
+  cacheScope: string;
+  contextRefreshSignal: number;
   initialReport: AnyReportDto | null;
   locale: LocaleCode;
   state: ReportRouteState;
@@ -21,14 +25,14 @@ export function useReportData({
     () => buildRouteDtoCacheKey(
       "reports",
       state.tab,
-      getRouteDtoContextScope(),
+      cacheScope,
       locale,
       state.scope,
       state.currencyMode,
       state.currencyMode === "specified" ? state.currency : "auto",
       state.range,
     ),
-    [locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
+    [cacheScope, locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
   );
   const initialCached = initialReport === null ? readRouteDtoCache<AnyReportDto>(cacheKey) : null;
   const [data, setData] = useState<AnyReportDto | null>(initialReport ?? initialCached?.payload ?? null);
@@ -37,7 +41,6 @@ export function useReportData({
   const [errorMessage, setErrorMessage] = useState("");
   const [restoredFromCache, setRestoredFromCache] = useState(initialReport === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
-  const initialReportConsumedRef = useRef(false);
   const requestVersionRef = useRef(0);
 
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
@@ -69,10 +72,9 @@ export function useReportData({
   }, [cacheKey, state]);
 
   useEffect(() => {
-    const shouldUseInitialReport = !initialReportConsumedRef.current && initialReport !== null;
+    const shouldUseInitialReport = initialReport !== null && reportMatchesState(initialReport, state);
     const cached = shouldUseInitialReport ? null : readRouteDtoCache<AnyReportDto>(cacheKey);
     if (shouldUseInitialReport) {
-      initialReportConsumedRef.current = true;
       setData(initialReport);
       writeRouteDtoCache(cacheKey, initialReport);
       setIsBootstrapping(false);
@@ -91,7 +93,7 @@ export function useReportData({
     setData(null);
     setIsBootstrapping(true);
     void refresh({ bypassCache: true }).finally(() => setIsBootstrapping(false));
-  }, [cacheKey, initialReport, refresh]);
+  }, [cacheKey, contextRefreshSignal, initialReport, refresh, state]);
 
   return {
     data,
@@ -102,4 +104,19 @@ export function useReportData({
     restoredFromCache,
     restoredAt,
   };
+}
+
+function reportMatchesState(report: AnyReportDto, state: ReportRouteState): boolean {
+  if (!reportMatchesTab(report, state.tab)) return false;
+  if (report.query.scope !== state.scope) return false;
+  if (report.query.currencyMode !== state.currencyMode) return false;
+  if (report.query.range !== state.range) return false;
+  if (state.currencyMode === "specified" && report.query.currency !== state.currency) return false;
+  return true;
+}
+
+function reportMatchesTab(report: AnyReportDto, tab: ReportRouteState["tab"]): boolean {
+  if (tab === "daily-review") return "suggestions" in report && "topMovers" in report && "holdings" in report;
+  if (tab === "portfolio") return "performance" in report && "allocation" in report && "income" in report;
+  return "performance" in report && "marketSummary" in report && "detail" in report;
 }

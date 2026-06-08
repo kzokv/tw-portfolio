@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/shadcn/dropdown-menu";
 import { clearContextCookie } from "../../lib/context";
+import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "../../lib/routeDtoCache";
 import { cn } from "../../lib/utils";
 
 const AVATAR_COLORS = [
@@ -250,7 +251,10 @@ export function ProfileMenu({
         <DropdownMenuItem asChild>
           <a
             href={signOutHref}
-            onClick={() => clearContextCookie()}
+            onClick={() => {
+              clearContextCookie();
+              clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
+            }}
             data-testid="profile-menu-sign-out"
           >
             <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />

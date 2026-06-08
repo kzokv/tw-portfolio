@@ -1,6 +1,6 @@
 # Dashboard Reporting UI Implementation Notes
 
-Updated: 2026-06-08
+Updated: 2026-06-09
 
 This note records the current dashboard reporting UI contracts and known limits. It is implementation-facing, not a product scope doc.
 
@@ -21,7 +21,7 @@ This note records the current dashboard reporting UI contracts and known limits.
 
 Route state is URL-backed on the web side. Invalid `tab`, `scope`, `currencyMode`, or `currency` values fall back predictably in the client parser instead of throwing.
 
-The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route aborts the server-seed fetch, renders the report shell first, and lets the client cache/silent-refresh path populate the data instead of blocking first paint. Single-market performance refreshes now use one scoped aggregate snapshot query rather than per-holding snapshot fanout, so TW-scoped reports do not initially paint and then fail on the later refresh path for that reason.
+The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route aborts the server-seed fetch, renders the report shell first, and lets the client cache/silent-refresh path populate the data instead of blocking first paint. Single-market performance refreshes now use one scoped aggregate snapshot query rather than per-holding snapshot fanout, so TW-scoped reports do not initially paint and then fail on the later refresh path for that reason. The report controls read the effective range list from user/admin preferences and snap unsupported URL ranges to the first effective range.
 
 ## Scope and currency semantics
 
@@ -70,7 +70,7 @@ Per-report sections:
 The web app uses a localStorage-backed route DTO cache in `apps/web/lib/routeDtoCache.ts`.
 
 - Cache prefix: `vakwen:route-dto-cache`
-- Schema version: `2026-06-08-dashboard-reporting-ui-v1`
+- Schema version: `2026-06-09-dashboard-reporting-ui-v2`
 - Default TTL: 3 minutes
 - Behavior:
   - restore cached route DTO immediately when there is no server-seeded payload
@@ -80,12 +80,12 @@ The web app uses a localStorage-backed route DTO cache in `apps/web/lib/routeDto
 
 Current key dimensions:
 
-- reports: route, tab, shared-context scope cookie, locale, report scope, currency mode, effective currency token, range
-- dashboard: route, shared-context scope cookie, locale
-- portfolio: route, shared-context scope cookie, locale
-- transactions: route, shared-context scope cookie, locale
+- reports: route, tab, signed-in session user, shared-context scope cookie, locale, report scope, currency mode, effective currency token, range
+- dashboard: route, signed-in session user, shared-context scope cookie, locale
+- portfolio: route, signed-in session user, shared-context scope cookie, locale
+- transactions: route, signed-in session user, shared-context scope cookie, locale
 
-Invalidation is prefix-wide today. Reporting-currency changes and shared-context switches clear the full route DTO cache prefix rather than performing route-specific eviction.
+Invalidation is prefix-wide today. Reporting-currency changes, shared-context switches, sign-out, API-driven 401 logout, and signed-in session user changes clear the full route DTO cache prefix rather than performing route-specific eviction.
 
 ## Dashboard command surface
 
@@ -103,6 +103,7 @@ Current follow-up validation:
 
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
 - `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
+- `apps/web/features/reports/hooks/useReportData.ts` accepts matching refreshed server-seeded report DTOs after context/range changes and writes them back to the route DTO cache instead of treating `initialReport` as a one-time value.
 - Matching E2E selector updates live in `libs/test-e2e/src/pages/dashboard/DashboardPage.ts` and `libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts`.
 - Focused dashboard web component coverage plus affected dashboard/mobile E2E assertions passed from the main session.
 
@@ -151,6 +152,8 @@ Tool descriptions explicitly stay on the descriptive side of the advice boundary
 
 The AI Connector settings page also renders the server-provided tool catalog so users can discover the MCP report tools even when no connector-level tool override has been saved yet. Per-connector tool rows show whether each tool is inherited, overridden, policy-disabled, or blocked by missing consent scope.
 
+MCP report input parsing accepts both `currency` and `reportingCurrency`. When `reportingCurrency` is provided without an explicit `currencyMode`, the server treats it as `currencyMode=specified` so ChatGPT/tool callers receive the requested reporting currency instead of falling back to auto currency resolution.
+
 ## Current read-path and performance limitations
 
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
@@ -190,6 +193,17 @@ These are known transitional costs, not accidental behavior.
   - `npm run test --prefix apps/web` passed: 515 tests.
   - `npm run test --prefix apps/api` passed: 1,476 tests, 412 skipped.
   - `npm run test:integration:full:host` passed: 801 tests, 1 skipped; includes Postgres scoped aggregate tests `INT-7` and `INT-8` in `dashboardReportingCurrencyAggregation.integration.test.ts`, including duplicate scoped pair inputs that must not double-count report performance values.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+- Follow-up coverage for the 2026-06-09 route-cache/report/MCP fixes:
+  - Focused web: `npx vitest run test/lib/routeDtoCache.test.ts test/components/reports/ReportsClient.test.tsx test/features/reports/hooks/useReportData.test.tsx` passed: 9 tests.
+  - Focused API: `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` passed: 10 tests.
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 192 + 326 tests across the split web package run.
+  - `npm run test --prefix apps/api` passed: 1,478 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 802 tests, 1 skipped.
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.

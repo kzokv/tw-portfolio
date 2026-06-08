@@ -6,10 +6,12 @@ import { ReportsClient } from "../../../components/reports/ReportsClient";
 import { parseReportRouteState } from "../../../features/reports/reportState";
 
 const refreshMock = vi.hoisted(() => vi.fn());
+const replaceMock = vi.hoisted(() => vi.fn());
 const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y" }));
+const effectiveRangesMock = vi.hoisted(() => ({ value: ["1M", "1Y"] }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => new URLSearchParams(searchParamsMock.value),
 }));
 
@@ -21,7 +23,9 @@ vi.mock("next/link", () => ({
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: () => ({
+    contextRefreshSignal: 0,
     locale: "en",
+    sessionUserId: "user-a",
     uiDict: {
       navigation: {
         reportsLabel: "Reports",
@@ -29,6 +33,10 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
       },
     },
   }),
+}));
+
+vi.mock("../../../hooks/useEffectiveRanges", () => ({
+  useEffectiveRanges: () => ({ effectiveRanges: effectiveRangesMock.value }),
 }));
 
 vi.mock("../../../features/reports/hooks/useReportData", () => ({
@@ -65,6 +73,8 @@ const fixture: DailyReviewReportDto = {
     dailyChangeAmount: 10,
     dailyChangePercent: 0.8,
     incomeAmount: 15,
+    upcomingDividendCount: 1,
+    upcomingDividendAmount: 12,
   },
   fxStatus: {
     status: "complete",
@@ -118,7 +128,9 @@ describe("ReportsClient", () => {
 
   beforeEach(() => {
     refreshMock.mockReset();
+    replaceMock.mockReset();
     searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y";
+    effectiveRangesMock.value = ["1M", "1Y"];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -139,6 +151,8 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Reports");
     expect(document.body.textContent).toContain("Daily Review");
     expect(document.body.textContent).toContain("AUD");
+    expect(document.body.textContent).toContain("Upcoming income");
+    expect(document.body.textContent).toContain("1 dividend(s)");
     expect(document.body.textContent).toContain("Coverage looks complete");
     expect(document.querySelector("[data-testid='reports-mobile-row-BHP-AU']")).not.toBeNull();
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
@@ -231,5 +245,25 @@ describe("ReportsClient", () => {
 
     expect(document.querySelector("[data-testid='reports-loading-skeleton']")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Performance trend");
+  });
+
+  it("snaps unsupported report ranges to the configured dashboard ranges", async () => {
+    searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=5Y";
+    effectiveRangesMock.value = ["1M", "1Y"];
+
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    expect(replaceMock).toHaveBeenCalledWith(
+      expect.stringContaining("range=1M"),
+      { scroll: false },
+    );
+    expect(replaceMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("range=5Y"),
+      expect.anything(),
+    );
   });
 });
