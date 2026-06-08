@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import {
   readRouteDtoCache,
@@ -12,6 +13,7 @@ import { resolveTransactionDraftAccount, type DashboardSnapshot } from "../types
 
 interface UseDashboardDataOptions {
   cacheKey?: string;
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialTransaction: TransactionInput;
   initialPrimaryData?: DashboardSnapshot | null;
 }
@@ -65,13 +67,14 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
 
 export function useDashboardPrimaryData({
   cacheKey,
+  expectedReportingCurrency,
   initialTransaction,
   initialPrimaryData = null,
 }: UseDashboardDataOptions): UseDashboardDataResult {
   const initialCachedRef = useRef<{ payload: DashboardSnapshot; savedAt: number } | null | undefined>(undefined);
   if (initialCachedRef.current === undefined) {
     initialCachedRef.current = initialPrimaryData === null && cacheKey
-      ? readRouteDtoCache<DashboardSnapshot>(cacheKey)
+      ? readDashboardCache(cacheKey, expectedReportingCurrency)
       : null;
   }
   const initialCached = initialCachedRef.current;
@@ -143,7 +146,7 @@ export function useDashboardPrimaryData({
       return;
     }
 
-    const cached = cacheKey ? readRouteDtoCache<DashboardSnapshot>(cacheKey) : null;
+    const cached = cacheKey ? readDashboardCache(cacheKey, expectedReportingCurrency) : null;
     if (cached !== null) {
       const version = startRequest();
       setSnapshot(cached.payload);
@@ -173,7 +176,7 @@ export function useDashboardPrimaryData({
     return () => {
       mounted = false;
     };
-  }, [cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheKey, expectedReportingCurrency, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
@@ -205,4 +208,15 @@ export function useDashboardPrimaryData({
       ? synchronizeTransactionDraft
       : synchronizeInitialTransactionDraft,
   };
+}
+
+function readDashboardCache(
+  cacheKey: string,
+  expectedReportingCurrency?: AccountDefaultCurrency | null,
+): { payload: DashboardSnapshot; savedAt: number } | null {
+  if (expectedReportingCurrency === null) return null;
+
+  const cached = readRouteDtoCache<DashboardSnapshot>(cacheKey);
+  if (cached === null || expectedReportingCurrency === undefined) return cached;
+  return cached.payload.summary.reportingCurrency === expectedReportingCurrency ? cached : null;
 }

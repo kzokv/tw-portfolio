@@ -328,7 +328,7 @@ export async function translatePerformancePoints(
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
   store?: import("../types/store.js").Store,
-  quotes?: ReadonlyArray<QuoteSnapshot>,
+  quotes?: SyntheticQuoteInput,
 ): Promise<DashboardPerformanceDto> {
   const { startDate, endDate } = resolveRangeBounds(range, asOf);
   const aggregated =
@@ -377,13 +377,14 @@ export async function translatePerformancePoints(
     return { range, points: [], reportingCurrency, fxStatus: "complete" };
   }
 
+  const syntheticQuotes = typeof quotes === "function" ? await quotes() : quotes ?? [];
   const synthetic = await buildFxAwareSyntheticPerformance(
     store,
     range,
     asOf,
     reportingCurrency,
     persistence,
-    quotes ?? [],
+    syntheticQuotes,
   );
   let allAvailSyn = true;
   let allMissingSyn = true;
@@ -409,6 +410,8 @@ interface SyntheticPosition {
   currency: string;
   marketCode: string;
 }
+
+type SyntheticQuoteInput = ReadonlyArray<QuoteSnapshot> | (() => Promise<ReadonlyArray<QuoteSnapshot>>);
 
 async function buildFxAwareSyntheticPerformance(
   store: import("../types/store.js").Store,
@@ -616,6 +619,8 @@ function translateHoldingRow<T extends DashboardOverviewHoldingGroupDto | Dashbo
   return {
     ...row,
     reportingCurrency,
+    reportingCurrentUnitPrice:
+      fx === null || row.currentUnitPrice === null ? null : roundToDecimal(row.currentUnitPrice * fx, 4),
     reportingCostBasisAmount: fx === null ? null : roundToDecimal(row.costBasisAmount * fx, 2),
     reportingMarketValueAmount:
       fx === null || row.marketValueAmount === null ? null : roundToDecimal(row.marketValueAmount * fx, 2),

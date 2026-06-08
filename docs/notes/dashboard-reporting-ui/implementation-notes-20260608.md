@@ -65,6 +65,8 @@ Per-report sections:
 
 `ReportHoldingRowDto` is the common detail-row contract. Amount fields are already translated into `reportingCurrency`; the client formats them but does not recompute accounting semantics. Rows also carry native price/value fields, explicit reporting unit prices, and `fxRateToReporting` so UI and MCP consumers can disclose the original market price when the selected reporting currency differs from the ticker currency.
 
+Dashboard holding-group DTOs now carry the same explicit reporting-price lineage for current unit price: `reportingCurrentUnitPrice` is emitted on translated dashboard holding groups and children when FX is available. The dashboard Holdings preview consumes that field first and only falls back to `reportingMarketValueAmount / quantity` for older cached DTOs that predate the field.
+
 ## Stale-While-Revalidate route DTO cache
 
 The web app uses a localStorage-backed route DTO cache in `apps/web/lib/routeDtoCache.ts`.
@@ -85,6 +87,8 @@ Current key dimensions:
 - portfolio: route, signed-in session user, shared-context scope cookie, locale
 - transactions: route, signed-in session user, shared-context scope cookie, locale
 
+Dashboard additionally validates restored primary DTOs against the expected reporting currency resolved from the current server-seeded `/dashboard/primary` response or `/user-preferences`. If the expected currency cannot be established during server render, the dashboard skips local cache restore rather than risking a cached payload with values from a different reporting currency.
+
 Invalidation is prefix-wide today. Reporting-currency changes, shared-context switches, sign-out, API-driven 401 logout, and signed-in session user changes clear the full route DTO cache prefix rather than performing route-specific eviction.
 
 ## Dashboard command surface
@@ -95,13 +99,13 @@ Dashboard is the primary daily command surface.
 - The hero exposes the active reporting currency and writes changes through `PATCH /user-preferences`.
 - The hero lists resolved FX conversion rows when the active reporting currency differs from one or more native holding currencies.
 - The hero market strip deep-links into `/reports?tab=market...` using the active reporting currency.
-- The dashboard holdings module is a top-holdings preview, not the full portfolio holdings table. It prioritizes reporting-currency value/price, search, sorting, market filtering, ticker links, and tap/click detail disclosure for native price and FX rate.
+- The dashboard holdings module is a top-holdings preview, not the full portfolio holdings table. It prioritizes server-provided reporting-currency value/price, search, sorting, market filtering, ticker links, an always-visible FX strip for visible cross-currency holdings, and tap/click detail disclosure for native price and FX rate.
 - Desktop dashboard holdings use a sticky-header/sticky-first-column table to keep the rich data scannable. Mobile dashboard holdings use stacked cards with detail disclosure instead of forcing table scanning.
 - The command palette registry includes `/reports` as a first-class route command with `reports`, `analysis`, `daily`, and `market` keywords.
 
 Current follow-up validation:
 
-- `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
+- `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, visible FX-rate strip, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
 - `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
 - `apps/web/features/reports/hooks/useReportData.ts` accepts matching refreshed server-seeded report DTOs after context/range changes and writes them back to the route DTO cache instead of treating `initialReport` as a one-time value.
 - Matching E2E selector updates live in `libs/test-e2e/src/pages/dashboard/DashboardPage.ts` and `libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts`.
@@ -159,7 +163,7 @@ MCP report input parsing accepts both `currency` and `reportingCurrency`. When `
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
-- Report performance for single-market scopes now uses `getAggregatedSnapshotsInReportingCurrencyForScope()` to aggregate all scoped `(accountId, ticker)` contributors in one persistence read, with FX conversion resolved inside that aggregate path. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
+- Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the same translator falls back to synthetic trade replay against the scoped store instead of returning an empty chart. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
 These are known transitional costs, not accidental behavior.
@@ -168,15 +172,27 @@ These are known transitional costs, not accidental behavior.
 
 - API integration coverage for report routes, scoped performance aggregation, and ticker split:
   - `apps/api/test/integration/reports.integration.test.ts`
-  - Scoped portfolio/market report tests assert `getAggregatedSnapshotsInReportingCurrencyForScope()` is used and `getHoldingSnapshotsForTicker()` is not used for scoped performance aggregation.
+  - Scoped portfolio/market report tests assert `getAggregatedSnapshotsInReportingCurrencyForScope()` is used, `getHoldingSnapshotsForTicker()` is not used for scoped performance aggregation, and scoped reports synthesize performance points when scoped snapshots are absent but daily bars/trades exist.
 - MCP tool registration and advice-boundary coverage:
   - `apps/api/test/unit/mcpReportTools.test.ts`
-- Web route and client coverage:
+- Web route and client coverage for `/reports` fallback and URL-backed state sync:
   - `apps/web/test/app/reports/reportsPage.test.tsx`
   - `apps/web/test/components/reports/ReportsClient.test.tsx`
   - `apps/web/test/features/reports/reportState.test.ts`
+  - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
   - `apps/web/test/lib/routeDtoCache.test.ts`
   - `apps/web/test/app/heavyPages.serverSeed.test.ts`
+- Dashboard holdings FX visibility and UX coverage:
+  - `apps/web/test/features/dashboard/components.test.tsx`
+  - `apps/web/tests/e2e/specs/dashboard-daily-change-aaa.spec.ts`
+  - `apps/web/tests/e2e/specs/mobile-tables-aaa.spec.ts`
+- Dashboard holding-group reporting unit-price coverage:
+  - `apps/api/test/unit/dashboardHoldingGroups.test.ts`
+  - `apps/web/test/features/dashboard/components.test.tsx`
+- Dashboard reporting-currency cache-restore coverage:
+  - `apps/web/test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx`
+- AI Connector settings catalog coverage:
+  - `apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx`
 - Full local PR gate after the 2026-06-08 scoped-report server-seed abort fix:
   - `npx eslint .`
   - `npm run typecheck`
@@ -207,3 +223,34 @@ These are known transitional costs, not accidental behavior.
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+- Follow-up coverage for the scoped no-snapshot fallback, report URL sync, and dashboard holdings FX strip:
+  - Focused API: `npx vitest run test/unit/dashboardHoldingGroups.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` passed: 11 tests.
+  - Focused web: `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` passed: 24 tests.
+  - Targeted lint for the changed API/web/shared-type files passed.
+  - `npm run typecheck` passed.
+  - Full local eight-suite gate passed on 2026-06-09:
+    - `npx eslint .`
+    - `npm run typecheck`
+    - `npm run test --prefix apps/web`: 193 + 331 tests passed.
+    - `npm run test --prefix apps/api`: 1,478 tests passed, 412 skipped.
+    - `npm run test:integration:full:host`: 802 tests passed, 1 skipped.
+    - `npm run test:e2e:bypass:mem --prefix apps/web`: 258 tests passed, 9 skipped.
+    - `npm run test:e2e:oauth:mem --prefix apps/web`: 119 tests passed.
+    - `npm run test:http --prefix apps/api`: 284 tests passed, 2 skipped.
+    - Final process audit found no orphan app/test runners; only the expected Homebrew Postgres service remained.
+- Follow-up coverage for dashboard reporting-currency cache hardening and MCP catalog visibility:
+  - `npx vitest run test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 12 tests.
+  - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 37 tests.
+- Final local eight-suite gate after dashboard reporting-currency cache hardening and the semantic finance-token E2E assertion update:
+  - Focused E2E: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/dashboard-daily-change-aaa.spec.ts` passed: 5 tests.
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 193 + 333 tests across the split web package run.
+  - `npm run test --prefix apps/api` passed: 1,479 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 803 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
+
+Current validation status: the latest recorded branch-wide verification is the 2026-06-09 final local eight-suite gate after dashboard reporting-currency cache hardening and the semantic finance-token E2E assertion update.

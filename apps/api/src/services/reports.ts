@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { resolveRangeBounds, roundToDecimal, type QuoteSnapshot } from "@vakwen/domain";
+import { roundToDecimal, type QuoteSnapshot } from "@vakwen/domain";
 import {
   MARKET_CODES,
   marketCodeFor,
   type AccountDefaultCurrency,
   type AllocationBucketDto,
   type CurrencyCode,
+  type DashboardPerformanceRange,
   type DailyReviewReportDto,
   type DashboardPerformanceDto,
   type FxConversionRateDto,
@@ -33,7 +34,6 @@ import { resolveReportContext } from "./reportContext.js";
 import { buildFxConversionRateRows } from "./fxConversionRates.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store } from "../types/store.js";
-import type { AggregatedSnapshotPoint } from "../persistence/types.js";
 
 export interface BuildReportInput {
   scope?: string;
@@ -511,7 +511,6 @@ async function buildReportPerformance(
   if (!earliestTradeDate) {
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
-  const { startDate, endDate } = resolveRangeBounds(range, query.asOf, earliestTradeDate);
   const scopedPairs = new Map<string, { accountId: string; ticker: string }>();
   for (const trade of scopedStore.accounting.facts.tradeEvents) {
     scopedPairs.set(`${trade.accountId}\0${trade.ticker}`, {
@@ -524,42 +523,45 @@ async function buildReportPerformance(
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
 
-  const aggregated = await app.persistence.getAggregatedSnapshotsInReportingCurrencyForScope(
-    userId,
-    startDate,
-    endDate,
-    query.reportingCurrency,
-    pairs,
-  );
-  const points = mapAggregatedPerformancePoints(aggregated);
-  const fxStatus = points.length === 0
-    ? "complete"
-    : points.every((point) => point.fxAvailable)
-      ? "complete"
-      : points.every((point) => !point.fxAvailable)
-        ? "missing"
-        : "partial";
-
-  return {
-    range,
-    points,
-    reportingCurrency: query.reportingCurrency,
-    fxStatus,
+  const loadSyntheticQuotes = async () => {
+    const quoteableSymbols = [...new Set(
+      scopedStore.accounting.projections.holdings
+        .map((holding) => holding.ticker)
+        .filter((symbol) => isInstrumentQuoteable(scopedStore.instruments.find((item) => item.ticker === symbol))),
+    )];
+    const { pairs: quotePairs, settledByMarket } = await buildQuoteInputs(app, scopedStore, quoteableSymbols);
+    const snapshotMap = await resolveQuoteSnapshots(quotePairs, app.persistence, settledByMarket);
+    return Object.values(snapshotMap).filter((quote): quote is QuoteSnapshot => quote !== null);
   };
-}
+  const scopedPersistence = new Proxy(app.persistence, {
+    get(target, property, receiver) {
+      if (property === "getAggregatedSnapshotsInReportingCurrency") {
+        return (
+          scopedUserId: string,
+          scopedStartDate: string,
+          scopedEndDate: string,
+          reportingCurrency: AccountDefaultCurrency,
+        ) => target.getAggregatedSnapshotsInReportingCurrencyForScope(
+          scopedUserId,
+          scopedStartDate,
+          scopedEndDate,
+          reportingCurrency,
+          pairs,
+        );
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
 
-function mapAggregatedPerformancePoints(aggregated: AggregatedSnapshotPoint[]): DashboardPerformanceDto["points"] {
-  return aggregated.map((point) => ({
-    date: point.date,
-    totalCostAmount: point.fxAvailable ? roundToDecimal(point.totalCostBasis, 2) : null,
-    marketValueAmount: point.fxAvailable && point.totalMarketValue !== null ? roundToDecimal(point.totalMarketValue, 2) : null,
-    unrealizedPnlAmount: point.fxAvailable && point.totalUnrealizedPnl !== null ? roundToDecimal(point.totalUnrealizedPnl, 2) : null,
-    cumulativeRealizedPnlAmount: point.fxAvailable ? roundToDecimal(point.cumulativeRealizedPnl, 2) : null,
-    cumulativeDividendsAmount: point.fxAvailable ? roundToDecimal(point.cumulativeDividends, 2) : null,
-    totalReturnAmount: point.fxAvailable && point.totalReturnAmount !== null ? roundToDecimal(point.totalReturnAmount, 2) : null,
-    totalReturnPercent: point.fxAvailable && point.totalReturnPercent !== null ? roundToDecimal(point.totalReturnPercent, 4) : null,
-    fxAvailable: point.fxAvailable,
-  }));
+  return translatePerformancePoints(
+    userId,
+    range as DashboardPerformanceRange,
+    query.asOf,
+    query.reportingCurrency,
+    scopedPersistence,
+    scopedStore,
+    loadSyntheticQuotes,
+  );
 }
 
 function emptyScopedPerformance(

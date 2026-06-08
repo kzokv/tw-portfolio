@@ -3,10 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { DailyReviewReportDto } from "@vakwen/shared-types";
 import { ReportsClient } from "../../../components/reports/ReportsClient";
-import { parseReportRouteState } from "../../../features/reports/reportState";
+import { parseReportRouteState, type ReportRouteState } from "../../../features/reports/reportState";
 
 const refreshMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
+const useReportDataMock = vi.hoisted(() => vi.fn());
 const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y" }));
 const effectiveRangesMock = vi.hoisted(() => ({ value: ["1M", "1Y"] }));
 
@@ -40,15 +41,18 @@ vi.mock("../../../hooks/useEffectiveRanges", () => ({
 }));
 
 vi.mock("../../../features/reports/hooks/useReportData", () => ({
-  useReportData: ({ initialReport }: { initialReport: DailyReviewReportDto }) => ({
-    data: initialReport,
-    errorMessage: "",
-    isBootstrapping: false,
-    isRefreshing: false,
-    refresh: refreshMock,
-    restoredFromCache: false,
-    restoredAt: null,
-  }),
+  useReportData: (args: { initialReport: DailyReviewReportDto; state: ReportRouteState }) => {
+    useReportDataMock(args);
+    return {
+      data: args.initialReport,
+      errorMessage: "",
+      isBootstrapping: false,
+      isRefreshing: false,
+      refresh: refreshMock,
+      restoredFromCache: false,
+      restoredAt: null,
+    };
+  },
 }));
 
 beforeAll(() => {
@@ -129,6 +133,7 @@ describe("ReportsClient", () => {
   beforeEach(() => {
     refreshMock.mockReset();
     replaceMock.mockReset();
+    useReportDataMock.mockReset();
     searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y";
     effectiveRangesMock.value = ["1M", "1Y"];
     container = document.createElement("div");
@@ -211,8 +216,8 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Open ticker");
 
     const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
-      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-rose-600"));
-    expect(negativeValue?.className).toContain("text-rose-600");
+      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-[hsl(var(--destructive))]"));
+    expect(negativeValue?.className).toContain("text-[hsl(var(--destructive))]");
     expect(document.body.textContent).toContain("Native $150.00");
 
     const fxRates = document.querySelector("[data-testid='reports-fx-rates']");
@@ -231,7 +236,7 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("FX rate");
     expect(document.body.textContent).toContain("1.52");
     const detailPercent = Array.from(document.querySelectorAll("span")).find((node) => node.textContent?.includes("-0.8%"));
-    expect(detailPercent?.className).toContain("text-rose-600");
+    expect(detailPercent?.className).toContain("text-[hsl(var(--destructive))]");
   });
 
   it("does not render a stale daily-review DTO as another report tab", async () => {
@@ -265,5 +270,31 @@ describe("ReportsClient", () => {
       expect.stringContaining("range=5Y"),
       expect.anything(),
     );
+  });
+
+  it("syncs report state from changed search params while mounted", async () => {
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    searchParamsMock.value = "tab=market&scope=AU&currencyMode=auto&currency=AUD&range=1M";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    expect(useReportDataMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      state: {
+        tab: "market",
+        scope: "AU",
+        currencyMode: "auto",
+        currency: "AUD",
+        range: "1M",
+      },
+    }));
   });
 });
