@@ -63,7 +63,7 @@ Per-report sections:
   - `topHoldings`
   - `detail`: bounded paged detail rows
 
-`ReportHoldingRowDto` is the common detail-row contract. Amount fields are already translated into `reportingCurrency`; the client formats them but does not recompute accounting semantics.
+`ReportHoldingRowDto` is the common detail-row contract. Amount fields are already translated into `reportingCurrency`; the client formats them but does not recompute accounting semantics. Rows also carry native price/value fields, explicit reporting unit prices, and `fxRateToReporting` so UI and MCP consumers can disclose the original market price when the selected reporting currency differs from the ticker currency.
 
 ## Stale-While-Revalidate route DTO cache
 
@@ -95,8 +95,16 @@ Dashboard is the primary daily command surface.
 - The hero exposes the active reporting currency and writes changes through `PATCH /user-preferences`.
 - The hero lists resolved FX conversion rows when the active reporting currency differs from one or more native holding currencies.
 - The hero market strip deep-links into `/reports?tab=market...` using the active reporting currency.
-- The dashboard holdings module is a compact top-holdings preview, not the full portfolio holdings table. It prioritizes reporting-currency value/price, sorting, market filtering, ticker links, and tap/click detail disclosure for native price and FX rate.
+- The dashboard holdings module is a top-holdings preview, not the full portfolio holdings table. It prioritizes reporting-currency value/price, search, sorting, market filtering, ticker links, and tap/click detail disclosure for native price and FX rate.
+- Desktop dashboard holdings use a sticky-header/sticky-first-column table to keep the rich data scannable. Mobile dashboard holdings use stacked cards with detail disclosure instead of forcing table scanning.
 - The command palette registry includes `/reports` as a first-class route command with `reports`, `analysis`, `daily`, and `market` keywords.
+
+Current follow-up validation:
+
+- `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
+- `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
+- Matching E2E selector updates live in `libs/test-e2e/src/pages/dashboard/DashboardPage.ts` and `libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts`.
+- Focused dashboard web component coverage plus affected dashboard/mobile E2E assertions passed from the main session.
 
 This keeps dashboard as the launch surface and `/reports` as the structured analysis surface.
 
@@ -141,14 +149,14 @@ Tool descriptions explicitly stay on the descriptive side of the advice boundary
 - allowed: descriptive portfolio state, health, performance, holdings, deterministic observations
 - not allowed: investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice
 
-The AI Connector settings page also renders the server-provided tool catalog so users can discover the MCP report tools even when no connector-level tool override has been saved yet.
+The AI Connector settings page also renders the server-provided tool catalog so users can discover the MCP report tools even when no connector-level tool override has been saved yet. Per-connector tool rows show whether each tool is inherited, overridden, policy-disabled, or blocked by missing consent scope.
 
 ## Current read-path and performance limitations
 
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
-- Report performance for single-market scopes walks holding snapshots per `(accountId, ticker)` pair and performs FX lookups during aggregation.
+- Report performance for single-market scopes still walks holding snapshots per scoped `(accountId, ticker)` pair, but the path now uses bounded parallel snapshot reads, short-circuits empty scoped histories, and memoizes same-day FX lookups during aggregation. A single narrow Postgres projection remains a follow-up.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
 These are known transitional costs, not accidental behavior.
@@ -165,3 +173,12 @@ These are known transitional costs, not accidental behavior.
   - `apps/web/test/features/reports/reportState.test.ts`
   - `apps/web/test/lib/routeDtoCache.test.ts`
   - `apps/web/test/app/heavyPages.serverSeed.test.ts`
+- Full local PR gate after the 2026-06-08 native-price/report-connector polish:
+  - `npx eslint .`
+  - `npm run typecheck`
+  - `npm run test --prefix apps/web`
+  - `npm run test --prefix apps/api`
+  - `npm run test:integration:full:host`
+  - `npm run test:e2e:bypass:mem --prefix apps/web`
+  - `npm run test:e2e:oauth:mem --prefix apps/web`
+  - `npm run test:http --prefix apps/api`

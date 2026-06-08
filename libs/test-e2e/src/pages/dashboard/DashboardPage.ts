@@ -49,7 +49,7 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       recomputeStatus: this.locate("recompute-status", "Recompute Status"),
       demoBanner: this.locate("demo-banner", "Demo Banner"),
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
-      holdingsTable: this.locate("holdings-table", "Holdings Table"),
+      holdingsTable: this.locate("dashboard-holdings-preview", "Dashboard Holdings Preview"),
       holdingsSection: this.locate("dashboard-holdings-section", "Holdings Section"),
       heroPanel: this.locate("dashboard-hero", "Dashboard Hero Panel"),
       dashboardHero: this.locate("dashboard-hero", "Dashboard Hero (Phase 5d)"),
@@ -74,18 +74,18 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       returnPercentChart: this.locate("dashboard-return-percent-chart", "Return Percent Chart SVG"),
       returnPercentProvisionalWarning: this.locate("dashboard-return-percent-provisional-warning", "Return Percent Provisional Warning"),
       holdingsHeaderCells: this.withinByCss(
-        this.locate("holdings-table"),
-        "thead th",
-        "Holdings Table Header Cells",
+        this.locate("dashboard-holdings-preview"),
+        '[data-testid="dashboard-holdings-daily-change-label"]',
+        "Dashboard Holdings Daily Change Labels",
       ),
       holdingRow: (ticker: string) =>
         this.withDescription(
-          this.locate("holdings-table").locator(`tbody tr[data-testid^="holding-group-row-${ticker}-"]`).first(),
+          this.locate("dashboard-holdings-preview").locator(`[data-testid^="dashboard-holding-preview-${ticker}-"]`).first(),
           `Holding Row ${ticker}`,
         ),
       holdingDailyChangeCell: (ticker: string) =>
         this.withDescription(
-          this.locate("holdings-table").locator(`[data-testid^="holding-group-daily-change-${ticker}-"]`).first(),
+          this.locate("dashboard-holdings-preview").locator(`[data-testid^="holding-group-daily-change-${ticker}-"]`).first(),
           `Holding Daily Change Cell ${ticker}`,
         ),
       biggestMoverRow: (ticker: string) =>

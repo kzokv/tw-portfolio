@@ -54,6 +54,8 @@ interface PreparedReportData {
   asOf: string;
 }
 
+const SCOPED_REPORT_SNAPSHOT_CONCURRENCY = 8;
+
 export async function buildDailyReviewReport(
   app: FastifyInstance,
   userId: string,
@@ -338,22 +340,51 @@ async function buildQuoteInputs(
 }
 
 function mapHoldingRows(groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>): ReportHoldingRowDto[] {
-  return groups.map((group) => ({
-    ticker: group.ticker,
-    marketCode: group.marketCode,
-    accountCount: group.accountCount,
-    quantity: group.quantity,
-    reportingCurrency: group.reportingCurrency,
-    reportingCostBasisAmount: group.reportingCostBasisAmount,
-    reportingMarketValueAmount: group.reportingMarketValueAmount,
-    reportingUnrealizedPnlAmount: group.reportingUnrealizedPnlAmount,
-    reportingAllocationPercent: group.reportingAllocationPercent,
-    dailyChangeAmount: translateDailyChange(group),
-    dailyChangePercent: group.changePercent,
-    quoteStatus: group.quoteStatus,
-    fxStatus: group.fxStatus,
-    freshness: group.freshness,
-  }));
+  return groups.map((group) => {
+    const fxRateToReporting = deriveFxRateToReporting(group);
+    return {
+      ticker: group.ticker,
+      marketCode: group.marketCode,
+      accountCount: group.accountCount,
+      quantity: group.quantity,
+      nativeCurrency: group.currency,
+      nativeAverageCostPerShare: group.averageCostPerShare,
+      nativeCurrentUnitPrice: group.currentUnitPrice,
+      nativeCostBasisAmount: group.costBasisAmount,
+      nativeMarketValueAmount: group.marketValueAmount,
+      reportingCurrency: group.reportingCurrency,
+      reportingAverageCostPerShare: translateUnitAmount(group.averageCostPerShare, fxRateToReporting),
+      reportingCurrentUnitPrice: translateUnitAmount(group.currentUnitPrice, fxRateToReporting),
+      reportingCostBasisAmount: group.reportingCostBasisAmount,
+      reportingMarketValueAmount: group.reportingMarketValueAmount,
+      reportingUnrealizedPnlAmount: group.reportingUnrealizedPnlAmount,
+      reportingAllocationPercent: group.reportingAllocationPercent,
+      fxRateToReporting,
+      dailyChangeAmount: translateDailyChange(group),
+      dailyChangePercent: group.changePercent,
+      quoteStatus: group.quoteStatus,
+      fxStatus: group.fxStatus,
+      freshness: group.freshness,
+    };
+  });
+}
+
+function deriveFxRateToReporting(
+  group: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number],
+): number | null {
+  if (group.currency === group.reportingCurrency) return 1;
+  if (group.costBasisAmount > 0 && group.reportingCostBasisAmount !== null) {
+    return roundToDecimal(group.reportingCostBasisAmount / group.costBasisAmount, 8);
+  }
+  if (group.marketValueAmount !== null && group.marketValueAmount > 0 && group.reportingMarketValueAmount !== null) {
+    return roundToDecimal(group.reportingMarketValueAmount / group.marketValueAmount, 8);
+  }
+  return null;
+}
+
+function translateUnitAmount(value: number | null, fxRateToReporting: number | null): number | null {
+  if (value === null || fxRateToReporting === null) return null;
+  return roundToDecimal(value * fxRateToReporting, 4);
 }
 
 function translateDailyChange(row: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number]): number | null {
@@ -477,17 +508,32 @@ async function buildReportPerformance(
   const earliestTradeDate = scopedStore.accounting.facts.tradeEvents
     .map((trade) => trade.tradeDate)
     .sort()[0];
+  if (!earliestTradeDate) {
+    return emptyScopedPerformance(range, query.reportingCurrency);
+  }
   const { startDate, endDate } = resolveRangeBounds(range, query.asOf, earliestTradeDate);
   const pairs = [...new Set(scopedStore.accounting.facts.tradeEvents.map((trade) => `${trade.accountId}:${trade.ticker}`))]
     .map((key) => {
       const [accountId, ticker] = key.split(":");
       return { accountId, ticker };
     });
-  const byDate = new Map<string, DashboardPerformanceDto["points"][number]>();
+  if (pairs.length === 0) {
+    return emptyScopedPerformance(range, query.reportingCurrency);
+  }
 
-  for (const pair of pairs) {
-    const snapshots = await app.persistence.getHoldingSnapshotsForTicker(userId, pair.accountId, pair.ticker, startDate, endDate);
-    for (const snapshot of snapshots) {
+  const snapshotGroups = await mapWithConcurrency(
+    pairs,
+    SCOPED_REPORT_SNAPSHOT_CONCURRENCY,
+    async (pair) => ({
+      ...pair,
+      snapshots: await app.persistence.getHoldingSnapshotsForTicker(userId, pair.accountId, pair.ticker, startDate, endDate),
+    }),
+  );
+  const byDate = new Map<string, DashboardPerformanceDto["points"][number]>();
+  const fxRateCache = new Map<string, Promise<number | null>>();
+
+  for (const group of snapshotGroups) {
+    for (const snapshot of group.snapshots) {
       const current = byDate.get(snapshot.snapshotDate) ?? {
         date: snapshot.snapshotDate,
         totalCostAmount: 0,
@@ -499,9 +545,13 @@ async function buildReportPerformance(
         totalReturnPercent: null,
         fxAvailable: true,
       };
-      const fx = snapshot.currency === query.reportingCurrency
-        ? 1
-        : await app.persistence.getFxRate(snapshot.currency as AccountDefaultCurrency, query.reportingCurrency, snapshot.snapshotDate);
+      const fx = await getReportFxRate(
+        app,
+        fxRateCache,
+        snapshot.currency as AccountDefaultCurrency,
+        query.reportingCurrency,
+        snapshot.snapshotDate,
+      );
       if (fx === null) {
         current.fxAvailable = false;
         current.totalCostAmount = null;
@@ -568,6 +618,56 @@ async function buildReportPerformance(
     reportingCurrency: query.reportingCurrency,
     fxStatus,
   };
+}
+
+function emptyScopedPerformance(
+  range: string,
+  reportingCurrency: AccountDefaultCurrency,
+): DashboardPerformanceDto {
+  return {
+    range,
+    points: [],
+    reportingCurrency,
+    fxStatus: "complete",
+  };
+}
+
+async function getReportFxRate(
+  app: FastifyInstance,
+  cache: Map<string, Promise<number | null>>,
+  baseCurrency: AccountDefaultCurrency,
+  reportingCurrency: AccountDefaultCurrency,
+  asOf: string,
+): Promise<number | null> {
+  if (baseCurrency === reportingCurrency) return 1;
+  const key = `${baseCurrency}:${reportingCurrency}:${asOf}`;
+  let pending = cache.get(key);
+  if (!pending) {
+    pending = app.persistence.getFxRate(baseCurrency, reportingCurrency, asOf);
+    cache.set(key, pending);
+  }
+  return pending;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index] as T);
+    }
+  }));
+
+  return results;
 }
 
 function buildMarketAllocations(groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>): AllocationBucketDto[] {

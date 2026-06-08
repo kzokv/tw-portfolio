@@ -8,5 +8,6 @@ Formal reporting surfaces must use server-owned report DTOs as the accounting an
 - Historical report chart series must come from server snapshots/read models. If the backend cannot provide a correct series, show an empty or limited state instead of a synthetic client-calculated line.
 - Ticker or compatibility fallbacks may remain only outside formal report surfaces and must be documented as route-specific compatibility, not reused by `/reports` or MCP report tools.
 - Report scope/currency behavior stays centralized through shared resolver utilities. Whole-portfolio auto mode uses the user reporting currency; single-market auto mode uses `currencyFor(market)`; specified mode requires an explicit supported currency.
+- Dashboard/report summaries must not fall back from missing reporting-currency fields to native amounts while labeling the result as the selected reporting currency. If `reportingMarketValueAmount`, `reportingCostBasisAmount`, or another reporting DTO field is null or absent, show a limited/missing state until the reporting DTO/enrichment path supplies a converted value.
 
 Apply this rule when adding report tabs, report exports, MCP report tools, dashboard report summaries, or currency/market report slices.

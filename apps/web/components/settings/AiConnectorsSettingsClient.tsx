@@ -79,6 +79,14 @@ function groupToolCatalog(
   };
 }
 
+function canConnectionUseTool(connection: AiConnectorConnectionDto, tool: AiConnectorToolCatalogEntryDto): boolean {
+  return connection.scopes.includes(tool.scope);
+}
+
+function toolToggleChecked(connection: AiConnectorConnectionDto, tool: AiConnectorToolCatalogEntryDto): boolean {
+  return tool.enabledByPolicy && canConnectionUseTool(connection, tool) && connection.toolToggles[tool.name] !== false;
+}
+
 export function AiConnectorsSettingsClient() {
   const [data, setData] = useState<AiConnectorSummaryResponse | null>(null);
   const [accessLogs, setAccessLogs] = useState<AiConnectorAccessLogDto[]>([]);
@@ -356,24 +364,12 @@ export function AiConnectorsSettingsClient() {
               </div>
             ) : null}
 
-            <div className="mt-5">
-              <p className="text-sm font-medium text-foreground">Tool toggles</p>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                {Object.entries(connection.toolToggles).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No tool-level overrides.</p>
-                ) : Object.entries(connection.toolToggles).map(([toolName, enabled]) => (
-                  <label key={toolName} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                    <span className="truncate">{toolName}</span>
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      disabled={busyId === connection.id || connection.status !== "active"}
-                      onChange={(event) => void toggleTool(connection, toolName, event.target.checked)}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
+            <ConnectionToolToggles
+              busy={busyId === connection.id}
+              connection={connection}
+              onToggle={(toolName, checked) => void toggleTool(connection, toolName, checked)}
+              tools={data?.toolCatalog ?? []}
+            />
           </Card>
         ))
       )}
@@ -395,6 +391,77 @@ export function AiConnectorsSettingsClient() {
           </div>
         </Card>
       ) : null}
+    </div>
+  );
+}
+
+function ConnectionToolToggles({
+  busy,
+  connection,
+  onToggle,
+  tools,
+}: {
+  busy: boolean;
+  connection: AiConnectorConnectionDto;
+  onToggle: (toolName: string, checked: boolean) => void;
+  tools: AiConnectorToolCatalogEntryDto[];
+}) {
+  const grouped = groupToolCatalog(tools);
+  const hasOverrides = Object.keys(connection.toolToggles).length > 0;
+
+  return (
+    <div className="mt-5">
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">Connection tools</p>
+        <p className="text-sm text-muted-foreground">
+          {hasOverrides
+            ? "Overrides below are saved for this connector; untouched tools inherit policy defaults."
+            : "All tools inherit policy defaults until you turn an individual tool off."}
+        </p>
+      </div>
+      {tools.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">Tool catalog is unavailable.</p>
+      ) : (
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          {(Object.keys(grouped) as AiConnectorToolGroup[]).map((group) => (
+            <div key={group} className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm font-medium text-foreground">{TOOL_GROUP_LABELS[group]}</p>
+              <div className="mt-3 flex flex-col gap-2">
+                {grouped[group].length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No tools in this group.</p>
+                ) : grouped[group].map((tool) => {
+                  const hasScope = canConnectionUseTool(connection, tool);
+                  const policyDisabled = !tool.enabledByPolicy;
+                  const disabled = busy || connection.status !== "active" || policyDisabled || !hasScope;
+                  const explicit = Object.prototype.hasOwnProperty.call(connection.toolToggles, tool.name);
+                  return (
+                    <label key={tool.name} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                      <span className="min-w-0">
+                        <span className="block truncate font-mono font-medium text-foreground">{tool.name}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {policyDisabled
+                            ? "Disabled by policy"
+                            : !hasScope
+                              ? `Requires ${AI_CONNECTOR_SCOPE_LABELS[tool.scope]}`
+                              : explicit
+                                ? "Connector override"
+                                : "Inherited default"}
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={toolToggleChecked(connection, tool)}
+                        disabled={disabled}
+                        onChange={(event) => onToggle(tool.name, event.target.checked)}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

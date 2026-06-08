@@ -85,6 +85,7 @@
 
 ## Promoted to .claude/rules/ (dashboard-reporting-ui, 2026-06-08)
 - `reporting-server-authoritative-dtos.md` — Formal report pages and MCP report tools must use server report DTOs as the accounting/currency boundary; client code formats and refreshes DTOs but does not reconstruct report accounting or chart series from raw transactions.
+- 2026-06-08 addendum — dashboard/report summaries must not fall back to native amounts while labeling the value as the selected reporting currency; show limited/missing state until a reporting DTO field proves conversion.
 
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.
