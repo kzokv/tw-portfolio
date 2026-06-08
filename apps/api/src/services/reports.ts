@@ -29,6 +29,7 @@ import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "./market-data/quo
 import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferences.js";
 import { resolveReportContext } from "./reportContext.js";
+import { routeError } from "../lib/routeError.js";
 import type { Store } from "../types/store.js";
 
 export interface BuildReportInput {
@@ -146,7 +147,7 @@ async function prepareReportData(
     currency: input.currency,
     defaultReportingCurrency: resolveReportingCurrency(prefs),
   });
-  const range = input.range ?? ranges[0] ?? "1Y";
+  const range = resolveReportRange(input.range, ranges);
   const scopedStore = scopeStore(store, context.scope);
   const symbols = [...new Set(
     scopedStore.accounting.projections.holdings
@@ -197,6 +198,17 @@ async function prepareReportData(
     scopedStore,
     asOf,
   };
+}
+
+function resolveReportRange(inputRange: string | undefined, ranges: readonly string[]): string {
+  const fallbackRange = ranges[0] ?? "1Y";
+  if (inputRange === undefined) return fallbackRange;
+
+  const range = inputRange.trim();
+  if (!ranges.includes(range)) {
+    throw routeError(400, "invalid_report_range", `range must be one of ${ranges.join(", ")}`);
+  }
+  return range;
 }
 
 function scopeStore(store: Store, scope: ReportScope): Store {
