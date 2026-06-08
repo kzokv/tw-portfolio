@@ -181,6 +181,8 @@ superseded_by: null
   - Portfolio Report deep link restored URL state and rendered 3 chart SVGs, refresh controls, sticky table headers, and a sticky first column in the comparable desktop table.
   - Daily Review rendered summary, data health, Today deterministic observations, top movers, holdings detail, and FX-complete status.
   - Dashboard KR market chip navigated to `/reports?tab=market&scope=KR&currencyMode=specified&currency=USD&range=1Y`; the report rendered KR scope, USD currency, FX complete, and matching market value.
+- [x] Follow-up Chrome validation surfaced a transient dashboard market-strip fallback that could label native primary/cached holding amounts as the selected reporting currency before enrichment refreshed. Fixed by rendering per-market hero values only from `reportingMarketValueAmount`; added regression coverage in `apps/web/test/features/dashboard/components.test.tsx`.
+- [x] Follow-up local checks after the dashboard market-strip fix: `npm run test --prefix apps/web -- components.test.tsx`, `npx eslint .`, `npm run typecheck`.
 
 ## Mockups
 
