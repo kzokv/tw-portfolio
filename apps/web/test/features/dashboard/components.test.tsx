@@ -198,6 +198,49 @@ describe("dashboard components", () => {
     expect(html).toContain("AUD");
   });
 
+  it("does not label native holding values as reporting-currency market values", () => {
+    const groups = buildHoldingGroupsFromHoldings({ holdings })
+      .map((group) => ({
+        ...group,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: null,
+        reportingCostBasisAmount: null,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "AUD" as const,
+          reportingMarketValueAmount: null,
+          reportingCostBasisAmount: null,
+        })),
+      }));
+
+    const html = renderToStaticMarkup(
+      <DashboardHero
+        holdingGroups={groups}
+        summary={{
+          asOf: "2026-06-08",
+          accountCount: 1,
+          holdingCount: 1,
+          totalCostAmount: 0,
+          reportingCurrency: "AUD",
+          fxStatus: "missing",
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          dailyChangeAmount: null,
+          dailyChangePercent: null,
+          upcomingDividendCount: 0,
+          upcomingDividendAmount: null,
+          openIssueCount: 0,
+        }}
+        locale="en"
+        dict={dict}
+        onCurrencyChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain(dict.dashboardHome.noMarketValue);
+    expect(html).not.toContain('data-testid="dashboard-hero-market-TW"');
+  });
+
   it("renders the priority command modules without duplicating the old intro panel", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings });
     const html = renderToStaticMarkup(
