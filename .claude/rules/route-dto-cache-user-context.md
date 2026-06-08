@@ -38,6 +38,12 @@ Clear the route DTO cache prefix when any of these change:
 
 Cache version bumps are required when a key dimension changes.
 
+## Metadata Validation for Omitted Dimensions
+
+If a cache key intentionally omits a mutable dimension because invalidation is expected to handle it, validate the restored DTO metadata before showing cached values.
+
+Example: dashboard primary cache keys do not include reporting currency, but restored dashboard DTOs must be rejected unless `summary.reportingCurrency` matches the current expected reporting currency from the server seed or current user preferences. If the expected dimension cannot be resolved, skip cache restore and fetch fresh data instead of briefly relabeling cached amounts.
+
 ## Why
 
 The dashboard-reporting-ui follow-up review found that route DTO caches were correctly partitioned by selected portfolio owner but not by signed-in session user. That could restore cached dashboard/portfolio/report data across OAuth/demo user switches on the same browser. The fix added `sessionUserId` to `getRouteDtoContextScope()`, bumped the schema version, and cleared caches on sign-out/session changes.
@@ -50,4 +56,4 @@ When adding a new primary DTO cache key for authenticated route data:
 2. Include `getRouteDtoContextScope(sessionUserId)` in the cache key.
 3. Include route-specific dimensions such as report tab/scope/currency/range, ticker/market/account, locale, and schema version.
 4. Add a regression test that two session users with the same context owner produce different keys or context scopes.
-
+5. When a route relies on invalidation instead of keying a mutable preference, add a metadata guard that rejects stale cached DTOs whose embedded effective preference does not match the current one.

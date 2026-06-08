@@ -13,7 +13,9 @@ describe("heavy page server seeding source contracts", () => {
     const source = readPage("apps/web/app/dashboard/page.tsx");
 
     expect(source).toContain("fetchDashboardPrimaryData().catch(() => null)");
-    expect(source).toContain("<DashboardClient initialPrimaryData={initialPrimaryData} />");
+    expect(source).toContain('getJson<UserPreferencesResponse>("/user-preferences").catch(() => null)');
+    expect(source).toContain("expectedReportingCurrency={expectedReportingCurrency}");
+    expect(source).toContain("initialPrimaryData={initialPrimaryData}");
     expect(source).toContain("accounts: initialPrimaryData.accounts");
     expect(source).toContain("feeProfiles: initialPrimaryData.feeProfiles");
     expect(source).toContain("feeProfileBindings: initialPrimaryData.feeProfileBindings");

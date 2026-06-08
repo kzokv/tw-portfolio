@@ -446,6 +446,7 @@ export interface DashboardOverviewHoldingChildDto {
   freshness: "current" | "stale_amber" | "stale_red";
   freshnessTooltip: string | null;
   reportingCurrency: AccountDefaultCurrency;
+  reportingCurrentUnitPrice?: number | null;
   reportingCostBasisAmount: number | null;
   reportingMarketValueAmount: number | null;
   reportingUnrealizedPnlAmount: number | null;
@@ -476,6 +477,7 @@ export interface DashboardOverviewHoldingGroupDto {
   freshnessTooltip: string | null;
   accountCount: number;
   reportingCurrency: AccountDefaultCurrency;
+  reportingCurrentUnitPrice?: number | null;
   reportingCostBasisAmount: number | null;
   reportingMarketValueAmount: number | null;
   reportingUnrealizedPnlAmount: number | null;

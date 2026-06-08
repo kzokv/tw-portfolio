@@ -152,22 +152,49 @@ Resolution:
 Focused verification:
 - `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism`
 
+### Fixed: report state navigation side effect lived inside a state updater
+
+The report controls used a functional `setState` updater that also called `router.replace()`. React state updater functions should remain pure, and development Strict Mode can invoke them more than once while checking purity.
+
+Resolution:
+- Compute the next report route state outside the updater.
+- Keep the duplicate-state guard, then call `setState(next)` and `router.replace()` as ordinary event-handler side effects.
+
+Focused verification:
+- `npx vitest run test/components/reports/ReportsClient.test.tsx`
+
+### Fixed: dashboard cache could restore values from a previous reporting currency
+
+The dashboard route DTO cache key intentionally does not include reporting currency because currency preference changes clear the cache. If that invalidation was missed, interrupted, or a user returned with an older localStorage entry, the dashboard could briefly restore cached AUD/TWD/USD values and label them with the current reporting currency until refresh completed.
+
+Resolution:
+- Resolve the expected dashboard reporting currency during server render from `/dashboard/primary` or `/user-preferences`.
+- Pass that expected currency into the dashboard hook and reject cached primary DTOs whose `summary.reportingCurrency` does not match.
+- Skip local dashboard cache restore when the current expected currency cannot be established.
+
+Focused verification:
+- `npx vitest run test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx`
+- `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx`
+- `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/dashboard-daily-change-aaa.spec.ts`
+
 ### Full-gate verification
 
 2026-06-09 full local gate passed after these fixes:
 - `npx eslint .`
 - `npm run typecheck`
-- `npm run test --prefix apps/web`
-- `npm run test --prefix apps/api`
-- `npm run test:integration:full:host`
-- `npm run test:e2e:bypass:mem --prefix apps/web`
-- `npm run test:e2e:oauth:mem --prefix apps/web`
-- `npm run test:http --prefix apps/api`
+- `npm run test --prefix apps/web`: 193 + 333 tests passed.
+- `npm run test --prefix apps/api`: 1,479 tests passed, 412 skipped.
+- `npm run test:integration:full:host`: 803 tests passed, 1 skipped.
+- `npm run test:e2e:bypass:mem --prefix apps/web`: 258 tests passed, 9 skipped.
+- `npm run test:e2e:oauth:mem --prefix apps/web`: 119 tests passed.
+- `npm run test:http --prefix apps/api`: 284 tests passed, 2 skipped.
+
+Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 
 The same analyzer false positives remain: test-only session strings, client ticker links mistaken for SQL concatenation, mockup console output, and the durable todo filename/content itself.
 
 ## Residual Risks
 
 - The web ticker route still has not adopted the new ticker primary DTO cache/return-navigation path; this remains explicitly unticked in the durable todo.
-- Report SQL/read-model optimization is documented but not deeply rewritten in this PR; full Postgres integration and CI still need to run.
-- Browser-level UX/performance validation still needs the deployed dev branch and Chrome extension check.
+- Report SQL/read-model optimization is documented but not deeply rewritten in this PR; CI still needs to confirm the latest pushed branch after the local full-gate pass.
+- Browser-level UX/performance validation still needs a redeployed dev branch and Chrome extension check after the latest dashboard cache hardening.

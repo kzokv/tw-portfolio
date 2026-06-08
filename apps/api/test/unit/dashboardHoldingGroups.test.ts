@@ -126,6 +126,7 @@ describe("dashboard holdingGroups", () => {
     expect(usGroup.costBasisAmount).toBe(1_600);
     expect(usGroup.averageCostPerShare).toBe(106.67);
     expect(usGroup.currentUnitPrice).toBe(120);
+    expect(usGroup.reportingCurrentUnitPrice).toBe(3_840);
     expect(usGroup.marketValueAmount).toBe(1_800);
     expect(usGroup.unrealizedPnlAmount).toBe(200);
     expect(usGroup.quoteStatus).toBe("current");
@@ -139,12 +140,14 @@ describe("dashboard holdingGroups", () => {
     expect(usGroup.reportingAllocationPercent).toBeCloseTo(91.954);
     expect(usGroup.children).toHaveLength(2);
     expect(usGroup.children[0]?.reportingCurrency).toBe("TWD");
+    expect(usGroup.children[0]?.reportingCurrentUnitPrice).toBe(3_840);
 
     const auGroup = findGroup(holdingGroups, "BHP", "AU");
     expect(auGroup.accountCount).toBe(1);
     expect(auGroup.quantity).toBe(8);
     expect(auGroup.costBasisAmount).toBe(200);
     expect(auGroup.currentUnitPrice).toBe(30);
+    expect(auGroup.reportingCurrentUnitPrice).toBe(630);
     expect(auGroup.reportingCostBasisAmount).toBe(4_200);
     expect(auGroup.reportingMarketValueAmount).toBe(5_040);
     expect(auGroup.reportingAllocationPercent).toBeCloseTo(8.046);

@@ -10,7 +10,7 @@ import type {
   LocaleCode,
 } from "@vakwen/shared-types";
 import { ChevronRight, Search } from "lucide-react";
-import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/shadcn/badge";
 import {
@@ -173,6 +173,12 @@ export function DashboardHoldingsPreview({
               </div>
             ) : (
               <div className="flex flex-col gap-3">
+                <HoldingsFxStrip
+                  fxRates={fxRates}
+                  groups={visibleGroups}
+                  locale={locale}
+                  reportingCurrency={reportingCurrency}
+                />
                 <div className="flex flex-col gap-3 md:hidden">
                   {visibleGroups.map((group) => (
                     <DashboardHoldingRow
@@ -240,7 +246,7 @@ function DashboardHoldingRow({
   onOpen: () => void;
   reportingCurrency: AccountDefaultCurrency;
 }) {
-  const reportingPrice = getReportingUnitPrice(group);
+  const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
   const nativePrice = group.currentUnitPrice;
   const dailyMetric = getDailyMetric(group, locale);
   const allocationLabel = group.reportingAllocationPercent === null ? null : formatPercent(group.reportingAllocationPercent, locale);
@@ -337,10 +343,10 @@ function DashboardHoldingsTable({
           <TableRow>
             <TableHead className="sticky left-0 top-0 z-30 min-w-36 bg-card">Ticker</TableHead>
             <TableHead className="sticky top-0 z-20 bg-card">Position</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-card text-right">Price</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-card text-right">Market value</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-card text-right">Daily</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-card text-right">P&amp;L</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-card text-right">Price ({reportingCurrency})</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-card text-right">Market value ({reportingCurrency})</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-card text-right">Daily ({reportingCurrency})</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-card text-right">P&amp;L ({reportingCurrency})</TableHead>
             <TableHead className="sticky top-0 z-20 bg-card">Health</TableHead>
             <TableHead className="sticky top-0 z-20 bg-card text-right">Action</TableHead>
           </TableRow>
@@ -348,7 +354,7 @@ function DashboardHoldingsTable({
         <TableBody>
           {groups.map((group) => {
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
-            const reportingPrice = getReportingUnitPrice(group);
+            const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
             const reportingDailyMove = getReportingDailyMove(group, fxRate);
             return (
               <TableRow key={`${group.ticker}-${group.marketCode}`}>
@@ -410,6 +416,55 @@ function DashboardHoldingsTable({
           })}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+function HoldingsFxStrip({
+  fxRates,
+  groups,
+  locale,
+  reportingCurrency,
+}: {
+  fxRates: FxConversionRateDto[];
+  groups: DashboardOverviewHoldingGroupDto[];
+  locale: LocaleCode;
+  reportingCurrency: AccountDefaultCurrency;
+}) {
+  const rows = buildHoldingFxRows(groups, fxRates, reportingCurrency);
+  return (
+    <div
+      className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+      data-testid="dashboard-holdings-fx-rates"
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">FX used for visible holdings</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {rows.length === 0
+            ? `No cross-currency conversion required for this ${reportingCurrency} view.`
+            : `Prices and values below are converted to ${reportingCurrency}.`}
+        </p>
+      </div>
+      {rows.length > 0 ? (
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {rows.map((row) => (
+            <div key={`${row.fromCurrency}-${row.toCurrency}`} className="rounded-md border border-border bg-background px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {row.fromCurrency} to {row.toCurrency}
+                </span>
+                <Badge variant={row.rate === null ? "outline" : "secondary"}>
+                  {row.rate === null ? "Missing" : formatFxRate(row.rate)}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {formatNumber(row.holdingCount, locale)} visible holding{row.holdingCount === 1 ? "" : "s"}
+                {row.asOf ? ` · ${formatDateLabel(row.asOf, locale)}` : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -597,7 +652,7 @@ function DashboardHoldingDetail({
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
 }) {
-  const reportingPrice = getReportingUnitPrice(group);
+  const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
   const reportingDailyMove =
     group.change === null || fxRate === null
       ? null
@@ -660,6 +715,36 @@ function compareHoldingGroups(
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
 }
 
+function buildHoldingFxRows(
+  groups: DashboardOverviewHoldingGroupDto[],
+  rates: FxConversionRateDto[],
+  reportingCurrency: AccountDefaultCurrency,
+): Array<{
+  asOf: string | null;
+  fromCurrency: CurrencyCode;
+  holdingCount: number;
+  rate: number | null;
+  toCurrency: AccountDefaultCurrency;
+}> {
+  const counts = new Map<CurrencyCode, number>();
+  for (const group of groups) {
+    if (group.currency === reportingCurrency) continue;
+    counts.set(group.currency, (counts.get(group.currency) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([fromCurrency, holdingCount]) => {
+      const fxRate = rates.find((rate) => rate.fromCurrency === fromCurrency && rate.toCurrency === reportingCurrency);
+      return {
+        asOf: fxRate?.asOf ?? null,
+        fromCurrency,
+        holdingCount,
+        rate: fxRate?.rate ?? null,
+        toCurrency: reportingCurrency,
+      };
+    })
+    .sort((left, right) => left.fromCurrency.localeCompare(right.fromCurrency));
+}
+
 function getDailyMetric(group: DashboardOverviewHoldingGroupDto, locale: LocaleCode): { title?: string; toneValue: number | null; value: string } {
   if (group.quoteStatus === "missing") {
     return {
@@ -702,9 +787,24 @@ function findFxRate(
   return rates.find((rate) => rate.fromCurrency === fromCurrency && rate.toCurrency === toCurrency)?.rate ?? null;
 }
 
-function getReportingUnitPrice(group: DashboardOverviewHoldingGroupDto): number | null {
+function getReportingUnitPrice(
+  group: DashboardOverviewHoldingGroupDto,
+  reportingCurrency: AccountDefaultCurrency,
+): number | null {
+  const explicitReportingUnitPrice = getExplicitReportingUnitPrice(group, reportingCurrency);
+  if (explicitReportingUnitPrice !== null) return explicitReportingUnitPrice;
+  if (group.reportingCurrency !== reportingCurrency) return null;
   if (group.reportingMarketValueAmount === null || group.quantity <= 0) return null;
   return group.reportingMarketValueAmount / group.quantity;
+}
+
+function getExplicitReportingUnitPrice(
+  group: DashboardOverviewHoldingGroupDto,
+  reportingCurrency: AccountDefaultCurrency,
+): number | null {
+  if (group.reportingCurrency !== reportingCurrency) return null;
+  const candidate = group.reportingCurrentUnitPrice;
+  return typeof candidate === "number" ? candidate : null;
 }
 
 function getReportingDailyMove(group: DashboardOverviewHoldingGroupDto, fxRate: number | null): number | null {
@@ -751,6 +851,6 @@ function formatSignedPercent(value: number, locale: LocaleCode): string {
 
 function financeToneClass(value: number | null | undefined): string {
   if (value === null || value === undefined || value === 0) return "text-foreground";
-  if (value > 0) return "text-emerald-600";
-  return "text-rose-600";
+  if (value > 0) return "text-[hsl(var(--success))]";
+  return "text-[hsl(var(--destructive))]";
 }

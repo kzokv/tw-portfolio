@@ -243,12 +243,86 @@ describe("dashboard components", () => {
     );
 
     expect(html).toContain('data-testid="dashboard-holdings-preview"');
+    expect(html).toContain('data-testid="dashboard-holdings-fx-rates"');
+    expect(html).toContain("FX used for visible holdings");
+    expect(html).toContain("Prices and values below are converted to AUD.");
+    expect(html).toContain("TWD to AUD");
+    expect(html).toContain("0.049");
+    expect(html).toContain("1 visible holding");
+    expect(html).toContain("Price (AUD)");
+    expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
     expect(html).toContain("AUD 60K");
     expect(html).toContain("A$30.00");
     expect(html).toContain("Native NT$610");
     expect(html).toContain("Open Portfolio Report");
     expect(html).not.toContain('data-testid="holdings-table"');
+  });
+
+  it("prefers explicit server-provided reporting unit prices in dashboard holdings preview", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      reportingCurrentUnitPrice: 30.5,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={[reportingGroup]}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(html).toContain("A$30.50");
+    expect(html).not.toContain("A$30.00");
+  });
+
+  it("does not relabel stale reporting unit prices from a different currency", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const staleReportingGroup = {
+      ...group,
+      reportingCurrency: "USD" as const,
+      reportingCurrentUnitPrice: 30.5,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "USD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={[staleReportingGroup]}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(html).not.toContain("A$30.50");
+    expect(html).not.toContain("A$30.00");
   });
 
   it("does not label native holding values as reporting-currency market values", () => {

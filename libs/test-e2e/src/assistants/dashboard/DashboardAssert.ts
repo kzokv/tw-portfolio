@@ -48,7 +48,7 @@ export class DashboardAssert extends BaseAssert {
 
   @Step()
   async holdingRowHasColorClass(ticker: string, colorClass: string): Promise<void> {
-    await expect(this.el.holdingDailyChangeCell(ticker)).toHaveClass(new RegExp(colorClass));
+    await expect(this.el.holdingDailyChangeCell(ticker)).toHaveClass(classTokenPattern(colorClass));
   }
 
   @Step()
@@ -217,4 +217,18 @@ export class DashboardAssert extends BaseAssert {
   async floatingActionGenerateSnapshotsIsVisible(): Promise<void> {
     await expect(this.el.floatingActionGenerateSnapshots).toBeVisible();
   }
+}
+
+const FINANCE_TONE_CLASS_EQUIVALENTS: Record<string, string[]> = {
+  "text-emerald-600": ["text-emerald-600", "text-success", "text-[hsl(var(--success))]"],
+  "text-rose-600": ["text-rose-600", "text-destructive", "text-[hsl(var(--destructive))]"],
+};
+
+function classTokenPattern(classToken: string): RegExp {
+  const equivalentTokens = FINANCE_TONE_CLASS_EQUIVALENTS[classToken] ?? [classToken];
+  return new RegExp(`(?:^|\\s)(?:${equivalentTokens.map(escapeRegExp).join("|")})(?:\\s|$)`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

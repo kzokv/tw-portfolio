@@ -148,7 +148,7 @@ superseded_by: null
 
 ## Follow-up Issue Fixes — 2026-06-08
 
-- [x] Dashboard holdings preview now shows reporting-currency prices/values as the primary read, uses compact K/M value labels where space is tight, and exposes native ticker price plus FX rate through tooltip/popover/sheet detail.
+- [x] Dashboard holdings preview now shows reporting-currency prices/values as the primary read, uses compact K/M value labels where space is tight, surfaces FX rates for the visible holdings, and exposes native ticker price plus FX rate through tooltip/popover/sheet detail.
 - [x] Dashboard holdings preview now uses a mobile card layout plus a richer desktop table with search, market filter, value/daily/P&L/ticker sorting, sticky header, sticky first column, ticker links, and detail actions.
 - [x] Dashboard hero shows the active reporting currency and resolved FX conversion rows when mixed-market holdings require conversion.
 - [x] Reports show resolved FX conversion rows from the report DTO, not only aggregate FX status.
@@ -164,10 +164,12 @@ superseded_by: null
 - [x] Route DTO caches now partition by signed-in session user plus selected portfolio context owner, and the cache schema version was bumped to prevent stale cross-user/context reuse.
 - [x] Route DTO caches are cleared on sign-out, API-driven 401 logout, and signed-in user changes inside the app shell.
 - [x] Reports now use the effective dashboard/report range list from user/admin preferences instead of hard-coding `5Y`; unsupported URL ranges snap to the first effective range.
-- [x] Report client cache restore now accepts refreshed matching server-seeded report DTOs after context/range changes instead of consuming `initialReport` only once.
+- [x] Report URL-backed state now stays synchronized with browser/client-side `/reports?...` URL changes and server-seeded data after context/range changes. Report client cache restore accepts refreshed matching server-seeded report DTOs instead of consuming `initialReport` only once.
 - [x] MCP report inputs now treat `reportingCurrency` as a first-class alias for `currency` and infer `currencyMode=specified` when the alias is provided without an explicit mode.
 - [x] Single-market scoped reports preserve upcoming dividend events even when there is no dividend ledger row yet, and report summaries expose upcoming dividend count/amount for the UI summary grid.
-- [x] Focused regression coverage added for scoped upcoming dividends, MCP `reportingCurrency`, report range snapping, route DTO session/context partitioning, and refreshed report server seeds.
+- [x] Focused regression coverage added for scoped no-snapshot performance fallback, scoped upcoming dividends, MCP `reportingCurrency`, report range snapping, report URL-state sync, route DTO session/context partitioning, refreshed report server seeds, and dashboard holdings FX visibility.
+- [x] Dashboard holding-group DTOs now expose explicit server-translated `reportingCurrentUnitPrice` values for groups and children, and the Holdings preview prefers that field when it matches the active reporting currency.
+- [x] Dashboard primary cache restore now validates cached DTO `summary.reportingCurrency` against the current expected reporting currency from `/dashboard/primary` or `/user-preferences`, so older cached dashboard payloads cannot relabel AUD/TWD/USD values after reporting-currency changes or return navigation.
 
 ## Open Items
 
@@ -181,7 +183,7 @@ superseded_by: null
 - [x] Scoped report performance now has a narrow Postgres projection for report charts. Single-market scopes aggregate the requested `(accountId, ticker)` snapshot contributors in one FX-aware query and preserve memory/Postgres parity for missing FX and provisional rows.
 - [ ] Broader report assembly still starts from `loadStore(userId)`. A narrower report-specific read model may still be needed after this report contract stabilizes, but the previous per-holding scoped performance fanout is no longer the active bottleneck.
 - [x] Existing mockups remain durable. Regenerate screenshots only if implementation materially diverges from the locked UI structure.
-- [ ] Dashboard holdings preview currently derives the displayed converted unit price as `reportingMarketValueAmount / quantity` because the dashboard holding-group DTO does not yet expose an explicit server `reportingUnitPriceAmount`. Formal report rows now expose explicit reporting/native unit price fields; add the same dedicated dashboard DTO field if downstream consumers need auditable per-share converted price lineage on the dashboard.
+- [x] Dashboard holdings preview now uses explicit server-provided `reportingCurrentUnitPrice` from the dashboard holding-group DTO when available, with `reportingMarketValueAmount / quantity` retained only as a backward-compatible fallback for older cached DTOs.
 - [x] Dashboard holdings preview UX/test-selector refinements are validated. Focused web component coverage and affected dashboard/mobile E2E assertions passed from the main session after the preview-root selector, daily-change/no-market-data copy, native-price disclosure, and E2E page-object updates.
 
 ## Verification Log
@@ -268,10 +270,25 @@ superseded_by: null
 - [x] 2026-06-09 focused regression checks after route-cache/report/MCP fixes:
   - `npx vitest run test/lib/routeDtoCache.test.ts test/components/reports/ReportsClient.test.tsx test/features/reports/hooks/useReportData.test.tsx` from `apps/web` passed: 9 tests.
   - `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 10 tests.
+- [x] 2026-06-09 focused regression checks after scoped no-snapshot fallback, report URL sync, and dashboard holdings FX strip:
+  - `npx vitest run test/unit/dashboardHoldingGroups.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 11 tests.
+  - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` passed: 24 tests.
+  - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/src/services/reports.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/integration/reports.integration.test.ts apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/reports/ReportsClient.tsx apps/web/test/components/reports/ReportsClient.test.tsx apps/web/test/features/dashboard/components.test.tsx libs/shared-types/src/index.ts` passed.
+  - `npm run typecheck` passed.
+- [x] 2026-06-09 full local eight-suite gate after scoped no-snapshot fallback, report URL sync, and dashboard holdings FX strip:
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 193 + 331 tests across the split web package run.
+  - `npm run test --prefix apps/api` passed: 1,478 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 802 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audit after the final HTTP gate found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 - [x] 2026-06-09 code-review/SI/doc pass:
   - `code-reviewer/scripts/pr_analyzer.py --base dev --json` rerun; manually cleared the known test-only secret, client-link, mockup-console, and todo-file false positives.
   - Updated `docs/004-notes/dashboard-reporting-ui/review-20260608-dashboard-reporting-ui.md` with the 2026-06-09 follow-up review findings.
-  - `/si-review` identified a new durable cache-key rule; `/si-promote` added `.claude/rules/route-dto-cache-user-context.md` and updated `.claude/memory/MEMORY.md`.
+  - `/si-review` identified a new durable cache-key rule; `/si-promote` added `.claude/rules/route-dto-cache-user-context.md`, later extended it with a mutable-dimension metadata validation guard, and updated `.claude/memory/MEMORY.md`.
 - [x] 2026-06-09 full local eight-suite gate after route-cache/report/MCP fixes:
   - `npx eslint .` passed.
   - `npm run typecheck` passed.
@@ -282,6 +299,20 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before the long-running gates found no orphan app/test runners; after each E2E/API gate the app/test runners exited cleanly.
+- [x] 2026-06-09 focused cache/MCP validation after dashboard reporting-currency cache hardening:
+  - `npx vitest run test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 12 tests.
+  - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 37 tests.
+- [x] 2026-06-09 final local eight-suite gate after dashboard reporting-currency cache hardening and semantic finance-token E2E assertion update:
+  - Focused E2E rerun: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/dashboard-daily-change-aaa.spec.ts` passed: 5 tests.
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 193 + 333 tests across the split web package run.
+  - `npm run test --prefix apps/api` passed: 1,479 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 803 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 
 ## Mockups
 
