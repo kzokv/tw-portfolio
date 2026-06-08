@@ -30,7 +30,10 @@ import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
-import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
+import {
+  fetchTickerDetailsEnrichment,
+  type TickerDetailsModel,
+} from "../../../features/portfolio/services/tickerDetailsService";
 import { useEventStream } from "../../../hooks/useEventStream";
 import { RepairModal, type RepairModalValue } from "../../../features/settings/components/RepairModal";
 import { requestRepair } from "../../../features/settings/services/repairService";
@@ -126,6 +129,8 @@ export function TickerHistoryClient({
   const [repairInProgress, setRepairInProgress] = useState(false);
   const [instrumentState, setInstrumentState] = useState<InstrumentCatalogItemDto | null>(instrument);
   const [displayTransactions, setDisplayTransactions] = useState(transactions);
+  const [detailsState, setDetailsState] = useState(details);
+  const [isEnrichmentLoading, setIsEnrichmentLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
     startDate: "",
@@ -136,14 +141,14 @@ export function TickerHistoryClient({
   const sharedContextOwnerId = useSharedContextOwnerId();
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
-  const currency = details.identity.currency;
+  const currency = detailsState.identity.currency;
   const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
   const accountScopeDisplayName = transactionAccountFilter
     ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
     : dict.tickerHistory.allAccountsLabel;
   const aggregateScopeLabel = holdingGroup
     ? `${holdingGroup.marketCode} · ${formatNumber(holdingGroup.accountCount, locale)}`
-    : details.identity.marketCode;
+    : detailsState.identity.marketCode;
 
   useEffect(() => {
     setIsClientReady(true);
@@ -156,6 +161,31 @@ export function TickerHistoryClient({
   useEffect(() => {
     setDisplayTransactions(transactions);
   }, [transactions]);
+
+  useEffect(() => {
+    setDetailsState(details);
+  }, [details]);
+
+  const refreshEnrichment = useCallback(async () => {
+    setIsEnrichmentLoading(true);
+    try {
+      const next = await fetchTickerDetailsEnrichment({
+        ticker,
+        accountId: transactionAccountFilter,
+        marketCode: transactionMarketFilter,
+        instrument,
+        transactions,
+        primaryDetails: details,
+      });
+      setDetailsState(next);
+    } finally {
+      setIsEnrichmentLoading(false);
+    }
+  }, [details, instrument, ticker, transactionAccountFilter, transactionMarketFilter, transactions]);
+
+  useEffect(() => {
+    void refreshEnrichment();
+  }, [refreshEnrichment]);
 
   const refresh = useCallback(async () => {
     const nextTransactions = await fetchTransactionHistory({
@@ -191,7 +221,7 @@ export function TickerHistoryClient({
           marketCode: (
             transactionMarketFilter
             ?? transactions[0]?.marketCode
-            ?? details.identity.marketCode
+            ?? detailsState.identity.marketCode
           ) as TransactionInput["marketCode"],
           quantity: 1000,
           unitPrice: 100,
@@ -207,7 +237,7 @@ export function TickerHistoryClient({
     [
       accountId,
       accounts,
-      details.identity.marketCode,
+      detailsState.identity.marketCode,
       feeProfileBindings,
       feeProfiles,
       ticker,
@@ -279,7 +309,7 @@ export function TickerHistoryClient({
       : cooldownRemaining > 0
         ? dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(cooldownRemaining))
         : "";
-  const quoteDirection = (details.quote.changeAmount ?? 0) >= 0 ? "up" : "down";
+  const quoteDirection = (detailsState.quote.changeAmount ?? 0) >= 0 ? "up" : "down";
   const quoteAccent = quoteDirection === "up"
     ? "text-emerald-700 bg-emerald-50 border-emerald-200"
     : "text-rose-700 bg-rose-50 border-rose-200";
@@ -287,15 +317,15 @@ export function TickerHistoryClient({
     {
       key: "quantity",
       label: dict.tickerHistory.quantityLabel,
-      value: formatNumber(details.position.quantity, locale),
+      value: formatNumber(detailsState.position.quantity, locale),
       detail: accountScopeDisplayName,
       testId: "ticker-history-quantity",
     },
     {
       key: "avgCost",
       label: dict.tickerHistory.avgCostLabel,
-      value: details.position.averageCost != null
-        ? formatCurrencyAmount(details.position.averageCost, currency, locale)
+      value: detailsState.position.averageCost != null
+        ? formatCurrencyAmount(detailsState.position.averageCost, currency, locale)
         : dict.tickerHistory.noHoldingData,
       detail: dict.tickerHistory.accountScopeLabel,
       testId: "ticker-history-avg-cost",
@@ -303,8 +333,8 @@ export function TickerHistoryClient({
     {
       key: "marketValue",
       label: dict.tickerHistory.marketValueLabel,
-      value: details.position.marketValue != null
-        ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+      value: detailsState.position.marketValue != null
+        ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
         : dict.tickerHistory.noHoldingData,
       detail: `${dict.tickerHistory.entriesLabel}: ${formatNumber(displayTransactions.length, locale)}`,
       testId: "ticker-history-market-value",
@@ -312,8 +342,8 @@ export function TickerHistoryClient({
     {
       key: "totalCost",
       label: dict.tickerHistory.totalCostLabel,
-      value: details.position.costBasis != null
-        ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+      value: detailsState.position.costBasis != null
+        ? formatCurrencyAmount(detailsState.position.costBasis, currency, locale)
         : dict.tickerHistory.noHoldingData,
       detail: `${dict.tickerHistory.accountScopeLabel}: ${accountScopeDisplayName}`,
       testId: "ticker-history-total-cost",
@@ -321,23 +351,23 @@ export function TickerHistoryClient({
     {
       key: "unrealized",
       label: dict.tickerHistory.unrealizedPnlLabel,
-      value: details.position.unrealizedPnl != null
-        ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+      value: detailsState.position.unrealizedPnl != null
+        ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
         : dict.tickerHistory.noHoldingData,
-      detail: details.quote.quoteStatus,
+      detail: detailsState.quote.quoteStatus,
       testId: "ticker-history-unrealized-pnl",
     },
     {
       key: "realized",
       label: dict.tickerHistory.realizedPnlLabel,
-      value: formatCurrencyAmount(details.position.realizedPnl, currency, locale),
-      detail: details.position.lastDividendPostedDate
-        ? formatDateLabel(details.position.lastDividendPostedDate, locale)
+      value: formatCurrencyAmount(detailsState.position.realizedPnl, currency, locale),
+      detail: detailsState.position.lastDividendPostedDate
+        ? formatDateLabel(detailsState.position.lastDividendPostedDate, locale)
         : dict.tickerHistory.noHoldingData,
       testId: "ticker-history-realized-pnl",
     },
   ];
-  const chartData = details.chart.points.map((point) => ({
+  const chartData = detailsState.chart.points.map((point) => ({
     ...point,
     axisLabel: point.label === "Now" ? point.label : formatDateLabel(point.date, locale),
   }));
@@ -355,33 +385,33 @@ export function TickerHistoryClient({
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
       <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
-        <p className="mt-2 text-lg font-semibold text-foreground">{formatNumber(details.position.quantity, locale)}</p>
+        <p className="mt-2 text-lg font-semibold text-foreground">{formatNumber(detailsState.position.quantity, locale)}</p>
       </Card>
       <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.marketValueLabel}</p>
         <p className={metricValueClassName(
-          details.position.marketValue != null
-            ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+          detailsState.position.marketValue != null
+            ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
             : dict.tickerHistory.noHoldingData,
           dict.tickerHistory.noHoldingData,
           true,
         )}>
-          {details.position.marketValue != null
-            ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+          {detailsState.position.marketValue != null
+            ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
             : dict.tickerHistory.noHoldingData}
         </p>
       </Card>
       <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
         <p className={metricValueClassName(
-          details.position.unrealizedPnl != null
-            ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+          detailsState.position.unrealizedPnl != null
+            ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
             : dict.tickerHistory.noHoldingData,
           dict.tickerHistory.noHoldingData,
           true,
         )}>
-          {details.position.unrealizedPnl != null
-            ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+          {detailsState.position.unrealizedPnl != null
+            ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
             : dict.tickerHistory.noHoldingData}
         </p>
       </Card>
@@ -456,57 +486,77 @@ export function TickerHistoryClient({
     <>
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
       <section className="grid gap-6 pb-24 sm:pb-28" data-testid="ticker-history-section">
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+          data-testid="ticker-primary-refresh-strip"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Position summary is ready first. Chart, dividends, and fundamentals refresh independently.</span>
+            {isEnrichmentLoading ? (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                Refreshing enrichment
+              </span>
+            ) : (
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
+                Primary ready
+              </span>
+            )}
+          </div>
+          <Button type="button" variant="secondary" onClick={() => { void refreshEnrichment(); }} disabled={isEnrichmentLoading}>
+            Refresh ticker
+          </Button>
+        </div>
         <Card className="overflow-hidden rounded-[30px] border border-border bg-[linear-gradient(145deg,hsla(var(--background),0.98),hsla(var(--muted),0.35))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
           <div className="grid gap-8 px-5 py-6 sm:px-6 md:px-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-primary/80">{dict.tickerHistory.eyebrow}</p>
                 <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", quoteAccent)}>
-                  {details.quote.quoteStatus}
+                  {detailsState.quote.quoteStatus}
                 </span>
-                {details.quote.freshness !== "current" ? (
+                {detailsState.quote.freshness !== "current" ? (
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                    {details.quote.freshness}
+                    {detailsState.quote.freshness}
                   </span>
                 ) : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
-                  {details.identity.name ? `${details.identity.name} (${ticker})` : ticker}
+                  {detailsState.identity.name ? `${detailsState.identity.name} (${ticker})` : ticker}
                 </h1>
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {details.identity.marketCode} · {details.identity.instrumentType ?? "Instrument"}
+                  {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? "Instrument"}
                 </span>
               </div>
               <div className="mt-5 flex flex-wrap items-end gap-4">
                 <div>
                   <p className={metricValueClassName(
-                    details.quote.currentPrice != null
-                      ? formatCurrencyAmount(details.quote.currentPrice, currency, locale)
+                    detailsState.quote.currentPrice != null
+                      ? formatCurrencyAmount(detailsState.quote.currentPrice, currency, locale)
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                   )}>
-                    {details.quote.currentPrice != null
-                      ? formatCurrencyAmount(details.quote.currentPrice, currency, locale)
+                    {detailsState.quote.currentPrice != null
+                      ? formatCurrencyAmount(detailsState.quote.currentPrice, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {details.quote.previousClose != null
-                      ? `${dict.tickerHistory.previousCloseLabel}: ${formatCurrencyAmount(details.quote.previousClose, currency, locale)}`
+                    {detailsState.quote.previousClose != null
+                      ? `${dict.tickerHistory.previousCloseLabel}: ${formatCurrencyAmount(detailsState.quote.previousClose, currency, locale)}`
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
                 <div className={cn("rounded-2xl border px-4 py-3 text-sm", quoteAccent)} data-testid="ticker-quote-change">
                   <div className="flex items-center gap-2 font-medium">
                     {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-                    <span>{details.quote.changeAmount != null ? formatCurrencyAmount(details.quote.changeAmount, currency, locale) : "-"}</span>
-                    <span>{formatPercent(locale, details.quote.changePercent)}</span>
+                    <span>{detailsState.quote.changeAmount != null ? formatCurrencyAmount(detailsState.quote.changeAmount, currency, locale) : "-"}</span>
+                    <span>{formatPercent(locale, detailsState.quote.changePercent)}</span>
                   </div>
                   <p className="mt-1 text-xs opacity-80" data-testid="repair-status-badge">{statusText}</p>
                 </div>
               </div>
-              {details.quote.freshnessTooltip ? (
-              <p className="mt-3 text-sm text-muted-foreground">{details.quote.freshnessTooltip}</p>
+              {detailsState.quote.freshnessTooltip ? (
+              <p className="mt-3 text-sm text-muted-foreground">{detailsState.quote.freshnessTooltip}</p>
             ) : null}
           </div>
 
@@ -515,14 +565,14 @@ export function TickerHistoryClient({
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.floatingSummaryTitle}</p>
                   <p className={metricValueClassName(
-                    details.position.marketValue != null
-                      ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+                    detailsState.position.marketValue != null
+                      ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                     true,
                   )}>
-                    {details.position.marketValue != null
-                      ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+                    {detailsState.position.marketValue != null
+                      ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
@@ -531,47 +581,47 @@ export function TickerHistoryClient({
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-foreground">{formatNumber(details.position.quantity, locale)}</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">{formatNumber(detailsState.position.quantity, locale)}</p>
                 </div>
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.totalCostLabel}</p>
                   <p className={metricValueClassName(
-                    details.position.costBasis != null
-                      ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+                    detailsState.position.costBasis != null
+                      ? formatCurrencyAmount(detailsState.position.costBasis, currency, locale)
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                     true,
                   )}>
-                    {details.position.costBasis != null
-                      ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+                    {detailsState.position.costBasis != null
+                      ? formatCurrencyAmount(detailsState.position.costBasis, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
                   <p className={metricValueClassName(
-                    details.position.unrealizedPnl != null
-                      ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+                    detailsState.position.unrealizedPnl != null
+                      ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                     true,
                   )}>
-                    {details.position.unrealizedPnl != null
-                      ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+                    {detailsState.position.unrealizedPnl != null
+                      ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.nextDividendLabel}</p>
                   <p className={metricValueClassName(
-                    details.dividends.nextPaymentDate
-                      ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                    detailsState.dividends.nextPaymentDate
+                      ? formatDateLabel(detailsState.dividends.nextPaymentDate, locale)
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                     true,
                   )}>
-                    {details.dividends.nextPaymentDate
-                      ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                    {detailsState.dividends.nextPaymentDate
+                      ? formatDateLabel(detailsState.dividends.nextPaymentDate, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
@@ -639,7 +689,7 @@ export function TickerHistoryClient({
                   <h2 className="mt-2 text-xl font-semibold text-slate-950">{dict.tickerHistory.chartSubtitle}</h2>
                 </div>
                 <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                  {details.identity.currency}
+                  {detailsState.identity.currency}
                 </div>
               </div>
               <div className="mt-6 h-[320px]">
@@ -667,21 +717,21 @@ export function TickerHistoryClient({
                 <div className="mt-4 grid gap-3">
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-sm text-slate-500">{dict.tickerHistory.upcomingDividendsLabel}</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">{formatNumber(details.dividends.upcomingCount, locale)}</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-950">{formatNumber(detailsState.dividends.upcomingCount, locale)}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-sm text-slate-500">{dict.tickerHistory.nextDividendLabel}</p>
                     <p className="mt-1 text-base font-semibold text-slate-950">
-                      {details.dividends.nextPaymentDate
-                        ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                      {detailsState.dividends.nextPaymentDate
+                        ? formatDateLabel(detailsState.dividends.nextPaymentDate, locale)
                         : dict.tickerHistory.noHoldingData}
                     </p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-sm text-slate-500">{dict.tickerHistory.lastDividendLabel}</p>
                     <p className="mt-1 text-base font-semibold text-slate-950">
-                      {details.dividends.lastPostedDate
-                        ? formatDateLabel(details.dividends.lastPostedDate, locale)
+                      {detailsState.dividends.lastPostedDate
+                        ? formatDateLabel(detailsState.dividends.lastPostedDate, locale)
                         : dict.tickerHistory.noHoldingData}
                     </p>
                   </div>
@@ -747,7 +797,7 @@ export function TickerHistoryClient({
           </TabsContent>
 
           <TabsContent value="fundamentals" className="mt-0 grid gap-6 lg:grid-cols-2" data-testid="ticker-detail-fundamentals">
-            {details.fundamentals.panels.map((panel) => (
+            {detailsState.fundamentals.panels.map((panel) => (
               <Card key={panel.key} className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{panel.title}</p>
                 <div className="mt-4 grid gap-3">

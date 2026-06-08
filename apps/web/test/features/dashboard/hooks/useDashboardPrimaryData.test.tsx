@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
+import { buildRouteDtoCacheKey, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/dashboard/services/dashboardService", () => ({
   fetchDashboardEnrichmentData: vi.fn(),
@@ -13,6 +14,23 @@ import {
   fetchDashboardEnrichmentData,
   fetchDashboardPrimaryData,
 } from "../../../../features/dashboard/services/dashboardService";
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size;
+      },
+    },
+  });
+}
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,6 +97,7 @@ function createDeferred<T>() {
 
 function Harness({ initialData = null }: { initialData?: DashboardSnapshot | null }) {
   result = useDashboardPrimaryData({
+    cacheKey: buildRouteDtoCacheKey("dashboard-primary", "self"),
     initialTransaction,
     initialPrimaryData: initialData,
   });
@@ -90,9 +109,11 @@ describe("useDashboardPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
+    installLocalStorageMock();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.localStorage.clear();
     vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
@@ -129,6 +150,26 @@ describe("useDashboardPrimaryData", () => {
     expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
     expect(result.isBootstrapping).toBe(false);
     expect(result.summary.marketValueAmount).toBe(1500);
+  });
+
+  it("restores cached primary data before refreshing in the background", async () => {
+    const cached = snapshotWithMarketValue(1750);
+    const refreshed = snapshotWithMarketValue(2100);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+    vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(refreshed);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(refreshed);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.summary.marketValueAmount).toBe(1750);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2100);
   });
 
   it("ignores stale enrichment responses after a newer refresh starts", async () => {

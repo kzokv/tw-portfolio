@@ -12,7 +12,9 @@ import { HoldingsTable } from "./HoldingsTable";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { usePortfolioPrimaryData } from "../../features/portfolio/hooks/usePortfolioPageData";
+import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import type { PortfolioPageData } from "../../features/portfolio/services/portfolioService";
+import { Button } from "../ui/Button";
 
 export function PortfolioClient({
   initialPrimaryData = null,
@@ -26,7 +28,8 @@ export function PortfolioClient({
     mutations,
     contextRefreshSignal,
   } = useAppShellData();
-  const portfolio = usePortfolioPrimaryData(initialPrimaryData);
+  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(), locale);
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const firstSignalRef = useRef(true);
@@ -65,6 +68,12 @@ export function PortfolioClient({
   const quoteCoverageDetail = holdingGroups.length === 0
     ? dict.dashboardHome.holdingsEmpty
     : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(holdingGroups.length, locale)}`;
+  const restoredLabel = portfolio.restoredAt
+    ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(portfolio.restoredAt))
+    : null;
 
   return (
     <div className="stagger grid min-w-0 gap-6">
@@ -115,6 +124,33 @@ export function PortfolioClient({
           />
         </div>
       </section>
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+        data-testid="portfolio-primary-refresh-strip"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {portfolio.restoredFromCache && restoredLabel ? (
+            <span data-testid="portfolio-cache-restore-label">Restored from cache at {restoredLabel}</span>
+          ) : (
+            <span>Holdings stay mounted while the latest portfolio snapshot loads.</span>
+          )}
+          {portfolio.isRefreshing ? (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              Refreshing
+            </span>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => { void portfolio.refresh(); }}
+          disabled={portfolio.isRefreshing}
+          data-testid="portfolio-refresh-button"
+        >
+          Refresh
+        </Button>
+      </div>
       {/*
         KZO-162 — Portfolio cards rendered as a SortableCardGrid. Slugs
         `holdings-table` and `dividends-section` are intentionally reused

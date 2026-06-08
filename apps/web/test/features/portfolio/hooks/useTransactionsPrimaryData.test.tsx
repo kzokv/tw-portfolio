@@ -1,0 +1,130 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TransactionPrimaryDto } from "@vakwen/shared-types";
+import { useTransactionsPrimaryData } from "../../../../features/portfolio/hooks/useTransactionsPrimaryData";
+import { buildRouteDtoCacheKey, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
+
+vi.mock("../../../../features/portfolio/services/portfolioService", () => ({
+  fetchTransactionsPrimaryData: vi.fn(),
+}));
+
+import { fetchTransactionsPrimaryData } from "../../../../features/portfolio/services/portfolioService";
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size;
+      },
+    },
+  });
+}
+
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+let result: ReturnType<typeof useTransactionsPrimaryData>;
+
+const initialPrimaryData: TransactionPrimaryDto = {
+  recentTransactions: [],
+  accountOptions: [],
+  portfolioConfig: {
+    accounts: [],
+    feeProfiles: [],
+    feeProfileBindings: [],
+    integrityIssue: null,
+  },
+};
+
+function withTransaction(id: string): TransactionPrimaryDto {
+  return {
+    ...initialPrimaryData,
+    recentTransactions: [
+      {
+        id,
+        accountId: "acc-1",
+        accountName: "Main",
+        ticker: "NVDA",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "USD",
+        tradeDate: "2026-06-01",
+        tradeTimestamp: "2026-06-01T00:00:00.000Z",
+        bookingSequence: 1,
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        realizedPnlAmount: null,
+        realizedPnlCurrency: null,
+        feeProfileId: "fee-1",
+        feeProfileName: "Default",
+        bookedAt: "2026-06-01T00:00:00.000Z",
+        feesSource: "CALCULATED",
+      },
+    ],
+  };
+}
+
+function Harness({ initialData = null }: { initialData?: TransactionPrimaryDto | null }) {
+  result = useTransactionsPrimaryData(initialData, buildRouteDtoCacheKey("transactions-primary", "self"));
+  return null;
+}
+
+describe("useTransactionsPrimaryData", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    installLocalStorageMock();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.mocked(fetchTransactionsPrimaryData).mockReset();
+  });
+
+  it("hydrates immediately from server-provided primary data", async () => {
+    act(() => {
+      root.render(<Harness initialData={withTransaction("initial")} />);
+    });
+
+    await act(async () => {});
+
+    expect(result.data.recentTransactions[0]?.id).toBe("initial");
+    expect(result.isBootstrapping).toBe(false);
+    expect(vi.mocked(fetchTransactionsPrimaryData)).not.toHaveBeenCalled();
+  });
+
+  it("restores cached transactions data before refreshing", async () => {
+    writeRouteDtoCache(buildRouteDtoCacheKey("transactions-primary", "self"), withTransaction("cached"));
+    vi.mocked(fetchTransactionsPrimaryData).mockResolvedValue(withTransaction("fresh"));
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.recentTransactions[0]?.id).toBe("cached");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(result.data.recentTransactions[0]?.id).toBe("fresh");
+  });
+});

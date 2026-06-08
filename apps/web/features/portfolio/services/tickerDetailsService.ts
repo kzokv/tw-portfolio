@@ -88,6 +88,14 @@ interface FetchTickerDetailsOptions {
   instrument: InstrumentCatalogItemDto | null;
 }
 
+interface TickerDetailsRequest {
+  ticker: string;
+  accountId?: string;
+  marketCode?: string;
+  instrument?: InstrumentCatalogItemDto | null;
+  transactions?: TransactionHistoryItemDto[];
+}
+
 function findHolding(
   dashboard: DashboardSnapshot,
   ticker: string,
@@ -240,7 +248,7 @@ function buildFallbackFundamentals(
   ];
 }
 
-function buildFallbackTickerDetails({
+export function buildPrimaryTickerDetails({
   ticker,
   accountId,
   marketCode,
@@ -447,25 +455,48 @@ function isTickerDetailsDto(value: unknown): value is TickerDetailsDto {
 export async function fetchTickerDetails(
   options: FetchTickerDetailsOptions,
 ): Promise<TickerDetailsModel> {
-  const fallback = buildFallbackTickerDetails(options);
+  const fallback = buildPrimaryTickerDetails(options);
+  return fetchTickerDetailsEnrichment({
+    ticker: options.ticker,
+    accountId: options.accountId,
+    marketCode: options.marketCode,
+    instrument: options.instrument,
+    primaryDetails: fallback,
+  });
+}
+
+function buildTickerDetailsPath(request: TickerDetailsRequest): string {
   const params = new URLSearchParams();
-  if (options.accountId) {
-    params.set("accountId", options.accountId);
+  if (request.accountId) {
+    params.set("accountId", request.accountId);
   }
-  const marketCode = options.marketCode ?? options.instrument?.marketCode ?? options.transactions[0]?.marketCode;
+  const marketCode = request.marketCode ?? request.instrument?.marketCode ?? request.transactions?.[0]?.marketCode;
   if (marketCode) {
     params.set("marketCode", marketCode);
   }
 
-  const path = `/tickers/${encodeURIComponent(options.ticker)}/details${params.toString() ? `?${params.toString()}` : ""}`;
+  return `/tickers/${encodeURIComponent(request.ticker)}/details${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export async function fetchTickerDetailsEnrichment({
+  ticker,
+  accountId,
+  marketCode,
+  instrument = null,
+  transactions = [],
+  primaryDetails,
+}: TickerDetailsRequest & {
+  primaryDetails: TickerDetailsModel;
+}): Promise<TickerDetailsModel> {
+  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions });
 
   try {
     const payload = await getJson<unknown>(path);
     if (isTickerDetailsDto(payload)) {
-      return mapApiDetailsToModel(payload, fallback);
+      return mapApiDetailsToModel(payload, primaryDetails);
     }
-    return mergeWithFallback(payload, fallback);
+    return mergeWithFallback(payload, primaryDetails);
   } catch {
-    return fallback;
+    return primaryDetails;
   }
 }
