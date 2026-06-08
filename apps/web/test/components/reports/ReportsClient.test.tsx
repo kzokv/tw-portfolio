@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, type AnchorHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { DailyReviewReportDto } from "@vakwen/shared-types";
@@ -11,6 +11,12 @@ const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(searchParamsMock.value),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ children, href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
 }));
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
@@ -133,6 +139,62 @@ describe("ReportsClient", () => {
       sectionRefresh?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(refreshMock).toHaveBeenCalledWith({ bypassCache: true });
+  });
+
+  it("links tickers, colors finance values, and renders optional fx rates", async () => {
+    const rateFixture = {
+      ...fixture,
+      summary: {
+        ...fixture.summary,
+        unrealizedPnlAmount: -200,
+        realizedPnlAmount: -30,
+        dailyChangeAmount: -10,
+        dailyChangePercent: -0.8,
+      },
+      fxRates: [
+        {
+          fromCurrency: "USD",
+          toCurrency: "AUD",
+          rate: 1.52,
+          asOf: "2026-06-08",
+        },
+      ],
+      holdings: {
+        ...fixture.holdings,
+        rows: [{
+          ...fixture.holdings.rows[0]!,
+          reportingUnrealizedPnlAmount: -200,
+          dailyChangeAmount: -10,
+          dailyChangePercent: -0.8,
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={rateFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const tickerLinks = Array.from(document.querySelectorAll("a")).map((anchor) => anchor.getAttribute("href"));
+    expect(tickerLinks).toContain("/tickers/BHP?marketCode=AU");
+
+    const negativeValue = Array.from(document.querySelectorAll("p, span, h3")).find((node) => node.textContent?.includes("AUD -10"));
+    expect(negativeValue?.className).toContain("text-rose-600");
+
+    const fxRates = document.querySelector("[data-testid='reports-fx-rates']");
+    expect(fxRates?.textContent).toContain("USD to AUD");
+    expect(fxRates?.textContent).toContain("1.52");
+
+    const viewDetailsButton = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("View details"));
+    expect(viewDetailsButton).not.toBeUndefined();
+    act(() => {
+      viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("Daily change %");
+    const detailPercent = Array.from(document.querySelectorAll("span")).find((node) => node.textContent?.includes("-0.8%"));
+    expect(detailPercent?.className).toContain("text-rose-600");
   });
 
   it("does not render a stale daily-review DTO as another report tab", async () => {

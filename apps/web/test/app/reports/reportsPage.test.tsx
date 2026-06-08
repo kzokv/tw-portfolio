@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 
@@ -67,6 +67,7 @@ import ReportsPage from "../../../app/reports/page";
 
 describe("ReportsPage", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     vi.mocked(requireSession).mockResolvedValue({ isDemo: false } as never);
     vi.mocked(getJson).mockImplementation((async (path: string) => {
@@ -78,6 +79,10 @@ describe("ReportsPage", () => {
     vi.mocked(fetchReport).mockResolvedValue({
       query: { scope: "US" },
     } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("server-seeds the active report from validated query state", async () => {
@@ -101,6 +106,29 @@ describe("ReportsPage", () => {
       scope: "US",
       currencyMode: "specified",
       currency: "USD",
+    }));
+  });
+
+  it("renders the report shell when the active report seed exceeds the paint budget", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetchReport).mockImplementation(() => new Promise(() => {}) as never);
+
+    const pagePromise = ReportsPage({
+      searchParams: Promise.resolve({
+        tab: "daily-review",
+        scope: "TW",
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    const html = renderToStaticMarkup(await pagePromise);
+
+    expect(html).toContain('data-testid="reports-client"');
+    expect(html).toContain('data-state-tab="daily-review"');
+    expect(html).toContain('data-state-scope="TW"');
+    expect(html).toContain('data-report-scope=""');
+    expect(fetchReport).toHaveBeenCalledWith("daily-review", expect.objectContaining({
+      scope: "TW",
     }));
   });
 });
