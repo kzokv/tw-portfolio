@@ -146,6 +146,16 @@ superseded_by: null
 - [ ] Commit 8: run E2E smoke for dashboard currency switching, dashboard market chip report links, report URL restoration, portfolio cached return, transactions primary restoration, and ticker return navigation. Full PR gate is green, but dedicated `/reports` URL restoration and ticker return-cache E2E coverage is still pending with the deferred ticker web adoption.
 - [x] Commit 8: run MCP integration tests for all three report tools and schema exposure.
 
+## Follow-up Issue Fixes — 2026-06-08
+
+- [x] Dashboard holdings preview now shows reporting-currency prices/values as the primary read, uses compact K/M value labels, and exposes native ticker price plus FX rate through tooltip/sheet detail instead of the old dense dashboard holdings table.
+- [x] Dashboard hero shows the active reporting currency and resolved FX conversion rows when mixed-market holdings require conversion.
+- [x] Reports show resolved FX conversion rows from the report DTO, not only aggregate FX status.
+- [x] Report cards and detail rows link tickers to `/tickers/{ticker}?marketCode={market}` so Top holdings, Market detail, and holding detail cards can open ticker pages.
+- [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes for positive/negative/neutral values.
+- [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget and renders the client shell with cache/silent refresh when the active scoped report is slow.
+- [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty.
+
 ## Open Items
 
 - [x] Final PR gate can run the full eight-suite matrix when preparing the PR, but phased implementation uses targeted coverage first. Completed locally before PR creation.
@@ -156,6 +166,7 @@ superseded_by: null
 - [ ] `/settings/fee-config` still uses `loadUserStore`; optimize in a follow-up unless this release needs it to meet transaction/portfolio first-paint goals.
 - [ ] `/dashboard/primary`, `/portfolio/primary`, and `/transactions/primary` may still need narrow Postgres projections after this scope stabilizes. Do targeted read-model optimization where feasible, but do not rewrite accounting projections wholesale in this PR.
 - [x] Existing mockups remain durable. Regenerate screenshots only if implementation materially diverges from the locked UI structure.
+- [ ] Dashboard holdings preview currently derives the displayed converted unit price as `reportingMarketValueAmount / quantity` because the dashboard holding-group DTO does not yet expose an explicit server `reportingUnitPriceAmount`. Add a dedicated DTO field if downstream consumers need auditable per-share converted price lineage.
 
 ## Verification Log
 
@@ -183,6 +194,11 @@ superseded_by: null
   - Dashboard KR market chip navigated to `/reports?tab=market&scope=KR&currencyMode=specified&currency=USD&range=1Y`; the report rendered KR scope, USD currency, FX complete, and matching market value.
 - [x] Follow-up Chrome validation surfaced a transient dashboard market-strip fallback that could label native primary/cached holding amounts as the selected reporting currency before enrichment refreshed. Fixed by rendering per-market hero values only from `reportingMarketValueAmount`; added regression coverage in `apps/web/test/features/dashboard/components.test.tsx`.
 - [x] Follow-up local checks after the dashboard market-strip fix: `npm run test --prefix apps/web -- components.test.tsx`, `npx eslint .`, `npm run typecheck`.
+- [x] Follow-up issue validation and fixes:
+  - `npx vitest run test/integration/reports.integration.test.ts test/integration/dashboard.integration.test.ts test/unit/smooth-page-read-paths.test.ts` from `apps/api`
+  - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx test/app/reports/reportsPage.test.tsx` from `apps/web`
+  - `npm run typecheck`
+  - `npx eslint .`
 
 ## Mockups
 
