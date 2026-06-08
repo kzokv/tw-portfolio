@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vakwen Reports Mockup</title>
+  <style>
+    :root {
+      --background: #f8fafc;
+      --card: #ffffff;
+      --foreground: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --positive: #047857;
+      --negative: #be123c;
+      --warning: #b45309;
+      --surface: #f1f5f9;
+      --shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .eyebrow {
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      line-height: 1.12;
+    }
+
+    h2 {
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    h3 {
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr 0.8fr auto;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.06);
+      backdrop-filter: blur(14px);
+    }
+
+    .control {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      font-size: 13px;
+    }
+
+    .control span:first-child {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: var(--card);
+      color: var(--foreground);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .span-2 {
+      grid-column: span 2;
+    }
+
+    .card {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 16px 8px;
+    }
+
+    .card-content {
+      padding: 12px 16px 16px;
+    }
+
+    .metric {
+      font-variant-numeric: tabular-nums;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.05;
+    }
+
+    .metric-sm {
+      font-variant-numeric: tabular-nums;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      border-color: #bbf7d0;
+      background: #ecfdf5;
+      color: var(--positive);
+    }
+
+    .badge.bad {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: var(--negative);
+    }
+
+    .badge.warn {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: var(--warning);
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--foreground);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .button.primary {
+      border-color: #1d4ed8;
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    .refresh-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .skeleton-line {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #e2e8f0 0%, #f8fafc 45%, #e2e8f0 90%);
+    }
+
+    .skeleton-block {
+      min-height: 180px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      background: repeating-linear-gradient(
+        -45deg,
+        #f8fafc,
+        #f8fafc 12px,
+        #f1f5f9 12px,
+        #f1f5f9 24px
+      );
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
+      gap: 14px;
+    }
+
+    .callout {
+      padding: 12px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .positive {
+      color: var(--positive);
+    }
+
+    .negative {
+      color: var(--negative);
+    }
+
+    .warning {
+      color: var(--warning);
+    }
+
+    .chart {
+      height: 220px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      align-items: end;
+      gap: 7px;
+      padding: 16px 10px 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background:
+        linear-gradient(to top, rgba(226, 232, 240, 0.55) 1px, transparent 1px) 0 0 / 100% 25%,
+        linear-gradient(180deg, #f8fafc, #ffffff);
+    }
+
+    .bar {
+      min-height: 24px;
+      border-radius: 6px 6px 2px 2px;
+      background: linear-gradient(180deg, #3b82f6, #2563eb);
+    }
+
+    .bar.muted {
+      background: linear-gradient(180deg, #94a3b8, #64748b);
+    }
+
+    .bar.good {
+      background: linear-gradient(180deg, #10b981, #047857);
+    }
+
+    .bar.bad {
+      background: linear-gradient(180deg, #fb7185, #be123c);
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .list-row:last-child {
+      border-bottom: 0;
+    }
+
+    .mini-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      max-height: 360px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 900px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child, td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: inherit;
+      text-align: left;
+      box-shadow: 1px 0 0 var(--border);
+    }
+
+    th:first-child {
+      z-index: 3;
+      background: #f8fafc;
+    }
+
+    tbody tr {
+      background: var(--card);
+    }
+
+    .mobile-list {
+      display: none;
+    }
+
+    .drawer-preview {
+      display: none;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .market-chip-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .market-chip {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      padding: 13px;
+    }
+
+    .progress {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e2e8f0;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--primary);
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 12px;
+      }
+
+      .shell {
+        gap: 12px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .toolbar {
+        position: static;
+        grid-template-columns: 1fr 1fr;
+        border-radius: 10px;
+      }
+
+      .control {
+        min-height: 44px;
+        padding: 9px 10px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+      }
+
+      .control.status {
+        grid-column: span 2;
+        flex-direction: row;
+        align-items: center;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        overflow: visible;
+      }
+
+      .tab {
+        min-width: 0;
+        padding: 10px 8px;
+        font-size: 11px;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .split {
+        grid-template-columns: 1fr;
+      }
+
+      .span-2 {
+        grid-column: auto;
+      }
+
+      .card-header {
+        padding: 14px 14px 6px;
+      }
+
+      .card-content {
+        padding: 10px 14px 14px;
+      }
+
+      .metric {
+        font-size: 25px;
+      }
+
+      .chart {
+        height: 170px;
+        gap: 5px;
+      }
+
+      .market-chip-row {
+        display: flex;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+
+      .market-chip {
+        min-width: 172px;
+      }
+
+      .table-wrap {
+        display: none;
+      }
+
+      .mobile-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .mobile-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 13px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+      }
+
+      .drawer-preview {
+        display: none;
+      }
+
+      .mobile-safe-space {
+        height: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="eyebrow">Vakwen Reports</span>
+          <h1 id="page-title">Daily Review</h1>
+          <p id="page-subtitle" class="muted">Operational scan for what changed and what needs attention today.</p>
+        </div>
+        <span class="badge warn">Read-only report mockup</span>
+      </header>
+
+      <section class="toolbar" aria-label="Report controls">
+        <div class="control">
+          <span>Scope</span>
+          <strong id="scope-value">All markets</strong>
+        </div>
+        <div class="control">
+          <span>Currency mode</span>
+          <strong>Auto</strong>
+        </div>
+        <div class="control">
+          <span>Effective currency</span>
+          <strong>AUD</strong>
+        </div>
+        <div class="control status">
+          <span>Health</span>
+          <strong><span class="badge warn">FX partial</span> <span class="badge good">Quotes OK</span></strong>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Report tabs">
+        <div class="tab" data-tab="dashboard">Dashboard</div>
+        <div class="tab" data-tab="daily">Daily Review</div>
+        <div class="tab" data-tab="portfolio">Portfolio Report</div>
+        <div class="tab" data-tab="market">Market Report</div>
+        <div class="tab" data-tab="portfolio-loading">Portfolio Loading</div>
+        <div class="tab" data-tab="ticker">Ticker Detail</div>
+      </nav>
+
+      <section id="dashboard-report" class="report grid">
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Dashboard hero</span>
+                <h2>Total portfolio value</h2>
+              </div>
+              <span class="badge warn">AUD · Cached 1m ago · FX partial</span>
+            </div>
+            <div class="card-content stack">
+              <p class="metric">AUD 182,450</p>
+              <p class="positive metric-sm">+AUD 1,240 · +0.68% today</p>
+              <p class="muted">Hero values use the active global reporting currency. The section settings control updates the user's reporting currency preference.</p>
+              <div class="action-row">
+                <span class="button primary">Change currency</span>
+                <span class="button">Refresh hero</span>
+                <span class="badge good">Silent refresh running</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Movers</span>
+                <h2>Biggest movers</h2>
+              </div>
+              <span class="badge">Top 5</span>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>NVDA / US</span><strong class="positive">+2.4%</strong></div>
+              <div class="list-row"><span>BHP / AU</span><strong class="positive">+0.6%</strong></div>
+              <div class="list-row"><span>0050 / TW</span><strong class="negative">-0.8%</strong></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="refresh-note">
+          <span>Primary dashboard data restored from cache, then refreshed without blanking cards.</span>
+          <span class="badge good">Freshness: 09:42</span>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Hero market strip</span>
+              <h2>Per-market values in dashboard currency</h2>
+            </div>
+            <span class="badge">Each chip links to Market Report</span>
+          </div>
+          <div class="card-content">
+            <div class="market-chip-row">
+              <div class="market-chip stack">
+                <div class="row"><strong>TW</strong><span class="badge good">OK</span></div>
+                <p class="metric-sm">AUD 72.3K</p>
+                <p class="negative">-0.3% today</p>
+                <p class="muted">39.6% weight</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>US</strong><span class="badge good">OK</span></div>
+                <p class="metric-sm">AUD 84.1K</p>
+                <p class="positive">+1.2% today</p>
+                <p class="muted">46.1% weight</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>AU</strong><span class="badge good">Native</span></div>
+                <p class="metric-sm">AUD 20.8K</p>
+                <p class="positive">+0.4% today</p>
+                <p class="muted">11.4% weight</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>KR</strong><span class="badge warn">FX</span></div>
+                <p class="metric-sm">AUD 5.2K</p>
+                <p class="muted">Partial conversion</p>
+                <p class="muted">2.9% weight</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid grid-3">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Today</span>
+                <h2>Command queue</h2>
+              </div>
+              <span class="badge warn">3 actions</span>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>Missing KRW -> AUD FX</span><strong class="warning">Fix</strong></div>
+              <div class="list-row"><span>2 stale KR quotes</span><strong class="warning">Refresh</strong></div>
+              <div class="list-row"><span>Dividend review pending</span><strong>Open</strong></div>
+              <span class="badge">Open Daily Review</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Market pulse</span>
+                <h2>Priority market scan</h2>
+              </div>
+              <span class="badge">Report link</span>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>US strongest today</span><strong class="positive">+1.2%</strong></div>
+              <div class="list-row"><span>TW soft today</span><strong class="negative">-0.3%</strong></div>
+              <div class="list-row"><span>KR blocked by FX</span><strong class="warning">Partial</strong></div>
+              <span class="badge">Open Market Report</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Portfolio health</span>
+                <h2>Risk and data health</h2>
+              </div>
+              <span class="badge warn">Watch</span>
+            </div>
+            <div class="card-content stack">
+              <div class="row"><span>Top 5 concentration</span><strong>61.0%</strong></div>
+              <div class="progress"><span style="width:61%"></span></div>
+              <div class="row"><span>FX status</span><strong class="warning">Partial</strong></div>
+              <div class="row"><span>Quote health</span><strong class="positive">Mostly current</strong></div>
+              <span class="badge">Open Portfolio Report</span>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Lower priority</span>
+                <h2>Trend preview</h2>
+              </div>
+              <span class="badge">Below fold</span>
+            </div>
+            <div class="card-content">
+              <div class="chart">
+                <div class="bar muted" style="height:38%"></div>
+                <div class="bar muted" style="height:42%"></div>
+                <div class="bar" style="height:48%"></div>
+                <div class="bar" style="height:51%"></div>
+                <div class="bar" style="height:56%"></div>
+                <div class="bar good" style="height:62%"></div>
+                <div class="bar good" style="height:58%"></div>
+                <div class="bar good" style="height:66%"></div>
+                <div class="bar good" style="height:70%"></div>
+                <div class="bar good" style="height:76%"></div>
+                <div class="bar good" style="height:80%"></div>
+                <div class="bar good" style="height:86%"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Holdings</span>
+                <h2>Compact entry point</h2>
+              </div>
+              <span class="badge">Mobile cards</span>
+            </div>
+            <div class="card-content">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Holding</th><th>Market</th><th>Value</th><th>Daily</th><th>Weight</th><th>Quote</th></tr></thead>
+                  <tbody>
+                    <tr><td>NVDA</td><td>US</td><td>AUD 33,215</td><td class="positive">+2.4%</td><td>18.2%</td><td>Current</td></tr>
+                    <tr><td>0050</td><td>TW</td><td>AUD 28,632</td><td class="negative">-0.8%</td><td>15.7%</td><td>Current</td></tr>
+                    <tr><td>005930</td><td>KR</td><td>AUD 5,205</td><td>-</td><td>2.9%</td><td>Stale</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="mobile-list">
+                <div class="mobile-card"><div class="row"><strong>NVDA / US</strong><span class="badge good">Current</span></div><div class="row"><span>AUD 33.2K</span><strong class="positive">+2.4%</strong></div></div>
+                <div class="mobile-card"><div class="row"><strong>0050 / TW</strong><span class="badge good">Current</span></div><div class="row"><span>AUD 28.6K</span><strong class="negative">-0.8%</strong></div></div>
+                <div class="mobile-card"><div class="row"><strong>005930 / KR</strong><span class="badge warn">Stale</span></div><div class="row"><span>AUD 5.2K</span><strong class="warning">FX partial</strong></div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="daily-report" class="report grid">
+        <div class="grid grid-3">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Movement</span>
+                <h2>Portfolio today</h2>
+              </div>
+              <span class="badge good">+0.68%</span>
+            </div>
+            <div class="card-content stack">
+              <p class="metric">AUD 182,450</p>
+              <p class="positive metric-sm">+AUD 1,240 today</p>
+              <p class="muted">Whole portfolio converted to the active reporting currency for comparison.</p>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Actions</span>
+                <h2>Today queue</h2>
+              </div>
+              <span class="badge warn">3 items</span>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>Missing FX for KRW -> AUD</span><strong class="warning">Review</strong></div>
+              <div class="list-row"><span>2 stale quotes in KR market</span><strong class="warning">Refresh</strong></div>
+              <div class="list-row"><span>Dividend reconciliation pending</span><strong>Open</strong></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Concentration</span>
+                <h2>Portfolio health</h2>
+              </div>
+              <span class="badge warn">Watch</span>
+            </div>
+            <div class="card-content stack">
+              <div class="row"><span class="muted">Largest holding</span><strong>NVDA 18.2%</strong></div>
+              <div class="row"><span class="muted">Top 5 weight</span><strong>61.0%</strong></div>
+              <div class="progress"><span style="width:61%"></span></div>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Market strip</span>
+              <h2>Per-market values in AUD</h2>
+            </div>
+            <span class="badge">Tap a market -> Market Report</span>
+          </div>
+          <div class="card-content">
+            <div class="market-chip-row">
+              <div class="market-chip stack">
+                <div class="row"><strong>TW</strong><span class="badge good">OK</span></div>
+                <p class="metric-sm">AUD 72.3K</p>
+                <p class="negative">-0.3% today</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>US</strong><span class="badge good">OK</span></div>
+                <p class="metric-sm">AUD 84.1K</p>
+                <p class="positive">+1.2% today</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>AU</strong><span class="badge good">Native</span></div>
+                <p class="metric-sm">AUD 20.8K</p>
+                <p class="positive">+0.4% today</p>
+              </div>
+              <div class="market-chip stack">
+                <div class="row"><strong>KR</strong><span class="badge warn">FX</span></div>
+                <p class="metric-sm">AUD 5.2K</p>
+                <p class="muted">Partial conversion</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Contributors</span>
+                <h2>Top movers by impact</h2>
+              </div>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>NVDA / US</span><strong class="positive">+AUD 860</strong></div>
+              <div class="list-row"><span>BHP / AU</span><strong class="positive">+AUD 190</strong></div>
+              <div class="list-row"><span>0050 / TW</span><strong class="negative">-AUD 120</strong></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Daily chart</span>
+                <h2>Market movement comparison</h2>
+              </div>
+            </div>
+            <div class="card-content">
+              <div class="chart">
+                <div class="bar muted" style="height:42%"></div>
+                <div class="bar" style="height:72%"></div>
+                <div class="bar good" style="height:54%"></div>
+                <div class="bar bad" style="height:28%"></div>
+                <div class="bar" style="height:68%"></div>
+                <div class="bar good" style="height:80%"></div>
+                <div class="bar muted" style="height:46%"></div>
+                <div class="bar bad" style="height:34%"></div>
+                <div class="bar" style="height:62%"></div>
+                <div class="bar good" style="height:77%"></div>
+                <div class="bar muted" style="height:44%"></div>
+                <div class="bar" style="height:66%"></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="portfolio-report" class="report grid">
+        <div class="grid grid-4">
+          <article class="card">
+            <div class="card-content stack">
+              <span class="eyebrow">Value</span>
+              <p class="metric">AUD 182.5K</p>
+              <p class="muted">Converted total</p>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-content stack">
+              <span class="eyebrow">Total return</span>
+              <p class="metric positive">+13.4%</p>
+              <p class="muted">Realized + unrealized + income</p>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-content stack">
+              <span class="eyebrow">Dividends</span>
+              <p class="metric">AUD 2.8K</p>
+              <p class="muted">Trailing 12 months</p>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-content stack">
+              <span class="eyebrow">Data health</span>
+              <p class="metric-sm warning">FX partial</p>
+              <p class="muted">1 currency pair incomplete</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Performance</span>
+                <h2>Portfolio trend</h2>
+              </div>
+              <span class="badge">Range 1Y</span>
+            </div>
+            <div class="card-content">
+              <div class="chart">
+                <div class="bar muted" style="height:38%"></div>
+                <div class="bar muted" style="height:42%"></div>
+                <div class="bar" style="height:48%"></div>
+                <div class="bar" style="height:51%"></div>
+                <div class="bar" style="height:56%"></div>
+                <div class="bar good" style="height:62%"></div>
+                <div class="bar good" style="height:58%"></div>
+                <div class="bar good" style="height:66%"></div>
+                <div class="bar good" style="height:70%"></div>
+                <div class="bar good" style="height:76%"></div>
+                <div class="bar good" style="height:80%"></div>
+                <div class="bar good" style="height:86%"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Allocation</span>
+                <h2>By market and account</h2>
+              </div>
+            </div>
+            <div class="card-content stack">
+              <div class="row"><span>US market</span><strong>46.1%</strong></div>
+              <div class="progress"><span style="width:46%"></span></div>
+              <div class="row"><span>TW market</span><strong>39.6%</strong></div>
+              <div class="progress"><span style="width:40%"></span></div>
+              <div class="row"><span>AU market</span><strong>11.4%</strong></div>
+              <div class="progress"><span style="width:11%"></span></div>
+              <div class="row"><span>KR market</span><strong>2.9%</strong></div>
+              <div class="progress"><span style="width:3%"></span></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid grid-3">
+          <article class="card">
+            <div class="card-header"><div><span class="eyebrow">Concentration</span><h2>Top exposure</h2></div></div>
+            <div class="card-content stack">
+              <div class="list-row"><span>NVDA / US</span><strong>18.2%</strong></div>
+              <div class="list-row"><span>0050 / TW</span><strong>15.7%</strong></div>
+              <div class="list-row"><span>BHP / AU</span><strong>8.8%</strong></div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-header"><div><span class="eyebrow">Income</span><h2>Dividend review</h2></div></div>
+            <div class="card-content stack">
+              <div class="list-row"><span>Upcoming payments</span><strong>4</strong></div>
+              <div class="list-row"><span>Recent received</span><strong>AUD 310</strong></div>
+              <div class="list-row"><span>Unreconciled</span><strong class="warning">1</strong></div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-header"><div><span class="eyebrow">Suggestions</span><h2>Rule-based</h2></div></div>
+            <div class="card-content stack">
+              <div class="list-row"><span>Review top 5 concentration</span><strong>61%</strong></div>
+              <div class="list-row"><span>Refresh stale KR quotes</span><strong>2</strong></div>
+              <div class="list-row"><span>Add KRW -> AUD FX rate</span><strong class="warning">Missing</strong></div>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Holdings detail</span>
+              <h2>Bounded detail rows</h2>
+            </div>
+            <span class="badge">Top 25 of 84</span>
+          </div>
+          <div class="card-content">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Holding</th><th>Market</th><th>Value</th><th>Return</th><th>Daily</th><th>Weight</th><th>Quote</th></tr></thead>
+                <tbody>
+                  <tr><td>NVDA</td><td>US</td><td>AUD 33,215</td><td class="positive">+24.2%</td><td class="positive">+2.4%</td><td>18.2%</td><td>Current</td></tr>
+                  <tr><td>0050</td><td>TW</td><td>AUD 28,632</td><td class="positive">+8.1%</td><td class="negative">-0.8%</td><td>15.7%</td><td>Current</td></tr>
+                  <tr><td>BHP</td><td>AU</td><td>AUD 16,095</td><td class="positive">+5.4%</td><td class="positive">+0.6%</td><td>8.8%</td><td>Current</td></tr>
+                  <tr><td>005930</td><td>KR</td><td>AUD 5,205</td><td class="warning">FX partial</td><td>-</td><td>2.9%</td><td>Stale</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mobile-list">
+              <div class="mobile-card"><div class="row"><strong>NVDA / US</strong><span class="badge good">Current</span></div><div class="row"><span>AUD 33,215</span><strong class="positive">+24.2%</strong></div><span class="muted">Tap for accounts, dividends, and quote details.</span></div>
+              <div class="mobile-card"><div class="row"><strong>0050 / TW</strong><span class="badge good">Current</span></div><div class="row"><span>AUD 28,632</span><strong class="positive">+8.1%</strong></div><span class="muted">Tap for allocation and cost-basis detail.</span></div>
+              <div class="mobile-card"><div class="row"><strong>005930 / KR</strong><span class="badge warn">FX partial</span></div><div class="row"><span>AUD 5,205</span><strong class="warning">Needs FX</strong></div><span class="muted">Tap for missing conversion details.</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section id="market-report" class="report grid">
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Market report</span>
+              <h2>Scoped performance and comparison</h2>
+            </div>
+            <span class="badge">All markets in AUD</span>
+          </div>
+          <div class="card-content">
+            <div class="market-chip-row">
+              <div class="market-chip stack"><div class="row"><strong>TW</strong><span class="badge good">OK</span></div><p class="metric-sm">AUD 72.3K</p><p class="negative">-0.3% daily</p><p class="muted">Weight 39.6%</p></div>
+              <div class="market-chip stack"><div class="row"><strong>US</strong><span class="badge good">OK</span></div><p class="metric-sm">AUD 84.1K</p><p class="positive">+1.2% daily</p><p class="muted">Weight 46.1%</p></div>
+              <div class="market-chip stack"><div class="row"><strong>AU</strong><span class="badge good">Native</span></div><p class="metric-sm">AUD 20.8K</p><p class="positive">+0.4% daily</p><p class="muted">Weight 11.4%</p></div>
+              <div class="market-chip stack"><div class="row"><strong>KR</strong><span class="badge warn">FX</span></div><p class="metric-sm">AUD 5.2K</p><p class="muted">Partial conversion</p><p class="muted">Weight 2.9%</p></div>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header"><div><span class="eyebrow">Scoped trend</span><h2>Selected market performance</h2></div><span class="badge">scope=US</span></div>
+            <div class="card-content">
+              <div class="chart">
+                <div class="bar muted" style="height:30%"></div>
+                <div class="bar" style="height:39%"></div>
+                <div class="bar" style="height:47%"></div>
+                <div class="bar good" style="height:55%"></div>
+                <div class="bar good" style="height:63%"></div>
+                <div class="bar good" style="height:72%"></div>
+                <div class="bar good" style="height:78%"></div>
+                <div class="bar bad" style="height:58%"></div>
+                <div class="bar" style="height:66%"></div>
+                <div class="bar good" style="height:75%"></div>
+                <div class="bar good" style="height:82%"></div>
+                <div class="bar good" style="height:88%"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header"><div><span class="eyebrow">Leaders</span><h2>Top holdings by market</h2></div></div>
+            <div class="card-content stack">
+              <div class="list-row"><span>US winner: NVDA</span><strong class="positive">+2.4%</strong></div>
+              <div class="list-row"><span>TW largest: 0050</span><strong>15.7%</strong></div>
+              <div class="list-row"><span>AU income: BHP</span><strong>AUD 180</strong></div>
+              <div class="list-row"><span>KR blocked by FX</span><strong class="warning">Partial</strong></div>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Market comparison</span>
+              <h2>Sticky header and sticky first column on desktop</h2>
+            </div>
+            <span class="badge">Bounded rows</span>
+          </div>
+          <div class="card-content">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Market</th><th>Native currency</th><th>Value</th><th>Cost</th><th>PnL</th><th>Daily</th><th>Return</th><th>Top 5</th><th>Quote health</th><th>FX</th></tr></thead>
+                <tbody>
+                  <tr><td>US</td><td>USD</td><td>AUD 84,100</td><td>AUD 68,010</td><td class="positive">+AUD 16,090</td><td class="positive">+1.2%</td><td class="positive">+23.7%</td><td>72%</td><td>Current</td><td>Complete</td></tr>
+                  <tr><td>TW</td><td>TWD</td><td>AUD 72,300</td><td>AUD 68,900</td><td class="positive">+AUD 3,400</td><td class="negative">-0.3%</td><td class="positive">+4.9%</td><td>64%</td><td>Current</td><td>Complete</td></tr>
+                  <tr><td>AU</td><td>AUD</td><td>AUD 20,800</td><td>AUD 19,940</td><td class="positive">+AUD 860</td><td class="positive">+0.4%</td><td class="positive">+4.3%</td><td>81%</td><td>Current</td><td>Native</td></tr>
+                  <tr><td>KR</td><td>KRW</td><td>AUD 5,250</td><td>-</td><td class="warning">FX partial</td><td>-</td><td>-</td><td>100%</td><td>Stale</td><td>Partial</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mobile-list">
+              <div class="mobile-card"><div class="row"><strong>US / USD</strong><span class="badge good">Best today</span></div><div class="row"><span>AUD 84.1K</span><strong class="positive">+1.2%</strong></div><span class="muted">Tap to open holdings, quote health, and scoped performance.</span></div>
+              <div class="mobile-card"><div class="row"><strong>TW / TWD</strong><span class="badge good">Current</span></div><div class="row"><span>AUD 72.3K</span><strong class="negative">-0.3%</strong></div><span class="muted">Tap to inspect top holdings and concentration.</span></div>
+              <div class="mobile-card"><div class="row"><strong>KR / KRW</strong><span class="badge warn">FX partial</span></div><div class="row"><span>AUD 5.2K</span><strong class="warning">Blocked metrics</strong></div><span class="muted">Tap to see missing FX and stale quote diagnostics.</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section id="portfolio-loading-report" class="report grid">
+        <div class="refresh-note">
+          <span>Portfolio primary data is restored immediately from cache. Server primary refresh replaces cards when it returns; enrichment loads after first paint.</span>
+          <span class="badge warn">Stale 2m ago</span>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Portfolio</span>
+              <h2>Cards visible before holdings finish</h2>
+            </div>
+            <div class="action-row">
+              <span class="button primary">Refresh page</span>
+              <span class="badge good">Primary visible</span>
+            </div>
+          </div>
+          <div class="card-content grid grid-4">
+            <div class="stack">
+              <span class="mini-label">Largest position</span>
+              <p class="metric-sm">NVDA</p>
+              <p class="muted">AUD 33.2K</p>
+            </div>
+            <div class="stack">
+              <span class="mini-label">Concentration</span>
+              <p class="metric-sm">18.2%</p>
+              <p class="muted">Largest holding</p>
+            </div>
+            <div class="stack">
+              <span class="mini-label">Holdings</span>
+              <p class="metric-sm">84</p>
+              <p class="muted">4 markets</p>
+            </div>
+            <div class="stack">
+              <span class="mini-label">Quote coverage</span>
+              <p class="metric-sm warning">Refreshing</p>
+              <p class="muted">Enrichment pending</p>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Holdings primary</span>
+                <h2>Server-seeded table with sticky header</h2>
+              </div>
+              <span class="button">Refresh holdings</span>
+            </div>
+            <div class="card-content">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Holding</th><th>Market</th><th>Quantity</th><th>Avg cost</th><th>Cost</th><th>Value</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td>NVDA</td><td>US</td><td>18</td><td>USD 605.25</td><td>AUD 24,100</td><td>AUD 33,215</td><td>Primary + quote</td></tr>
+                    <tr><td>0050</td><td>TW</td><td>12,000</td><td>TWD 122.40</td><td>AUD 26,480</td><td>AUD 28,632</td><td>Primary + quote</td></tr>
+                    <tr><td>BHP</td><td>AU</td><td>410</td><td>AUD 43.10</td><td>AUD 17,671</td><td>AUD 16,095</td><td>Primary + quote</td></tr>
+                    <tr><td>005930</td><td>KR</td><td>90</td><td>KRW 74,000</td><td>-</td><td>AUD 5,205</td><td>FX partial</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="mobile-list">
+                <div class="mobile-card"><div class="row"><strong>NVDA / US</strong><span class="badge good">Cached</span></div><div class="row"><span>AUD 33.2K</span><strong>18 shares</strong></div><span class="muted">Tap for exact cost, quote, and account detail.</span></div>
+                <div class="mobile-card"><div class="row"><strong>0050 / TW</strong><span class="badge good">Cached</span></div><div class="row"><span>AUD 28.6K</span><strong>12,000 units</strong></div><span class="muted">Tap opens detail sheet instead of a wide table.</span></div>
+                <div class="mobile-card"><div class="row"><strong>005930 / KR</strong><span class="badge warn">FX partial</span></div><div class="row"><span>AUD 5.2K</span><strong>90 shares</strong></div><span class="muted">Detail sheet explains missing conversion data.</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Secondary enrichment</span>
+                <h2>Quotes, dividends, and freshness load later</h2>
+              </div>
+              <span class="badge warn">Loading</span>
+            </div>
+            <div class="card-content stack">
+              <div class="skeleton-block"></div>
+              <div class="skeleton-line" style="width:82%"></div>
+              <div class="skeleton-line" style="width:63%"></div>
+              <div class="callout">The holdings table stays visible while quote/freshness and dividend widgets refresh. Failed enrichment keeps primary content mounted.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="ticker-report" class="report grid">
+        <div class="refresh-note">
+          <span>Ticker primary restores from cache on return navigation. Chart, fundamentals, dividends, and provider metadata are secondary enrichment.</span>
+          <span class="badge good">Primary ready</span>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Ticker detail</span>
+              <h2>NVIDIA (NVDA)</h2>
+            </div>
+            <div class="action-row">
+              <span class="badge good">US · USD</span>
+              <span class="button">Refresh ticker</span>
+            </div>
+          </div>
+          <div class="card-content split">
+            <div class="stack">
+              <p class="metric">USD 1,245.20</p>
+              <p class="positive metric-sm">+USD 28.40 · +2.34%</p>
+              <p class="muted">Quote status shown immediately. Expensive chart/fundamentals enrichment does not block position summary.</p>
+              <div class="grid grid-3">
+                <div class="market-chip stack"><span class="mini-label">Quantity</span><strong>18</strong><span class="muted">All accounts</span></div>
+                <div class="market-chip stack"><span class="mini-label">Average cost</span><strong>USD 605.25</strong><span class="muted">Server projection</span></div>
+                <div class="market-chip stack"><span class="mini-label">Market value</span><strong>USD 22,413.60</strong><span class="muted">Exact detail</span></div>
+              </div>
+            </div>
+            <div class="card" style="box-shadow:none">
+              <div class="card-content stack">
+                <span class="eyebrow">Primary account breakdown</span>
+                <div class="list-row"><span>Main broker</span><strong>12 shares</strong></div>
+                <div class="list-row"><span>Retirement</span><strong>6 shares</strong></div>
+                <div class="list-row"><span>Realized P&L</span><strong class="positive">USD 1,430.50</strong></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Chart enrichment</span>
+                <h2>Server snapshot series</h2>
+              </div>
+              <span class="button">Refresh chart</span>
+            </div>
+            <div class="card-content">
+              <div class="chart">
+                <div class="bar muted" style="height:34%"></div>
+                <div class="bar" style="height:42%"></div>
+                <div class="bar" style="height:49%"></div>
+                <div class="bar good" style="height:53%"></div>
+                <div class="bar good" style="height:58%"></div>
+                <div class="bar good" style="height:63%"></div>
+                <div class="bar" style="height:60%"></div>
+                <div class="bar good" style="height:70%"></div>
+                <div class="bar good" style="height:78%"></div>
+                <div class="bar good" style="height:82%"></div>
+                <div class="bar good" style="height:88%"></div>
+                <div class="bar good" style="height:94%"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Enrichment queue</span>
+                <h2>Secondary panels</h2>
+              </div>
+              <span class="badge warn">Refreshing</span>
+            </div>
+            <div class="card-content stack">
+              <div class="list-row"><span>Fundamentals</span><strong class="warning">Loading</strong></div>
+              <div class="list-row"><span>Dividends</span><strong>Cached</strong></div>
+              <div class="list-row"><span>Provider metadata</span><strong class="warning">Pending</strong></div>
+              <div class="callout">Fallback chart/cost-basis reconstruction from raw transactions is not used for formal reporting. Missing server snapshot data shows an empty or limited chart state.</div>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Transaction preview</span>
+              <h2>Bounded primary rows</h2>
+            </div>
+            <span class="badge">First 8 rows</span>
+          </div>
+          <div class="card-content">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Account</th><th>Side</th><th>Qty</th><th>Unit price</th><th>Fees</th><th>Realized P&L</th></tr></thead>
+                <tbody>
+                  <tr><td>2026-05-16</td><td>Main broker</td><td>BUY</td><td>4</td><td>USD 922.10</td><td>USD 2.40</td><td>-</td></tr>
+                  <tr><td>2026-04-02</td><td>Retirement</td><td>BUY</td><td>6</td><td>USD 811.75</td><td>USD 3.10</td><td>-</td></tr>
+                  <tr><td>2026-02-11</td><td>Main broker</td><td>SELL</td><td>2</td><td>USD 740.00</td><td>USD 2.00</td><td class="positive">USD 390.20</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mobile-list">
+              <div class="mobile-card"><div class="row"><strong>BUY · 2026-05-16</strong><span>4 shares</span></div><div class="row"><span>USD 922.10</span><strong>Main broker</strong></div></div>
+              <div class="mobile-card"><div class="row"><strong>SELL · 2026-02-11</strong><span>2 shares</span></div><div class="row"><span>USD 740.00</span><strong class="positive">USD 390.20</strong></div></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <div class="drawer-preview" id="drawer-preview">
+        <div class="row">
+          <div>
+            <strong id="drawer-title">Detail drawer</strong>
+            <p class="muted" id="drawer-copy">Mobile rows open this drawer instead of forcing table scrolling.</p>
+          </div>
+          <span class="badge">Mobile</span>
+        </div>
+      </div>
+      <div class="mobile-safe-space"></div>
+    </div>
+  </main>
+
+  <script>
+    const report = new URLSearchParams(window.location.search).get("report") || "daily";
+    const titles = {
+      dashboard: ["Dashboard", "Daily command surface with hero currency, per-market strip, and compact action signals."],
+      daily: ["Daily Review", "Operational scan for what changed and what needs attention today."],
+      portfolio: ["Portfolio Report", "Comprehensive portfolio report with performance, allocation, income, health, and bounded holdings detail."],
+      market: ["Market Report", "Full multi-market analysis with scoped performance, native/reporting currency behavior, and per-market detail."],
+      "portfolio-loading": ["Portfolio Loading", "Progressive first paint with cached primary cards, server refresh, and secondary enrichment."],
+      ticker: ["Ticker Detail", "Fast ticker primary view with enrichment panels loading independently."]
+    };
+    const drawer = {
+      dashboard: ["Dashboard detail", "Hero and compact cards deep-link into Daily Review, Portfolio Report, and Market Report."],
+      daily: ["Today action detail", "Shows missing FX, stale quotes, dividend review, and links into report sections."],
+      portfolio: ["Holding detail", "Shows accounts, quote status, allocation, PnL, dividends, and conversion state for a tapped holding."],
+      market: ["Market detail", "Shows native currency, converted value, scoped performance, top holdings, and FX/quote health."],
+      "portfolio-loading": ["Holding detail sheet", "Mobile cards open detail sheets while holdings remain visible during silent refresh."],
+      ticker: ["Ticker detail sheet", "Mobile rows reveal exact transactions and enrichment status without blocking the primary view."]
+    };
+
+    document.querySelectorAll(".report").forEach((el) => {
+      el.style.display = el.id === `${report}-report` ? "grid" : "none";
+    });
+    document.querySelectorAll(".tab").forEach((el) => {
+      el.classList.toggle("active", el.dataset.tab === report);
+    });
+    document.getElementById("page-title").textContent = titles[report][0];
+    document.getElementById("page-subtitle").textContent = titles[report][1];
+    document.getElementById("drawer-title").textContent = drawer[report][0];
+    document.getElementById("drawer-copy").textContent = drawer[report][1];
+    document.getElementById("scope-value").textContent = report === "market"
+      ? "All markets / US selected"
+      : report === "ticker"
+        ? "NVDA / US"
+        : "All markets";
+  </script>
+</body>
+</html>
