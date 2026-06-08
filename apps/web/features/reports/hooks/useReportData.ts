@@ -41,6 +41,7 @@ export function useReportData({
   const [errorMessage, setErrorMessage] = useState("");
   const [restoredFromCache, setRestoredFromCache] = useState(initialReport === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const initialCacheScopeRef = useRef(cacheScope);
   const requestVersionRef = useRef(0);
 
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
@@ -72,7 +73,10 @@ export function useReportData({
   }, [cacheKey, state]);
 
   useEffect(() => {
-    const shouldUseInitialReport = initialReport !== null && reportMatchesState(initialReport, state);
+    const shouldUseInitialReport = initialReport !== null
+      && contextRefreshSignal === 0
+      && initialCacheScopeRef.current === cacheScope
+      && reportMatchesState(initialReport, state);
     const cached = shouldUseInitialReport ? null : readRouteDtoCache<AnyReportDto>(cacheKey);
     if (shouldUseInitialReport) {
       setData(initialReport);
