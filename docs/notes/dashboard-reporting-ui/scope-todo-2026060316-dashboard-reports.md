@@ -148,13 +148,15 @@ superseded_by: null
 
 ## Follow-up Issue Fixes — 2026-06-08
 
-- [x] Dashboard holdings preview now shows reporting-currency prices/values as the primary read, uses compact K/M value labels, and exposes native ticker price plus FX rate through tooltip/sheet detail instead of the old dense dashboard holdings table.
+- [x] Dashboard holdings preview now shows reporting-currency prices/values as the primary read, uses compact K/M value labels where space is tight, and exposes native ticker price plus FX rate through tooltip/popover/sheet detail.
+- [x] Dashboard holdings preview now uses a mobile card layout plus a richer desktop table with search, market filter, value/daily/P&L/ticker sorting, sticky header, sticky first column, ticker links, and detail actions.
 - [x] Dashboard hero shows the active reporting currency and resolved FX conversion rows when mixed-market holdings require conversion.
 - [x] Reports show resolved FX conversion rows from the report DTO, not only aggregate FX status.
 - [x] Report cards and detail rows link tickers to `/tickers/{ticker}?marketCode={market}` so Top holdings, Market detail, and holding detail cards can open ticker pages.
-- [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes for positive/negative/neutral values.
+- [x] Report holding rows now include explicit native currency price/value fields, reporting price fields, and row-level FX rate so report cards/tables can disclose original price when reporting currency differs.
+- [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes plus signed money/percent labels for positive/negative/neutral values.
 - [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget and renders the client shell with cache/silent refresh when the active scoped report is slow.
-- [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty.
+- [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty, and each connector shows inherited/default/override tool availability instead of hiding the catalog behind saved overrides.
 
 ## Open Items
 
@@ -165,8 +167,10 @@ superseded_by: null
 - [x] `/dividends`, `/cash-ledger`, and `/settings/accounts` page-performance tuning remains out of this PR except for report data dependencies.
 - [ ] `/settings/fee-config` still uses `loadUserStore`; optimize in a follow-up unless this release needs it to meet transaction/portfolio first-paint goals.
 - [ ] `/dashboard/primary`, `/portfolio/primary`, and `/transactions/primary` may still need narrow Postgres projections after this scope stabilizes. Do targeted read-model optimization where feasible, but do not rewrite accounting projections wholesale in this PR.
+- [ ] Scoped report performance still needs a narrow Postgres projection follow-up once the report contract is stable. This branch removed the serial snapshot bottleneck by using bounded parallel scoped `(accountId, ticker)` snapshot fetches, short-circuiting empty scoped histories, and memoizing per-date FX lookups, but it still calls `getHoldingSnapshotsForTicker()` per scoped pair instead of a single report-specific projection query.
 - [x] Existing mockups remain durable. Regenerate screenshots only if implementation materially diverges from the locked UI structure.
-- [ ] Dashboard holdings preview currently derives the displayed converted unit price as `reportingMarketValueAmount / quantity` because the dashboard holding-group DTO does not yet expose an explicit server `reportingUnitPriceAmount`. Add a dedicated DTO field if downstream consumers need auditable per-share converted price lineage.
+- [ ] Dashboard holdings preview currently derives the displayed converted unit price as `reportingMarketValueAmount / quantity` because the dashboard holding-group DTO does not yet expose an explicit server `reportingUnitPriceAmount`. Formal report rows now expose explicit reporting/native unit price fields; add the same dedicated dashboard DTO field if downstream consumers need auditable per-share converted price lineage on the dashboard.
+- [x] Dashboard holdings preview UX/test-selector refinements are validated. Focused web component coverage and affected dashboard/mobile E2E assertions passed from the main session after the preview-root selector, daily-change/no-market-data copy, native-price disclosure, and E2E page-object updates.
 
 ## Verification Log
 
@@ -199,6 +203,32 @@ superseded_by: null
   - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx test/app/reports/reportsPage.test.tsx` from `apps/web`
   - `npm run typecheck`
   - `npx eslint .`
+- [x] Follow-up issue validation after holdings/report-performance polish:
+  - `npx vitest run test/integration/reports.integration.test.ts` from `apps/api`
+  - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web`
+  - `npx eslint apps/api/src/services/reports.ts apps/api/test/integration/reports.integration.test.ts apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/reports/ReportsClient.tsx apps/web/test/components/reports/ReportsClient.test.tsx libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts libs/test-e2e/src/pages/dashboard/DashboardPage.ts`
+  - `npm run typecheck`
+  - `npx playwright test --config=tests/e2e/playwright.config.ts tests/e2e/specs/dashboard-daily-change-aaa.spec.ts` from `apps/web`
+  - `npx playwright test --config=tests/e2e/playwright.config.ts tests/e2e/specs/mobile-tables-aaa.spec.ts` from `apps/web`
+- [x] Follow-up issue validation after native-price/report-connector polish:
+  - `npx vitest run test/integration/reports.integration.test.ts` from `apps/api`
+  - `npx vitest run test/components/reports/ReportsClient.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx test/features/dashboard/components.test.tsx` from `apps/web`
+  - `npx eslint apps/api/src/services/reports.ts apps/api/test/integration/reports.integration.test.ts libs/shared-types/src/index.ts apps/web/components/reports/ReportsClient.tsx apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/settings/AiConnectorsSettingsClient.tsx apps/web/test/components/reports/ReportsClient.test.tsx apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx apps/web/test/features/dashboard/components.test.tsx`
+  - `npm run typecheck`
+- [x] Follow-up code review/SI/doc pass:
+  - `code-reviewer/scripts/pr_analyzer.py --base dev --json`; manually cleared test-only secret and client-link false positives.
+  - Updated `docs/004-notes/dashboard-reporting-ui/review-20260608-dashboard-reporting-ui.md` with fixed follow-up review findings.
+  - `/si-review` found the existing `reporting-server-authoritative-dtos.md` promotion covers the currency-labeling failure class; no new rule was warranted beyond the already-promoted 2026-06-08 addendum.
+- [x] 2026-06-08 local full-gate rerun after native-price/report-connector polish:
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 514 tests.
+  - `npm run test --prefix apps/api` passed: 1,476 tests, 410 skipped.
+  - `npm run test:integration:full:host` passed: 799 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits after the managed integration/e2e gates found no orphan app/test runners; only the expected local gateway and system Postgres listeners remained.
 
 ## Mockups
 

@@ -151,7 +151,7 @@ describe("AiConnectorsSettingsClient", () => {
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
-    expect(document.body.textContent).toContain("No tool-level overrides.");
+    expect(document.body.textContent).toContain("All tools inherit policy defaults");
     const accountLabel = Array.from(document.querySelectorAll("label"))
       .find((candidate) => candidate.textContent?.includes("Manage accounts"));
     expect(accountLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");
@@ -188,7 +188,27 @@ describe("AiConnectorsSettingsClient", () => {
     expect(document.body.textContent).toContain("get_daily_review_report");
     expect(document.body.textContent).toContain("get_portfolio_report");
     expect(document.body.textContent).toContain("get_market_report");
-    expect(document.body.textContent).toContain("No tool-level overrides.");
+    expect(document.body.textContent).toContain("Connection tools");
+    expect(document.body.textContent).toContain("Inherited default");
+  });
+
+  it("renders the MCP tool catalog even when no connectors are connected", async () => {
+    const response: AiConnectorSummaryResponse = {
+      connections: [],
+      policy: buildPolicy(),
+      toolCatalog: [
+        buildToolCatalogEntry({ name: "get_daily_review_report" }),
+      ],
+    };
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+
+    expect(document.querySelector("[data-testid='ai-connector-tool-catalog']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Available MCP tools");
+    expect(document.body.textContent).toContain("get_daily_review_report");
+    expect(document.body.textContent).toContain("No AI connectors are connected.");
   });
 
   it("loads access logs after connector summary renders", async () => {

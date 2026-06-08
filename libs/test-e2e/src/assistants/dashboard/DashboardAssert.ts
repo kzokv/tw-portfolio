@@ -38,7 +38,7 @@ export class DashboardAssert extends BaseAssert {
 
   @Step()
   async holdingsTableHasDailyChangeColumn(): Promise<void> {
-    await expect(this.el.holdingsHeaderCells).toContainText([/daily change/i]);
+    await expect(this.el.holdingsHeaderCells.first()).toContainText(/daily change/i);
   }
 
   @Step()
