@@ -64,6 +64,8 @@ import {
   getRecentTransactions,
   searchInstruments,
 } from "../services/mcpPortfolioRead.js";
+import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
+import type { BuildReportInput } from "../services/reports.js";
 
 interface RegisterMcpRoutesOptions {
   authService?: McpAuthService;
@@ -114,6 +116,15 @@ function extractPendingContext(extra: unknown): PendingToolRequestContext | unde
   const extraPayload = (authInfo as { extra?: unknown }).extra;
   if (!extraPayload || typeof extraPayload !== "object") return undefined;
   return (extraPayload as { pendingContext?: PendingToolRequestContext }).pendingContext;
+}
+
+function toReportInput(args: unknown): BuildReportInput {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+  const input = args as BuildReportInput & { reportingCurrency?: string };
+  return {
+    ...input,
+    currency: input.currency ?? input.reportingCurrency,
+  };
 }
 
 export async function registerMcpRoutes(
@@ -235,6 +246,27 @@ export async function registerMcpRoutes(
           result = await getDividendsOverview(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
             args as { reportingCurrency?: never; locale?: string },
+          );
+          break;
+        case "get_daily_review_report":
+          result = await buildDailyReviewReport(
+            app,
+            requestContext.resolvedContext.portfolioContextUserId,
+            toReportInput(args),
+          );
+          break;
+        case "get_portfolio_report":
+          result = await buildPortfolioReport(
+            app,
+            requestContext.resolvedContext.portfolioContextUserId,
+            toReportInput(args),
+          );
+          break;
+        case "get_market_report":
+          result = await buildMarketReport(
+            app,
+            requestContext.resolvedContext.portfolioContextUserId,
+            toReportInput(args),
           );
           break;
         case "get_quote_freshness":

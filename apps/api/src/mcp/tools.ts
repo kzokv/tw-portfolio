@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ACCOUNT_DEFAULT_CURRENCIES, MARKET_CODES, type AiConnectorAccessKind, type AiConnectorScope } from "@vakwen/shared-types";
+import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  MARKET_CODES,
+  REPORT_CURRENCY_MODES,
+  REPORT_SCOPES,
+  type AiConnectorAccessKind,
+  type AiConnectorScope,
+} from "@vakwen/shared-types";
 
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
@@ -49,6 +56,8 @@ const currencyCodeSchema = z
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 const marketCodeSchema = z.enum(MARKET_CODES);
+const reportScopeSchema = z.enum(REPORT_SCOPES);
+const reportCurrencyModeSchema = z.enum(REPORT_CURRENCY_MODES);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
@@ -153,6 +162,48 @@ const toolDefinitions = {
   get_dividends_overview: {
     description: `Return descriptive upcoming and recent dividend information for the selected portfolio context. ${adviceBoundary}`,
     inputSchema: z.object({ ...mcpSharedInputShape }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  get_daily_review_report: {
+    description: `Return a descriptive daily review report with bounded holdings detail and deterministic observations only. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      scope: reportScopeSchema.optional(),
+      currencyMode: reportCurrencyModeSchema.optional(),
+      currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
+      range: z.string().trim().min(1).max(20).optional(),
+      limit: z.number().int().positive().max(100).default(25),
+      offset: z.number().int().min(0).default(0),
+    }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  get_portfolio_report: {
+    description: `Return a descriptive portfolio report with summary, performance, allocation, concentration, income, and bounded holdings detail. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      scope: reportScopeSchema.optional(),
+      currencyMode: reportCurrencyModeSchema.optional(),
+      currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
+      range: z.string().trim().min(1).max(20).optional(),
+      limit: z.number().int().positive().max(100).default(25),
+      offset: z.number().int().min(0).default(0),
+    }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  get_market_report: {
+    description: `Return a descriptive market report with scoped performance support and bounded detail rows. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      scope: reportScopeSchema.optional(),
+      currencyMode: reportCurrencyModeSchema.optional(),
+      currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
+      range: z.string().trim().min(1).max(20).optional(),
+      limit: z.number().int().positive().max(100).default(25),
+      offset: z.number().int().min(0).default(0),
+    }),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },
