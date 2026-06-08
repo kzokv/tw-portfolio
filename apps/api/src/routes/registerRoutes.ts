@@ -31,6 +31,8 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
   MarketCode as SharedMarketCode,
+  TickerEnrichmentDto,
+  TickerPrimaryDto,
   ShareCapability,
   ShellPortfolioConfigDto,
   TransactionAiInboxBadgeDto,
@@ -46,6 +48,8 @@ import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
   MARKET_FILTER_CODES,
+  REPORT_CURRENCY_MODES,
+  REPORT_SCOPES,
   dashboardPerformanceRangesSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
@@ -108,6 +112,7 @@ import {
 import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
+import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -1693,6 +1698,15 @@ async function buildQuoteSnapshotInputs(
   }
   return { pairs, settledByMarket };
 }
+
+const reportQuerySchema = z.object({
+  scope: z.enum(REPORT_SCOPES).optional(),
+  currencyMode: z.enum(REPORT_CURRENCY_MODES).optional(),
+  currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
+  range: z.string().trim().min(1).max(20).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
 
 function mapPortfolioInstrumentOptions(store: Store): InstrumentOptionDto[] {
   return listTransactionInstruments(store.instruments)
@@ -4418,6 +4432,102 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return listHoldings(store, userId);
   });
 
+  app.get("/tickers/:ticker/primary", async (req): Promise<TickerPrimaryDto> => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = z.object({
+      accountId: userScopedIdSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
+    }).parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const resolvedTicker = params.ticker.trim().toUpperCase();
+    const { details } = await buildTickerDetails({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: resolvedTicker,
+      accountId: query.accountId,
+      marketCode: query.marketCode,
+      fundamentalsRecord: null,
+      getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+    });
+    return {
+      identity: details.identity,
+      quote: details.quote,
+      position: details.position,
+      transactions: details.transactions,
+      dividends: details.dividends,
+      holdingGroup: details.holdingGroup,
+      accountBreakdown: details.accountBreakdown,
+    };
+  });
+
+  app.get("/tickers/:ticker/enrichment", async (req): Promise<TickerEnrichmentDto> => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = z.object({
+      accountId: userScopedIdSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
+    }).parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const resolvedTicker = params.ticker.trim().toUpperCase();
+    const preferredMarketCode = query.marketCode
+      ?? (query.accountId
+        ? (() => {
+          const account = store.accounts.find((item) => item.id === query.accountId);
+          return account ? marketCodeFor(account.defaultCurrency) : undefined;
+        })()
+        : undefined);
+    const fundamentalsRecord = preferredMarketCode
+      ? await app.persistence.getTickerFundamentals(resolvedTicker, preferredMarketCode)
+      : null;
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: resolvedTicker,
+      accountId: query.accountId,
+      marketCode: query.marketCode,
+      fundamentalsRecord,
+      getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+    });
+    const latestFundamentals = preferredMarketCode === marketCode
+      ? fundamentalsRecord
+      : await app.persistence.getTickerFundamentals(resolvedTicker, marketCode);
+    const response = {
+      identity: details.identity,
+      chart: details.chart,
+      fundamentals: latestFundamentals?.fundamentals ?? details.fundamentals,
+      fundamentalsRefresh: latestFundamentals
+        ? {
+          providerId: latestFundamentals.providerId,
+          refreshedAt: latestFundamentals.refreshedAt,
+          nextRefreshAt: latestFundamentals.nextRefreshAt,
+          lastAttemptedAt: latestFundamentals.lastAttemptedAt,
+          lastError: latestFundamentals.lastError,
+          status: !latestFundamentals.refreshedAt
+            ? "missing" as const
+            : latestFundamentals.nextRefreshAt && latestFundamentals.nextRefreshAt <= new Date().toISOString()
+              ? "stale" as const
+              : "fresh" as const,
+        }
+        : details.fundamentalsRefresh,
+    };
+
+    scheduleTickerFundamentalsRefresh(
+      {
+        persistence: app.persistence,
+        fundamentalsRegistry: app.fundamentalsRegistry,
+        log: app.log,
+      },
+      {
+        ticker: resolvedTicker,
+        marketCode,
+        current: latestFundamentals ?? fundamentalsRecord,
+      },
+    );
+
+    return response;
+  });
+
   app.get("/tickers/:ticker/details", async (req) => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = z.object({
@@ -4644,6 +4754,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         store,
         quotes,
       ));
+    });
+  });
+
+  app.get("/reports/daily-review", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/reports/daily-review", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const query = reportQuerySchema.parse(req.query);
+      return timing.measure("build_daily_review_report", "app", () => buildDailyReviewReport(app, userId, query));
+    });
+  });
+
+  app.get("/reports/portfolio", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/reports/portfolio", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const query = reportQuerySchema.parse(req.query);
+      return timing.measure("build_portfolio_report", "app", () => buildPortfolioReport(app, userId, query));
+    });
+  });
+
+  app.get("/reports/market", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/reports/market", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const query = reportQuerySchema.parse(req.query);
+      return timing.measure("build_market_report", "app", () => buildMarketReport(app, userId, query));
     });
   });
 

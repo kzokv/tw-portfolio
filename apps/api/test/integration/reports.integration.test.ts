@@ -1,0 +1,460 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { signSessionCookie } from "../../src/auth/googleOAuth.js";
+import { buildApp } from "../../src/app.js";
+let app: Awaited<ReturnType<typeof buildApp>>;
+let cookieHeader: string;
+let userId: string;
+
+const testOAuthConfig = {
+  clientId: "test-client",
+  clientSecret: "test-secret",
+  redirectUri: "http://localhost:4000/auth/google/callback",
+  sessionSecret: "test-session-secret-that-is-long-enough-32chars!!",
+};
+
+describe("report routes", () => {
+  beforeEach(async () => {
+    app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
+    const authUser = await app.persistence.resolveOrCreateUser("google", "reports-test-user", {
+      email: "reports-test-user@example.com",
+      name: "Reports Test User",
+    });
+    userId = authUser.userId;
+    const user = await app.persistence.getAuthUserById(userId);
+    if (!user) throw new Error("expected seeded auth user");
+    cookieHeader = `g_auth_session=${signSessionCookie(userId, testOAuthConfig.sessionSecret, user.sessionVersion)}`;
+  });
+
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  it("serves daily review, portfolio, and market reports with bounded holdings detail", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-trade-1",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-02",
+        open: 100,
+        high: 104,
+        low: 99,
+        close: 103,
+        volume: 10_000,
+        source: "test",
+        ingestedAt: "2026-06-02T10:00:00.000Z",
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-03",
+        open: 103,
+        high: 106,
+        low: 102,
+        close: 105,
+        volume: 12_000,
+        source: "test",
+        ingestedAt: "2026-06-03T10:00:00.000Z",
+      },
+    ]);
+
+    const dailyReview = await app.inject({
+      method: "GET",
+      url: "/reports/daily-review?scope=TW&limit=1",
+      headers: { cookie: cookieHeader },
+    });
+    expect(dailyReview.statusCode).toBe(200);
+    expect(dailyReview.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "TW",
+        reportingCurrency: "TWD",
+      }),
+      summary: expect.objectContaining({
+        costBasisAmount: expect.any(Number),
+      }),
+      holdings: expect.objectContaining({
+        total: 1,
+        limit: 1,
+        rows: [
+          expect.objectContaining({
+            ticker: "2330",
+            marketCode: "TW",
+          }),
+        ],
+      }),
+    }));
+
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+    expect(portfolioReport.statusCode).toBe(200);
+    expect(portfolioReport.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "all",
+        range: "1Y",
+      }),
+      allocation: expect.objectContaining({
+        byMarket: expect.arrayContaining([
+          expect.objectContaining({ key: "TW" }),
+        ]),
+      }),
+      concentration: expect.objectContaining({
+        topHoldings: expect.arrayContaining([
+          expect.objectContaining({ ticker: "2330" }),
+        ]),
+      }),
+    }));
+
+    const marketReport = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=TW&limit=1",
+      headers: { cookie: cookieHeader },
+    });
+    expect(marketReport.statusCode).toBe(200);
+    expect(marketReport.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "TW",
+        reportingCurrency: "TWD",
+      }),
+      detail: expect.objectContaining({
+        limit: 1,
+        rows: [
+          expect.objectContaining({
+            ticker: "2330",
+          }),
+        ],
+      }),
+    }));
+  });
+
+  it("scopes market reports by holding market instead of account currency", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const accountFeeProfile = {
+      ...feeProfile,
+      id: "fp-usd-au",
+      accountId: "acc-usd-au",
+      name: "USD AU Broker Fee",
+    };
+    store.feeProfiles.push(accountFeeProfile);
+    store.accounts.push({
+      id: "acc-usd-au",
+      userId,
+      name: "USD Broker With AU Holding",
+      feeProfileId: accountFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.instruments.push({
+      ticker: "BHP",
+      type: "STOCK",
+      marketCode: "AU",
+      isProvisional: false,
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-usd-au",
+      ticker: "BHP",
+      quantity: 8,
+      costBasisAmount: 320,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-au-trade-1",
+      userId,
+      accountId: "acc-usd-au",
+      ticker: "BHP",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 8,
+      unitPrice: 40,
+      priceCurrency: "AUD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: accountFeeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const marketReport = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=AU&currencyMode=auto&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(marketReport.statusCode).toBe(200);
+    expect(marketReport.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "AU",
+        reportingCurrency: "AUD",
+      }),
+      detail: expect.objectContaining({
+        rows: expect.arrayContaining([
+          expect.objectContaining({
+            ticker: "BHP",
+            marketCode: "AU",
+            reportingCurrency: "AUD",
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it("keeps same-ticker realized P&L scoped to the selected market", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.instruments.push(
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "AU",
+        isProvisional: false,
+      },
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    );
+    store.accounting.projections.holdings.push(
+      {
+        accountId: "acc-1",
+        ticker: "BHP",
+        quantity: 8,
+        costBasisAmount: 320,
+        currency: "AUD",
+      },
+      {
+        accountId: "acc-1",
+        ticker: "BHP",
+        quantity: 3,
+        costBasisAmount: 180,
+        currency: "USD",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-au-sell-1",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 45,
+        priceCurrency: "AUD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-01T09:00:00.000Z",
+        realizedPnlAmount: 10,
+        realizedPnlCurrency: "AUD",
+      },
+      {
+        id: "report-us-sell-1",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 90,
+        priceCurrency: "AUD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T09:01:00.000Z",
+        bookingSequence: 2,
+        bookedAt: "2026-06-01T09:01:00.000Z",
+        realizedPnlAmount: 999,
+        realizedPnlCurrency: "AUD",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const marketReport = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=AU&currencyMode=specified&currency=AUD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(marketReport.statusCode).toBe(200);
+    expect(marketReport.json()).toEqual(expect.objectContaining({
+      summary: expect.objectContaining({
+        realizedPnlAmount: 10,
+      }),
+      detail: expect.objectContaining({
+        rows: [
+          expect.objectContaining({
+            ticker: "BHP",
+            marketCode: "AU",
+            reportingCurrency: "AUD",
+          }),
+        ],
+      }),
+    }));
+  });
+
+  it("splits ticker primary and enrichment payloads", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 4,
+      costBasisAmount: 400,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-ticker-trade-1",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 4,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-03",
+        open: 100,
+        high: 102,
+        low: 99,
+        close: 101,
+        volume: 8_000,
+        source: "test",
+        ingestedAt: "2026-06-03T10:00:00.000Z",
+      },
+    ]);
+
+    const primary = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/primary?accountId=acc-1",
+      headers: { cookie: cookieHeader },
+    });
+    expect(primary.statusCode).toBe(200);
+    expect(primary.json()).toEqual(expect.objectContaining({
+      identity: expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+      }),
+      position: expect.objectContaining({
+        quantity: 4,
+      }),
+      transactions: expect.any(Array),
+    }));
+    expect(primary.json().chart).toBeUndefined();
+    expect(primary.json().fundamentals).toBeUndefined();
+
+    const enrichment = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/enrichment?accountId=acc-1",
+      headers: { cookie: cookieHeader },
+    });
+    expect(enrichment.statusCode).toBe(200);
+    expect(enrichment.json()).toEqual(expect.objectContaining({
+      identity: expect.objectContaining({
+        ticker: "2330",
+      }),
+      chart: expect.objectContaining({
+        range: "1Y",
+      }),
+      fundamentals: expect.any(Object),
+      fundamentalsRefresh: expect.any(Object),
+    }));
+    expect(enrichment.json().position).toBeUndefined();
+    expect(enrichment.json().transactions).toBeUndefined();
+  });
+});
