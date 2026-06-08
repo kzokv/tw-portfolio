@@ -10,6 +10,18 @@ import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistory
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
 
+vi.mock("../../../features/portfolio/services/tickerDetailsService", async () => {
+  const actual = await vi.importActual<typeof import("../../../features/portfolio/services/tickerDetailsService")>(
+    "../../../features/portfolio/services/tickerDetailsService",
+  );
+  return {
+    ...actual,
+    fetchTickerDetailsEnrichment: vi.fn(),
+  };
+});
+
+import { fetchTickerDetailsEnrichment } from "../../../features/portfolio/services/tickerDetailsService";
+
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 vi.mock("recharts", () => ({
@@ -50,6 +62,7 @@ afterEach(() => {
   root = null;
   container?.remove();
   container = null;
+  vi.clearAllMocks();
 });
 
 const dict = getDictionary("en");
@@ -158,6 +171,7 @@ const details: TickerDetailsModel = {
 
 describe("TickerHistoryClient", () => {
   it("renders scoped account names instead of account ids in summary panels", () => {
+    vi.mocked(fetchTickerDetailsEnrichment).mockResolvedValue(details);
     const element = mount(
       <TickerHistoryClient
         transactions={transactions}

@@ -1,0 +1,67 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildRouteDtoCacheKey,
+  clearRouteDtoCacheByPrefix,
+  getRouteDtoCachePrefix,
+  readRouteDtoCache,
+  writeRouteDtoCache,
+} from "../../lib/routeDtoCache";
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size;
+      },
+    },
+  });
+}
+
+describe("routeDtoCache", () => {
+  beforeEach(() => {
+    installLocalStorageMock();
+    window.localStorage.clear();
+    vi.useRealTimers();
+  });
+
+  it("round-trips cached payloads with the normalized route key", () => {
+    const key = buildRouteDtoCacheKey("dashboard-primary", "self", "en");
+    writeRouteDtoCache(key, { value: 42 });
+
+    expect(readRouteDtoCache<{ value: number }>(key)).toEqual(
+      expect.objectContaining({ payload: { value: 42 } }),
+    );
+  });
+
+  it("expires cached payloads after the ttl elapses", () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const key = buildRouteDtoCacheKey("portfolio-primary", "self", "en");
+    writeRouteDtoCache(key, { value: 7 }, 1000);
+
+    vi.setSystemTime(new Date(now.getTime() + 1500));
+
+    expect(readRouteDtoCache(key)).toBeNull();
+  });
+
+  it("clears all cached entries under a shared prefix", () => {
+    const prefix = getRouteDtoCachePrefix();
+    const dashboardKey = buildRouteDtoCacheKey("dashboard-primary", "self");
+    const portfolioKey = buildRouteDtoCacheKey("portfolio-primary", "self");
+    writeRouteDtoCache(dashboardKey, { value: "dashboard" });
+    writeRouteDtoCache(portfolioKey, { value: "portfolio" });
+
+    clearRouteDtoCacheByPrefix(prefix);
+
+    expect(readRouteDtoCache(dashboardKey)).toBeNull();
+    expect(readRouteDtoCache(portfolioKey)).toBeNull();
+  });
+});

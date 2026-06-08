@@ -12,7 +12,7 @@ import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
-import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
+import { buildPrimaryTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfolio/holdingGroups";
 
 interface TickerHistoryPageProps {
@@ -83,7 +83,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     ticker,
     scopedMarketCode,
   );
-  const details = await fetchTickerDetails({
+  const details = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
     marketCode: scopedMarketCode,
@@ -91,6 +91,12 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     transactions,
     instrument,
   });
+  const initialPortfolioConfig = {
+    accounts: dashboard.accounts,
+    feeProfiles: dashboard.feeProfiles,
+    feeProfileBindings: dashboard.feeProfileBindings,
+    integrityIssue: dashboard.actions.integrityIssue,
+  };
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
@@ -98,6 +104,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
         isDemo={session.isDemo}
         localeOverride={locale}
         initialProfile={profile}
+        initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
         <TickerHistoryClient

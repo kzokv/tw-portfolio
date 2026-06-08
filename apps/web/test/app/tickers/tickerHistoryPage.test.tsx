@@ -25,10 +25,6 @@ vi.mock("../../../features/settings/services/repairService", () => ({
   fetchRepairInstrument: vi.fn(),
 }));
 
-vi.mock("../../../features/portfolio/services/tickerDetailsService", () => ({
-  fetchTickerDetails: vi.fn(),
-}));
-
 vi.mock("../../../components/layout/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div data-testid="mock-app-shell">{children}</div>,
 }));
@@ -39,14 +35,14 @@ vi.mock("../../../components/dashboard/DashboardLoading", () => ({
 
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
+    details,
     instrument,
-    statsBar,
     ticker,
     transactionAccountFilter,
     transactionMarketFilter,
   }: {
+    details: { position?: { accountScope?: string } };
     instrument: { ticker?: string } | null;
-    statsBar: React.ReactNode;
     ticker: string;
     transactionAccountFilter?: string;
     transactionMarketFilter?: string;
@@ -54,12 +50,11 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     <section
       data-testid="ticker-history-client"
       data-instrument-ticker={instrument?.ticker ?? ""}
+      data-primary-account-scope={details.position?.accountScope ?? ""}
       data-transaction-account-filter={transactionAccountFilter ?? ""}
       data-transaction-market-filter={transactionMarketFilter ?? ""}
       data-ticker={ticker}
-    >
-      {statsBar}
-    </section>
+    />
   ),
 }));
 
@@ -67,7 +62,6 @@ import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/dashboardService";
-import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import TickerHistoryPage from "../../../app/tickers/[ticker]/page";
@@ -76,7 +70,6 @@ const requireSessionMock = vi.mocked(requireSession);
 const getJsonMock = vi.mocked(getJson);
 const readSidebarStateCookieMock = vi.mocked(readSidebarStateCookie);
 const fetchDashboardPrimaryDataMock = vi.mocked(fetchDashboardPrimaryData);
-const fetchTickerDetailsMock = vi.mocked(fetchTickerDetails);
 const fetchTransactionHistoryMock = vi.mocked(fetchTransactionHistory);
 const fetchRepairInstrumentMock = vi.mocked(fetchRepairInstrument);
 
@@ -88,51 +81,13 @@ describe("TickerHistoryPage", () => {
     readSidebarStateCookieMock.mockResolvedValue(false as never);
     fetchTransactionHistoryMock.mockResolvedValue([]);
     fetchRepairInstrumentMock.mockResolvedValue(null as never);
-    fetchTickerDetailsMock.mockResolvedValue({
-      identity: {
-        ticker: "2330",
-        name: null,
-        marketCode: "TW",
-        instrumentType: null,
-        currency: "TWD",
-      },
-      quote: {
-        currentPrice: null,
-        previousClose: null,
-        changeAmount: null,
-        changePercent: null,
-        quoteStatus: "missing",
-        freshness: "current",
-        freshnessTooltip: null,
-      },
-      position: {
-        accountScope: "acc-2",
-        quantity: 0,
-        averageCost: null,
-        costBasis: null,
-        marketValue: null,
-        unrealizedPnl: null,
-        realizedPnl: 0,
-        transactionsCount: 0,
-        nextDividendDate: null,
-        lastDividendPostedDate: null,
-      },
-      chart: { points: [] },
-      stats: [],
-      dividends: {
-        upcomingCount: 0,
-        nextPaymentDate: null,
-        lastPostedDate: null,
-      },
-      fundamentals: { panels: [] },
-    } as never);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it("passes the normalized ticker scope into ticker details loading", async () => {
+  it("passes the normalized ticker scope into ticker primary rendering", async () => {
     fetchDashboardPrimaryDataMock.mockResolvedValue({
       settings: { locale: "en" },
       holdings: [],
@@ -140,6 +95,7 @@ describe("TickerHistoryPage", () => {
       instruments: [],
       accounts: [{ id: "acc-2", name: "Brokerage 2" }],
       dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
       feeProfiles: [],
       feeProfileBindings: [],
     } as never);
@@ -154,17 +110,9 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-ticker="2330"');
     expect(html).toContain('data-transaction-account-filter="acc-2"');
     expect(html).toContain('data-transaction-market-filter="TW"');
+    expect(html).toContain('data-primary-account-scope="acc-2"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
-    expect(fetchTickerDetailsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ticker: "2330",
-        accountId: "acc-2",
-        marketCode: "TW",
-        transactions: [],
-        instrument: null,
-      }),
-    );
   });
 
   it("renders the shell fallback when dashboard loading fails", async () => {

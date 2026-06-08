@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  readRouteDtoCache,
+  writeRouteDtoCache,
+} from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
 import {
   fetchPortfolioEnrichmentData,
@@ -22,11 +26,23 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
   integrityIssue: null,
 };
 
-export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | null = null) {
-  const [data, setData] = useState<PortfolioPageData>(initialPrimaryData ?? EMPTY_PORTFOLIO_PAGE_DATA);
-  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null);
+export function usePortfolioPrimaryData(
+  initialPrimaryData: PortfolioPageData | null = null,
+  cacheKey?: string,
+) {
+  const initialCachedRef = useRef<{ payload: PortfolioPageData; savedAt: number } | null | undefined>(undefined);
+  if (initialCachedRef.current === undefined) {
+    initialCachedRef.current = initialPrimaryData === null && cacheKey
+      ? readRouteDtoCache<PortfolioPageData>(cacheKey)
+      : null;
+  }
+  const initialCached = initialCachedRef.current;
+  const [data, setData] = useState<PortfolioPageData>(initialPrimaryData ?? initialCached?.payload ?? EMPTY_PORTFOLIO_PAGE_DATA);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null && initialCached === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
+  const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
   const requestVersionRef = useRef(0);
 
   const startRequest = useCallback(() => {
@@ -41,11 +57,12 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
       const next = await fetchPortfolioEnrichmentData();
       if (!isCurrentRequest(version)) return;
       setData(next);
+      if (cacheKey) writeRouteDtoCache(cacheKey, next);
       setErrorMessage("");
     } catch {
       // Secondary quote/freshness/dividend enrichment must not blank primary content.
     }
-  }, [isCurrentRequest]);
+  }, [cacheKey, isCurrentRequest]);
 
   const refresh = useCallback(async () => {
     const version = startRequest();
@@ -54,7 +71,10 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
       const next = await fetchPortfolioPrimaryData();
       if (!isCurrentRequest(version)) return;
       setData(next);
+      if (cacheKey) writeRouteDtoCache(cacheKey, next);
       setErrorMessage("");
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
       void refreshEnrichment(version);
     } catch (error) {
       if (!isCurrentRequest(version)) return;
@@ -62,14 +82,26 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
     } finally {
       if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [isCurrentRequest, refreshEnrichment, startRequest]);
+  }, [cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
     if (initialPrimaryData !== null) {
       const version = startRequest();
       setData(initialPrimaryData);
+      if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
       setIsBootstrapping(false);
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
       void refreshEnrichment(version);
+      return;
+    }
+
+    if (initialCached !== null) {
+      setData(initialCached.payload);
+      setIsBootstrapping(false);
+      setRestoredFromCache(true);
+      setRestoredAt(initialCached.savedAt);
+      void refresh();
       return;
     }
 
@@ -85,7 +117,7 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
     return () => {
       mounted = false;
     };
-  }, [initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheKey, initialCached, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   return {
     data,
@@ -93,5 +125,7 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
     isRefreshing,
     errorMessage,
     refresh,
+    restoredFromCache,
+    restoredAt,
   };
 }

@@ -28,8 +28,9 @@ import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
 import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
 import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
 import { useShellInstrumentIndex } from "./useShellInstrumentIndex";
+import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "../../lib/routeDtoCache";
 
-type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
+type AppSection = "dashboard" | "reports" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
 interface AppShellProps {
   /** Retained for back-compat with callers; the new shell derives the
@@ -135,6 +136,7 @@ export function AppShell({
   }, []);
 
   const refreshAfterTransaction = useCallback(async () => {
+    clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
     await portfolioConfig.refresh();
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal, portfolioConfig]);
@@ -203,6 +205,7 @@ export function AppShell({
   }, [bumpContextRefreshSignal, portfolioConfig, recomputeAction, transactionSubmission]);
 
   const handleReportingCurrencySaved = useCallback(() => {
+    clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal]);
 

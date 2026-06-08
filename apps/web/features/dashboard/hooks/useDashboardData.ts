@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TransactionInput } from "../../../components/portfolio/types";
+import {
+  readRouteDtoCache,
+  writeRouteDtoCache,
+} from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchDashboardEnrichmentData, fetchDashboardPrimaryData } from "../services/dashboardService";
 import { resolveTransactionDraftAccount, type DashboardSnapshot } from "../types";
 
 interface UseDashboardDataOptions {
+  cacheKey?: string;
   initialTransaction: TransactionInput;
   initialPrimaryData?: DashboardSnapshot | null;
 }
@@ -19,6 +24,8 @@ interface UseDashboardDataResult extends DashboardSnapshot {
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;
   refresh: () => Promise<void>;
+  restoredFromCache: boolean;
+  restoredAt: number | null;
   synchronizeTransactionDraft: (previous: TransactionInput) => TransactionInput;
 }
 
@@ -57,16 +64,26 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
 };
 
 export function useDashboardPrimaryData({
+  cacheKey,
   initialTransaction,
   initialPrimaryData = null,
 }: UseDashboardDataOptions): UseDashboardDataResult {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(initialPrimaryData ?? EMPTY_SNAPSHOT);
-  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null);
+  const initialCachedRef = useRef<{ payload: DashboardSnapshot; savedAt: number } | null | undefined>(undefined);
+  if (initialCachedRef.current === undefined) {
+    initialCachedRef.current = initialPrimaryData === null && cacheKey
+      ? readRouteDtoCache<DashboardSnapshot>(cacheKey)
+      : null;
+  }
+  const initialCached = initialCachedRef.current;
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(initialPrimaryData ?? initialCached?.payload ?? EMPTY_SNAPSHOT);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null && initialCached === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [showIntegrityDialog, setShowIntegrityDialog] = useState(
-    Boolean(initialPrimaryData?.actions.integrityIssue),
+    Boolean((initialPrimaryData ?? initialCached?.payload)?.actions.integrityIssue),
   );
+  const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
+  const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
   const requestVersionRef = useRef(0);
 
   const startRequest = useCallback(() => {
@@ -81,12 +98,13 @@ export function useDashboardPrimaryData({
       const nextSnapshot = await fetchDashboardEnrichmentData();
       if (!isCurrentRequest(version)) return;
       setSnapshot(nextSnapshot);
+      if (cacheKey) writeRouteDtoCache(cacheKey, nextSnapshot);
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
     } catch {
       // Secondary market/FX/freshness enrichment must not blank primary content.
     }
-  }, [isCurrentRequest]);
+  }, [cacheKey, isCurrentRequest]);
 
   const refresh = useCallback(async () => {
     const version = startRequest();
@@ -95,8 +113,11 @@ export function useDashboardPrimaryData({
       const nextSnapshot = await fetchDashboardPrimaryData();
       if (!isCurrentRequest(version)) return;
       setSnapshot(nextSnapshot);
+      if (cacheKey) writeRouteDtoCache(cacheKey, nextSnapshot);
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
       void refreshEnrichment(version);
     } catch (error) {
       if (!isCurrentRequest(version)) return;
@@ -105,14 +126,29 @@ export function useDashboardPrimaryData({
     } finally {
       if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [isCurrentRequest, refreshEnrichment, startRequest]);
+  }, [cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
     if (initialPrimaryData !== null) {
       const version = startRequest();
       setSnapshot(initialPrimaryData);
+      if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
       setShowIntegrityDialog(Boolean(initialPrimaryData.actions.integrityIssue));
       setIsBootstrapping(false);
+      setRestoredFromCache(false);
+      setRestoredAt(Date.now());
+      void refreshEnrichment(version);
+      return;
+    }
+
+    if (initialCached !== null) {
+      const version = startRequest();
+      setSnapshot(initialCached.payload);
+      setShowIntegrityDialog(Boolean(initialCached.payload.actions.integrityIssue));
+      setIsBootstrapping(false);
+      setRestoredFromCache(true);
+      setRestoredAt(initialCached.savedAt);
+      void refresh();
       void refreshEnrichment(version);
       return;
     }
@@ -134,7 +170,7 @@ export function useDashboardPrimaryData({
     return () => {
       mounted = false;
     };
-  }, [initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheKey, initialCached, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
@@ -160,6 +196,8 @@ export function useDashboardPrimaryData({
     showIntegrityDialog,
     setShowIntegrityDialog,
     refresh,
+    restoredFromCache,
+    restoredAt,
     synchronizeTransactionDraft: snapshot.accounts.length > 0
       ? synchronizeTransactionDraft
       : synchronizeInitialTransactionDraft,

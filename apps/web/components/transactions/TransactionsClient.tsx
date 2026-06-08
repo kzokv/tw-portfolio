@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { TransactionPrimaryDto } from "@vakwen/shared-types";
 import { formatNumber } from "../../lib/utils";
-import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
+import { useTransactionsPrimaryData } from "../../features/portfolio/hooks/useTransactionsPrimaryData";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
+import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { AddTransactionCard } from "../portfolio/AddTransactionCard";
 import { Card } from "../ui/Card";
+import { Button } from "../ui/Button";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "../ui/Tabs";
 import { AiInboxPanel } from "./AiInboxPanel";
 
@@ -39,17 +41,13 @@ export function TransactionsClient({
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("transactions");
+  const cacheKey = buildRouteDtoCacheKey("transactions-primary", getRouteDtoContextScope(), locale);
   const seededPrimaryData = contextRefreshSignal === 0 ? initialPrimaryData : null;
-  // TransactionsClient only mounts on /transactions, so enabled is unconditionally true.
-  const recentTransactions = useRecentTransactions({
-    limit: 12,
-    enabled: true,
-    initialItems: seededPrimaryData?.recentTransactions ?? null,
-  });
+  const primary = useTransactionsPrimaryData(seededPrimaryData, cacheKey);
   const addPanelRef = useRef<HTMLDivElement | null>(null);
   const effectiveTransactionAccountOptions = transactionAccountOptions.length > 0
     ? transactionAccountOptions
-    : seededPrimaryData?.accountOptions ?? [];
+    : primary.data.accountOptions;
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -63,24 +61,30 @@ export function TransactionsClient({
       firstSignalRef.current = false;
       return;
     }
-    void recentTransactions.refresh();
-  }, [contextRefreshSignal, recentTransactions.refresh]);
+    void primary.refresh();
+  }, [contextRefreshSignal, primary.refresh]);
 
   // TODO(performance-smooth-pages): switch these summary cards to a dedicated
   // transactions read-model endpoint when the backend exposes one. For now we
   // keep `/transactions` independent from `/dashboard/overview` by deriving
   // lightweight metrics from recent transactions + shell account config.
-  const recentCountValue = recentTransactions.isLoading
+  const recentCountValue = primary.isBootstrapping
     ? "..."
-    : formatNumber(recentTransactions.items.length, locale);
-  const uniqueTickerCount = recentTransactions.isLoading
+    : formatNumber(primary.data.recentTransactions.length, locale);
+  const uniqueTickerCount = primary.isBootstrapping
     ? "..."
-    : formatNumber(new Set(recentTransactions.items.map((item) => `${item.ticker}:${item.marketCode ?? "na"}`)).size, locale);
+    : formatNumber(new Set(primary.data.recentTransactions.map((item) => `${item.ticker}:${item.marketCode ?? "na"}`)).size, locale);
   const accountCountValue = effectiveTransactionAccountOptions.length > 0
     ? formatNumber(effectiveTransactionAccountOptions.length, locale)
-    : recentTransactions.isLoading
+    : primary.isBootstrapping
       ? "..."
       : "0";
+  const restoredLabel = primary.restoredAt
+    ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(primary.restoredAt))
+    : null;
 
   function handleTabChange(next: string) {
     const tab = next === "ai-inbox" ? "ai-inbox" : "posted";
@@ -154,6 +158,33 @@ export function TransactionsClient({
           />
         </div>
       </section>
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+        data-testid="transactions-primary-refresh-strip"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {primary.restoredFromCache && restoredLabel ? (
+            <span data-testid="transactions-cache-restore-label">Restored from cache at {restoredLabel}</span>
+          ) : (
+            <span>Recent rows stay visible while transactions refresh.</span>
+          )}
+          {primary.isRefreshing ? (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              Refreshing
+            </span>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => { void primary.refresh(); }}
+          disabled={primary.isRefreshing}
+          data-testid="transactions-refresh-button"
+        >
+          Refresh
+        </Button>
+      </div>
 
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
         <TabsList data-testid="transactions-tabs">
@@ -187,11 +218,11 @@ export function TransactionsClient({
                 case "transactions-recent":
                   return (
                     <RecentTransactionsCard
-                      items={recentTransactions.items}
+                      items={primary.data.recentTransactions}
                       locale={locale}
                       dict={dict}
-                      isLoading={recentTransactions.isLoading}
-                      errorMessage={recentTransactions.errorMessage}
+                      isLoading={primary.isBootstrapping}
+                      errorMessage={primary.errorMessage}
                       variant="primary"
                     />
                   );

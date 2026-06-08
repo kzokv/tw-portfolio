@@ -9,6 +9,7 @@ import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPageData,
   fetchPortfolioPrimaryData,
+  fetchTransactionsPrimaryData,
   fetchTransactionInstrumentCatalog,
 } from "../../../../features/portfolio/services/portfolioService";
 import { getJson } from "../../../../lib/api";
@@ -76,6 +77,11 @@ describe("portfolio primary/enrichment service paths", () => {
   it("fetches first-paint primary data from the explicit primary endpoint", async () => {
     await fetchPortfolioPrimaryData();
     expect(getJson).toHaveBeenCalledWith("/portfolio/primary");
+  });
+
+  it("fetches transactions primary data from the explicit primary endpoint", async () => {
+    await fetchTransactionsPrimaryData();
+    expect(getJson).toHaveBeenCalledWith("/transactions/primary");
   });
 
   it("keeps compatibility page data on the enrichment endpoint", async () => {
