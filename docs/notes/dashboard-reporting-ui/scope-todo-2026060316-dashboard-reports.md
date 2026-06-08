@@ -2,7 +2,7 @@
 slug: dashboard-reporting-ui
 source: scope-grill
 created: 2026-06-03
-updated: 2026-06-08
+updated: 2026-06-09
 tickets: []
 required_reading:
   - docs/notes/performance-smooth-pages/scope-todo-20260601-performance-smooth-pages.md
@@ -159,6 +159,16 @@ superseded_by: null
 - [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty, and each connector shows inherited/default/override tool availability instead of hiding the catalog behind saved overrides.
 - [x] TW/single-market scoped reports no longer fail after initial paint during client refresh due to scoped performance fanout. Scoped performance now aggregates all scoped `(accountId, ticker)` snapshot contributors in one persistence query via `getAggregatedSnapshotsInReportingCurrencyForScope()` instead of fanning out `getHoldingSnapshotsForTicker()` per holding.
 
+## Follow-up Issue Fixes — 2026-06-09
+
+- [x] Route DTO caches now partition by signed-in session user plus selected portfolio context owner, and the cache schema version was bumped to prevent stale cross-user/context reuse.
+- [x] Route DTO caches are cleared on sign-out, API-driven 401 logout, and signed-in user changes inside the app shell.
+- [x] Reports now use the effective dashboard/report range list from user/admin preferences instead of hard-coding `5Y`; unsupported URL ranges snap to the first effective range.
+- [x] Report client cache restore now accepts refreshed matching server-seeded report DTOs after context/range changes instead of consuming `initialReport` only once.
+- [x] MCP report inputs now treat `reportingCurrency` as a first-class alias for `currency` and infer `currencyMode=specified` when the alias is provided without an explicit mode.
+- [x] Single-market scoped reports preserve upcoming dividend events even when there is no dividend ledger row yet, and report summaries expose upcoming dividend count/amount for the UI summary grid.
+- [x] Focused regression coverage added for scoped upcoming dividends, MCP `reportingCurrency`, report range snapping, route DTO session/context partitioning, and refreshed report server seeds.
+
 ## Open Items
 
 - [x] Final PR gate can run the full eight-suite matrix when preparing the PR, but phased implementation uses targeted coverage first. Completed locally before PR creation.
@@ -255,6 +265,23 @@ superseded_by: null
   - `npx vitest run test/integration/reports.integration.test.ts` from `apps/api`
   - Verified scoped portfolio/market reports call `getAggregatedSnapshotsInReportingCurrencyForScope()` and do not call `getHoldingSnapshotsForTicker()` per scoped pair.
   - Verified the Postgres scoped-pair CTE deduplicates account/ticker inputs before joining snapshot rows.
+- [x] 2026-06-09 focused regression checks after route-cache/report/MCP fixes:
+  - `npx vitest run test/lib/routeDtoCache.test.ts test/components/reports/ReportsClient.test.tsx test/features/reports/hooks/useReportData.test.tsx` from `apps/web` passed: 9 tests.
+  - `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 10 tests.
+- [x] 2026-06-09 code-review/SI/doc pass:
+  - `code-reviewer/scripts/pr_analyzer.py --base dev --json` rerun; manually cleared the known test-only secret, client-link, mockup-console, and todo-file false positives.
+  - Updated `docs/004-notes/dashboard-reporting-ui/review-20260608-dashboard-reporting-ui.md` with the 2026-06-09 follow-up review findings.
+  - `/si-review` identified a new durable cache-key rule; `/si-promote` added `.claude/rules/route-dto-cache-user-context.md` and updated `.claude/memory/MEMORY.md`.
+- [x] 2026-06-09 full local eight-suite gate after route-cache/report/MCP fixes:
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 192 + 326 tests across the split web package run.
+  - `npm run test --prefix apps/api` passed: 1,478 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 802 tests, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+  - Process audits before the long-running gates found no orphan app/test runners; after each E2E/API gate the app/test runners exited cleanly.
 
 ## Mockups
 

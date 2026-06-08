@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { toReportInput } from "../../src/mcp/registerMcpRoutes.js";
 import { listMcpToolDefinitions } from "../../src/mcp/tools.js";
 
 describe("MCP report tools", () => {
@@ -39,5 +40,20 @@ describe("MCP report tools", () => {
       });
       expect(parsed.success).toBe(true);
     }
+  });
+
+  it("treats reportingCurrency as a specified report currency alias", () => {
+    expect(toReportInput({ reportingCurrency: "AUD" })).toEqual(expect.objectContaining({
+      currency: "AUD",
+      currencyMode: "specified",
+    }));
+    expect(toReportInput({ currency: "USD", reportingCurrency: "AUD" })).toEqual(expect.objectContaining({
+      currency: "USD",
+      currencyMode: "specified",
+    }));
+    expect(toReportInput({ reportingCurrency: "AUD", currencyMode: "auto" })).toEqual(expect.objectContaining({
+      currency: "AUD",
+      currencyMode: "auto",
+    }));
   });
 });

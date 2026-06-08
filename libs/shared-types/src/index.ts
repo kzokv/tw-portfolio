@@ -712,6 +712,8 @@ export interface ReportSummaryTotalsDto {
   dailyChangeAmount: number | null;
   dailyChangePercent: number | null;
   incomeAmount: number;
+  upcomingDividendCount: number;
+  upcomingDividendAmount: number | null;
 }
 
 export interface ReportHoldingRowDto {

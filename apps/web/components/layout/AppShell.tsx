@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { type LocaleCode, type ShellPortfolioConfigDto } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
@@ -83,6 +83,7 @@ export function AppShell({
     fetchMode: portfolioConfigMode,
   });
   const profileData = useProfile(initialProfile);
+  const sessionUserId = profileData.profile?.userId ?? initialProfile?.userId ?? null;
   const impersonation = profileData.profile?.impersonation
     && profileData.profile.impersonation.active !== false
     ? profileData.profile.impersonation
@@ -209,6 +210,18 @@ export function AppShell({
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal]);
 
+  const previousSessionUserIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (previousSessionUserIdRef.current === undefined) {
+      previousSessionUserIdRef.current = sessionUserId;
+      return;
+    }
+    if (sessionUserId !== null && previousSessionUserIdRef.current !== sessionUserId) {
+      clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
+    }
+    previousSessionUserIdRef.current = sessionUserId;
+  }, [sessionUserId]);
+
   // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
   const commandPalette = useCommandPalette();
   const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
@@ -231,6 +244,7 @@ export function AppShell({
   const appShellDataValue = useAppShellDataValue({
     uiDict,
     locale,
+    sessionUserId,
     isSharedContext,
     transactionSubmission,
     mutations,

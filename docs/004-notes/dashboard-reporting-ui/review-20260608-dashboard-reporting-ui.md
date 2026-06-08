@@ -104,6 +104,68 @@ Focused verification:
 - `code-reviewer/scripts/pr_analyzer.py --base dev` flagged `apps/api/test/integration/reports.integration.test.ts` for hardcoded secrets. Manual review confirmed these are test-only OAuth/session fixture values used with `signSessionCookie`.
 - The same analyzer flagged `apps/web/components/reports/ReportsClient.tsx` for SQL concatenation. Manual review confirmed the matched code is a client-side ticker `Link` href with `encodeURIComponent`, not a SQL/query construction path.
 
+## Follow-Up Review: 2026-06-09
+
+### Fixed: route DTO cache could be reused across signed-in users
+
+The route DTO cache key previously partitioned by selected portfolio context but not by the authenticated session user. On shared machines, OAuth re-login, or test/demo user switches, cached dashboard/portfolio/report DTOs could be restored for the wrong signed-in user.
+
+Resolution:
+- Added signed-in session user id to the route DTO context scope.
+- Bumped the cache schema version.
+- Clear route DTO cache on sign-out, API-driven 401 logout, and app-shell session-user changes.
+
+Focused verification:
+- `npx vitest run test/lib/routeDtoCache.test.ts test/components/reports/ReportsClient.test.tsx test/features/reports/hooks/useReportData.test.tsx`
+
+### Fixed: reports could keep unsupported hidden `5Y` range behavior
+
+Reports still rendered a hard-coded `5Y` option even when the effective dashboard/report range settings did not allow it.
+
+Resolution:
+- Report controls now render effective ranges from user/admin preferences.
+- Unsupported URL ranges snap to the first effective range.
+
+Focused verification:
+- `npx vitest run test/components/reports/ReportsClient.test.tsx`
+
+### Fixed: MCP `reportingCurrency` alias did not imply specified currency mode
+
+ChatGPT/MCP callers using `reportingCurrency` could have the alias mapped to `currency` while the report still resolved through auto currency mode.
+
+Resolution:
+- `toReportInput()` now maps `reportingCurrency` to `currency`.
+- If no explicit `currencyMode` is supplied, the presence of `currency`/`reportingCurrency` infers `currencyMode=specified`.
+
+Focused verification:
+- `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism`
+
+### Fixed: scoped reports dropped upcoming dividend events without ledger rows
+
+Single-market report scoping filtered market dividend events through scoped dividend ledger entries, so future events without ledger rows were excluded from Daily Review, Portfolio Report, and Market Report summaries.
+
+Resolution:
+- Scoped market dividend events now use market-matching event ids rather than ledger-derived event ids.
+- Report summary DTOs expose upcoming dividend count and amount.
+- Reports render an Upcoming income summary card.
+
+Focused verification:
+- `npx vitest run test/unit/mcpReportTools.test.ts test/integration/reports.integration.test.ts --no-file-parallelism`
+
+### Full-gate verification
+
+2026-06-09 full local gate passed after these fixes:
+- `npx eslint .`
+- `npm run typecheck`
+- `npm run test --prefix apps/web`
+- `npm run test --prefix apps/api`
+- `npm run test:integration:full:host`
+- `npm run test:e2e:bypass:mem --prefix apps/web`
+- `npm run test:e2e:oauth:mem --prefix apps/web`
+- `npm run test:http --prefix apps/api`
+
+The same analyzer false positives remain: test-only session strings, client ticker links mistaken for SQL concatenation, mockup console output, and the durable todo filename/content itself.
+
 ## Residual Risks
 
 - The web ticker route still has not adopted the new ticker primary DTO cache/return-navigation path; this remains explicitly unticked in the durable todo.

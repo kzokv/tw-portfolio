@@ -24,11 +24,12 @@ export function PortfolioClient({
   const {
     uiDict: dict,
     locale,
+    sessionUserId,
     isSharedContext,
     mutations,
     contextRefreshSignal,
   } = useAppShellData();
-  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(), locale);
+  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale);
   const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
