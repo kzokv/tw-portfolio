@@ -9,6 +9,8 @@ import type {
 } from "@vakwen/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
 import { BiggestMoversCard } from "../../../components/dashboard/BiggestMoversCard";
+import { DashboardCommandModules } from "../../../components/dashboard/DashboardClient";
+import { DashboardHero } from "../../../components/dashboard/DashboardHero";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
 // Phase 5d — SummarySection deleted; the dashboard hero is now a slim
@@ -149,6 +151,84 @@ describe("dashboard components", () => {
   // The 7-tile SummarySection was deleted; the new DashboardHero is a
   // slim 2-card layout (total + day Δ). Hero rendering is covered by
   // the new E2E spec in Phase 5f (commit 5f).
+
+  it("shows reporting currency controls and per-market hero links", () => {
+    const groups = buildHoldingGroupsFromHoldings({ holdings })
+      .map((group) => ({
+        ...group,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "AUD" as const,
+          reportingMarketValueAmount: 60_000,
+          reportingCostBasisAmount: 58_000,
+        })),
+      }));
+
+    const html = renderToStaticMarkup(
+      <DashboardHero
+        holdingGroups={groups}
+        summary={{
+          asOf: "2026-06-08",
+          accountCount: 1,
+          holdingCount: 1,
+          totalCostAmount: 58_000,
+          reportingCurrency: "AUD",
+          fxStatus: "complete",
+          marketValueAmount: 60_000,
+          unrealizedPnlAmount: 2_000,
+          dailyChangeAmount: 120,
+          dailyChangePercent: 0.2,
+          upcomingDividendCount: 0,
+          upcomingDividendAmount: null,
+          openIssueCount: 0,
+        }}
+        locale="en"
+        dict={dict}
+        onCurrencyChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('data-testid="dashboard-hero-currency"');
+    expect(html).toContain("Current report baseline is AUD");
+    expect(html).toContain('data-testid="dashboard-hero-market-strip"');
+    expect(html).toContain('href="/reports?tab=market&amp;scope=TW&amp;currencyMode=specified&amp;currency=AUD&amp;range=1Y"');
+    expect(html).toContain("AUD");
+  });
+
+  it("renders the priority command modules without duplicating the old intro panel", () => {
+    const groups = buildHoldingGroupsFromHoldings({ holdings });
+    const html = renderToStaticMarkup(
+      <DashboardCommandModules
+        groups={groups}
+        locale="en"
+        summary={{
+          asOf: "2026-06-08",
+          accountCount: 1,
+          holdingCount: 1,
+          totalCostAmount: 58_000,
+          reportingCurrency: "AUD",
+          fxStatus: "complete",
+          marketValueAmount: 60_000,
+          unrealizedPnlAmount: 2_000,
+          dailyChangeAmount: 120,
+          dailyChangePercent: 0.2,
+          upcomingDividendCount: 1,
+          upcomingDividendAmount: 12,
+          openIssueCount: 0,
+        }}
+      />,
+    );
+
+    expect(html).toContain('data-testid="dashboard-command-modules"');
+    expect(html).toContain('data-testid="dashboard-command-today"');
+    expect(html).toContain('data-testid="dashboard-command-market-pulse"');
+    expect(html).toContain('data-testid="dashboard-command-portfolio-health"');
+    expect(html).toContain('href="/reports?tab=daily-review&amp;scope=all&amp;currencyMode=specified&amp;currency=AUD&amp;range=1Y"');
+    expect(html).not.toContain('data-testid="dashboard-intro"');
+  });
 
   it("renders holdings with a current-price column and history link", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);

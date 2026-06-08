@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { DashboardPerformanceRange } from "@vakwen/shared-types";
-import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { AccountDefaultCurrency, DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
+import { formatCompactCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+import { patchJson } from "../../lib/api";
 import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
-import { RouteHeroPanel } from "../layout/SectionHeroPanels";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import Link from "next/link";
 import { AlertTriangle, RotateCw } from "lucide-react";
@@ -23,9 +23,18 @@ import { DividendsSection } from "./DividendsSection";
 import { PortfolioTrendCard } from "./PortfolioTrendCard";
 import { ReturnPercentCard } from "./ReturnPercentCard";
 import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
-import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
+import { resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
+import { buildRouteDtoCacheKey, clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix, getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import { Badge } from "../ui/shadcn/badge";
+import {
+  Card as ShadcnCard,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../ui/shadcn/card";
 import type { DashboardSnapshot } from "../../features/dashboard/types";
 
 const DEFAULT_TRANSACTION = {
@@ -54,17 +63,37 @@ export function DashboardClient({
     openRecomputeConfirm,
     contextRefreshSignal,
   } = useAppShellData();
+  const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(), locale);
   const dashboard = useDashboardPrimaryData({
+    cacheKey,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
   });
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  const [currencySaving, setCurrencySaving] = useState(false);
+  const [currencyError, setCurrencyError] = useState("");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({ range: performanceRange, enabled: true });
+
+  async function handleHeroCurrencyChange(next: AccountDefaultCurrency) {
+    if (next === dashboard.summary.reportingCurrency || currencySaving) return;
+    setCurrencySaving(true);
+    setCurrencyError("");
+    try {
+      await patchJson("/user-preferences", { reportingCurrency: next });
+      clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
+      await dashboard.refresh();
+      await performance.refresh();
+    } catch (error) {
+      setCurrencyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCurrencySaving(false);
+    }
+  }
 
   // Re-fetch performance series when AppShell signals a context/data change
   // (shared-context switch, trade mutation, recompute confirm, reporting-currency
@@ -114,7 +143,12 @@ export function DashboardClient({
     instruments: dashboard.instruments,
     accounts: dashboard.accounts,
   });
-  const largestHolding = holdingGroups[0] ?? null;
+  const restoredLabel = dashboard.restoredAt
+    ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(dashboard.restoredAt))
+    : null;
 
   return (
     <div className="stagger grid min-w-0 gap-6">
@@ -146,67 +180,62 @@ export function DashboardClient({
         className="grid gap-3 lg:grid-cols-[2fr_1fr]"
         data-testid="dashboard-hero-block"
       >
-        <DashboardHero summary={dashboard.summary} locale={locale} dict={dict} />
+        <DashboardHero
+          currencyError={currencyError}
+          holdingGroups={holdingGroups}
+          isCurrencySaving={currencySaving}
+          summary={dashboard.summary}
+          locale={locale}
+          dict={dict}
+          onCurrencyChange={(currency) => { void handleHeroCurrencyChange(currency); }}
+        />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
 
-      <RouteHeroPanel
-        eyebrow={dict.navigation.dashboardLabel}
-        title={dict.dashboardHome.summaryTitle}
-        description={dict.dashboardHome.summaryDescription}
-        testId="dashboard-intro"
-        metrics={[
-          {
-            label: dict.dashboardHome.marketValueLabel,
-            value: dashboard.summary.marketValueAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: dashboard.summary.asOf ? formatDateLabel(dashboard.summary.asOf, locale) : dict.dashboardHome.asOfLabel,
-          },
-          {
-            label: dict.dashboardHome.concentrationLabel,
-            value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
-              ? formatPercent(largestHolding.allocationPct, locale)
-              : "-",
-            detail: largestHolding ? `${largestHolding.ticker} / ${largestHolding.marketCode}` : dict.dashboardHome.holdingsEmpty,
-          },
-          {
-            label: dict.dashboardHome.unrealizedPnlLabel,
-            value: dashboard.summary.unrealizedPnlAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.unrealizedPnlAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
-          },
-          {
-            label: dict.dashboardHome.dailyChangeLabel,
-            value: dashboard.summary.dailyChangeAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.dailyChangeAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: dashboard.summary.dailyChangePercent !== null
-              ? formatPercent(dashboard.summary.dailyChangePercent, locale)
-              : "-",
-          },
-          {
-            label: dict.dashboardHome.issueCountLabel,
-            value: formatNumber(dashboard.summary.openIssueCount, locale),
-            detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,
-          },
-        ]}
-        // KZO-161 (158C) F4: hero pill row removed — `PortfolioTrendCard` is
-        // now the sole pill surface. Keep recompute discoverable from the hero.
-        actions={!isSharedContext ? (
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+        data-testid="dashboard-primary-refresh-strip"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {dashboard.restoredFromCache && restoredLabel ? (
+            <span data-testid="dashboard-cache-restore-label">Restored from cache at {restoredLabel}</span>
+          ) : (
+            <span>Primary data stays mounted during refresh.</span>
+          )}
+          {dashboard.isRefreshing ? (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              Silent refresh running
+            </span>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => { void dashboard.refresh(); }}
+          disabled={dashboard.isRefreshing}
+          data-testid="dashboard-refresh-button"
+        >
+          Refresh
+        </Button>
+        {!isSharedContext ? (
           <Button
             type="button"
             size="sm"
             onClick={openRecomputeConfirm}
             disabled={recomputeAction.isRunning}
             data-testid="recompute-button"
-            className="gap-2"
           >
-            <RotateCw className="size-4" aria-hidden="true" />
+            <RotateCw data-icon="inline-start" aria-hidden="true" />
             {recomputeAction.isRunning ? dict.actions.recomputing : dict.actions.recomputeHistory}
           </Button>
-        ) : undefined}
+        ) : null}
+      </div>
+
+      <DashboardCommandModules
+        groups={holdingGroups}
+        locale={locale}
+        summary={dashboard.summary}
       />
 
       {/*
@@ -316,5 +345,107 @@ export function DashboardClient({
         />
       ) : null}
     </div>
+  );
+}
+
+export function DashboardCommandModules({
+  groups,
+  locale,
+  summary,
+}: {
+  groups: DashboardOverviewHoldingGroupDto[];
+  locale: LocaleCode;
+  summary: DashboardSnapshot["summary"];
+}) {
+  const largestHolding = groups[0] ?? null;
+  const topMover = [...groups]
+    .sort((left, right) => Math.abs(right.change ?? 0) - Math.abs(left.change ?? 0))[0] ?? null;
+  const marketCount = new Set(groups.map((group) => group.marketCode)).size;
+  const reportCurrencyParams = `currencyMode=specified&currency=${summary.reportingCurrency}&range=1Y`;
+
+  return (
+    <section className="grid gap-3 md:grid-cols-3" data-testid="dashboard-command-modules">
+      <DashboardCommandCard
+        description={summary.asOf ? formatDateLabel(summary.asOf, locale) : "Latest available snapshot"}
+        href={`/reports?tab=daily-review&scope=all&${reportCurrencyParams}`}
+        testId="dashboard-command-today"
+        title="Today"
+        value={summary.dailyChangeAmount === null
+          ? "-"
+          : formatCompactCurrencyAmount(summary.dailyChangeAmount, summary.reportingCurrency, locale)}
+      >
+        <div className="flex flex-wrap gap-2">
+          {summary.dailyChangePercent !== null ? <Badge variant="secondary">{formatPercent(summary.dailyChangePercent, locale)}</Badge> : null}
+          <Badge variant={summary.openIssueCount > 0 ? "destructive" : "outline"}>
+            {formatNumber(summary.openIssueCount, locale)} issue(s)
+          </Badge>
+          <Badge variant="outline">{formatNumber(summary.upcomingDividendCount, locale)} dividend(s)</Badge>
+        </div>
+      </DashboardCommandCard>
+
+      <DashboardCommandCard
+        description={`FX ${summary.fxStatus}`}
+        href={`/reports?tab=market&scope=all&${reportCurrencyParams}`}
+        testId="dashboard-command-market-pulse"
+        title="Market Pulse"
+        value={`${formatNumber(marketCount, locale)} market(s)`}
+      >
+        <p className="text-sm text-muted-foreground">
+          {topMover
+            ? `${topMover.ticker} / ${topMover.marketCode}: ${topMover.change === null ? "-" : formatCompactCurrencyAmount(topMover.change, topMover.currency, locale)}`
+            : "No market movers available."}
+        </p>
+      </DashboardCommandCard>
+
+      <DashboardCommandCard
+        description={largestHolding ? `${largestHolding.ticker} / ${largestHolding.marketCode}` : "No holdings"}
+        href={`/reports?tab=portfolio&scope=all&${reportCurrencyParams}`}
+        testId="dashboard-command-portfolio-health"
+        title="Portfolio Health"
+        value={largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
+          ? formatPercent(largestHolding.allocationPct, locale)
+          : "-"}
+      >
+        <p className="text-sm text-muted-foreground">
+          Unrealized {summary.unrealizedPnlAmount === null ? "-" : formatCompactCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)}
+        </p>
+      </DashboardCommandCard>
+    </section>
+  );
+}
+
+function DashboardCommandCard({
+  children,
+  description,
+  href,
+  testId,
+  title,
+  value,
+}: {
+  children: ReactNode;
+  description: string;
+  href: string;
+  testId: string;
+  title: string;
+  value: string;
+}) {
+  return (
+    <ShadcnCard data-testid={testId}>
+      <CardHeader className="gap-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardDescription>{title}</CardDescription>
+            <CardTitle className="mt-1 font-mono text-2xl tabular-nums">{value}</CardTitle>
+          </div>
+          <Button asChild size="sm" variant="secondary">
+            <Link href={href}>Open</Link>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-sm text-muted-foreground">{description}</p>
+        {children}
+      </CardContent>
+    </ShadcnCard>
   );
 }
