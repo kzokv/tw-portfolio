@@ -84,6 +84,7 @@ export function useDashboardPrimaryData({
   );
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const initialCacheKeyRef = useRef(cacheKey);
   const requestVersionRef = useRef(0);
 
   const startRequest = useCallback(() => {
@@ -129,7 +130,8 @@ export function useDashboardPrimaryData({
   }, [cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
-    if (initialPrimaryData !== null) {
+    const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
+    if (shouldUseInitialData) {
       const version = startRequest();
       setSnapshot(initialPrimaryData);
       if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
@@ -141,13 +143,14 @@ export function useDashboardPrimaryData({
       return;
     }
 
-    if (initialCached !== null) {
+    const cached = cacheKey ? readRouteDtoCache<DashboardSnapshot>(cacheKey) : null;
+    if (cached !== null) {
       const version = startRequest();
-      setSnapshot(initialCached.payload);
-      setShowIntegrityDialog(Boolean(initialCached.payload.actions.integrityIssue));
+      setSnapshot(cached.payload);
+      setShowIntegrityDialog(Boolean(cached.payload.actions.integrityIssue));
       setIsBootstrapping(false);
       setRestoredFromCache(true);
-      setRestoredAt(initialCached.savedAt);
+      setRestoredAt(cached.savedAt);
       void refresh();
       void refreshEnrichment(version);
       return;
@@ -170,7 +173,7 @@ export function useDashboardPrimaryData({
     return () => {
       mounted = false;
     };
-  }, [cacheKey, initialCached, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
