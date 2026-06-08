@@ -121,6 +121,7 @@ export function AppShellLayout({
           operatorGroupLabel: uiDict.commandPalette.groupActions,
           nav: {
             dashboard: uiDict.navigation.dashboardLabel,
+            reports: uiDict.navigation.reportsLabel,
             portfolio: uiDict.navigation.portfolioLabel,
             transactions: uiDict.navigation.transactionsLabel,
             "cash-ledger": uiDict.navigation.cashLedgerLabel,
