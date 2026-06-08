@@ -324,6 +324,12 @@ export const MARKET_CURRENCY_PAIRS = {
   KRW: "KR",
 } as const satisfies Record<AccountDefaultCurrency, MarketCode>;
 
+export const REPORT_SCOPES = ["all", "TW", "US", "AU", "KR"] as const;
+export type ReportScope = (typeof REPORT_SCOPES)[number];
+
+export const REPORT_CURRENCY_MODES = ["auto", "specified"] as const;
+export type ReportCurrencyMode = (typeof REPORT_CURRENCY_MODES)[number];
+
 const MARKET_TO_CURRENCY = {
   TW: "TWD",
   US: "USD",
@@ -662,6 +668,124 @@ export interface DashboardPerformanceDto {
   fxStatus: "complete" | "partial" | "missing";
 }
 
+export interface ReportQueryStateDto {
+  scope: ReportScope;
+  currencyMode: ReportCurrencyMode;
+  currency: AccountDefaultCurrency | null;
+  reportingCurrency: AccountDefaultCurrency;
+  nativeCurrency: AccountDefaultCurrency | null;
+  range: DashboardPerformanceRange | null;
+  asOf: string;
+}
+
+export interface ReportFxStatusDto {
+  status: "complete" | "partial" | "missing";
+  reportingCurrency: AccountDefaultCurrency;
+  nativeCurrencies: AccountDefaultCurrency[];
+  missingRatePairs: Array<{
+    from: AccountDefaultCurrency;
+    to: AccountDefaultCurrency;
+  }>;
+}
+
+export interface ReportDataHealthDto {
+  holdingCount: number;
+  missingQuoteCount: number;
+  provisionalQuoteCount: number;
+  missingFxCount: number;
+  staleQuoteCount: number;
+}
+
+export interface ReportSummaryTotalsDto {
+  costBasisAmount: number;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  realizedPnlAmount: number;
+  dailyChangeAmount: number | null;
+  dailyChangePercent: number | null;
+  incomeAmount: number;
+}
+
+export interface ReportHoldingRowDto {
+  ticker: string;
+  marketCode: MarketCode;
+  accountCount: number;
+  quantity: number;
+  reportingCurrency: AccountDefaultCurrency;
+  reportingCostBasisAmount: number | null;
+  reportingMarketValueAmount: number | null;
+  reportingUnrealizedPnlAmount: number | null;
+  reportingAllocationPercent: number | null;
+  dailyChangeAmount: number | null;
+  dailyChangePercent: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  fxStatus: "complete" | "partial" | "missing";
+  freshness: "current" | "stale_amber" | "stale_red";
+}
+
+export interface ReportHoldingRowsPageDto {
+  total: number;
+  limit: number;
+  offset: number;
+  rows: ReportHoldingRowDto[];
+}
+
+export interface DailyReviewSuggestionDto {
+  code: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  detail: string;
+}
+
+export interface DailyReviewReportDto {
+  query: ReportQueryStateDto;
+  summary: ReportSummaryTotalsDto;
+  fxStatus: ReportFxStatusDto;
+  dataHealth: ReportDataHealthDto;
+  suggestions: DailyReviewSuggestionDto[];
+  topMovers: ReportHoldingRowDto[];
+  holdings: ReportHoldingRowsPageDto;
+}
+
+export interface AllocationBucketDto {
+  key: string;
+  label: string;
+  reportingCurrency: AccountDefaultCurrency;
+  amount: number | null;
+  allocationPercent: number | null;
+}
+
+export interface PortfolioReportDto {
+  query: ReportQueryStateDto;
+  summary: ReportSummaryTotalsDto;
+  fxStatus: ReportFxStatusDto;
+  dataHealth: ReportDataHealthDto;
+  performance: DashboardPerformanceDto;
+  allocation: {
+    byMarket: AllocationBucketDto[];
+    byAccount: AllocationBucketDto[];
+  };
+  concentration: {
+    topHoldings: ReportHoldingRowDto[];
+  };
+  income: {
+    trailingDividendAmount: number;
+    recentDividendCount: number;
+  };
+  holdings: ReportHoldingRowsPageDto;
+}
+
+export interface MarketReportDto {
+  query: ReportQueryStateDto;
+  summary: ReportSummaryTotalsDto;
+  fxStatus: ReportFxStatusDto;
+  dataHealth: ReportDataHealthDto;
+  performance: DashboardPerformanceDto;
+  marketSummary: AllocationBucketDto[];
+  topHoldings: ReportHoldingRowDto[];
+  detail: ReportHoldingRowsPageDto;
+}
+
 export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;
@@ -786,6 +910,23 @@ export interface TickerDetailsDto {
   accountBreakdown: DashboardOverviewHoldingChildDto[];
   fundamentals: TickerFundamentalsDto;
   fundamentalsRefresh: TickerFundamentalsRefreshDto;
+}
+
+export interface TickerPrimaryDto {
+  identity: TickerDetailsDto["identity"];
+  quote: TickerDetailsDto["quote"];
+  position: TickerDetailsDto["position"];
+  transactions: TickerDetailsDto["transactions"];
+  dividends: TickerDetailsDto["dividends"];
+  holdingGroup: TickerDetailsDto["holdingGroup"];
+  accountBreakdown: TickerDetailsDto["accountBreakdown"];
+}
+
+export interface TickerEnrichmentDto {
+  identity: TickerDetailsDto["identity"];
+  chart: TickerDetailsDto["chart"];
+  fundamentals: TickerDetailsDto["fundamentals"];
+  fundamentalsRefresh: TickerDetailsDto["fundamentalsRefresh"];
 }
 
 export interface PreviewImpactResponse {
