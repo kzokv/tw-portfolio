@@ -21,7 +21,7 @@ This note records the current dashboard reporting UI contracts and known limits.
 
 Route state is URL-backed on the web side. Invalid `tab`, `scope`, `currencyMode`, or `currency` values fall back predictably in the client parser instead of throwing.
 
-The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route aborts the server-seed fetch, renders the report shell first, and lets the client cache/silent-refresh path populate the data instead of blocking first paint.
+The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route aborts the server-seed fetch, renders the report shell first, and lets the client cache/silent-refresh path populate the data instead of blocking first paint. Single-market performance refreshes now use one scoped aggregate snapshot query rather than per-holding snapshot fanout, so TW-scoped reports do not initially paint and then fail on the later refresh path for that reason.
 
 ## Scope and currency semantics
 
@@ -156,15 +156,16 @@ The AI Connector settings page also renders the server-provided tool catalog so 
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
-- Report performance for single-market scopes still walks holding snapshots per scoped `(accountId, ticker)` pair, but the path now uses bounded parallel snapshot reads, short-circuits empty scoped histories, and memoizes same-day FX lookups during aggregation. A single narrow Postgres projection remains a follow-up.
+- Report performance for single-market scopes now uses `getAggregatedSnapshotsInReportingCurrencyForScope()` to aggregate all scoped `(accountId, ticker)` contributors in one persistence read, with FX conversion resolved inside that aggregate path. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
 These are known transitional costs, not accidental behavior.
 
 ## Evidence
 
-- API integration coverage for report routes and ticker split:
+- API integration coverage for report routes, scoped performance aggregation, and ticker split:
   - `apps/api/test/integration/reports.integration.test.ts`
+  - Scoped portfolio/market report tests assert `getAggregatedSnapshotsInReportingCurrencyForScope()` is used and `getHoldingSnapshotsForTicker()` is not used for scoped performance aggregation.
 - MCP tool registration and advice-boundary coverage:
   - `apps/api/test/unit/mcpReportTools.test.ts`
 - Web route and client coverage:
@@ -182,3 +183,13 @@ These are known transitional costs, not accidental behavior.
   - `npm run test:e2e:bypass:mem --prefix apps/web`
   - `npm run test:e2e:oauth:mem --prefix apps/web`
   - `npm run test:http --prefix apps/api`
+- Follow-up coverage for the scoped-report single-query aggregate and duplicate-pair hardening:
+  - `npx vitest run test/integration/reports.integration.test.ts` from `apps/api`
+  - `npx eslint .` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: 515 tests.
+  - `npm run test --prefix apps/api` passed: 1,476 tests, 412 skipped.
+  - `npm run test:integration:full:host` passed: 801 tests, 1 skipped; includes Postgres scoped aggregate tests `INT-7` and `INT-8` in `dashboardReportingCurrencyAggregation.integration.test.ts`, including duplicate scoped pair inputs that must not double-count report performance values.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
+  - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.

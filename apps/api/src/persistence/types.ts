@@ -1716,6 +1716,11 @@ export interface AggregatedSnapshotPoint {
   fxAvailable: boolean;
 }
 
+export interface HoldingSnapshotScopePair {
+  accountId: string;
+  ticker: string;
+}
+
 /**
  * Flat dividend record for snapshot generation: the walker accumulates these
  * by (accountId, ticker) in payment-date order. Filtering (posted, not
@@ -2481,6 +2486,18 @@ export interface Persistence {
     startDate: string,
     endDate: string,
     reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
+  ): Promise<AggregatedSnapshotPoint[]>;
+  /**
+   * Scoped FX-aware aggregate for report charts. Aggregates only the provided
+   * `(accountId, ticker)` snapshot contributors in one read so single-market
+   * reports do not fan out into one query per holding.
+   */
+  getAggregatedSnapshotsInReportingCurrencyForScope(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
+    pairs: readonly HoldingSnapshotScopePair[],
   ): Promise<AggregatedSnapshotPoint[]>;
   countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;

@@ -3263,9 +3263,37 @@ export class MemoryPersistence implements Persistence {
     endDate: string,
     reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
   ): Promise<AggregatedSnapshotPoint[]> {
+    return this.aggregateSnapshotsInReportingCurrency(
+      this.holdingSnapshots.filter(s => s.userId === userId && s.snapshotDate >= startDate && s.snapshotDate <= endDate),
+      reportingCurrency,
+    );
+  }
+
+  async getAggregatedSnapshotsInReportingCurrencyForScope(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
+    pairs: readonly import("./types.js").HoldingSnapshotScopePair[],
+  ): Promise<AggregatedSnapshotPoint[]> {
+    if (pairs.length === 0) return [];
+    const pairKeys = new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}`));
+    return this.aggregateSnapshotsInReportingCurrency(
+      this.holdingSnapshots.filter(s =>
+        s.userId === userId
+        && s.snapshotDate >= startDate
+        && s.snapshotDate <= endDate
+        && pairKeys.has(`${s.accountId}\0${s.ticker}`)),
+      reportingCurrency,
+    );
+  }
+
+  private async aggregateSnapshotsInReportingCurrency(
+    snapshots: readonly HoldingSnapshot[],
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
+  ): Promise<AggregatedSnapshotPoint[]> {
     const byDate = new Map<string, HoldingSnapshot[]>();
-    for (const s of this.holdingSnapshots) {
-      if (s.userId !== userId || s.snapshotDate < startDate || s.snapshotDate > endDate) continue;
+    for (const s of snapshots) {
       const list = byDate.get(s.snapshotDate) ?? [];
       list.push(s);
       byDate.set(s.snapshotDate, list);

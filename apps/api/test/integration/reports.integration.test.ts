@@ -420,6 +420,7 @@ describe("report routes", () => {
     ]);
 
     const snapshotSpy = vi.spyOn(app.persistence, "getHoldingSnapshotsForTicker");
+    const scopedAggregateSpy = vi.spyOn(app.persistence, "getAggregatedSnapshotsInReportingCurrencyForScope");
 
     const dailyReview = await app.inject({
       method: "GET",
@@ -430,8 +431,10 @@ describe("report routes", () => {
     expect(dailyReview.statusCode).toBe(200);
     expect(dailyReviewBody.holdings.rows.map((row) => row.ticker)).toEqual(["2330"]);
     expect(snapshotSpy).not.toHaveBeenCalled();
+    expect(scopedAggregateSpy).not.toHaveBeenCalled();
 
     snapshotSpy.mockClear();
+    scopedAggregateSpy.mockClear();
 
     const portfolioReport = await app.inject({
       method: "GET",
@@ -477,9 +480,17 @@ describe("report routes", () => {
         totalReturnPercent: 5,
       }),
     ]);
-    expect(snapshotSpy.mock.calls.map((call) => `${call[1]}:${call[2]}`)).toEqual(["acc-1:2330"]);
+    expect(snapshotSpy).not.toHaveBeenCalled();
+    expect(scopedAggregateSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      "TWD",
+      [{ accountId: "acc-1", ticker: "2330" }],
+    );
 
     snapshotSpy.mockClear();
+    scopedAggregateSpy.mockClear();
 
     const marketReport = await app.inject({
       method: "GET",
@@ -513,7 +524,14 @@ describe("report routes", () => {
         totalReturnAmount: 50,
       }),
     ]);
-    expect(snapshotSpy.mock.calls.map((call) => `${call[1]}:${call[2]}`)).toEqual(["acc-1:2330"]);
+    expect(snapshotSpy).not.toHaveBeenCalled();
+    expect(scopedAggregateSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      "TWD",
+      [{ accountId: "acc-1", ticker: "2330" }],
+    );
   });
 
   it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {
