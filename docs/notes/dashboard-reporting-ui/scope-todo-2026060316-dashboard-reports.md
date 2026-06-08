@@ -172,10 +172,15 @@ superseded_by: null
   - `npm run test:e2e:bypass:mem --prefix apps/web`
   - `npm run test:e2e:oauth:mem --prefix apps/web`
   - `npm run test:http --prefix apps/api`
-- [ ] CI green on PR.
-- [ ] `@codex review` completed and feedback fixed.
-- [ ] Dev deployment completed.
-- [ ] Chrome extension validation completed against the deployed dev branch.
+- [x] CI green on PR. GitHub Actions passed after the Codex review fix commit `8fe520f5`.
+- [x] `@codex review` completed and feedback fixed. Fixed the P2 invalid report range finding in `fix(reports): validate report ranges`; focused report integration coverage and targeted API typechecks passed before push.
+- [x] Dev deployment completed. `deploy-dev.yml` workflow run `27121484090` deployed `codex/dashboard-reporting-ui` at `8fe520f5`.
+- [x] Chrome extension validation completed against the deployed dev branch:
+  - Dashboard hero showed active reporting currency, market strip, priority command cards, refresh strip, and report deep links.
+  - Dashboard aggregate-row arithmetic passed in USD: market sums total `$985,381.62`; each visible aggregate P&L row had zero delta against `market value - total cost`.
+  - Portfolio Report deep link restored URL state and rendered 3 chart SVGs, refresh controls, sticky table headers, and a sticky first column in the comparable desktop table.
+  - Daily Review rendered summary, data health, Today deterministic observations, top movers, holdings detail, and FX-complete status.
+  - Dashboard KR market chip navigated to `/reports?tab=market&scope=KR&currencyMode=specified&currency=USD&range=1Y`; the report rendered KR scope, USD currency, FX complete, and matching market value.
 
 ## Mockups
 
