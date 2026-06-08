@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
-import type { AiConnectorAccessLogDto, AiConnectorConnectionDto, AiConnectorScope } from "@vakwen/shared-types";
+import type {
+  AiConnectorAccessKind,
+  AiConnectorAccessLogDto,
+  AiConnectorConnectionDto,
+  AiConnectorScope,
+  AiConnectorToolCatalogEntryDto,
+  AiConnectorToolGroup,
+} from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -23,6 +30,11 @@ const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
 ];
 
 const CHATGPT_RECONNECT_URL = "https://chatgpt.com/";
+const TOOL_GROUP_LABELS: Record<AiConnectorToolGroup, string> = {
+  read: "Read tools",
+  drafts: "Draft tools",
+  write: "Write tools",
+};
 
 function statusClassName(status: AiConnectorConnectionDto["status"]): string {
   if (status === "pending") return "border-sky-200 bg-sky-50 text-sky-700";
@@ -51,6 +63,20 @@ function reconnectCopy(scope: AiConnectorScope): string {
     return "Advanced scope. Reconnect or re-consent in ChatGPT to enable posting.";
   }
   return "Reconnect or re-consent in ChatGPT to enable account management tools.";
+}
+
+function accessKindLabel(kind: AiConnectorAccessKind): string {
+  return kind.replace(/_/g, " ");
+}
+
+function groupToolCatalog(
+  tools: AiConnectorToolCatalogEntryDto[] | undefined,
+): Record<AiConnectorToolGroup, AiConnectorToolCatalogEntryDto[]> {
+  return {
+    read: tools?.filter((tool) => tool.group === "read") ?? [],
+    drafts: tools?.filter((tool) => tool.group === "drafts") ?? [],
+    write: tools?.filter((tool) => tool.group === "write") ?? [],
+  };
 }
 
 export function AiConnectorsSettingsClient() {
@@ -214,6 +240,10 @@ export function AiConnectorsSettingsClient() {
         </div>
       ) : null}
 
+      {data?.toolCatalog && data.toolCatalog.length > 0 ? (
+        <ToolCatalogCard tools={data.toolCatalog} />
+      ) : null}
+
       {isLoading ? (
         <Card className="rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true"><p className="text-sm text-muted-foreground">Loading connectors...</p></Card>
       ) : data && data.connections.length === 0 ? (
@@ -366,5 +396,58 @@ export function AiConnectorsSettingsClient() {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+function ToolCatalogCard({ tools }: { tools: AiConnectorToolCatalogEntryDto[] }) {
+  const grouped = groupToolCatalog(tools);
+
+  return (
+    <Card className="rounded-[1.5rem]" data-testid="ai-connector-tool-catalog">
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Available MCP tools</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Tool catalog exposed by the AI connector API. Connection scopes and policy still control whether ChatGPT can call each tool.
+          </p>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {(Object.keys(grouped) as AiConnectorToolGroup[]).map((group) => (
+            <div key={group} className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm font-medium text-foreground">{TOOL_GROUP_LABELS[group]}</p>
+              <div className="mt-3 flex flex-col gap-2">
+                {grouped[group].length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No tools in this group.</p>
+                ) : grouped[group].map((tool) => (
+                  <div key={tool.name} className="rounded-xl border border-border bg-background px-3 py-2" data-testid={`ai-connector-tool-${tool.name}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-semibold text-foreground">{tool.name}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tool.description}</p>
+                      </div>
+                      <span className={cn(
+                        "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                        tool.enabledByPolicy
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-slate-200 bg-slate-50 text-slate-600",
+                      )}>
+                        {tool.enabledByPolicy ? "policy on" : "policy off"}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{AI_CONNECTOR_SCOPE_LABELS[tool.scope]}</span>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] capitalize text-muted-foreground">{accessKindLabel(tool.accessKind)}</span>
+                      {tool.annotations.readOnlyHint ? (
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">read-only</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
   );
 }
