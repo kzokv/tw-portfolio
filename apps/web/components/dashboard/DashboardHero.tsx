@@ -8,11 +8,13 @@ import {
   type AccountDefaultCurrency,
   type DashboardOverviewHoldingGroupDto,
   type DashboardOverviewSummaryDto,
+  type FxConversionRateDto,
   type LocaleCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { cn, formatCompactCurrencyAmount, formatPercent } from "../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
+import { Badge } from "../ui/shadcn/badge";
 import {
   Select,
   SelectContent,
@@ -24,6 +26,7 @@ import {
 
 interface DashboardHeroProps {
   currencyError?: string;
+  fxRates?: FxConversionRateDto[];
   holdingGroups: DashboardOverviewHoldingGroupDto[];
   isCurrencySaving?: boolean;
   summary: DashboardOverviewSummaryDto;
@@ -34,6 +37,7 @@ interface DashboardHeroProps {
 
 export function DashboardHero({
   currencyError = "",
+  fxRates = [],
   holdingGroups,
   isCurrencySaving = false,
   summary,
@@ -134,6 +138,33 @@ export function DashboardHero({
           {currencyError ? (
             <p className="text-sm text-destructive" role="alert">{currencyError}</p>
           ) : null}
+          <div className="flex flex-col gap-2" data-testid="dashboard-hero-fx-rates">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">FX status</span>
+              <Badge variant={summary.fxStatus === "complete" ? "secondary" : "outline"}>{summary.fxStatus}</Badge>
+            </div>
+            {fxRates.length > 0 ? (
+              <div className="grid gap-1.5">
+                {fxRates.map((rate) => (
+                  <div key={`${rate.fromCurrency}-${rate.toCurrency}-${rate.asOf ?? "latest"}`} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
+                    <span className="text-xs text-muted-foreground">
+                      {rate.fromCurrency} to {rate.toCurrency}
+                      {rate.asOf ? ` · ${formatDateLabel(rate.asOf, locale)}` : ""}
+                    </span>
+                    <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
+                      {formatFxRate(rate.rate)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {summary.fxStatus === "complete"
+                  ? "No cross-currency conversion required for visible values."
+                  : "FX rates are missing for one or more visible currencies."}
+              </p>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -173,6 +204,12 @@ export function DashboardHero({
       </Card>
     </section>
   );
+}
+
+function formatFxRate(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6,
+  }).format(value);
 }
 
 function buildMarketValues(

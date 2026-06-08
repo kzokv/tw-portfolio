@@ -11,10 +11,10 @@ import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import Link from "next/link";
 import { AlertTriangle, RotateCw } from "lucide-react";
-import { HoldingsTable } from "../portfolio/HoldingsTable";
 import { AllocationSnapshotCard } from "./AllocationSnapshotCard";
 import { BiggestMoversCard } from "./BiggestMoversCard";
 import { DashboardHero } from "./DashboardHero";
+import { DashboardHoldingsPreview } from "./DashboardHoldingsPreview";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Button } from "../ui/Button";
 import { DASHBOARD_CARDS } from "./cards";
@@ -58,7 +58,6 @@ export function DashboardClient({
     uiDict: dict,
     locale,
     isSharedContext,
-    mutations,
     recomputeAction,
     openRecomputeConfirm,
     contextRefreshSignal,
@@ -70,7 +69,7 @@ export function DashboardClient({
     initialPrimaryData,
   });
   const resetCount = useCardLayoutResetCount("dashboard");
-  const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
+  const { allocationBasis } = useHoldingAllocationBasis();
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
   const [currencySaving, setCurrencySaving] = useState(false);
   const [currencyError, setCurrencyError] = useState("");
@@ -183,6 +182,7 @@ export function DashboardClient({
         <DashboardHero
           currencyError={currencyError}
           holdingGroups={holdingGroups}
+          fxRates={dashboard.fxRates ?? []}
           isCurrencySaving={currencySaving}
           summary={dashboard.summary}
           locale={locale}
@@ -288,17 +288,11 @@ export function DashboardClient({
               );
             case "holdings-table":
               return (
-                <HoldingsTable
-                  holdings={dashboard.holdings}
-                  holdingGroups={holdingGroups}
-                  instruments={dashboard.instruments}
-                  accounts={dashboard.accounts}
-                  dict={dict}
+                <DashboardHoldingsPreview
+                  fxRates={dashboard.fxRates ?? []}
+                  groups={holdingGroups}
                   locale={locale}
-                  recomputingSymbols={mutations.recomputingSymbols}
-                  showFreshnessBadge={!isSharedContext}
-                  allocationBasis={allocationBasis}
-                  onAllocationBasisChange={setAllocationBasis}
+                  reportingCurrency={dashboard.summary.reportingCurrency}
                 />
               );
             case "dividends-section":
