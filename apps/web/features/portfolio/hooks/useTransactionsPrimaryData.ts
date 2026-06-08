@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TransactionPrimaryDto } from "@vakwen/shared-types";
 import {
   readRouteDtoCache,
@@ -36,25 +36,39 @@ export function useTransactionsPrimaryData(
   const [errorMessage, setErrorMessage] = useState("");
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const initialCacheKeyRef = useRef(cacheKey);
+  const requestVersionRef = useRef(0);
+
+  const startRequest = useCallback(() => {
+    requestVersionRef.current += 1;
+    return requestVersionRef.current;
+  }, []);
+
+  const isCurrentRequest = useCallback((version: number) => version === requestVersionRef.current, []);
 
   const refresh = useCallback(async () => {
+    const version = startRequest();
     setIsRefreshing(true);
     try {
       const next = await fetchTransactionsPrimaryData();
+      if (!isCurrentRequest(version)) return;
       setData(next);
       if (cacheKey) writeRouteDtoCache(cacheKey, next);
       setErrorMessage("");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
     } catch (error) {
+      if (!isCurrentRequest(version)) return;
       setErrorMessage(resolveErrorMessage(error));
     } finally {
-      setIsRefreshing(false);
+      if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [cacheKey]);
+  }, [cacheKey, isCurrentRequest, startRequest]);
 
   useEffect(() => {
-    if (initialPrimaryData !== null) {
+    const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
+    if (shouldUseInitialData) {
+      startRequest();
       setData(initialPrimaryData);
       if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
       setIsBootstrapping(false);
@@ -63,11 +77,12 @@ export function useTransactionsPrimaryData(
       return;
     }
 
-    if (initialCached !== null) {
-      setData(initialCached.payload);
+    const cached = cacheKey ? readRouteDtoCache<TransactionPrimaryDto>(cacheKey) : null;
+    if (cached !== null) {
+      setData(cached.payload);
       setIsBootstrapping(false);
       setRestoredFromCache(true);
-      setRestoredAt(initialCached.savedAt);
+      setRestoredAt(cached.savedAt);
       void refresh();
       return;
     }
@@ -84,7 +99,7 @@ export function useTransactionsPrimaryData(
     return () => {
       mounted = false;
     };
-  }, [cacheKey, initialCached, initialPrimaryData, refresh]);
+  }, [cacheKey, initialPrimaryData, refresh, startRequest]);
 
   return {
     data,

@@ -43,6 +43,7 @@ export function usePortfolioPrimaryData(
   const [errorMessage, setErrorMessage] = useState("");
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const initialCacheKeyRef = useRef(cacheKey);
   const requestVersionRef = useRef(0);
 
   const startRequest = useCallback(() => {
@@ -85,7 +86,8 @@ export function usePortfolioPrimaryData(
   }, [cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
-    if (initialPrimaryData !== null) {
+    const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
+    if (shouldUseInitialData) {
       const version = startRequest();
       setData(initialPrimaryData);
       if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
@@ -96,11 +98,12 @@ export function usePortfolioPrimaryData(
       return;
     }
 
-    if (initialCached !== null) {
-      setData(initialCached.payload);
+    const cached = cacheKey ? readRouteDtoCache<PortfolioPageData>(cacheKey) : null;
+    if (cached !== null) {
+      setData(cached.payload);
       setIsBootstrapping(false);
       setRestoredFromCache(true);
-      setRestoredAt(initialCached.savedAt);
+      setRestoredAt(cached.savedAt);
       void refresh();
       return;
     }
@@ -117,7 +120,7 @@ export function usePortfolioPrimaryData(
     return () => {
       mounted = false;
     };
-  }, [cacheKey, initialCached, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   return {
     data,

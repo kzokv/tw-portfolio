@@ -77,8 +77,22 @@ function withTransaction(id: string): TransactionPrimaryDto {
   };
 }
 
-function Harness({ initialData = null }: { initialData?: TransactionPrimaryDto | null }) {
-  result = useTransactionsPrimaryData(initialData, buildRouteDtoCacheKey("transactions-primary", "self"));
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function Harness({
+  cacheScope = "self",
+  initialData = null,
+}: {
+  cacheScope?: string;
+  initialData?: TransactionPrimaryDto | null;
+}) {
+  result = useTransactionsPrimaryData(initialData, buildRouteDtoCacheKey("transactions-primary", cacheScope));
   return null;
 }
 
@@ -126,5 +140,37 @@ describe("useTransactionsPrimaryData", () => {
     await act(async () => {});
 
     expect(result.data.recentTransactions[0]?.id).toBe("fresh");
+  });
+
+  it("ignores stale primary responses after cache key changes", async () => {
+    const staleRequest = createDeferred<TransactionPrimaryDto>();
+    const ownerRequest = createDeferred<TransactionPrimaryDto>();
+    vi.mocked(fetchTransactionsPrimaryData)
+      .mockReturnValueOnce(staleRequest.promise)
+      .mockReturnValueOnce(ownerRequest.promise);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+    await act(async () => {});
+
+    act(() => {
+      root.render(<Harness cacheScope="owner-1" />);
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      ownerRequest.resolve(withTransaction("owner-fresh"));
+      await ownerRequest.promise;
+    });
+
+    expect(result.data.recentTransactions[0]?.id).toBe("owner-fresh");
+
+    await act(async () => {
+      staleRequest.resolve(withTransaction("stale-self"));
+      await staleRequest.promise;
+    });
+
+    expect(result.data.recentTransactions[0]?.id).toBe("owner-fresh");
   });
 });

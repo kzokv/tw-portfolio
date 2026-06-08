@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
-import { buildRouteDtoCacheKey, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
+import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/dashboard/services/dashboardService", () => ({
   fetchDashboardEnrichmentData: vi.fn(),
@@ -95,9 +95,15 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-function Harness({ initialData = null }: { initialData?: DashboardSnapshot | null }) {
+function Harness({
+  cacheScope = "self",
+  initialData = null,
+}: {
+  cacheScope?: string;
+  initialData?: DashboardSnapshot | null;
+}) {
   result = useDashboardPrimaryData({
-    cacheKey: buildRouteDtoCacheKey("dashboard-primary", "self"),
+    cacheKey: buildRouteDtoCacheKey("dashboard-primary", cacheScope),
     initialTransaction,
     initialPrimaryData: initialData,
   });
@@ -170,6 +176,29 @@ describe("useDashboardPrimaryData", () => {
 
     expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
     expect(result.summary.marketValueAmount).toBe(2100);
+  });
+
+  it("revalidates instead of caching a stale server seed after cache key changes", async () => {
+    const staleSeed = snapshotWithMarketValue(900);
+    const ownerSnapshot = snapshotWithMarketValue(2600);
+    const ownerCacheScope = "owner-1";
+    const ownerCacheKey = buildRouteDtoCacheKey("dashboard-primary", ownerCacheScope);
+    vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(ownerSnapshot);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(ownerSnapshot);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+    await act(async () => {});
+
+    act(() => {
+      root.render(<Harness cacheScope={ownerCacheScope} initialData={staleSeed} />);
+    });
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2600);
+    expect(readRouteDtoCache<DashboardSnapshot>(ownerCacheKey)?.payload.summary.marketValueAmount).toBe(2600);
   });
 
   it("ignores stale enrichment responses after a newer refresh starts", async () => {
