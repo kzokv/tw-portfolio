@@ -1,5 +1,9 @@
 import { Suspense } from "react";
-import type { UserSettings } from "@vakwen/shared-types";
+import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  type AccountDefaultCurrency,
+  type UserSettings,
+} from "@vakwen/shared-types";
 import { DashboardClient } from "../../components/dashboard/DashboardClient";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
@@ -9,14 +13,24 @@ import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 
+interface UserPreferencesResponse {
+  preferences?: {
+    reportingCurrency?: unknown;
+  };
+}
+
 export default async function DashboardPage() {
-  const [session, profile, sidebarOpen, settings, initialPrimaryData] = await Promise.all([
+  const [session, profile, sidebarOpen, settings, preferences, initialPrimaryData] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserPreferencesResponse>("/user-preferences").catch(() => null),
     fetchDashboardPrimaryData().catch(() => null),
   ]);
+  const expectedReportingCurrency =
+    initialPrimaryData?.summary.reportingCurrency
+    ?? resolveExpectedReportingCurrency(preferences);
   const initialPortfolioConfig = initialPrimaryData
     ? {
       accounts: initialPrimaryData.accounts,
@@ -35,8 +49,21 @@ export default async function DashboardPage() {
         initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
-        <DashboardClient initialPrimaryData={initialPrimaryData} />
+        <DashboardClient
+          expectedReportingCurrency={expectedReportingCurrency}
+          initialPrimaryData={initialPrimaryData}
+        />
       </AppShell>
     </Suspense>
   );
+}
+
+function resolveExpectedReportingCurrency(
+  preferences: UserPreferencesResponse | null,
+): AccountDefaultCurrency | null {
+  if (preferences === null) return null;
+  const currency = preferences.preferences?.reportingCurrency;
+  return typeof currency === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(currency)
+    ? currency as AccountDefaultCurrency
+    : "TWD";
 }

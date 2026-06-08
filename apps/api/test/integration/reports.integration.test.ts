@@ -268,7 +268,7 @@ describe("report routes", () => {
     ]));
   });
 
-  it("keeps TW-scoped reports on TW data and only fetches TW snapshots for scoped performance", async () => {
+  it("builds synthetic TW-scoped performance when TW snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
     if (!feeProfile) throw new Error("expected default fee profile");
@@ -347,52 +347,49 @@ describe("report routes", () => {
     );
     await app.persistence.saveStore(store);
 
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-02",
+        open: 100,
+        high: 104,
+        low: 99,
+        close: 103,
+        volume: 10_000,
+        source: "test",
+        ingestedAt: "2026-06-02T10:00:00.000Z",
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-03",
+        open: 103,
+        high: 106,
+        low: 102,
+        close: 105,
+        volume: 12_000,
+        source: "test",
+        ingestedAt: "2026-06-03T10:00:00.000Z",
+      },
+    ]);
+
     const generatedAt = "2026-06-03T10:00:00.000Z";
     await app.persistence.bulkUpsertHoldingSnapshots(userId, [
-      {
-        id: "tw-scope-snap-1",
-        userId,
-        accountId: "acc-1",
-        ticker: "2330",
-        snapshotDate: "2026-06-02",
-        quantity: 10,
-        closePrice: 103,
-        marketValue: 1030,
-        costBasis: 1000,
-        unrealizedPnl: 30,
-        cumulativeRealizedPnl: 0,
-        cumulativeDividends: 0,
-        isProvisional: false,
-        currency: "TWD",
-        valueNative: 1030,
-        costBasisNative: 1000,
-        unrealizedPnlNative: 30,
-        providerSource: "test",
-        generatedAt,
-        generationRunId: "tw-scope-gen",
-      },
-      {
-        id: "tw-scope-snap-2",
-        userId,
-        accountId: "acc-1",
-        ticker: "2330",
-        snapshotDate: "2026-06-03",
-        quantity: 10,
-        closePrice: 105,
-        marketValue: 1050,
-        costBasis: 1000,
-        unrealizedPnl: 50,
-        cumulativeRealizedPnl: 0,
-        cumulativeDividends: 0,
-        isProvisional: false,
-        currency: "TWD",
-        valueNative: 1050,
-        costBasisNative: 1000,
-        unrealizedPnlNative: 50,
-        providerSource: "test",
-        generatedAt,
-        generationRunId: "tw-scope-gen",
-      },
       {
         id: "us-scope-snap-1",
         userId,
@@ -416,16 +413,6 @@ describe("report routes", () => {
         generationRunId: "us-scope-gen",
       },
     ]);
-    await app.persistence.upsertFxRates([
-      {
-        date: "2026-06-02",
-        baseCurrency: "USD",
-        quoteCurrency: "TWD",
-        rate: 32,
-        source: "test",
-      },
-    ]);
-
     const snapshotSpy = vi.spyOn(app.persistence, "getHoldingSnapshotsForTicker");
     const scopedAggregateSpy = vi.spyOn(app.persistence, "getAggregatedSnapshotsInReportingCurrencyForScope");
 
@@ -453,6 +440,7 @@ describe("report routes", () => {
       allocation: { byMarket: Array<{ key: string }> };
       concentration: { topHoldings: Array<{ ticker: string }> };
       performance: {
+        fxStatus: string;
         points: Array<{
           date: string;
           totalCostAmount: number | null;
@@ -471,6 +459,7 @@ describe("report routes", () => {
     }));
     expect(portfolioBody.allocation.byMarket.map((bucket) => bucket.key)).toEqual(["TW"]);
     expect(portfolioBody.concentration.topHoldings.map((row) => row.ticker)).toEqual(["2330"]);
+    expect(portfolioBody.performance.fxStatus).toBe("complete");
     expect(portfolioBody.performance.points).toEqual([
       expect.objectContaining({
         date: "2026-06-02",
@@ -507,6 +496,7 @@ describe("report routes", () => {
     const marketBody = marketReport.json() as {
       detail: { rows: Array<{ ticker: string }> };
       performance: {
+        fxStatus: string;
         points: Array<{
           date: string;
           totalCostAmount: number | null;
@@ -517,6 +507,7 @@ describe("report routes", () => {
     };
     expect(marketReport.statusCode).toBe(200);
     expect(marketBody.detail.rows.map((row) => row.ticker)).toEqual(["2330"]);
+    expect(marketBody.performance.fxStatus).toBe("complete");
     expect(marketBody.performance.points).toEqual([
       expect.objectContaining({
         date: "2026-06-02",
@@ -539,6 +530,85 @@ describe("report routes", () => {
       "TWD",
       [{ accountId: "acc-1", ticker: "2330" }],
     );
+  });
+
+  it("does not resolve a second quote snapshot set for snapshot-backed scoped performance", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-tw-snapshot-trade",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "tw-scoped-snapshot-backed-1",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        snapshotDate: "2026-06-02",
+        quantity: 10,
+        closePrice: 103,
+        marketValue: 1030,
+        costBasis: 1000,
+        unrealizedPnl: 30,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1030,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 30,
+        providerSource: "test",
+        generatedAt: "2026-06-02T10:00:00.000Z",
+        generationRunId: "tw-scoped-snapshot-backed",
+      },
+    ]);
+    const quoteBarsSpy = vi.spyOn(app.persistence, "getLatestBarsByTickerMarket");
+
+    const report = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=TW&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+    const body = report.json() as {
+      performance: {
+        points: Array<{ date: string; marketValueAmount: number | null }>;
+      };
+    };
+
+    expect(report.statusCode).toBe(200);
+    expect(body.performance.points).toEqual([
+      expect.objectContaining({
+        date: "2026-06-02",
+        marketValueAmount: 1030,
+      }),
+    ]);
+    expect(quoteBarsSpy).toHaveBeenCalledTimes(1);
   });
 
   it("preserves scoped upcoming dividend events that do not have ledger rows", async () => {

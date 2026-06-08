@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -122,16 +122,30 @@ export function ReportsClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { contextRefreshSignal, locale, sessionUserId, uiDict } = useAppShellData();
-  const [state, setState] = useState(() => parseReportRouteState(searchParams ?? reportRouteStateToSearchParams(initialState)));
+  const searchParamsKey = searchParams?.toString() ?? "";
+  const routeState = useMemo(
+    () => parseReportRouteState(
+      searchParamsKey === ""
+        ? reportRouteStateToSearchParams(initialState)
+        : new URLSearchParams(searchParamsKey),
+    ),
+    [initialState, searchParamsKey],
+  );
+  const [state, setState] = useState(() => routeState);
   const { effectiveRanges } = useEffectiveRanges();
   const cacheScope = getRouteDtoContextScope(sessionUserId);
   const report = useReportData({ cacheScope, contextRefreshSignal, initialReport, locale, state });
 
   const updateState = useCallback((patch: Partial<ReportRouteState>) => {
     const next = { ...state, ...patch };
+    if (reportRouteStatesEqual(state, next)) return;
     setState(next);
     router.replace(`/reports?${reportRouteStateToSearchParams(next).toString()}`, { scroll: false });
   }, [router, state]);
+
+  useEffect(() => {
+    setState((current) => reportRouteStatesEqual(current, routeState) ? current : routeState);
+  }, [routeState, searchParamsKey]);
 
   useEffect(() => {
     if (effectiveRanges.length === 0 || effectiveRanges.includes(state.range)) return;
@@ -217,6 +231,14 @@ export function ReportsClient({
       </Tabs>
     </div>
   );
+}
+
+function reportRouteStatesEqual(left: ReportRouteState, right: ReportRouteState): boolean {
+  return left.tab === right.tab
+    && left.scope === right.scope
+    && left.currencyMode === right.currencyMode
+    && left.currency === right.currency
+    && left.range === right.range;
 }
 
 function ReportControls({
@@ -1172,8 +1194,8 @@ function formatOptionalFxRate(row: ReportHoldingRowDto): string {
 
 function financeToneClass(value: number | null | undefined, neutralClass = "text-foreground"): string {
   if (value === null || value === undefined || value === 0) return neutralClass;
-  if (value > 0) return "text-emerald-600";
-  return "text-rose-600";
+  if (value > 0) return "text-[hsl(var(--success))]";
+  return "text-[hsl(var(--destructive))]";
 }
 
 function getFxStatusLabel(status: ReportHoldingRowDto["fxStatus"]): string {

@@ -51,7 +51,9 @@ const DEFAULT_TRANSACTION = {
 
 export function DashboardClient({
   initialPrimaryData = null,
+  expectedReportingCurrency,
 }: {
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialPrimaryData?: DashboardSnapshot | null;
 }) {
   const {
@@ -66,6 +68,7 @@ export function DashboardClient({
   const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
   const dashboard = useDashboardPrimaryData({
     cacheKey,
+    expectedReportingCurrency,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
   });

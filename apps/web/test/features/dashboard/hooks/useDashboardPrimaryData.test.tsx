@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
@@ -87,6 +88,20 @@ function snapshotWithMarketValue(marketValueAmount: number): DashboardSnapshot {
   };
 }
 
+function snapshotWithReportingCurrency(
+  reportingCurrency: AccountDefaultCurrency,
+  marketValueAmount: number,
+): DashboardSnapshot {
+  return {
+    ...initialPrimaryData,
+    summary: {
+      ...initialPrimaryData.summary,
+      reportingCurrency,
+      marketValueAmount,
+    },
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((settle) => {
@@ -97,13 +112,16 @@ function createDeferred<T>() {
 
 function Harness({
   cacheScope = "self",
+  expectedReportingCurrency,
   initialData = null,
 }: {
   cacheScope?: string;
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialData?: DashboardSnapshot | null;
 }) {
   result = useDashboardPrimaryData({
     cacheKey: buildRouteDtoCacheKey("dashboard-primary", cacheScope),
+    expectedReportingCurrency,
     initialTransaction,
     initialPrimaryData: initialData,
   });
@@ -175,6 +193,29 @@ describe("useDashboardPrimaryData", () => {
     await act(async () => {});
 
     expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2100);
+  });
+
+  it("skips cached primary data when reporting currency does not match the expected currency", async () => {
+    const cachedAud = snapshotWithReportingCurrency("AUD", 1750);
+    const refreshedTwd = snapshotWithReportingCurrency("TWD", 2100);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cachedAud);
+    vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(refreshedTwd);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(refreshedTwd);
+
+    act(() => {
+      root.render(<Harness expectedReportingCurrency="TWD" />);
+    });
+
+    expect(result.isBootstrapping).toBe(true);
+    expect(result.summary.reportingCurrency).toBe("TWD");
+    expect(result.summary.marketValueAmount).toBeNull();
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.restoredFromCache).toBe(false);
+    expect(result.summary.reportingCurrency).toBe("TWD");
     expect(result.summary.marketValueAmount).toBe(2100);
   });
 
