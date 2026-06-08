@@ -2,6 +2,7 @@ import type {
   AiConnectorAccessLogDto,
   AiConnectorConnectionDto,
   AiConnectorPolicySettingsDto,
+  AiConnectorSummaryDto,
   McpOAuthConsentDecisionDto,
   McpOAuthConsentRequestDto,
   ShareCapability,
@@ -30,10 +31,7 @@ export interface AiConnectorsResponse {
   policy: AiConnectorPolicySettingsDto;
 }
 
-export interface AiConnectorSummaryResponse {
-  connections: AiConnectorConnectionDto[];
-  policy: AiConnectorPolicySettingsDto;
-}
+export type AiConnectorSummaryResponse = AiConnectorSummaryDto;
 
 export interface AiConnectorLogsResponse {
   accessLogs: AiConnectorAccessLogDto[];

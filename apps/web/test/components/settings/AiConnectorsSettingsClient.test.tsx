@@ -1,7 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AiConnectorConnectionDto, AiConnectorPolicySettingsDto } from "@vakwen/shared-types";
+import type {
+  AiConnectorConnectionDto,
+  AiConnectorPolicySettingsDto,
+  AiConnectorToolCatalogEntryDto,
+} from "@vakwen/shared-types";
 import type { AiConnectorSummaryResponse } from "../../../features/ai-inbox/service";
 
 const mockFetchAiConnectorSummary = vi.fn();
@@ -55,6 +59,24 @@ function buildConnection(overrides: Partial<AiConnectorConnectionDto> = {}): AiC
     revocationReason: null,
     createdAt: "2026-05-23T12:00:00.000Z",
     updatedAt: "2026-05-23T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function buildToolCatalogEntry(overrides: Partial<AiConnectorToolCatalogEntryDto> = {}): AiConnectorToolCatalogEntryDto {
+  return {
+    name: "get_portfolio_report",
+    description: "Return a descriptive portfolio report.",
+    scope: "portfolio:mcp_read",
+    accessKind: "read",
+    group: "read",
+    enabledByPolicy: true,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     ...overrides,
   };
 }
@@ -144,6 +166,29 @@ describe("AiConnectorsSettingsClient", () => {
     expect(postingCheckbox?.checked).toBe(false);
     expect(postingCheckbox?.disabled).toBe(true);
     expect(document.body.textContent).toContain("Reconnect in ChatGPT");
+  });
+
+  it("renders the MCP tool catalog even when connection-level tool overrides are empty", async () => {
+    const response: AiConnectorSummaryResponse = {
+      connections: [buildConnection()],
+      policy: buildPolicy(),
+      toolCatalog: [
+        buildToolCatalogEntry({ name: "get_daily_review_report" }),
+        buildToolCatalogEntry({ name: "get_portfolio_report" }),
+        buildToolCatalogEntry({ name: "get_market_report" }),
+      ],
+    };
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+
+    expect(document.querySelector("[data-testid='ai-connector-tool-catalog']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Available MCP tools");
+    expect(document.body.textContent).toContain("get_daily_review_report");
+    expect(document.body.textContent).toContain("get_portfolio_report");
+    expect(document.body.textContent).toContain("get_market_report");
+    expect(document.body.textContent).toContain("No tool-level overrides.");
   });
 
   it("loads access logs after connector summary renders", async () => {
