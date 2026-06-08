@@ -63,11 +63,15 @@ import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { fetchReport } from "../../../features/reports/services/reportService";
+import type { ReportRouteState, ReportTab } from "../../../features/reports/reportState";
 import ReportsPage from "../../../app/reports/page";
 
 describe("ReportsPage", () => {
+  let capturedReportSignal: AbortSignal | undefined;
+
   beforeEach(() => {
     vi.useRealTimers();
+    capturedReportSignal = undefined;
     vi.clearAllMocks();
     vi.mocked(requireSession).mockResolvedValue({ isDemo: false } as never);
     vi.mocked(getJson).mockImplementation((async (path: string) => {
@@ -76,9 +80,16 @@ describe("ReportsPage", () => {
       return {};
     }) as never);
     vi.mocked(readSidebarStateCookie).mockResolvedValue(false as never);
-    vi.mocked(fetchReport).mockResolvedValue({
-      query: { scope: "US" },
-    } as never);
+    vi.mocked(fetchReport).mockImplementation((async (
+      _tab: ReportTab,
+      _state: ReportRouteState,
+      options?: { signal?: AbortSignal },
+    ) => {
+      capturedReportSignal = options?.signal;
+      return {
+        query: { scope: "US" },
+      };
+    }) as never);
   });
 
   afterEach(() => {
@@ -106,12 +117,24 @@ describe("ReportsPage", () => {
       scope: "US",
       currencyMode: "specified",
       currency: "USD",
-    }));
+    }), expect.objectContaining({ signal: expect.any(Object) }));
+    expect(capturedReportSignal?.aborted).toBe(false);
   });
 
-  it("renders the report shell when the active report seed exceeds the paint budget", async () => {
+  it("aborts the active report seed and renders the shell when it exceeds the paint budget", async () => {
     vi.useFakeTimers();
-    vi.mocked(fetchReport).mockImplementation(() => new Promise(() => {}) as never);
+    vi.mocked(fetchReport).mockImplementation(((
+      _tab: ReportTab,
+      _state: ReportRouteState,
+      options?: { signal?: AbortSignal },
+    ) => {
+      capturedReportSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    }) as never);
 
     const pagePromise = ReportsPage({
       searchParams: Promise.resolve({
@@ -129,6 +152,7 @@ describe("ReportsPage", () => {
     expect(html).toContain('data-report-scope=""');
     expect(fetchReport).toHaveBeenCalledWith("daily-review", expect.objectContaining({
       scope: "TW",
-    }));
+    }), expect.objectContaining({ signal: expect.any(Object) }));
+    expect(capturedReportSignal?.aborted).toBe(true);
   });
 });

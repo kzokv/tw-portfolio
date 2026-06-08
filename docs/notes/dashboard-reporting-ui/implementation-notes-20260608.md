@@ -21,7 +21,7 @@ This note records the current dashboard reporting UI contracts and known limits.
 
 Route state is URL-backed on the web side. Invalid `tab`, `scope`, `currencyMode`, or `currency` values fall back predictably in the client parser instead of throwing.
 
-The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route renders the report shell first and lets the client cache/silent-refresh path populate the data instead of blocking first paint.
+The `/reports` page uses a bounded server-seed budget for the active report. If a scoped report is slow, the route aborts the server-seed fetch, renders the report shell first, and lets the client cache/silent-refresh path populate the data instead of blocking first paint.
 
 ## Scope and currency semantics
 
@@ -173,7 +173,7 @@ These are known transitional costs, not accidental behavior.
   - `apps/web/test/features/reports/reportState.test.ts`
   - `apps/web/test/lib/routeDtoCache.test.ts`
   - `apps/web/test/app/heavyPages.serverSeed.test.ts`
-- Full local PR gate after the 2026-06-08 native-price/report-connector polish:
+- Full local PR gate after the 2026-06-08 scoped-report server-seed abort fix:
   - `npx eslint .`
   - `npm run typecheck`
   - `npm run test --prefix apps/web`
