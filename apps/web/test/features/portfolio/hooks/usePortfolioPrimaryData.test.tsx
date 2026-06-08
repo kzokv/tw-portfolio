@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortfolioPageData } from "../../../../features/portfolio/services/portfolioService";
 import { usePortfolioPrimaryData } from "../../../../features/portfolio/hooks/usePortfolioPageData";
-import { buildRouteDtoCacheKey, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
+import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/portfolio/services/portfolioService", () => ({
   fetchPortfolioEnrichmentData: vi.fn(),
@@ -71,8 +71,14 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-function Harness({ initialData = null }: { initialData?: PortfolioPageData | null }) {
-  result = usePortfolioPrimaryData(initialData, buildRouteDtoCacheKey("portfolio-primary", "self"));
+function Harness({
+  cacheScope = "self",
+  initialData = null,
+}: {
+  cacheScope?: string;
+  initialData?: PortfolioPageData | null;
+}) {
+  result = usePortfolioPrimaryData(initialData, buildRouteDtoCacheKey("portfolio-primary", cacheScope));
   return null;
 }
 
@@ -140,6 +146,29 @@ describe("usePortfolioPrimaryData", () => {
 
     expect(fetchPortfolioPrimaryData).toHaveBeenCalledTimes(1);
     expect(result.data.accounts[0]?.id).toBe("fresh");
+  });
+
+  it("revalidates instead of caching a stale server seed after cache key changes", async () => {
+    const staleSeed = pageDataWithAccount("stale-seed");
+    const ownerData = pageDataWithAccount("owner-fresh");
+    const ownerCacheScope = "owner-1";
+    const ownerCacheKey = buildRouteDtoCacheKey("portfolio-primary", ownerCacheScope);
+    vi.mocked(fetchPortfolioPrimaryData).mockResolvedValue(ownerData);
+    vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(ownerData);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+    await act(async () => {});
+
+    act(() => {
+      root.render(<Harness cacheScope={ownerCacheScope} initialData={staleSeed} />);
+    });
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).toHaveBeenCalledTimes(1);
+    expect(result.data.accounts[0]?.id).toBe("owner-fresh");
+    expect(readRouteDtoCache<PortfolioPageData>(ownerCacheKey)?.payload.accounts[0]?.id).toBe("owner-fresh");
   });
 
   it("ignores stale enrichment responses after a newer refresh starts", async () => {
