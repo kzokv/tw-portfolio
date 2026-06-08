@@ -8,6 +8,7 @@ import {
   type CurrencyCode,
   type DailyReviewReportDto,
   type DashboardPerformanceDto,
+  type FxConversionRateDto,
   type MarketReportDto,
   type MarketCode,
   type PortfolioReportDto,
@@ -29,6 +30,7 @@ import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "./market-data/quo
 import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferences.js";
 import { resolveReportContext } from "./reportContext.js";
+import { buildFxConversionRateRows } from "./fxConversionRates.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store } from "../types/store.js";
 
@@ -47,6 +49,7 @@ interface PreparedReportData {
   translatedHoldingGroups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>;
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
+  fxRates: FxConversionRateDto[];
   scopedStore: Store;
   asOf: string;
 }
@@ -68,6 +71,7 @@ export async function buildDailyReviewReport(
     query: prepared.reportQuery,
     summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
     fxStatus: prepared.fxStatus,
+    fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     suggestions,
     topMovers,
@@ -91,6 +95,7 @@ export async function buildPortfolioReport(
     query: prepared.reportQuery,
     summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
     fxStatus: prepared.fxStatus,
+    fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     performance,
     allocation: {
@@ -121,6 +126,7 @@ export async function buildMarketReport(
     query: prepared.reportQuery,
     summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
     fxStatus: prepared.fxStatus,
+    fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     performance,
     marketSummary: buildMarketAllocations(prepared.translatedHoldingGroups),
@@ -181,6 +187,7 @@ async function prepareReportData(
     app.persistence,
   );
 
+  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf);
   return {
     reportQuery: {
       scope: context.scope,
@@ -194,7 +201,13 @@ async function prepareReportData(
     translatedSummary,
     translatedHoldingGroups,
     dataHealth: buildDataHealth(translatedHoldingGroups),
-    fxStatus: await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf),
+    fxStatus,
+    fxRates: await buildFxConversionRateRows(
+      app.persistence,
+      fxStatus.nativeCurrencies,
+      context.reportingCurrency,
+      asOf,
+    ),
     scopedStore,
     asOf,
   };

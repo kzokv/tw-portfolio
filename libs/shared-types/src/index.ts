@@ -394,6 +394,13 @@ export interface DashboardOverviewSummaryDto {
   openIssueCount: number;
 }
 
+export interface FxConversionRateDto {
+  fromCurrency: AccountDefaultCurrency;
+  toCurrency: AccountDefaultCurrency;
+  rate: number;
+  asOf: string | null;
+}
+
 export interface DashboardOverviewHoldingDto {
   accountId: string;
   accountName?: string;
@@ -515,6 +522,7 @@ export interface InstrumentOptionDto {
 export interface DashboardOverviewDto {
   settings: UserSettings;
   summary: DashboardOverviewSummaryDto;
+  fxRates?: FxConversionRateDto[];
   holdings: DashboardOverviewHoldingDto[];
   holdingGroups: DashboardOverviewHoldingGroupDto[];
   dividends: {
@@ -741,6 +749,7 @@ export interface DailyReviewReportDto {
   query: ReportQueryStateDto;
   summary: ReportSummaryTotalsDto;
   fxStatus: ReportFxStatusDto;
+  fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
   suggestions: DailyReviewSuggestionDto[];
   topMovers: ReportHoldingRowDto[];
@@ -759,6 +768,7 @@ export interface PortfolioReportDto {
   query: ReportQueryStateDto;
   summary: ReportSummaryTotalsDto;
   fxStatus: ReportFxStatusDto;
+  fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
   performance: DashboardPerformanceDto;
   allocation: {
@@ -779,6 +789,7 @@ export interface MarketReportDto {
   query: ReportQueryStateDto;
   summary: ReportSummaryTotalsDto;
   fxStatus: ReportFxStatusDto;
+  fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
   performance: DashboardPerformanceDto;
   marketSummary: AllocationBucketDto[];
@@ -1447,6 +1458,27 @@ export interface AiConnectorPolicySettingsDto {
   oauthRedirectUriAllowlist: string[];
   oauthTokenSecretSet: boolean;
   updatedAt: string;
+}
+
+export interface AiConnectorToolCatalogEntryDto {
+  name: string;
+  description: string;
+  scope: AiConnectorScope;
+  accessKind: AiConnectorAccessKind;
+  group: AiConnectorToolGroup;
+  enabledByPolicy: boolean;
+  annotations: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+  };
+}
+
+export interface AiConnectorSummaryDto {
+  connections: AiConnectorConnectionDto[];
+  policy: AiConnectorPolicySettingsDto;
+  toolCatalog?: AiConnectorToolCatalogEntryDto[];
 }
 
 export interface McpOAuthConsentRequestDto {

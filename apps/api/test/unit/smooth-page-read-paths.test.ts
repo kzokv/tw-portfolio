@@ -221,6 +221,20 @@ describe("smooth page read paths", () => {
     expect(summary.json()).toEqual(expect.objectContaining({
       connections: expect.any(Array),
       policy: expect.any(Object),
+      toolCatalog: expect.arrayContaining([
+        expect.objectContaining({
+          name: "get_daily_review_report",
+          scope: "portfolio:mcp_read",
+          accessKind: "read",
+          group: "read",
+        }),
+        expect.objectContaining({
+          name: "get_portfolio_report",
+          scope: "portfolio:mcp_read",
+          accessKind: "read",
+          group: "read",
+        }),
+      ]),
     }));
     expect(summary.json().accessLogs).toBeUndefined();
     expect(logs.statusCode).toBe(200);
