@@ -8,7 +8,7 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@vakwen/shared-types";
-import { currencyFor, marketCodeFor } from "@vakwen/shared-types";
+import { currencyFor, MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
@@ -164,7 +164,7 @@ function buildOverviewHoldings(
 
   return [...store.accounting.projections.holdings]
     .map((holding) => {
-      const market = accountMarket.get(holding.accountId);
+      const market = resolveHoldingMarketCode(store, holding, accountMarket);
       const quote = quoteByKey.get(quoteSnapshotKey(holding.ticker, market)) ?? quoteByKey.get(holding.ticker);
       const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
       return {
@@ -201,12 +201,16 @@ export function buildOverviewHoldingGroups(
   holdings: ReadonlyArray<DashboardOverviewHoldingDto>,
 ): DashboardOverviewHoldingGroupDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const accountMarket = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
   const groups = new Map<string, DashboardOverviewHoldingGroupDto>();
   const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
 
   for (const holding of holdings) {
     const account = accountById.get(holding.accountId);
-    const marketCode = account ? marketCodeFor(account.defaultCurrency) : marketCodeFor(holding.currency);
+    const marketCode = resolveHoldingMarketCode(store, holding, accountMarket);
     const groupKey = `${holding.ticker}:${marketCode}:${holding.currency}`;
     const child: DashboardOverviewHoldingChildDto = {
       accountId: holding.accountId,
@@ -326,6 +330,34 @@ function mergeQuoteStatus(
   if (left === "missing" || right === "missing") return "missing";
   if (left === "provisional" || right === "provisional") return "provisional";
   return "current";
+}
+
+function resolveHoldingMarketCode(
+  store: Store,
+  holding: Store["accounting"]["projections"]["holdings"][number],
+  accountMarket: ReadonlyMap<string, MarketCode>,
+): MarketCode {
+  const tradeEvents = store.accounting.facts.tradeEvents ?? [];
+  const tradeMarkets = uniqueMarketCodes(
+    tradeEvents
+      .filter((trade) => trade.accountId === holding.accountId && trade.ticker === holding.ticker)
+      .map((trade) => trade.marketCode),
+  );
+  if (tradeMarkets.length === 1) return tradeMarkets[0]!;
+
+  const instrumentMarkets = uniqueMarketCodes(
+    store.instruments
+      .filter((instrument) => instrument.ticker === holding.ticker)
+      .map((instrument) => instrument.marketCode),
+  );
+  if (instrumentMarkets.length === 1) return instrumentMarkets[0]!;
+
+  return accountMarket.get(holding.accountId) ?? marketCodeFor(holding.currency);
+}
+
+function uniqueMarketCodes(values: ReadonlyArray<string>): MarketCode[] {
+  return [...new Set(values)]
+    .filter((market): market is MarketCode => (MARKET_CODES as readonly string[]).includes(market));
 }
 
 function mergeFreshness(
