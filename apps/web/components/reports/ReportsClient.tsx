@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
@@ -11,6 +12,7 @@ import {
   type AllocationBucketDto,
   type DailyReviewReportDto,
   type DashboardPerformanceDto,
+  type FxConversionRateDto,
   type LocaleCode,
   type MarketReportDto,
   type PortfolioReportDto,
@@ -61,6 +63,18 @@ import {
 } from "../../features/reports/reportState";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+
+type OptionalFxRateDto = {
+  asOf?: string;
+  baseCurrency?: string;
+  date?: string;
+  from?: string;
+  fromCurrency?: string;
+  quoteCurrency?: string;
+  rate?: number | null;
+  to?: string;
+  toCurrency?: string;
+};
 
 const TAB_LABELS: Record<ReportTab, string> = {
   "daily-review": "Daily Review",
@@ -321,7 +335,7 @@ function ReportBody({
       <ReportMeta data={data} locale={locale} />
       <SummaryGrid summary={data.summary} currency={data.query.reportingCurrency} locale={locale} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <FxStatusCard fxStatus={data.fxStatus} />
+        <FxStatusCard fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
         <DataHealthCard dataHealth={data.dataHealth} />
       </div>
       {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
@@ -360,9 +374,9 @@ function SummaryGrid({
   const items = [
     { label: "Market value", value: summary.marketValueAmount },
     { label: "Cost basis", value: summary.costBasisAmount },
-    { label: "Unrealized P&L", value: summary.unrealizedPnlAmount },
-    { label: "Realized P&L", value: summary.realizedPnlAmount },
-    { label: "Daily change", value: summary.dailyChangeAmount, detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-" },
+    { label: "Unrealized P&L", toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
+    { label: "Realized P&L", toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
+    { label: "Daily change", detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
     { label: "Income", value: summary.incomeAmount },
   ];
   return (
@@ -372,20 +386,33 @@ function SummaryGrid({
           <CardHeader className="p-4 pb-2">
             <CardDescription>{item.label}</CardDescription>
             <CardTitle
-              className="font-mono text-2xl tabular-nums"
+              className={cn("font-mono text-2xl tabular-nums", financeToneClass(item.toneValue ?? null))}
               title={item.value === null ? undefined : formatCurrencyAmount(item.value, currency, locale)}
             >
               {item.value === null ? "-" : formatCompactCurrencyAmount(item.value, currency, locale)}
             </CardTitle>
           </CardHeader>
-          {item.detail ? <CardContent className="px-4 pb-4 pt-0 text-sm text-muted-foreground">{item.detail}</CardContent> : null}
+          {item.detail ? (
+            <CardContent className={cn("px-4 pb-4 pt-0 text-sm", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
+              {item.detail}
+            </CardContent>
+          ) : null}
         </Card>
       ))}
     </div>
   );
 }
 
-function FxStatusCard({ fxStatus }: { fxStatus: ReportFxStatusDto }) {
+function FxStatusCard({
+  fxRates,
+  fxStatus,
+  locale,
+}: {
+  fxRates?: FxConversionRateDto[];
+  fxStatus: ReportFxStatusDto;
+  locale: LocaleCode;
+}) {
+  const rates = getOptionalFxRates(fxStatus, fxRates);
   return (
     <Card>
       <CardHeader>
@@ -397,6 +424,21 @@ function FxStatusCard({ fxStatus }: { fxStatus: ReportFxStatusDto }) {
         {fxStatus.missingRatePairs.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {fxStatus.missingRatePairs.map((pair) => <Badge key={`${pair.from}-${pair.to}`} variant="outline">{pair.from} to {pair.to}</Badge>)}
+          </div>
+        ) : null}
+        {rates.length > 0 ? (
+          <div className="grid gap-2" data-testid="reports-fx-rates">
+            {rates.map((rate) => (
+              <div key={`${rate.from}-${rate.to}-${rate.asOf ?? "latest"}`} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm font-medium text-foreground">{rate.from} to {rate.to}</span>
+                  {rate.asOf ? <span className="text-xs text-muted-foreground">As of {formatDateLabel(rate.asOf, locale)}</span> : null}
+                </div>
+                <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                  {rate.rate === null ? "-" : formatFxRate(rate.rate)}
+                </span>
+              </div>
+            ))}
           </div>
         ) : null}
       </CardContent>
@@ -681,12 +723,14 @@ function HoldingsCard({
             <TableBody>
               {rows.rows.map((row) => (
                 <TableRow key={`${row.ticker}-${row.marketCode}`}>
-                  <TableCell className={cn("font-medium", stickyFirstColumn && "sticky left-0 z-10 bg-card")}>{row.ticker}</TableCell>
+                  <TableCell className={cn("font-medium", stickyFirstColumn && "sticky left-0 z-10 bg-card")}>
+                    <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
+                  </TableCell>
                   <TableCell>{row.marketCode}</TableCell>
                   <MoneyCell value={row.reportingMarketValueAmount} currency={row.reportingCurrency} locale={locale} />
                   <MoneyCell value={row.reportingCostBasisAmount} currency={row.reportingCurrency} locale={locale} />
-                  <MoneyCell value={row.reportingUnrealizedPnlAmount} currency={row.reportingCurrency} locale={locale} />
-                  <MoneyCell value={row.dailyChangeAmount} currency={row.reportingCurrency} locale={locale} />
+                  <MoneyCell value={row.reportingUnrealizedPnlAmount} currency={row.reportingCurrency} locale={locale} tone />
+                  <MoneyCell value={row.dailyChangeAmount} currency={row.reportingCurrency} locale={locale} tone />
                   <TableCell className="text-right">{row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -727,9 +771,19 @@ function SectionRefreshButton({
   );
 }
 
-function MoneyCell({ currency, locale, value }: { currency: AccountDefaultCurrency; locale: LocaleCode; value: number | null }) {
+function MoneyCell({
+  currency,
+  locale,
+  tone = false,
+  value,
+}: {
+  currency: AccountDefaultCurrency;
+  locale: LocaleCode;
+  tone?: boolean;
+  value: number | null;
+}) {
   return (
-    <TableCell className="text-right font-mono tabular-nums">
+    <TableCell className={cn("text-right font-mono tabular-nums", tone ? financeToneClass(value) : null)}>
       {value === null ? "-" : formatCurrencyAmount(value, currency, locale)}
     </TableCell>
   );
@@ -740,32 +794,52 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
   return (
     <div className="flex flex-col gap-3 md:hidden">
       {rows.map((row) => (
-        <button
+        <div
           key={`${row.ticker}-${row.marketCode}`}
-          type="button"
           className="rounded-md border border-border bg-background p-4 text-left"
-          onClick={() => setSelected(row)}
           data-testid={`reports-mobile-row-${row.ticker}-${row.marketCode}`}
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="font-medium text-foreground">{row.ticker}</p>
+              <TickerLink marketCode={row.marketCode} ticker={row.ticker} className="font-medium" />
               <p className="mt-1 text-xs text-muted-foreground">{row.marketCode} · {formatNumber(row.quantity, locale, 2)} units</p>
             </div>
-            <p className="font-mono text-sm font-semibold tabular-nums">
+            <p className="text-right font-mono text-sm font-semibold tabular-nums">
               {row.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
             </p>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <CompactFinanceStat
+              label="Daily"
+              locale={locale}
+              percent={row.dailyChangePercent}
+              value={row.dailyChangeAmount}
+              currency={row.reportingCurrency}
+            />
+            <CompactFinanceStat
+              label="P&L"
+              locale={locale}
+              value={row.reportingUnrealizedPnlAmount}
+              currency={row.reportingCurrency}
+            />
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Badge variant="outline">{row.quoteStatus}</Badge>
             <Badge variant={row.fxStatus === "complete" ? "secondary" : "outline"}>FX {row.fxStatus}</Badge>
           </div>
-        </button>
+          <div className="mt-3 flex justify-end">
+            <Button size="sm" variant="ghost" onClick={() => setSelected(row)}>
+              View details
+            </Button>
+          </div>
+        </div>
       ))}
       <Sheet open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
         <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>{selected ? `${selected.ticker} · ${selected.marketCode}` : "Holding detail"}</SheetTitle>
+            <SheetTitle>
+              {selected ? <TickerLink marketCode={selected.marketCode} ticker={selected.ticker} className="text-base" /> : "Holding detail"}
+            </SheetTitle>
             <SheetDescription>Exact report values for the selected holding row.</SheetDescription>
           </SheetHeader>
           {selected ? <HoldingDetail row={selected} locale={locale} /> : null}
@@ -777,25 +851,111 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
 
 function HoldingDetail({ locale, row }: { locale: LocaleCode; row: ReportHoldingRowDto }) {
   const values = [
-    ["Market value", row.reportingMarketValueAmount],
-    ["Cost basis", row.reportingCostBasisAmount],
-    ["Unrealized P&L", row.reportingUnrealizedPnlAmount],
-    ["Daily change", row.dailyChangeAmount],
+    ["Market value", row.reportingMarketValueAmount, false],
+    ["Cost basis", row.reportingCostBasisAmount, false],
+    ["Unrealized P&L", row.reportingUnrealizedPnlAmount, true],
+    ["Daily change", row.dailyChangeAmount, true],
   ] as const;
   return (
     <div className="mt-5 flex flex-col gap-3">
-      {values.map(([label, value]) => (
+      {values.map(([label, value, tone]) => (
         <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
           <span className="text-sm text-muted-foreground">{label}</span>
-          <span className="font-mono text-sm font-semibold tabular-nums">{value === null ? "-" : formatCurrencyAmount(value, row.reportingCurrency, locale)}</span>
+          <span className={cn("font-mono text-sm font-semibold tabular-nums", tone ? financeToneClass(value) : "text-foreground")}>{value === null ? "-" : formatCurrencyAmount(value, row.reportingCurrency, locale)}</span>
         </div>
       ))}
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+        <span className="text-sm text-muted-foreground">Daily change %</span>
+        <span className={cn("font-mono text-sm font-semibold tabular-nums", financeToneClass(row.dailyChangePercent))}>
+          {row.dailyChangePercent === null ? "-" : formatPercent(row.dailyChangePercent, locale)}
+        </span>
+      </div>
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
         <span className="text-sm text-muted-foreground">Allocation</span>
         <span className="font-mono text-sm font-semibold tabular-nums">{row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}</span>
       </div>
     </div>
   );
+}
+
+function TickerLink({
+  className,
+  marketCode,
+  ticker,
+}: {
+  className?: string;
+  marketCode: string;
+  ticker: string;
+}) {
+  return (
+    <Link
+      href={`/tickers/${encodeURIComponent(ticker)}?marketCode=${encodeURIComponent(marketCode)}`}
+      className={cn("text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary", className)}
+    >
+      {ticker}
+    </Link>
+  );
+}
+
+function CompactFinanceStat({
+  currency,
+  label,
+  locale,
+  percent,
+  value,
+}: {
+  currency: AccountDefaultCurrency;
+  label: string;
+  locale: LocaleCode;
+  percent?: number | null;
+  value: number | null;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", financeToneClass(value))}>
+        {value === null ? "-" : formatCompactCurrencyAmount(value, currency, locale)}
+      </p>
+      {percent !== undefined ? (
+        <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(percent, "text-muted-foreground"))}>
+          {percent === null ? "-" : formatPercent(percent, locale)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function financeToneClass(value: number | null | undefined, neutralClass = "text-foreground"): string {
+  if (value === null || value === undefined || value === 0) return neutralClass;
+  if (value > 0) return "text-emerald-600";
+  return "text-rose-600";
+}
+
+function getOptionalFxRates(
+  fxStatus: ReportFxStatusDto,
+  topLevelRates?: FxConversionRateDto[],
+): Array<{ asOf: string | null; from: string; rate: number | null; to: string }> {
+  const rates = topLevelRates ?? (fxStatus as ReportFxStatusDto & { rates?: OptionalFxRateDto[] }).rates;
+  if (!Array.isArray(rates)) return [];
+
+  return rates.flatMap((rate) => {
+    const optionalRate = rate as OptionalFxRateDto;
+    const from = optionalRate.fromCurrency ?? optionalRate.from ?? optionalRate.baseCurrency;
+    const to = optionalRate.toCurrency ?? optionalRate.to ?? optionalRate.quoteCurrency;
+    if (!from || !to) return [];
+    return [{
+      asOf: optionalRate.asOf ?? optionalRate.date ?? null,
+      from,
+      rate: optionalRate.rate ?? null,
+      to,
+    }];
+  });
+}
+
+function formatFxRate(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6,
+  }).format(value);
 }
 
 function ReportSkeleton() {
