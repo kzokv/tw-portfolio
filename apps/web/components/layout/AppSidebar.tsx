@@ -7,6 +7,7 @@ import {
   Activity,
   ClipboardList,
   CreditCard,
+  FileChartColumn,
   Gauge,
   LayoutDashboard,
   LineChart,
@@ -41,6 +42,7 @@ export type AppSidebarVariant = "user" | "admin";
 
 type NavKey =
   | "dashboard"
+  | "reports"
   | "portfolio"
   | "transactions"
   | "cash-ledger"
@@ -392,6 +394,7 @@ function getUserNavGroups({
 }): NavGroup[] {
   const main: NavItem[] = [
     { key: "dashboard", href: "/dashboard", label: labels?.nav?.dashboard ?? "Dashboard", icon: Gauge },
+    { key: "reports", href: "/reports", label: labels?.nav?.reports ?? "Reports", icon: FileChartColumn },
     { key: "portfolio", href: "/portfolio", label: labels?.nav?.portfolio ?? "Portfolio", icon: TrendingUp },
     { key: "transactions", href: "/transactions", label: labels?.nav?.transactions ?? "Transactions", icon: Wallet, badgeCount: aiInboxCount },
     { key: "cash-ledger", href: "/cash-ledger", label: labels?.nav?.["cash-ledger"] ?? "Cash Ledger", icon: CreditCard },

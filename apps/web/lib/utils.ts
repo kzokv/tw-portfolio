@@ -17,6 +17,15 @@ export function formatCurrencyAmount(value: number, currency: CurrencyCode, loca
   }).format(value);
 }
 
+export function formatCompactCurrencyAmount(value: number, currency: CurrencyCode, locale: LocaleCode): string {
+  const intlLocale = locale === "zh-TW" ? "zh-TW" : "en-US";
+  const formatted = new Intl.NumberFormat(intlLocale, {
+    notation: "compact",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 1 : 2,
+  }).format(value);
+  return `${currency} ${formatted}`;
+}
+
 export function formatNumber(value: number, locale: LocaleCode, maximumFractionDigits = 0): string {
   const intlLocale = locale === "zh-TW" ? "zh-TW" : "en-US";
   return new Intl.NumberFormat(intlLocale, {

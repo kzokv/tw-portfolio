@@ -138,6 +138,7 @@ function resolveSegmentLabel(
  */
 function resolveLocalizedLabel(pathname: string, dict: AppDictionary): string | null {
   if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return dict.navigation.dashboardLabel;
+  if (pathname === "/reports" || pathname.startsWith("/reports/")) return dict.navigation.reportsLabel;
   if (pathname === "/portfolio" || pathname.startsWith("/portfolio/")) return dict.navigation.portfolioLabel;
   if (pathname === "/transactions" || pathname.startsWith("/transactions/")) return dict.navigation.transactionsLabel;
   if (pathname === "/cash-ledger" || pathname.startsWith("/cash-ledger/")) return dict.navigation.cashLedgerLabel;
