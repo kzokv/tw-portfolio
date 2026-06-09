@@ -53,6 +53,7 @@ import {
   REPORT_CURRENCY_MODES,
   REPORT_SCOPES,
   dashboardPerformanceRangesSchema,
+  dashboardHoldingFocusPreferenceSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
   themeAccentSchema,
@@ -2918,6 +2919,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       holdingAllocationBasis: z
         .union([holdingAllocationBasisSchema, z.null()])
+        .optional(),
+      dashboardHoldingFocus: z
+        .union([dashboardHoldingFocusPreferenceSchema, z.null()])
         .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.

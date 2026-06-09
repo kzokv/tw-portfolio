@@ -143,6 +143,30 @@ function click(el: Element) {
   });
 }
 
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function mockUserPreferencesFetch(preferences: Record<string, unknown> = {}) {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH") {
+      return new Response(JSON.stringify({ preferences }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ preferences }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("dashboard components", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -152,6 +176,7 @@ describe("dashboard components", () => {
     root = null;
     container?.remove();
     container = null;
+    vi.unstubAllGlobals();
   });
 
   // Phase 5d — "renders summary cards in the requested order" removed.
@@ -297,6 +322,9 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-holdings-account-filter"');
     expect(html).toContain('data-testid="dashboard-holdings-presets"');
     expect(html).toContain('data-testid="dashboard-holdings-preset-settings"');
+    expect(html).toContain('aria-label="Market"');
+    expect(html).toContain('aria-label="Account"');
+    expect(html).toContain('aria-label="Sort by"');
     expect(html).toContain("Largest");
     expect(html).toContain("Worst P&amp;L");
     expect(html).toContain("Best P&amp;L");
@@ -305,6 +333,7 @@ describe("dashboard components", () => {
   });
 
   it("expands holding focus account rows on desktop table", () => {
+    mockUserPreferencesFetch();
     const multiAccountHoldings: DashboardOverviewHoldingDto[] = [
       holdings[0]!,
       {
@@ -363,6 +392,7 @@ describe("dashboard components", () => {
   });
 
   it("opens holding focus detail sheet with account, cost, and FX sections", () => {
+    mockUserPreferencesFetch();
     const group = buildHoldingGroupsFromHoldings({ holdings })[0];
     if (!group) throw new Error("Expected holding group");
     const reportingGroup = {
@@ -414,12 +444,122 @@ describe("dashboard components", () => {
     expect(document.body.textContent).toContain("Cost/P&L");
     expect(document.body.textContent).toContain("FX/Price");
     expect(document.body.textContent).toContain("Book Cost");
-    expect(document.body.textContent).toContain("FX-Translated Cost");
     expect(document.body.textContent).toContain("Portfolio allocation");
-    expect(document.body.textContent).toContain("Market allocation");
     expect(document.body.textContent).toContain("Average cost");
     expect(document.body.textContent).toContain("Latest price");
     expect(document.body.textContent).toContain("Ticker page");
+    expect(document.body.textContent).not.toContain("FX-Translated Cost");
+    expect(document.body.textContent).not.toContain("Market allocation");
+  });
+
+  it("hydrates and persists holding focus chip preferences", async () => {
+    const fetchMock = mockUserPreferencesFetch({
+      dashboardHoldingFocus: {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "stale-quotes",
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      freshness: "stale_amber" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+        reportingAllocationPercent: 12,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const presetText = container.querySelector('[data-testid="dashboard-holdings-presets"]')?.textContent ?? "";
+    expect(presetText.indexOf("Stale quotes")).toBeLessThan(presetText.indexOf("Largest"));
+    expect(presetText).not.toContain("Worst P&L");
+
+    const largestButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Largest");
+    expect(largestButton).toBeDefined();
+    click(largestButton!);
+    await flushPromises();
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(patchCall).toBeDefined();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+      dashboardHoldingFocus: {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "largest",
+      },
+    });
+  });
+
+  it("selects the next visible chip before hiding the active holding focus preset", async () => {
+    const fetchMock = mockUserPreferencesFetch({
+      dashboardHoldingFocus: {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "stale-quotes",
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[group]}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const settingsButton = container.querySelector('[data-testid="dashboard-holdings-preset-settings"]');
+    expect(settingsButton).not.toBeNull();
+    click(settingsButton!);
+    await flushPromises();
+
+    const staleCheckbox = document.body.querySelector('[aria-label="Show Stale quotes chip"]');
+    expect(staleCheckbox).not.toBeNull();
+    click(staleCheckbox!);
+    await flushPromises();
+
+    const patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(patchCalls.length).toBeGreaterThan(0);
+    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
+      dashboardHoldingFocus: {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl", "stale-quotes"],
+        selectedPreset: "largest",
+      },
+    });
   });
 
   it("prefers explicit server-provided reporting unit prices in dashboard holdings preview", () => {
