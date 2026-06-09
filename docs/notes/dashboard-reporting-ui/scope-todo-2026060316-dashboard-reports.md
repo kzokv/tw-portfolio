@@ -489,9 +489,11 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `git diff --check` passed.
 - [x] 2026-06-10 focused Codex review fix for ticker hydration:
   - `fetchTickerDetailsHydration()` now hydrates from `/tickers/{ticker}/enrichment` after primary ticker data is seeded, while the initial `fetchTickerDetails()` path still uses `/details` for full primary data.
-  - `npm exec vitest run test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/TickerHistoryClient.test.tsx -- --no-file-parallelism` from `apps/web` passed: 9 tests.
+  - Ticker mutation refreshes now use the full `/tickers/{ticker}/details` endpoint after reloading transactions, so position quantity, average cost, and related stats update after transaction edits/deletes while normal mount hydration still avoids duplicate full-detail work.
+  - `npm exec vitest run test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/TickerHistoryClient.test.tsx -- --no-file-parallelism` from `apps/web` passed: 10 tests.
   - `npx eslint apps/web/features/portfolio/services/tickerDetailsService.ts apps/web/test/features/portfolio/services/tickerDetailsService.test.ts apps/web/test/app/tickers/TickerHistoryClient.test.tsx` passed.
   - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
+  - `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/transaction-mutations-aaa.spec.ts -g "weighted-average cost correctness after delete"` passed: 1 test.
 
 ## Mockups
 
