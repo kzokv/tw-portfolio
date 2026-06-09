@@ -59,13 +59,16 @@ export async function enrichHoldingsWithFreshness(
     return value;
   }
 
+  const resolveMarket = (holding: DashboardOverviewHoldingDto): MarketCode | undefined =>
+    (holding as { marketCode?: MarketCode }).marketCode ?? accountMarket.get(holding.accountId);
+
   // KZO-177 (P2 Fix 3): batched latest-bar-date lookup keyed by composite
   // `(ticker, marketCode)`. Required so cross-listed instruments (e.g. BHP/AU
   // vs BHP/US) get classified against their own market's data rather than
   // colliding under the bare ticker.
   const distinctPairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
   for (const h of holdings) {
-    const market = accountMarket.get(h.accountId);
+    const market = resolveMarket(h);
     if (market && !instrumentKeys.has(`${h.ticker}:${market}`)) continue;
     if (!market) continue;
     distinctPairs.set(`${h.ticker}:${market}`, { ticker: h.ticker, marketCode: market });
@@ -75,7 +78,7 @@ export async function enrichHoldingsWithFreshness(
   );
 
   for (const holding of holdings) {
-    const market = accountMarket.get(holding.accountId);
+    const market = resolveMarket(holding);
     if (market && !instrumentKeys.has(`${holding.ticker}:${market}`)) {
       holding.freshness = "current";
       holding.freshnessTooltip = null;

@@ -34,6 +34,9 @@ function resolveHoldingMarketCode(
   holding: DashboardOverviewHoldingDto,
   instruments: InstrumentOptionDto[],
 ): MarketCode {
+  const resolvedMarketCode = (holding as { marketCode?: MarketCode }).marketCode;
+  if (resolvedMarketCode) return resolvedMarketCode;
+
   const matches = instruments.filter((instrument) => instrument.ticker === holding.ticker);
   if (matches.length === 1) {
     return matches[0]!.marketCode as MarketCode;
