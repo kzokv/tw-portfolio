@@ -1,5 +1,5 @@
 import React, { act } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import type {
   AccountDto,
@@ -20,7 +20,22 @@ vi.mock("../../../features/portfolio/services/tickerDetailsService", async () =>
   };
 });
 
+vi.mock("../../../components/layout/AppShellDataContext", () => ({
+  useAppShellData: () => ({
+    contextRefreshSignal: 0,
+    locale: "en",
+    sessionUserId: "user-1",
+    uiDict: {},
+  }),
+}));
+
 import { fetchTickerDetailsHydration } from "../../../features/portfolio/services/tickerDetailsService";
+import {
+  buildRouteDtoCacheKey,
+  getRouteDtoContextScope,
+  readRouteDtoCache,
+  writeRouteDtoCache,
+} from "../../../lib/routeDtoCache";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -45,6 +60,23 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size;
+      },
+    },
+  });
+}
+
 function mount(element: React.ReactElement) {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -55,6 +87,10 @@ function mount(element: React.ReactElement) {
   return container;
 }
 
+beforeEach(() => {
+  installLocalStorageMock();
+});
+
 afterEach(() => {
   if (root) {
     act(() => root!.unmount());
@@ -62,6 +98,7 @@ afterEach(() => {
   root = null;
   container?.remove();
   container = null;
+  window.localStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -169,36 +206,51 @@ const details: TickerDetailsModel = {
   fundamentals: { panels: [] },
 };
 
+function tickerCacheKey() {
+  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2");
+}
+
+function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details) {
+  return mount(
+    <TickerHistoryClient
+      transactions={transactions}
+      dict={dict}
+      locale="en"
+      ticker="2330"
+      accountId="acc-2"
+      accounts={accounts}
+      feeProfiles={feeProfiles}
+      feeProfileBindings={[]}
+      instrument={{
+        ticker: "2330",
+        name: "TSMC",
+        instrumentType: "STOCK",
+        sector: null,
+        marketCode: "TW",
+        barsBackfillStatus: "complete",
+        lastRepairAt: null,
+        repairAvailableAt: null,
+        gicsIndustryGroup: null,
+      }}
+      details={initialDetails}
+      isDemo={false}
+      transactionAccountFilter="acc-2"
+      transactionMarketFilter="TW"
+      holdingGroup={null}
+    />,
+  );
+}
+
+async function flushEffects() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 describe("TickerHistoryClient", () => {
   it("renders scoped account names instead of account ids in summary panels", () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
-    const element = mount(
-      <TickerHistoryClient
-        transactions={transactions}
-        dict={dict}
-        locale="en"
-        ticker="2330"
-        accountId="acc-2"
-        accounts={accounts}
-        feeProfiles={feeProfiles}
-        feeProfileBindings={[]}
-        instrument={{
-          ticker: "2330",
-          name: "TSMC",
-          instrumentType: "STOCK",
-          sector: null,
-          marketCode: "TW",
-          barsBackfillStatus: "complete",
-          lastRepairAt: null,
-          repairAvailableAt: null,
-          gicsIndustryGroup: null,
-        }}
-        details={details}
-        isDemo={false}
-        transactionAccountFilter="acc-2"
-        holdingGroup={null}
-      />,
-    );
+    const element = renderTickerHistoryClient();
 
     const quantityCard = element.querySelector('[data-testid="ticker-history-quantity"]');
     const totalCostCard = element.querySelector('[data-testid="ticker-history-total-cost"]');
@@ -206,5 +258,74 @@ describe("TickerHistoryClient", () => {
     expect(quantityCard?.textContent).not.toContain("acc-2");
     expect(totalCostCard?.textContent).toContain("Scope Brokerage");
     expect(totalCostCard?.textContent).not.toContain("acc-2");
+  });
+
+  it("restores cached ticker details before the silent refresh completes", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey(), {
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: 2200,
+      },
+    });
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: null,
+      },
+    });
+    await flushEffects();
+
+    const marketValueCard = element.querySelector('[data-testid="ticker-history-market-value"]');
+    expect(marketValueCard?.textContent).toContain("NT$2,200");
+  });
+
+  it("uses cached ticker details as the silent refresh fallback", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey(), {
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: 2200,
+      },
+    });
+
+    renderTickerHistoryClient({
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: null,
+      },
+    });
+    await flushEffects();
+    await flushEffects();
+
+    expect(fetchTickerDetailsHydration).toHaveBeenCalledWith(expect.objectContaining({
+      primaryDetails: expect.objectContaining({
+        position: expect.objectContaining({ marketValue: 2200 }),
+      }),
+    }));
+    const cached = readRouteDtoCache<TickerDetailsModel>(tickerCacheKey());
+    expect(cached?.payload.position.marketValue).toBe(2200);
+  });
+
+  it("writes refreshed ticker details to the route DTO cache", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: 3300,
+      },
+    });
+
+    renderTickerHistoryClient();
+    await flushEffects();
+    await flushEffects();
+
+    const cached = readRouteDtoCache<TickerDetailsModel>(tickerCacheKey());
+    expect(cached?.payload.position.marketValue).toBe(3300);
   });
 });

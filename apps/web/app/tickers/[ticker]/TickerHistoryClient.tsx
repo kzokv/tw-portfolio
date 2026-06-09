@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
@@ -42,6 +42,13 @@ import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId"
 import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
 import type { DashboardOverviewHoldingGroupDto } from "../../../features/portfolio/holdingGroups";
 import { useBreadcrumb } from "../../../components/layout/BreadcrumbProvider";
+import { useAppShellData } from "../../../components/layout/AppShellDataContext";
+import {
+  buildRouteDtoCacheKey,
+  getRouteDtoContextScope,
+  readRouteDtoCache,
+  writeRouteDtoCache,
+} from "../../../lib/routeDtoCache";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 
 interface TickerHistoryClientProps {
@@ -62,6 +69,16 @@ interface TickerHistoryClientProps {
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
+const TICKER_DETAILS_CACHE_TTL_MS = 3 * 60 * 1000;
+
+function isMatchingTickerDetailsCache(
+  cached: { payload: TickerDetailsModel } | null,
+  ticker: string,
+  marketCode: string | null | undefined,
+): cached is { payload: TickerDetailsModel } {
+  return cached?.payload.identity.ticker === ticker
+    && (!marketCode || cached.payload.identity.marketCode === marketCode);
+}
 
 function formatLastRepairTime(locale: LocaleCode, value: Date): string {
   return new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en", {
@@ -130,6 +147,7 @@ export function TickerHistoryClient({
   const [instrumentState, setInstrumentState] = useState<InstrumentCatalogItemDto | null>(instrument);
   const [displayTransactions, setDisplayTransactions] = useState(transactions);
   const [detailsState, setDetailsState] = useState(details);
+  const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
@@ -139,6 +157,18 @@ export function TickerHistoryClient({
     includeDividends: true,
   });
   const sharedContextOwnerId = useSharedContextOwnerId();
+  const { sessionUserId } = useAppShellData();
+  const tickerDetailsCacheKey = useMemo(
+    () => buildRouteDtoCacheKey(
+      "ticker-details",
+      getRouteDtoContextScope(sessionUserId),
+      locale,
+      ticker,
+      transactionMarketFilter ?? details.identity.marketCode,
+      transactionAccountFilter ?? "all",
+    ),
+    [details.identity.marketCode, locale, sessionUserId, ticker, transactionAccountFilter, transactionMarketFilter],
+  );
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = detailsState.identity.currency;
@@ -166,22 +196,39 @@ export function TickerHistoryClient({
     setDetailsState(details);
   }, [details]);
 
+  useEffect(() => {
+    detailsStateRef.current = detailsState;
+  }, [detailsState]);
+
+  useEffect(() => {
+    const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
+    if (isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter)) {
+      detailsStateRef.current = cached.payload;
+      setDetailsState(cached.payload);
+    }
+  }, [ticker, tickerDetailsCacheKey, transactionMarketFilter]);
+
   const refreshDetails = useCallback(async () => {
     setIsDetailsLoading(true);
     try {
+      const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
+      const primaryDetails = isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter)
+        ? cached.payload
+        : detailsStateRef.current;
       const next = await fetchTickerDetailsHydration({
         ticker,
         accountId: transactionAccountFilter,
         marketCode: transactionMarketFilter,
         instrument,
         transactions,
-        primaryDetails: details,
+        primaryDetails,
       });
       setDetailsState(next);
+      writeRouteDtoCache(tickerDetailsCacheKey, next, TICKER_DETAILS_CACHE_TTL_MS);
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [details, instrument, ticker, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, ticker, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
