@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyReviewReportDto } from "@vakwen/shared-types";
-import { useReportData } from "../../../../features/reports/hooks/useReportData";
+import { REPORT_CLIENT_REFRESH_TIMEOUT_MS, useReportData } from "../../../../features/reports/hooks/useReportData";
 import type { ReportRouteState } from "../../../../features/reports/reportState";
 import { buildRouteDtoCacheKey, readRouteDtoCache } from "../../../../lib/routeDtoCache";
 
@@ -102,7 +102,7 @@ function Harness({
 }: {
   cacheScope?: string;
   contextRefreshSignal: number;
-  initialReport: DailyReviewReportDto;
+  initialReport: DailyReviewReportDto | null;
 }) {
   result = useReportData({
     cacheScope,
@@ -184,5 +184,37 @@ describe("useReportData", () => {
     expect(fetchReport).toHaveBeenCalledTimes(1);
     expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Owner refresh");
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
+  });
+
+  it("times out initial client refreshes instead of leaving reports bootstrapped forever", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetchReport).mockImplementation(((
+      _tab: typeof state.tab,
+      _state: ReportRouteState,
+      options?: { signal?: AbortSignal },
+    ) => {
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    }) as never);
+
+    act(() => {
+      root.render(<Harness contextRefreshSignal={0} initialReport={null} />);
+    });
+
+    expect(result.isBootstrapping).toBe(true);
+    expect(result.isRefreshing).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_CLIENT_REFRESH_TIMEOUT_MS);
+    });
+    await act(async () => {});
+
+    expect(result.isBootstrapping).toBe(false);
+    expect(result.isRefreshing).toBe(false);
+    expect(result.errorMessage).toBe("Report refresh timed out. Try refreshing again.");
+    expect(result.data).toBeNull();
   });
 });
