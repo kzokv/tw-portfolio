@@ -481,6 +481,12 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm run typecheck` passed.
   - A pre-fix `npm run test:integration:full:host` run failed only the two scoped aggregate Postgres tests (`INT-7`, `INT-8`) because the JSON CTE initially read `account_id` instead of `accountId`; after the patch, the targeted managed Postgres rerun passed:
     `VAKWEN_MANAGED_CI_STACK=1 RUN_POSTGRES_INTEGRATION=1 POSTGRES_TEST_DB_URL=postgres://app:app@192.168.64.1:15432/vakwen_ci?connect_timeout=10 POSTGRES_TEST_REDIS_URL=redis://192.168.64.1:16379 npx vitest run --no-file-parallelism test/integration/dashboardReportingCurrencyAggregation.integration.test.ts` from `apps/api`: 8 tests.
+- [x] 2026-06-10 focused Codex review fix for Holding Focus account filters:
+  - Dashboard Holding Focus now projects grouped holdings down to the selected account rows before search, presets, sorting, and allocation percentages are applied, so the selected account view no longer displays all-account market value, quantity, P&L, or reporting-currency totals.
+  - `npm exec vitest run test/features/dashboard/components.test.tsx -- --no-file-parallelism` from `apps/web` passed: 30 tests.
+  - `npx eslint apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/test/features/dashboard/components.test.tsx` passed.
+  - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
+  - `git diff --check` passed.
 
 ## Mockups
 
