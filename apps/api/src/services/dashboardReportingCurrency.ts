@@ -436,14 +436,15 @@ function withPerformanceFreshness(
   dto: Omit<DashboardPerformanceDto, "requestedAsOf" | "lastReliableDate" | "marketDataStaleSince">,
   requestedAsOf: string,
 ): DashboardPerformanceDto {
+  const requestedAsOfDate = requestedAsOf.slice(0, 10);
   const lastReliableDate =
     [...dto.points].reverse().find((point) => isReliablePerformancePoint(point))?.date ?? null;
   return {
     ...dto,
-    requestedAsOf,
+    requestedAsOf: requestedAsOfDate,
     lastReliableDate,
     marketDataStaleSince:
-      lastReliableDate !== null && lastReliableDate < requestedAsOf
+      lastReliableDate !== null && lastReliableDate < requestedAsOfDate
         ? lastReliableDate
         : null,
   };
@@ -655,7 +656,7 @@ async function buildFxAwareSyntheticPerformance(
     if (
       (point.totalCostAmount ?? 0) > 0 ||
       point.marketValueAmount !== null ||
-      !allFxAvailable
+      !point.fxAvailable
     ) {
       points.push(point);
     }
@@ -761,7 +762,7 @@ async function buildDatedPerformanceFinance(
       trade,
       proceedsNative,
       tradeFx,
-      allocatedBookCostResult.amount,
+      allocatedBookCostResult,
       fxFor,
     );
     if (!realizedPnlResult.complete || previous.hasMissingBookCost) {
@@ -868,7 +869,7 @@ async function resolveRealizedPnlAmount(
   trade: BookedTradeEvent,
   proceedsNative: number,
   tradeFx: number | null,
-  allocatedBookCostAmount: number,
+  allocatedBookCostResult: { amount: number; complete: boolean },
   fxFor: (src: string, date: string) => Promise<number | null>,
 ): Promise<{ amount: number; complete: boolean }> {
   if (trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null) {
@@ -878,9 +879,13 @@ async function resolveRealizedPnlAmount(
       : { amount: roundToDecimal(trade.realizedPnlAmount * realizedFx, 2), complete: true };
   }
 
+  if (!allocatedBookCostResult.complete) {
+    return { amount: 0, complete: false };
+  }
+
   return tradeFx === null
     ? { amount: 0, complete: false }
-    : { amount: roundToDecimal(proceedsNative * tradeFx - allocatedBookCostAmount, 2), complete: true };
+    : { amount: roundToDecimal(proceedsNative * tradeFx - allocatedBookCostResult.amount, 2), complete: true };
 }
 
 function sortTradeEvents(trades: ReadonlyArray<BookedTradeEvent>): BookedTradeEvent[] {
