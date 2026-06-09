@@ -1146,6 +1146,138 @@ describe("report routes", () => {
     }));
   });
 
+  it("[reports-fx]: historical dividend FX missing while later report FX exists → report marks FX partial", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usdFeeProfile = {
+      ...feeProfile,
+      id: "fp-us-historical-dividend-fx",
+      accountId: "acc-us-historical-dividend-fx",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(usdFeeProfile);
+    store.accounts.push({
+      id: "acc-us-historical-dividend-fx",
+      userId,
+      name: "US Broker",
+      feeProfileId: usdFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.instruments.push({
+      ticker: "AAPL",
+      type: "STOCK",
+      marketCode: "US",
+      isProvisional: false,
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-us-historical-dividend-fx",
+      ticker: "AAPL",
+      quantity: 5,
+      costBasisAmount: 500,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-us-historical-dividend-fx-trade",
+      userId,
+      accountId: "acc-us-historical-dividend-fx",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 5,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: usdFeeProfile,
+      tradeTimestamp: "2026-06-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T14:30:00.000Z",
+    });
+    store.marketData.dividendEvents.push({
+      id: "report-us-historical-dividend-fx-event",
+      ticker: "AAPL",
+      eventType: "CASH",
+      exDividendDate: "2026-06-01",
+      paymentDate: "2026-06-03",
+      cashDividendPerShare: 2,
+      cashDividendCurrency: "USD",
+      stockDividendPerShare: 0,
+      source: "test",
+    });
+    store.accounting.facts.dividendLedgerEntries.push({
+      id: "report-us-historical-dividend-fx-ledger",
+      accountId: "acc-us-historical-dividend-fx",
+      dividendEventId: "report-us-historical-dividend-fx-event",
+      eligibleQuantity: 5,
+      expectedCashAmount: 10,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 10,
+      receivedStockQuantity: 0,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "provided",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertFxRates([
+      {
+        date: "2026-06-04",
+        baseCurrency: "USD",
+        quoteCurrency: "TWD",
+        rate: 32,
+        source: "test",
+      },
+    ]);
+
+    const portfolioResponse = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?currencyMode=specified&currency=TWD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const portfolioBody = portfolioResponse.json() as {
+      summary: { incomeAmount: number };
+      income: { trailingDividendAmount: number };
+      fxStatus: {
+        status: string;
+        missingRatePairs: Array<{ from: string; to: string }>;
+      };
+      dataHealth: { missingFxCount: number };
+      diagnostics: { missingFxCount: number };
+    };
+
+    expect(portfolioResponse.statusCode).toBe(200);
+    expect(portfolioBody.summary.incomeAmount).toBe(0);
+    expect(portfolioBody.income.trailingDividendAmount).toBe(0);
+    expect(portfolioBody.fxStatus.status).toBe("partial");
+    expect(portfolioBody.fxStatus.missingRatePairs).toEqual([
+      expect.objectContaining({ from: "USD", to: "TWD" }),
+    ]);
+    expect(portfolioBody.dataHealth.missingFxCount).toBe(1);
+    expect(portfolioBody.diagnostics.missingFxCount).toBe(1);
+
+    const dailyResponse = await app.inject({
+      method: "GET",
+      url: "/reports/daily-review?currencyMode=specified&currency=TWD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const dailyBody = dailyResponse.json() as {
+      suggestions: Array<{ code: string; detail: string }>;
+    };
+
+    expect(dailyResponse.statusCode).toBe(200);
+    expect(dailyBody.suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "fx_missing",
+        detail: expect.stringContaining("1 FX input(s)"),
+      }),
+    ]));
+  });
+
   it("excludes reversed and superseded dividend ledger rows from report income", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];

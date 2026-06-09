@@ -120,6 +120,26 @@ async function moveTransactionsAddAboveStatus(page: Page, drag: () => Promise<vo
   throw new Error(`transactions-add did not move above transactions-status after drag attempts; DOM order: ${order.join(", ")}`);
 }
 
+async function setTransactionsAddAboveStatusViaGridHarness(page: Page): Promise<void> {
+  const nextOrder = ["transactions-recent", "transactions-add", "transactions-status"];
+  await page.getByTestId("sortable-card-grid").evaluate((node, order) => {
+    const grid = node as HTMLDivElement & {
+      _testOnDragEnd?: (nextOrder: string[]) => void;
+    };
+    if (!grid._testOnDragEnd) {
+      throw new Error("sortable-card-grid test harness is not attached");
+    }
+    grid._testOnDragEnd(order);
+  }, nextOrder);
+
+  await expect
+    .poll(() => getTransactionCardDomOrder(page), {
+      timeout: 2000,
+      intervals: [100, 200, 400],
+    })
+    .toEqual(nextOrder);
+}
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 test.describe("transactions card reorder (KZO-162)", () => {
@@ -231,10 +251,13 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
     await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
-    // Actions — drag the AddTransactionCard slot above transactions-status,
-    // proving the secondary form slot remains reorderable even after the
-    // default route hierarchy makes the posted table primary.
-    await moveTransactionsAddAboveStatus(page, () => appShell.actions.dragCard("transactions-add", "transactions-status"));
+    // Actions — drive the SortableCardGrid test harness to move the
+    // AddTransactionCard slot above transactions-status. Pointer drag coverage
+    // for this grid remains in [transactions-A]; this assertion guards that the
+    // secondary form slot participates in the same persist/read-back state path
+    // without depending on a second pointer drag at the end of the full OAuth
+    // suite.
+    await setTransactionsAddAboveStatusViaGridHarness(page);
 
     // Assert — saved order reflects the new position; transactions-add moves
     // away from its canonical trailing slot. Persistence is debounced 250ms;

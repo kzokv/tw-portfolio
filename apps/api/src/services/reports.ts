@@ -54,9 +54,18 @@ interface PreparedReportData {
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
+  realizedPnlAmount: number;
+  trailingDividendIncome: TrailingDividendIncomeResult;
   store: Store;
   scopedStore: Store;
   asOf: string;
+}
+
+type MissingFxRatePair = ReportFxStatusDto["missingRatePairs"][number];
+
+interface TrailingDividendIncomeResult {
+  amount: number;
+  missingRatePairs: MissingFxRatePair[];
 }
 
 export async function buildDailyReviewReport(
@@ -74,7 +83,7 @@ export async function buildDailyReviewReport(
 
   return {
     query: prepared.reportQuery,
-    summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -105,7 +114,7 @@ export async function buildPortfolioReport(
 
   return {
     query: prepared.reportQuery,
-    summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -124,7 +133,7 @@ export async function buildPortfolioReport(
       topHoldings,
     },
     income: {
-      trailingDividendAmount: await buildTrailingDividendAmount(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency),
+      trailingDividendAmount: prepared.trailingDividendIncome.amount,
       recentDividendCount: countActivePostedDividends(prepared.scopedStore),
     },
     holdings,
@@ -147,7 +156,7 @@ export async function buildMarketReport(
 
   return {
     query: prepared.reportQuery,
-    summary: await buildSummaryTotals(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency, prepared.asOf, prepared.translatedSummary),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -218,7 +227,11 @@ async function prepareReportData(
     app.persistence,
   );
 
-  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf);
+  const [realizedPnlAmount, trailingDividendIncome] = await Promise.all([
+    translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
+    buildTrailingDividendIncome(app, scopedStore, context.reportingCurrency),
+  ]);
+  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, trailingDividendIncome.missingRatePairs);
   return {
     reportQuery: {
       scope: context.scope,
@@ -232,7 +245,7 @@ async function prepareReportData(
     translatedSummary,
     translatedHoldingGroups,
     quotes,
-    dataHealth: buildDataHealth(translatedHoldingGroups),
+    dataHealth: buildDataHealth(translatedHoldingGroups, trailingDividendIncome.missingRatePairs.length),
     fxStatus,
     fxRates: await buildFxConversionRateRows(
       app.persistence,
@@ -240,6 +253,8 @@ async function prepareReportData(
       context.reportingCurrency,
       asOf,
     ),
+    realizedPnlAmount,
+    trailingDividendIncome,
     store,
     scopedStore,
     asOf,
@@ -442,12 +457,15 @@ function translateDailyChange(row: Awaited<ReturnType<typeof translateOverviewHo
   return null;
 }
 
-function buildDataHealth(groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>): ReportDataHealthDto {
+function buildDataHealth(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  historicalMissingFxCount = 0,
+): ReportDataHealthDto {
   return {
     holdingCount: groups.length,
     missingQuoteCount: groups.filter((group) => group.quoteStatus === "missing").length,
     provisionalQuoteCount: groups.filter((group) => group.quoteStatus === "provisional").length,
-    missingFxCount: groups.filter((group) => group.fxStatus !== "complete").length,
+    missingFxCount: groups.filter((group) => group.fxStatus !== "complete").length + historicalMissingFxCount,
     staleQuoteCount: groups.filter((group) => group.freshness !== "current").length,
   };
 }
@@ -512,24 +530,40 @@ async function buildFxStatus(
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
   asOf: string,
+  historicalMissingRatePairs: ReadonlyArray<MissingFxRatePair> = [],
 ): Promise<ReportFxStatusDto> {
   const nativeCurrencies = collectReportFxCurrencies(store);
-  const missingRatePairs: Array<{ from: AccountDefaultCurrency; to: AccountDefaultCurrency }> = [];
+  const currentMissingRatePairs: MissingFxRatePair[] = [];
   for (const currency of nativeCurrencies) {
     if (currency === reportingCurrency) continue;
     const rate = await app.persistence.getFxRate(currency, reportingCurrency, asOf);
-    if (rate === null) missingRatePairs.push({ from: currency, to: reportingCurrency });
+    if (rate === null) currentMissingRatePairs.push({ from: currency, to: reportingCurrency });
   }
+  const missingRatePairs = dedupeMissingRatePairs([
+    ...currentMissingRatePairs,
+    ...historicalMissingRatePairs,
+  ]);
+  const currentMissingKeys = new Set(currentMissingRatePairs.map((pair) => `${pair.from}\0${pair.to}`));
+  const requiredCurrencies = nativeCurrencies.filter((currency) => currency !== reportingCurrency);
   return {
     status: missingRatePairs.length === 0
       ? "complete"
-      : missingRatePairs.length === nativeCurrencies.filter((currency) => currency !== reportingCurrency).length
+      : requiredCurrencies.length > 0
+        && requiredCurrencies.every((currency) => currentMissingKeys.has(`${currency}\0${reportingCurrency}`))
         ? "missing"
         : "partial",
     reportingCurrency,
     nativeCurrencies,
     missingRatePairs,
   };
+}
+
+function dedupeMissingRatePairs(pairs: ReadonlyArray<MissingFxRatePair>): MissingFxRatePair[] {
+  const byKey = new Map<string, MissingFxRatePair>();
+  for (const pair of pairs) {
+    byKey.set(`${pair.from}\0${pair.to}`, pair);
+  }
+  return [...byKey.values()];
 }
 
 function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
@@ -561,20 +595,11 @@ function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
   return [...currencies];
 }
 
-async function buildSummaryTotals(
-  app: FastifyInstance,
-  store: Store,
-  reportingCurrency: AccountDefaultCurrency,
-  asOf: string,
+function buildSummaryTotals(
   translatedSummary: Awaited<ReturnType<typeof translateOverviewSummary>>,
-): Promise<ReportSummaryTotalsDto> {
-  const realizedPnlAmount = await translateTradeAmounts(
-    app,
-    store,
-    reportingCurrency,
-    "realized_pnl",
-  );
-  const incomeAmount = await buildTrailingDividendAmount(app, store, reportingCurrency);
+  realizedPnlAmount: number,
+  incomeAmount: number,
+): ReportSummaryTotalsDto {
   return {
     costBasisAmount: translatedSummary.totalCostAmount,
     marketValueAmount: translatedSummary.marketValueAmount,
@@ -605,12 +630,13 @@ async function translateTradeAmounts(
   return roundToDecimal(total, 2);
 }
 
-async function buildTrailingDividendAmount(
+async function buildTrailingDividendIncome(
   app: FastifyInstance,
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
-): Promise<number> {
+): Promise<TrailingDividendIncomeResult> {
   let total = 0;
+  const missingRatePairs: MissingFxRatePair[] = [];
   const reversedIds = collectReversedDividendLedgerIds(store);
   for (const entry of store.accounting.facts.dividendLedgerEntries) {
     if (!isActivePostedDividend(entry, reversedIds) || entry.receivedCashAmount === 0) continue;
@@ -618,10 +644,16 @@ async function buildTrailingDividendAmount(
     const currency = (event?.cashDividendCurrency ?? "TWD") as AccountDefaultCurrency;
     const date = event?.paymentDate ?? event?.exDividendDate ?? new Date().toISOString().slice(0, 10);
     const fx = currency === reportingCurrency ? 1 : await app.persistence.getFxRate(currency, reportingCurrency, date);
-    if (fx === null) continue;
+    if (fx === null) {
+      missingRatePairs.push({ from: currency, to: reportingCurrency });
+      continue;
+    }
     total += entry.receivedCashAmount * fx;
   }
-  return roundToDecimal(total, 2);
+  return {
+    amount: roundToDecimal(total, 2),
+    missingRatePairs: dedupeMissingRatePairs(missingRatePairs),
+  };
 }
 
 function countActivePostedDividends(store: Store): number {
@@ -791,7 +823,7 @@ function buildDailyReviewSuggestions(prepared: PreparedReportData, rows: ReportH
       code: "fx_missing",
       severity: "warning" as const,
       title: "FX coverage is incomplete",
-      detail: `${prepared.dataHealth.missingFxCount} holding group(s) could not be translated into ${prepared.reportQuery.reportingCurrency}.`,
+      detail: `${prepared.dataHealth.missingFxCount} FX input(s) could not be translated into ${prepared.reportQuery.reportingCurrency}.`,
     });
   }
   if (prepared.dataHealth.missingQuoteCount > 0 || prepared.dataHealth.provisionalQuoteCount > 0) {
