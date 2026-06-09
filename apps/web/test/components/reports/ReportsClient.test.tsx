@@ -10,6 +10,7 @@ const replaceMock = vi.hoisted(() => vi.fn());
 const useReportDataMock = vi.hoisted(() => vi.fn());
 const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y" }));
 const effectiveRangesMock = vi.hoisted(() => ({ value: ["1M", "1Y"] }));
+const reportHookOverride = vi.hoisted(() => ({ errorMessage: "" }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
@@ -45,7 +46,7 @@ vi.mock("../../../features/reports/hooks/useReportData", () => ({
     useReportDataMock(args);
     return {
       data: args.initialReport,
-      errorMessage: "",
+      errorMessage: reportHookOverride.errorMessage,
       isBootstrapping: false,
       isRefreshing: false,
       refresh: refreshMock,
@@ -189,6 +190,7 @@ describe("ReportsClient", () => {
     refreshMock.mockReset();
     replaceMock.mockReset();
     useReportDataMock.mockReset();
+    reportHookOverride.errorMessage = "";
     searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y";
     effectiveRangesMock.value = ["1M", "1Y"];
     container = document.createElement("div");
@@ -305,6 +307,18 @@ describe("ReportsClient", () => {
 
     expect(document.querySelector("[data-testid='reports-loading-skeleton']")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Performance trend");
+  });
+
+  it("renders report refresh errors with a stable validation marker", async () => {
+    reportHookOverride.errorMessage = "Report refresh timed out. Try refreshing again.";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-error']")?.textContent).toContain("Report refresh timed out");
   });
 
   it("renders portfolio report performance as-of and stale-data metadata", async () => {
