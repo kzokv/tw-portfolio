@@ -37,13 +37,12 @@ export function useReportData({
     ),
     [cacheScope, locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
   );
-  const initialCached = initialReport === null ? readRouteDtoCache<AnyReportDto>(cacheKey) : null;
-  const [data, setData] = useState<AnyReportDto | null>(initialReport ?? initialCached?.payload ?? null);
-  const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null && initialCached === null);
+  const [data, setData] = useState<AnyReportDto | null>(initialReport);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [restoredFromCache, setRestoredFromCache] = useState(initialReport === null && initialCached !== null);
-  const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const [restoredFromCache, setRestoredFromCache] = useState(false);
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
   const initialCacheScopeRef = useRef(cacheScope);
   const requestVersionRef = useRef(0);
 
