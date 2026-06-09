@@ -31,7 +31,7 @@ import { useTransactionMutations } from "../../../features/portfolio/hooks/useTr
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import {
-  fetchTickerDetailsEnrichment,
+  fetchTickerDetailsHydration,
   type TickerDetailsModel,
 } from "../../../features/portfolio/services/tickerDetailsService";
 import { useEventStream } from "../../../hooks/useEventStream";
@@ -130,7 +130,7 @@ export function TickerHistoryClient({
   const [instrumentState, setInstrumentState] = useState<InstrumentCatalogItemDto | null>(instrument);
   const [displayTransactions, setDisplayTransactions] = useState(transactions);
   const [detailsState, setDetailsState] = useState(details);
-  const [isEnrichmentLoading, setIsEnrichmentLoading] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
     startDate: "",
@@ -166,10 +166,10 @@ export function TickerHistoryClient({
     setDetailsState(details);
   }, [details]);
 
-  const refreshEnrichment = useCallback(async () => {
-    setIsEnrichmentLoading(true);
+  const refreshDetails = useCallback(async () => {
+    setIsDetailsLoading(true);
     try {
-      const next = await fetchTickerDetailsEnrichment({
+      const next = await fetchTickerDetailsHydration({
         ticker,
         accountId: transactionAccountFilter,
         marketCode: transactionMarketFilter,
@@ -179,13 +179,13 @@ export function TickerHistoryClient({
       });
       setDetailsState(next);
     } finally {
-      setIsEnrichmentLoading(false);
+      setIsDetailsLoading(false);
     }
   }, [details, instrument, ticker, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
-    void refreshEnrichment();
-  }, [refreshEnrichment]);
+    void refreshDetails();
+  }, [refreshDetails]);
 
   const refresh = useCallback(async () => {
     const nextTransactions = await fetchTransactionHistory({
@@ -492,9 +492,9 @@ export function TickerHistoryClient({
         >
           <div className="flex flex-wrap items-center gap-2">
             <span>Position summary is ready first. Chart, dividends, and fundamentals refresh independently.</span>
-            {isEnrichmentLoading ? (
+            {isDetailsLoading ? (
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Refreshing enrichment
+                Refreshing details
               </span>
             ) : (
               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
@@ -502,7 +502,7 @@ export function TickerHistoryClient({
               </span>
             )}
           </div>
-          <Button type="button" variant="secondary" onClick={() => { void refreshEnrichment(); }} disabled={isEnrichmentLoading}>
+          <Button type="button" variant="secondary" onClick={() => { void refreshDetails(); }} disabled={isDetailsLoading}>
             Refresh ticker
           </Button>
         </div>
