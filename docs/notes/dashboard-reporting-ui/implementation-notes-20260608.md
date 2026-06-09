@@ -101,15 +101,23 @@ Dashboard is the primary daily command surface.
 - The hero market strip deep-links into `/reports?tab=market...` using the active reporting currency.
 - The dashboard holdings module is a top-holdings preview, not the full portfolio holdings table. It prioritizes server-provided reporting-currency value/price, search, sorting, market filtering, ticker links, an always-visible FX strip for visible cross-currency holdings, and tap/click detail disclosure for native price and FX rate.
 - Desktop dashboard holdings use a sticky-header/sticky-first-column table to keep the rich data scannable. Mobile dashboard holdings use stacked cards with detail disclosure instead of forcing table scanning.
+- Holding Focus now restores account-level visibility on the dashboard. Desktop rows can expand into account rows inside the holdings-first table, and mobile/detail disclosure uses a sheet with `Summary`, `Accounts`, `Cost/P&L`, and `FX/Price` sections. The currently verified detail-sheet content includes Book Cost, portfolio allocation, average cost, latest price, and ticker navigation; `FX-Translated Cost` and market-allocation detail remain follow-up work.
+- Holding Focus chip preferences persist under the existing `user_preferences.preferences.dashboardHoldingFocus` JSON key. The saved object shape is `{ presetOrder, hiddenPresets, selectedPreset }`. This change does not introduce a migration or a new table.
+- `PATCH /user-preferences` keeps the existing top-level merge semantics for preferences: `dashboardHoldingFocus` is patched as a full object, `dashboardHoldingFocus: null` clears the key, and there is no sub-object merge path for this preference. `cardOrder` remains the only special-cased nested merge key.
 - The command palette registry includes `/reports` as a first-class route command with `reports`, `analysis`, `daily`, and `market` keywords.
 
 Current follow-up validation:
 
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, visible FX-rate strip, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
+- `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` also hydrates/persists `dashboardHoldingFocus` preferences by writing the full `{ presetOrder, hiddenPresets, selectedPreset }` object through `PATCH /user-preferences`.
 - `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
 - `apps/web/features/reports/hooks/useReportData.ts` accepts matching refreshed server-seeded report DTOs after context/range changes and writes them back to the route DTO cache instead of treating `initialReport` as a one-time value.
 - Matching E2E selector updates live in `libs/test-e2e/src/pages/dashboard/DashboardPage.ts` and `libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts`.
-- Focused dashboard web component coverage plus affected dashboard/mobile E2E assertions passed from the main session.
+- Focused Holding Focus coverage currently comes from:
+  - `apps/web/test/features/dashboard/components.test.tsx` for desktop account-row expansion, mobile/detail-sheet sections, preference hydration/PATCH persistence, active-chip fallback when hiding the selected preset, chip reorder, and reset/default behavior.
+  - `apps/api/test/http/specs/user-preferences-aaa.http.spec.ts` for `dashboardHoldingFocus` round-trip, `null` clear, and invalid-preference rejection.
+  - `apps/api/test/integration/user-preferences.integration.test.ts` for memory parity and managed Postgres persistence semantics: full-object replace and `dashboardHoldingFocus: null` clear.
+  - Affected dashboard/mobile selector assertions remain covered through the existing dashboard/mobile E2E suites listed in Evidence.
 
 This keeps dashboard as the launch surface and `/reports` as the structured analysis surface.
 
@@ -186,6 +194,10 @@ These are known transitional costs, not accidental behavior.
   - `apps/web/test/features/dashboard/components.test.tsx`
   - `apps/web/tests/e2e/specs/dashboard-daily-change-aaa.spec.ts`
   - `apps/web/tests/e2e/specs/mobile-tables-aaa.spec.ts`
+- Holding Focus preference and persistence coverage:
+  - `apps/api/test/http/specs/user-preferences-aaa.http.spec.ts`
+  - `apps/api/test/integration/user-preferences.integration.test.ts`
+  - `apps/web/test/features/dashboard/components.test.tsx`
 - Dashboard holding-group reporting unit-price coverage:
   - `apps/api/test/unit/dashboardHoldingGroups.test.ts`
   - `apps/web/test/features/dashboard/components.test.tsx`

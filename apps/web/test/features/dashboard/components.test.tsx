@@ -562,6 +562,65 @@ describe("dashboard components", () => {
     });
   });
 
+  it("persists holding focus chip reorder and reset actions", async () => {
+    const fetchMock = mockUserPreferencesFetch({
+      dashboardHoldingFocus: {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "stale-quotes",
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[group]}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const settingsButton = container.querySelector('[data-testid="dashboard-holdings-preset-settings"]');
+    expect(settingsButton).not.toBeNull();
+    click(settingsButton!);
+    await flushPromises();
+
+    const moveLargestUp = document.body.querySelector('[data-testid="dashboard-holdings-preset-up-largest"]');
+    expect(moveLargestUp).not.toBeNull();
+    click(moveLargestUp!);
+    await flushPromises();
+
+    let patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
+      dashboardHoldingFocus: {
+        presetOrder: ["largest", "stale-quotes", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "stale-quotes",
+      },
+    });
+
+    const resetButton = document.body.querySelector('[data-testid="dashboard-holdings-preset-reset"]');
+    expect(resetButton).not.toBeNull();
+    click(resetButton!);
+    await flushPromises();
+
+    patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
+      dashboardHoldingFocus: {
+        presetOrder: ["largest", "worst-pnl", "best-pnl", "fx-exposure", "stale-quotes"],
+        hiddenPresets: [],
+        selectedPreset: "largest",
+      },
+    });
+  });
+
   it("prefers explicit server-provided reporting unit prices in dashboard holdings preview", () => {
     const group = buildHoldingGroupsFromHoldings({ holdings })[0];
     if (!group) throw new Error("Expected holding group");
