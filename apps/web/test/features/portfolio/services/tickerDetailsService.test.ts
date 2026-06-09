@@ -5,7 +5,11 @@ vi.mock("../../../../lib/api", () => ({
 }));
 
 import { getJson } from "../../../../lib/api";
-import { fetchTickerDetails } from "../../../../features/portfolio/services/tickerDetailsService";
+import {
+  buildPrimaryTickerDetails,
+  fetchTickerDetails,
+  fetchTickerDetailsEnrichment,
+} from "../../../../features/portfolio/services/tickerDetailsService";
 
 const getJsonMock = vi.mocked(getJson);
 
@@ -80,7 +84,7 @@ describe("fetchTickerDetails", () => {
       source: null,
       asOf: null,
     });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/enrichment?accountId=acc-2");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountId=acc-2");
   });
 
   it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
@@ -153,7 +157,7 @@ describe("fetchTickerDetails", () => {
         ],
       },
     ]);
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?marketCode=US");
   });
 
   it("maps the ticker details API DTO into the ticker page model", async () => {
@@ -317,31 +321,41 @@ describe("fetchTickerDetails", () => {
       },
     } as never);
 
-    const details = await fetchTickerDetails({
-      ticker: "NVDA",
-      dashboard: buildDashboard({
-        holdings: [{
-          ticker: "NVDA",
-          accountId: "acc-1",
-          accountName: "Broker",
-          accountDefaultCurrency: "USD",
-          marketCode: "US",
-          quantity: 10,
-          averageCostPerShare: 500,
-          currentUnitPrice: 900,
-          currency: "USD",
-          costBasisAmount: 5000,
-          marketValueAmount: 9000,
-          unrealizedPnlAmount: 4000,
-        }],
-      }),
-      transactions: [],
-      instrument: {
+    const dashboard = buildDashboard({
+      holdings: [{
         ticker: "NVDA",
+        accountId: "acc-1",
+        accountName: "Broker",
+        accountDefaultCurrency: "USD",
         marketCode: "US",
-        instrumentType: "STOCK",
-        name: "NVIDIA",
-      } as never,
+        quantity: 10,
+        averageCostPerShare: 500,
+        currentUnitPrice: 900,
+        currency: "USD",
+        costBasisAmount: 5000,
+        marketValueAmount: 9000,
+        unrealizedPnlAmount: 4000,
+      }],
+    });
+    const instrument = {
+      ticker: "NVDA",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "NVIDIA",
+    } as never;
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "NVDA",
+      dashboard,
+      transactions: [],
+      instrument,
+    });
+
+    const details = await fetchTickerDetailsEnrichment({
+      ticker: "NVDA",
+      marketCode: "US",
+      transactions: [],
+      instrument,
+      primaryDetails,
     });
 
     expect(details.position).toMatchObject({
@@ -364,5 +378,6 @@ describe("fetchTickerDetails", () => {
         }),
       ]),
     );
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
   });
 });
