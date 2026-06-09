@@ -159,10 +159,15 @@ async function prepareReportData(
   });
   const range = resolveReportRange(input.range, ranges);
   const scopedStore = scopeStore(store, context.scope);
+  const quoteableTickers = new Set(
+    scopedStore.instruments
+      .filter((instrument) => isInstrumentQuoteable(instrument))
+      .map((instrument) => instrument.ticker),
+  );
   const symbols = [...new Set(
     scopedStore.accounting.projections.holdings
       .map((holding) => holding.ticker)
-      .filter((symbol) => isInstrumentQuoteable(scopedStore.instruments.find((item) => item.ticker === symbol))),
+      .filter((symbol) => quoteableTickers.has(symbol)),
   )];
   const { pairs, settledByMarket } = await buildQuoteInputs(app, scopedStore, symbols);
   const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
@@ -232,13 +237,15 @@ function resolveReportRange(inputRange: string | undefined, ranges: readonly str
 
 function scopeStore(store: Store, scope: ReportScope): Store {
   if (scope === "all") return store;
+  const instrumentMarketsByTicker = buildInstrumentMarketsByTicker(store);
+  const tradeMarketsByHoldingKey = buildTradeMarketsByHoldingKey(store);
   const scopedHoldings = store.accounting.projections.holdings.filter((holding) =>
-    resolveHoldingMarketCode(store, holding) === scope);
+    resolveHoldingMarketCode(holding, tradeMarketsByHoldingKey, instrumentMarketsByTicker) === scope);
   const scopedTrades = store.accounting.facts.tradeEvents.filter((trade) =>
     trade.marketCode === scope);
   const marketDividendEventIds = new Set(
     store.marketData.dividendEvents
-      .filter((event) => resolveTickerMarketCode(store, event.ticker, event.cashDividendCurrency) === scope)
+      .filter((event) => resolveTickerMarketCode(event.ticker, event.cashDividendCurrency, instrumentMarketsByTicker) === scope)
       .map((event) => event.id),
   );
   const scopedDividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) =>
@@ -284,35 +291,46 @@ function scopeStore(store: Store, scope: ReportScope): Store {
 }
 
 function resolveHoldingMarketCode(
-  store: Store,
   holding: Store["accounting"]["projections"]["holdings"][number],
+  tradeMarketsByHoldingKey: ReadonlyMap<string, readonly MarketCode[]>,
+  instrumentMarketsByTicker: ReadonlyMap<string, readonly MarketCode[]>,
 ): MarketCode {
-  const tradeMarkets = uniqueMarketCodes(
-    store.accounting.facts.tradeEvents
-      .filter((trade) => trade.accountId === holding.accountId && trade.ticker === holding.ticker)
-      .map((trade) => trade.marketCode),
-  );
+  const tradeMarkets = tradeMarketsByHoldingKey.get(`${holding.accountId}\0${holding.ticker}`) ?? [];
   if (tradeMarkets.length === 1) return tradeMarkets[0]!;
-  return resolveTickerMarketCode(store, holding.ticker, holding.currency);
+  return resolveTickerMarketCode(holding.ticker, holding.currency, instrumentMarketsByTicker);
 }
 
 function resolveTickerMarketCode(
-  store: Store,
   ticker: string,
   fallbackCurrency: CurrencyCode,
+  instrumentMarketsByTicker: ReadonlyMap<string, readonly MarketCode[]>,
 ): MarketCode {
-  const instrumentMarkets = uniqueMarketCodes(
-    store.instruments
-      .filter((instrument) => instrument.ticker === ticker)
-      .map((instrument) => instrument.marketCode),
-  );
+  const instrumentMarkets = instrumentMarketsByTicker.get(ticker) ?? [];
   if (instrumentMarkets.length === 1) return instrumentMarkets[0]!;
   return marketCodeFor(fallbackCurrency);
 }
 
-function uniqueMarketCodes(values: ReadonlyArray<string>): MarketCode[] {
-  return [...new Set(values)]
-    .filter((market): market is MarketCode => (MARKET_CODES as readonly string[]).includes(market));
+function buildInstrumentMarketsByTicker(store: Store): Map<string, readonly MarketCode[]> {
+  const byTicker = new Map<string, Set<MarketCode>>();
+  for (const instrument of store.instruments) {
+    if (!(MARKET_CODES as readonly string[]).includes(instrument.marketCode)) continue;
+    const markets = byTicker.get(instrument.ticker) ?? new Set<MarketCode>();
+    markets.add(instrument.marketCode as MarketCode);
+    byTicker.set(instrument.ticker, markets);
+  }
+  return new Map([...byTicker.entries()].map(([ticker, markets]) => [ticker, [...markets].sort()]));
+}
+
+function buildTradeMarketsByHoldingKey(store: Store): Map<string, readonly MarketCode[]> {
+  const byHolding = new Map<string, Set<MarketCode>>();
+  for (const trade of store.accounting.facts.tradeEvents) {
+    if (!(MARKET_CODES as readonly string[]).includes(trade.marketCode)) continue;
+    const key = `${trade.accountId}\0${trade.ticker}`;
+    const markets = byHolding.get(key) ?? new Set<MarketCode>();
+    markets.add(trade.marketCode as MarketCode);
+    byHolding.set(key, markets);
+  }
+  return new Map([...byHolding.entries()].map(([key, markets]) => [key, [...markets].sort()]));
 }
 
 async function buildQuoteInputs(
