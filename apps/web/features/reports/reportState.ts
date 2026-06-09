@@ -25,7 +25,7 @@ export const DEFAULT_REPORT_STATE: ReportRouteState = {
   tab: "daily-review",
   scope: "all",
   currencyMode: "auto",
-  currency: "AUD",
+  currency: "TWD",
   range: DEFAULT_DASHBOARD_PERFORMANCE_RANGES.includes("1Y") ? "1Y" : DEFAULT_DASHBOARD_PERFORMANCE_RANGES[0] ?? "1Y",
 };
 

@@ -2,6 +2,7 @@ import type {
   DashboardOverviewHoldingDto,
   InstrumentCatalogItemDto,
   TickerDetailsDto,
+  TickerEnrichmentDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
@@ -360,6 +361,48 @@ function mergeWithFallback(
   };
 }
 
+function mapApiFundamentalsToPanels(
+  payload: TickerDetailsDto["fundamentals"],
+): TickerFundamentalsPanel[] {
+  return [
+    {
+      key: "valuation",
+      title: "Valuation",
+      items: [
+        { key: "marketCap", label: "Market cap", ...payload.marketCap },
+        { key: "enterpriseValue", label: "Enterprise value", ...payload.enterpriseValue },
+        { key: "priceEarningsRatio", label: "P/E ratio", ...payload.priceEarningsRatio },
+        { key: "priceBookRatio", label: "P/B ratio", ...payload.priceBookRatio },
+        { key: "dividendYield", label: "Dividend yield", ...payload.dividendYield },
+      ],
+    },
+    {
+      key: "profitability",
+      title: "Profitability",
+      items: [
+        { key: "earningsPerShare", label: "EPS", ...payload.earningsPerShare },
+        { key: "revenueTrailingTwelveMonths", label: "Revenue TTM", ...payload.revenueTrailingTwelveMonths },
+        { key: "netIncomeTrailingTwelveMonths", label: "Net income TTM", ...payload.netIncomeTrailingTwelveMonths },
+      ],
+    },
+  ];
+}
+
+function mapApiChartPoints(
+  payload: TickerDetailsDto["chart"],
+  fallback: TickerDetailsModel,
+): TickerDetailChartPoint[] {
+  return payload.points.length > 0
+    ? payload.points.map((point) => ({
+        date: point.date,
+        label: point.date,
+        price: point.close,
+        averageCost: fallback.position.averageCost,
+        quantity: fallback.position.quantity,
+      }))
+    : fallback.chart.points;
+}
+
 function mapApiDetailsToModel(
   payload: TickerDetailsDto,
   fallback: TickerDetailsModel,
@@ -367,6 +410,19 @@ function mapApiDetailsToModel(
   const currency = payload.identity.priceCurrency;
   const firstUpcoming = payload.dividends.upcoming[0];
   const firstRecent = payload.dividends.recent[0];
+  const position = {
+    accountScope: payload.identity.accountId ?? "all",
+    quantity: payload.position.quantity,
+    averageCost: payload.position.averageCostPerShare,
+    costBasis: payload.position.costBasisAmount,
+    marketValue: payload.position.marketValueAmount,
+    unrealizedPnl: payload.position.unrealizedPnlAmount,
+    realizedPnl: payload.position.realizedPnlAmount,
+    transactionsCount: payload.transactions.length,
+    nextDividendDate: firstUpcoming?.paymentDate ?? firstUpcoming?.exDividendDate ?? null,
+    lastDividendPostedDate: firstRecent?.postedAt ?? null,
+  };
+  const chartFallback = { ...fallback, position };
 
   return {
     identity: {
@@ -385,28 +441,9 @@ function mapApiDetailsToModel(
       freshness: fallback.quote.freshness,
       freshnessTooltip: fallback.quote.freshnessTooltip,
     },
-    position: {
-      accountScope: payload.identity.accountId ?? "all",
-      quantity: payload.position.quantity,
-      averageCost: payload.position.averageCostPerShare,
-      costBasis: payload.position.costBasisAmount,
-      marketValue: payload.position.marketValueAmount,
-      unrealizedPnl: payload.position.unrealizedPnlAmount,
-      realizedPnl: payload.position.realizedPnlAmount,
-      transactionsCount: payload.transactions.length,
-      nextDividendDate: firstUpcoming?.paymentDate ?? firstUpcoming?.exDividendDate ?? null,
-      lastDividendPostedDate: firstRecent?.postedAt ?? null,
-    },
+    position,
     chart: {
-      points: payload.chart.points.length > 0
-        ? payload.chart.points.map((point) => ({
-            date: point.date,
-            label: point.date,
-            price: point.close,
-            averageCost: payload.position.averageCostPerShare,
-            quantity: payload.position.quantity,
-          }))
-        : fallback.chart.points,
+      points: mapApiChartPoints(payload.chart, chartFallback),
     },
     stats: fallback.stats,
     dividends: {
@@ -415,28 +452,7 @@ function mapApiDetailsToModel(
       lastPostedDate: firstRecent?.postedAt ?? null,
     },
     fundamentals: {
-      panels: [
-        {
-          key: "valuation",
-          title: "Valuation",
-          items: [
-            { key: "marketCap", label: "Market cap", ...payload.fundamentals.marketCap },
-            { key: "enterpriseValue", label: "Enterprise value", ...payload.fundamentals.enterpriseValue },
-            { key: "priceEarningsRatio", label: "P/E ratio", ...payload.fundamentals.priceEarningsRatio },
-            { key: "priceBookRatio", label: "P/B ratio", ...payload.fundamentals.priceBookRatio },
-            { key: "dividendYield", label: "Dividend yield", ...payload.fundamentals.dividendYield },
-          ],
-        },
-        {
-          key: "profitability",
-          title: "Profitability",
-          items: [
-            { key: "earningsPerShare", label: "EPS", ...payload.fundamentals.earningsPerShare },
-            { key: "revenueTrailingTwelveMonths", label: "Revenue TTM", ...payload.fundamentals.revenueTrailingTwelveMonths },
-            { key: "netIncomeTrailingTwelveMonths", label: "Net income TTM", ...payload.fundamentals.netIncomeTrailingTwelveMonths },
-          ],
-        },
-      ],
+      panels: mapApiFundamentalsToPanels(payload.fundamentals),
     },
   };
 }
@@ -452,6 +468,15 @@ function isTickerDetailsDto(value: unknown): value is TickerDetailsDto {
     && isObject(value.fundamentals);
 }
 
+function isTickerEnrichmentDto(value: unknown): value is TickerEnrichmentDto {
+  return isObject(value)
+    && isObject(value.identity)
+    && isObject(value.chart)
+    && Array.isArray(value.chart.points)
+    && isObject(value.fundamentals)
+    && isObject(value.fundamentalsRefresh);
+}
+
 export async function fetchTickerDetails(
   options: FetchTickerDetailsOptions,
 ): Promise<TickerDetailsModel> {
@@ -465,7 +490,7 @@ export async function fetchTickerDetails(
   });
 }
 
-function buildTickerDetailsPath(request: TickerDetailsRequest): string {
+function buildTickerEnrichmentPath(request: TickerDetailsRequest): string {
   const params = new URLSearchParams();
   if (request.accountId) {
     params.set("accountId", request.accountId);
@@ -475,7 +500,29 @@ function buildTickerDetailsPath(request: TickerDetailsRequest): string {
     params.set("marketCode", marketCode);
   }
 
-  return `/tickers/${encodeURIComponent(request.ticker)}/details${params.toString() ? `?${params.toString()}` : ""}`;
+  return `/tickers/${encodeURIComponent(request.ticker)}/enrichment${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function mapApiEnrichmentToModel(
+  payload: TickerEnrichmentDto,
+  fallback: TickerDetailsModel,
+): TickerDetailsModel {
+  return {
+    ...fallback,
+    identity: {
+      ticker: payload.identity.ticker,
+      name: payload.identity.name,
+      marketCode: payload.identity.marketCode,
+      instrumentType: payload.identity.instrumentType,
+      currency: payload.identity.priceCurrency,
+    },
+    chart: {
+      points: mapApiChartPoints(payload.chart, fallback),
+    },
+    fundamentals: {
+      panels: mapApiFundamentalsToPanels(payload.fundamentals),
+    },
+  };
 }
 
 export async function fetchTickerDetailsEnrichment({
@@ -488,12 +535,15 @@ export async function fetchTickerDetailsEnrichment({
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions });
+  const path = buildTickerEnrichmentPath({ ticker, accountId, marketCode, instrument, transactions });
 
   try {
     const payload = await getJson<unknown>(path);
     if (isTickerDetailsDto(payload)) {
       return mapApiDetailsToModel(payload, primaryDetails);
+    }
+    if (isTickerEnrichmentDto(payload)) {
+      return mapApiEnrichmentToModel(payload, primaryDetails);
     }
     return mergeWithFallback(payload, primaryDetails);
   } catch {

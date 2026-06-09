@@ -32,6 +32,15 @@ describe("report route state", () => {
     expect(state.range).toBe("1Y");
   });
 
+  it("defaults missing specified currency to the platform reporting currency", () => {
+    const state = parseReportRouteState({
+      currencyMode: "specified",
+    });
+
+    expect(state.currency).toBe("TWD");
+    expect(reportApiPath("portfolio", state)).toBe("/reports/portfolio?scope=all&currencyMode=specified&currency=TWD&range=1Y&limit=25");
+  });
+
   it("omits currency from the API query in auto mode", () => {
     const state = parseReportRouteState(new URLSearchParams("tab=market&scope=AU&currencyMode=auto&currency=AUD&range=1Y"));
 
