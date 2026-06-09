@@ -9,6 +9,8 @@ const outputDir = path.join(root, "screenshots");
 const captures = [
   { report: "dashboard", name: "dashboard-desktop.png", viewport: { width: 1440, height: 1300 } },
   { report: "dashboard", name: "dashboard-mobile.png", viewport: { width: 390, height: 1400 } },
+  { report: "holding-focus", name: "holding-focus-desktop.png", viewport: { width: 1440, height: 1300 } },
+  { report: "holding-focus", name: "holding-focus-mobile.png", viewport: { width: 390, height: 1600 } },
   { report: "daily", name: "daily-review-desktop.png", viewport: { width: 1440, height: 1200 } },
   { report: "daily", name: "daily-review-mobile.png", viewport: { width: 390, height: 1100 } },
   { report: "portfolio", name: "portfolio-report-desktop.png", viewport: { width: 1440, height: 1500 } },
