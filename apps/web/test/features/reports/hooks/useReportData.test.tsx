@@ -42,15 +42,15 @@ function installLocalStorageMock() {
   });
 }
 
-function buildReport(title: string, asOf: string): DailyReviewReportDto {
+function buildReport(title: string, asOf: string, reportState: ReportRouteState = state): DailyReviewReportDto {
   return {
     query: {
-      scope: state.scope,
-      currencyMode: state.currencyMode,
-      currency: state.currency,
-      reportingCurrency: state.currency,
+      scope: reportState.scope,
+      currencyMode: reportState.currencyMode,
+      currency: reportState.currency,
+      reportingCurrency: reportState.currency,
       nativeCurrency: null,
-      range: state.range,
+      range: reportState.range,
       asOf,
     },
     summary: {
@@ -66,8 +66,8 @@ function buildReport(title: string, asOf: string): DailyReviewReportDto {
     },
     fxStatus: {
       status: "complete",
-      reportingCurrency: state.currency,
-      nativeCurrencies: [state.currency],
+      reportingCurrency: reportState.currency,
+      nativeCurrencies: [reportState.currency],
       missingRatePairs: [],
     },
     dataHealth: {
@@ -83,16 +83,16 @@ function buildReport(title: string, asOf: string): DailyReviewReportDto {
   };
 }
 
-function reportCacheKey(cacheScope = defaultCacheScope) {
+function reportCacheKey(cacheScope = defaultCacheScope, reportState: ReportRouteState = state) {
   return buildRouteDtoCacheKey(
     "reports",
-    state.tab,
+    reportState.tab,
     cacheScope,
     locale,
-    state.scope,
-    state.currencyMode,
-    state.currency,
-    state.range,
+    reportState.scope,
+    reportState.currencyMode,
+    reportState.currency,
+    reportState.range,
   );
 }
 
@@ -100,17 +100,19 @@ function Harness({
   cacheScope = defaultCacheScope,
   contextRefreshSignal,
   initialReport,
+  stateOverride = state,
 }: {
   cacheScope?: string;
   contextRefreshSignal: number;
   initialReport: DailyReviewReportDto | null;
+  stateOverride?: ReportRouteState;
 }) {
   result = useReportData({
     cacheScope,
     contextRefreshSignal,
     initialReport,
     locale,
-    state,
+    state: stateOverride,
   });
   return null;
 }
@@ -208,6 +210,20 @@ describe("useReportData", () => {
     expect(result.isBootstrapping).toBe(false);
     expect(result.restoredFromCache).toBe(false);
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey())?.payload.suggestions[0]?.title).toBe("Fresh report");
+  });
+
+  it("partitions auto report cache keys by resolved currency", async () => {
+    const autoAudState: ReportRouteState = { ...state, currencyMode: "auto", currency: "AUD" };
+    const autoUsdState: ReportRouteState = { ...state, currencyMode: "auto", currency: "USD" };
+    const audReport = buildReport("Auto AUD seed", "2026-06-08", autoAudState);
+
+    act(() => {
+      root.render(<Harness contextRefreshSignal={0} initialReport={audReport} stateOverride={autoAudState} />);
+    });
+    await act(async () => {});
+
+    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, autoAudState))?.payload.suggestions[0]?.title).toBe("Auto AUD seed");
+    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, autoUsdState))).toBeNull();
   });
 
   it("times out initial client refreshes instead of leaving reports bootstrapped forever", async () => {
