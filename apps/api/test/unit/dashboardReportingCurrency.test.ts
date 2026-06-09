@@ -440,6 +440,37 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.marketDataStaleSince).toBe("2026-05-29");
   });
 
+  it("does not mark same-day reliable data stale when requestedAsOf is a timestamp", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-09",
+          totalCostBasis: 1000,
+          totalMarketValue: 1100,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 10,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "1M",
+      "2026-06-09T15:30:00.000Z",
+      "TWD",
+      persistence,
+    );
+
+    expect(out.requestedAsOf).toBe("2026-06-09");
+    expect(out.lastReliableDate).toBe("2026-06-09");
+    expect(out.marketDataStaleSince).toBeNull();
+  });
+
   it("uses transaction-date Book Cost instead of FX-moving snapshot cost when store data is available", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
@@ -826,5 +857,84 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       totalReturnAmount: 190,
     });
     expect(finalPoint?.totalReturnPercent).toBeCloseTo((190 / 320) * 100);
+  });
+
+  it("marks realized replay incomplete when lot allocation FX is missing", async () => {
+    const persistence = makeFakePersistence({
+      dailyBars: [
+        makeDailyBar("AAPL", "2026-01-01", 100),
+        makeDailyBar("AAPL", "2026-01-03", 150),
+      ],
+    });
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-buy-aud",
+              ticker: "AAPL",
+              marketCode: "AU",
+              type: "BUY",
+              quantity: 2,
+              unitPrice: 100,
+              priceCurrency: "AUD",
+              tradeDate: "2026-01-01",
+              bookingSequence: 1,
+            }),
+            makeTrade({
+              id: "trade-sell-aud",
+              ticker: "AAPL",
+              marketCode: "AU",
+              type: "SELL",
+              quantity: 1,
+              unitPrice: 150,
+              priceCurrency: "AUD",
+              tradeDate: "2026-01-03",
+              bookingSequence: 2,
+            }),
+          ],
+        },
+        projections: {
+          ...baseStore.accounting.projections,
+          lotAllocations: [
+            {
+              id: "trade-sell-aud:lot-usd-missing-fx",
+              userId: "user-1",
+              accountId: "acct-1",
+              tradeEventId: "trade-sell-aud",
+              ticker: "AAPL",
+              lotId: "lot-usd-missing-fx",
+              lotOpenedAt: "2026-01-01",
+              lotOpenedSequence: 1,
+              allocatedQuantity: 1,
+              allocatedCostAmount: 100,
+              costCurrency: "USD",
+              createdAt: "2026-01-03T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "AUD",
+      persistence,
+      store,
+    );
+
+    const finalPoint = out.points.at(-1);
+    expect(out.fxStatus).toBe("partial");
+    expect(finalPoint).toMatchObject({
+      date: "2026-01-03",
+      fxAvailable: false,
+      cumulativeRealizedPnlAmount: null,
+      totalReturnAmount: null,
+    });
   });
 });
