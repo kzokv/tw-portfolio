@@ -183,7 +183,7 @@ MCP report input parsing accepts both `currency` and `reportingCurrency`. When `
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
-- Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the same translator falls back to synthetic trade replay against the scoped store instead of returning an empty chart. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
+- Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the same translator falls back to synthetic trade replay against the scoped store instead of returning an empty chart. Scoped store filtering builds ticker/holding market indexes once per report so irrelevant dividend-event and instrument rows do not trigger repeated full-store scans before the report reaches the performance query. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
 - Synthetic performance fallback loads repaired historical bars by `(ticker, marketCode)`, not by bare ticker, so cross-listed symbols do not leak another market's close into scoped report/dashboard market-value points.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
@@ -263,6 +263,11 @@ These are known transitional costs, not accidental behavior.
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 258 tests, 9 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
+- Follow-up coverage for the 2026-06-09 deployed scoped-report timeout:
+  - Chrome extension validation on dev reproduced `scope=TW` Market Report ending in `Report refresh timed out` after the client waited for the report payload.
+  - Direct Chrome navigation to the dev API report endpoint returned the TW Market Report payload but took about 50 seconds, isolating the issue to backend report-build latency rather than a frontend crash.
+  - Scoped report store filtering was narrowed to precomputed market indexes in `apps/api/src/services/reports.ts`.
+  - Focused local verification: `npx eslint apps/api/src/services/reports.ts apps/api/test/integration/reports.integration.test.ts`, `npm --prefix apps/api exec vitest run test/integration/reports.integration.test.ts -- --no-file-parallelism`, `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`, and `git diff --check`.
 - Follow-up coverage for the scoped no-snapshot fallback, report URL sync, and dashboard holdings FX strip:
   - Focused API: `npx vitest run test/unit/dashboardHoldingGroups.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` passed: 11 tests.
   - Focused web: `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` passed: 24 tests.
