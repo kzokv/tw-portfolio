@@ -234,6 +234,10 @@ These are known transitional costs, not accidental behavior.
   - `apps/web/test/app/tickers/TickerHistoryClient.test.tsx`
 - AI Connector settings catalog coverage:
   - `apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx`
+- AI Connector tool availability/unavailable-reason coverage:
+  - `apps/api/test/unit/smooth-page-read-paths.test.ts`
+  - `apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx`
+  - `/ai/connectors/summary` now returns explicit per-tool `availability` and `unavailableReason` fields; settings renders policy-disabled, inactive-connection, and missing-scope reasons while keeping read-report tools visible.
 - Full local PR gate after the 2026-06-08 scoped-report server-seed abort fix:
   - `npx eslint .`
   - `npm run typecheck`

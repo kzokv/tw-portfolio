@@ -71,6 +71,8 @@ function buildToolCatalogEntry(overrides: Partial<AiConnectorToolCatalogEntryDto
     accessKind: "read",
     group: "read",
     enabledByPolicy: true,
+    availability: "available",
+    unavailableReason: null,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -188,8 +190,60 @@ describe("AiConnectorsSettingsClient", () => {
     expect(document.body.textContent).toContain("get_daily_review_report");
     expect(document.body.textContent).toContain("get_portfolio_report");
     expect(document.body.textContent).toContain("get_market_report");
+    expect(document.body.textContent).toContain("available");
     expect(document.body.textContent).toContain("Connection tools");
     expect(document.body.textContent).toContain("Inherited default");
+  });
+
+  it("surfaces unavailable MCP tool reasons from policy and connection scope", async () => {
+    const response: AiConnectorSummaryResponse = {
+      connections: [buildConnection()],
+      policy: buildPolicy({ groupToggles: { read: true, drafts: false, write: true } }),
+      toolCatalog: [
+        buildToolCatalogEntry({
+          name: "create_transaction_draft_batch",
+          scope: "transaction_draft:create",
+          accessKind: "draft_create",
+          group: "drafts",
+          enabledByPolicy: false,
+          availability: "unavailable",
+          unavailableReason: "Draft MCP tools are disabled by admin policy.",
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        }),
+        buildToolCatalogEntry({
+          name: "create_account",
+          scope: "account:manage",
+          accessKind: "write",
+          group: "write",
+          enabledByPolicy: true,
+          availability: "available",
+          unavailableReason: null,
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+        }),
+      ],
+    };
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Draft MCP tools are disabled by admin policy.");
+    expect(document.body.textContent).toContain("Requires Manage accounts.");
+    const disabledDraftTool = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("create_transaction_draft_batch"));
+    const disabledDraftCheckbox = disabledDraftTool?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+    expect(disabledDraftCheckbox?.disabled).toBe(true);
+    expect(disabledDraftCheckbox?.getAttribute("aria-describedby")).toBeTruthy();
   });
 
   it("renders the MCP tool catalog even when no connectors are connected", async () => {
