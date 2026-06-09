@@ -350,7 +350,7 @@ function ReportBody({
   if (isBootstrapping) return <ReportSkeleton />;
   if (errorMessage) {
     return (
-      <Card>
+      <Card data-testid="reports-error">
         <CardHeader>
           <CardTitle>Report unavailable</CardTitle>
           <CardDescription>{errorMessage}</CardDescription>
