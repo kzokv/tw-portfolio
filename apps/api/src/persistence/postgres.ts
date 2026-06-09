@@ -5920,8 +5920,7 @@ export class PostgresPersistence implements Persistence {
     pairs: readonly import("./types.js").HoldingSnapshotScopePair[],
   ): Promise<AggregatedSnapshotPoint[]> {
     if (pairs.length === 0) return [];
-    const accountIds = pairs.map((pair) => pair.accountId);
-    const tickers = pairs.map((pair) => pair.ticker);
+    const scopedPairsJson = JSON.stringify(pairs);
     const result = await this.pool.query<{
       snapshot_date: string;
       total_cost_basis: string;
@@ -5933,8 +5932,10 @@ export class PostgresPersistence implements Persistence {
       fx_available: boolean;
     }>(
       `WITH scoped_pairs AS (
-         SELECT DISTINCT account_id, ticker
-           FROM UNNEST($5::text[], $6::text[]) AS pair(account_id, ticker)
+         SELECT DISTINCT "accountId" AS account_id, ticker
+           FROM jsonb_to_recordset($5::jsonb) AS pair("accountId" text, ticker text)
+          WHERE "accountId" IS NOT NULL
+            AND ticker IS NOT NULL
        )
        SELECT s.snapshot_date::text,
               SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
@@ -5965,7 +5966,7 @@ export class PostgresPersistence implements Persistence {
           AND s.snapshot_date <= $3::date
         GROUP BY s.snapshot_date
         ORDER BY s.snapshot_date ASC`,
-      [userId, startDate, endDate, reportingCurrency, accountIds, tickers],
+      [userId, startDate, endDate, reportingCurrency, scopedPairsJson],
     );
     return result.rows.map(row => {
       const fxAvailable = row.fx_available;

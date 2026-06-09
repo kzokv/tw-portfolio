@@ -474,6 +474,13 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm exec vitest run test/unit/smooth-page-read-paths.test.ts` from `apps/api` passed: 9 tests.
   - `npm exec vitest run test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 7 tests.
   - `npm --prefix libs/shared-types run build`, `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`, and `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
+- [x] 2026-06-10 focused scoped report Postgres aggregate validation:
+  - Fixed `getAggregatedSnapshotsInReportingCurrencyForScope()` to materialize scoped `(accountId, ticker)` contributors from a JSON recordset using the DTO's camelCase `accountId` field instead of parallel `text[]` arrays.
+  - This keeps scoped Portfolio/Market report charts on one FX-aware aggregate query while avoiding array-pairing ambiguity and preserving duplicate-pair deduplication.
+  - `npm run test --prefix apps/api -- test/integration/reports.integration.test.ts` passed: 13 tests.
+  - `npm run typecheck` passed.
+  - A pre-fix `npm run test:integration:full:host` run failed only the two scoped aggregate Postgres tests (`INT-7`, `INT-8`) because the JSON CTE initially read `account_id` instead of `accountId`; after the patch, the targeted managed Postgres rerun passed:
+    `VAKWEN_MANAGED_CI_STACK=1 RUN_POSTGRES_INTEGRATION=1 POSTGRES_TEST_DB_URL=postgres://app:app@192.168.64.1:15432/vakwen_ci?connect_timeout=10 POSTGRES_TEST_REDIS_URL=redis://192.168.64.1:16379 npx vitest run --no-file-parallelism test/integration/dashboardReportingCurrencyAggregation.integration.test.ts` from `apps/api`: 8 tests.
 
 ## Mockups
 
