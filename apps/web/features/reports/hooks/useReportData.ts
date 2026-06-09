@@ -32,7 +32,7 @@ export function useReportData({
       locale,
       state.scope,
       state.currencyMode,
-      state.currencyMode === "specified" ? state.currency : "auto",
+      state.currency,
       state.range,
     ),
     [cacheScope, locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
