@@ -778,17 +778,25 @@ function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord) {
 }
 
 function buildAiConnectorToolCatalog(
-  policy: Pick<AiConnectorPolicySettingsDto, "groupToggles">,
+  policy: Pick<AiConnectorPolicySettingsDto, "enabled" | "groupToggles">,
 ) {
   return listMcpToolDefinitions().map((tool) => {
     const group = connectorGroupForScope(tool.scope);
+    const enabledByPolicy = policy.enabled && policy.groupToggles[group];
+    const unavailableReason = !policy.enabled
+      ? "AI connector deployment is disabled by admin policy."
+      : !policy.groupToggles[group]
+        ? `${group === "read" ? "Read" : group === "drafts" ? "Draft" : "Write"} MCP tools are disabled by admin policy.`
+        : null;
     return {
       name: tool.name,
       description: tool.description,
       scope: tool.scope,
       accessKind: tool.accessKind,
       group,
-      enabledByPolicy: policy.groupToggles[group],
+      enabledByPolicy,
+      availability: enabledByPolicy ? "available" as const : "unavailable" as const,
+      unavailableReason,
       annotations: tool.annotations,
     };
   });

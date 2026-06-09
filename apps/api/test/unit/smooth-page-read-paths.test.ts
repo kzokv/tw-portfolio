@@ -227,12 +227,16 @@ describe("smooth page read paths", () => {
           scope: "portfolio:mcp_read",
           accessKind: "read",
           group: "read",
+          availability: "available",
+          unavailableReason: null,
         }),
         expect.objectContaining({
           name: "get_portfolio_report",
           scope: "portfolio:mcp_read",
           accessKind: "read",
           group: "read",
+          availability: "available",
+          unavailableReason: null,
         }),
       ]),
     }));
@@ -241,6 +245,24 @@ describe("smooth page read paths", () => {
     expect(logs.headers["server-timing"]).toContain("load_connector_logs;dur=");
     expect(logs.json()).toEqual({ accessLogs: expect.any(Array) });
     expect(listAccessLogs).toHaveBeenCalledWith("user-1", { limit: 5 });
+  });
+
+  it("includes MCP tool catalog unavailable reasons when policy disables a group", async () => {
+    const originalPolicy = app.persistence.getAiConnectorPolicySettings.bind(app.persistence);
+    vi.spyOn(app.persistence, "getAiConnectorPolicySettings").mockImplementation(async () => ({
+      ...(await originalPolicy()),
+      groupToggles: { read: false, drafts: true, write: true },
+    }));
+
+    const summary = await app.inject({ method: "GET", url: "/ai/connectors/summary" });
+
+    expect(summary.statusCode).toBe(200);
+    const readTool = summary.json().toolCatalog.find((tool: { name: string }) => tool.name === "get_portfolio_report");
+    expect(readTool).toEqual(expect.objectContaining({
+      availability: "unavailable",
+      enabledByPolicy: false,
+      unavailableReason: "Read MCP tools are disabled by admin policy.",
+    }));
   });
 
   it("preserves cached quote and freshness fields in portfolio primary data", async () => {

@@ -228,8 +228,8 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Commit F: add report diagnostics for scope, reporting currency, last valuation date, stale/missing quotes, missing FX, and row counts. `ReportDiagnosticsDto` now ships on Daily Review, Portfolio Report, and Market Report responses and is asserted in report integration tests.
 - [x] Commit F: add tests for `scope=all`, `scope=TW`, and at least one non-TW scope where fixtures allow it. Current report integration coverage includes `scope=all`, `scope=TW`, and `scope=AU`.
 - [ ] Commit G: expose advice-ready MCP report context payloads and ensure MCP tool schemas accept/reflect reporting currency, scope, stale-data, Book Cost, FX-Translated Cost, P&L/return, market breakdown, top holdings/movers, risks, suggestions context, and data-quality warnings.
-- [ ] Commit G: update AI Connectors settings to show grouped MCP tool catalog with availability, required scope, policy state, and unavailable reasons. Partial: grouped catalog, required scope, and policy/read/write state are visible; richer per-tool availability and unavailable-reason fields are still not part of the API/UI contract.
-- [ ] Commit G: add API and web tests for tool catalog visibility, policy-disabled state, missing-scope/fresh-auth reasons, and read-report tool visibility.
+- [x] Commit G: update AI Connectors settings to show grouped MCP tool catalog with availability, required scope, policy state, and unavailable reasons. `AiConnectorToolCatalogEntryDto` now carries explicit `availability` and `unavailableReason` fields, `/ai/connectors/summary` populates policy-disabled reasons, and settings renders catalog/connection-level unavailable reasons for policy, inactive connection, and missing-scope states.
+- [ ] Commit G: add API and web tests for tool catalog visibility, policy-disabled state, missing-scope/fresh-auth reasons, and read-report tool visibility. Partial: focused API/web coverage now asserts read-report catalog visibility, policy-disabled catalog reasons, and missing-scope connection reasons; fresh-auth-specific unavailable reasons and E2E catalog smoke remain pending.
 - [ ] Commit H: complete cache-first navigation/performance polish for Dashboard, Portfolio, Reports, and Ticker pages using user/context-aware cache keys and no blanking during refresh. Partial: ticker detail pages now restore hydrated details from a user/context-aware route DTO cache and refresh full details silently; a deeper server route migration to consume `/tickers/:ticker/primary` directly remains follow-up.
 - [ ] Commit H: review SQL/query/read-path timing for corrected dashboard/report performance and targeted heavy paths; add narrow query optimizations where evidence supports them.
 - [x] Commit H: add cache key/scope/range/report tests for `/reports`, dashboard, portfolio, and ticker back-navigation behavior. Current focused tests cover route DTO cache partitioning for reports, dashboard, portfolio, transactions, and ticker hydrated-detail return cache.
@@ -467,6 +467,13 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npx eslint 'apps/web/app/tickers/[ticker]/TickerHistoryClient.tsx' apps/web/test/app/tickers/TickerHistoryClient.test.tsx` passed.
   - `npx vitest run --config vitest.config.ts test/app/tickers/TickerHistoryClient.test.tsx --no-file-parallelism` from `apps/web` passed: 4 tests. The existing non-failing React `act(...)` warning from async hydration remains visible.
   - `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false` passed.
+- [x] 2026-06-10 focused AI Connector tool-catalog availability validation:
+  - Added explicit `availability` and `unavailableReason` fields to MCP tool catalog entries.
+  - `/ai/connectors/summary` now returns policy-disabled catalog reasons; AI Connectors settings renders policy, inactive-connection, and missing-scope unavailable reasons for catalog/toggle rows.
+  - `npx eslint libs/shared-types/src/index.ts apps/api/src/routes/registerRoutes.ts apps/api/test/unit/smooth-page-read-paths.test.ts apps/web/components/settings/AiConnectorsSettingsClient.tsx apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx` passed.
+  - `npm exec vitest run test/unit/smooth-page-read-paths.test.ts` from `apps/api` passed: 9 tests.
+  - `npm exec vitest run test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 7 tests.
+  - `npm --prefix libs/shared-types run build`, `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`, and `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
 
 ## Mockups
 

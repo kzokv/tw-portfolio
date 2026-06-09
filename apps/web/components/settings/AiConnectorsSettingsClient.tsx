@@ -84,7 +84,20 @@ function canConnectionUseTool(connection: AiConnectorConnectionDto, tool: AiConn
 }
 
 function toolToggleChecked(connection: AiConnectorConnectionDto, tool: AiConnectorToolCatalogEntryDto): boolean {
-  return tool.enabledByPolicy && canConnectionUseTool(connection, tool) && connection.toolToggles[tool.name] !== false;
+  return tool.availability === "available" && canConnectionUseTool(connection, tool) && connection.toolToggles[tool.name] !== false;
+}
+
+function toolUnavailableReason(connection: AiConnectorConnectionDto, tool: AiConnectorToolCatalogEntryDto): string | null {
+  if (tool.unavailableReason) return tool.unavailableReason;
+  if (connection.status !== "active") return `Connector is ${connection.status}; only active connectors can call tools.`;
+  if (!canConnectionUseTool(connection, tool)) return `Requires ${AI_CONNECTOR_SCOPE_LABELS[tool.scope]}.`;
+  return null;
+}
+
+function toolAvailabilityClassName(tool: AiConnectorToolCatalogEntryDto): string {
+  return tool.availability === "available"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : "border-amber-200 bg-amber-50 text-amber-800";
 }
 
 export function AiConnectorsSettingsClient() {
@@ -430,28 +443,26 @@ function ConnectionToolToggles({
                 {grouped[group].length === 0 ? (
                   <p className="text-sm text-muted-foreground">No tools in this group.</p>
                 ) : grouped[group].map((tool) => {
-                  const hasScope = canConnectionUseTool(connection, tool);
-                  const policyDisabled = !tool.enabledByPolicy;
-                  const disabled = busy || connection.status !== "active" || policyDisabled || !hasScope;
+                  const unavailableReason = toolUnavailableReason(connection, tool);
+                  const disabled = busy || unavailableReason !== null;
                   const explicit = Object.prototype.hasOwnProperty.call(connection.toolToggles, tool.name);
+                  const descriptionId = unavailableReason ? `${connection.id}-${tool.name}-unavailable` : undefined;
                   return (
                     <label key={tool.name} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2 text-sm">
                       <span className="min-w-0">
                         <span className="block truncate font-mono font-medium text-foreground">{tool.name}</span>
                         <span className="mt-1 block text-xs text-muted-foreground">
-                          {policyDisabled
-                            ? "Disabled by policy"
-                            : !hasScope
-                              ? `Requires ${AI_CONNECTOR_SCOPE_LABELS[tool.scope]}`
-                              : explicit
-                                ? "Connector override"
-                                : "Inherited default"}
+                          {unavailableReason ?? (explicit ? "Connector override" : "Inherited default")}
                         </span>
+                        {unavailableReason ? (
+                          <span id={descriptionId} className="sr-only">Unavailable: {unavailableReason}</span>
+                        ) : null}
                       </span>
                       <input
                         type="checkbox"
                         checked={toolToggleChecked(connection, tool)}
                         disabled={disabled}
+                        aria-describedby={descriptionId}
                         onChange={(event) => onToggle(tool.name, event.target.checked)}
                       />
                     </label>
@@ -492,15 +503,15 @@ function ToolCatalogCard({ tools }: { tools: AiConnectorToolCatalogEntryDto[] })
                         <p className="truncate font-mono text-sm font-semibold text-foreground">{tool.name}</p>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tool.description}</p>
                       </div>
-                      <span className={cn(
-                        "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                        tool.enabledByPolicy
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-slate-50 text-slate-600",
-                      )}>
-                        {tool.enabledByPolicy ? "policy on" : "policy off"}
+                      <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium", toolAvailabilityClassName(tool))}>
+                        {tool.availability === "available" ? "available" : "unavailable"}
                       </span>
                     </div>
+                    {tool.unavailableReason ? (
+                      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                        {tool.unavailableReason}
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{AI_CONNECTOR_SCOPE_LABELS[tool.scope]}</span>
                       <span className="rounded-full border border-border px-2 py-0.5 text-[11px] capitalize text-muted-foreground">{accessKindLabel(tool.accessKind)}</span>
