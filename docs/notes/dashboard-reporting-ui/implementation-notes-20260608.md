@@ -73,6 +73,7 @@ Current naming/status note:
 - The newer transaction-date-FX, weighted-average Book Cost overlay is currently applied to performance points in `apps/api/src/services/dashboardReportingCurrency.ts`.
 - The dated finance replay uses canonical lot allocations and stored realized P&L when sell allocation data is available; it only falls back to average reporting-cost reduction when a sell has no allocation projection.
 - Dashboard/report summary totals, Holding Focus detail rows, `FX-Translated Cost` disclosure, and incomplete-count diagnostics have not yet been fully migrated to that newer Book Cost contract and remain documented follow-up work.
+- Report responses now include an explicit `diagnostics` object for scope/currency/as-of/stale/FX/quote/row-count explainability, but Book Cost incomplete semantics still need the separate transaction-date-FX summary/detail migration before those totals can be marked complete/incomplete at aggregate level.
 
 ## Stale-While-Revalidate route DTO cache
 

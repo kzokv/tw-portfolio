@@ -420,7 +420,7 @@ function SummaryGrid({
 }) {
   const items = [
     { label: "Market value", value: summary.marketValueAmount },
-    { label: "Cost basis", value: summary.costBasisAmount },
+    { label: "Book Cost", value: summary.costBasisAmount },
     { label: "Unrealized P&L", toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
     { label: "Realized P&L", toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
     { label: "Daily change", detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
@@ -791,7 +791,7 @@ function HoldingsCard({
                 <TableHead className="sticky top-0 z-20 bg-card">Position</TableHead>
                 <TableHead className="sticky top-0 z-20 bg-card text-right">Price</TableHead>
                 <TableHead className="sticky top-0 z-20 bg-card text-right">Market value</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Cost basis</TableHead>
+                <TableHead className="sticky top-0 z-20 bg-card text-right">Book Cost</TableHead>
                 <TableHead className="sticky top-0 z-20 bg-card text-right">Unrealized</TableHead>
                 <TableHead className="sticky top-0 z-20 bg-card text-right">Daily</TableHead>
                 <TableHead className="sticky top-0 z-20 bg-card text-right">Weight</TableHead>
@@ -954,7 +954,7 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
               tone
             />
             <CompactFinanceStat
-              label="Cost basis"
+              label="Book Cost"
               locale={locale}
               value={row.reportingCostBasisAmount}
               currency={row.reportingCurrency}
@@ -1003,13 +1003,13 @@ function HoldingDetail({ locale, row }: { locale: LocaleCode; row: ReportHolding
   const values = [
     ["Reporting price", formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale), null],
     ["Market value", formatOptionalMoney(row.reportingMarketValueAmount, row.reportingCurrency, locale), null],
-    ["Cost basis", formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale), null],
+    ["Book Cost", formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale), null],
     ["Unrealized P&L", formatOptionalFinanceMoney(row.reportingUnrealizedPnlAmount, row.reportingCurrency, locale), row.reportingUnrealizedPnlAmount],
     ["Daily change", formatOptionalFinanceMoney(row.dailyChangeAmount, row.reportingCurrency, locale), row.dailyChangeAmount],
     ...(row.nativeCurrency !== row.reportingCurrency ? [
       ["Native price", formatOptionalNativePrice(row, locale), null],
       ["Native market value", formatOptionalMoney(row.nativeMarketValueAmount, row.nativeCurrency, locale), null],
-      ["Native cost basis", formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
+      ["Native book cost", formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
       ["FX rate", formatOptionalFxRate(row), null],
     ] as const : []),
   ] as const;

@@ -106,6 +106,23 @@ const fixture: DailyReviewReportDto = {
     missingFxCount: 0,
     staleQuoteCount: 0,
   },
+  diagnostics: {
+    scope: "all",
+    reportingCurrency: "AUD",
+    requestedAsOf: "2026-06-08",
+    lastValuationDate: "2026-06-08",
+    marketDataStaleSince: null,
+    missingQuoteCount: 0,
+    provisionalQuoteCount: 0,
+    staleQuoteCount: 0,
+    missingFxCount: 0,
+    rowCounts: {
+      holdingsTotal: 1,
+      holdingsReturned: 1,
+      topMovers: 0,
+      suggestions: 1,
+    },
+  },
   suggestions: [{ code: "coverage", severity: "info", title: "Coverage looks complete", detail: "All rows resolved." }],
   topMovers: [],
   holdings: {
@@ -147,6 +164,18 @@ const portfolioFixture: PortfolioReportDto = {
   summary: fixture.summary,
   fxStatus: fixture.fxStatus,
   dataHealth: fixture.dataHealth,
+  diagnostics: {
+    ...fixture.diagnostics,
+    lastValuationDate: "2026-05-29",
+    marketDataStaleSince: "2026-05-29",
+    rowCounts: {
+      holdingsTotal: 1,
+      holdingsReturned: 1,
+      topHoldings: 1,
+      marketBuckets: 1,
+      accountBuckets: 1,
+    },
+  },
   performance: {
     range: "1Y",
     reportingCurrency: "AUD",
