@@ -790,6 +790,27 @@ export interface ReportDataHealthDto {
   staleQuoteCount: number;
 }
 
+export interface ReportDiagnosticsDto {
+  scope: ReportScope;
+  reportingCurrency: AccountDefaultCurrency;
+  requestedAsOf: string;
+  lastValuationDate: string | null;
+  marketDataStaleSince: string | null;
+  missingQuoteCount: number;
+  provisionalQuoteCount: number;
+  staleQuoteCount: number;
+  missingFxCount: number;
+  rowCounts: {
+    holdingsTotal: number;
+    holdingsReturned: number;
+    topMovers?: number;
+    topHoldings?: number;
+    marketBuckets?: number;
+    accountBuckets?: number;
+    suggestions?: number;
+  };
+}
+
 export interface ReportSummaryTotalsDto {
   costBasisAmount: number;
   marketValueAmount: number | null;
@@ -847,6 +868,7 @@ export interface DailyReviewReportDto {
   fxStatus: ReportFxStatusDto;
   fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
+  diagnostics: ReportDiagnosticsDto;
   suggestions: DailyReviewSuggestionDto[];
   topMovers: ReportHoldingRowDto[];
   holdings: ReportHoldingRowsPageDto;
@@ -866,6 +888,7 @@ export interface PortfolioReportDto {
   fxStatus: ReportFxStatusDto;
   fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
+  diagnostics: ReportDiagnosticsDto;
   performance: DashboardPerformanceDto;
   allocation: {
     byMarket: AllocationBucketDto[];
@@ -887,6 +910,7 @@ export interface MarketReportDto {
   fxStatus: ReportFxStatusDto;
   fxRates?: FxConversionRateDto[];
   dataHealth: ReportDataHealthDto;
+  diagnostics: ReportDiagnosticsDto;
   performance: DashboardPerformanceDto;
   marketSummary: AllocationBucketDto[];
   topHoldings: ReportHoldingRowDto[];

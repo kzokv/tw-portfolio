@@ -15,6 +15,7 @@ import {
   type MarketCode,
   type PortfolioReportDto,
   type ReportDataHealthDto,
+  type ReportDiagnosticsDto,
   type ReportFxStatusDto,
   type ReportHoldingRowDto,
   type ReportQueryStateDto,
@@ -77,6 +78,10 @@ export async function buildDailyReviewReport(
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
+    diagnostics: buildReportDiagnostics(prepared, holdings, {
+      topMovers: topMovers.length,
+      suggestions: suggestions.length,
+    }),
     suggestions,
     topMovers,
     holdings,
@@ -94,6 +99,9 @@ export async function buildPortfolioReport(
   const topHoldings = [...allRows]
     .sort((left, right) => (right.reportingAllocationPercent ?? 0) - (left.reportingAllocationPercent ?? 0))
     .slice(0, 10);
+  const byMarket = buildMarketAllocations(prepared.translatedHoldingGroups);
+  const byAccount = buildAccountAllocations(prepared.scopedStore, prepared.translatedHoldingGroups, prepared.reportQuery.reportingCurrency);
+  const holdings = pageRows(allRows, input.limit, input.offset);
 
   return {
     query: prepared.reportQuery,
@@ -101,10 +109,16 @@ export async function buildPortfolioReport(
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
+    diagnostics: buildReportDiagnostics(prepared, holdings, {
+      performance,
+      topHoldings: topHoldings.length,
+      marketBuckets: byMarket.length,
+      accountBuckets: byAccount.length,
+    }),
     performance,
     allocation: {
-      byMarket: buildMarketAllocations(prepared.translatedHoldingGroups),
-      byAccount: buildAccountAllocations(prepared.scopedStore, prepared.translatedHoldingGroups, prepared.reportQuery.reportingCurrency),
+      byMarket,
+      byAccount,
     },
     concentration: {
       topHoldings,
@@ -113,7 +127,7 @@ export async function buildPortfolioReport(
       trailingDividendAmount: await buildTrailingDividendAmount(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency),
       recentDividendCount: countActivePostedDividends(prepared.scopedStore),
     },
-    holdings: pageRows(allRows, input.limit, input.offset),
+    holdings,
   };
 }
 
@@ -125,6 +139,11 @@ export async function buildMarketReport(
   const prepared = await prepareReportData(app, userId, input);
   const performance = await buildReportPerformance(app, userId, prepared.store, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
+  const marketSummary = buildMarketAllocations(prepared.translatedHoldingGroups);
+  const topHoldings = [...allRows]
+    .sort((left, right) => (right.reportingMarketValueAmount ?? 0) - (left.reportingMarketValueAmount ?? 0))
+    .slice(0, 10);
+  const detail = pageRows(allRows, input.limit, input.offset);
 
   return {
     query: prepared.reportQuery,
@@ -132,12 +151,15 @@ export async function buildMarketReport(
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
+    diagnostics: buildReportDiagnostics(prepared, detail, {
+      performance,
+      topHoldings: topHoldings.length,
+      marketBuckets: marketSummary.length,
+    }),
     performance,
-    marketSummary: buildMarketAllocations(prepared.translatedHoldingGroups),
-    topHoldings: [...allRows]
-      .sort((left, right) => (right.reportingMarketValueAmount ?? 0) - (left.reportingMarketValueAmount ?? 0))
-      .slice(0, 10),
-    detail: pageRows(allRows, input.limit, input.offset),
+    marketSummary,
+    topHoldings,
+    detail,
   };
 }
 
@@ -428,6 +450,61 @@ function buildDataHealth(groups: Awaited<ReturnType<typeof translateOverviewHold
     missingFxCount: groups.filter((group) => group.fxStatus !== "complete").length,
     staleQuoteCount: groups.filter((group) => group.freshness !== "current").length,
   };
+}
+
+function buildReportDiagnostics(
+  prepared: PreparedReportData,
+  rowsPage: ReturnType<typeof pageRows>,
+  options: {
+    performance?: DashboardPerformanceDto;
+    topMovers?: number;
+    topHoldings?: number;
+    marketBuckets?: number;
+    accountBuckets?: number;
+    suggestions?: number;
+  } = {},
+): ReportDiagnosticsDto {
+  const performanceLastDate = options.performance?.lastReliableDate ?? findLastPerformancePointDate(options.performance);
+  return {
+    scope: prepared.reportQuery.scope,
+    reportingCurrency: prepared.reportQuery.reportingCurrency,
+    requestedAsOf: prepared.reportQuery.asOf,
+    lastValuationDate: performanceLastDate ?? prepared.reportQuery.asOf,
+    marketDataStaleSince: options.performance?.marketDataStaleSince ?? null,
+    missingQuoteCount: prepared.dataHealth.missingQuoteCount,
+    provisionalQuoteCount: prepared.dataHealth.provisionalQuoteCount,
+    staleQuoteCount: prepared.dataHealth.staleQuoteCount,
+    missingFxCount: prepared.dataHealth.missingFxCount,
+    rowCounts: {
+      holdingsTotal: rowsPage.total,
+      holdingsReturned: rowsPage.rows.length,
+      ...(options.topMovers !== undefined ? { topMovers: options.topMovers } : {}),
+      ...(options.topHoldings !== undefined ? { topHoldings: options.topHoldings } : {}),
+      ...(options.marketBuckets !== undefined ? { marketBuckets: options.marketBuckets } : {}),
+      ...(options.accountBuckets !== undefined ? { accountBuckets: options.accountBuckets } : {}),
+      ...(options.suggestions !== undefined ? { suggestions: options.suggestions } : {}),
+    },
+  };
+}
+
+function findLastPerformancePointDate(performance: DashboardPerformanceDto | undefined): string | null {
+  if (!performance) return null;
+  for (let index = performance.points.length - 1; index >= 0; index -= 1) {
+    const point = performance.points[index];
+    if (
+      point
+      && point.fxAvailable
+      && (
+        point.marketValueAmount !== null
+        || point.totalCostAmount !== null
+        || point.totalReturnAmount !== null
+        || point.totalReturnPercent !== null
+      )
+    ) {
+      return point.date;
+    }
+  }
+  return null;
 }
 
 async function buildFxStatus(

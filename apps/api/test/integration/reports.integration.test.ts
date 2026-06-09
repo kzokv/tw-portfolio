@@ -126,6 +126,23 @@ describe("report routes", () => {
       summary: expect.objectContaining({
         costBasisAmount: expect.any(Number),
       }),
+      diagnostics: expect.objectContaining({
+        scope: "TW",
+        reportingCurrency: "TWD",
+        requestedAsOf: expect.any(String),
+        lastValuationDate: expect.any(String),
+        marketDataStaleSince: null,
+        missingQuoteCount: expect.any(Number),
+        provisionalQuoteCount: 0,
+        staleQuoteCount: 0,
+        missingFxCount: 0,
+        rowCounts: expect.objectContaining({
+          holdingsTotal: 1,
+          holdingsReturned: 1,
+          topMovers: expect.any(Number),
+          suggestions: expect.any(Number),
+        }),
+      }),
       holdings: expect.objectContaining({
         total: 1,
         limit: 1,
@@ -155,6 +172,17 @@ describe("report routes", () => {
           expect.objectContaining({ key: "TW" }),
         ]),
       }),
+      diagnostics: expect.objectContaining({
+        scope: "all",
+        reportingCurrency: "TWD",
+        rowCounts: expect.objectContaining({
+          holdingsTotal: 1,
+          holdingsReturned: 1,
+          topHoldings: 1,
+          marketBuckets: 1,
+          accountBuckets: expect.any(Number),
+        }),
+      }),
       concentration: expect.objectContaining({
         topHoldings: expect.arrayContaining([
           expect.objectContaining({ ticker: "2330" }),
@@ -174,6 +202,16 @@ describe("report routes", () => {
         reportingCurrency: "TWD",
       }),
       fxRates: [],
+      diagnostics: expect.objectContaining({
+        scope: "TW",
+        reportingCurrency: "TWD",
+        rowCounts: expect.objectContaining({
+          holdingsTotal: 1,
+          holdingsReturned: 1,
+          topHoldings: 1,
+          marketBuckets: 1,
+        }),
+      }),
       detail: expect.objectContaining({
         limit: 1,
         rows: [
