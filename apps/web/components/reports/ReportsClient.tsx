@@ -96,7 +96,7 @@ const PERFORMANCE_CHART_CONFIG = {
     color: "hsl(var(--chart-primary))",
   },
   totalCostAmount: {
-    label: "Cost basis",
+    label: "Book Cost",
     color: "hsl(var(--chart-muted))",
   },
   totalReturnAmount: {
