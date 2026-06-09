@@ -165,6 +165,30 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
       expect(replaced).toEqual({ nested: { c: 3 } });
     });
 
+    it("persists dashboardHoldingFocus as a top-level full-object preference", async () => {
+      const initial = {
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        hiddenPresets: ["worst-pnl"],
+        selectedPreset: "stale-quotes",
+      };
+      const replacement = {
+        presetOrder: ["largest", "best-pnl", "worst-pnl", "fx-exposure", "stale-quotes"],
+        hiddenPresets: ["fx-exposure"],
+        selectedPreset: "largest",
+      };
+
+      await persistence!.setUserPreferencePatch(userId, { dashboardHoldingFocus: initial });
+      const replaced = await persistence!.setUserPreferencePatch(userId, {
+        dashboardHoldingFocus: replacement,
+      });
+      expect(replaced.dashboardHoldingFocus).toEqual(replacement);
+
+      const cleared = await persistence!.setUserPreferencePatch(userId, {
+        dashboardHoldingFocus: null,
+      });
+      expect(cleared).not.toHaveProperty("dashboardHoldingFocus");
+    });
+
     it("deletes a key when the patch value is null", async () => {
       await persistence!.setUserPreferencePatch(userId, {
         dashboardPerformanceRanges: ["1M", "YTD"],
@@ -657,5 +681,29 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
       cardOrder: { dashboard: ["x", "y"], transactions: null },
     });
     expect(result.cardOrder).toEqual({ dashboard: ["x", "y"] });
+  });
+
+  it("M13 — dashboardHoldingFocus persists as top-level full-object preference", async () => {
+    const initial = {
+      presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+      hiddenPresets: ["worst-pnl"],
+      selectedPreset: "stale-quotes",
+    };
+    const replacement = {
+      presetOrder: ["largest", "best-pnl", "worst-pnl", "fx-exposure", "stale-quotes"],
+      hiddenPresets: ["fx-exposure"],
+      selectedPreset: "largest",
+    };
+
+    await persistence.setUserPreferencePatch(userId, { dashboardHoldingFocus: initial });
+    const replaced = await persistence.setUserPreferencePatch(userId, {
+      dashboardHoldingFocus: replacement,
+    });
+    expect(replaced.dashboardHoldingFocus).toEqual(replacement);
+
+    const cleared = await persistence.setUserPreferencePatch(userId, {
+      dashboardHoldingFocus: null,
+    });
+    expect(cleared).not.toHaveProperty("dashboardHoldingFocus");
   });
 });
