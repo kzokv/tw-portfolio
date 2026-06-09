@@ -137,6 +137,12 @@ function input(el: HTMLInputElement, value: string) {
   });
 }
 
+function click(el: Element) {
+  act(() => {
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
 describe("dashboard components", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -257,6 +263,163 @@ describe("dashboard components", () => {
     expect(html).toContain("Native NT$610");
     expect(html).toContain("Open Portfolio Report");
     expect(html).not.toContain('data-testid="holdings-table"');
+  });
+
+  it("renders holding focus presets and account filter controls", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+        reportingAllocationPercent: 12,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={[reportingGroup]}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(html).toContain('data-testid="dashboard-holdings-account-filter"');
+    expect(html).toContain('data-testid="dashboard-holdings-presets"');
+    expect(html).toContain('data-testid="dashboard-holdings-preset-settings"');
+    expect(html).toContain("Largest");
+    expect(html).toContain("Worst P&amp;L");
+    expect(html).toContain("Best P&amp;L");
+    expect(html).toContain("FX exposure");
+    expect(html).toContain("Stale quotes");
+  });
+
+  it("expands holding focus account rows on desktop table", () => {
+    const multiAccountHoldings: DashboardOverviewHoldingDto[] = [
+      holdings[0]!,
+      {
+        ...holdings[0]!,
+        accountId: "acc-2",
+        accountName: "Retirement Brokerage",
+        quantity: 500,
+        costBasisAmount: 296_368,
+        marketValueAmount: 305_000,
+        unrealizedPnlAmount: 8_632,
+      },
+    ];
+    const group = buildHoldingGroupsFromHoldings({ holdings: multiAccountHoldings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 75_000,
+      reportingCostBasisAmount: 72_500,
+      reportingUnrealizedPnlAmount: 2_500,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child, index) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: index === 0 ? 60_000 : 15_000,
+        reportingCostBasisAmount: index === 0 ? 58_000 : 14_500,
+        reportingUnrealizedPnlAmount: index === 0 ? 2_000 : 500,
+        reportingAllocationPercent: index === 0 ? 9.6 : 2.4,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+
+    expect(container.querySelector('[data-testid="dashboard-holding-account-row-2330-acc-1"]')).toBeNull();
+    const expandButton = container.querySelector('[data-testid="dashboard-holding-expand-2330-TW"]');
+    expect(expandButton).not.toBeNull();
+    click(expandButton!);
+
+    expect(container.querySelector('[data-testid="dashboard-holding-account-row-2330-acc-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="dashboard-holding-account-row-2330-acc-2"]')).not.toBeNull();
+    expect(container.textContent).toContain("Main Brokerage");
+    expect(container.textContent).toContain("Retirement Brokerage");
+    expect(container.textContent).toContain("Open ticker");
+  });
+
+  it("opens holding focus detail sheet with account, cost, and FX sections", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingCurrentUnitPrice: 30.5,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingCurrentUnitPrice: 30.5,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+        reportingAllocationPercent: 12,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          fxRates={[{
+            fromCurrency: "TWD",
+            toCurrency: "AUD",
+            rate: 0.049,
+            asOf: "2026-06-08",
+          }]}
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+
+    const detailButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Details");
+    expect(detailButton).toBeDefined();
+    click(detailButton!);
+
+    expect(document.body.textContent).toContain("Summary");
+    expect(document.body.textContent).toContain("Accounts");
+    expect(document.body.textContent).toContain("Cost/P&L");
+    expect(document.body.textContent).toContain("FX/Price");
+    expect(document.body.textContent).toContain("Book Cost");
+    expect(document.body.textContent).toContain("FX-Translated Cost");
+    expect(document.body.textContent).toContain("Portfolio allocation");
+    expect(document.body.textContent).toContain("Market allocation");
+    expect(document.body.textContent).toContain("Average cost");
+    expect(document.body.textContent).toContain("Latest price");
+    expect(document.body.textContent).toContain("Ticker page");
   });
 
   it("prefers explicit server-provided reporting unit prices in dashboard holdings preview", () => {

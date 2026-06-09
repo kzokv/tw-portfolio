@@ -215,11 +215,11 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit C: update dashboard Portfolio Trend to plot Market Value + Book Cost by default and expose FX-Translated Cost only in details/settings/report surfaces.
 - [ ] Commit C: update Return card to plot Return % from corrected daily performance points.
 - [ ] Commit C: add tests for May 29 stale-data cutoff, no post-cutoff fake points, normal market-closure carry-forward, and open-market missing-data truncation.
-- [ ] Commit D: redesign Holding Focus desktop with shadcn-friendly toolbar, preset chips, search, market/account filters, sort controls, sticky table header, sticky ticker/name column, expandable account-level rows, and ticker links.
-- [ ] Commit D: redesign Holding Focus mobile cards with detail sheet sections for Summary, Accounts, Cost/P&L, and FX/Price.
+- [x] Commit D: redesign Holding Focus desktop with shadcn-friendly toolbar, preset chips, search, market/account filters, sort controls, sticky table header, sticky ticker/name column, expandable account-level rows, and ticker links.
+- [x] Commit D: redesign Holding Focus mobile cards with detail sheet sections for Summary, Accounts, Cost/P&L, and FX/Price.
 - [ ] Commit D: add Holding Focus account-level detail metrics: quantity, market value, Book Cost, FX-Translated Cost, unrealized P&L, native/reporting price, FX rate, portfolio/market allocation, average cost, latest price, ticker link, and optional lot count.
 - [ ] Commit D: implement native price/value progressive disclosure for dashboard/report holding cards and rows when reporting currency differs from native currency.
-- [ ] Commit D: add responsive unit/component tests and E2E coverage for desktop expansion, mobile detail sheet, account-level detail, ticker links, native disclosure, sorting, filtering, and sticky table behavior.
+- [ ] Commit D: add responsive unit/component tests and E2E coverage for desktop expansion, mobile detail sheet, account-level detail, ticker links, native disclosure, sorting, filtering, and sticky table behavior. Partial: dashboard component coverage now verifies presets/account filter, desktop account-row expansion, ticker links, and detail sheet sections; E2E and sticky-behavior browser checks remain pending.
 - [ ] Commit E: add backend validation and persistence for `dashboardHoldingFocus` user preference with `presetOrder`, `hiddenPresets`, and `selectedPreset`.
 - [ ] Commit E: implement Holding Focus preset management inside the card using settings icon plus shadcn popover/sheet; persist preference through `/user-preferences`.
 - [ ] Commit E: add API memory/Postgres tests and web tests for preference validation, merge semantics, selected preset persistence, show/hide, reorder, and reset/default behavior.
@@ -234,7 +234,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit H: review SQL/query/read-path timing for corrected dashboard/report performance and targeted heavy paths; add narrow query optimizations where evidence supports them.
 - [ ] Commit H: add cache key/scope/range/report tests for `/reports`, dashboard, portfolio, and ticker back-navigation behavior.
 - [ ] Commit I: update UI labels, tooltips, data-health copy, and i18n for Book Cost, FX-Translated Cost, Return %, stale data, and missing FX.
-- [ ] Commit I: refresh durable mockup screenshots only where the locked Holding Focus, stale-data, or Book Cost UI materially diverges from existing mockups.
+- [x] Commit I: refresh durable mockup screenshots only where the locked Holding Focus, stale-data, or Book Cost UI materially diverges from existing mockups. Holding Focus desktop/mobile screenshots were regenerated under `docs/notes/dashboard-reporting-ui/mockups/screenshots/`.
 - [ ] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
 - [ ] Commit I: Run `/aaa` or the repo AAA workflow to add/update E2E tests covering the new user-facing flows, settings/persistence changes, report scope flows, and API endpoint behavior.
 - [ ] Commit I: run focused tests first, then the full eight-suite gate before pushing.
