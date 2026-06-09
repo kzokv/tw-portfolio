@@ -250,7 +250,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Report cards and detail rows link tickers to `/tickers/{ticker}?marketCode={market}` so Top holdings, Market detail, and holding detail cards can open ticker pages.
 - [x] Report holding rows now include explicit native currency price/value fields, reporting price fields, and row-level FX rate so report cards/tables can disclose original price when reporting currency differs.
 - [x] Report gains/losses, daily changes, and P&L-style values use finance tone classes plus signed money/percent labels for positive/negative/neutral values.
-- [x] Slow scoped report SSR no longer blocks first paint indefinitely. `/reports` now gives server seeding a bounded paint budget, aborts the underlying report fetch when the budget expires, and renders the client shell with cache/silent refresh when the active scoped report is slow.
+- [x] Slow scoped report SSR no longer blocks first paint or duplicates expensive report work. `/reports` no longer server-seeds the active report; it renders the client shell with cache/silent refresh and lets the browser issue the single report refresh.
 - [x] AI Connector settings now renders the MCP report tool catalog from server policy/catalog metadata even when connection-level tool toggles are empty, and each connector shows inherited/default/override tool availability instead of hiding the catalog behind saved overrides.
 - [x] TW/single-market scoped reports no longer fail after initial paint during client refresh due to scoped performance fanout. Scoped performance now aggregates all scoped `(accountId, ticker)` snapshot contributors in one persistence query via `getAggregatedSnapshotsInReportingCurrencyForScope()` instead of fanning out `getHoldingSnapshotsForTicker()` per holding.
 
@@ -388,6 +388,11 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `code-reviewer/scripts/pr_analyzer.py --base dev --json` rerun; manually cleared the known test-only secret, client-link, mockup-console, and todo-file false positives.
   - Updated `docs/004-notes/dashboard-reporting-ui/review-20260608-dashboard-reporting-ui.md` with the 2026-06-09 follow-up review findings.
   - `/si-review` identified a new durable cache-key rule; `/si-promote` added `.claude/rules/route-dto-cache-user-context.md`, later extended it with a mutable-dimension metadata validation guard, and updated `.claude/memory/MEMORY.md`.
+- [x] 2026-06-09 focused regression checks after removing `/reports` server-side report seeding:
+  - `npx eslint apps/web/app/reports/page.tsx apps/web/test/app/reports/reportsPage.test.tsx` passed.
+  - `npx vitest run --config vitest.config.ts test/app/reports/reportsPage.test.tsx test/features/reports/hooks/useReportData.test.tsx test/components/reports/ReportsClient.test.tsx --no-file-parallelism` from `apps/web` passed: 12 tests.
+  - `npm run typecheck` passed.
+  - Dev container investigation showed direct scoped TW market report API responses succeed but take roughly 37-68s under load; the prior UI timeout pattern came from duplicate internal server and browser report builds plus API Postgres pool pressure, not missing scoped-market support.
 - [x] 2026-06-09 full local eight-suite gate after route-cache/report/MCP fixes:
   - `npx eslint .` passed.
   - `npm run typecheck` passed.
