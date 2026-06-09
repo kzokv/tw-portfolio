@@ -1108,6 +1108,126 @@ describe("report routes", () => {
     }));
   });
 
+  it("excludes reversed and superseded dividend ledger rows from report income", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-income-trade",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    store.marketData.dividendEvents.push({
+      id: "report-income-dividend-event",
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-06-01",
+      paymentDate: "2026-06-03",
+      cashDividendPerShare: 10,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0,
+      source: "test",
+    });
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "report-income-active",
+        accountId: "acc-1",
+        dividendEventId: "report-income-dividend-event",
+        eligibleQuantity: 10,
+        expectedCashAmount: 100,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 100,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+      },
+      {
+        id: "report-income-reversed-original",
+        accountId: "acc-1",
+        dividendEventId: "report-income-dividend-event",
+        eligibleQuantity: 10,
+        expectedCashAmount: 80,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 80,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+      },
+      {
+        id: "report-income-reversal",
+        accountId: "acc-1",
+        dividendEventId: "report-income-dividend-event",
+        eligibleQuantity: 10,
+        expectedCashAmount: -80,
+        expectedStockQuantity: 0,
+        receivedCashAmount: -80,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        reversalOfDividendLedgerEntryId: "report-income-reversed-original",
+      },
+      {
+        id: "report-income-superseded",
+        accountId: "acc-1",
+        dividendEventId: "report-income-dividend-event",
+        eligibleQuantity: 10,
+        expectedCashAmount: 60,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 60,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        supersededAt: "2026-06-04T00:00:00.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=TW&currencyMode=specified&currency=TWD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const body = response.json() as {
+      summary: { incomeAmount: number | null };
+      income: { trailingDividendAmount: number | null; recentDividendCount: number };
+    };
+
+    expect(response.statusCode).toBe(200);
+    expect(body.summary.incomeAmount).toBe(100);
+    expect(body.income.trailingDividendAmount).toBe(100);
+    expect(body.income.recentDividendCount).toBe(1);
+  });
+
   it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {
     const portfolioReport = await app.inject({
       method: "GET",

@@ -111,7 +111,7 @@ export async function buildPortfolioReport(
     },
     income: {
       trailingDividendAmount: await buildTrailingDividendAmount(app, prepared.scopedStore, prepared.reportQuery.reportingCurrency),
-      recentDividendCount: prepared.scopedStore.accounting.facts.dividendLedgerEntries.filter((entry) => entry.postingStatus === "posted").length,
+      recentDividendCount: countActivePostedDividends(prepared.scopedStore),
     },
     holdings: pageRows(allRows, input.limit, input.offset),
   };
@@ -458,8 +458,9 @@ function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
     if (!holdingTickers.has(event.ticker)) continue;
     addCurrency(event.cashDividendCurrency);
   }
+  const reversedIds = collectReversedDividendLedgerIds(store);
   for (const entry of store.accounting.facts.dividendLedgerEntries) {
-    if (entry.postingStatus !== "posted" || entry.receivedCashAmount === 0) continue;
+    if (!isActivePostedDividend(entry, reversedIds) || entry.receivedCashAmount === 0) continue;
     addCurrency(dividendEventById.get(entry.dividendEventId)?.cashDividendCurrency);
   }
   return [...currencies];
@@ -515,8 +516,9 @@ async function buildTrailingDividendAmount(
   reportingCurrency: AccountDefaultCurrency,
 ): Promise<number> {
   let total = 0;
+  const reversedIds = collectReversedDividendLedgerIds(store);
   for (const entry of store.accounting.facts.dividendLedgerEntries) {
-    if (entry.postingStatus !== "posted" || entry.receivedCashAmount === 0) continue;
+    if (!isActivePostedDividend(entry, reversedIds) || entry.receivedCashAmount === 0) continue;
     const event = store.marketData.dividendEvents.find((candidate) => candidate.id === entry.dividendEventId);
     const currency = (event?.cashDividendCurrency ?? "TWD") as AccountDefaultCurrency;
     const date = event?.paymentDate ?? event?.exDividendDate ?? new Date().toISOString().slice(0, 10);
@@ -525,6 +527,30 @@ async function buildTrailingDividendAmount(
     total += entry.receivedCashAmount * fx;
   }
   return roundToDecimal(total, 2);
+}
+
+function countActivePostedDividends(store: Store): number {
+  const reversedIds = collectReversedDividendLedgerIds(store);
+  return store.accounting.facts.dividendLedgerEntries.filter((entry) =>
+    isActivePostedDividend(entry, reversedIds)).length;
+}
+
+function collectReversedDividendLedgerIds(store: Store): Set<string> {
+  return new Set(
+    store.accounting.facts.dividendLedgerEntries
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((id): id is string => Boolean(id)),
+  );
+}
+
+function isActivePostedDividend(
+  entry: Store["accounting"]["facts"]["dividendLedgerEntries"][number],
+  reversedIds: ReadonlySet<string>,
+): boolean {
+  return entry.postingStatus === "posted"
+    && !entry.reversalOfDividendLedgerEntryId
+    && !entry.supersededAt
+    && !reversedIds.has(entry.id);
 }
 
 async function buildReportPerformance(
