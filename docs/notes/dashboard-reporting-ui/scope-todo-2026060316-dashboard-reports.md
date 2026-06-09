@@ -9,6 +9,8 @@ required_reading:
   - docs/notes/dashboard-reporting-ui/mockups/reports-mockup.html
   - docs/notes/dashboard-reporting-ui/mockups/screenshots/dashboard-desktop.png
   - docs/notes/dashboard-reporting-ui/mockups/screenshots/dashboard-mobile.png
+  - docs/notes/dashboard-reporting-ui/mockups/screenshots/holding-focus-desktop.png
+  - docs/notes/dashboard-reporting-ui/mockups/screenshots/holding-focus-mobile.png
   - docs/notes/dashboard-reporting-ui/mockups/screenshots/daily-review-desktop.png
   - docs/notes/dashboard-reporting-ui/mockups/screenshots/daily-review-mobile.png
   - docs/notes/dashboard-reporting-ui/mockups/screenshots/portfolio-report-desktop.png
@@ -88,6 +90,55 @@ superseded_by: null
 52. MCP tool wording must stay descriptive and avoid investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice claims.
 53. Report endpoints return complete summaries/aggregates plus bounded detail rows with pagination/detail controls.
 
+## Locked Scope Addendum - 2026-06-09
+
+This addendum was locked after follow-up investigation of dashboard cost drift, missing chart data after 2026-05-29, Holding Focus UX, scoped report failures, MCP visibility, and remaining Codex review work. It extends the existing PR scope and should be implemented as separate vertical-slice commits.
+
+1. Finish the remaining Codex review fixes in this PR rather than deferring them.
+2. All-market synthetic portfolio/report performance must load and use quote snapshots; scoped and all-scope report paths need regression coverage.
+3. Dashboard/report `Book Cost` is stable reporting-currency cost derived from transaction/lot history using transaction-date FX.
+4. Current cost-basis method remains weighted average. Buy cost converts on trade date; sells reduce Book Cost using weighted-average reporting cost per share.
+5. `FX-Translated Cost` remains a separate analytics value translated using valuation-date FX.
+6. Missing transaction-date FX makes the affected holding Book Cost incomplete. Portfolio/market aggregate Book Cost is marked `Incomplete` with affected holding/trade counts; do not display partial aggregates as normal totals.
+7. Dashboard performance uses a read-time corrected formula first; no new daily snapshot fields, migrations, or backfill jobs in this PR.
+8. Hybrid performance read path is locked: snapshots may supply reliable dated Market Value; stable Book Cost, realized P&L, and dividends are derived by date in reporting currency.
+9. Snapshot `totalCostBasis` or equivalent FX-moving cost must not be displayed as dashboard/report Book Cost.
+10. Market Value for each date is open quantity as of that date multiplied by historical close for that date and valuation-date FX into the selected reporting currency.
+11. Return Amount is `Market Value + realized P&L + dividends - Book Cost`.
+12. Return % is `Return Amount / Book Cost`.
+13. Portfolio Trend plots Market Value plus Book Cost by default.
+14. Return card plots Return % from the same corrected performance points.
+15. FX movement affects Market Value and FX-Translated Cost, but not Book Cost.
+16. Charts stop/truncate at the last reliable valuation date when required market data is stale or missing; no blind carry-forward to today.
+17. For all-market charts, use a composite calendar: include dates where at least one held market is open; carry forward prior close/FX only for markets that are normally closed; mark incomplete/stale when a market should be open but data is missing.
+18. Chart headers and cards show `As of {date}` and stale-data messaging such as `Market data stale since {date}` when the selected date/range extends beyond the last reliable valuation date.
+19. Refresh buttons on expensive chart/report sections attempt quote/bar refresh or silent refetch without blanking mounted content.
+20. Dashboard remains review-first: hero totals, Book Cost, P&L, return, per-market chips, FX/as-of state, Portfolio Trend, Return, Holding Focus, Top Movers/Risk Alerts, and Suggestions/AI-ready context.
+21. Dashboard must not duplicate full report tables, transaction/cost ledger views, the full currency report, or custom report-builder behavior.
+22. Use labels: `Market Value`, `Book Cost`, `FX-Translated Cost`, `Unrealized P&L`, `Total Return`, `Return %`, `Price P&L`, `FX P&L`, `As of {date}`, `Missing FX for Book Cost`, and `Market data stale since {date}`.
+23. Tooltips define Book Cost, FX-Translated Cost, Market Value, and Return % with the locked formulas.
+24. Holding Focus restores account-level visibility.
+25. Holding Focus desktop keeps a holdings-first table with sticky header, sticky ticker/name column where applicable, search, market filter, account filter, sorting, preset chips, and expandable account-level rows.
+26. Holding Focus mobile keeps cards as the primary layout; tapping opens a detail sheet with Summary, Accounts, Cost/P&L, and FX/Price sections.
+27. Holding Focus detail content includes per-account quantity, market value, Book Cost, FX-Translated Cost, unrealized P&L, native price, reporting-currency price, FX rate when converted, portfolio allocation, market allocation, average cost, latest price, ticker link, and optional lot count. Full lot lists remain out of dashboard scope.
+28. Holding Focus preset chips ship with defaults: `Largest`, `Worst P&L`, `Best P&L`, `FX exposure`, and `Stale quotes`.
+29. Users can configure visibility/order of known Holding Focus preset chips in the Holding Focus card UI. No custom query/formula builder in this PR.
+30. Holding Focus chip preferences persist via existing backend `user_preferences.preferences`, not localStorage and not a new table.
+31. The preference key is `dashboardHoldingFocus` with `presetOrder`, `hiddenPresets`, and `selectedPreset`.
+32. Chip configuration lives inside the Holding Focus card via settings icon and shadcn popover/sheet; do not add a Settings page section in this PR.
+33. Native price/value disclosure uses explicit affordances only when reporting currency differs from native currency. Desktop uses popover/click disclosure; mobile uses sheet or inline expansion. Do not make the amount itself a hidden toggle.
+34. Daily Review, Portfolio Report, and Market Report must work for `scope=TW` and other single-market scopes. Treat scoped failure as a correctness bug first, performance bug second.
+35. Scoped reports must consistently filter holdings, trades, quotes, bars, dividends, and performance contributors by market.
+36. Report responses should include diagnostics: selected scope, reporting currency, last valuation date, stale/missing quote indicators, missing FX counts, and row counts sufficient to explain incomplete charts.
+37. MCP/ChatGPT report context should expose advice-ready semantic payloads rather than raw UI DTO dumps where appropriate: reporting currency, market scope, FX rates, as-of/stale metadata, totals, Book Cost, FX-Translated Cost, P&L/return, market breakdown, top holdings/movers, risk/concentration alerts, suggestions context, and data-quality warnings.
+38. AI Connectors settings must show available MCP tools grouped by purpose, including tool name, description, required scope, availability, and why unavailable.
+39. Read-only report/advice tools are visible and enabled when connector read policy allows them; write/admin tools remain visibly locked unless policy allows them.
+40. Cache-first performance behavior remains in scope: Dashboard, Portfolio, Reports, and Ticker routes render cached/primary DTOs first when available, refresh silently, expose explicit refresh controls, and avoid full blocking reloads on back navigation.
+41. Ticker links remain normal internal navigation unless an explicit external/new-tab case is introduced later.
+42. Review SQL/query/read paths only where current evidence shows the calculation or fetch path is heavy; do not start a broad accounting rewrite.
+43. This PR uses behavior-based vertical-slice commits: Codex review/report quote fix, Book Cost/FX cost model, stale-data/as-of charts, Holding Focus UX, cache-first performance polish, MCP/tool catalog visibility, and tests/todo/mockup updates.
+44. Scope boundary: no custom Holding Focus preset builder, no full lot-level dashboard ledger, no TWR/MWR metrics, no new daily snapshot fields/backfill, no separate Currency Report, and no new schema migrations except preference validation/API shape if needed.
+
 ## Implementation Steps
 
 - [x] Commit 1: add shared correctness/performance foundation.
@@ -145,6 +196,50 @@ superseded_by: null
 - [x] Commit 8: run web unit/component coverage for report controls, URL query fallback, mobile drawer behavior, dashboard hero currency switcher, cache restore, refresh controls, and route seeding.
 - [ ] Commit 8: run E2E smoke for dashboard currency switching, dashboard market chip report links, report URL restoration, portfolio cached return, transactions primary restoration, and ticker return navigation. Full PR gate is green, but dedicated `/reports` URL restoration and ticker return-cache E2E coverage is still pending with the deferred ticker web adoption.
 - [x] Commit 8: run MCP integration tests for all three report tools and schema exposure.
+
+## Implementation Steps - Addendum 2026-06-09
+
+- [x] Commit A: finish remaining Codex review fixes for all-scope synthetic report performance by loading quote snapshots for all-market Portfolio Report and Market Report paths.
+- [x] Commit A: add focused API regression tests for all-scope synthetic quote usage in both portfolio and market report performance, plus scoped `scope=TW` equivalents.
+- [x] Commit A: keep explicit `null` reporting amounts as incomplete data in web grouping/holding DTO consumers; do not fall back to native values unless the field is absent and native currency equals reporting currency.
+- [x] Commit A: add focused web regression tests for explicit-null reporting amount preservation and dashboard holding/report native-vs-reporting amount display.
+- [ ] Commit B: add a server-side read-time performance calculation service that derives stable Book Cost from weighted-average transaction/lot history using transaction-date FX.
+- [ ] Commit B: derive FX-Translated Cost separately using valuation-date FX.
+- [ ] Commit B: compute daily Market Value from open quantity, historical close, and valuation-date FX.
+- [ ] Commit B: compute Return Amount and Return % from Market Value, realized P&L, dividends, and stable Book Cost.
+- [ ] Commit B: mark holding and aggregate Book Cost incomplete when transaction-date FX is missing; surface affected holding/trade counts.
+- [ ] Commit B: add API unit/integration tests for buy, sell, partial sell, fees, weighted-average sell reduction, transaction-date FX, missing FX, realized P&L, dividends, Market Value, Return Amount, and Return %.
+- [ ] Commit C: implement hybrid dashboard/report performance read path that may use reliable snapshot Market Value but never uses FX-moving snapshot cost as Book Cost.
+- [ ] Commit C: implement stale-data valuation boundaries and composite-calendar behavior for multi-market charts.
+- [ ] Commit C: truncate dashboard/report charts at the last reliable valuation date when data is stale/missing, with `As of {date}` and stale-data metadata.
+- [ ] Commit C: update dashboard Portfolio Trend to plot Market Value + Book Cost by default and expose FX-Translated Cost only in details/settings/report surfaces.
+- [ ] Commit C: update Return card to plot Return % from corrected daily performance points.
+- [ ] Commit C: add tests for May 29 stale-data cutoff, no post-cutoff fake points, normal market-closure carry-forward, and open-market missing-data truncation.
+- [ ] Commit D: redesign Holding Focus desktop with shadcn-friendly toolbar, preset chips, search, market/account filters, sort controls, sticky table header, sticky ticker/name column, expandable account-level rows, and ticker links.
+- [ ] Commit D: redesign Holding Focus mobile cards with detail sheet sections for Summary, Accounts, Cost/P&L, and FX/Price.
+- [ ] Commit D: add Holding Focus account-level detail metrics: quantity, market value, Book Cost, FX-Translated Cost, unrealized P&L, native/reporting price, FX rate, portfolio/market allocation, average cost, latest price, ticker link, and optional lot count.
+- [ ] Commit D: implement native price/value progressive disclosure for dashboard/report holding cards and rows when reporting currency differs from native currency.
+- [ ] Commit D: add responsive unit/component tests and E2E coverage for desktop expansion, mobile detail sheet, account-level detail, ticker links, native disclosure, sorting, filtering, and sticky table behavior.
+- [ ] Commit E: add backend validation and persistence for `dashboardHoldingFocus` user preference with `presetOrder`, `hiddenPresets`, and `selectedPreset`.
+- [ ] Commit E: implement Holding Focus preset management inside the card using settings icon plus shadcn popover/sheet; persist preference through `/user-preferences`.
+- [ ] Commit E: add API memory/Postgres tests and web tests for preference validation, merge semantics, selected preset persistence, show/hide, reorder, and reset/default behavior.
+- [ ] Commit F: fix scoped report correctness for Daily Review, Portfolio Report, and Market Report with `scope=TW` and other single-market scopes.
+- [ ] Commit F: ensure scoped reports filter holdings, trades, quotes, daily bars, dividends, and performance contributors consistently by market.
+- [ ] Commit F: add report diagnostics for scope, reporting currency, last valuation date, stale/missing quotes, missing FX, and row counts.
+- [ ] Commit F: add tests for `scope=all`, `scope=TW`, and at least one non-TW scope where fixtures allow it.
+- [ ] Commit G: expose advice-ready MCP report context payloads and ensure MCP tool schemas accept/reflect reporting currency, scope, stale-data, Book Cost, FX-Translated Cost, P&L/return, market breakdown, top holdings/movers, risks, suggestions context, and data-quality warnings.
+- [ ] Commit G: update AI Connectors settings to show grouped MCP tool catalog with availability, required scope, policy state, and unavailable reasons.
+- [ ] Commit G: add API and web tests for tool catalog visibility, policy-disabled state, missing-scope/fresh-auth reasons, and read-report tool visibility.
+- [ ] Commit H: complete cache-first navigation/performance polish for Dashboard, Portfolio, Reports, and Ticker pages using user/context-aware cache keys and no blanking during refresh.
+- [ ] Commit H: review SQL/query/read-path timing for corrected dashboard/report performance and targeted heavy paths; add narrow query optimizations where evidence supports them.
+- [ ] Commit H: add cache key/scope/range/report tests for `/reports`, dashboard, portfolio, and ticker back-navigation behavior.
+- [ ] Commit I: update UI labels, tooltips, data-health copy, and i18n for Book Cost, FX-Translated Cost, Return %, stale data, and missing FX.
+- [ ] Commit I: refresh durable mockup screenshots only where the locked Holding Focus, stale-data, or Book Cost UI materially diverges from existing mockups.
+- [ ] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
+- [ ] Commit I: Run `/aaa` or the repo AAA workflow to add/update E2E tests covering the new user-facing flows, settings/persistence changes, report scope flows, and API endpoint behavior.
+- [ ] Commit I: run focused tests first, then the full eight-suite gate before pushing.
+- [ ] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits.
+- [ ] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow.
 
 ## Follow-up Issue Fixes — 2026-06-08
 
@@ -313,11 +408,20 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
+- [x] 2026-06-09 focused Commit A validation after all-scope synthetic quote and explicit-null reporting fixes:
+  - Process audit before tests found no orphan app/test runners; only Playwright MCP helper processes were present.
+  - `npx vitest run test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 10 tests.
+  - `npx vitest run test/features/portfolio/holdingGroups.test.ts test/features/dashboard/components.test.tsx` from `apps/web` passed: 24 tests.
+  - `npx eslint apps/api/src/services/reports.ts apps/api/test/integration/reports.integration.test.ts apps/web/features/portfolio/holdingGroups.ts apps/web/test/features/dashboard/components.test.tsx apps/web/test/features/portfolio/holdingGroups.test.ts docs/notes/dashboard-reporting-ui/mockups/capture-report-screenshots.mjs` passed.
+  - `git diff --check` passed.
+  - Holding Focus mockups regenerated with `REPORTS=holding-focus node docs/notes/dashboard-reporting-ui/mockups/capture-report-screenshots.mjs` and visually checked for desktop/mobile layout.
 
 ## Mockups
 
 - Dashboard desktop: `docs/notes/dashboard-reporting-ui/mockups/screenshots/dashboard-desktop.png`
 - Dashboard mobile: `docs/notes/dashboard-reporting-ui/mockups/screenshots/dashboard-mobile.png`
+- Holding Focus desktop: `docs/notes/dashboard-reporting-ui/mockups/screenshots/holding-focus-desktop.png`
+- Holding Focus mobile: `docs/notes/dashboard-reporting-ui/mockups/screenshots/holding-focus-mobile.png`
 - Daily Review desktop: `docs/notes/dashboard-reporting-ui/mockups/screenshots/daily-review-desktop.png`
 - Daily Review mobile: `docs/notes/dashboard-reporting-ui/mockups/screenshots/daily-review-mobile.png`
 - Portfolio Report desktop: `docs/notes/dashboard-reporting-ui/mockups/screenshots/portfolio-report-desktop.png`
