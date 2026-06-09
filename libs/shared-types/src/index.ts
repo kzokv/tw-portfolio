@@ -1523,6 +1523,7 @@ export type AiConnectorAccessKind =
   | "write";
 export type AiConnectorAccessResult = "ok" | "denied" | "error";
 export type AiConnectorToolGroup = "read" | "drafts" | "write";
+export type AiConnectorToolAvailability = "available" | "unavailable";
 export type AiTransactionDraftBatchStatus = "open" | "archived" | "deleted";
 export type AiTransactionDraftSourceChannel = "mcp" | "web";
 export type AiConnectorImportSourceType = "csv" | "image" | "pdf";
@@ -1587,6 +1588,8 @@ export interface AiConnectorToolCatalogEntryDto {
   accessKind: AiConnectorAccessKind;
   group: AiConnectorToolGroup;
   enabledByPolicy: boolean;
+  availability: AiConnectorToolAvailability;
+  unavailableReason: string | null;
   annotations: {
     readOnlyHint: boolean;
     destructiveHint: boolean;
