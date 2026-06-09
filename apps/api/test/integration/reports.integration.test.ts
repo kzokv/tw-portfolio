@@ -268,6 +268,135 @@ describe("report routes", () => {
     ]));
   });
 
+  it("uses quote snapshots for all-market synthetic performance when holding snapshots are absent", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const quoteDate = relativeIsoDate(0);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-all-synthetic-quote-trade",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: relativeIsoDate(-1),
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: `${relativeIsoDate(-1)}T09:00:00.000Z`,
+      bookingSequence: 1,
+      bookedAt: `${relativeIsoDate(-1)}T09:00:00.000Z`,
+    });
+    await app.persistence.saveStore(store);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: quoteDate,
+        open: 105,
+        high: 106,
+        low: 104,
+        close: 105,
+        volume: 12_000,
+        source: "test",
+        ingestedAt: `${quoteDate}T10:00:00.000Z`,
+      },
+    ]);
+    const historicalBarsSpy = vi.spyOn(app.persistence, "getDailyBarsForTickers").mockResolvedValue(new Map());
+
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+    const portfolioBody = portfolioReport.json() as {
+      performance: {
+        fxStatus: string;
+        points: Array<{
+          date: string;
+          totalCostAmount: number | null;
+          marketValueAmount: number | null;
+          totalReturnAmount: number | null;
+          totalReturnPercent: number | null;
+        }>;
+      };
+    };
+
+    expect(portfolioReport.statusCode).toBe(200);
+    expect(historicalBarsSpy).toHaveBeenCalled();
+    expect(portfolioBody.performance.fxStatus).toBe("complete");
+    expect(portfolioBody.performance.points).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        date: quoteDate,
+        totalCostAmount: 1000,
+        marketValueAmount: 1050,
+        totalReturnAmount: 50,
+        totalReturnPercent: 5,
+      }),
+    ]));
+
+    historicalBarsSpy.mockClear();
+
+    const marketReport = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+    const marketBody = marketReport.json() as {
+      performance: {
+        fxStatus: string;
+        points: Array<{
+          date: string;
+          totalCostAmount: number | null;
+          marketValueAmount: number | null;
+          totalReturnAmount: number | null;
+          totalReturnPercent: number | null;
+        }>;
+      };
+    };
+
+    expect(marketReport.statusCode).toBe(200);
+    expect(historicalBarsSpy).toHaveBeenCalled();
+    expect(marketBody.performance.fxStatus).toBe("complete");
+    expect(marketBody.performance.points).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        date: quoteDate,
+        totalCostAmount: 1000,
+        marketValueAmount: 1050,
+        totalReturnAmount: 50,
+        totalReturnPercent: 5,
+      }),
+    ]));
+  });
+
   it("builds synthetic TW-scoped performance when TW snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
