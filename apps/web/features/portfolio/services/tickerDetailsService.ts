@@ -546,6 +546,26 @@ export async function fetchTickerDetailsHydration({
   }, "enrichment");
 }
 
+export async function fetchTickerDetailsFullRefresh({
+  ticker,
+  accountId,
+  marketCode,
+  instrument = null,
+  transactions = [],
+  primaryDetails,
+}: TickerDetailsRequest & {
+  primaryDetails: TickerDetailsModel;
+}): Promise<TickerDetailsModel> {
+  return fetchTickerDetailsFromEndpoint({
+    ticker,
+    accountId,
+    marketCode,
+    instrument,
+    transactions,
+    primaryDetails,
+  }, "details");
+}
+
 export async function fetchTickerDetailsEnrichment({
   ticker,
   accountId,

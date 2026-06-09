@@ -16,6 +16,7 @@ vi.mock("../../../features/portfolio/services/tickerDetailsService", async () =>
   );
   return {
     ...actual,
+    fetchTickerDetailsFullRefresh: vi.fn(),
     fetchTickerDetailsHydration: vi.fn(),
   };
 });
@@ -29,7 +30,10 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
   }),
 }));
 
-import { fetchTickerDetailsHydration } from "../../../features/portfolio/services/tickerDetailsService";
+import {
+  fetchTickerDetailsFullRefresh,
+  fetchTickerDetailsHydration,
+} from "../../../features/portfolio/services/tickerDetailsService";
 import {
   buildRouteDtoCacheKey,
   getRouteDtoContextScope,
@@ -89,6 +93,7 @@ function mount(element: React.ReactElement) {
 
 beforeEach(() => {
   installLocalStorageMock();
+  vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(details);
 });
 
 afterEach(() => {

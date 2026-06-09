@@ -31,6 +31,7 @@ import { useTransactionMutations } from "../../../features/portfolio/hooks/useTr
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import {
+  fetchTickerDetailsFullRefresh,
   fetchTickerDetailsHydration,
   type TickerDetailsModel,
 } from "../../../features/portfolio/services/tickerDetailsService";
@@ -241,8 +242,19 @@ export function TickerHistoryClient({
       marketCode: transactionMarketFilter,
     });
     setDisplayTransactions(nextTransactions);
+    const nextDetails = await fetchTickerDetailsFullRefresh({
+      ticker,
+      accountId: transactionAccountFilter,
+      marketCode: transactionMarketFilter,
+      instrument,
+      transactions: nextTransactions,
+      primaryDetails: detailsStateRef.current,
+    });
+    detailsStateRef.current = nextDetails;
+    setDetailsState(nextDetails);
+    writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
-  }, [router, ticker, transactionAccountFilter, transactionMarketFilter]);
+  }, [instrument, router, ticker, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
