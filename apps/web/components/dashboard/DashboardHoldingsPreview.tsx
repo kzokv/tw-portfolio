@@ -153,18 +153,20 @@ export function DashboardHoldingsPreview({
   }, [groups]);
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
-    const baseGroups = groups.filter((group) => {
+    const baseGroups = groups.flatMap((group) => {
       const marketMatches = marketFilter === "ALL" || group.marketCode === marketFilter;
-      const accountMatches = accountFilter === "ALL" || group.children.some((child) => child.accountId === accountFilter);
+      const visibleChildren = getVisibleAccountRows(group, accountFilter);
+      const accountMatches = visibleChildren.length > 0;
       const queryMatches = normalizedQuery === ""
         || group.ticker.toUpperCase().includes(normalizedQuery)
         || group.marketCode.toUpperCase().includes(normalizedQuery)
-        || group.children.some((child) =>
+        || visibleChildren.some((child) =>
           child.accountName?.toUpperCase().includes(normalizedQuery) ||
           child.accountId.toUpperCase().includes(normalizedQuery));
-      return marketMatches && accountMatches && queryMatches;
+      if (!marketMatches || !accountMatches || !queryMatches) return [];
+      return [projectHoldingGroupToChildren(group, visibleChildren)];
     });
-    return applyHoldingPreset(baseGroups, selectedPreset, reportingCurrency);
+    return applyHoldingPreset(recalculateHoldingGroupAllocations(baseGroups), selectedPreset, reportingCurrency);
   }, [accountFilter, groups, marketFilter, query, reportingCurrency, selectedPreset]);
   const visibleGroups = useMemo(
     () => filteredGroups
@@ -1207,6 +1209,22 @@ function freshnessSortRank(group: DashboardOverviewHoldingGroupDto): number {
   return 0;
 }
 
+function maxFreshness(
+  items: Array<DashboardOverviewHoldingChildDto["freshness"]>,
+): DashboardOverviewHoldingChildDto["freshness"] {
+  if (items.includes("stale_red")) return "stale_red";
+  if (items.includes("stale_amber")) return "stale_amber";
+  return "current";
+}
+
+function resolveQuoteStatus(
+  items: Array<DashboardOverviewHoldingChildDto["quoteStatus"]>,
+): DashboardOverviewHoldingChildDto["quoteStatus"] {
+  if (items.includes("missing")) return "missing";
+  if (items.includes("provisional")) return "provisional";
+  return "current";
+}
+
 function holdingRowKey(group: DashboardOverviewHoldingGroupDto): string {
   return `${group.marketCode}:${group.ticker}`;
 }
@@ -1214,6 +1232,91 @@ function holdingRowKey(group: DashboardOverviewHoldingGroupDto): string {
 function getVisibleAccountRows(group: DashboardOverviewHoldingGroupDto, accountFilter: string): DashboardOverviewHoldingChildDto[] {
   if (accountFilter === "ALL") return group.children;
   return group.children.filter((child) => child.accountId === accountFilter);
+}
+
+function projectHoldingGroupToChildren(
+  group: DashboardOverviewHoldingGroupDto,
+  children: DashboardOverviewHoldingChildDto[],
+): DashboardOverviewHoldingGroupDto {
+  if (children.length === group.children.length) return group;
+  const quantity = children.reduce((sum, child) => sum + child.quantity, 0);
+  const costBasisAmount = children.reduce((sum, child) => sum + child.costBasisAmount, 0);
+  const previousValue = children.reduce((sum, child) => {
+    if (child.previousClose == null) return sum;
+    return sum + (child.previousClose * child.quantity);
+  }, 0);
+  const change = sumNullable(children.map((child) => child.change));
+
+  return {
+    ...group,
+    quantity,
+    accountCount: children.length,
+    averageCostPerShare: quantity > 0
+      ? children.reduce((sum, child) => sum + (child.averageCostPerShare * child.quantity), 0) / quantity
+      : 0,
+    currentUnitPrice: firstNumber(children.map((child) => child.currentUnitPrice)),
+    costBasisAmount,
+    marketValueAmount: sumNullable(children.map((child) => child.marketValueAmount)),
+    unrealizedPnlAmount: sumNullable(children.map((child) => child.unrealizedPnlAmount)),
+    change,
+    changePercent: change != null && previousValue > 0 ? (change / previousValue) * 100 : null,
+    previousClose: previousValue > 0 && quantity > 0 ? previousValue / quantity : null,
+    quoteStatus: resolveQuoteStatus(children.map((child) => child.quoteStatus)),
+    nextDividendDate: children
+      .map((child) => child.nextDividendDate)
+      .filter((value): value is string => Boolean(value))
+      .sort()[0] ?? null,
+    lastDividendPostedDate: children
+      .map((child) => child.lastDividendPostedDate)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null,
+    freshness: maxFreshness(children.map((child) => child.freshness)),
+    freshnessTooltip: children.find((child) => child.freshnessTooltip)?.freshnessTooltip ?? null,
+    reportingCurrentUnitPrice: firstNumber(children.map((child) => child.reportingCurrentUnitPrice)),
+    reportingCostBasisAmount: sumNullable(children.map((child) => child.reportingCostBasisAmount)),
+    reportingMarketValueAmount: sumNullable(children.map((child) => child.reportingMarketValueAmount)),
+    reportingUnrealizedPnlAmount: sumNullable(children.map((child) => child.reportingUnrealizedPnlAmount)),
+    fxStatus: children.every((child) => child.fxStatus === "complete") ? "complete" : "partial",
+    children,
+  };
+}
+
+function recalculateHoldingGroupAllocations(
+  groups: DashboardOverviewHoldingGroupDto[],
+): DashboardOverviewHoldingGroupDto[] {
+  const totalReportingMarket = groups.reduce((sum, group) => sum + (group.reportingMarketValueAmount ?? 0), 0);
+  const totalReportingCost = groups.reduce((sum, group) => sum + (group.reportingCostBasisAmount ?? 0), 0);
+  return groups.map((group) => {
+    const reportingAllocationPercent = totalReportingMarket > 0 && group.reportingMarketValueAmount != null
+      ? (group.reportingMarketValueAmount / totalReportingMarket) * 100
+      : totalReportingCost > 0 && group.reportingCostBasisAmount != null
+        ? (group.reportingCostBasisAmount / totalReportingCost) * 100
+        : null;
+    return {
+      ...group,
+      allocationPct: reportingAllocationPercent,
+      reportingAllocationPercent,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingAllocationPercent: totalReportingMarket > 0 && child.reportingMarketValueAmount != null
+          ? (child.reportingMarketValueAmount / totalReportingMarket) * 100
+          : totalReportingCost > 0 && child.reportingCostBasisAmount != null
+            ? (child.reportingCostBasisAmount / totalReportingCost) * 100
+            : null,
+      })),
+    };
+  });
+}
+
+function sumNullable(values: Array<number | null | undefined>): number | null {
+  const present = values.filter((value): value is number => value != null);
+  if (present.length === 0) return null;
+  return present.reduce((sum, value) => sum + value, 0);
+}
+
+function firstNumber(values: Array<number | null | undefined>): number | null {
+  return values.find((value): value is number => typeof value === "number") ?? null;
 }
 
 function buildHoldingFxRows(
