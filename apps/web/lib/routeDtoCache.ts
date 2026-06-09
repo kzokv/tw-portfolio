@@ -1,5 +1,3 @@
-"use client";
-
 import { readContextCookie } from "./context";
 
 const CACHE_VERSION = "2026-06-09-dashboard-reporting-ui-v2";
