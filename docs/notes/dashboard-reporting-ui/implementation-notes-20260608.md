@@ -71,6 +71,7 @@ Current naming/status note:
 
 - Wire DTO field names are still `totalCostAmount` / `costBasisAmount`, but the dashboard/report chart labels now present that series as `Book Cost`.
 - The newer transaction-date-FX, weighted-average Book Cost overlay is currently applied to performance points in `apps/api/src/services/dashboardReportingCurrency.ts`.
+- The dated finance replay uses canonical lot allocations and stored realized P&L when sell allocation data is available; it only falls back to average reporting-cost reduction when a sell has no allocation projection.
 - Dashboard/report summary totals, Holding Focus detail rows, `FX-Translated Cost` disclosure, and incomplete-count diagnostics have not yet been fully migrated to that newer Book Cost contract and remain documented follow-up work.
 
 ## Stale-While-Revalidate route DTO cache
@@ -219,6 +220,7 @@ These are known transitional costs, not accidental behavior.
   - `apps/api/test/unit/dashboardReportingCurrency.test.ts`
   - `apps/api/test/integration/dashboard.integration.test.ts`
   - `apps/api/test/integration/reports.integration.test.ts`
+  - The unit suite covers canonical lot-allocation and realized-P&L replay under dated FX when allocated cost differs from running average cost.
 - Focused report refresh-timeout coverage:
   - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:

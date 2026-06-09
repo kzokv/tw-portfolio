@@ -43,7 +43,7 @@ import type {
   DashboardPerformanceRange,
 } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
-import type { BookedTradeEvent, Store } from "../types/store.js";
+import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
 import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 
 interface PreTranslationOverviewSummary {
@@ -709,6 +709,7 @@ async function buildDatedPerformanceFinance(
   const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
   const dividendEntries = sortDividendEntries(store);
   const fxCache = new Map<string, number | null>();
+  const allocationsByTradeId = groupLotAllocationsByTradeId(store.accounting.projections?.lotAllocations ?? []);
   const positions = new Map<string, PerformancePositionFinance>();
   const points = new Map<string, DatedPerformanceFinancePoint>();
   let tradeIndex = 0;
@@ -748,16 +749,20 @@ async function buildDatedPerformanceFinance(
       return;
     }
 
-    const allocatedQuantity = Math.min(trade.quantity, previous.quantity);
-    const allocatedBookCost = previous.quantity > 0
-      ? roundToDecimal((previous.bookCostAmount / previous.quantity) * allocatedQuantity, 2)
-      : 0;
     const proceedsNative = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
-    if (tradeFx === null || previous.hasMissingBookCost) {
+    const allocatedBookCostResult = await resolveAllocatedBookCostAmount(trade, previous, allocationsByTradeId, fxFor);
+    const realizedPnlResult = await resolveRealizedPnlAmount(
+      trade,
+      proceedsNative,
+      tradeFx,
+      allocatedBookCostResult.amount,
+      fxFor,
+    );
+    if (!realizedPnlResult.complete || previous.hasMissingBookCost) {
       realizedPnlComplete = false;
     } else {
       cumulativeRealizedPnlAmount = roundToDecimal(
-        cumulativeRealizedPnlAmount + proceedsNative * tradeFx - allocatedBookCost,
+        cumulativeRealizedPnlAmount + realizedPnlResult.amount,
         2,
       );
     }
@@ -769,8 +774,8 @@ async function buildDatedPerformanceFinance(
     }
     positions.set(key, {
       quantity: nextQuantity,
-      bookCostAmount: roundToDecimal(Math.max(0, previous.bookCostAmount - allocatedBookCost), 2),
-      hasMissingBookCost: previous.hasMissingBookCost,
+      bookCostAmount: roundToDecimal(Math.max(0, previous.bookCostAmount - allocatedBookCostResult.amount), 2),
+      hasMissingBookCost: previous.hasMissingBookCost || !allocatedBookCostResult.complete,
     });
   }
 
@@ -811,6 +816,65 @@ async function buildDatedPerformanceFinance(
   }
 
   return points;
+}
+
+function groupLotAllocationsByTradeId(
+  allocations: ReadonlyArray<LotAllocationProjection>,
+): Map<string, LotAllocationProjection[]> {
+  const byTradeId = new Map<string, LotAllocationProjection[]>();
+  for (const allocation of allocations) {
+    const group = byTradeId.get(allocation.tradeEventId) ?? [];
+    group.push(allocation);
+    byTradeId.set(allocation.tradeEventId, group);
+  }
+  return byTradeId;
+}
+
+async function resolveAllocatedBookCostAmount(
+  trade: BookedTradeEvent,
+  previous: PerformancePositionFinance,
+  allocationsByTradeId: ReadonlyMap<string, ReadonlyArray<LotAllocationProjection>>,
+  fxFor: (src: string, date: string) => Promise<number | null>,
+): Promise<{ amount: number; complete: boolean }> {
+  const allocations = allocationsByTradeId.get(trade.id) ?? [];
+  if (allocations.length === 0) {
+    const allocatedQuantity = Math.min(trade.quantity, previous.quantity);
+    return {
+      amount: previous.quantity > 0
+        ? roundToDecimal((previous.bookCostAmount / previous.quantity) * allocatedQuantity, 2)
+        : 0,
+      complete: !previous.hasMissingBookCost,
+    };
+  }
+
+  let total = 0;
+  for (const allocation of allocations) {
+    const fx = await fxFor(allocation.costCurrency, allocation.lotOpenedAt);
+    if (fx === null) {
+      return { amount: 0, complete: false };
+    }
+    total += allocation.allocatedCostAmount * fx;
+  }
+  return { amount: roundToDecimal(total, 2), complete: true };
+}
+
+async function resolveRealizedPnlAmount(
+  trade: BookedTradeEvent,
+  proceedsNative: number,
+  tradeFx: number | null,
+  allocatedBookCostAmount: number,
+  fxFor: (src: string, date: string) => Promise<number | null>,
+): Promise<{ amount: number; complete: boolean }> {
+  if (trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null) {
+    const realizedFx = await fxFor(trade.realizedPnlCurrency ?? trade.priceCurrency, trade.tradeDate);
+    return realizedFx === null
+      ? { amount: 0, complete: false }
+      : { amount: roundToDecimal(trade.realizedPnlAmount * realizedFx, 2), complete: true };
+  }
+
+  return tradeFx === null
+    ? { amount: 0, complete: false }
+    : { amount: roundToDecimal(proceedsNative * tradeFx - allocatedBookCostAmount, 2), complete: true };
 }
 
 function sortTradeEvents(trades: ReadonlyArray<BookedTradeEvent>): BookedTradeEvent[] {
