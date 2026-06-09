@@ -212,7 +212,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit C: implement hybrid dashboard/report performance read path that may use reliable snapshot Market Value but never uses FX-moving snapshot cost as Book Cost.
 - [ ] Commit C: implement stale-data valuation boundaries and composite-calendar behavior for multi-market charts.
 - [ ] Commit C: truncate dashboard/report charts at the last reliable valuation date when data is stale/missing, with `As of {date}` and stale-data metadata. Partial: dashboard/report performance DTOs now include `requestedAsOf`, `lastReliableDate`, and `marketDataStaleSince`; dashboard Portfolio Trend, Return %, and report performance charts show `As of {date}` plus `Market data stale since {date}`; report charts no longer connect null-valued gaps. Composite-calendar truncation remains pending.
-- [ ] Commit C: update dashboard Portfolio Trend to plot Market Value + Book Cost by default and expose FX-Translated Cost only in details/settings/report surfaces.
+- [ ] Commit C: update dashboard Portfolio Trend to plot Market Value + Book Cost by default and expose FX-Translated Cost only in details/settings/report surfaces. Partial: dashboard and report performance chart labels now use `Book Cost` instead of `Total Cost`/`Cost basis`; explicit FX-Translated Cost detail surfacing remains pending.
 - [ ] Commit C: update Return card to plot Return % from corrected daily performance points.
 - [ ] Commit C: add tests for May 29 stale-data cutoff, no post-cutoff fake points, normal market-closure carry-forward, and open-market missing-data truncation.
 - [x] Commit D: redesign Holding Focus desktop with shadcn-friendly toolbar, preset chips, search, market/account filters, sort controls, sticky table header, sticky ticker/name column, expandable account-level rows, and ticker links.
@@ -268,6 +268,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Dashboard/report performance DTOs now carry stale-data metadata (`requestedAsOf`, `lastReliableDate`, `marketDataStaleSince`) based on the last reliable point, not the last emitted null-valued point.
 - [x] Dashboard Portfolio Trend, dashboard Return %, and report performance charts now surface `As of {date}` and `Market data stale since {date}` when the selected as-of date extends beyond reliable market data.
 - [x] Report performance charts no longer connect null-valued series gaps, so missing/stale data is not drawn as a continuous trend.
+- [x] Dashboard/report performance chart copy now labels stable cost as `Book Cost`, matching the locked formula and avoiding the misleading FX-moving `Total Cost` label.
 
 ## Open Items
 

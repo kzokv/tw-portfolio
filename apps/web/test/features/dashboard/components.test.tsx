@@ -983,7 +983,7 @@ describe("dashboard components", () => {
     expect(html).toContain("Portfolio Trend");
     expect(html).toContain("dashboard-performance-range-1m");
     expect(html).toContain("Market Value");
-    expect(html).toContain("Total Cost");
+    expect(html).toContain("Book Cost");
   });
 
   it("renders performance as-of and stale-data warnings from server metadata", () => {
