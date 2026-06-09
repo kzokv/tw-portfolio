@@ -223,6 +223,7 @@ These are known transitional costs, not accidental behavior.
   - `apps/api/test/integration/reports.integration.test.ts`
   - The unit suite covers canonical lot-allocation and realized-P&L replay under dated FX when allocated cost differs from running average cost.
   - The unit suite covers same-ticker cross-market synthetic market values so the fallback uses the selected market's historical close.
+  - The reports integration suite now asserts synthetic performance uses `getDailyBarsForTickerMarket()` for repaired historical bars, not the legacy ticker-only bar lookup.
 - Focused report refresh-timeout coverage:
   - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:
