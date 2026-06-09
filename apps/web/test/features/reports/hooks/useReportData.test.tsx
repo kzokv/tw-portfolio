@@ -1,10 +1,11 @@
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyReviewReportDto } from "@vakwen/shared-types";
 import { REPORT_CLIENT_REFRESH_TIMEOUT_MS, useReportData } from "../../../../features/reports/hooks/useReportData";
 import type { ReportRouteState } from "../../../../features/reports/reportState";
-import { buildRouteDtoCacheKey, readRouteDtoCache } from "../../../../lib/routeDtoCache";
+import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/reports/services/reportService", () => ({
   fetchReport: vi.fn(),
@@ -184,6 +185,29 @@ describe("useReportData", () => {
     expect(fetchReport).toHaveBeenCalledTimes(1);
     expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Owner refresh");
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
+  });
+
+  it("restores cached reports after mount instead of during the first render", async () => {
+    const cached = buildReport("Cached report", "2026-06-08");
+    const refreshed = buildReport("Fresh report", "2026-06-09");
+    writeRouteDtoCache(reportCacheKey(), cached);
+    vi.mocked(fetchReport).mockResolvedValue(refreshed);
+
+    act(() => {
+      flushSync(() => {
+        root.render(<Harness contextRefreshSignal={0} initialReport={null} />);
+      });
+      expect(result.data).toBeNull();
+      expect(result.isBootstrapping).toBe(true);
+      expect(result.restoredFromCache).toBe(false);
+    });
+
+    await act(async () => {});
+
+    expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Fresh report");
+    expect(result.isBootstrapping).toBe(false);
+    expect(result.restoredFromCache).toBe(false);
+    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey())?.payload.suggestions[0]?.title).toBe("Fresh report");
   });
 
   it("times out initial client refreshes instead of leaving reports bootstrapped forever", async () => {
