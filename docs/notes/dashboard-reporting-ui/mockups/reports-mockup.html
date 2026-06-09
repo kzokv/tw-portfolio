@@ -480,6 +480,86 @@
       background: var(--primary);
     }
 
+    .hf-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.55fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .hf-toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 150px 150px 170px auto;
+      gap: 8px;
+      align-items: center;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .hf-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .hf-preset {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .hf-preset.active {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .hf-account-row td {
+      background: #f8fafc;
+      color: #334155;
+      font-size: 12px;
+    }
+
+    .hf-inline-detail {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .hf-mobile-controls {
+      display: none;
+    }
+
+    .hf-sheet {
+      display: none;
+      border: 1px solid var(--border);
+      border-radius: 12px 12px 0 0;
+      background: var(--card);
+      box-shadow: 0 -16px 42px rgba(15, 23, 42, 0.16);
+      overflow: hidden;
+    }
+
+    .hf-sheet-handle {
+      width: 44px;
+      height: 4px;
+      margin: 10px auto 4px;
+      border-radius: 999px;
+      background: #cbd5e1;
+    }
+
     @media (max-width: 720px) {
       .page {
         padding: 12px;
@@ -594,6 +674,42 @@
       .mobile-safe-space {
         height: 0;
       }
+
+      .hf-layout,
+      .hf-toolbar,
+      .hf-inline-detail {
+        grid-template-columns: 1fr;
+      }
+
+      .hf-toolbar {
+        display: none;
+      }
+
+      .hf-mobile-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .hf-layout > aside {
+        display: none;
+      }
+
+      .hf-presets {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+
+      .hf-preset {
+        white-space: nowrap;
+      }
+
+      .hf-sheet {
+        display: block;
+        z-index: 6;
+        margin: 8px -2px 0;
+      }
     }
   </style>
 </head>
@@ -630,6 +746,7 @@
 
       <nav class="tabs" aria-label="Report tabs">
         <div class="tab" data-tab="dashboard">Dashboard</div>
+        <div class="tab" data-tab="holding-focus">Holding Focus</div>
         <div class="tab" data-tab="daily">Daily Review</div>
         <div class="tab" data-tab="portfolio">Portfolio Report</div>
         <div class="tab" data-tab="market">Market Report</div>
@@ -822,6 +939,248 @@
               </div>
             </div>
           </article>
+        </div>
+      </section>
+
+      <section id="holding-focus-report" class="report grid">
+        <div class="refresh-note">
+          <span>Holding Focus uses reporting currency AUD, shows Book Cost as stable transaction-date FX cost, and refreshes quote/FX data without blanking rows.</span>
+          <span class="badge warn">As of 2026-05-29</span>
+        </div>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <span class="eyebrow">Dashboard module</span>
+              <h2>Holding Focus</h2>
+            </div>
+            <div class="action-row">
+              <span class="badge">AUD reporting</span>
+              <span class="button">Refresh</span>
+              <span class="button">Settings</span>
+            </div>
+          </div>
+
+          <div class="hf-toolbar">
+            <div class="control"><span>Search</span><strong>NVDA, 0050, BHP...</strong></div>
+            <div class="control"><span>Market</span><strong>All</strong></div>
+            <div class="control"><span>Account</span><strong>All</strong></div>
+            <div class="control"><span>Sort</span><strong>Market value</strong></div>
+            <span class="button">Tune chips</span>
+          </div>
+
+          <div class="card-content stack">
+            <div class="hf-mobile-controls">
+              <div class="control"><span>Search</span><strong>All holdings</strong></div>
+              <div class="row">
+                <div class="control" style="flex:1"><span>Market</span><strong>All</strong></div>
+                <div class="control" style="flex:1"><span>Sort</span><strong>Largest</strong></div>
+              </div>
+            </div>
+
+            <div class="hf-presets" aria-label="Holding Focus presets">
+              <span class="hf-preset active">Largest</span>
+              <span class="hf-preset">Worst P&L</span>
+              <span class="hf-preset">Best P&L</span>
+              <span class="hf-preset">FX exposure</span>
+              <span class="hf-preset">Stale quotes</span>
+              <span class="hf-preset">Configure</span>
+            </div>
+
+            <div class="hf-layout">
+              <div class="stack">
+                <div class="table-wrap" style="max-height:520px">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Holding</th>
+                        <th>Market</th>
+                        <th>Accounts</th>
+                        <th>Qty</th>
+                        <th>Market Value</th>
+                        <th>Book Cost</th>
+                        <th>FX-Translated Cost</th>
+                        <th>P&L</th>
+                        <th>Daily</th>
+                        <th>Weight</th>
+                        <th>Native</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>NVDA</strong><br><span class="muted">NVIDIA</span></td>
+                        <td>US</td>
+                        <td>2</td>
+                        <td>18</td>
+                        <td>AUD 33,215</td>
+                        <td>AUD 18,920</td>
+                        <td>AUD 19,410</td>
+                        <td class="positive">+AUD 14,295</td>
+                        <td class="positive">+2.4%</td>
+                        <td>18.2%</td>
+                        <td><span class="badge">USD price</span></td>
+                      </tr>
+                      <tr class="hf-account-row">
+                        <td>Main broker</td>
+                        <td>US</td>
+                        <td>Account</td>
+                        <td>12</td>
+                        <td>AUD 22,143</td>
+                        <td>AUD 12,610</td>
+                        <td>AUD 12,930</td>
+                        <td class="positive">+AUD 9,533</td>
+                        <td class="positive">+2.4%</td>
+                        <td>12.1%</td>
+                        <td>USD 1,245.20</td>
+                      </tr>
+                      <tr class="hf-account-row">
+                        <td>Retirement</td>
+                        <td>US</td>
+                        <td>Account</td>
+                        <td>6</td>
+                        <td>AUD 11,072</td>
+                        <td>AUD 6,310</td>
+                        <td>AUD 6,480</td>
+                        <td class="positive">+AUD 4,762</td>
+                        <td class="positive">+2.4%</td>
+                        <td>6.1%</td>
+                        <td>FX 1.489</td>
+                      </tr>
+                      <tr>
+                        <td><strong>0050</strong><br><span class="muted">TW ETF</span></td>
+                        <td>TW</td>
+                        <td>1</td>
+                        <td>12,000</td>
+                        <td>AUD 28,632</td>
+                        <td>AUD 26,480</td>
+                        <td>AUD 26,910</td>
+                        <td class="positive">+AUD 2,152</td>
+                        <td class="negative">-0.8%</td>
+                        <td>15.7%</td>
+                        <td><span class="badge">TWD price</span></td>
+                      </tr>
+                      <tr>
+                        <td><strong>BHP</strong><br><span class="muted">BHP Group</span></td>
+                        <td>AU</td>
+                        <td>2</td>
+                        <td>410</td>
+                        <td>AUD 16,095</td>
+                        <td>AUD 17,671</td>
+                        <td>AUD 17,671</td>
+                        <td class="negative">-AUD 1,576</td>
+                        <td class="positive">+0.6%</td>
+                        <td>8.8%</td>
+                        <td><span class="badge good">Native</span></td>
+                      </tr>
+                      <tr>
+                        <td><strong>005930</strong><br><span class="muted">Samsung</span></td>
+                        <td>KR</td>
+                        <td>1</td>
+                        <td>90</td>
+                        <td>AUD 5,205</td>
+                        <td class="warning">Missing FX</td>
+                        <td>AUD 5,010</td>
+                        <td class="warning">Incomplete</td>
+                        <td>-</td>
+                        <td>2.9%</td>
+                        <td><span class="badge warn">Stale</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="mobile-list">
+                  <div class="mobile-card">
+                    <div class="row"><strong>NVDA / US</strong><span class="badge good">2 accounts</span></div>
+                    <div class="row"><span>Market Value</span><strong>AUD 33.2K</strong></div>
+                    <div class="row"><span>Book Cost</span><strong>AUD 18.9K</strong></div>
+                    <div class="row"><span>P&L</span><strong class="positive">+AUD 14.3K</strong></div>
+                    <div class="row"><span>Native</span><span class="badge">USD 1,245.20</span></div>
+                  </div>
+                  <div class="mobile-card">
+                    <div class="row"><strong>0050 / TW</strong><span class="badge good">Current</span></div>
+                    <div class="row"><span>Market Value</span><strong>AUD 28.6K</strong></div>
+                    <div class="row"><span>Book Cost</span><strong>AUD 26.5K</strong></div>
+                    <div class="row"><span>Daily</span><strong class="negative">-0.8%</strong></div>
+                  </div>
+                  <div class="mobile-card">
+                    <div class="row"><strong>005930 / KR</strong><span class="badge warn">Missing FX</span></div>
+                    <div class="row"><span>Market Value</span><strong>AUD 5.2K</strong></div>
+                    <div class="row"><span>Book Cost</span><strong class="warning">Incomplete</strong></div>
+                    <div class="row"><span>Quote</span><strong class="warning">Stale since 2026-05-29</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="stack">
+                <article class="card" style="box-shadow:none">
+                  <div class="card-header">
+                    <div>
+                      <span class="eyebrow">Details</span>
+                      <h2>NVDA account breakdown</h2>
+                    </div>
+                    <span class="badge">Opened row</span>
+                  </div>
+                  <div class="card-content stack">
+                    <div class="hf-inline-detail">
+                      <div><span class="mini-label">Portfolio weight</span><p class="metric-sm">18.2%</p></div>
+                      <div><span class="mini-label">Market weight</span><p class="metric-sm">39.4%</p></div>
+                      <div><span class="mini-label">Avg cost</span><p class="metric-sm">USD 635.20</p></div>
+                      <div><span class="mini-label">Latest price</span><p class="metric-sm">USD 1,245.20</p></div>
+                    </div>
+                    <div class="list-row"><span>Main broker</span><strong>AUD 22,143</strong></div>
+                    <div class="list-row"><span>Retirement</span><strong>AUD 11,072</strong></div>
+                    <div class="list-row"><span>Native price</span><strong>USD 1,245.20</strong></div>
+                    <div class="list-row"><span>FX rate</span><strong>1 USD = 1.489 AUD</strong></div>
+                    <div class="action-row">
+                      <span class="button primary">Open ticker</span>
+                      <span class="button">Show FX</span>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="card" style="box-shadow:none">
+                  <div class="card-header">
+                    <div>
+                      <span class="eyebrow">Chip settings</span>
+                      <h2>Configured presets</h2>
+                    </div>
+                    <span class="badge">Saved to user prefs</span>
+                  </div>
+                  <div class="card-content stack">
+                    <div class="list-row"><span>1. Largest</span><strong>Shown</strong></div>
+                    <div class="list-row"><span>2. Worst P&L</span><strong>Shown</strong></div>
+                    <div class="list-row"><span>3. FX exposure</span><strong>Shown</strong></div>
+                    <div class="list-row"><span>Best P&L</span><strong class="muted">Hidden</strong></div>
+                  </div>
+                </article>
+              </aside>
+            </div>
+          </div>
+        </article>
+
+        <div class="hf-sheet">
+          <div class="hf-sheet-handle"></div>
+          <div class="card-content stack">
+            <div class="row">
+              <div>
+                <span class="eyebrow">Mobile detail sheet</span>
+                <h2>NVDA / US</h2>
+              </div>
+              <span class="badge good">2 accounts</span>
+            </div>
+            <div class="grid grid-2">
+              <div class="market-chip stack"><span class="mini-label">Market Value</span><strong>AUD 33.2K</strong><span class="positive">+2.4% daily</span></div>
+              <div class="market-chip stack"><span class="mini-label">Book Cost</span><strong>AUD 18.9K</strong><span class="muted">Stable cost</span></div>
+            </div>
+            <div class="list-row"><span>Main broker</span><strong>12 shares · AUD 22.1K</strong></div>
+            <div class="list-row"><span>Retirement</span><strong>6 shares · AUD 11.1K</strong></div>
+            <div class="list-row"><span>Native price</span><strong>USD 1,245.20 · FX 1.489</strong></div>
+            <div class="action-row">
+              <span class="button primary">Open ticker</span>
+              <span class="button">Configure chips</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1379,6 +1738,7 @@
     const report = new URLSearchParams(window.location.search).get("report") || "daily";
     const titles = {
       dashboard: ["Dashboard", "Daily command surface with hero currency, per-market strip, and compact action signals."],
+      "holding-focus": ["Holding Focus", "Dashboard holdings module with account-level expansion, configurable presets, and native price disclosure."],
       daily: ["Daily Review", "Operational scan for what changed and what needs attention today."],
       portfolio: ["Portfolio Report", "Comprehensive portfolio report with performance, allocation, income, health, and bounded holdings detail."],
       market: ["Market Report", "Full multi-market analysis with scoped performance, native/reporting currency behavior, and per-market detail."],
@@ -1387,6 +1747,7 @@
     };
     const drawer = {
       dashboard: ["Dashboard detail", "Hero and compact cards deep-link into Daily Review, Portfolio Report, and Market Report."],
+      "holding-focus": ["Holding detail sheet", "Mobile cards reveal account breakdown, Book Cost, FX-Translated Cost, native price, and ticker links."],
       daily: ["Today action detail", "Shows missing FX, stale quotes, dividend review, and links into report sections."],
       portfolio: ["Holding detail", "Shows accounts, quote status, allocation, PnL, dividends, and conversion state for a tapped holding."],
       market: ["Market detail", "Shows native currency, converted value, scoped performance, top holdings, and FX/quote health."],
@@ -1406,6 +1767,8 @@
     document.getElementById("drawer-copy").textContent = drawer[report][1];
     document.getElementById("scope-value").textContent = report === "market"
       ? "All markets / US selected"
+      : report === "holding-focus"
+        ? "All markets / holdings"
       : report === "ticker"
         ? "NVDA / US"
         : "All markets";
