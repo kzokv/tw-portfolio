@@ -126,6 +126,18 @@ const performance: DashboardPerformanceDto = {
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  if (!HTMLElement.prototype.hasPointerCapture) {
+    HTMLElement.prototype.hasPointerCapture = () => false;
+  }
+  if (!HTMLElement.prototype.setPointerCapture) {
+    HTMLElement.prototype.setPointerCapture = () => undefined;
+  }
+  if (!HTMLElement.prototype.releasePointerCapture) {
+    HTMLElement.prototype.releasePointerCapture = () => undefined;
+  }
+  if (!HTMLElement.prototype.scrollIntoView) {
+    HTMLElement.prototype.scrollIntoView = () => undefined;
+  }
 });
 
 function input(el: HTMLInputElement, value: string) {
@@ -142,6 +154,15 @@ function input(el: HTMLInputElement, value: string) {
 function click(el: Element) {
   act(() => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+function pointerDown(el: Element) {
+  act(() => {
+    const event = new MouseEvent("pointerdown", { bubbles: true, button: 0, cancelable: true, ctrlKey: false });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    el.dispatchEvent(event);
   });
 }
 
@@ -436,6 +457,76 @@ describe("dashboard components", () => {
     expect(container.textContent).toContain("Main Brokerage");
     expect(container.textContent).toContain("Retirement Brokerage");
     expect(container.textContent).toContain("Open ticker");
+  });
+
+  it("recomputes holding focus group metrics for the selected account filter", async () => {
+    mockUserPreferencesFetch();
+    const multiAccountHoldings: DashboardOverviewHoldingDto[] = [
+      holdings[0]!,
+      {
+        ...holdings[0]!,
+        accountId: "acc-2",
+        accountName: "Retirement Brokerage",
+        quantity: 500,
+        costBasisAmount: 296_368,
+        marketValueAmount: 305_000,
+        unrealizedPnlAmount: 8_632,
+      },
+    ];
+    const group = buildHoldingGroupsFromHoldings({ holdings: multiAccountHoldings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingCurrentUnitPrice: 30.5,
+      reportingMarketValueAmount: 75_000,
+      reportingCostBasisAmount: 72_500,
+      reportingUnrealizedPnlAmount: 2_500,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child, index) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingCurrentUnitPrice: 30.5,
+        reportingMarketValueAmount: index === 0 ? 60_000 : 15_000,
+        reportingCostBasisAmount: index === 0 ? 58_000 : 14_500,
+        reportingUnrealizedPnlAmount: index === 0 ? 2_000 : 500,
+        reportingAllocationPercent: index === 0 ? 9.6 : 2.4,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const accountTrigger = container.querySelector('[data-testid="dashboard-holdings-account-filter"]');
+    expect(accountTrigger).not.toBeNull();
+    pointerDown(accountTrigger!);
+    await flushPromises();
+
+    const retirementOption = [...document.body.querySelectorAll('[role="option"]')]
+      .find((option) => option.textContent?.includes("Retirement Brokerage"));
+    expect(retirementOption).toBeDefined();
+    click(retirementOption!);
+    await flushPromises();
+
+    expect(container.textContent).toContain("500 units");
+    expect(container.textContent).toContain("1 acct");
+    expect(container.textContent).toContain("AUD 15K");
+    expect(container.textContent).toContain("+AUD 500");
+    expect(container.textContent).not.toContain("2,500.00 units");
+    expect(container.textContent).not.toContain("AUD 75K");
+    expect(container.textContent).not.toContain("+AUD 2.5K");
   });
 
   it("opens holding focus detail sheet with account, cost, and FX sections", () => {
