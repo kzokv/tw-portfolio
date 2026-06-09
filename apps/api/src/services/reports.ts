@@ -48,6 +48,7 @@ interface PreparedReportData {
   reportQuery: ReportQueryStateDto;
   translatedSummary: Awaited<ReturnType<typeof translateOverviewSummary>>;
   translatedHoldingGroups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>;
+  quotes: QuoteSnapshot[];
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
@@ -86,7 +87,7 @@ export async function buildPortfolioReport(
   input: BuildReportInput,
 ): Promise<PortfolioReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery);
+  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
     .sort((left, right) => (right.reportingAllocationPercent ?? 0) - (left.reportingAllocationPercent ?? 0))
@@ -120,7 +121,7 @@ export async function buildMarketReport(
   input: BuildReportInput,
 ): Promise<MarketReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery);
+  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
 
   return {
@@ -201,6 +202,7 @@ async function prepareReportData(
     },
     translatedSummary,
     translatedHoldingGroups,
+    quotes,
     dataHealth: buildDataHealth(translatedHoldingGroups),
     fxStatus,
     fxRates: await buildFxConversionRateRows(
@@ -499,10 +501,11 @@ async function buildReportPerformance(
   userId: string,
   scopedStore: Store,
   query: ReportQueryStateDto,
+  quotes: ReadonlyArray<QuoteSnapshot>,
 ): Promise<DashboardPerformanceDto> {
   const range = query.range ?? "1Y";
   if (query.scope === "all") {
-    return translatePerformancePoints(userId, range, query.asOf, query.reportingCurrency, app.persistence, scopedStore, []);
+    return translatePerformancePoints(userId, range, query.asOf, query.reportingCurrency, app.persistence, scopedStore, quotes);
   }
 
   const earliestTradeDate = scopedStore.accounting.facts.tradeEvents
@@ -523,16 +526,6 @@ async function buildReportPerformance(
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
 
-  const loadSyntheticQuotes = async () => {
-    const quoteableSymbols = [...new Set(
-      scopedStore.accounting.projections.holdings
-        .map((holding) => holding.ticker)
-        .filter((symbol) => isInstrumentQuoteable(scopedStore.instruments.find((item) => item.ticker === symbol))),
-    )];
-    const { pairs: quotePairs, settledByMarket } = await buildQuoteInputs(app, scopedStore, quoteableSymbols);
-    const snapshotMap = await resolveQuoteSnapshots(quotePairs, app.persistence, settledByMarket);
-    return Object.values(snapshotMap).filter((quote): quote is QuoteSnapshot => quote !== null);
-  };
   const scopedPersistence = new Proxy(app.persistence, {
     get(target, property, receiver) {
       if (property === "getAggregatedSnapshotsInReportingCurrency") {
@@ -560,7 +553,7 @@ async function buildReportPerformance(
     query.reportingCurrency,
     scopedPersistence,
     scopedStore,
-    loadSyntheticQuotes,
+    quotes,
   );
 }
 
