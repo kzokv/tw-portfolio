@@ -1773,6 +1773,7 @@ function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
       accountId: holding.accountId,
       accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
       ticker: holding.ticker,
+      marketCode: marketCodeFor(holding.currency),
       quantity: holding.quantity,
       costBasisAmount: holding.costBasisAmount,
       currency: holding.currency,

@@ -405,6 +405,7 @@ export interface DashboardOverviewHoldingDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
   currency: CurrencyCode;

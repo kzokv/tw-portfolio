@@ -171,6 +171,7 @@ function buildOverviewHoldings(
         accountId: holding.accountId,
         accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
         ticker: holding.ticker,
+        marketCode: market,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
         currency: holding.currency,
@@ -201,16 +202,12 @@ export function buildOverviewHoldingGroups(
   holdings: ReadonlyArray<DashboardOverviewHoldingDto>,
 ): DashboardOverviewHoldingGroupDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
-  const accountMarket = new Map(store.accounts.map((account) => [
-    account.id,
-    marketCodeFor(account.defaultCurrency),
-  ]));
   const groups = new Map<string, DashboardOverviewHoldingGroupDto>();
   const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
 
   for (const holding of holdings) {
     const account = accountById.get(holding.accountId);
-    const marketCode = resolveHoldingMarketCode(store, holding, accountMarket);
+    const marketCode = holding.marketCode;
     const groupKey = `${holding.ticker}:${marketCode}:${holding.currency}`;
     const child: DashboardOverviewHoldingChildDto = {
       accountId: holding.accountId,
@@ -334,9 +331,13 @@ function mergeQuoteStatus(
 
 function resolveHoldingMarketCode(
   store: Store,
-  holding: Store["accounting"]["projections"]["holdings"][number],
+  holding: Pick<Store["accounting"]["projections"]["holdings"][number], "accountId" | "ticker" | "currency"> & {
+    marketCode?: MarketCode;
+  },
   accountMarket: ReadonlyMap<string, MarketCode>,
 ): MarketCode {
+  if (holding.marketCode) return holding.marketCode;
+
   const tradeEvents = store.accounting.facts.tradeEvents ?? [];
   const tradeMarkets = uniqueMarketCodes(
     tradeEvents

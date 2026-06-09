@@ -12,6 +12,7 @@ const holdings: DashboardOverviewHoldingDto[] = [
     accountId: "acc-1",
     accountName: "Main Brokerage",
     ticker: "2330",
+    marketCode: "TW",
     quantity: 2_000,
     costBasisAmount: 1_185_472,
     currency: "TWD",
