@@ -740,6 +740,159 @@ describe("report routes", () => {
     expect(quoteBarsSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to scoped synthetic performance when account ticker snapshots are market-ambiguous", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.instruments.push(
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "TW",
+        isProvisional: false,
+      },
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "AU",
+        isProvisional: false,
+      },
+    );
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "BHP",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-bhp-tw-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-01T09:00:00.000Z",
+      },
+      {
+        id: "report-bhp-au-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 2,
+        unitPrice: 50,
+        priceCurrency: "AUD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T10:00:00.000Z",
+        bookingSequence: 2,
+        bookedAt: "2026-06-01T10:00:00.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "BHP",
+        marketCode: "TW",
+        barDate: "2026-06-02",
+        open: 100,
+        high: 106,
+        low: 99,
+        close: 105,
+        volume: 10_000,
+        source: "test",
+        ingestedAt: "2026-06-02T10:00:00.000Z",
+      },
+    ]);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "bhp-ambiguous-au-snapshot",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        snapshotDate: "2026-06-02",
+        quantity: 2,
+        closePrice: 50,
+        marketValue: 100,
+        costBasis: 100,
+        unrealizedPnl: 0,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "AUD",
+        valueNative: 100,
+        costBasisNative: 100,
+        unrealizedPnlNative: 0,
+        providerSource: "test",
+        generatedAt: "2026-06-02T10:00:00.000Z",
+        generationRunId: "bhp-ambiguous-au",
+      },
+    ]);
+    const scopedAggregateSpy = vi.spyOn(app.persistence, "getAggregatedSnapshotsInReportingCurrencyForScope");
+
+    const report = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=TW&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+    const body = report.json() as {
+      performance: {
+        fxStatus: string;
+        points: Array<{
+          date: string;
+          totalCostAmount: number | null;
+          marketValueAmount: number | null;
+          totalReturnAmount: number | null;
+        }>;
+      };
+    };
+
+    expect(report.statusCode).toBe(200);
+    expect(body.performance.fxStatus).toBe("complete");
+    expect(body.performance.points).toEqual([
+      expect.objectContaining({
+        date: "2026-06-02",
+        totalCostAmount: 1000,
+        marketValueAmount: 1050,
+        totalReturnAmount: 50,
+      }),
+    ]);
+    expect(scopedAggregateSpy).not.toHaveBeenCalled();
+  });
+
   it("preserves scoped upcoming dividend events that do not have ledger rows", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
