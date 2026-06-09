@@ -80,7 +80,7 @@ describe("fetchTickerDetails", () => {
       source: null,
       asOf: null,
     });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountId=acc-2");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/enrichment?accountId=acc-2");
   });
 
   it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
@@ -153,7 +153,7 @@ describe("fetchTickerDetails", () => {
         ],
       },
     ]);
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?marketCode=US");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
   });
 
   it("maps the ticker details API DTO into the ticker page model", async () => {
@@ -267,6 +267,100 @@ describe("fetchTickerDetails", () => {
           key: "marketCap",
           value: 15_800_000_000_000,
           source: "provider",
+        }),
+      ]),
+    );
+  });
+
+  it("maps the ticker enrichment API DTO without replacing primary position data", async () => {
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "NVDA",
+        marketCode: "US",
+        accountId: null,
+        name: "NVIDIA",
+        instrumentType: "STOCK",
+        priceCurrency: "USD",
+        barsBackfillStatus: "ok",
+      },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-05-20",
+            open: 900,
+            high: 920,
+            low: 890,
+            close: 912,
+            volume: 1000,
+            source: "test",
+          },
+        ],
+      },
+      fundamentals: {
+        marketCap: { value: 2_000_000_000_000, source: "provider", asOf: "2026-05-20" },
+        enterpriseValue: { value: null, source: null, asOf: null },
+        priceEarningsRatio: { value: 33, source: "provider", asOf: "2026-05-20" },
+        priceBookRatio: { value: null, source: null, asOf: null },
+        dividendYield: { value: null, source: null, asOf: null },
+        earningsPerShare: { value: 12, source: "provider", asOf: "2026-05-20" },
+        revenueTrailingTwelveMonths: { value: null, source: null, asOf: null },
+        netIncomeTrailingTwelveMonths: { value: null, source: null, asOf: null },
+      },
+      fundamentalsRefresh: {
+        providerId: "provider",
+        refreshedAt: "2026-05-20T00:00:00.000Z",
+        nextRefreshAt: "2026-05-21T00:00:00.000Z",
+        lastAttemptedAt: "2026-05-20T00:00:00.000Z",
+        lastError: null,
+        status: "fresh",
+      },
+    } as never);
+
+    const details = await fetchTickerDetails({
+      ticker: "NVDA",
+      dashboard: buildDashboard({
+        holdings: [{
+          ticker: "NVDA",
+          accountId: "acc-1",
+          accountName: "Broker",
+          accountDefaultCurrency: "USD",
+          marketCode: "US",
+          quantity: 10,
+          averageCostPerShare: 500,
+          currentUnitPrice: 900,
+          currency: "USD",
+          costBasisAmount: 5000,
+          marketValueAmount: 9000,
+          unrealizedPnlAmount: 4000,
+        }],
+      }),
+      transactions: [],
+      instrument: {
+        ticker: "NVDA",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        name: "NVIDIA",
+      } as never,
+    });
+
+    expect(details.position).toMatchObject({
+      quantity: 10,
+      averageCost: 500,
+      marketValue: 9000,
+    });
+    expect(details.chart.points[0]).toMatchObject({
+      date: "2026-05-20",
+      label: "2026-05-20",
+      price: 912,
+      averageCost: 500,
+      quantity: 10,
+    });
+    expect(details.fundamentals.panels[0]?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "marketCap",
+          value: 2_000_000_000_000,
         }),
       ]),
     );
