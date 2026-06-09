@@ -476,6 +476,60 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.marketDataStaleSince).toBeNull();
   });
 
+  it("seeds dated finance replay before the requested range", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-01",
+          totalCostBasis: 999,
+          totalMarketValue: 120,
+          totalUnrealizedPnl: -879,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: -879,
+          totalReturnPercent: -87.98798798798799,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "pre-range-buy",
+              quantity: 1,
+              unitPrice: 100,
+              tradeDate: "2025-12-15",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "YTD",
+      "2026-01-01",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points).toHaveLength(1);
+    expect(out.points[0]).toMatchObject({
+      date: "2026-01-01",
+      totalCostAmount: 100,
+      marketValueAmount: 120,
+      unrealizedPnlAmount: 20,
+      totalReturnAmount: 20,
+    });
+  });
+
   it("uses transaction-date Book Cost instead of FX-moving snapshot cost when store data is available", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
