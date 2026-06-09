@@ -211,7 +211,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit B: add API unit/integration tests for buy, sell, partial sell, fees, weighted-average sell reduction, transaction-date FX, missing FX, realized P&L, dividends, Market Value, Return Amount, and Return %.
 - [ ] Commit C: implement hybrid dashboard/report performance read path that may use reliable snapshot Market Value but never uses FX-moving snapshot cost as Book Cost.
 - [ ] Commit C: implement stale-data valuation boundaries and composite-calendar behavior for multi-market charts.
-- [ ] Commit C: truncate dashboard/report charts at the last reliable valuation date when data is stale/missing, with `As of {date}` and stale-data metadata.
+- [ ] Commit C: truncate dashboard/report charts at the last reliable valuation date when data is stale/missing, with `As of {date}` and stale-data metadata. Partial: dashboard/report performance DTOs now include `requestedAsOf`, `lastReliableDate`, and `marketDataStaleSince`; dashboard Portfolio Trend, Return %, and report performance charts show `As of {date}` plus `Market data stale since {date}`; report charts no longer connect null-valued gaps. Composite-calendar truncation remains pending.
 - [ ] Commit C: update dashboard Portfolio Trend to plot Market Value + Book Cost by default and expose FX-Translated Cost only in details/settings/report surfaces.
 - [ ] Commit C: update Return card to plot Return % from corrected daily performance points.
 - [ ] Commit C: add tests for May 29 stale-data cutoff, no post-cutoff fake points, normal market-closure carry-forward, and open-market missing-data truncation.
@@ -265,6 +265,9 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Focused regression coverage added for scoped no-snapshot performance fallback, scoped upcoming dividends, MCP `reportingCurrency`, report range snapping, report URL-state sync, route DTO session/context partitioning, refreshed report server seeds, and dashboard holdings FX visibility.
 - [x] Dashboard holding-group DTOs now expose explicit server-translated `reportingCurrentUnitPrice` values for groups and children, and the Holdings preview prefers that field when it matches the active reporting currency.
 - [x] Dashboard primary cache restore now validates cached DTO `summary.reportingCurrency` against the current expected reporting currency from `/dashboard/primary` or `/user-preferences`, so older cached dashboard payloads cannot relabel AUD/TWD/USD values after reporting-currency changes or return navigation.
+- [x] Dashboard/report performance DTOs now carry stale-data metadata (`requestedAsOf`, `lastReliableDate`, `marketDataStaleSince`) based on the last reliable point, not the last emitted null-valued point.
+- [x] Dashboard Portfolio Trend, dashboard Return %, and report performance charts now surface `As of {date}` and `Market data stale since {date}` when the selected as-of date extends beyond reliable market data.
+- [x] Report performance charts no longer connect null-valued series gaps, so missing/stale data is not drawn as a continuous trend.
 
 ## Open Items
 

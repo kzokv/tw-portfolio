@@ -47,6 +47,8 @@ export function ReturnPercentCard({
   const hasPoints = points.length > 0;
   const hasReturnPercent = points.some((point) => point.totalReturnPercent != null);
   const latestReturnPoint = [...points].reverse().find((point) => point.totalReturnPercent != null) ?? null;
+  const lastReliableDate = data?.lastReliableDate ?? findLastReliablePointDate(points);
+  const marketDataStaleSince = data?.marketDataStaleSince ?? null;
   // KZO-180: `totalCostAmount` is nullable when `fxAvailable === false`.
   // Treat null as "not provisional" since the provisional warning is about a
   // pending market quote against a known cost basis, not a missing FX rate.
@@ -106,6 +108,24 @@ export function ReturnPercentCard({
           data-testid="dashboard-return-percent-provisional-warning"
         >
           {dict.dashboardHome.snapshotsProvisionalWarning}
+        </p>
+      ) : null}
+
+      {lastReliableDate ? (
+        <p
+          className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
+          data-testid="dashboard-return-percent-as-of"
+        >
+          {dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}
+        </p>
+      ) : null}
+
+      {marketDataStaleSince ? (
+        <p
+          className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          data-testid="dashboard-return-percent-stale-warning"
+        >
+          {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
         </p>
       ) : null}
 
@@ -196,4 +216,17 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {
+  return dict.dashboardHome.performanceStaleDataWarning.replace(
+    "{date}",
+    formatAxisDateLabel(date, locale),
+  );
+}
+
+function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {
+  return [...points].reverse().find((point) =>
+    point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null,
+  )?.date ?? null;
 }

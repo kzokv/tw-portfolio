@@ -386,7 +386,7 @@ export async function translatePerformancePoints(
       if (allMissing) return "missing";
       return "partial";
     })();
-    return { range, points, reportingCurrency, fxStatus };
+    return withPerformanceFreshness({ range, points, reportingCurrency, fxStatus }, asOf);
   }
 
   // Fallback synthetic path — only used when the snapshot table has zero rows
@@ -396,7 +396,10 @@ export async function translatePerformancePoints(
   // current point's date FX rate. For TWD-only stores this collapses to the
   // legacy synthetic shape with `fxAvailable: true`.
   if (!store) {
-    return { range, points: [], reportingCurrency, fxStatus: "complete" };
+    return withPerformanceFreshness(
+      { range, points: [], reportingCurrency, fxStatus: "complete" },
+      asOf,
+    );
   }
 
   const syntheticQuotes = typeof quotes === "function" ? await quotes() : quotes ?? [];
@@ -421,10 +424,34 @@ export async function translatePerformancePoints(
   else if (allMissingSyn) fxStatusSyn = "missing";
   else fxStatusSyn = "partial";
 
-  return { range, points: synthetic, reportingCurrency, fxStatus: fxStatusSyn };
+  return withPerformanceFreshness(
+    { range, points: synthetic, reportingCurrency, fxStatus: fxStatusSyn },
+    asOf,
+  );
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
+
+function withPerformanceFreshness(
+  dto: Omit<DashboardPerformanceDto, "requestedAsOf" | "lastReliableDate" | "marketDataStaleSince">,
+  requestedAsOf: string,
+): DashboardPerformanceDto {
+  const lastReliableDate =
+    [...dto.points].reverse().find((point) => isReliablePerformancePoint(point))?.date ?? null;
+  return {
+    ...dto,
+    requestedAsOf,
+    lastReliableDate,
+    marketDataStaleSince:
+      lastReliableDate !== null && lastReliableDate < requestedAsOf
+        ? lastReliableDate
+        : null,
+  };
+}
+
+function isReliablePerformancePoint(point: DashboardPerformancePointDto): boolean {
+  return point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null;
+}
 
 interface SyntheticPosition {
   quantity: number;

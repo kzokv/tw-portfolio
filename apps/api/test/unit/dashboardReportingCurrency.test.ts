@@ -381,6 +381,54 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       cumulativeDividendsAmount: 25,
       fxAvailable: true,
     });
+    expect(out.requestedAsOf).toBe("2026-04-29");
+    expect(out.lastReliableDate).toBe("2026-04-29");
+    expect(out.marketDataStaleSince).toBeNull();
+  });
+
+  it("marks performance series stale when the latest reliable point predates the requested as-of date", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-05-29",
+          totalCostBasis: 1000,
+          totalMarketValue: 1100,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 10,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+        {
+          date: "2026-06-08",
+          totalCostBasis: 1000,
+          totalMarketValue: 0,
+          totalUnrealizedPnl: 0,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          isProvisional: false,
+          fxAvailable: false,
+        },
+      ],
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "1M",
+      "2026-06-08",
+      "TWD",
+      persistence,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-05-29", "2026-06-08"]);
+    expect(out.points[1]?.marketValueAmount).toBeNull();
+    expect(out.requestedAsOf).toBe("2026-06-08");
+    expect(out.lastReliableDate).toBe("2026-05-29");
+    expect(out.marketDataStaleSince).toBe("2026-05-29");
   });
 
   it("uses transaction-date Book Cost instead of FX-moving snapshot cost when store data is available", async () => {

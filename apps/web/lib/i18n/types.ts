@@ -315,6 +315,7 @@ export interface AppDictionary {
     performanceDescription: string;
     performanceEmpty: string;
     performancePartialQuoteWarning: string;
+    performanceStaleDataWarning: string;
     performanceMarketValueSeriesLabel: string;
     performanceTotalCostSeriesLabel: string;
     range1MLabel: string;
