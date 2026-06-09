@@ -656,16 +656,29 @@ function PerformanceChart({
   performance: DashboardPerformanceDto;
 }) {
   const points = performance.points;
+  const lastReliableDate = performance.lastReliableDate ?? findLastReliablePointDate(points);
+  const marketDataStaleSince = performance.marketDataStaleSince ?? null;
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
           <CardTitle>Performance trend</CardTitle>
-          <CardDescription>{performance.range} · {performance.reportingCurrency} · FX {performance.fxStatus}</CardDescription>
+          <CardDescription>
+            {performance.range} · {performance.reportingCurrency} · FX {performance.fxStatus}
+            {lastReliableDate ? ` · As of ${formatDateLabel(lastReliableDate, locale)}` : ""}
+          </CardDescription>
         </div>
         <SectionRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-performance-refresh" />
       </CardHeader>
       <CardContent>
+        {marketDataStaleSince ? (
+          <div
+            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+            data-testid="reports-performance-stale-warning"
+          >
+            Market data stale since {formatDateLabel(marketDataStaleSince, locale)}
+          </div>
+        ) : null}
         {points.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">No server snapshot series is available for this scope.</div>
         ) : (
@@ -678,9 +691,9 @@ function PerformanceChart({
                 formatter={(value: number | string) => typeof value === "number" ? formatCurrencyAmount(value, performance.reportingCurrency, locale) : value}
                 labelFormatter={(value: string) => formatDateLabel(value, locale)}
               />
-              <Line dataKey="marketValueAmount" type="monotone" stroke="var(--color-marketValueAmount)" strokeWidth={3} dot={false} connectNulls />
-              <Line dataKey="totalCostAmount" type="monotone" stroke="var(--color-totalCostAmount)" strokeWidth={2} dot={false} connectNulls />
-              <Line dataKey="totalReturnAmount" type="monotone" stroke="var(--color-totalReturnAmount)" strokeWidth={2} dot={false} connectNulls />
+              <Line dataKey="marketValueAmount" type="monotone" stroke="var(--color-marketValueAmount)" strokeWidth={3} dot={false} connectNulls={false} />
+              <Line dataKey="totalCostAmount" type="monotone" stroke="var(--color-totalCostAmount)" strokeWidth={2} dot={false} connectNulls={false} />
+              <Line dataKey="totalReturnAmount" type="monotone" stroke="var(--color-totalReturnAmount)" strokeWidth={2} dot={false} connectNulls={false} />
             </LineChart>
           </ChartContainer>
         )}
@@ -1223,6 +1236,12 @@ function getQuoteStatusLabel(status: ReportHoldingRowDto["quoteStatus"]): string
 function getQuoteStatusBadgeVariant(status: ReportHoldingRowDto["quoteStatus"]): "default" | "secondary" | "destructive" | "outline" {
   if (status === "current") return "secondary";
   return "outline";
+}
+
+function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {
+  return [...points].reverse().find((point) =>
+    point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null,
+  )?.date ?? null;
 }
 
 function getOptionalFxRates(

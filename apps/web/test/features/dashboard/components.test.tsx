@@ -14,6 +14,7 @@ import { DashboardHero } from "../../../components/dashboard/DashboardHero";
 import { DashboardHoldingsPreview } from "../../../components/dashboard/DashboardHoldingsPreview";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
+import { ReturnPercentCard } from "../../../components/dashboard/ReturnPercentCard";
 // Phase 5d — SummarySection deleted; the dashboard hero is now a slim
 // 2-metric layout (DashboardHero + BiggestMoversCard). Tile-order behavior
 // no longer exists; the obsolete test below is also removed.
@@ -983,6 +984,42 @@ describe("dashboard components", () => {
     expect(html).toContain("dashboard-performance-range-1m");
     expect(html).toContain("Market Value");
     expect(html).toContain("Total Cost");
+  });
+
+  it("renders performance as-of and stale-data warnings from server metadata", () => {
+    const stalePerformance: DashboardPerformanceDto = {
+      ...performance,
+      requestedAsOf: "2026-06-08",
+      lastReliableDate: "2026-05-29",
+      marketDataStaleSince: "2026-05-29",
+    };
+
+    const trendHtml = renderToStaticMarkup(
+      <PortfolioTrendCard
+        data={stalePerformance}
+        range="1M"
+        currency="TWD"
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+        onRangeChange={() => undefined}
+      />,
+    );
+    expect(trendHtml).toContain("As of May 29");
+    expect(trendHtml).toContain("Market data stale since May 29");
+
+    const returnHtml = renderToStaticMarkup(
+      <ReturnPercentCard
+        data={stalePerformance}
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+      />,
+    );
+    expect(returnHtml).toContain("As of May 29");
+    expect(returnHtml).toContain("Market data stale since May 29");
   });
 
   it("renders allocation snapshot legend and recent transactions card", () => {

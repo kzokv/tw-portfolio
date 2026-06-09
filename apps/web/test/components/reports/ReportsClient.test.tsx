@@ -1,7 +1,7 @@
 import { act, type AnchorHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import type { DailyReviewReportDto } from "@vakwen/shared-types";
+import type { DailyReviewReportDto, PortfolioReportDto } from "@vakwen/shared-types";
 import { ReportsClient } from "../../../components/reports/ReportsClient";
 import { parseReportRouteState, type ReportRouteState } from "../../../features/reports/reportState";
 
@@ -41,7 +41,7 @@ vi.mock("../../../hooks/useEffectiveRanges", () => ({
 }));
 
 vi.mock("../../../features/reports/hooks/useReportData", () => ({
-  useReportData: (args: { initialReport: DailyReviewReportDto; state: ReportRouteState }) => {
+  useReportData: (args: { initialReport: DailyReviewReportDto | PortfolioReportDto; state: ReportRouteState }) => {
     useReportDataMock(args);
     return {
       data: args.initialReport,
@@ -57,6 +57,18 @@ vi.mock("../../../features/reports/hooks/useReportData", () => ({
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  class ResizeObserverStub {
+    observe(): void {
+      return undefined;
+    }
+    unobserve(): void {
+      return undefined;
+    }
+    disconnect(): void {
+      return undefined;
+    }
+  }
+  vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 });
 
 const fixture: DailyReviewReportDto = {
@@ -124,6 +136,49 @@ const fixture: DailyReviewReportDto = {
       freshness: "current",
     }],
   },
+};
+
+const portfolioFixture: PortfolioReportDto = {
+  query: {
+    ...fixture.query,
+    range: "1Y",
+  },
+  summary: fixture.summary,
+  fxStatus: fixture.fxStatus,
+  dataHealth: fixture.dataHealth,
+  performance: {
+    range: "1Y",
+    reportingCurrency: "AUD",
+    fxStatus: "complete",
+    requestedAsOf: "2026-06-08",
+    lastReliableDate: "2026-05-29",
+    marketDataStaleSince: "2026-05-29",
+    points: [
+      {
+        date: "2026-05-29",
+        totalCostAmount: 1000,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        cumulativeRealizedPnlAmount: 30,
+        cumulativeDividendsAmount: 15,
+        totalReturnAmount: 245,
+        totalReturnPercent: 24.5,
+        fxAvailable: true,
+      },
+    ],
+  },
+  allocation: {
+    byMarket: [{ key: "AU", label: "Australia", reportingCurrency: "AUD", amount: 1200, allocationPercent: 100 }],
+    byAccount: [{ key: "acct-1", label: "Main", reportingCurrency: "AUD", amount: 1200, allocationPercent: 100 }],
+  },
+  concentration: {
+    topHoldings: fixture.holdings.rows,
+  },
+  income: {
+    trailingDividendAmount: 15,
+    recentDividendCount: 1,
+  },
+  holdings: fixture.holdings,
 };
 
 describe("ReportsClient", () => {
@@ -250,6 +305,27 @@ describe("ReportsClient", () => {
 
     expect(document.querySelector("[data-testid='reports-loading-skeleton']")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Performance trend");
+  });
+
+  it("renders portfolio report performance as-of and stale-data metadata", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        currencyMode: "specified",
+        currency: "AUD",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.body.textContent).toContain("Performance trend");
+    expect(document.body.textContent).toContain("As of May 29, 2026");
+    expect(document.body.textContent).toContain("Market data stale since May 29, 2026");
+    expect(document.querySelector("[data-testid='reports-performance-stale-warning']")).not.toBeNull();
   });
 
   it("snaps unsupported report ranges to the configured dashboard ranges", async () => {

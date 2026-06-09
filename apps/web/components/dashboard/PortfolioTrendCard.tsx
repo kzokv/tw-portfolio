@@ -87,6 +87,8 @@ export function PortfolioTrendCard({
   const latestPoint = points.at(-1) ?? null;
   const latestMarketValuePoint = [...points].reverse().find((point) => point.marketValueAmount !== null) ?? null;
   const latestTotalReturnPoint = [...points].reverse().find((point) => point.totalReturnAmount != null) ?? null;
+  const lastReliableDate = data?.lastReliableDate ?? findLastReliablePointDate(points);
+  const marketDataStaleSince = data?.marketDataStaleSince ?? null;
   const hasPoints = points.length > 0;
   const hasMarketValue = points.some((point) => point.marketValueAmount !== null);
   const hasTotalReturn = points.some((point) => point.totalReturnAmount != null);
@@ -187,6 +189,24 @@ export function PortfolioTrendCard({
           />
         ) : null}
       </div>
+
+      {lastReliableDate ? (
+        <p
+          className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
+          data-testid="dashboard-performance-as-of"
+        >
+          {dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}
+        </p>
+      ) : null}
+
+      {marketDataStaleSince ? (
+        <p
+          className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          data-testid="dashboard-performance-stale-warning"
+        >
+          {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
+        </p>
+      ) : null}
 
       {hasPartialQuotes ? (
         <p
@@ -364,6 +384,19 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {
+  return dict.dashboardHome.performanceStaleDataWarning.replace(
+    "{date}",
+    formatAxisDateLabel(date, locale),
+  );
+}
+
+function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {
+  return [...points].reverse().find((point) =>
+    point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null,
+  )?.date ?? null;
 }
 
 function resolveRangeLabel(dict: AppDictionary, range: DashboardPerformanceRange): string {

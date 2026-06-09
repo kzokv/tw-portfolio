@@ -753,6 +753,12 @@ export interface DashboardPerformanceDto {
   /** KZO-180: rollup of `fxAvailable` across the points list. See
    *  `DashboardOverviewSummaryDto.fxStatus` for the value semantics. */
   fxStatus: "complete" | "partial" | "missing";
+  /** Requested valuation date used by the server when building this series. */
+  requestedAsOf?: string;
+  /** Last date with a reliable server-calculated point in this series. */
+  lastReliableDate?: string | null;
+  /** Present when the requested valuation date extends beyond available market data. */
+  marketDataStaleSince?: string | null;
 }
 
 export interface ReportQueryStateDto {
