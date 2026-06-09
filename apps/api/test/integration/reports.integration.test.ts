@@ -330,7 +330,7 @@ describe("report routes", () => {
         ingestedAt: `${quoteDate}T10:00:00.000Z`,
       },
     ]);
-    const historicalBarsSpy = vi.spyOn(app.persistence, "getDailyBarsForTickers").mockResolvedValue(new Map());
+    const historicalBarsSpy = vi.spyOn(app.persistence, "getDailyBarsForTickerMarket");
 
     const portfolioReport = await app.inject({
       method: "GET",
