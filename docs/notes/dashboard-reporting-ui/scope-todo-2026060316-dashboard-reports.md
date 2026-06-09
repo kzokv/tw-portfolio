@@ -415,6 +415,14 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npx eslint apps/api/src/services/reports.ts apps/api/test/integration/reports.integration.test.ts apps/web/features/portfolio/holdingGroups.ts apps/web/test/features/dashboard/components.test.tsx apps/web/test/features/portfolio/holdingGroups.test.ts docs/notes/dashboard-reporting-ui/mockups/capture-report-screenshots.mjs` passed.
   - `git diff --check` passed.
   - Holding Focus mockups regenerated with `REPORTS=holding-focus node docs/notes/dashboard-reporting-ui/mockups/capture-report-screenshots.mjs` and visually checked for desktop/mobile layout.
+- [x] 2026-06-09 focused Commit B/C foundation validation after dashboard/report performance overlay:
+  - Added read-time dated finance overlay for performance points so snapshot-backed charts may use snapshot Market Value while Book Cost, realized P&L, dividends, Total Return, and Return % come from transaction-date FX when the loaded store is available.
+  - Added focused unit regressions for stable transaction-date Book Cost overriding FX-moving snapshot cost and for weighted-average partial-sell Book Cost/realized return with changing FX.
+  - Remaining Book Cost scope is intentionally unchecked: overview/report summary totals, explicit FX-Translated Cost surfacing, incomplete-count diagnostics, and stale-data/composite-calendar truncation still need follow-up work.
+  - `npx vitest run test/unit/dashboardReportingCurrency.test.ts` from `apps/api` passed: 12 tests.
+  - `npx vitest run test/integration/dashboard.integration.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 22 tests.
+  - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts` passed.
+  - `npx tsc --noEmit -p apps/api/test/unit/tsconfig.json --pretty false` passed.
 
 ## Mockups
 

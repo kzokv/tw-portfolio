@@ -43,6 +43,7 @@ import type {
   DashboardPerformanceRange,
 } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
+import type { BookedTradeEvent, Store } from "../types/store.js";
 import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 
 interface PreTranslationOverviewSummary {
@@ -327,10 +328,16 @@ export async function translatePerformancePoints(
   asOf: string,
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
-  store?: import("../types/store.js").Store,
+  store?: Store,
   quotes?: SyntheticQuoteInput,
 ): Promise<DashboardPerformanceDto> {
-  const { startDate, endDate } = resolveRangeBounds(range, asOf);
+  const earliestTradeDate = store?.accounting.facts.tradeEvents
+    .map((trade) => trade.tradeDate)
+    .sort()[0];
+  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
+  const datedFinance = store
+    ? await buildDatedPerformanceFinance(store, startDate, endDate, reportingCurrency, persistence)
+    : null;
   const aggregated =
     await persistence.getAggregatedSnapshotsInReportingCurrency(
       userId,
@@ -340,19 +347,34 @@ export async function translatePerformancePoints(
     );
 
   if (aggregated.length > 0) {
-    const points: DashboardPerformancePointDto[] = aggregated.map((p) => ({
-      date: p.date,
-      totalCostAmount: p.fxAvailable ? p.totalCostBasis : null,
-      marketValueAmount: p.fxAvailable ? p.totalMarketValue : null,
-      unrealizedPnlAmount: p.fxAvailable ? p.totalUnrealizedPnl : null,
-      cumulativeRealizedPnlAmount: p.fxAvailable
-        ? p.cumulativeRealizedPnl
-        : null,
-      cumulativeDividendsAmount: p.fxAvailable ? p.cumulativeDividends : null,
-      totalReturnAmount: p.fxAvailable ? p.totalReturnAmount : null,
-      totalReturnPercent: p.fxAvailable ? p.totalReturnPercent : null,
-      fxAvailable: p.fxAvailable,
-    }));
+    const points: DashboardPerformancePointDto[] = aggregated.map((p) => {
+      const finance = datedFinance?.get(p.date) ?? null;
+      if (!finance) {
+        return {
+          date: p.date,
+          totalCostAmount: p.fxAvailable ? p.totalCostBasis : null,
+          marketValueAmount: p.fxAvailable ? p.totalMarketValue : null,
+          unrealizedPnlAmount: p.fxAvailable ? p.totalUnrealizedPnl : null,
+          cumulativeRealizedPnlAmount: p.fxAvailable
+            ? p.cumulativeRealizedPnl
+            : null,
+          cumulativeDividendsAmount: p.fxAvailable ? p.cumulativeDividends : null,
+          totalReturnAmount: p.fxAvailable ? p.totalReturnAmount : null,
+          totalReturnPercent: p.fxAvailable ? p.totalReturnPercent : null,
+          fxAvailable: p.fxAvailable,
+        };
+      }
+
+      const marketValueAmount = p.fxAvailable ? p.totalMarketValue : null;
+      return buildPerformancePoint({
+        date: p.date,
+        marketValueAmount,
+        bookCostAmount: finance.bookCostAmount,
+        cumulativeRealizedPnlAmount: finance.cumulativeRealizedPnlAmount,
+        cumulativeDividendsAmount: finance.cumulativeDividendsAmount,
+        fxAvailable: p.fxAvailable && finance.fxAvailable,
+      });
+    });
     const fxStatus: "complete" | "partial" | "missing" = (() => {
       let allAvail = true;
       let allMissing = true;
@@ -385,6 +407,7 @@ export async function translatePerformancePoints(
     reportingCurrency,
     persistence,
     syntheticQuotes,
+    datedFinance,
   );
   let allAvailSyn = true;
   let allMissingSyn = true;
@@ -413,21 +436,29 @@ interface SyntheticPosition {
 
 type SyntheticQuoteInput = ReadonlyArray<QuoteSnapshot> | (() => Promise<ReadonlyArray<QuoteSnapshot>>);
 
+interface DatedPerformanceFinancePoint {
+  bookCostAmount: number | null;
+  cumulativeRealizedPnlAmount: number | null;
+  cumulativeDividendsAmount: number | null;
+  fxAvailable: boolean;
+}
+
+interface PerformancePositionFinance {
+  quantity: number;
+  bookCostAmount: number;
+  hasMissingBookCost: boolean;
+}
+
 async function buildFxAwareSyntheticPerformance(
-  store: import("../types/store.js").Store,
+  store: Store,
   range: DashboardPerformanceRange,
   asOf: string,
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
   quotes: ReadonlyArray<QuoteSnapshot>,
+  datedFinance: ReadonlyMap<string, DatedPerformanceFinancePoint> | null,
 ): Promise<DashboardPerformancePointDto[]> {
-  const trades = [...store.accounting.facts.tradeEvents].sort(
-    (a, b) =>
-      a.tradeDate.localeCompare(b.tradeDate) ||
-      (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0) ||
-      (a.tradeTimestamp ?? "").localeCompare(b.tradeTimestamp ?? "") ||
-      a.id.localeCompare(b.id),
-  );
+  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
   const earliest = trades.length > 0 ? trades[0].tradeDate : undefined;
   const { startDate, endDate } = resolveRangeBounds(range, asOf, earliest);
   const positions = new Map<string, SyntheticPosition>();
@@ -439,7 +470,7 @@ async function buildFxAwareSyntheticPerformance(
   let tradeIndex = 0;
 
   function applyTrade(trade: (typeof trades)[number]): void {
-    const key = `${trade.accountId}:${trade.ticker}`;
+    const key = performancePositionKey(trade);
     const prev = positions.get(key) ?? {
       quantity: 0,
       costBasisAmount: 0,
@@ -526,7 +557,6 @@ async function buildFxAwareSyntheticPerformance(
       tradeIndex += 1;
     }
 
-    let totalCost = 0;
     let marketValue = 0;
     let hasPositions = false;
     let hasAnyMarketPrice = false;
@@ -534,14 +564,13 @@ async function buildFxAwareSyntheticPerformance(
     let allFxAvailable = true;
 
     for (const [key, pos] of positions) {
-      if (pos.quantity <= 0 || pos.costBasisAmount <= 0) continue;
+      if (pos.quantity <= 0) continue;
       hasPositions = true;
       const fx = await fxFor(pos.currency, currentDate);
       if (fx === null) {
         allFxAvailable = false;
         continue;
       }
-      totalCost += pos.costBasisAmount * fx;
       const symbol = key.includes(":")
         ? key.slice(key.lastIndexOf(":") + 1)
         : key;
@@ -569,25 +598,27 @@ async function buildFxAwareSyntheticPerformance(
 
     const mv =
       hasPositions && allQuotesAvailable && allFxAvailable ? marketValue : null;
-    const point: DashboardPerformancePointDto = {
-      date: currentDate,
-      totalCostAmount: allFxAvailable ? totalCost : null,
-      marketValueAmount: mv,
-      unrealizedPnlAmount:
-        mv === null || !allFxAvailable ? null : mv - totalCost,
-      // Synthetic fallback path: there are no `daily_holding_snapshots` rows
-      // for this user/range, so the cumulative dividend + realized-P&L columns
-      // have no source. Hardcoded to 0 by definition (not a TODO). Mirrors the
-      // legacy buildSyntheticPerformance contract from KZO-167's dashboard.ts.
-      cumulativeRealizedPnlAmount: allFxAvailable ? 0 : null,
-      cumulativeDividendsAmount: allFxAvailable ? 0 : null,
-      fxAvailable: allFxAvailable,
-    };
-    point.totalReturnAmount = mv === null || !allFxAvailable ? null : mv - totalCost;
-    point.totalReturnPercent =
-      point.totalReturnAmount !== null && totalCost > 0
-        ? (point.totalReturnAmount / totalCost) * 100
-        : null;
+    const finance = datedFinance?.get(currentDate) ?? null;
+    const point = finance
+      ? buildPerformancePoint({
+          date: currentDate,
+          marketValueAmount: mv,
+          bookCostAmount: finance.bookCostAmount,
+          cumulativeRealizedPnlAmount: finance.cumulativeRealizedPnlAmount,
+          cumulativeDividendsAmount: finance.cumulativeDividendsAmount,
+          fxAvailable: allFxAvailable && finance.fxAvailable,
+        })
+      : {
+          date: currentDate,
+          totalCostAmount: null,
+          marketValueAmount: mv,
+          unrealizedPnlAmount: null,
+          cumulativeRealizedPnlAmount: null,
+          cumulativeDividendsAmount: null,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          fxAvailable: allFxAvailable,
+        };
     if (
       (point.totalCostAmount ?? 0) > 0 ||
       point.marketValueAmount !== null ||
@@ -598,6 +629,211 @@ async function buildFxAwareSyntheticPerformance(
   }
 
   return points;
+}
+
+function buildPerformancePoint(input: {
+  date: string;
+  marketValueAmount: number | null;
+  bookCostAmount: number | null;
+  cumulativeRealizedPnlAmount: number | null;
+  cumulativeDividendsAmount: number | null;
+  fxAvailable: boolean;
+}): DashboardPerformancePointDto {
+  const totalReturnAmount =
+    input.fxAvailable &&
+    input.marketValueAmount !== null &&
+    input.bookCostAmount !== null &&
+    input.cumulativeRealizedPnlAmount !== null &&
+    input.cumulativeDividendsAmount !== null
+      ? roundToDecimal(
+          input.marketValueAmount +
+          input.cumulativeRealizedPnlAmount +
+          input.cumulativeDividendsAmount -
+          input.bookCostAmount,
+          2,
+        )
+      : null;
+  return {
+    date: input.date,
+    totalCostAmount: input.fxAvailable ? input.bookCostAmount : null,
+    marketValueAmount: input.fxAvailable ? input.marketValueAmount : null,
+    unrealizedPnlAmount:
+      input.fxAvailable && input.marketValueAmount !== null && input.bookCostAmount !== null
+        ? roundToDecimal(input.marketValueAmount - input.bookCostAmount, 2)
+        : null,
+    cumulativeRealizedPnlAmount: input.fxAvailable ? input.cumulativeRealizedPnlAmount : null,
+    cumulativeDividendsAmount: input.fxAvailable ? input.cumulativeDividendsAmount : null,
+    totalReturnAmount,
+    totalReturnPercent:
+      totalReturnAmount !== null && input.bookCostAmount !== null && input.bookCostAmount > 0
+        ? (totalReturnAmount / input.bookCostAmount) * 100
+        : null,
+    fxAvailable: input.fxAvailable,
+  };
+}
+
+async function buildDatedPerformanceFinance(
+  store: Store,
+  startDate: string,
+  endDate: string,
+  reportingCurrency: AccountDefaultCurrency,
+  persistence: Persistence,
+): Promise<Map<string, DatedPerformanceFinancePoint>> {
+  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
+  const dividendEntries = sortDividendEntries(store);
+  const fxCache = new Map<string, number | null>();
+  const positions = new Map<string, PerformancePositionFinance>();
+  const points = new Map<string, DatedPerformanceFinancePoint>();
+  let tradeIndex = 0;
+  let dividendIndex = 0;
+  let cumulativeRealizedPnlAmount = 0;
+  let cumulativeDividendsAmount = 0;
+  let realizedPnlComplete = true;
+  let dividendsComplete = true;
+
+  async function fxFor(src: string, date: string): Promise<number | null> {
+    if (src === reportingCurrency) return 1.0;
+    const cacheKey = `${src}|${date}`;
+    if (fxCache.has(cacheKey)) return fxCache.get(cacheKey) ?? null;
+    const rate = await persistence.getFxRate(src, reportingCurrency, date);
+    fxCache.set(cacheKey, rate);
+    return rate;
+  }
+
+  async function applyTrade(trade: BookedTradeEvent): Promise<void> {
+    const key = performancePositionKey(trade);
+    const previous = positions.get(key) ?? {
+      quantity: 0,
+      bookCostAmount: 0,
+      hasMissingBookCost: false,
+    };
+    const tradeFx = await fxFor(trade.priceCurrency, trade.tradeDate);
+
+    if (trade.type === "BUY") {
+      const nativeCost = roundToDecimal(trade.quantity * trade.unitPrice, 2) + trade.commissionAmount + trade.taxAmount;
+      positions.set(key, {
+        quantity: previous.quantity + trade.quantity,
+        bookCostAmount: tradeFx === null
+          ? previous.bookCostAmount
+          : roundToDecimal(previous.bookCostAmount + nativeCost * tradeFx, 2),
+        hasMissingBookCost: previous.hasMissingBookCost || tradeFx === null,
+      });
+      return;
+    }
+
+    const allocatedQuantity = Math.min(trade.quantity, previous.quantity);
+    const allocatedBookCost = previous.quantity > 0
+      ? roundToDecimal((previous.bookCostAmount / previous.quantity) * allocatedQuantity, 2)
+      : 0;
+    const proceedsNative = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
+    if (tradeFx === null || previous.hasMissingBookCost) {
+      realizedPnlComplete = false;
+    } else {
+      cumulativeRealizedPnlAmount = roundToDecimal(
+        cumulativeRealizedPnlAmount + proceedsNative * tradeFx - allocatedBookCost,
+        2,
+      );
+    }
+
+    const nextQuantity = Math.max(0, previous.quantity - trade.quantity);
+    if (nextQuantity === 0) {
+      positions.delete(key);
+      return;
+    }
+    positions.set(key, {
+      quantity: nextQuantity,
+      bookCostAmount: roundToDecimal(Math.max(0, previous.bookCostAmount - allocatedBookCost), 2),
+      hasMissingBookCost: previous.hasMissingBookCost,
+    });
+  }
+
+  async function applyDividend(entry: DatedDividendEntry): Promise<void> {
+    const fx = await fxFor(entry.currency, entry.date);
+    if (fx === null) {
+      dividendsComplete = false;
+      return;
+    }
+    cumulativeDividendsAmount = roundToDecimal(cumulativeDividendsAmount + entry.amount * fx, 2);
+  }
+
+  const oneDayMs = 86_400_000;
+  for (
+    let cursor = new Date(`${startDate}T00:00:00.000Z`).getTime();
+    cursor <= new Date(`${endDate}T00:00:00.000Z`).getTime();
+    cursor += oneDayMs
+  ) {
+    const currentDate = new Date(cursor).toISOString().slice(0, 10);
+    while (tradeIndex < trades.length && trades[tradeIndex].tradeDate <= currentDate) {
+      await applyTrade(trades[tradeIndex]);
+      tradeIndex += 1;
+    }
+    while (dividendIndex < dividendEntries.length && dividendEntries[dividendIndex].date <= currentDate) {
+      await applyDividend(dividendEntries[dividendIndex]);
+      dividendIndex += 1;
+    }
+
+    const hasMissingBookCost = [...positions.values()].some((position) => position.hasMissingBookCost);
+    points.set(currentDate, {
+      bookCostAmount: hasMissingBookCost
+        ? null
+        : roundToDecimal([...positions.values()].reduce((sum, position) => sum + position.bookCostAmount, 0), 2),
+      cumulativeRealizedPnlAmount: realizedPnlComplete ? cumulativeRealizedPnlAmount : null,
+      cumulativeDividendsAmount: dividendsComplete ? cumulativeDividendsAmount : null,
+      fxAvailable: !hasMissingBookCost && realizedPnlComplete && dividendsComplete,
+    });
+  }
+
+  return points;
+}
+
+function sortTradeEvents(trades: ReadonlyArray<BookedTradeEvent>): BookedTradeEvent[] {
+  return [...trades].sort(
+    (a, b) =>
+      a.tradeDate.localeCompare(b.tradeDate) ||
+      (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0) ||
+      (a.tradeTimestamp ?? "").localeCompare(b.tradeTimestamp ?? "") ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+interface DatedDividendEntry {
+  date: string;
+  amount: number;
+  currency: string;
+}
+
+function sortDividendEntries(store: Store): DatedDividendEntry[] {
+  const eventById = new Map((store.marketData?.dividendEvents ?? []).map((event) => [event.id, event]));
+  const ledgerEntries = store.accounting.facts.dividendLedgerEntries ?? [];
+  const reversedIds = new Set(
+    ledgerEntries
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return ledgerEntries
+    .filter((entry) =>
+      entry.postingStatus === "posted" &&
+      !entry.reversalOfDividendLedgerEntryId &&
+      !entry.supersededAt &&
+      !reversedIds.has(entry.id) &&
+      entry.receivedCashAmount !== 0)
+    .map((entry): DatedDividendEntry | null => {
+      const event = eventById.get(entry.dividendEventId);
+      if (!event) return null;
+      const date = event.paymentDate ?? entry.bookedAt?.slice(0, 10);
+      if (!date) return null;
+      return {
+        date,
+        amount: entry.receivedCashAmount,
+        currency: event.cashDividendCurrency,
+      };
+    })
+    .filter((entry): entry is DatedDividendEntry => entry !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function performancePositionKey(trade: BookedTradeEvent): string {
+  return `${trade.accountId}:${trade.marketCode}:${trade.ticker}`;
 }
 
 function translateHoldingGroup(
