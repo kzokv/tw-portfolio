@@ -16,11 +16,11 @@ vi.mock("../../../features/portfolio/services/tickerDetailsService", async () =>
   );
   return {
     ...actual,
-    fetchTickerDetailsEnrichment: vi.fn(),
+    fetchTickerDetailsHydration: vi.fn(),
   };
 });
 
-import { fetchTickerDetailsEnrichment } from "../../../features/portfolio/services/tickerDetailsService";
+import { fetchTickerDetailsHydration } from "../../../features/portfolio/services/tickerDetailsService";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -171,7 +171,7 @@ const details: TickerDetailsModel = {
 
 describe("TickerHistoryClient", () => {
   it("renders scoped account names instead of account ids in summary panels", () => {
-    vi.mocked(fetchTickerDetailsEnrichment).mockResolvedValue(details);
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
     const element = mount(
       <TickerHistoryClient
         transactions={transactions}
