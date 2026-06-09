@@ -1,15 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type {
   AccountDefaultCurrency,
   CurrencyCode,
+  DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   FxConversionRateDto,
   LocaleCode,
 } from "@vakwen/shared-types";
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight, Search, Settings2 } from "lucide-react";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/shadcn/badge";
@@ -21,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../ui/shadcn/card";
+import { Checkbox } from "../ui/shadcn/checkbox";
 import { Input } from "../ui/shadcn/input";
 import {
   Popover,
@@ -51,6 +53,10 @@ import {
   TableRow,
 } from "../ui/shadcn/table";
 import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "../ui/shadcn/toggle-group";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -58,6 +64,15 @@ import {
 } from "../ui/shadcn/tooltip";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "ticker";
+type HoldingFocusPreset = "largest" | "worst-pnl" | "best-pnl" | "fx-exposure" | "stale-quotes";
+
+const HOLDING_FOCUS_PRESETS: Array<{ id: HoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
+  { id: "largest", label: "Largest", sortMode: "value" },
+  { id: "worst-pnl", label: "Worst P&L", sortMode: "pnl" },
+  { id: "best-pnl", label: "Best P&L", sortMode: "pnl" },
+  { id: "fx-exposure", label: "FX exposure", sortMode: "value" },
+  { id: "stale-quotes", label: "Stale quotes", sortMode: "daily" },
+];
 
 interface DashboardHoldingsPreviewProps {
   fxRates?: FxConversionRateDto[];
@@ -72,32 +87,76 @@ export function DashboardHoldingsPreview({
   locale,
   reportingCurrency,
 }: DashboardHoldingsPreviewProps) {
+  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [marketFilter, setMarketFilter] = useState("ALL");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DashboardOverviewHoldingGroupDto | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<HoldingFocusPreset>("largest");
   const [sortMode, setSortMode] = useState<HoldingsPreviewSort>("value");
+  const [visiblePresetIds, setVisiblePresetIds] = useState<Set<HoldingFocusPreset>>(
+    () => new Set(HOLDING_FOCUS_PRESETS.map((preset) => preset.id)),
+  );
   const marketOptions = useMemo(
     () => ["ALL", ...new Set(groups.map((group) => group.marketCode))],
     [groups],
   );
+  const accountOptions = useMemo(() => {
+    const accounts = new Map<string, string>();
+    for (const group of groups) {
+      for (const child of group.children) {
+        accounts.set(child.accountId, child.accountName ?? child.accountId);
+      }
+    }
+    return [{ id: "ALL", name: "All accounts" }, ...[...accounts.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name))];
+  }, [groups]);
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
-    return groups.filter((group) => {
+    const baseGroups = groups.filter((group) => {
       const marketMatches = marketFilter === "ALL" || group.marketCode === marketFilter;
+      const accountMatches = accountFilter === "ALL" || group.children.some((child) => child.accountId === accountFilter);
       const queryMatches = normalizedQuery === ""
         || group.ticker.toUpperCase().includes(normalizedQuery)
-        || group.marketCode.toUpperCase().includes(normalizedQuery);
-      return marketMatches && queryMatches;
+        || group.marketCode.toUpperCase().includes(normalizedQuery)
+        || group.children.some((child) =>
+          child.accountName?.toUpperCase().includes(normalizedQuery) ||
+          child.accountId.toUpperCase().includes(normalizedQuery));
+      return marketMatches && accountMatches && queryMatches;
     });
-  }, [groups, marketFilter, query]);
+    return applyHoldingPreset(baseGroups, selectedPreset, reportingCurrency);
+  }, [accountFilter, groups, marketFilter, query, reportingCurrency, selectedPreset]);
   const visibleGroups = useMemo(
     () => filteredGroups
       .slice()
-      .sort((left, right) => compareHoldingGroups(left, right, sortMode))
+      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset))
       .slice(0, 12),
-    [filteredGroups, sortMode],
+    [filteredGroups, selectedPreset, sortMode],
   );
+  const visiblePresets = HOLDING_FOCUS_PRESETS.filter((preset) => visiblePresetIds.has(preset.id));
   const reportScope = marketFilter === "ALL" ? "all" : marketFilter;
+  const handlePresetChange = (value: string) => {
+    if (!isHoldingFocusPreset(value)) return;
+    setSelectedPreset(value);
+    setSortMode(HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+  };
+  const toggleExpandedRow = (key: string) => {
+    setExpandedRows((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const togglePresetVisibility = (presetId: HoldingFocusPreset) => {
+    setVisiblePresetIds((current) => {
+      const next = new Set(current);
+      if (next.has(presetId) && next.size > 1) next.delete(presetId);
+      else next.add(presetId);
+      return next;
+    });
+  };
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -116,7 +175,7 @@ export function DashboardHoldingsPreview({
                   Reporting values and prices are shown in {reportingCurrency}. Tap or click a price to inspect native pricing and FX.
                 </CardDescription>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">Search</span>
                   <div className="relative">
@@ -141,6 +200,23 @@ export function DashboardHoldingsPreview({
                         {marketOptions.map((market) => (
                           <SelectItem key={market} value={market}>
                             {market === "ALL" ? "All markets" : market}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Account</span>
+                  <Select value={accountFilter} onValueChange={setAccountFilter}>
+                    <SelectTrigger className="min-w-36" data-testid="dashboard-holdings-account-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {accountOptions.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.name}
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -173,6 +249,50 @@ export function DashboardHoldingsPreview({
               </div>
             ) : (
               <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 overflow-x-auto pb-1">
+                    <ToggleGroup
+                      className="w-max"
+                      type="single"
+                      value={selectedPreset}
+                      onValueChange={handlePresetChange}
+                      aria-label="Holding Focus presets"
+                      data-testid="dashboard-holdings-presets"
+                    >
+                      {visiblePresets.map((preset) => (
+                        <ToggleGroupItem key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button size="sm" variant="ghost" data-testid="dashboard-holdings-preset-settings">
+                        <Settings2 data-icon="inline-start" aria-hidden="true" />
+                        Chips
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-72">
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Chip visibility</p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {HOLDING_FOCUS_PRESETS.map((preset) => (
+                            <label key={preset.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                              <Checkbox
+                                checked={visiblePresetIds.has(preset.id)}
+                                onCheckedChange={() => togglePresetVisibility(preset.id)}
+                              />
+                              <span>{preset.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <HoldingsFxStrip
                   fxRates={fxRates}
                   groups={visibleGroups}
@@ -196,6 +316,9 @@ export function DashboardHoldingsPreview({
                   groups={visibleGroups}
                   locale={locale}
                   onOpen={(group) => setSelected(group)}
+                  expandedRows={expandedRows}
+                  accountFilter={accountFilter}
+                  onToggleExpanded={toggleExpandedRow}
                   reportingCurrency={reportingCurrency}
                 />
               </div>
@@ -324,16 +447,22 @@ function DashboardHoldingRow({
 }
 
 function DashboardHoldingsTable({
+  accountFilter,
+  expandedRows,
   fxRates,
   groups,
   locale,
   onOpen,
+  onToggleExpanded,
   reportingCurrency,
 }: {
+  accountFilter: string;
+  expandedRows: Set<string>;
   fxRates: FxConversionRateDto[];
   groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
+  onToggleExpanded: (key: string) => void;
   reportingCurrency: AccountDefaultCurrency;
 }) {
   return (
@@ -353,65 +482,134 @@ function DashboardHoldingsTable({
         </TableHeader>
         <TableBody>
           {groups.map((group) => {
+            const rowKey = holdingRowKey(group);
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
             const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
             const reportingDailyMove = getReportingDailyMove(group, fxRate);
+            const visibleChildren = getVisibleAccountRows(group, accountFilter);
+            const isExpanded = expandedRows.has(rowKey);
             return (
-              <TableRow key={`${group.ticker}-${group.marketCode}`}>
-                <TableCell className="sticky left-0 z-10 bg-card">
-                  <div className="flex min-w-36 flex-col gap-1">
-                    <Link
-                      href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
-                      className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
-                    >
-                      {group.ticker}
-                    </Link>
-                    <span className="text-xs text-muted-foreground">{group.marketCode}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex min-w-32 flex-col gap-1">
-                    <span className="font-mono text-sm tabular-nums">{formatNumber(group.quantity, locale, 2)} units</span>
-                    <span className="text-xs text-muted-foreground">
-                      {formatNumber(group.accountCount, locale)} acct
-                      {group.reportingAllocationPercent === null ? "" : ` · ${formatPercent(group.reportingAllocationPercent, locale)}`}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <PriceTextButton
-                    fxRate={fxRate}
-                    group={group}
-                    locale={locale}
-                    reportingCurrency={reportingCurrency}
-                    reportingPrice={reportingPrice}
-                  />
-                </TableCell>
-                <TableCell className="text-right font-mono tabular-nums">
-                  {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
-                </TableCell>
-                <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(reportingDailyMove ?? group.changePercent))}>
-                  <div className="flex flex-col items-end gap-1">
-                    <span>{reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale, true)}</span>
-                    <span className="text-xs">{group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}</span>
-                  </div>
-                </TableCell>
-                <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(group.reportingUnrealizedPnlAmount))}>
-                  {group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
-                </TableCell>
-                <TableCell>
-                  <div className="flex min-w-36 flex-wrap gap-1">
-                    <Badge variant={getQuoteStatusVariant(group.quoteStatus)}>{getQuoteStatusLabel(group.quoteStatus)}</Badge>
-                    <Badge variant={group.fxStatus === "complete" ? "secondary" : "outline"}>FX {group.fxStatus}</Badge>
-                    {group.freshness !== "current" ? <Badge variant="outline">{getFreshnessLabel(group.freshness)}</Badge> : null}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="ghost" onClick={() => onOpen(group)}>
-                    Details
-                  </Button>
-                </TableCell>
-              </TableRow>
+              <Fragment key={rowKey}>
+                <TableRow data-testid={`dashboard-holding-table-row-${group.ticker}-${group.marketCode}`}>
+                  <TableCell className="sticky left-0 z-10 bg-card">
+                    <div className="flex min-w-44 items-start gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onToggleExpanded(rowKey)}
+                        aria-expanded={isExpanded}
+                        aria-label={`${isExpanded ? "Hide" : "Show"} ${group.ticker} account rows`}
+                        data-testid={`dashboard-holding-expand-${group.ticker}-${group.marketCode}`}
+                      >
+                        <ChevronRight
+                          data-icon="inline-start"
+                          aria-hidden="true"
+                          className={cn("transition-transform", isExpanded && "rotate-90")}
+                        />
+                      </Button>
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <Link
+                          href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
+                          className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
+                        >
+                          {group.ticker}
+                        </Link>
+                        <span className="text-xs text-muted-foreground">{group.marketCode}</span>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-32 flex-col gap-1">
+                      <span className="font-mono text-sm tabular-nums">{formatNumber(group.quantity, locale, 2)} units</span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatNumber(visibleChildren.length, locale)} acct
+                        {group.reportingAllocationPercent === null ? "" : ` · ${formatPercent(group.reportingAllocationPercent, locale)}`}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <PriceTextButton
+                      fxRate={fxRate}
+                      group={group}
+                      locale={locale}
+                      reportingCurrency={reportingCurrency}
+                      reportingPrice={reportingPrice}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+                  </TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(reportingDailyMove ?? group.changePercent))}>
+                    <div className="flex flex-col items-end gap-1">
+                      <span>{reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale, true)}</span>
+                      <span className="text-xs">{group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(group.reportingUnrealizedPnlAmount))}>
+                    {group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-36 flex-wrap gap-1">
+                      <Badge variant={getQuoteStatusVariant(group.quoteStatus)}>{getQuoteStatusLabel(group.quoteStatus)}</Badge>
+                      <Badge variant={group.fxStatus === "complete" ? "secondary" : "outline"}>FX {group.fxStatus}</Badge>
+                      {group.freshness !== "current" ? <Badge variant="outline">{getFreshnessLabel(group.freshness)}</Badge> : null}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="ghost" onClick={() => onOpen(group)}>
+                      Details
+                    </Button>
+                  </TableCell>
+                </TableRow>
+                {isExpanded
+                  ? visibleChildren.map((child) => (
+                    <TableRow key={`${rowKey}-${child.accountId}`} className="bg-muted/20" data-testid={`dashboard-holding-account-row-${group.ticker}-${child.accountId}`}>
+                      <TableCell className="sticky left-0 z-10 bg-muted">
+                        <div className="flex min-w-44 flex-col gap-1 pl-10">
+                          <span className="font-medium text-foreground">{child.accountName ?? child.accountId}</span>
+                          <span className="text-xs text-muted-foreground">Account position</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-32 flex-col gap-1">
+                          <span className="font-mono text-sm tabular-nums">{formatNumber(child.quantity, locale, 2)} units</span>
+                          <span className="text-xs text-muted-foreground">
+                            {child.reportingAllocationPercent === null ? "-" : `${formatPercent(child.reportingAllocationPercent, locale)} portfolio`}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {getReportingChildUnitPrice(child, reportingCurrency) === null
+                          ? "-"
+                          : formatUnitPrice(getReportingChildUnitPrice(child, reportingCurrency) ?? 0, reportingCurrency, locale)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+                      </TableCell>
+                      <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(getReportingDailyMove(child, fxRate)))}>
+                        {getReportingDailyMove(child, fxRate) === null ? "-" : formatFinanceCurrencyAmount(getReportingDailyMove(child, fxRate) ?? 0, reportingCurrency, locale, true)}
+                      </TableCell>
+                      <TableCell className={cn("text-right font-mono tabular-nums", financeToneClass(child.reportingUnrealizedPnlAmount))}>
+                        {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-36 flex-wrap gap-1">
+                          <Badge variant={child.fxStatus === "complete" ? "secondary" : "outline"}>FX {child.fxStatus}</Badge>
+                          <Badge variant={getQuoteStatusVariant(child.quoteStatus)}>{getQuoteStatusLabel(child.quoteStatus)}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Link
+                          href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
+                          className="text-sm font-medium text-primary hover:underline"
+                        >
+                          Open ticker
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                  : null}
+              </Fragment>
             );
           })}
         </TableBody>
@@ -658,23 +856,11 @@ function DashboardHoldingDetail({
       ? null
       : group.change * group.quantity * fxRate;
   const nativeDailyMove = group.change === null ? null : group.change * group.quantity;
-  const rows = [
-    ["Reporting market value", group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale), null],
-    ["Reporting price", reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale), null],
-    ["Native price", group.currentUnitPrice === null ? "-" : formatUnitPrice(group.currentUnitPrice, group.currency, locale), null],
-    ["Native market value", group.marketValueAmount === null ? "-" : formatCurrencyAmount(group.marketValueAmount, group.currency, locale), null],
-    ["Cost basis", group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale), null],
-    ["Unrealized P&L", group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale), group.reportingUnrealizedPnlAmount],
-    ["Reporting daily move", reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale), reportingDailyMove],
-    ["Native daily move", nativeDailyMove === null ? "-" : formatCurrencyAmount(nativeDailyMove, group.currency, locale), nativeDailyMove],
-    ["Native unit change", group.change === null ? "-" : formatCurrencyAmount(group.change, group.currency, locale), group.change],
-    ["Daily change %", group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale), group.changePercent],
-    ["Allocation", group.reportingAllocationPercent === null ? "-" : formatPercent(group.reportingAllocationPercent, locale), null],
-    ["FX rate", group.currency === reportingCurrency ? "1" : fxRate === null ? "-" : formatFxRate(fxRate), null],
-  ] satisfies Array<[string, string, number | null]>;
+  const portfolioAllocation = group.reportingAllocationPercent === null ? "-" : formatPercent(group.reportingAllocationPercent, locale);
+  const reportingAverageCost = getReportingAverageCost(group.reportingCostBasisAmount, group.quantity);
 
   return (
-    <div className="mt-5 flex flex-col gap-3">
+    <div className="mt-5 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
         <span className="text-sm text-muted-foreground">Ticker page</span>
         <Link
@@ -684,22 +870,108 @@ function DashboardHoldingDetail({
           Open <ChevronRight data-icon="inline-end" aria-hidden="true" />
         </Link>
       </div>
-      {rows.map(([label, value, toneValue]) => (
-        <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-          <span className="text-sm text-muted-foreground">{label}</span>
-          <span className={cn("text-right font-mono text-sm font-semibold tabular-nums", financeToneClass(toneValue))}>
-            {value}
-          </span>
+
+      <DetailSection title="Summary">
+        <DetailGrid>
+          <DetailMetric label="Market value" value={group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />
+          <DetailMetric label="Quantity" value={formatNumber(group.quantity, locale, 2)} />
+          <DetailMetric label="Portfolio allocation" value={portfolioAllocation} />
+          <DetailMetric label="Market allocation" value="-" />
+          <DetailMetric label="Accounts" value={formatNumber(group.children.length, locale)} />
+          <DetailMetric label="Lot count" value="-" />
+        </DetailGrid>
+      </DetailSection>
+
+      <DetailSection title="Accounts">
+        <div className="flex flex-col gap-2">
+          {group.children.map((child) => (
+            <div key={child.accountId} className="rounded-md border border-border px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{child.accountName ?? child.accountId}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatNumber(child.quantity, locale, 2)} units
+                    {child.reportingAllocationPercent === null ? "" : ` · ${formatPercent(child.reportingAllocationPercent, locale)} portfolio`}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-sm font-semibold tabular-nums">
+                    {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+                  </p>
+                  <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(child.reportingUnrealizedPnlAmount))}>
+                    {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <DetailMetric label="Book Cost" value={child.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(child.reportingCostBasisAmount, reportingCurrency, locale)} />
+                <DetailMetric label="Average cost" value={formatUnitPrice(child.averageCostPerShare, child.currency, locale)} />
+                <DetailMetric label="Latest price" value={child.currentUnitPrice === null ? "-" : formatUnitPrice(child.currentUnitPrice, child.currency, locale)} />
+                <DetailMetric label="FX rate" value={child.currency === reportingCurrency ? "1" : fxRate === null ? "-" : formatFxRate(fxRate)} />
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      </DetailSection>
+
+      <DetailSection title="Cost/P&L">
+        <DetailGrid>
+          <DetailMetric label="Book Cost" value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />
+          <DetailMetric label="FX-Translated Cost" value="-" />
+          <DetailMetric label="Unrealized P&L" toneValue={group.reportingUnrealizedPnlAmount} value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)} />
+          <DetailMetric label="Daily move" toneValue={reportingDailyMove} value={reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)} />
+        </DetailGrid>
+      </DetailSection>
+
+      <DetailSection title="FX/Price">
+        <DetailGrid>
+          <DetailMetric label="Reporting price" value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)} />
+          <DetailMetric label="Native price" value={group.currentUnitPrice === null ? "-" : formatUnitPrice(group.currentUnitPrice, group.currency, locale)} />
+          <DetailMetric label="Native market value" value={group.marketValueAmount === null ? "-" : formatCurrencyAmount(group.marketValueAmount, group.currency, locale)} />
+          <DetailMetric label="Average cost" value={formatUnitPrice(group.averageCostPerShare, group.currency, locale)} />
+          <DetailMetric label="Reporting average cost" value={reportingAverageCost === null ? "-" : formatUnitPrice(reportingAverageCost, reportingCurrency, locale)} />
+          <DetailMetric label="Latest price" value={group.currentUnitPrice === null ? "-" : formatUnitPrice(group.currentUnitPrice, group.currency, locale)} />
+          <DetailMetric label="FX rate" value={group.currency === reportingCurrency ? "1" : fxRate === null ? "-" : formatFxRate(fxRate)} />
+          <DetailMetric label="Native daily move" toneValue={nativeDailyMove} value={nativeDailyMove === null ? "-" : formatCurrencyAmount(nativeDailyMove, group.currency, locale)} />
+          <DetailMetric label="Daily change %" toneValue={group.changePercent} value={group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)} />
+        </DetailGrid>
+      </DetailSection>
     </div>
   );
 }
 
+function DetailSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailGrid({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {children}
+    </div>
+  );
+}
+
+function DetailMetric({ label, toneValue, value }: { label: string; toneValue?: number | null; value: string }) {
+  return (
+    <div className="rounded-md border border-border px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums text-foreground", financeToneClass(toneValue))}>
+        {value}
+      </p>
+    </div>
+  );
+}
 function compareHoldingGroups(
   left: DashboardOverviewHoldingGroupDto,
   right: DashboardOverviewHoldingGroupDto,
   sortMode: HoldingsPreviewSort,
+  selectedPreset: HoldingFocusPreset,
 ): number {
   if (sortMode === "ticker") {
     return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
@@ -708,11 +980,42 @@ function compareHoldingGroups(
     return Math.abs(right.changePercent ?? 0) - Math.abs(left.changePercent ?? 0);
   }
   if (sortMode === "pnl") {
+    if (selectedPreset === "worst-pnl") {
+      return (left.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY)
+        - (right.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY);
+    }
     return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
       - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
   }
   return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
+}
+
+function isHoldingFocusPreset(value: string): value is HoldingFocusPreset {
+  return HOLDING_FOCUS_PRESETS.some((preset) => preset.id === value);
+}
+
+function applyHoldingPreset(
+  groups: DashboardOverviewHoldingGroupDto[],
+  preset: HoldingFocusPreset,
+  reportingCurrency: AccountDefaultCurrency,
+): DashboardOverviewHoldingGroupDto[] {
+  if (preset === "fx-exposure") {
+    return groups.filter((group) => group.currency !== reportingCurrency);
+  }
+  if (preset === "stale-quotes") {
+    return groups.filter((group) => group.quoteStatus !== "current" || group.freshness !== "current");
+  }
+  return groups;
+}
+
+function holdingRowKey(group: DashboardOverviewHoldingGroupDto): string {
+  return `${group.marketCode}:${group.ticker}`;
+}
+
+function getVisibleAccountRows(group: DashboardOverviewHoldingGroupDto, accountFilter: string): DashboardOverviewHoldingChildDto[] {
+  if (accountFilter === "ALL") return group.children;
+  return group.children.filter((child) => child.accountId === accountFilter);
 }
 
 function buildHoldingFxRows(
@@ -807,9 +1110,27 @@ function getExplicitReportingUnitPrice(
   return typeof candidate === "number" ? candidate : null;
 }
 
-function getReportingDailyMove(group: DashboardOverviewHoldingGroupDto, fxRate: number | null): number | null {
-  if (group.change === null || fxRate === null) return null;
-  return group.change * group.quantity * fxRate;
+function getReportingChildUnitPrice(
+  child: DashboardOverviewHoldingChildDto,
+  reportingCurrency: AccountDefaultCurrency,
+): number | null {
+  if (child.reportingCurrency !== reportingCurrency) return null;
+  if (typeof child.reportingCurrentUnitPrice === "number") return child.reportingCurrentUnitPrice;
+  if (child.reportingMarketValueAmount === null || child.quantity <= 0) return null;
+  return child.reportingMarketValueAmount / child.quantity;
+}
+
+function getReportingDailyMove(
+  row: Pick<DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto, "change" | "quantity">,
+  fxRate: number | null,
+): number | null {
+  if (row.change === null || fxRate === null) return null;
+  return row.change * row.quantity * fxRate;
+}
+
+function getReportingAverageCost(costBasisAmount: number | null, quantity: number): number | null {
+  if (costBasisAmount === null || quantity <= 0) return null;
+  return costBasisAmount / quantity;
 }
 
 function formatFxRate(value: number): string {
