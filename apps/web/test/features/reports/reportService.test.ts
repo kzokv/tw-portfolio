@@ -22,7 +22,7 @@ describe("reportService", () => {
 
     await fetchReport("daily-review", state);
 
-    expect(getJson).toHaveBeenCalledWith("/reports/daily-review?scope=TW&currencyMode=auto&range=1Y&limit=25");
+    expect(getJson).toHaveBeenCalledWith("/reports/daily-review?scope=TW&currencyMode=auto&limit=25");
   });
 
   it("fetches the portfolio report endpoint with specified currency", async () => {
