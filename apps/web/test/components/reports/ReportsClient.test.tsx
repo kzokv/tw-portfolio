@@ -309,7 +309,7 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).not.toContain("Performance trend");
   });
 
-  it("renders report refresh errors with a stable validation marker", async () => {
+  it("keeps cached report content visible when refresh reports an error", async () => {
     reportHookOverride.errorMessage = "Report refresh timed out. Try refreshing again.";
 
     act(() => {
@@ -318,7 +318,10 @@ describe("ReportsClient", () => {
 
     await act(async () => {});
 
-    expect(document.querySelector("[data-testid='reports-error']")?.textContent).toContain("Report refresh timed out");
+    expect(document.querySelector("[data-testid='reports-error']")).toBeNull();
+    expect(document.querySelector("[data-testid='reports-refresh-error']")?.textContent).toContain("Report refresh timed out");
+    expect(document.querySelector("[data-testid='reports-daily-review-content']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Top movers");
   });
 
   it("renders portfolio report performance as-of and stale-data metadata", async () => {
