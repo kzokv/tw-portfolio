@@ -53,6 +53,7 @@ interface PreparedReportData {
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
+  store: Store;
   scopedStore: Store;
   asOf: string;
 }
@@ -88,7 +89,7 @@ export async function buildPortfolioReport(
   input: BuildReportInput,
 ): Promise<PortfolioReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const performance = await buildReportPerformance(app, userId, prepared.store, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
     .sort((left, right) => (right.reportingAllocationPercent ?? 0) - (left.reportingAllocationPercent ?? 0))
@@ -122,7 +123,7 @@ export async function buildMarketReport(
   input: BuildReportInput,
 ): Promise<MarketReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const performance = await buildReportPerformance(app, userId, prepared.store, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
 
   return {
@@ -212,6 +213,7 @@ async function prepareReportData(
       context.reportingCurrency,
       asOf,
     ),
+    store,
     scopedStore,
     asOf,
   };
@@ -528,6 +530,7 @@ async function buildTrailingDividendAmount(
 async function buildReportPerformance(
   app: FastifyInstance,
   userId: string,
+  store: Store,
   scopedStore: Store,
   query: ReportQueryStateDto,
   quotes: ReadonlyArray<QuoteSnapshot>,
@@ -554,6 +557,7 @@ async function buildReportPerformance(
   if (pairs.length === 0) {
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
+  const canUseScopedSnapshots = !hasMarketAmbiguousSnapshotScope(store, pairs);
 
   const scopedPersistence = new Proxy(app.persistence, {
     get(target, property, receiver) {
@@ -563,13 +567,16 @@ async function buildReportPerformance(
           scopedStartDate: string,
           scopedEndDate: string,
           reportingCurrency: AccountDefaultCurrency,
-        ) => target.getAggregatedSnapshotsInReportingCurrencyForScope(
-          scopedUserId,
-          scopedStartDate,
-          scopedEndDate,
-          reportingCurrency,
-          pairs,
-        );
+        ) => {
+          if (!canUseScopedSnapshots) return Promise.resolve([]);
+          return target.getAggregatedSnapshotsInReportingCurrencyForScope(
+            scopedUserId,
+            scopedStartDate,
+            scopedEndDate,
+            reportingCurrency,
+            pairs,
+          );
+        };
       }
       return Reflect.get(target, property, receiver);
     },
@@ -584,6 +591,24 @@ async function buildReportPerformance(
     scopedStore,
     quotes,
   );
+}
+
+function hasMarketAmbiguousSnapshotScope(
+  store: Store,
+  pairs: ReadonlyArray<{ accountId: string; ticker: string }>,
+): boolean {
+  const pairKeys = new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}`));
+  const marketsByPair = new Map<string, Set<MarketCode>>();
+  for (const trade of store.accounting.facts.tradeEvents) {
+    const key = `${trade.accountId}\0${trade.ticker}`;
+    if (!pairKeys.has(key)) continue;
+    if (!(MARKET_CODES as readonly string[]).includes(trade.marketCode)) continue;
+    const markets = marketsByPair.get(key) ?? new Set<MarketCode>();
+    markets.add(trade.marketCode as MarketCode);
+    if (markets.size > 1) return true;
+    marketsByPair.set(key, markets);
+  }
+  return false;
 }
 
 function emptyScopedPerformance(
