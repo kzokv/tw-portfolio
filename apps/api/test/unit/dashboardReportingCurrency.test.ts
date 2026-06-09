@@ -671,4 +671,104 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     });
     expect(out.points[1]?.totalReturnPercent).toBeCloseTo((170 / 90) * 100);
   });
+
+  it("uses canonical lot allocations and realized amounts for dated FX replay", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "AUD", rate: 1.5, asOf: "2026-01-01" },
+        { base: "USD", quote: "AUD", rate: 1.6, asOf: "2026-01-02" },
+        { base: "USD", quote: "AUD", rate: 1.7, asOf: "2026-01-03" },
+      ],
+      dailyBars: [
+        makeDailyBar("AAPL", "2026-01-01", 100),
+        makeDailyBar("AAPL", "2026-01-02", 200),
+        makeDailyBar("AAPL", "2026-01-03", 250),
+      ],
+    });
+    const baseStore = makeStore();
+    const sellTrade = makeTrade({
+      id: "trade-sell",
+      ticker: "AAPL",
+      marketCode: "US",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 150,
+      priceCurrency: "USD",
+      tradeDate: "2026-01-03",
+      bookingSequence: 3,
+      realizedPnlAmount: 50,
+      realizedPnlCurrency: "USD",
+    });
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-buy-1",
+              ticker: "AAPL",
+              marketCode: "US",
+              type: "BUY",
+              quantity: 1,
+              unitPrice: 100,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-01",
+              bookingSequence: 1,
+            }),
+            makeTrade({
+              id: "trade-buy-2",
+              ticker: "AAPL",
+              marketCode: "US",
+              type: "BUY",
+              quantity: 1,
+              unitPrice: 200,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-02",
+              bookingSequence: 2,
+            }),
+            sellTrade,
+          ],
+        },
+        projections: {
+          ...baseStore.accounting.projections,
+          lotAllocations: [
+            {
+              id: "trade-sell:lot-trade-buy-1",
+              userId: "user-1",
+              accountId: "acct-1",
+              tradeEventId: "trade-sell",
+              ticker: "AAPL",
+              lotId: "lot-trade-buy-1",
+              lotOpenedAt: "2026-01-01",
+              lotOpenedSequence: 1,
+              allocatedQuantity: 1,
+              allocatedCostAmount: 100,
+              costCurrency: "USD",
+              createdAt: "2026-01-03T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "AUD",
+      persistence,
+      store,
+    );
+
+    const finalPoint = out.points.at(-1);
+    expect(finalPoint).toMatchObject({
+      date: "2026-01-03",
+      totalCostAmount: 320,
+      marketValueAmount: 425,
+      cumulativeRealizedPnlAmount: 85,
+      totalReturnAmount: 190,
+    });
+    expect(finalPoint?.totalReturnPercent).toBeCloseTo((190 / 320) * 100);
+  });
 });
