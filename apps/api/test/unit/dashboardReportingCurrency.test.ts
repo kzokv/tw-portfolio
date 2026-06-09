@@ -164,6 +164,7 @@ function makeDailyBar(ticker: string, barDate: string, close: number, marketCode
 const baseHolding: DashboardOverviewHoldingDto = {
   accountId: "acct-1",
   ticker: "2330",
+  marketCode: "TW",
   quantity: 10,
   costBasisAmount: 1000,
   currency: "TWD",
@@ -226,6 +227,7 @@ describe("translateOverviewSummary", () => {
       ...baseHolding,
       accountId: "acct-2",
       ticker: "AAPL",
+      marketCode: "US",
       currency: "USD",
       quantity: 5,
       costBasisAmount: 1000,        // USD
@@ -264,6 +266,7 @@ describe("translateOverviewSummary", () => {
       ...baseHolding,
       accountId: "acct-2",
       ticker: "AAPL",
+      marketCode: "US",
       currency: "USD",
       quantity: 5,
       costBasisAmount: 1000,
@@ -291,6 +294,7 @@ describe("translateOverviewSummary", () => {
   it("All FX missing: only USD positions, no FX rates → fxStatus missing", async () => {
     const usdHolding: DashboardOverviewHoldingDto = {
       ...baseHolding,
+      marketCode: "US",
       currency: "USD",
     };
     const persistence = makeFakePersistence({});
@@ -336,6 +340,7 @@ describe("translateOverviewSummary", () => {
   it("Reports `reportingCurrency: USD` correctly even when self-pair maps cleanly", async () => {
     const usdHolding: DashboardOverviewHoldingDto = {
       ...baseHolding,
+      marketCode: "US",
       currency: "USD",
     };
     const persistence = makeFakePersistence({});  // no FX rates needed for self-pair

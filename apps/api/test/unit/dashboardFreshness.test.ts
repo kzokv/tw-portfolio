@@ -7,6 +7,7 @@ function holding(overrides: Partial<DashboardOverviewHoldingDto>): DashboardOver
   return {
     accountId: "acc-kr",
     ticker: "005930",
+    marketCode: "KR",
     quantity: 1,
     costBasisAmount: 100,
     currency: "KRW",
@@ -68,5 +69,55 @@ describe("enrichHoldingsWithFreshness", () => {
 
     expect(holdings[0]!.freshness).toBe("stale_red");
     expect(holdings[0]!.freshnessTooltip).toBe("Price data is 2 trading days old.");
+  });
+
+  it("classifies cross-market holdings with the resolved holding market instead of account currency", async () => {
+    const store = createStore();
+    store.accounts.push({
+      id: "acc-tw",
+      name: "TW account",
+      userId: "user-1",
+      feeProfileId: store.feeProfiles[0]!.id,
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    });
+    setStoreInstruments(store, [
+      ...store.instruments,
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+        lastSyncedAt: null,
+      },
+    ]);
+    const holdings = [holding({
+      accountId: "acc-tw",
+      ticker: "AAPL",
+      marketCode: "US",
+      currency: "USD",
+    })];
+
+    await enrichHoldingsWithFreshness(holdings, store, {
+      persistence: {
+        getLatestBarDatesByTickerMarket: async (pairs) => {
+          expect(pairs).toEqual([{ ticker: "AAPL", marketCode: "US" }]);
+          return new Map([["AAPL:US", "2026-06-08"]]);
+        },
+      },
+      tradingCalendar: {
+        latestSettledTradingDay: async (market) => {
+          expect(market).toBe("US");
+          return "2026-06-09";
+        },
+        tradingDaysBetween: async (_from, _to, market) => {
+          expect(market).toBe("US");
+          return 1;
+        },
+      },
+    });
+
+    expect(holdings[0]!.freshness).toBe("stale_amber");
+    expect(holdings[0]!.freshnessTooltip).toBe("Price data is 1 trading day old.");
   });
 });
