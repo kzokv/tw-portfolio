@@ -26,6 +26,7 @@ interface FakeFxRecord {
   base: string;
   quote: string;
   rate: number;
+  asOf?: string;
 }
 
 // Minimal Persistence mock — only the methods the aggregator calls are wired.
@@ -42,7 +43,9 @@ function makeFakePersistence(opts: {
   return {
     getFxRate: async (base: string, quote: string, _asOfDate: string) => {
       if (base === quote) return 1.0;
-      const match = fx.find((r) => r.base === base && r.quote === quote);
+      const match = [...fx]
+        .filter((r) => r.base === base && r.quote === quote && (!r.asOf || r.asOf <= _asOfDate))
+        .sort((a, b) => (b.asOf ?? "").localeCompare(a.asOf ?? ""))[0];
       return match ? match.rate : null;
     },
     getAggregatedSnapshotsInReportingCurrency: async () => aggregated,
@@ -59,6 +62,80 @@ function makeFakePersistence(opts: {
       return result;
     },
   } as unknown as Persistence;
+}
+
+function makeTrade(overrides: Partial<Store["accounting"]["facts"]["tradeEvents"][number]>): Store["accounting"]["facts"]["tradeEvents"][number] {
+  return {
+    id: "trade-1",
+    userId: "user-1",
+    accountId: "acct-1",
+    ticker: "2330",
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: 10,
+    unitPrice: 100,
+    priceCurrency: "TWD",
+    tradeDate: "2026-01-02",
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: {
+      id: "fee-1",
+      accountId: "acct-1",
+      name: "Default",
+      boardCommissionRate: 0,
+      commissionDiscountPercent: 0,
+      minimumCommissionAmount: 0,
+      commissionCurrency: "TWD",
+      commissionRoundingMode: "FLOOR",
+      taxRoundingMode: "FLOOR",
+      stockSellTaxRateBps: 0,
+      stockDayTradeTaxRateBps: 0,
+      etfSellTaxRateBps: 0,
+      bondEtfSellTaxRateBps: 0,
+      commissionChargeMode: "CHARGED_UPFRONT",
+    },
+    ...overrides,
+  };
+}
+
+function makeStore(overrides: Partial<Store> = {}): Store {
+  return {
+    userId: "user-1",
+    settings: {} as Store["settings"],
+    accounts: [],
+    feeProfiles: [],
+    feeProfileBindings: [],
+    instruments: [],
+    accounting: {
+      facts: {
+        tradeEvents: [],
+        cashLedgerEntries: [],
+        dividendLedgerEntries: [],
+        dividendDeductionEntries: [],
+        dividendSourceLines: [],
+        corporateActions: [],
+      },
+      projections: {
+        lots: [],
+        lotAllocations: [],
+        holdings: [],
+        dailyPortfolioSnapshots: [],
+      },
+      policy: {
+        inventoryModel: "LOT_CAPABLE",
+        disposalPolicy: "WEIGHTED_AVERAGE",
+      },
+    },
+    marketData: {
+      dividendEvents: [],
+      instruments: [],
+    },
+    recomputeJobs: [],
+    idempotencyKeys: new Set(),
+    ...overrides,
+  } as Store;
 }
 
 function makeDailyBar(ticker: string, barDate: string, close: number): DailyBar {
@@ -306,6 +383,64 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     });
   });
 
+  it("uses transaction-date Book Cost instead of FX-moving snapshot cost when store data is available", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-02",
+          totalCostBasis: 1000,
+          totalMarketValue: 1000,
+          totalUnrealizedPnl: 0,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 0,
+          totalReturnPercent: 0,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+        {
+          date: "2026-01-03",
+          totalCostBasis: 1200,
+          totalMarketValue: 1300,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 8.3333,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+    const store = makeStore({
+      accounting: {
+        ...makeStore().accounting,
+        facts: {
+          ...makeStore().accounting.facts,
+          tradeEvents: [makeTrade({ tradeDate: "2026-01-02", quantity: 10, unitPrice: 100 })],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points).toHaveLength(2);
+    expect(out.points.map((point) => point.totalCostAmount)).toEqual([1000, 1000]);
+    expect(out.points[1]).toMatchObject({
+      marketValueAmount: 1300,
+      unrealizedPnlAmount: 300,
+      totalReturnAmount: 300,
+      totalReturnPercent: 30,
+    });
+  });
+
   it("Maps fxAvailable=false rows to nullable point fields and rolls up partial", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
@@ -418,5 +553,74 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.points.map((point) => point.date)).toEqual(["2026-01-02", "2026-01-05"]);
     expect(out.points.map((point) => point.marketValueAmount)).toEqual([1000, 1200]);
     expect(out.points.every((point) => point.marketValueAmount !== null)).toBe(true);
+  });
+
+  it("derives synthetic Book Cost and realized return from weighted-average transaction-date FX", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "AUD", rate: 1.5, asOf: "2026-01-01" },
+        { base: "USD", quote: "AUD", rate: 1.6, asOf: "2026-01-02" },
+      ],
+      dailyBars: [
+        makeDailyBar("AAPL", "2026-01-01", 10),
+        makeDailyBar("AAPL", "2026-01-02", 20),
+      ],
+    });
+    const store = makeStore({
+      accounting: {
+        ...makeStore().accounting,
+        facts: {
+          ...makeStore().accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-buy",
+              ticker: "AAPL",
+              marketCode: "US",
+              type: "BUY",
+              quantity: 10,
+              unitPrice: 10,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-01",
+            }),
+            makeTrade({
+              id: "trade-sell",
+              ticker: "AAPL",
+              marketCode: "US",
+              type: "SELL",
+              quantity: 4,
+              unitPrice: 20,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-02",
+              bookingSequence: 2,
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-02",
+      "AUD",
+      persistence,
+      store,
+    );
+
+    expect(out.fxStatus).toBe("complete");
+    expect(out.points.map((point) => point.date)).toEqual(["2026-01-01", "2026-01-02"]);
+    expect(out.points[0]).toMatchObject({
+      totalCostAmount: 150,
+      marketValueAmount: 150,
+      cumulativeRealizedPnlAmount: 0,
+      totalReturnAmount: 0,
+    });
+    expect(out.points[1]).toMatchObject({
+      totalCostAmount: 90,
+      marketValueAmount: 192,
+      cumulativeRealizedPnlAmount: 68,
+      totalReturnAmount: 170,
+    });
+    expect(out.points[1]?.totalReturnPercent).toBeCloseTo((170 / 90) * 100);
   });
 });
