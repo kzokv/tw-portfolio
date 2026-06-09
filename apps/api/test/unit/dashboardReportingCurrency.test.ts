@@ -61,6 +61,14 @@ function makeFakePersistence(opts: {
       }
       return result;
     },
+    getDailyBarsForTickerMarket: async (ticker: string, marketCode: string, startDate: string, endDate: string) =>
+      dailyBars
+        .filter((bar) =>
+          bar.ticker === ticker &&
+          ((bar as DailyBar & { marketCode?: string }).marketCode ?? marketCode) === marketCode &&
+          bar.barDate >= startDate &&
+          bar.barDate <= endDate)
+        .sort((a, b) => a.barDate.localeCompare(b.barDate)),
   } as unknown as Persistence;
 }
 
@@ -138,8 +146,8 @@ function makeStore(overrides: Partial<Store> = {}): Store {
   } as Store;
 }
 
-function makeDailyBar(ticker: string, barDate: string, close: number): DailyBar {
-  return {
+function makeDailyBar(ticker: string, barDate: string, close: number, marketCode?: string): DailyBar {
+  const bar: DailyBar = {
     ticker,
     barDate,
     open: close,
@@ -150,6 +158,7 @@ function makeDailyBar(ticker: string, barDate: string, close: number): DailyBar 
     source: "test",
     ingestedAt: `${barDate}T00:00:00.000Z`,
   };
+  return marketCode ? ({ ...bar, marketCode } as DailyBar) : bar;
 }
 
 const baseHolding: DashboardOverviewHoldingDto = {
@@ -670,6 +679,53 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       totalReturnAmount: 170,
     });
     expect(out.points[1]?.totalReturnPercent).toBeCloseTo((170 / 90) * 100);
+  });
+
+  it("uses market-specific bars for same-ticker synthetic market values", async () => {
+    const persistence = makeFakePersistence({
+      dailyBars: [
+        makeDailyBar("BHP", "2026-01-01", 40, "AU"),
+        makeDailyBar("BHP", "2026-01-01", 100, "US"),
+      ],
+    });
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-buy-au",
+              ticker: "BHP",
+              marketCode: "AU",
+              type: "BUY",
+              quantity: 1,
+              unitPrice: 40,
+              priceCurrency: "AUD",
+              tradeDate: "2026-01-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-01",
+      "AUD",
+      persistence,
+      store,
+    );
+
+    expect(out.points).toHaveLength(1);
+    expect(out.points[0]).toMatchObject({
+      date: "2026-01-01",
+      totalCostAmount: 40,
+      marketValueAmount: 40,
+      totalReturnAmount: 0,
+    });
   });
 
   it("uses canonical lot allocations and realized amounts for dated FX replay", async () => {

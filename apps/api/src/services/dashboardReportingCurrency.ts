@@ -28,7 +28,7 @@
  */
 
 import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
-import type { DailyBar, QuoteSnapshot } from "@vakwen/domain";
+import type { QuoteSnapshot } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
   DashboardOverviewHoldingChildDto,
@@ -546,15 +546,21 @@ async function buildFxAwareSyntheticPerformance(
   }
 
   const points: DashboardPerformancePointDto[] = [];
-  const activeTickers = Array.from(new Set(trades.map((trade) => trade.ticker)));
-  const barsByTicker = activeTickers.length > 0
-    ? await persistence.getDailyBarsForTickers(activeTickers, startDate, endDate)
-    : new Map<string, DailyBar[]>();
-  const closeByTickerDate = new Map<string, Map<string, number>>();
-  for (const [ticker, bars] of barsByTicker) {
-    closeByTickerDate.set(ticker, new Map(bars.map((bar) => [bar.barDate, bar.close])));
+  const activePairs = uniquePerformancePairs(trades);
+  const barsByTickerMarket = activePairs.length > 0
+    ? await Promise.all(activePairs.map(async (pair) => ({
+        pair,
+        bars: await persistence.getDailyBarsForTickerMarket(pair.ticker, pair.marketCode, startDate, endDate),
+      })))
+    : [];
+  const closeByTickerMarketDate = new Map<string, Map<string, number>>();
+  for (const { pair, bars } of barsByTickerMarket) {
+    closeByTickerMarketDate.set(
+      quoteSnapshotKey(pair.ticker, pair.marketCode),
+      new Map(bars.map((bar) => [bar.barDate, bar.close])),
+    );
   }
-  const hasAnyHistoricalBars = [...barsByTicker.values()].some((bars) => bars.length > 0);
+  const hasAnyHistoricalBars = barsByTickerMarket.some((entry) => entry.bars.length > 0);
 
   // Per-currency FX cache shared across the synthetic loop; we forward-fill
   // per-date because `getFxRate` already encodes that semantics.
@@ -601,7 +607,7 @@ async function buildFxAwareSyntheticPerformance(
       const symbol = key.includes(":")
         ? key.slice(key.lastIndexOf(":") + 1)
         : key;
-      const historicalClose = closeByTickerDate.get(symbol)?.get(currentDate);
+      const historicalClose = closeByTickerMarketDate.get(quoteSnapshotKey(symbol, pos.marketCode))?.get(currentDate);
       const quote = historicalClose === undefined
         ? quoteByKey.get(quoteSnapshotKey(symbol, pos.marketCode)) ?? quoteByKey.get(symbol)
         : undefined;
@@ -925,6 +931,22 @@ function sortDividendEntries(store: Store): DatedDividendEntry[] {
 
 function performancePositionKey(trade: BookedTradeEvent): string {
   return `${trade.accountId}:${trade.marketCode}:${trade.ticker}`;
+}
+
+function uniquePerformancePairs(
+  trades: ReadonlyArray<BookedTradeEvent>,
+): Array<{ ticker: string; marketCode: BookedTradeEvent["marketCode"] }> {
+  const pairs = new Map<string, { ticker: string; marketCode: BookedTradeEvent["marketCode"] }>();
+  for (const trade of trades) {
+    const key = quoteSnapshotKey(trade.ticker, trade.marketCode);
+    if (!pairs.has(key)) {
+      pairs.set(key, {
+        ticker: trade.ticker,
+        marketCode: trade.marketCode,
+      });
+    }
+  }
+  return [...pairs.values()];
 }
 
 function translateHoldingGroup(

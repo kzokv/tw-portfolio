@@ -183,6 +183,7 @@ MCP report input parsing accepts both `currency` and `reportingCurrency`. When `
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
 - Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the same translator falls back to synthetic trade replay against the scoped store instead of returning an empty chart. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
+- Synthetic performance fallback loads repaired historical bars by `(ticker, marketCode)`, not by bare ticker, so cross-listed symbols do not leak another market's close into scoped report/dashboard market-value points.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
 These are known transitional costs, not accidental behavior.
@@ -221,6 +222,7 @@ These are known transitional costs, not accidental behavior.
   - `apps/api/test/integration/dashboard.integration.test.ts`
   - `apps/api/test/integration/reports.integration.test.ts`
   - The unit suite covers canonical lot-allocation and realized-P&L replay under dated FX when allocated cost differs from running average cost.
+  - The unit suite covers same-ticker cross-market synthetic market values so the fallback uses the selected market's historical close.
 - Focused report refresh-timeout coverage:
   - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:
