@@ -240,6 +240,51 @@ describe("dashboard components", () => {
     expect(html).toContain("AUD");
   });
 
+  it("disables dashboard reporting currency changes for shared contexts", () => {
+    const groups = buildHoldingGroupsFromHoldings({ holdings })
+      .map((group) => ({
+        ...group,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "AUD" as const,
+          reportingMarketValueAmount: 60_000,
+          reportingCostBasisAmount: 58_000,
+        })),
+      }));
+
+    const html = renderToStaticMarkup(
+      <DashboardHero
+        holdingGroups={groups}
+        isCurrencyReadOnly
+        summary={{
+          asOf: "2026-06-08",
+          accountCount: 1,
+          holdingCount: 1,
+          totalCostAmount: 58_000,
+          reportingCurrency: "AUD",
+          fxStatus: "complete",
+          marketValueAmount: 60_000,
+          unrealizedPnlAmount: 2_000,
+          dailyChangeAmount: 120,
+          dailyChangePercent: 0.2,
+          upcomingDividendCount: 0,
+          upcomingDividendAmount: null,
+          openIssueCount: 0,
+        }}
+        locale="en"
+        dict={dict}
+        onCurrencyChange={() => {
+          throw new Error("Shared dashboards must not update viewer preferences");
+        }}
+      />,
+    );
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-disabled=""[^>]*data-testid="dashboard-hero-currency-select"/);
+  });
+
   it("renders dashboard holdings as a compact reporting-currency preview with native price disclosure", () => {
     const group = buildHoldingGroupsFromHoldings({ holdings })[0];
     if (!group) throw new Error("Expected holding group");

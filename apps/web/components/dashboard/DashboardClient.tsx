@@ -188,6 +188,7 @@ export function DashboardClient({
           holdingGroups={holdingGroups}
           fxRates={dashboard.fxRates ?? []}
           isCurrencySaving={currencySaving}
+          isCurrencyReadOnly={isSharedContext}
           summary={dashboard.summary}
           locale={locale}
           dict={dict}

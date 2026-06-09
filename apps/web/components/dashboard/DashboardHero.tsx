@@ -29,6 +29,7 @@ interface DashboardHeroProps {
   fxRates?: FxConversionRateDto[];
   holdingGroups: DashboardOverviewHoldingGroupDto[];
   isCurrencySaving?: boolean;
+  isCurrencyReadOnly?: boolean;
   summary: DashboardOverviewSummaryDto;
   locale: LocaleCode;
   dict: AppDictionary;
@@ -40,6 +41,7 @@ export function DashboardHero({
   fxRates = [],
   holdingGroups,
   isCurrencySaving = false,
+  isCurrencyReadOnly = false,
   summary,
   locale,
   dict,
@@ -116,11 +118,12 @@ export function DashboardHero({
           <Select
             value={summary.reportingCurrency}
             onValueChange={(value) => {
+              if (isCurrencyReadOnly) return;
               if ((ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(value)) {
                 onCurrencyChange(value as AccountDefaultCurrency);
               }
             }}
-            disabled={isCurrencySaving}
+            disabled={isCurrencySaving || isCurrencyReadOnly}
           >
             <SelectTrigger data-testid="dashboard-hero-currency-select">
               <SelectValue />
