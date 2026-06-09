@@ -612,6 +612,83 @@ export const dashboardPerformanceRangesSchema: z.ZodType<string[]> = z
 export const holdingAllocationBasisSchema: z.ZodType<HoldingAllocationBasis> = z.enum(HOLDING_ALLOCATION_BASES);
 export const DEFAULT_HOLDING_ALLOCATION_BASIS: HoldingAllocationBasis = "market_value";
 
+export const DASHBOARD_HOLDING_FOCUS_PRESETS = [
+  "largest",
+  "worst-pnl",
+  "best-pnl",
+  "fx-exposure",
+  "stale-quotes",
+] as const;
+export type DashboardHoldingFocusPreset = (typeof DASHBOARD_HOLDING_FOCUS_PRESETS)[number];
+
+export const DEFAULT_DASHBOARD_HOLDING_FOCUS_PRESET_ORDER: DashboardHoldingFocusPreset[] = [
+  ...DASHBOARD_HOLDING_FOCUS_PRESETS,
+];
+
+export interface DashboardHoldingFocusPreferenceDto {
+  presetOrder: DashboardHoldingFocusPreset[];
+  hiddenPresets: DashboardHoldingFocusPreset[];
+  selectedPreset: DashboardHoldingFocusPreset;
+}
+
+const dashboardHoldingFocusPresetSchema = z.enum(DASHBOARD_HOLDING_FOCUS_PRESETS);
+const dashboardHoldingFocusPresetListSchema = z
+  .array(dashboardHoldingFocusPresetSchema)
+  .max(DASHBOARD_HOLDING_FOCUS_PRESETS.length)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "dashboard_holding_focus_duplicate_preset" },
+  );
+const dashboardHoldingFocusPresetOrderSchema = z
+  .array(dashboardHoldingFocusPresetSchema)
+  .min(1, { message: "dashboard_holding_focus_order_empty" })
+  .max(DASHBOARD_HOLDING_FOCUS_PRESETS.length)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "dashboard_holding_focus_duplicate_preset" },
+  );
+
+export const dashboardHoldingFocusPreferenceSchema: z.ZodType<DashboardHoldingFocusPreferenceDto> = z
+  .object({
+    presetOrder: dashboardHoldingFocusPresetOrderSchema,
+    hiddenPresets: dashboardHoldingFocusPresetListSchema,
+    selectedPreset: dashboardHoldingFocusPresetSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const order = new Set(value.presetOrder);
+    const hidden = new Set(value.hiddenPresets);
+    if (!order.has(value.selectedPreset)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "dashboard_holding_focus_selected_missing",
+        path: ["selectedPreset"],
+      });
+    }
+    if (hidden.has(value.selectedPreset)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "dashboard_holding_focus_selected_hidden",
+        path: ["selectedPreset"],
+      });
+    }
+    for (const preset of hidden) {
+      if (!order.has(preset)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "dashboard_holding_focus_hidden_missing",
+          path: ["hiddenPresets"],
+        });
+      }
+    }
+  });
+
+export const DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE: DashboardHoldingFocusPreferenceDto = {
+  presetOrder: DEFAULT_DASHBOARD_HOLDING_FOCUS_PRESET_ORDER,
+  hiddenPresets: [],
+  selectedPreset: "largest",
+};
+
 // ─── Phase 2: theme accent + density ──────────────────────────────────────
 // Per ui-reshape design §3.2 (presets) and decisions #14 (custom). Status
 // colors (success/danger/warning) do NOT shift with accent — only --primary

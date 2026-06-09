@@ -138,6 +138,88 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[user-prefs]: PATCH /user-preferences { dashboardHoldingFocus } → 200 echoes, GET returns same, null clears", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-dashboard-holding-focus-sub",
+      email: "user-prefs-dashboard-holding-focus@example.com",
+      name: "Prefs Dashboard Holding Focus",
+      role: "member",
+    });
+    const dashboardHoldingFocus = {
+      presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+      hiddenPresets: ["worst-pnl"],
+      selectedPreset: "stale-quotes",
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { dashboardHoldingFocus },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      dashboardHoldingFocus,
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      dashboardHoldingFocus,
+    });
+
+    const clearResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { dashboardHoldingFocus: null },
+    });
+    await adminApi.assert.statusIs(clearResponse, 200);
+    const clearBody = await clearResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(clearBody.preferences, {});
+  });
+
+  test("[user-prefs]: PATCH invalid dashboardHoldingFocus → 400 invalid_preference", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-dashboard-holding-focus-invalid-sub",
+      email: "user-prefs-dashboard-holding-focus-invalid@example.com",
+      name: "Prefs Dashboard Holding Focus Invalid",
+      role: "member",
+    });
+
+    const duplicateResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: {
+        dashboardHoldingFocus: {
+          presetOrder: ["largest", "largest"],
+          hiddenPresets: [],
+          selectedPreset: "largest",
+        },
+      },
+    });
+    await adminApi.assert.statusIs(duplicateResponse, 400);
+    await adminApi.assert.errorCodeIs(await duplicateResponse.json() as { error: string }, "invalid_preference");
+
+    const hiddenSelectedResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: {
+        dashboardHoldingFocus: {
+          presetOrder: ["largest", "worst-pnl"],
+          hiddenPresets: ["largest"],
+          selectedPreset: "largest",
+        },
+      },
+    });
+    await adminApi.assert.statusIs(hiddenSelectedResponse, 400);
+    await adminApi.assert.errorCodeIs(await hiddenSelectedResponse.json() as { error: string }, "invalid_preference");
+  });
+
   test("[user-prefs]: GET /user-preferences/effective-ranges → source=default when no user pref, no admin override", async ({
     request,
     adminApi,

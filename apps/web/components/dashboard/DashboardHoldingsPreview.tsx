@@ -1,16 +1,24 @@
 "use client";
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type {
   AccountDefaultCurrency,
   CurrencyCode,
+  DashboardHoldingFocusPreferenceDto,
+  DashboardHoldingFocusPreset,
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   FxConversionRateDto,
   LocaleCode,
 } from "@vakwen/shared-types";
-import { ChevronRight, Search, Settings2 } from "lucide-react";
+import {
+  DASHBOARD_HOLDING_FOCUS_PRESETS,
+  DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE,
+  dashboardHoldingFocusPreferenceSchema,
+} from "@vakwen/shared-types";
+import { ArrowDown, ArrowUp, ChevronRight, RotateCcw, Search, Settings2 } from "lucide-react";
+import { getJson, patchJson } from "../../lib/api";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/shadcn/badge";
@@ -64,15 +72,22 @@ import {
 } from "../ui/shadcn/tooltip";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "ticker";
-type HoldingFocusPreset = "largest" | "worst-pnl" | "best-pnl" | "fx-exposure" | "stale-quotes";
 
-const HOLDING_FOCUS_PRESETS: Array<{ id: HoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
+const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
   { id: "largest", label: "Largest", sortMode: "value" },
   { id: "worst-pnl", label: "Worst P&L", sortMode: "pnl" },
   { id: "best-pnl", label: "Best P&L", sortMode: "pnl" },
   { id: "fx-exposure", label: "FX exposure", sortMode: "value" },
-  { id: "stale-quotes", label: "Stale quotes", sortMode: "daily" },
+  { id: "stale-quotes", label: "Stale quotes", sortMode: "ticker" },
 ];
+
+const HOLDING_FOCUS_PRESET_BY_ID = new Map(HOLDING_FOCUS_PRESETS.map((preset) => [preset.id, preset]));
+
+interface UserPreferencesResponse {
+  preferences?: {
+    dashboardHoldingFocus?: unknown;
+  };
+}
 
 interface DashboardHoldingsPreviewProps {
   fxRates?: FxConversionRateDto[];
@@ -89,18 +104,42 @@ export function DashboardHoldingsPreview({
 }: DashboardHoldingsPreviewProps) {
   const [accountFilter, setAccountFilter] = useState("ALL");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<DashboardHoldingFocusPreset>>(
+    () => new Set(DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.hiddenPresets),
+  );
   const [marketFilter, setMarketFilter] = useState("ALL");
+  const [presetError, setPresetError] = useState("");
+  const [presetOrder, setPresetOrder] = useState<DashboardHoldingFocusPreset[]>(
+    () => [...DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.presetOrder],
+  );
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DashboardOverviewHoldingGroupDto | null>(null);
-  const [selectedPreset, setSelectedPreset] = useState<HoldingFocusPreset>("largest");
-  const [sortMode, setSortMode] = useState<HoldingsPreviewSort>("value");
-  const [visiblePresetIds, setVisiblePresetIds] = useState<Set<HoldingFocusPreset>>(
-    () => new Set(HOLDING_FOCUS_PRESETS.map((preset) => preset.id)),
+  const [selectedPreset, setSelectedPreset] = useState<DashboardHoldingFocusPreset>(
+    DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.selectedPreset,
   );
+  const [sortMode, setSortMode] = useState<HoldingsPreviewSort>("value");
   const marketOptions = useMemo(
     () => ["ALL", ...new Set(groups.map((group) => group.marketCode))],
     [groups],
   );
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<UserPreferencesResponse>("/user-preferences")
+      .then((response) => {
+        if (cancelled) return;
+        const preference = normalizeDashboardHoldingFocusPreference(response?.preferences?.dashboardHoldingFocus);
+        setPresetOrder([...preference.presetOrder]);
+        setHiddenPresetIds(new Set(preference.hiddenPresets));
+        setSelectedPreset(preference.selectedPreset);
+        setSortMode(HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset)?.sortMode ?? "value");
+      })
+      .catch(() => {
+        // Keep the built-in preset defaults when preferences cannot be loaded.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const accountOptions = useMemo(() => {
     const accounts = new Map<string, string>();
     for (const group of groups) {
@@ -134,12 +173,27 @@ export function DashboardHoldingsPreview({
       .slice(0, 12),
     [filteredGroups, selectedPreset, sortMode],
   );
-  const visiblePresets = HOLDING_FOCUS_PRESETS.filter((preset) => visiblePresetIds.has(preset.id));
+  const visiblePresets = presetOrder
+    .filter((presetId) => !hiddenPresetIds.has(presetId))
+    .map((presetId) => HOLDING_FOCUS_PRESET_BY_ID.get(presetId))
+    .filter((preset): preset is (typeof HOLDING_FOCUS_PRESETS)[number] => preset !== undefined);
   const reportScope = marketFilter === "ALL" ? "all" : marketFilter;
+  const persistDashboardHoldingFocus = (preference: DashboardHoldingFocusPreferenceDto) => {
+    setPresetError("");
+    void patchJson("/user-preferences", { dashboardHoldingFocus: preference })
+      .catch((error) => {
+        setPresetError(error instanceof Error ? error.message : String(error));
+      });
+  };
   const handlePresetChange = (value: string) => {
     if (!isHoldingFocusPreset(value)) return;
     setSelectedPreset(value);
     setSortMode(HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+    persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
+      hiddenPresets: [...hiddenPresetIds],
+      presetOrder,
+      selectedPreset: value,
+    }));
   };
   const toggleExpandedRow = (key: string) => {
     setExpandedRows((current) => {
@@ -149,13 +203,57 @@ export function DashboardHoldingsPreview({
       return next;
     });
   };
-  const togglePresetVisibility = (presetId: HoldingFocusPreset) => {
-    setVisiblePresetIds((current) => {
+  const togglePresetVisibility = (presetId: DashboardHoldingFocusPreset) => {
+    setHiddenPresetIds((current) => {
       const next = new Set(current);
-      if (next.has(presetId) && next.size > 1) next.delete(presetId);
-      else next.add(presetId);
+      const currentlyVisible = !next.has(presetId);
+      const visibleCount = presetOrder.filter((id) => !next.has(id)).length;
+      if (currentlyVisible && visibleCount > 1) {
+        next.add(presetId);
+        if (presetId === selectedPreset) {
+          const nextSelected = presetOrder.find((id) => !next.has(id)) ?? "largest";
+          setSelectedPreset(nextSelected);
+          setSortMode(HOLDING_FOCUS_PRESETS.find((preset) => preset.id === nextSelected)?.sortMode ?? "value");
+          persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
+            hiddenPresets: [...next],
+            presetOrder,
+            selectedPreset: nextSelected,
+          }));
+          return next;
+        }
+      } else {
+        next.delete(presetId);
+      }
+      persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
+        hiddenPresets: [...next],
+        presetOrder,
+        selectedPreset,
+      }));
       return next;
     });
+  };
+  const movePreset = (presetId: DashboardHoldingFocusPreset, direction: -1 | 1) => {
+    setPresetOrder((current) => {
+      const index = current.indexOf(presetId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
+      persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
+        hiddenPresets: [...hiddenPresetIds],
+        presetOrder: next,
+        selectedPreset,
+      }));
+      return next;
+    });
+  };
+  const resetPresetPreference = () => {
+    const preference = DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE;
+    setPresetOrder([...preference.presetOrder]);
+    setHiddenPresetIds(new Set(preference.hiddenPresets));
+    setSelectedPreset(preference.selectedPreset);
+    setSortMode(HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset)?.sortMode ?? "value");
+    persistDashboardHoldingFocus(preference);
   };
 
   return (
@@ -192,7 +290,11 @@ export function DashboardHoldingsPreview({
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">Market</span>
                   <Select value={marketFilter} onValueChange={setMarketFilter}>
-                    <SelectTrigger className="min-w-36" data-testid="dashboard-holdings-market-filter">
+                    <SelectTrigger
+                      aria-label="Market"
+                      className="min-w-36"
+                      data-testid="dashboard-holdings-market-filter"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -209,7 +311,11 @@ export function DashboardHoldingsPreview({
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">Account</span>
                   <Select value={accountFilter} onValueChange={setAccountFilter}>
-                    <SelectTrigger className="min-w-36" data-testid="dashboard-holdings-account-filter">
+                    <SelectTrigger
+                      aria-label="Account"
+                      className="min-w-36"
+                      data-testid="dashboard-holdings-account-filter"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -226,7 +332,11 @@ export function DashboardHoldingsPreview({
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">Sort by</span>
                   <Select value={sortMode} onValueChange={(value) => setSortMode(value as HoldingsPreviewSort)}>
-                    <SelectTrigger className="min-w-36" data-testid="dashboard-holdings-sort">
+                    <SelectTrigger
+                      aria-label="Sort by"
+                      className="min-w-36"
+                      data-testid="dashboard-holdings-sort"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -243,56 +353,96 @@ export function DashboardHoldingsPreview({
             </div>
           </CardHeader>
           <CardContent>
-            {visibleGroups.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-8 text-sm text-muted-foreground">
-                No holdings are available for this market.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0 overflow-x-auto pb-1">
-                    <ToggleGroup
-                      className="w-max"
-                      type="single"
-                      value={selectedPreset}
-                      onValueChange={handlePresetChange}
-                      aria-label="Holding Focus presets"
-                      data-testid="dashboard-holdings-presets"
-                    >
-                      {visiblePresets.map((preset) => (
-                        <ToggleGroupItem key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                  </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button size="sm" variant="ghost" data-testid="dashboard-holdings-preset-settings">
-                        <Settings2 data-icon="inline-start" aria-hidden="true" />
-                        Chips
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-72">
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">Chip visibility</p>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          {HOLDING_FOCUS_PRESETS.map((preset) => (
-                            <label key={preset.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                              <Checkbox
-                                checked={visiblePresetIds.has(preset.id)}
-                                onCheckedChange={() => togglePresetVisibility(preset.id)}
-                              />
-                              <span>{preset.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0 overflow-x-auto pb-1">
+                  <ToggleGroup
+                    className="w-max"
+                    type="single"
+                    value={selectedPreset}
+                    onValueChange={handlePresetChange}
+                    aria-label="Holding Focus presets"
+                    data-testid="dashboard-holdings-presets"
+                  >
+                    {visiblePresets.map((preset) => (
+                      <ToggleGroupItem key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
                 </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button size="sm" variant="ghost" data-testid="dashboard-holdings-preset-settings">
+                      <Settings2 data-icon="inline-start" aria-hidden="true" />
+                      Chips
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72">
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Chip visibility</p>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {presetOrder.map((presetId, index) => {
+                          const preset = HOLDING_FOCUS_PRESET_BY_ID.get(presetId);
+                          if (!preset) return null;
+                          const isVisible = !hiddenPresetIds.has(preset.id);
+                          return (
+                            <div key={preset.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-2 text-sm">
+                              <Checkbox
+                                checked={isVisible}
+                                onCheckedChange={() => togglePresetVisibility(preset.id)}
+                                aria-label={`Show ${preset.label} chip`}
+                              />
+                              <span className="min-w-0 flex-1 truncate">{preset.label}</span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => movePreset(preset.id, -1)}
+                                disabled={index === 0}
+                                aria-label={`Move ${preset.label} chip earlier`}
+                                data-testid={`dashboard-holdings-preset-up-${preset.id}`}
+                              >
+                                <ArrowUp data-icon="inline-start" aria-hidden="true" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => movePreset(preset.id, 1)}
+                                disabled={index === presetOrder.length - 1}
+                                aria-label={`Move ${preset.label} chip later`}
+                                data-testid={`dashboard-holdings-preset-down-${preset.id}`}
+                              >
+                                <ArrowDown data-icon="inline-start" aria-hidden="true" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {presetError ? <p className="text-xs text-destructive">{presetError}</p> : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={resetPresetPreference}
+                        data-testid="dashboard-holdings-preset-reset"
+                      >
+                        <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                        Reset
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              {visibleGroups.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-8 text-sm text-muted-foreground">
+                  No holdings match the current filters.
+                </div>
+              ) : (
+                <>
                 <HoldingsFxStrip
                   fxRates={fxRates}
                   groups={visibleGroups}
@@ -321,8 +471,9 @@ export function DashboardHoldingsPreview({
                   onToggleExpanded={toggleExpandedRow}
                   reportingCurrency={reportingCurrency}
                 />
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </CardContent>
           <CardFooter className="flex flex-col items-stretch gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
@@ -876,9 +1027,7 @@ function DashboardHoldingDetail({
           <DetailMetric label="Market value" value={group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />
           <DetailMetric label="Quantity" value={formatNumber(group.quantity, locale, 2)} />
           <DetailMetric label="Portfolio allocation" value={portfolioAllocation} />
-          <DetailMetric label="Market allocation" value="-" />
           <DetailMetric label="Accounts" value={formatNumber(group.children.length, locale)} />
-          <DetailMetric label="Lot count" value="-" />
         </DetailGrid>
       </DetailSection>
 
@@ -917,7 +1066,6 @@ function DashboardHoldingDetail({
       <DetailSection title="Cost/P&L">
         <DetailGrid>
           <DetailMetric label="Book Cost" value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />
-          <DetailMetric label="FX-Translated Cost" value="-" />
           <DetailMetric label="Unrealized P&L" toneValue={group.reportingUnrealizedPnlAmount} value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)} />
           <DetailMetric label="Daily move" toneValue={reportingDailyMove} value={reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)} />
         </DetailGrid>
@@ -971,8 +1119,12 @@ function compareHoldingGroups(
   left: DashboardOverviewHoldingGroupDto,
   right: DashboardOverviewHoldingGroupDto,
   sortMode: HoldingsPreviewSort,
-  selectedPreset: HoldingFocusPreset,
+  selectedPreset: DashboardHoldingFocusPreset,
 ): number {
+  if (selectedPreset === "stale-quotes") {
+    const freshnessRankDiff = freshnessSortRank(right) - freshnessSortRank(left);
+    if (freshnessRankDiff !== 0) return freshnessRankDiff;
+  }
   if (sortMode === "ticker") {
     return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
   }
@@ -991,13 +1143,51 @@ function compareHoldingGroups(
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
 }
 
-function isHoldingFocusPreset(value: string): value is HoldingFocusPreset {
-  return HOLDING_FOCUS_PRESETS.some((preset) => preset.id === value);
+function isHoldingFocusPreset(value: string): value is DashboardHoldingFocusPreset {
+  return (DASHBOARD_HOLDING_FOCUS_PRESETS as readonly string[]).includes(value);
+}
+
+function normalizeDashboardHoldingFocusPreference(value: unknown): DashboardHoldingFocusPreferenceDto {
+  const parsed = dashboardHoldingFocusPreferenceSchema.safeParse(value);
+  if (!parsed.success) return DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE;
+  return buildDashboardHoldingFocusPreference(parsed.data);
+}
+
+function buildDashboardHoldingFocusPreference({
+  hiddenPresets,
+  presetOrder,
+  selectedPreset,
+}: DashboardHoldingFocusPreferenceDto): DashboardHoldingFocusPreferenceDto {
+  const known = new Set<DashboardHoldingFocusPreset>(DASHBOARD_HOLDING_FOCUS_PRESETS);
+  const order: DashboardHoldingFocusPreset[] = [];
+  for (const preset of presetOrder) {
+    if (known.has(preset) && !order.includes(preset)) order.push(preset);
+  }
+  for (const preset of DASHBOARD_HOLDING_FOCUS_PRESETS) {
+    if (!order.includes(preset)) order.push(preset);
+  }
+
+  const orderSet = new Set(order);
+  const hidden = hiddenPresets.filter((preset, index, all) =>
+    orderSet.has(preset) && all.indexOf(preset) === index);
+  if (order.length > 0 && order.every((preset) => hidden.includes(preset))) {
+    hidden.pop();
+  }
+  let selected = selectedPreset;
+  if (!orderSet.has(selected) || hidden.includes(selected)) {
+    selected = order.find((preset) => !hidden.includes(preset)) ?? order[0] ?? "largest";
+  }
+
+  return {
+    presetOrder: order,
+    hiddenPresets: hidden,
+    selectedPreset: selected,
+  };
 }
 
 function applyHoldingPreset(
   groups: DashboardOverviewHoldingGroupDto[],
-  preset: HoldingFocusPreset,
+  preset: DashboardHoldingFocusPreset,
   reportingCurrency: AccountDefaultCurrency,
 ): DashboardOverviewHoldingGroupDto[] {
   if (preset === "fx-exposure") {
@@ -1007,6 +1197,14 @@ function applyHoldingPreset(
     return groups.filter((group) => group.quoteStatus !== "current" || group.freshness !== "current");
   }
   return groups;
+}
+
+function freshnessSortRank(group: DashboardOverviewHoldingGroupDto): number {
+  if (group.quoteStatus === "missing") return 4;
+  if (group.freshness === "stale_red") return 3;
+  if (group.freshness === "stale_amber") return 2;
+  if (group.quoteStatus === "provisional") return 1;
+  return 0;
 }
 
 function holdingRowKey(group: DashboardOverviewHoldingGroupDto): string {
