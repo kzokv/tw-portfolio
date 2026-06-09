@@ -796,6 +796,15 @@ async function buildDatedPerformanceFinance(
   }
 
   const oneDayMs = 86_400_000;
+  while (tradeIndex < trades.length && trades[tradeIndex].tradeDate < startDate) {
+    await applyTrade(trades[tradeIndex]);
+    tradeIndex += 1;
+  }
+  while (dividendIndex < dividendEntries.length && dividendEntries[dividendIndex].date < startDate) {
+    await applyDividend(dividendEntries[dividendIndex]);
+    dividendIndex += 1;
+  }
+
   for (
     let cursor = new Date(`${startDate}T00:00:00.000Z`).getTime();
     cursor <= new Date(`${endDate}T00:00:00.000Z`).getTime();
