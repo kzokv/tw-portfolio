@@ -213,24 +213,78 @@ export function buildHoldingGroupsFromHoldings({
 
 export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOverviewHoldingGroupDto[] {
   if (Array.isArray(snapshot.holdingGroups) && snapshot.holdingGroups.length > 0) {
-    return snapshot.holdingGroups.map((group) => ({
-      ...group,
-      reportingCurrency: group.reportingCurrency ?? group.currency,
-      reportingCostBasisAmount: group.reportingCostBasisAmount ?? group.costBasisAmount,
-      reportingMarketValueAmount: group.reportingMarketValueAmount ?? group.marketValueAmount,
-      reportingUnrealizedPnlAmount: group.reportingUnrealizedPnlAmount ?? group.unrealizedPnlAmount,
-      children: group.children.map((child) => ({
-        ...child,
-        reportingCurrency: child.reportingCurrency ?? group.reportingCurrency ?? resolveReportingCurrency(child.currency),
-        reportingCostBasisAmount: child.reportingCostBasisAmount ?? child.costBasisAmount,
-        reportingMarketValueAmount: child.reportingMarketValueAmount ?? child.marketValueAmount,
-        reportingUnrealizedPnlAmount: child.reportingUnrealizedPnlAmount ?? child.unrealizedPnlAmount,
-        marketCode: child.marketCode ?? group.marketCode,
-      })),
-    }));
+    return snapshot.holdingGroups.map((group) => {
+      const groupReportingCurrency = group.reportingCurrency ?? group.currency;
+      return {
+        ...group,
+        reportingCurrency: groupReportingCurrency,
+        reportingCostBasisAmount: resolveReportingAmount(
+          group,
+          "reportingCostBasisAmount",
+          group.costBasisAmount,
+          groupReportingCurrency,
+          group.currency,
+        ),
+        reportingMarketValueAmount: resolveReportingAmount(
+          group,
+          "reportingMarketValueAmount",
+          group.marketValueAmount,
+          groupReportingCurrency,
+          group.currency,
+        ),
+        reportingUnrealizedPnlAmount: resolveReportingAmount(
+          group,
+          "reportingUnrealizedPnlAmount",
+          group.unrealizedPnlAmount,
+          groupReportingCurrency,
+          group.currency,
+        ),
+        children: group.children.map((child) => {
+          const childReportingCurrency = child.reportingCurrency ?? groupReportingCurrency ?? resolveReportingCurrency(child.currency);
+          return {
+            ...child,
+            reportingCurrency: childReportingCurrency,
+            reportingCostBasisAmount: resolveReportingAmount(
+              child,
+              "reportingCostBasisAmount",
+              child.costBasisAmount,
+              childReportingCurrency,
+              child.currency,
+            ),
+            reportingMarketValueAmount: resolveReportingAmount(
+              child,
+              "reportingMarketValueAmount",
+              child.marketValueAmount,
+              childReportingCurrency,
+              child.currency,
+            ),
+            reportingUnrealizedPnlAmount: resolveReportingAmount(
+              child,
+              "reportingUnrealizedPnlAmount",
+              child.unrealizedPnlAmount,
+              childReportingCurrency,
+              child.currency,
+            ),
+            marketCode: child.marketCode ?? group.marketCode,
+          };
+        }),
+      };
+    });
   }
 
   return buildHoldingGroupsFromHoldings(snapshot);
+}
+
+function resolveReportingAmount(
+  row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto,
+  key: "reportingCostBasisAmount" | "reportingMarketValueAmount" | "reportingUnrealizedPnlAmount",
+  nativeValue: number | null,
+  reportingCurrency: AccountDefaultCurrency,
+  nativeCurrency: CurrencyCode,
+): number | null {
+  const value = row[key];
+  if (value !== undefined) return value;
+  return reportingCurrency === nativeCurrency ? nativeValue : null;
 }
 
 export function getAmountForAllocationBasis(
@@ -240,18 +294,22 @@ export function getAmountForAllocationBasis(
   >,
   basis: HoldingAllocationBasis,
 ): { amount: number; usedFallback: boolean } {
-  const costBasis = holding.reportingCostBasisAmount ?? holding.costBasisAmount;
-  const marketValue = holding.reportingMarketValueAmount ?? holding.marketValueAmount;
+  const costBasis = holding.reportingCostBasisAmount;
+  const marketValue = holding.reportingMarketValueAmount;
 
   if (basis === "cost_basis") {
-    return { amount: costBasis, usedFallback: false };
+    return costBasis == null
+      ? { amount: 0, usedFallback: true }
+      : { amount: costBasis, usedFallback: false };
   }
 
   if (marketValue != null) {
     return { amount: marketValue, usedFallback: false };
   }
 
-  return { amount: costBasis, usedFallback: true };
+  return costBasis == null
+    ? { amount: 0, usedFallback: true }
+    : { amount: costBasis, usedFallback: true };
 }
 
 export function buildAllocationPercentages(

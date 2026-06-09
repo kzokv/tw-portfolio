@@ -325,6 +325,44 @@ describe("dashboard components", () => {
     expect(html).not.toContain("A$30.00");
   });
 
+  it("does not render native market values as selected reporting-currency holdings values", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const untranslatedGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingCurrentUnitPrice: null,
+      reportingMarketValueAmount: null,
+      reportingCostBasisAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingAllocationPercent: null,
+      fxStatus: "missing" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingCurrentUnitPrice: null,
+        reportingMarketValueAmount: null,
+        reportingCostBasisAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingAllocationPercent: null,
+        fxStatus: "missing" as const,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={[untranslatedGroup]}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(html).toContain("Missing");
+    expect(html).not.toContain("AUD 1.22M");
+    expect(html).not.toContain("A$1.22M");
+    expect(html).not.toContain("A$610.00");
+  });
+
   it("does not label native holding values as reporting-currency market values", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings })
       .map((group) => ({
