@@ -238,8 +238,8 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
 - [ ] Commit I: Run `/aaa` or the repo AAA workflow to add/update E2E tests covering the new user-facing flows, settings/persistence changes, report scope flows, and API endpoint behavior.
 - [x] Commit I: run focused tests first, then the full eight-suite gate before pushing. Repeatedly completed during the 2026-06-09 follow-up passes; see Verification Log.
-- [ ] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits. Earlier base-PR `@codex review` completed at `8fe520f5`; a fresh rerun is not recorded after the later 2026-06-09 follow-up fixes.
-- [ ] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow. Earlier base-PR dev deploy/Chrome validation completed at `8fe520f5`; a fresh rerun is not recorded after the later 2026-06-09 follow-up fixes.
+- [x] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits. Latest branch-tip `@codex review` completed for `354b0c05` with no inline comments after the report default/ticker enrichment follow-up.
+- [x] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow. Branch-tip CI passed in run `27205068660`; dev deploy run `27205524079` deployed `354b0c05`; Chrome extension validation is recorded in the Verification Log. Mobile viewport resizing was not available through the existing Chrome extension connection, so the live browser validation covered the deployed desktop viewport plus prior mobile E2E/mockup coverage.
 
 ## Follow-up Issue Fixes — 2026-06-08
 
@@ -417,7 +417,17 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
-- [ ] Fresh post-2026-06-09 branch-tip CI green, dev deploy, and Chrome validation are not yet recorded in this doc. The last documented remote validation is the base-PR pass at `8fe520f5`; later follow-up fixes are locally gated only.
+- [x] Fresh post-2026-06-09 branch-tip CI green, dev deploy, and Chrome validation recorded for `354b0c05`.
+  - PR Gate run `27205068057` passed.
+  - CI run `27205068660` passed: lint, build-and-typecheck, unit-tests, integration-tests, deploy-config-validation, docker-build-validation, e2e-oauth, and e2e-bypass.
+  - Latest `@codex review` on `354b0c05` completed without inline comments.
+  - Dev deploy run `27205524079` completed successfully for `codex/dashboard-reporting-ui`.
+  - Chrome extension validation against `https://vakwen-dev-web.kzokvdevs.dpdns.org`:
+    - Scoped TW Market Report loaded after client refresh in about 33s with `Reporting TWD`, `FX complete`, two chart SVGs, market/detail tables, ticker links to `/tickers/{ticker}?marketCode=TW`, finance-tone positive/negative numbers, and no report error.
+    - All-market Portfolio Report with `currencyMode=specified&currency=AUD` loaded in about 8s with complete FX rows (`KRW/TWD/USD to AUD`), converted AUD values, native price disclosure, ticker links, and three chart SVGs.
+    - Dashboard rendered the shell/cards immediately. After the top-level refresh, the hero showed `AUD 949K` market value, `AUD 31.9K` daily change, complete FX rows, per-market AUD values, biggest movers, and Holdings detail with native-price disclosure and account counts.
+    - Ticker page `/tickers/2330?marketCode=TW` loaded with primary-ready summary, chart, account breakdown rows for account-level detail, and no visible error. Initial navigation exceeded the 20s DOM-content wait, so ticker page performance remains worth watching after the enrichment endpoint split.
+    - Mobile viewport resizing could not be performed through the existing Chrome extension connection; mobile coverage remains from regenerated mockups plus Playwright E2E (`mobile-tables-aaa.spec.ts`) rather than this live Chrome pass.
 - [x] 2026-06-09 Chrome validation found the deployed `/reports?tab=market&scope=TW&currencyMode=specified&currency=TWD&range=1Y` shell could remain in a disabled refresh/loading state without report content after the server paint budget expired.
 - [x] 2026-06-09 local follow-up fixed the report client refresh path by adding a 15s abort timeout and retryable `Report unavailable` state instead of leaving reports bootstrapped indefinitely.
 - [x] 2026-06-09 focused validation for the report refresh-timeout fix:

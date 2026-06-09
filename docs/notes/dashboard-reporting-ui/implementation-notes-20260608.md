@@ -282,7 +282,7 @@ These are known transitional costs, not accidental behavior.
   - `npx vitest run test/integration/dashboard.integration.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 22 tests.
   - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts` passed.
   - `npx tsc --noEmit -p apps/api/test/unit/tsconfig.json --pretty false` passed.
-  - The last documented remote dev deploy/Chrome pass remains the earlier base-PR validation at commit `8fe520f5`; later 2026-06-09 follow-up fixes are documented as locally gated only.
+  - Branch-tip `354b0c05` subsequently passed PR Gate `27205068057`, CI `27205068660`, latest `@codex review` with no inline comments, and dev deploy `27205524079`.
   - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 37 tests.
 - Final local eight-suite gate after dashboard reporting-currency cache hardening and the semantic finance-token E2E assertion update:
   - Focused E2E: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/dashboard-daily-change-aaa.spec.ts` passed: 5 tests.
@@ -296,4 +296,4 @@ These are known transitional costs, not accidental behavior.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 
-Current validation status: the latest recorded branch-wide verification is the 2026-06-09 final local eight-suite gate after dashboard reporting-currency cache hardening and the semantic finance-token E2E assertion update.
+Current validation status: branch-tip `354b0c05` passed PR Gate `27205068057`, CI `27205068660`, latest `@codex review` with no inline comments, and dev deploy `27205524079`. Chrome extension validation covered scoped TW Market Report, all-market AUD Portfolio Report, Dashboard hero/Holdings refresh behavior, and ticker account-level detail on the deployed desktop viewport; live mobile resize was unavailable through the existing Chrome extension connection, so mobile confidence remains from regenerated mockups and Playwright E2E.
