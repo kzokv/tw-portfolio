@@ -8,7 +8,7 @@ import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "..
 import { resolveErrorMessage } from "../../../lib/utils";
 import type { LocaleCode } from "@vakwen/shared-types";
 
-export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 15_000;
+export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 45_000;
 const REPORT_REFRESH_TIMEOUT_MESSAGE = "Report refresh timed out. Try refreshing again.";
 
 export function useReportData({
