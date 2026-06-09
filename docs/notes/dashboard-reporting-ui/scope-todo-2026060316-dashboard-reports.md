@@ -487,6 +487,11 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npx eslint apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/test/features/dashboard/components.test.tsx` passed.
   - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
   - `git diff --check` passed.
+- [x] 2026-06-10 focused Codex review fix for ticker hydration:
+  - `fetchTickerDetailsHydration()` now hydrates from `/tickers/{ticker}/enrichment` after primary ticker data is seeded, while the initial `fetchTickerDetails()` path still uses `/details` for full primary data.
+  - `npm exec vitest run test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/TickerHistoryClient.test.tsx -- --no-file-parallelism` from `apps/web` passed: 9 tests.
+  - `npx eslint apps/web/features/portfolio/services/tickerDetailsService.ts apps/web/test/features/portfolio/services/tickerDetailsService.test.ts apps/web/test/app/tickers/TickerHistoryClient.test.tsx` passed.
+  - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
 
 ## Mockups
 

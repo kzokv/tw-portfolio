@@ -481,14 +481,14 @@ export async function fetchTickerDetails(
   options: FetchTickerDetailsOptions,
 ): Promise<TickerDetailsModel> {
   const fallback = buildPrimaryTickerDetails(options);
-  return fetchTickerDetailsHydration({
+  return fetchTickerDetailsFromEndpoint({
     ticker: options.ticker,
     accountId: options.accountId,
     marketCode: options.marketCode,
     instrument: options.instrument,
     transactions: options.transactions,
     primaryDetails: fallback,
-  });
+  }, "details");
 }
 
 function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: "details" | "enrichment"): string {
@@ -536,20 +536,14 @@ export async function fetchTickerDetailsHydration({
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions }, "details");
-
-  try {
-    const payload = await getJson<unknown>(path);
-    if (isTickerDetailsDto(payload)) {
-      return mapApiDetailsToModel(payload, primaryDetails);
-    }
-    if (isTickerEnrichmentDto(payload)) {
-      return mapApiEnrichmentToModel(payload, primaryDetails);
-    }
-    return mergeWithFallback(payload, primaryDetails);
-  } catch {
-    return primaryDetails;
-  }
+  return fetchTickerDetailsFromEndpoint({
+    ticker,
+    accountId,
+    marketCode,
+    instrument,
+    transactions,
+    primaryDetails,
+  }, "enrichment");
 }
 
 export async function fetchTickerDetailsEnrichment({
@@ -562,7 +556,27 @@ export async function fetchTickerDetailsEnrichment({
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions }, "enrichment");
+  return fetchTickerDetailsFromEndpoint({
+    ticker,
+    accountId,
+    marketCode,
+    instrument,
+    transactions,
+    primaryDetails,
+  }, "enrichment");
+}
+
+async function fetchTickerDetailsFromEndpoint({
+  ticker,
+  accountId,
+  marketCode,
+  instrument = null,
+  transactions = [],
+  primaryDetails,
+}: TickerDetailsRequest & {
+  primaryDetails: TickerDetailsModel;
+}, endpoint: "details" | "enrichment"): Promise<TickerDetailsModel> {
+  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);
