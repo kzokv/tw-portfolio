@@ -27,6 +27,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } 
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { Button } from "../ui/Button";
+import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Badge } from "../ui/shadcn/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
@@ -348,7 +349,7 @@ function ReportBody({
   tab: ReportTab;
 }) {
   if (isBootstrapping) return <ReportSkeleton />;
-  if (errorMessage) {
+  if (errorMessage && !data) {
     return (
       <Card data-testid="reports-error">
         <CardHeader>
@@ -372,6 +373,12 @@ function ReportBody({
 
   return (
     <div className="flex flex-col gap-6" data-testid={`reports-${tab}-content`}>
+      {errorMessage ? (
+        <Alert data-testid="reports-refresh-error">
+          <AlertTitle>Latest refresh failed</AlertTitle>
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
       <ReportMeta data={data} locale={locale} />
       <SummaryGrid summary={data.summary} currency={data.query.reportingCurrency} locale={locale} />
       <div className="grid gap-4 lg:grid-cols-2">
