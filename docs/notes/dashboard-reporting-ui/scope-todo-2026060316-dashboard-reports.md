@@ -182,9 +182,9 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Commit 6: split `/tickers/[ticker]` into primary and enrichment DTOs/endpoints or equivalent route-owned primary/enrichment fetches.
 - [x] Commit 6: make ticker primary include identity, position summary, transaction history preview, account breakdown, and basic quote/status.
 - [x] Commit 6: make ticker enrichment include chart series, fundamentals, dividends, quote freshness, and provider/backfill metadata.
-- [ ] Commit 6: add ticker primary DTO cache restore and silent refresh for return navigation. Deferred: the API split exists, but the web ticker route still server-seeds the existing details model and fetches enrichment into that model.
+- [x] Commit 6: add ticker primary/details DTO cache restore and silent refresh for return navigation. The backend primary/enrichment split exists; the web ticker route still server-seeds the compatibility details model, but the client now restores previously hydrated ticker details from the user/context-aware route DTO cache and silently refreshes full details after first paint.
 - [x] Commit 6: remove or quarantine client-side ticker accounting/chart fallback reconstruction from formal reporting paths. Formal reports use server report DTOs; legacy ticker fallback remains outside `/reports` and is documented as follow-up work.
-- [ ] Commit 6: add ticker tests for primary/enrichment split, cached restore, and server-authoritative chart/position values. Partial: split endpoint tests exist; cache-restore route tests remain pending with the deferred web ticker adoption.
+- [x] Commit 6: add ticker tests for primary/enrichment split, cached restore, and server-authoritative chart/position values. Split endpoint/service coverage exists, and `TickerHistoryClient` coverage now verifies cached ticker detail restore plus refresh writes into the route DTO cache.
 - [x] Commit 7: add MCP report tools.
 - [x] Commit 7: add MCP tools `get_daily_review_report`, `get_portfolio_report`, and `get_market_report`.
 - [x] Commit 7: map MCP tools to the same typed report DTOs and bounded detail controls.
@@ -230,7 +230,7 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit G: expose advice-ready MCP report context payloads and ensure MCP tool schemas accept/reflect reporting currency, scope, stale-data, Book Cost, FX-Translated Cost, P&L/return, market breakdown, top holdings/movers, risks, suggestions context, and data-quality warnings.
 - [ ] Commit G: update AI Connectors settings to show grouped MCP tool catalog with availability, required scope, policy state, and unavailable reasons.
 - [ ] Commit G: add API and web tests for tool catalog visibility, policy-disabled state, missing-scope/fresh-auth reasons, and read-report tool visibility.
-- [ ] Commit H: complete cache-first navigation/performance polish for Dashboard, Portfolio, Reports, and Ticker pages using user/context-aware cache keys and no blanking during refresh.
+- [ ] Commit H: complete cache-first navigation/performance polish for Dashboard, Portfolio, Reports, and Ticker pages using user/context-aware cache keys and no blanking during refresh. Partial: ticker detail pages now restore hydrated details from a user/context-aware route DTO cache and refresh full details silently; a deeper server route migration to consume `/tickers/:ticker/primary` directly remains follow-up.
 - [ ] Commit H: review SQL/query/read-path timing for corrected dashboard/report performance and targeted heavy paths; add narrow query optimizations where evidence supports them.
 - [ ] Commit H: add cache key/scope/range/report tests for `/reports`, dashboard, portfolio, and ticker back-navigation behavior.
 - [ ] Commit I: update UI labels, tooltips, data-health copy, and i18n for Book Cost, FX-Translated Cost, Return %, stale data, and missing FX.
@@ -451,6 +451,12 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npx vitest run test/integration/dashboard.integration.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 22 tests.
   - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts` passed.
   - `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false` passed.
+- [x] 2026-06-09 focused ticker cache validation:
+  - Added user/context-aware route DTO cache restore/write for hydrated ticker details in `TickerHistoryClient`, preserving rich quote, position, chart, and account detail values across return navigation while full details refresh silently.
+  - Process audit before focused tests found no orphan app/test runners; only Playwright MCP helper processes were present.
+  - `npx eslint 'apps/web/app/tickers/[ticker]/TickerHistoryClient.tsx' apps/web/test/app/tickers/TickerHistoryClient.test.tsx` passed.
+  - `npx vitest run --config vitest.config.ts test/app/tickers/TickerHistoryClient.test.tsx --no-file-parallelism` from `apps/web` passed: 4 tests. The existing non-failing React `act(...)` warning from async hydration remains visible.
+  - `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false` passed.
 
 ## Mockups
 

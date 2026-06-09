@@ -155,6 +155,7 @@ Current limitation:
 - The web ticker page has not fully adopted these new endpoints yet.
 - `app/tickers/[ticker]/page.tsx` still seeds its primary model by combining dashboard primary data, filtered transaction history, and repair instrument metadata.
 - `TickerHistoryClient` then refreshes richer data through the legacy ticker-details fetch path.
+- `TickerHistoryClient` now caches the hydrated ticker details model under the shared route DTO cache prefix with session-user, portfolio-context, locale, ticker, market, and account dimensions. Return navigation can restore the previously hydrated quote/position/chart/account details immediately while the full details refresh runs silently.
 
 Treat the split as the backend contract that should replace the legacy read path, not as a fully completed web-route migration.
 
@@ -228,6 +229,8 @@ These are known transitional costs, not accidental behavior.
   - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:
   - `apps/web/test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx`
+- Ticker hydrated-detail cache restore/write coverage:
+  - `apps/web/test/app/tickers/TickerHistoryClient.test.tsx`
 - AI Connector settings catalog coverage:
   - `apps/web/test/components/settings/AiConnectorsSettingsClient.test.tsx`
 - Full local PR gate after the 2026-06-08 scoped-report server-seed abort fix:
