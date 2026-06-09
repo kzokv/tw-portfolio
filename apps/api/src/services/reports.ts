@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { roundToDecimal, type QuoteSnapshot } from "@vakwen/domain";
 import {
+  ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
   marketCodeFor,
   type AccountDefaultCurrency,
@@ -415,7 +416,7 @@ async function buildFxStatus(
   reportingCurrency: AccountDefaultCurrency,
   asOf: string,
 ): Promise<ReportFxStatusDto> {
-  const nativeCurrencies = [...new Set(store.accounting.projections.holdings.map((holding) => holding.currency as AccountDefaultCurrency))];
+  const nativeCurrencies = collectReportFxCurrencies(store);
   const missingRatePairs: Array<{ from: AccountDefaultCurrency; to: AccountDefaultCurrency }> = [];
   for (const currency of nativeCurrencies) {
     if (currency === reportingCurrency) continue;
@@ -432,6 +433,34 @@ async function buildFxStatus(
     nativeCurrencies,
     missingRatePairs,
   };
+}
+
+function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
+  const currencies = new Set<AccountDefaultCurrency>();
+  const addCurrency = (currency: CurrencyCode | string | null | undefined) => {
+    if (typeof currency === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(currency)) {
+      currencies.add(currency as AccountDefaultCurrency);
+    }
+  };
+
+  for (const holding of store.accounting.projections.holdings) {
+    addCurrency(holding.currency);
+  }
+  for (const trade of store.accounting.facts.tradeEvents) {
+    if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
+    addCurrency(trade.realizedPnlCurrency ?? trade.priceCurrency);
+  }
+  const holdingTickers = new Set(store.accounting.projections.holdings.map((holding) => holding.ticker));
+  const dividendEventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  for (const event of store.marketData.dividendEvents) {
+    if (!holdingTickers.has(event.ticker)) continue;
+    addCurrency(event.cashDividendCurrency);
+  }
+  for (const entry of store.accounting.facts.dividendLedgerEntries) {
+    if (entry.postingStatus !== "posted" || entry.receivedCashAmount === 0) continue;
+    addCurrency(dividendEventById.get(entry.dividendEventId)?.cashDividendCurrency);
+  }
+  return [...currencies];
 }
 
 async function buildSummaryTotals(

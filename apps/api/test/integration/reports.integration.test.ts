@@ -877,6 +877,84 @@ describe("report routes", () => {
     }
   });
 
+  it("includes realized P&L and dividend currencies in report FX status", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-krw-realized-pnl-trade",
+      userId,
+      accountId: "acc-1",
+      ticker: "005930",
+      marketCode: "KR",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 10_000,
+      priceCurrency: "KRW",
+      realizedPnlAmount: 1_000,
+      realizedPnlCurrency: "KRW",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    store.marketData.dividendEvents.push({
+      id: "report-krw-dividend-event",
+      ticker: "005930",
+      eventType: "CASH",
+      exDividendDate: "2026-06-01",
+      paymentDate: "2026-06-03",
+      cashDividendPerShare: 100,
+      cashDividendCurrency: "KRW",
+      stockDividendPerShare: 0,
+      source: "test",
+    });
+    store.accounting.facts.dividendLedgerEntries.push({
+      id: "report-krw-dividend-ledger",
+      accountId: "acc-1",
+      dividendEventId: "report-krw-dividend-event",
+      eligibleQuantity: 1,
+      expectedCashAmount: 100,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 100,
+      receivedStockQuantity: 0,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "provided",
+    });
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?currencyMode=specified&currency=TWD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      fxStatus: expect.objectContaining({
+        status: "missing",
+        nativeCurrencies: expect.arrayContaining(["KRW"]),
+        missingRatePairs: expect.arrayContaining([
+          expect.objectContaining({ from: "KRW", to: "TWD" }),
+        ]),
+      }),
+    }));
+  });
+
   it("rejects unsupported report ranges before route or MCP report builders can fail generically", async () => {
     const portfolioReport = await app.inject({
       method: "GET",
