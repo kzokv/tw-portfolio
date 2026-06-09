@@ -67,6 +67,12 @@ Per-report sections:
 
 Dashboard holding-group DTOs now carry the same explicit reporting-price lineage for current unit price: `reportingCurrentUnitPrice` is emitted on translated dashboard holding groups and children when FX is available. The dashboard Holdings preview consumes that field first and only falls back to `reportingMarketValueAmount / quantity` for older cached DTOs that predate the field.
 
+Current naming/status note:
+
+- Wire DTO field names are still `totalCostAmount` / `costBasisAmount`, but the dashboard/report chart labels now present that series as `Book Cost`.
+- The newer transaction-date-FX, weighted-average Book Cost overlay is currently applied to performance points in `apps/api/src/services/dashboardReportingCurrency.ts`.
+- Dashboard/report summary totals, Holding Focus detail rows, `FX-Translated Cost` disclosure, and incomplete-count diagnostics have not yet been fully migrated to that newer Book Cost contract and remain documented follow-up work.
+
 ## Stale-While-Revalidate route DTO cache
 
 The web app uses a localStorage-backed route DTO cache in `apps/web/lib/routeDtoCache.ts`.
@@ -111,9 +117,11 @@ Current follow-up validation:
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, visible FX-rate strip, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` also hydrates/persists `dashboardHoldingFocus` preferences by writing the full `{ presetOrder, hiddenPresets, selectedPreset }` object through `PATCH /user-preferences`.
 - `apps/api/src/services/dashboardReportingCurrency.ts` now adds performance freshness metadata (`requestedAsOf`, `lastReliableDate`, `marketDataStaleSince`) from the last reliable point, so dashboard/report charts can explain when a selected range extends beyond available market data.
+- `apps/api/src/services/dashboardReportingCurrency.ts` also overlays snapshot-backed performance points with transaction-date-FX finance data when store data is available, so snapshot Market Value can remain intact while Book Cost, realized P&L, dividends, Total Return, and Return % come from the newer read-time calculation path.
 - `apps/web/components/dashboard/PortfolioTrendCard.tsx`, `apps/web/components/dashboard/ReturnPercentCard.tsx`, and `apps/web/components/reports/ReportsClient.tsx` display `As of {date}` and `Market data stale since {date}` from that server metadata. Report performance charts do not bridge null-valued gaps, and dashboard/report performance labels now call the stable cost line `Book Cost`.
 - `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
 - `apps/web/features/reports/hooks/useReportData.ts` accepts matching refreshed server-seeded report DTOs after context/range changes and writes them back to the route DTO cache instead of treating `initialReport` as a one-time value.
+- `apps/web/features/reports/hooks/useReportData.ts` now bounds client-side report refreshes with a 15s abort timeout. This prevents scoped reports whose client refresh stalls after the server paint budget from leaving users in an indefinitely disabled refresh/loading state; the UI now surfaces a retryable report-unavailable message.
 - Matching E2E selector updates live in `libs/test-e2e/src/pages/dashboard/DashboardPage.ts` and `libs/test-e2e/src/assistants/dashboard/DashboardAssert.ts`.
 - Focused Holding Focus coverage currently comes from:
   - `apps/web/test/features/dashboard/components.test.tsx` for desktop account-row expansion, mobile/detail-sheet sections, preference hydration/PATCH persistence, active-chip fallback when hiding the selected preset, chip reorder, and reset/default behavior.
@@ -207,6 +215,12 @@ These are known transitional costs, not accidental behavior.
   - `apps/api/test/unit/dashboardReportingCurrency.test.ts`
   - `apps/web/test/features/dashboard/components.test.tsx`
   - `apps/web/test/components/reports/ReportsClient.test.tsx`
+- Focused Book Cost overlay coverage:
+  - `apps/api/test/unit/dashboardReportingCurrency.test.ts`
+  - `apps/api/test/integration/dashboard.integration.test.ts`
+  - `apps/api/test/integration/reports.integration.test.ts`
+- Focused report refresh-timeout coverage:
+  - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:
   - `apps/web/test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx`
 - AI Connector settings catalog coverage:
@@ -258,6 +272,12 @@ These are known transitional costs, not accidental behavior.
     - Final process audit found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 - Follow-up coverage for dashboard reporting-currency cache hardening and MCP catalog visibility:
   - `npx vitest run test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 12 tests.
+- Latest local branch-tip gate recorded in this note:
+  - `npx vitest run test/unit/dashboardReportingCurrency.test.ts` from `apps/api` passed: 12 tests.
+  - `npx vitest run test/integration/dashboard.integration.test.ts test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 22 tests.
+  - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts` passed.
+  - `npx tsc --noEmit -p apps/api/test/unit/tsconfig.json --pretty false` passed.
+  - The last documented remote dev deploy/Chrome pass remains the earlier base-PR validation at commit `8fe520f5`; later 2026-06-09 follow-up fixes are documented as locally gated only.
   - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/components/settings/AiConnectorsSettingsClient.test.tsx` from `apps/web` passed: 37 tests.
 - Final local eight-suite gate after dashboard reporting-currency cache hardening and the semantic finance-token E2E assertion update:
   - Focused E2E: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/dashboard-daily-change-aaa.spec.ts` passed: 5 tests.
