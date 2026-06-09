@@ -1,6 +1,6 @@
 # Dashboard Reporting UI Implementation Notes
 
-Updated: 2026-06-09
+Updated: 2026-06-10
 
 This note records the current dashboard reporting UI contracts and known limits. It is implementation-facing, not a product scope doc.
 
@@ -153,10 +153,11 @@ Backend and shared-type contracts now define a split surface:
 
 Current limitation:
 
-- The web ticker page has not fully adopted these new endpoints yet.
+- The web ticker page has not fully adopted the route-owned `/tickers/:ticker/primary` endpoint yet.
 - `app/tickers/[ticker]/page.tsx` still seeds its primary model by combining dashboard primary data, filtered transaction history, and repair instrument metadata.
-- `TickerHistoryClient` then refreshes richer data through the legacy ticker-details fetch path.
-- `TickerHistoryClient` now caches the hydrated ticker details model under the shared route DTO cache prefix with session-user, portfolio-context, locale, ticker, market, and account dimensions. Return navigation can restore the previously hydrated quote/position/chart/account details immediately while the full details refresh runs silently.
+- `TickerHistoryClient` now hydrates normal mount/return-navigation secondary data through `/tickers/:ticker/enrichment`, so chart/fundamentals refresh without repeating the full details payload.
+- Ticker transaction mutations still refresh through `/tickers/:ticker/details` after reloading transactions because quantity, average cost, Book Cost, and related primary stats can change.
+- `TickerHistoryClient` caches the hydrated ticker details model under the shared route DTO cache prefix with session-user, portfolio-context, locale, ticker, market, and account dimensions. Return navigation can restore the previously hydrated quote/position/chart/account details immediately while enrichment runs silently.
 
 Treat the split as the backend contract that should replace the legacy read path, not as a fully completed web-route migration.
 
@@ -309,4 +310,4 @@ These are known transitional costs, not accidental behavior.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
 
-Current validation status: branch-tip `354b0c05` passed PR Gate `27205068057`, CI `27205068660`, latest `@codex review` with no inline comments, and dev deploy `27205524079`. Chrome extension validation covered scoped TW Market Report, all-market AUD Portfolio Report, Dashboard hero/Holdings refresh behavior, and ticker account-level detail on the deployed desktop viewport; live mobile resize was unavailable through the existing Chrome extension connection, so mobile confidence remains from regenerated mockups and Playwright E2E.
+Current validation status: PR #208 is CI green at head `ab97590b`. The latest `@codex review` is clean at `issuecomment-4663126252`, and dev deploy run `27229545853` succeeded for `ab97590b`. Chrome extension validation covered the dashboard, scoped TW Market Report, ticker page, and deployed desktop viewport flows; residual notes are one ticker-page DOM-content load beyond 30s and one non-blocking React hydration error. Live mobile resize was not available through the existing Chrome extension connection, so mobile confidence remains from regenerated mockups and Playwright E2E.
