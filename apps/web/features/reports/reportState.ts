@@ -66,7 +66,7 @@ export function reportApiPath(tab: ReportTab, state: ReportRouteState): string {
   params.set("scope", state.scope);
   params.set("currencyMode", state.currencyMode);
   if (state.currencyMode === "specified") params.set("currency", state.currency);
-  params.set("range", state.range);
+  if (tab !== "daily-review") params.set("range", state.range);
   params.set("limit", "25");
 
   const endpoint = tab === "daily-review"

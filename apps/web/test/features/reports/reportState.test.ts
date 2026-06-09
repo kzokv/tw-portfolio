@@ -47,6 +47,12 @@ describe("report route state", () => {
     expect(reportApiPath("market", state)).toBe("/reports/market?scope=AU&currencyMode=auto&range=1Y&limit=25");
   });
 
+  it("omits range from daily review API queries", () => {
+    const state = parseReportRouteState(new URLSearchParams("tab=daily-review&scope=TW&currencyMode=specified&currency=AUD&range=1Y"));
+
+    expect(reportApiPath("daily-review", state)).toBe("/reports/daily-review?scope=TW&currencyMode=specified&currency=AUD&limit=25");
+  });
+
   it("preserves specified currency in report URLs", () => {
     const state = parseReportRouteState({
       tab: "portfolio",
