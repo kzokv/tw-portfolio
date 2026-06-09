@@ -9,6 +9,7 @@ import {
   buildPrimaryTickerDetails,
   fetchTickerDetails,
   fetchTickerDetailsEnrichment,
+  fetchTickerDetailsHydration,
 } from "../../../../features/portfolio/services/tickerDetailsService";
 
 const getJsonMock = vi.mocked(getJson);
@@ -379,5 +380,49 @@ describe("fetchTickerDetails", () => {
       ]),
     );
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
+  });
+
+  it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {
+    getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const dashboard = buildDashboard({
+      holdings: [{
+        ticker: "NVDA",
+        accountId: "acc-1",
+        accountName: "Broker",
+        accountDefaultCurrency: "USD",
+        marketCode: "US",
+        quantity: 10,
+        averageCostPerShare: 500,
+        currentUnitPrice: 900,
+        currency: "USD",
+        costBasisAmount: 5000,
+        marketValueAmount: 9000,
+        unrealizedPnlAmount: 4000,
+      }],
+    });
+    const instrument = {
+      ticker: "NVDA",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "NVIDIA",
+    } as never;
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "NVDA",
+      dashboard,
+      transactions: [],
+      instrument,
+    });
+
+    const details = await fetchTickerDetailsHydration({
+      ticker: "NVDA",
+      accountId: "acc-1",
+      marketCode: "US",
+      transactions: [],
+      instrument,
+      primaryDetails,
+    });
+
+    expect(details).toBe(primaryDetails);
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US");
   });
 });
