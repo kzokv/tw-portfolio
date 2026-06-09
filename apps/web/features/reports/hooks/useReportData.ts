@@ -8,6 +8,9 @@ import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "..
 import { resolveErrorMessage } from "../../../lib/utils";
 import type { LocaleCode } from "@vakwen/shared-types";
 
+export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 15_000;
+const REPORT_REFRESH_TIMEOUT_MESSAGE = "Report refresh timed out. Try refreshing again.";
+
 export function useReportData({
   cacheScope,
   contextRefreshSignal,
@@ -47,6 +50,10 @@ export function useReportData({
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
     requestVersionRef.current += 1;
     const version = requestVersionRef.current;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, REPORT_CLIENT_REFRESH_TIMEOUT_MS);
     setIsRefreshing(true);
     try {
       if (!bypassCache) {
@@ -57,7 +64,7 @@ export function useReportData({
           setRestoredAt(cached.savedAt);
         }
       }
-      const next = await fetchReport(state.tab, state);
+      const next = await fetchReport(state.tab, state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
       setData(next);
       writeRouteDtoCache(cacheKey, next);
@@ -66,8 +73,9 @@ export function useReportData({
       setRestoredAt(Date.now());
     } catch (error) {
       if (version !== requestVersionRef.current) return;
-      setErrorMessage(resolveErrorMessage(error));
+      setErrorMessage(isAbortError(error) ? REPORT_REFRESH_TIMEOUT_MESSAGE : resolveErrorMessage(error));
     } finally {
+      clearTimeout(timeoutId);
       if (version === requestVersionRef.current) setIsRefreshing(false);
     }
   }, [cacheKey, state]);
@@ -123,4 +131,9 @@ function reportMatchesTab(report: AnyReportDto, tab: ReportRouteState["tab"]): b
   if (tab === "daily-review") return "suggestions" in report && "topMovers" in report && "holdings" in report;
   if (tab === "portfolio") return "performance" in report && "allocation" in report && "income" in report;
   return "performance" in report && "marketSummary" in report && "detail" in report;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError"
+    || error instanceof Error && error.name === "AbortError";
 }

@@ -235,11 +235,11 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [ ] Commit H: add cache key/scope/range/report tests for `/reports`, dashboard, portfolio, and ticker back-navigation behavior.
 - [ ] Commit I: update UI labels, tooltips, data-health copy, and i18n for Book Cost, FX-Translated Cost, Return %, stale data, and missing FX.
 - [x] Commit I: refresh durable mockup screenshots only where the locked Holding Focus, stale-data, or Book Cost UI materially diverges from existing mockups. Holding Focus desktop/mobile screenshots were regenerated under `docs/notes/dashboard-reporting-ui/mockups/screenshots/`.
-- [ ] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
+- [x] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
 - [ ] Commit I: Run `/aaa` or the repo AAA workflow to add/update E2E tests covering the new user-facing flows, settings/persistence changes, report scope flows, and API endpoint behavior.
-- [ ] Commit I: run focused tests first, then the full eight-suite gate before pushing.
-- [ ] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits.
-- [ ] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow.
+- [x] Commit I: run focused tests first, then the full eight-suite gate before pushing. Repeatedly completed during the 2026-06-09 follow-up passes; see Verification Log.
+- [ ] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits. Earlier base-PR `@codex review` completed at `8fe520f5`; a fresh rerun is not recorded after the later 2026-06-09 follow-up fixes.
+- [ ] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow. Earlier base-PR dev deploy/Chrome validation completed at `8fe520f5`; a fresh rerun is not recorded after the later 2026-06-09 follow-up fixes.
 
 ## Follow-up Issue Fixes — 2026-06-08
 
@@ -301,9 +301,9 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm run test:e2e:oauth:mem --prefix apps/web`
   - `npm run test:http --prefix apps/api`
 - [x] CI green on PR. GitHub Actions passed after the Codex review fix commit `8fe520f5`.
-- [x] `@codex review` completed and feedback fixed. Fixed the P2 invalid report range finding in `fix(reports): validate report ranges`; focused report integration coverage and targeted API typechecks passed before push.
-- [x] Dev deployment completed. `deploy-dev.yml` workflow run `27121484090` deployed `codex/dashboard-reporting-ui` at `8fe520f5`.
-- [x] Chrome extension validation completed against the deployed dev branch:
+- [x] Base PR `@codex review` completed and feedback fixed at `8fe520f5`. Fixed the P2 invalid report range finding in `fix(reports): validate report ranges`; focused report integration coverage and targeted API typechecks passed before push.
+- [x] Base PR dev deployment completed. `deploy-dev.yml` workflow run `27121484090` deployed `codex/dashboard-reporting-ui` at `8fe520f5`.
+- [x] Base PR Chrome extension validation completed against the deployed dev branch at `8fe520f5`:
   - Dashboard hero showed active reporting currency, market strip, priority command cards, refresh strip, and report deep links.
   - Dashboard aggregate-row arithmetic passed in USD: market sums total `$985,381.62`; each visible aggregate P&L row had zero delta against `market value - total cost`.
   - Portfolio Report deep link restored URL state and rendered 3 chart SVGs, refresh controls, sticky table headers, and a sticky first column in the comparable desktop table.
@@ -412,6 +412,13 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
+- [ ] Fresh post-2026-06-09 branch-tip CI green, dev deploy, and Chrome validation are not yet recorded in this doc. The last documented remote validation is the base-PR pass at `8fe520f5`; later follow-up fixes are locally gated only.
+- [x] 2026-06-09 Chrome validation found the deployed `/reports?tab=market&scope=TW&currencyMode=specified&currency=TWD&range=1Y` shell could remain in a disabled refresh/loading state without report content after the server paint budget expired.
+- [x] 2026-06-09 local follow-up fixed the report client refresh path by adding a 15s abort timeout and retryable `Report unavailable` state instead of leaving reports bootstrapped indefinitely.
+- [x] 2026-06-09 focused validation for the report refresh-timeout fix:
+  - `npx vitest run test/features/reports/hooks/useReportData.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` passed: 9 tests.
+  - `npx eslint apps/web/features/reports/hooks/useReportData.ts apps/web/test/features/reports/hooks/useReportData.test.tsx apps/web/test/components/reports/ReportsClient.test.tsx docs/notes/dashboard-reporting-ui/implementation-notes-20260608.md docs/notes/dashboard-reporting-ui/scope-todo-2026060316-dashboard-reports.md` passed with expected ignored-file warnings for the Markdown docs.
+  - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
 - [x] 2026-06-09 focused Commit A validation after all-scope synthetic quote and explicit-null reporting fixes:
   - Process audit before tests found no orphan app/test runners; only Playwright MCP helper processes were present.
   - `npx vitest run test/integration/reports.integration.test.ts --no-file-parallelism` from `apps/api` passed: 10 tests.
