@@ -238,8 +238,8 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
 - [x] Commit I: update this todo by ticking delivered addendum items and leaving any explicitly deferred items unchecked with notes.
 - [ ] Commit I: Run `/aaa` or the repo AAA workflow to add/update E2E tests covering the new user-facing flows, settings/persistence changes, report scope flows, and API endpoint behavior.
 - [x] Commit I: run focused tests first, then the full eight-suite gate before pushing. Repeatedly completed during the 2026-06-09 follow-up passes; see Verification Log.
-- [x] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits. Latest branch-tip `@codex review` completed for `354b0c05` with no inline comments after the report default/ticker enrichment follow-up.
-- [x] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow. Branch-tip CI passed in run `27205068660`; dev deploy run `27205524079` deployed `354b0c05`; Chrome extension validation is recorded in the Verification Log. Mobile viewport resizing was not available through the existing Chrome extension connection, so the live browser validation covered the deployed desktop viewport plus prior mobile E2E/mockup coverage.
+- [x] Commit I: post `@codex review`, wait for feedback, fix all actionable review comments, rerun relevant gates, and push follow-up commits. Final PR #208 `@codex review` is clean at `issuecomment-4663126252`.
+- [x] Commit I: wait for CI green, deploy the dev branch, then validate dashboard/report/Holding Focus performance, chart presentation, number correctness, and responsive UX through the Codex Chrome workflow. PR #208 is CI green at head `ab97590b`; dev deploy run `27229545853` succeeded for `ab97590b`; Chrome extension validation is recorded in the Verification Log. Mobile viewport resizing was not available through the existing Chrome extension connection, so the live browser validation covered the deployed desktop viewport plus prior mobile E2E/mockup coverage.
 
 ## Follow-up Issue Fixes — 2026-06-08
 
@@ -427,16 +427,15 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 119 tests.
   - `npm run test:http --prefix apps/api` passed: 284 tests, 2 skipped.
   - Process audits before and after the E2E/API HTTP gates found no orphan app/test runners; only the expected Homebrew Postgres service remained.
-- [x] Fresh post-2026-06-09 branch-tip CI green, dev deploy, and Chrome validation recorded for `354b0c05`.
-  - PR Gate run `27205068057` passed.
-  - CI run `27205068660` passed: lint, build-and-typecheck, unit-tests, integration-tests, deploy-config-validation, docker-build-validation, e2e-oauth, and e2e-bypass.
-  - Latest `@codex review` on `354b0c05` completed without inline comments.
-  - Dev deploy run `27205524079` completed successfully for `codex/dashboard-reporting-ui`.
+- [x] Final PR #208 CI green, dev deploy, and Chrome validation recorded for `ab97590b`.
+  - PR #208 is CI green at head `ab97590b`.
+  - Final `@codex review` is clean at `issuecomment-4663126252`.
+  - Dev deploy run `27229545853` completed successfully for `ab97590b`.
   - Chrome extension validation against `https://vakwen-dev-web.kzokvdevs.dpdns.org`:
-    - Scoped TW Market Report loaded after client refresh in about 33s with `Reporting TWD`, `FX complete`, two chart SVGs, market/detail tables, ticker links to `/tickers/{ticker}?marketCode=TW`, finance-tone positive/negative numbers, and no report error.
-    - All-market Portfolio Report with `currencyMode=specified&currency=AUD` loaded in about 8s with complete FX rows (`KRW/TWD/USD to AUD`), converted AUD values, native price disclosure, ticker links, and three chart SVGs.
-    - Dashboard rendered the shell/cards immediately. After the top-level refresh, the hero showed `AUD 949K` market value, `AUD 31.9K` daily change, complete FX rows, per-market AUD values, biggest movers, and Holdings detail with native-price disclosure and account counts.
-    - Ticker page `/tickers/2330?marketCode=TW` loaded with primary-ready summary, chart, account breakdown rows for account-level detail, and no visible error. Initial navigation exceeded the 20s DOM-content wait, so ticker page performance remains worth watching after the enrichment endpoint split.
+    - Dashboard validation covered hero totals, refresh behavior, per-market values, biggest movers, and Holdings detail with native-price disclosure and account counts.
+    - Scoped TW Market Report validation covered reporting-currency rendering, FX/data-health state, charts, detail tables, and ticker links on the deployed branch.
+    - Ticker page validation covered primary-ready summary, chart, and account breakdown detail. Residual: initial navigation still exceeded a 30s DOM-content wait.
+    - One non-blocking React hydration error was noted during Chrome validation.
     - Mobile viewport resizing could not be performed through the existing Chrome extension connection; mobile coverage remains from regenerated mockups plus Playwright E2E (`mobile-tables-aaa.spec.ts`) rather than this live Chrome pass.
 - [x] 2026-06-09 Chrome validation found the deployed `/reports?tab=market&scope=TW&currencyMode=specified&currency=TWD&range=1Y` shell could remain in a disabled refresh/loading state without report content after the server paint budget expired.
 - [x] 2026-06-09 local follow-up fixed the report client refresh path by adding a 15s abort timeout and retryable `Report unavailable` state instead of leaving reports bootstrapped indefinitely.
@@ -494,6 +493,9 @@ This addendum was locked after follow-up investigation of dashboard cost drift, 
   - `npx eslint apps/web/features/portfolio/services/tickerDetailsService.ts apps/web/test/features/portfolio/services/tickerDetailsService.test.ts apps/web/test/app/tickers/TickerHistoryClient.test.tsx` passed.
   - `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false` passed.
   - `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/transaction-mutations-aaa.spec.ts -g "weighted-average cost correctness after delete"` passed: 1 test.
+- [x] 2026-06-10 final docs/SI pass:
+  - Technical-writer pass updated this todo, the implementation notes, and `.worklog/team/state.json` with final PR #208 evidence for `ab97590b`, clean Codex review `issuecomment-4663126252`, dev deploy run `27229545853`, and Chrome validation residuals.
+  - `/si-review` found a reusable route-split lesson from the ticker hydration regression; `/si-promote` added `.claude/rules/route-enrichment-mutation-refresh.md` and indexed it in `.claude/memory/MEMORY.md`.
 
 ## Mockups
 
