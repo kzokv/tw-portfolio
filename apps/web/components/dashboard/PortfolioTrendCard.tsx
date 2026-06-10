@@ -21,6 +21,7 @@ import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { TooltipInfo } from "../ui/TooltipInfo";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
 
@@ -159,7 +160,7 @@ export function PortfolioTrendCard({
       </div>
 
       {errorMessage ? (
-        <div className="mt-5 rounded-[20px] border border-[rgba(251,113,133,0.24)] bg-[rgba(254,226,226,0.92)] px-4 py-3 text-sm text-rose-700">
+        <div className="mt-5 rounded-[20px] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {errorMessage}
         </div>
       ) : null}
@@ -191,17 +192,23 @@ export function PortfolioTrendCard({
       </div>
 
       {lastReliableDate ? (
-        <p
-          className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
+        <div
+          className="mt-4 flex flex-wrap items-center gap-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
           data-testid="dashboard-performance-as-of"
         >
-          {dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}
-        </p>
+          <span>{dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}</span>
+          <TooltipInfo
+            label={dict.dashboardHome.performanceTitle}
+            content={formatSnapshotAsOfTooltip(dict, lastReliableDate, locale)}
+            triggerTestId="dashboard-performance-as-of-tooltip-trigger"
+            contentTestId="dashboard-performance-as-of-tooltip-content"
+          />
+        </div>
       ) : null}
 
       {marketDataStaleSince ? (
         <p
-          className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="mt-3 rounded-[18px] border border-warning/60 bg-warning/10 px-4 py-3 text-sm text-warning"
           data-testid="dashboard-performance-stale-warning"
         >
           {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
@@ -210,7 +217,7 @@ export function PortfolioTrendCard({
 
       {hasPartialQuotes ? (
         <p
-          className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="mt-4 rounded-[18px] border border-warning/60 bg-warning/10 px-4 py-3 text-sm text-warning"
           data-testid="dashboard-performance-partial-warning"
         >
           {dict.dashboardHome.performancePartialQuoteWarning}
@@ -223,8 +230,14 @@ export function PortfolioTrendCard({
           <div className="skeleton-line skeleton-line--delay mt-6 h-[16rem] w-full rounded-[24px]" />
         </div>
       ) : !hasPoints ? (
-        <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
-          {dict.dashboardHome.performanceEmpty}
+        <div className="mt-6 flex items-center justify-center gap-2 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
+          <span>{dict.dashboardHome.performanceEmpty}</span>
+          <TooltipInfo
+            label={dict.dashboardHome.performanceTitle}
+            content={dict.dashboardHome.performanceSnapshotOnlyTooltip}
+            triggerTestId="dashboard-performance-empty-tooltip-trigger"
+            contentTestId="dashboard-performance-empty-tooltip-content"
+          />
         </div>
       ) : (
         <div className="mt-6 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:p-5">
@@ -388,6 +401,13 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
 
 function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {
   return dict.dashboardHome.performanceStaleDataWarning.replace(
+    "{date}",
+    formatAxisDateLabel(date, locale),
+  );
+}
+
+function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: LocaleCode): string {
+  return dict.dashboardHome.performanceSnapshotAsOfTooltip.replace(
     "{date}",
     formatAxisDateLabel(date, locale),
   );

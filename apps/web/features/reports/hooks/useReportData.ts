@@ -31,11 +31,9 @@ export function useReportData({
       cacheScope,
       locale,
       state.scope,
-      state.currencyMode,
-      state.currency,
       state.range,
     ),
-    [cacheScope, locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
+    [cacheScope, locale, state.range, state.scope, state.tab],
   );
   const [data, setData] = useState<AnyReportDto | null>(initialReport);
   const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
@@ -120,9 +118,7 @@ export function useReportData({
 function reportMatchesState(report: AnyReportDto, state: ReportRouteState): boolean {
   if (!reportMatchesTab(report, state.tab)) return false;
   if (report.query.scope !== state.scope) return false;
-  if (report.query.currencyMode !== state.currencyMode) return false;
   if (report.query.range !== state.range) return false;
-  if (state.currencyMode === "specified" && report.query.currency !== state.currency) return false;
   return true;
 }
 

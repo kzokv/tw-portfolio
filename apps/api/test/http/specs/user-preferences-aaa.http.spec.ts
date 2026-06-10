@@ -220,6 +220,54 @@ test.describe("user preferences API (KZO-159)", () => {
     await adminApi.assert.errorCodeIs(await hiddenSelectedResponse.json() as { error: string }, "invalid_preference");
   });
 
+  test("[user-prefs]: PATCH /user-preferences { holdingsTableSettings } → 200 echoes, GET returns same", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-holdings-table-settings-sub",
+      email: "user-prefs-holdings-table-settings@example.com",
+      name: "Prefs Holdings Table Settings",
+      role: "member",
+    });
+    const holdingsTableSettings = {
+      version: 1,
+      contexts: {
+        "dashboard.topHoldings": {
+          columnOrder: ["pnl", "ticker", "marketValue"],
+          hiddenColumns: ["health"],
+          columnWidths: { pnl: 222, marketValue: 180 },
+          layoutStyle: "dashboard",
+        },
+        "portfolio.holdings": {
+          columnOrder: ["marketValue", "pnl", "allocation"],
+          hiddenColumns: [],
+          columnWidths: { allocation: 148 },
+          layoutStyle: "portfolio",
+        },
+      },
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { holdingsTableSettings },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      holdingsTableSettings,
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      holdingsTableSettings,
+    });
+  });
+
   test("[user-prefs]: GET /user-preferences/effective-ranges → source=default when no user pref, no admin override", async ({
     request,
     adminApi,

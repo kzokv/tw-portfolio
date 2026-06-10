@@ -4,48 +4,37 @@
 
 import Link from "next/link";
 import {
-  ACCOUNT_DEFAULT_CURRENCIES,
-  type AccountDefaultCurrency,
-  type DashboardOverviewHoldingGroupDto,
+  type DashboardOverviewMarketValueDto,
   type DashboardOverviewSummaryDto,
   type FxConversionRateDto,
   type LocaleCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCompactCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
+import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/shadcn/badge";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/shadcn/select";
 
 interface DashboardHeroProps {
-  currencyError?: string;
   fxRates?: FxConversionRateDto[];
-  holdingGroups: DashboardOverviewHoldingGroupDto[];
-  isCurrencySaving?: boolean;
-  isCurrencyReadOnly?: boolean;
+  holdingCount: number;
+  marketValues: DashboardOverviewMarketValueDto[];
   summary: DashboardOverviewSummaryDto;
   locale: LocaleCode;
   dict: AppDictionary;
-  onCurrencyChange: (currency: AccountDefaultCurrency) => void;
+  canOpenQuickActions?: boolean;
+  onOpenQuickActions?: () => void;
 }
 
 export function DashboardHero({
-  currencyError = "",
   fxRates = [],
-  holdingGroups,
-  isCurrencySaving = false,
-  isCurrencyReadOnly = false,
+  holdingCount,
+  marketValues,
   summary,
   locale,
   dict,
-  onCurrencyChange,
+  canOpenQuickActions = false,
+  onOpenQuickActions,
 }: DashboardHeroProps) {
   const totalValue = summary.marketValueAmount !== null
     ? formatCompactCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
@@ -59,12 +48,10 @@ export function DashboardHero({
   const deltaTone = summary.dailyChangeAmount === null
     ? "text-foreground"
     : summary.dailyChangeAmount > 0
-      ? "text-emerald-600"
+      ? "text-success"
       : summary.dailyChangeAmount < 0
-        ? "text-rose-600"
+        ? "text-destructive"
         : "text-foreground";
-  const marketValues = buildMarketValues(holdingGroups);
-
   return (
     <section
       className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_0.9fr]"
@@ -109,41 +96,29 @@ export function DashboardHero({
         <div className="flex flex-col gap-4">
           <div>
             <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Reporting currency
+              {dict.dashboardHome.reportingCurrencyTitle}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Current report baseline is {summary.reportingCurrency}.
+              {formatHeroMessage(dict.dashboardHome.reportingCurrencyBaseline, { currency: summary.reportingCurrency })}
             </p>
           </div>
-          <Select
-            value={summary.reportingCurrency}
-            onValueChange={(value) => {
-              if (isCurrencyReadOnly) return;
-              if ((ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(value)) {
-                onCurrencyChange(value as AccountDefaultCurrency);
-              }
-            }}
-            disabled={isCurrencySaving || isCurrencyReadOnly}
-          >
-            <SelectTrigger data-testid="dashboard-hero-currency-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {ACCOUNT_DEFAULT_CURRENCIES.map((currency) => (
-                  <SelectItem key={currency} value={currency}>
-                    {currency}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {currencyError ? (
-            <p className="text-sm text-destructive" role="alert">{currencyError}</p>
-          ) : null}
+          {canOpenQuickActions ? (
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={onOpenQuickActions}
+              data-testid="dashboard-hero-open-quick-actions"
+            >
+              {dict.reports.changeInQuickActions}
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {dict.reports.reportingCurrencyQuickActionsOnly}
+            </p>
+          )}
           <div className="flex flex-col gap-2" data-testid="dashboard-hero-fx-rates">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">FX status</span>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">{dict.reports.fxStatusTitle}</span>
               <Badge variant={summary.fxStatus === "complete" ? "secondary" : "outline"}>{summary.fxStatus}</Badge>
             </div>
             {fxRates.length > 0 ? (
@@ -151,7 +126,10 @@ export function DashboardHero({
                 {fxRates.map((rate) => (
                   <div key={`${rate.fromCurrency}-${rate.toCurrency}-${rate.asOf ?? "latest"}`} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
                     <span className="text-xs text-muted-foreground">
-                      {rate.fromCurrency} to {rate.toCurrency}
+                      {formatHeroMessage(dict.dashboardHome.fxPairLabel, {
+                        from: rate.fromCurrency,
+                        to: rate.toCurrency,
+                      })}
                       {rate.asOf ? ` · ${formatDateLabel(rate.asOf, locale)}` : ""}
                     </span>
                     <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
@@ -163,8 +141,8 @@ export function DashboardHero({
             ) : (
               <p className="text-xs text-muted-foreground">
                 {summary.fxStatus === "complete"
-                  ? "No cross-currency conversion required for visible values."
-                  : "FX rates are missing for one or more visible currencies."}
+                  ? dict.dashboardHome.fxStatusCompleteDescription
+                  : dict.dashboardHome.fxStatusMissingDescription}
               </p>
             )}
           </div>
@@ -175,24 +153,24 @@ export function DashboardHero({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Market values in {summary.reportingCurrency}
+              {formatHeroMessage(dict.dashboardHome.marketValuesInCurrency, { currency: summary.reportingCurrency })}
             </p>
             <Link
-              href={`/reports?tab=market&scope=all&currencyMode=specified&currency=${summary.reportingCurrency}&range=1Y`}
+              href="/reports?tab=market&scope=all&range=1Y"
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
-              Reports
+              {dict.dashboardHome.reportsLinkLabel}
             </Link>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {marketValues.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {holdingGroups.length === 0 ? dict.dashboardHome.holdingsEmpty : dict.dashboardHome.noMarketValue}
+                {holdingCount === 0 ? dict.dashboardHome.holdingsEmpty : dict.dashboardHome.noMarketValue}
               </p>
             ) : marketValues.map((market) => (
               <Link
                 key={market.marketCode}
-                href={`/reports?tab=market&scope=${market.marketCode}&currencyMode=specified&currency=${summary.reportingCurrency}&range=1Y`}
+                href={`/reports?tab=market&scope=${market.marketCode}&range=1Y`}
                 className="rounded-md border border-border bg-muted/30 px-3 py-2 transition hover:bg-muted"
                 data-testid={`dashboard-hero-market-${market.marketCode}`}
               >
@@ -209,23 +187,12 @@ export function DashboardHero({
   );
 }
 
+function formatHeroMessage(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
+}
+
 function formatFxRate(value: number): string {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 6,
   }).format(value);
-}
-
-function buildMarketValues(
-  groups: DashboardOverviewHoldingGroupDto[],
-): Array<{ marketCode: string; value: number }> {
-  const values = new Map<string, number>();
-  for (const group of groups) {
-    const amount = group.reportingMarketValueAmount;
-    if (amount === null) continue;
-    values.set(group.marketCode, (values.get(group.marketCode) ?? 0) + amount);
-  }
-  return [...values.entries()]
-    .map(([marketCode, value]) => ({ marketCode, value }))
-    .filter((entry) => entry.value > 0)
-    .sort((left, right) => right.value - left.value);
 }

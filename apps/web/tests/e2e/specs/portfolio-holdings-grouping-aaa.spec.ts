@@ -44,6 +44,8 @@ test.describe("portfolio holdings grouping", () => {
     await portfolio.assert.holdingsTableIsVisible();
     await portfolio.assert.holdingsFilterControlsAreVisible();
     await portfolio.assert.holdingGroupRowIsVisible(ticker, marketCode);
+
+    await portfolio.actions.setDisplayModeGrouped();
     await portfolio.assert.holdingChildRowIsHidden(ticker, marketCode, "acc-1");
 
     await portfolio.actions.setDisplayModeExpanded();

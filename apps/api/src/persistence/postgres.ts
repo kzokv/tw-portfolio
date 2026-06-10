@@ -5350,6 +5350,56 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
+  async getDailyBarsForTickerMarkets(
+    pairs: readonly { ticker: string; marketCode: MarketCode }[],
+    startDate: string,
+    endDate: string,
+  ): Promise<Map<string, DailyBar[]>> {
+    const result = new Map<string, DailyBar[]>();
+    for (const pair of pairs) result.set(`${pair.ticker}\0${pair.marketCode}`, []);
+    if (pairs.length === 0) return result;
+
+    const rows = await this.pool.query<{
+      ticker: string; market_code: MarketCode; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `WITH requested_pairs AS (
+         SELECT DISTINCT ticker, "marketCode" AS market_code
+           FROM jsonb_to_recordset($1::jsonb) AS pair(ticker text, "marketCode" text)
+          WHERE ticker IS NOT NULL
+            AND "marketCode" IS NOT NULL
+       )
+       SELECT b.ticker, b.market_code, b.bar_date::text, b.open, b.high, b.low, b.close, b.volume, b.source, b.ingested_at::text
+         FROM market_data.daily_bars b
+         JOIN requested_pairs pair
+           ON pair.ticker = b.ticker
+          AND pair.market_code = b.market_code
+        WHERE b.bar_date >= $2::date
+          AND b.bar_date <= $3::date
+        ORDER BY b.ticker ASC, b.market_code ASC, b.bar_date ASC`,
+      [JSON.stringify(pairs), startDate, endDate],
+    );
+
+    for (const row of rows.rows) {
+      const key = `${row.ticker}\0${row.market_code}`;
+      const list = result.get(key) ?? [];
+      list.push({
+        ticker: row.ticker,
+        barDate: row.bar_date,
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume),
+        source: row.source,
+        ingestedAt: row.ingested_at,
+      });
+      result.set(key, list);
+    }
+
+    return result;
+  }
+
   async getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>> {
     const result = new Map<string, DailyBar[]>();
     for (const t of tickers) result.set(t, []);
@@ -5380,6 +5430,132 @@ export class PostgresPersistence implements Persistence {
       result.set(row.ticker, list);
     }
     return result;
+  }
+
+  async listHoldingSnapshotRepairScopesForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<import("./types.js").HoldingSnapshotRepairScope[]> {
+    const result = await this.pool.query<{
+      user_id: string;
+      account_id: string;
+      ticker: string;
+      market_code: MarketCode;
+    }>(
+      `SELECT DISTINCT te.user_id, te.account_id, te.ticker, te.market_code
+         FROM trade_events te
+         JOIN accounts a
+           ON a.id = te.account_id
+          AND a.user_id = te.user_id
+          AND a.deleted_at IS NULL
+         JOIN users u
+           ON u.id = te.user_id
+        WHERE te.ticker = $1
+          AND te.market_code = $2
+          AND u.is_demo = FALSE
+        ORDER BY te.user_id, te.account_id, te.ticker, te.market_code`,
+      [ticker, marketCode],
+    );
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      accountId: row.account_id,
+      ticker: row.ticker,
+      marketCode: row.market_code,
+    }));
+  }
+
+  async listHoldingSnapshotRepairTargets(
+    options: import("./types.js").HoldingSnapshotRepairTargetOptions,
+  ): Promise<import("./types.js").HoldingSnapshotRepairTarget[]> {
+    const result = await this.pool.query<{
+      ticker: string;
+      market_code: MarketCode;
+      from_date: string;
+      affected_scope_count: string;
+      repairable_rows: string;
+      missing_rows: string;
+      incomplete_rows: string;
+    }>(
+      `WITH trade_scopes AS (
+         SELECT
+           te.user_id,
+           te.account_id,
+           te.ticker,
+           te.market_code,
+           MIN(te.trade_date)::date AS first_trade_date
+         FROM trade_events te
+         JOIN accounts a
+           ON a.id = te.account_id
+          AND a.user_id = te.user_id
+          AND a.deleted_at IS NULL
+         JOIN users u
+           ON u.id = te.user_id
+        WHERE u.is_demo = FALSE
+        GROUP BY te.user_id, te.account_id, te.ticker, te.market_code
+       ),
+       repairable AS (
+         SELECT
+           ts.user_id,
+           ts.account_id,
+           ts.ticker,
+           ts.market_code,
+           b.bar_date::date AS repair_date,
+           CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS missing_row,
+           CASE
+             WHEN s.id IS NOT NULL
+              AND (
+                s.is_provisional
+                OR s.close_price IS NULL
+                OR s.market_value IS NULL
+                OR s.value_native IS NULL
+                OR s.provider_source IS NULL
+              )
+             THEN 1
+             ELSE 0
+           END AS incomplete_row
+         FROM trade_scopes ts
+         JOIN market_data.daily_bars b
+           ON b.ticker = ts.ticker
+          AND b.market_code = ts.market_code
+          AND b.bar_date >= GREATEST(ts.first_trade_date, $1::date)
+          AND b.bar_date <= $2::date
+         LEFT JOIN daily_holding_snapshots s
+           ON s.user_id = ts.user_id
+          AND s.account_id = ts.account_id
+          AND s.ticker = ts.ticker
+          AND s.market_code = ts.market_code
+          AND s.snapshot_date = b.bar_date
+        WHERE s.id IS NULL
+           OR s.is_provisional
+           OR s.close_price IS NULL
+           OR s.market_value IS NULL
+           OR s.value_native IS NULL
+           OR s.provider_source IS NULL
+       )
+       SELECT
+         ticker,
+         market_code,
+         MIN(repair_date)::text AS from_date,
+         COUNT(DISTINCT user_id || E'\\x1f' || account_id)::text AS affected_scope_count,
+         COUNT(*)::text AS repairable_rows,
+         COALESCE(SUM(missing_row), 0)::text AS missing_rows,
+         COALESCE(SUM(incomplete_row), 0)::text AS incomplete_rows
+       FROM repairable
+       GROUP BY ticker, market_code
+       ORDER BY MIN(repair_date) ASC, ticker ASC, market_code ASC
+       LIMIT $3`,
+      [options.fromDate, options.toDate, options.limit],
+    );
+
+    return result.rows.map((row) => ({
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      fromDate: row.from_date,
+      affectedScopeCount: Number(row.affected_scope_count),
+      repairableRows: Number(row.repairable_rows),
+      missingRows: Number(row.missing_rows),
+      incompleteRows: Number(row.incomplete_rows),
+    }));
   }
 
   // KZO-164: FX rates (Frankfurter v2 ingestion). Mirrors the `unnest`-arrays bulk upsert
@@ -5580,7 +5756,7 @@ export class PostgresPersistence implements Persistence {
 
   async getSnapshotGenerationInputs(
     userId: string,
-    scope?: { accountId: string; ticker: string },
+    scope?: { accountId: string; ticker: string; marketCode?: MarketCode },
   ): Promise<import("./types.js").SnapshotGenerationInputs> {
     // ui-enhancement: the no-scope path aggregates across every owned account;
     // it must exclude trade events belonging to soft-deleted accounts. The
@@ -5589,9 +5765,9 @@ export class PostgresPersistence implements Persistence {
     // filter is sufficient; we add the predicate to both branches for defense.
     // [active-only filter ADDED]
     const tradeFilter = scope
-      ? "user_id = $1 AND account_id = $2 AND ticker = $3"
+      ? "user_id = $1 AND account_id = $2 AND ticker = $3 AND ($4::text IS NULL OR market_code = $4)"
       : "user_id = $1 AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)";
-    const tradeParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
+    const tradeParams = scope ? [userId, scope.accountId, scope.ticker, scope.marketCode ?? null] : [userId];
     const tradesResult = await this.pool.query<{
       id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
@@ -5615,16 +5791,17 @@ export class PostgresPersistence implements Persistence {
     // ui-enhancement — hide soft-deleted accounts' dividend entries from the
     // snapshot aggregator. [active-only filter ADDED]
     const divFilter = scope
-      ? "account.user_id = $1 AND account.deleted_at IS NULL AND dle.account_id = $2 AND de.ticker = $3"
+      ? "account.user_id = $1 AND account.deleted_at IS NULL AND dle.account_id = $2 AND de.ticker = $3 AND ($4::text IS NULL OR de.market_code = $4)"
       : "account.user_id = $1 AND account.deleted_at IS NULL";
-    const divParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
+    const divParams = scope ? [userId, scope.accountId, scope.ticker, scope.marketCode ?? null] : [userId];
     const divResult = await this.pool.query<{
-      account_id: string; ticker: string; payment_date: string; amount: string;
+      account_id: string; ticker: string; market_code: MarketCode; payment_date: string; amount: string;
     }>(
-      `SELECT dle.account_id,
-              de.ticker,
-              de.payment_date::text,
-              COALESCE(receipts.received_cash_amount, 0)::text AS amount
+       `SELECT dle.account_id,
+               de.ticker,
+               de.market_code,
+               de.payment_date::text,
+               COALESCE(receipts.received_cash_amount, 0)::text AS amount
        FROM dividend_ledger_entries dle
        JOIN accounts AS account ON account.id = dle.account_id
        JOIN market_data.dividend_events de ON de.id = dle.dividend_event_id
@@ -5664,6 +5841,7 @@ export class PostgresPersistence implements Persistence {
       postedDividends: divResult.rows.map(r => ({
         accountId: r.account_id,
         ticker: r.ticker,
+        marketCode: r.market_code,
         paymentDate: r.payment_date,
         amount: Number(r.amount),
       })),
@@ -5679,20 +5857,20 @@ export class PostgresPersistence implements Persistence {
       // becomes a parallel array; Postgres expands them into rows server-side.
       await client.query(
         `INSERT INTO daily_holding_snapshots (
-           id, user_id, account_id, ticker, snapshot_date, quantity,
+           id, user_id, account_id, ticker, market_code, snapshot_date, quantity,
            close_price, market_value, cost_basis, unrealized_pnl,
            cumulative_realized_pnl, cumulative_dividends,
            is_provisional, currency, generated_at, generation_run_id,
            value_native, cost_basis_native, unrealized_pnl_native, provider_source
          )
          SELECT * FROM UNNEST(
-           $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[],
-           $7::numeric[], $8::numeric[], $9::numeric[], $10::numeric[],
-           $11::numeric[], $12::numeric[],
-           $13::boolean[], $14::text[], $15::timestamptz[], $16::text[],
-           $17::numeric[], $18::numeric[], $19::numeric[], $20::text[]
+           $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::date[], $7::numeric[],
+           $8::numeric[], $9::numeric[], $10::numeric[], $11::numeric[],
+           $12::numeric[], $13::numeric[],
+           $14::boolean[], $15::text[], $16::timestamptz[], $17::text[],
+           $18::numeric[], $19::numeric[], $20::numeric[], $21::text[]
          )
-         ON CONFLICT (user_id, account_id, ticker, snapshot_date) DO UPDATE SET
+         ON CONFLICT (user_id, account_id, ticker, market_code, snapshot_date) DO UPDATE SET
            quantity = EXCLUDED.quantity,
            close_price = EXCLUDED.close_price,
            market_value = EXCLUDED.market_value,
@@ -5713,6 +5891,7 @@ export class PostgresPersistence implements Persistence {
           snapshots.map(s => s.userId),
           snapshots.map(s => s.accountId),
           snapshots.map(s => s.ticker),
+          snapshots.map(s => s.marketCode),
           snapshots.map(s => s.snapshotDate),
           snapshots.map(s => s.quantity),
           snapshots.map(s => s.closePrice),
@@ -5740,11 +5919,21 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+  async deleteHoldingSnapshotsForTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number> {
     const result = await this.pool.query(
       `DELETE FROM daily_holding_snapshots
-       WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND snapshot_date >= $4::date`,
-      [userId, accountId, ticker, fromDate],
+       WHERE user_id = $1
+         AND account_id = $2
+         AND ticker = $3
+         AND snapshot_date >= $4::date
+         AND ($5::text IS NULL OR market_code = $5)`,
+      [userId, accountId, ticker, fromDate, marketCode ?? null],
     );
     return result.rowCount ?? 0;
   }
@@ -5932,8 +6121,8 @@ export class PostgresPersistence implements Persistence {
       fx_available: boolean;
     }>(
       `WITH scoped_pairs AS (
-         SELECT DISTINCT "accountId" AS account_id, ticker
-           FROM jsonb_to_recordset($5::jsonb) AS pair("accountId" text, ticker text)
+         SELECT DISTINCT "accountId" AS account_id, ticker, "marketCode" AS market_code
+           FROM jsonb_to_recordset($5::jsonb) AS pair("accountId" text, ticker text, "marketCode" text)
           WHERE "accountId" IS NOT NULL
             AND ticker IS NOT NULL
        )
@@ -5953,6 +6142,7 @@ export class PostgresPersistence implements Persistence {
          JOIN scoped_pairs pair
            ON pair.account_id = s.account_id
           AND pair.ticker = s.ticker
+          AND (pair.market_code IS NULL OR pair.market_code = s.market_code)
          LEFT JOIN LATERAL (
            SELECT rate FROM market_data.fx_rates
            WHERE base_currency = s.currency
@@ -5999,27 +6189,95 @@ export class PostgresPersistence implements Persistence {
     });
   }
 
-  async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+  async countHoldingSnapshotsAfterDate(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number> {
     const result = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM daily_holding_snapshots
-       WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND snapshot_date >= $4::date`,
-      [userId, accountId, ticker, fromDate],
+       WHERE user_id = $1
+         AND account_id = $2
+         AND ticker = $3
+         AND snapshot_date >= $4::date
+         AND ($5::text IS NULL OR market_code = $5)`,
+      [userId, accountId, ticker, fromDate, marketCode ?? null],
     );
     return Number(result.rows[0].count);
+  }
+
+  async getLatestSnapshotDiagnostics(
+    userId: string,
+    pairs?: readonly import("./types.js").HoldingSnapshotScopePair[],
+  ): Promise<import("./types.js").SnapshotScopeDiagnostics> {
+    const scopedPairsJson = pairs && pairs.length > 0 ? JSON.stringify(pairs) : null;
+    const result = await this.pool.query<{
+      latest_snapshot_date: string | null;
+      missing_provider_source_count: string;
+    }>(
+      `WITH scoped_pairs AS (
+         SELECT DISTINCT "accountId" AS account_id, ticker, "marketCode" AS market_code
+           FROM jsonb_to_recordset(COALESCE($2::jsonb, '[]'::jsonb)) AS pair("accountId" text, ticker text, "marketCode" text)
+          WHERE "accountId" IS NOT NULL
+            AND ticker IS NOT NULL
+       ),
+       scoped_snapshots AS (
+         SELECT s.snapshot_date, s.provider_source
+           FROM daily_holding_snapshots s
+          WHERE s.user_id = $1
+            AND s.account_id IN (
+              SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL
+            )
+            AND (
+              $2::jsonb IS NULL
+              OR EXISTS (
+                SELECT 1
+                  FROM scoped_pairs pair
+                 WHERE pair.account_id = s.account_id
+                   AND pair.ticker = s.ticker
+                   AND (pair.market_code IS NULL OR pair.market_code = s.market_code)
+              )
+            )
+       ),
+       latest_snapshot AS (
+         SELECT MAX(snapshot_date) AS latest_snapshot_date
+           FROM scoped_snapshots
+       )
+       SELECT
+         latest_snapshot.latest_snapshot_date::text AS latest_snapshot_date,
+         COALESCE(SUM(CASE
+           WHEN scoped_snapshots.snapshot_date = latest_snapshot.latest_snapshot_date
+            AND scoped_snapshots.provider_source IS NULL
+           THEN 1
+           ELSE 0
+         END), 0)::text AS missing_provider_source_count
+       FROM latest_snapshot
+       LEFT JOIN scoped_snapshots
+         ON scoped_snapshots.snapshot_date = latest_snapshot.latest_snapshot_date
+       GROUP BY latest_snapshot.latest_snapshot_date`,
+      [userId, scopedPairsJson],
+    );
+    const row = result.rows[0];
+    return {
+      latestSnapshotDate: row?.latest_snapshot_date ?? null,
+      missingProviderSourceCount: Number(row?.missing_provider_source_count ?? 0),
+    };
   }
 
   async getHoldingSnapshotsForTicker(
     userId: string, accountId: string, ticker: string, startDate: string, endDate: string,
   ): Promise<HoldingSnapshot[]> {
     const result = await this.pool.query<{
-      id: string; user_id: string; account_id: string; ticker: string; snapshot_date: string;
+      id: string; user_id: string; account_id: string; ticker: string; market_code: MarketCode; snapshot_date: string;
       quantity: string; close_price: string | null; market_value: string | null; cost_basis: string;
       unrealized_pnl: string | null; cumulative_realized_pnl: string; cumulative_dividends: string;
       is_provisional: boolean; currency: string; generated_at: string; generation_run_id: string;
       value_native: string | null; cost_basis_native: string | null;
       unrealized_pnl_native: string | null; provider_source: string | null;
     }>(
-      `SELECT id, user_id, account_id, ticker, snapshot_date::text,
+      `SELECT id, user_id, account_id, ticker, market_code, snapshot_date::text,
               quantity, close_price, market_value, cost_basis,
               unrealized_pnl, cumulative_realized_pnl, cumulative_dividends,
               is_provisional, currency, generated_at::text, generation_run_id,
@@ -6035,6 +6293,7 @@ export class PostgresPersistence implements Persistence {
       userId: row.user_id,
       accountId: row.account_id,
       ticker: row.ticker,
+      marketCode: row.market_code,
       snapshotDate: row.snapshot_date,
       quantity: Number(row.quantity),
       closePrice: row.close_price !== null ? Number(row.close_price) : null,

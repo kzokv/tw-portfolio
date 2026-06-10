@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AccountDefaultCurrency, DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
 import { formatCompactCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
-import { patchJson } from "../../lib/api";
 import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
@@ -26,7 +25,8 @@ import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 import { resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
-import { buildRouteDtoCacheKey, clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix, getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
 import {
   Card as ShadcnCard,
@@ -61,6 +61,8 @@ export function DashboardClient({
     locale,
     sessionUserId,
     isSharedContext,
+    canUseGlobalQuickActions,
+    openQuickActions,
     recomputeAction,
     openRecomputeConfirm,
     contextRefreshSignal,
@@ -75,28 +77,10 @@ export function DashboardClient({
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis } = useHoldingAllocationBasis();
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
-  const [currencySaving, setCurrencySaving] = useState(false);
-  const [currencyError, setCurrencyError] = useState("");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({ range: performanceRange, enabled: true });
-
-  async function handleHeroCurrencyChange(next: AccountDefaultCurrency) {
-    if (next === dashboard.summary.reportingCurrency || currencySaving) return;
-    setCurrencySaving(true);
-    setCurrencyError("");
-    try {
-      await patchJson("/user-preferences", { reportingCurrency: next });
-      clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
-      await dashboard.refresh();
-      await performance.refresh();
-    } catch (error) {
-      setCurrencyError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCurrencySaving(false);
-    }
-  }
 
   // Re-fetch performance series when AppShell signals a context/data change
   // (shared-context switch, trade mutation, recompute confirm, reporting-currency
@@ -184,15 +168,14 @@ export function DashboardClient({
         data-testid="dashboard-hero-block"
       >
         <DashboardHero
-          currencyError={currencyError}
-          holdingGroups={holdingGroups}
           fxRates={dashboard.fxRates ?? []}
-          isCurrencySaving={currencySaving}
-          isCurrencyReadOnly={isSharedContext}
+          holdingCount={holdingGroups.length}
+          marketValues={dashboard.marketValues ?? []}
           summary={dashboard.summary}
           locale={locale}
           dict={dict}
-          onCurrencyChange={(currency) => { void handleHeroCurrencyChange(currency); }}
+          canOpenQuickActions={canUseGlobalQuickActions}
+          onOpenQuickActions={openQuickActions}
         />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
@@ -203,13 +186,15 @@ export function DashboardClient({
       >
         <div className="flex flex-wrap items-center gap-2">
           {dashboard.restoredFromCache && restoredLabel ? (
-            <span data-testid="dashboard-cache-restore-label">Restored from cache at {restoredLabel}</span>
+            <span data-testid="dashboard-cache-restore-label">
+              {formatDashboardMessage(dict.reports.restoredFromCache, { time: restoredLabel })}
+            </span>
           ) : (
-            <span>Primary data stays mounted during refresh.</span>
+            <span>{dict.dashboardHome.primaryDataMountedDuringRefresh}</span>
           )}
           {dashboard.isRefreshing ? (
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              Silent refresh running
+            <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              {dict.dashboardHome.silentRefreshRunning}
             </span>
           ) : null}
         </div>
@@ -221,7 +206,7 @@ export function DashboardClient({
           disabled={dashboard.isRefreshing}
           data-testid="dashboard-refresh-button"
         >
-          Refresh
+          {dict.reports.refresh}
         </Button>
         {!isSharedContext ? (
           <Button
@@ -238,6 +223,7 @@ export function DashboardClient({
       </div>
 
       <DashboardCommandModules
+        dict={dict}
         groups={holdingGroups}
         locale={locale}
         summary={dashboard.summary}
@@ -348,10 +334,12 @@ export function DashboardClient({
 }
 
 export function DashboardCommandModules({
+  dict,
   groups,
   locale,
   summary,
 }: {
+  dict: AppDictionary;
   groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
   summary: DashboardSnapshot["summary"];
@@ -360,15 +348,16 @@ export function DashboardCommandModules({
   const topMover = [...groups]
     .sort((left, right) => Math.abs(right.change ?? 0) - Math.abs(left.change ?? 0))[0] ?? null;
   const marketCount = new Set(groups.map((group) => group.marketCode)).size;
-  const reportCurrencyParams = `currencyMode=specified&currency=${summary.reportingCurrency}&range=1Y`;
+  const reportRangeParams = "range=1Y";
 
   return (
     <section className="grid gap-3 md:grid-cols-3" data-testid="dashboard-command-modules">
       <DashboardCommandCard
-        description={summary.asOf ? formatDateLabel(summary.asOf, locale) : "Latest available snapshot"}
-        href={`/reports?tab=daily-review&scope=all&${reportCurrencyParams}`}
+        description={summary.asOf ? formatDateLabel(summary.asOf, locale) : dict.dashboardHome.latestAvailableSnapshot}
+        href={`/reports?tab=daily-review&scope=all&${reportRangeParams}`}
+        openLabel={dict.dashboardHome.commandOpenLabel}
         testId="dashboard-command-today"
-        title="Today"
+        title={dict.dashboardHome.commandTodayTitle}
         value={summary.dailyChangeAmount === null
           ? "-"
           : formatCompactCurrencyAmount(summary.dailyChangeAmount, summary.reportingCurrency, locale)}
@@ -376,37 +365,39 @@ export function DashboardCommandModules({
         <div className="flex flex-wrap gap-2">
           {summary.dailyChangePercent !== null ? <Badge variant="secondary">{formatPercent(summary.dailyChangePercent, locale)}</Badge> : null}
           <Badge variant={summary.openIssueCount > 0 ? "destructive" : "outline"}>
-            {formatNumber(summary.openIssueCount, locale)} issue(s)
+            {formatDashboardMessage(dict.dashboardHome.commandIssueCount, { count: formatNumber(summary.openIssueCount, locale) })}
           </Badge>
-          <Badge variant="outline">{formatNumber(summary.upcomingDividendCount, locale)} dividend(s)</Badge>
+          <Badge variant="outline">{formatDashboardMessage(dict.dashboardHome.commandDividendCount, { count: formatNumber(summary.upcomingDividendCount, locale) })}</Badge>
         </div>
       </DashboardCommandCard>
 
       <DashboardCommandCard
         description={`FX ${summary.fxStatus}`}
-        href={`/reports?tab=market&scope=all&${reportCurrencyParams}`}
+        href={`/reports?tab=market&scope=all&${reportRangeParams}`}
+        openLabel={dict.dashboardHome.commandOpenLabel}
         testId="dashboard-command-market-pulse"
-        title="Market Pulse"
-        value={`${formatNumber(marketCount, locale)} market(s)`}
+        title={dict.dashboardHome.commandMarketPulseTitle}
+        value={formatDashboardMessage(dict.dashboardHome.commandMarketCount, { count: formatNumber(marketCount, locale) })}
       >
         <p className="text-sm text-muted-foreground">
           {topMover
             ? `${topMover.ticker} / ${topMover.marketCode}: ${topMover.change === null ? "-" : formatCompactCurrencyAmount(topMover.change, topMover.currency, locale)}`
-            : "No market movers available."}
+            : dict.dashboardHome.commandNoMarketMovers}
         </p>
       </DashboardCommandCard>
 
       <DashboardCommandCard
-        description={largestHolding ? `${largestHolding.ticker} / ${largestHolding.marketCode}` : "No holdings"}
-        href={`/reports?tab=portfolio&scope=all&${reportCurrencyParams}`}
+        description={largestHolding ? `${largestHolding.ticker} / ${largestHolding.marketCode}` : dict.dashboardHome.commandNoHoldings}
+        href={`/reports?tab=portfolio&scope=all&${reportRangeParams}`}
+        openLabel={dict.dashboardHome.commandOpenLabel}
         testId="dashboard-command-portfolio-health"
-        title="Portfolio Health"
+        title={dict.dashboardHome.commandPortfolioHealthTitle}
         value={largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
           ? formatPercent(largestHolding.allocationPct, locale)
           : "-"}
       >
         <p className="text-sm text-muted-foreground">
-          Unrealized {summary.unrealizedPnlAmount === null ? "-" : formatCompactCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)}
+          {dict.dashboardHome.commandUnrealizedLabel} {summary.unrealizedPnlAmount === null ? "-" : formatCompactCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)}
         </p>
       </DashboardCommandCard>
     </section>
@@ -417,6 +408,7 @@ function DashboardCommandCard({
   children,
   description,
   href,
+  openLabel,
   testId,
   title,
   value,
@@ -424,6 +416,7 @@ function DashboardCommandCard({
   children: ReactNode;
   description: string;
   href: string;
+  openLabel: string;
   testId: string;
   title: string;
   value: string;
@@ -437,7 +430,7 @@ function DashboardCommandCard({
             <CardTitle className="mt-1 font-mono text-2xl tabular-nums">{value}</CardTitle>
           </div>
           <Button asChild size="sm" variant="secondary">
-            <Link href={href}>Open</Link>
+            <Link href={href}>{openLabel}</Link>
           </Button>
         </div>
       </CardHeader>
@@ -447,4 +440,8 @@ function DashboardCommandCard({
       </CardContent>
     </ShadcnCard>
   );
+}
+
+function formatDashboardMessage(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
 }

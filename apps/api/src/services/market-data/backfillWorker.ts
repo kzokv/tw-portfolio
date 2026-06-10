@@ -137,6 +137,12 @@ export interface BackfillWorkerDeps {
   ) => Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
   onBatchComplete?: (batchId: string) => Promise<void>;
   onBarsUpserted?: (market: MarketCode, dates: ReadonlyArray<string>) => void;
+  enqueueSnapshotRepair?: (input: {
+    ticker: string;
+    marketCode: MarketCode;
+    fromDate: string;
+    trigger: BackfillJobData["trigger"];
+  }) => Promise<void>;
   /**
    * KZO-177 — provider health aggregator. The worker calls
    * `providerHealth.recordOutcome(providerId, outcome)` after each provider
@@ -199,6 +205,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     updateBatchTickerResult,
     onBatchComplete,
     onBarsUpserted,
+    enqueueSnapshotRepair,
     providerHealth,
     providerOperationLogger,
     log,
@@ -464,6 +471,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
         // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
+        if (barsCount > 0 && enqueueSnapshotRepair) {
+          const fromDate = bars.reduce((min, bar) => bar.barDate < min ? bar.barDate : min, bars[0].barDate);
+          try {
+            await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate, trigger });
+          } catch (error) {
+            log.warn({ err: error, ticker, marketCode: market, fromDate, trigger }, "snapshot_repair_enqueue_failed");
+          }
+        }
         if (onBarsUpserted) {
           for (const [upsertedMarket, dates] of collectDistinctBarDatesByMarket(bars)) {
             onBarsUpserted(upsertedMarket, [...dates]);

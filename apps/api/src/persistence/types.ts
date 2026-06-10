@@ -1597,7 +1597,7 @@ export interface ResolveProviderUnresolvedItemsInput {
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
 
 /**
- * Per-(account, ticker, date) holding snapshot row.
+ * Per-(account, ticker, market, date) holding snapshot row.
  *
  * KZO-165 extensions:
  * - `currency` is now the **native** currency of the holding (no fallback default).
@@ -1617,6 +1617,8 @@ export interface HoldingSnapshot {
   userId: string;
   accountId: string;
   ticker: string;
+  /** Market that owns this ticker position. Required so cross-listed tickers do not collide. */
+  marketCode: MarketCode;
   snapshotDate: string;
   quantity: number;
   closePrice: number | null;
@@ -1719,6 +1721,12 @@ export interface AggregatedSnapshotPoint {
 export interface HoldingSnapshotScopePair {
   accountId: string;
   ticker: string;
+  marketCode?: MarketCode;
+}
+
+export interface SnapshotScopeDiagnostics {
+  latestSnapshotDate: string | null;
+  missingProviderSourceCount: number;
 }
 
 /**
@@ -1729,6 +1737,7 @@ export interface HoldingSnapshotScopePair {
 export interface SnapshotDividendInput {
   accountId: string;
   ticker: string;
+  marketCode: MarketCode;
   paymentDate: string;
   amount: number;
 }
@@ -1757,7 +1766,7 @@ export interface SnapshotTradeInput {
    *  groups (account, ticker) and forwards `marketCode` into the
    *  `tickersNeedingBackfill` payload so downstream `boss.send` calls stamp
    *  the producer-validated `marketCode` directly — no per-ticker fallback. */
-  marketCode: string;
+  marketCode: MarketCode;
 }
 
 export interface SnapshotGenerationInputs {
@@ -1768,6 +1777,30 @@ export interface SnapshotGenerationInputs {
 export interface SnapshotGenerationScope {
   accountId: string;
   ticker: string;
+  marketCode?: MarketCode;
+}
+
+export interface HoldingSnapshotRepairScope {
+  userId: string;
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+}
+
+export interface HoldingSnapshotRepairTargetOptions {
+  fromDate: string;
+  toDate: string;
+  limit: number;
+}
+
+export interface HoldingSnapshotRepairTarget {
+  ticker: string;
+  marketCode: MarketCode;
+  fromDate: string;
+  affectedScopeCount: number;
+  repairableRows: number;
+  missingRows: number;
+  incompleteRows: number;
 }
 
 // ── Admin portal list options (KZO-144) ────────────────────────────────────
@@ -2454,7 +2487,13 @@ export interface Persistence {
 
   // Holding snapshots (KZO-115)
   bulkUpsertHoldingSnapshots(userId: string, snapshots: HoldingSnapshot[]): Promise<void>;
-  deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
+  deleteHoldingSnapshotsForTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number>;
   deleteAllHoldingSnapshots(userId: string): Promise<void>;
   getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]>;
   /**
@@ -2489,8 +2528,8 @@ export interface Persistence {
   ): Promise<AggregatedSnapshotPoint[]>;
   /**
    * Scoped FX-aware aggregate for report charts. Aggregates only the provided
-   * `(accountId, ticker)` snapshot contributors in one read so single-market
-   * reports do not fan out into one query per holding.
+   * `(accountId, ticker, marketCode)` snapshot contributors in one read so
+   * single-market reports do not fan out into one query per holding.
    */
   getAggregatedSnapshotsInReportingCurrencyForScope(
     userId: string,
@@ -2499,7 +2538,17 @@ export interface Persistence {
     reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
     pairs: readonly HoldingSnapshotScopePair[],
   ): Promise<AggregatedSnapshotPoint[]>;
-  countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
+  countHoldingSnapshotsAfterDate(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number>;
+  getLatestSnapshotDiagnostics(
+    userId: string,
+    pairs?: readonly HoldingSnapshotScopePair[],
+  ): Promise<SnapshotScopeDiagnostics>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.
@@ -2535,11 +2584,29 @@ export interface Persistence {
     endDate: string,
   ): Promise<DailyBar[]>;
   /**
-   * Batched variant of getDailyBarsForTicker: fetches bars for N tickers in a
-   * single query. Returned map is keyed by ticker; missing tickers yield an
-   * empty array. Used by the full-generation path to avoid N+1 queries.
+   * Batched variant of getDailyBarsForTickerMarket: fetches bars for N
+   * `(ticker, marketCode)` pairs in a single query. Returned map is keyed by
+   * `${ticker}\0${marketCode}`; missing pairs yield an empty array.
+   * Used by the full-generation path to avoid N+1 queries without mixing
+   * cross-listed tickers.
+   */
+  getDailyBarsForTickerMarkets(
+    pairs: readonly { ticker: string; marketCode: MarketCode }[],
+    startDate: string,
+    endDate: string,
+  ): Promise<Map<string, DailyBar[]>>;
+  /**
+   * Legacy bare-ticker batch reader. Do not use for market-sensitive snapshot
+   * generation because cross-listed tickers can share symbols.
    */
   getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>>;
+  listHoldingSnapshotRepairScopesForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<HoldingSnapshotRepairScope[]>;
+  listHoldingSnapshotRepairTargets(
+    options: HoldingSnapshotRepairTargetOptions,
+  ): Promise<HoldingSnapshotRepairTarget[]>;
   /**
    * Fetch the inputs needed to generate holding snapshots — trade events and
    * posted dividend ledger entries pre-joined with their dividend events.

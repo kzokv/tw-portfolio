@@ -56,12 +56,14 @@ import {
   dashboardHoldingFocusPreferenceSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
+  holdingsTableSettingsPreferenceSchema,
   themeAccentSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveHoldingAllocationBasis, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
+  buildOverviewMarketValues,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
@@ -1834,6 +1836,7 @@ function buildDashboardPrimaryOverview(
       openIssueCount: integrityIssue ? 1 : 0,
     },
     fxRates: [],
+    marketValues: [],
     holdings,
     holdingGroups,
     dividends: {
@@ -2931,6 +2934,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
+        .optional(),
+      holdingsTableSettings: z
+        .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.
@@ -4694,7 +4700,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
+      return {
+        ...overview,
+        summary: translatedSummary,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
+        holdingGroups: translatedHoldingGroups,
+      };
     });
   });
 
@@ -4770,7 +4782,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
+      return {
+        ...overview,
+        summary: translatedSummary,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
+        holdingGroups: translatedHoldingGroups,
+      };
     });
   });
 

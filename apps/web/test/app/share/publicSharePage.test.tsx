@@ -42,6 +42,7 @@ describe("PublicSharePage", () => {
               marketValueAmount: 625000,
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
+              quoteStatus: "current",
             },
           ],
           holdingGroups: [
@@ -53,11 +54,17 @@ describe("PublicSharePage", () => {
               marketValueAmount: 625000,
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
+              quoteStatus: "current",
             },
           ],
           summary: {
             totalValueByCurrency: [{ currency: "TWD", amount: 1234567 }],
             returnByCurrency: [{ currency: "TWD", returnPercent: 14.2 }],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
           },
         }),
       }),
@@ -102,6 +109,11 @@ describe("PublicSharePage", () => {
             totalValueByCurrency: [{ currency: "USD", amount: 0 }],
             returnByCurrency: [{ currency: "USD", returnPercent: 0 }],
           },
+          dataHealth: {
+            holdingCount: 0,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
+          },
         }),
       }),
     );
@@ -111,6 +123,63 @@ describe("PublicSharePage", () => {
 
     expect(html).toContain('data-testid="public-share-empty"');
     expect(html).not.toContain('data-testid="public-share-holding-');
+  });
+
+  it("renders missing-quote holdings as unavailable instead of hiding them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ownerDisplayName: "Portfolio owner",
+          expiresAt: "2026-05-18T10:00:00.000Z",
+          quoteAsOf: null,
+          holdings: [
+            {
+              ticker: "NODATA",
+              quantity: 10,
+              marketValueAmount: null,
+              marketValueCurrency: "TWD",
+              allocationPercent: null,
+              quoteStatus: "missing",
+            },
+          ],
+          holdingGroups: [
+            {
+              ticker: "NODATA",
+              marketCode: "TW",
+              quantity: 10,
+              accountCount: 1,
+              marketValueAmount: null,
+              marketValueCurrency: "TWD",
+              allocationPercent: null,
+              quoteStatus: "missing",
+            },
+          ],
+          summary: {
+            totalValueByCurrency: [],
+            returnByCurrency: [],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 1,
+            provisionalQuoteCount: 0,
+          },
+        }),
+      }),
+    );
+
+    const element = await PublicSharePage({ params: Promise.resolve({ token: "ZyXwVuTsRqPoNmLkJiHgFe" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="public-share-holding-NODATA-TW"');
+    expect(html).toContain('data-testid="public-share-data-health-warning"');
+    expect(html).toContain('data-testid="public-share-holding-quote-status-NODATA-TW"');
+    expect(html).toContain("Missing quote");
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain('data-testid="public-share-empty"');
+    expect(html).not.toContain("costBasisAmount");
   });
 
   it("delegates missing tokens to next/navigation.notFound()", async () => {

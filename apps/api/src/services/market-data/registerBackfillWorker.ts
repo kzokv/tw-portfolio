@@ -1,6 +1,7 @@
 import type { AppInstance } from "../../app.js";
 import type { PgBoss } from "pg-boss";
 import { BACKFILL_QUEUE, createBackfillHandler } from "./backfillWorker.js";
+import { registerSnapshotRepairWorker } from "../snapshotRepair.js";
 import {
   getEffectiveBackfillRetryLimit,
   getEffectiveBackfillRetryDelaySeconds,
@@ -32,5 +33,6 @@ export async function registerBackfillWorker(
   };
   await boss.createQueue(BACKFILL_QUEUE, queueOptions);
   await boss.work(BACKFILL_QUEUE, { batchSize: 1, includeMetadata: true }, createBackfillHandler(deps));
+  await registerSnapshotRepairWorker(boss, { persistence: app.persistence, log: app.log });
   app.log.info("backfill worker registered");
 }

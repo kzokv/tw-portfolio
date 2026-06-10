@@ -25,12 +25,12 @@ describe("reportService", () => {
     expect(getJson).toHaveBeenCalledWith("/reports/daily-review?scope=TW&currencyMode=auto&limit=25");
   });
 
-  it("fetches the portfolio report endpoint with specified currency", async () => {
+  it("normalizes legacy specified currency route state to backend auto mode", async () => {
     const state = parseReportRouteState({ tab: "portfolio", scope: "all", currencyMode: "specified", currency: "AUD", range: "5Y" });
 
     await fetchReport("portfolio", state);
 
-    expect(getJson).toHaveBeenCalledWith("/reports/portfolio?scope=all&currencyMode=specified&currency=AUD&range=5Y&limit=25");
+    expect(getJson).toHaveBeenCalledWith("/reports/portfolio?scope=all&currencyMode=auto&range=5Y&limit=25");
   });
 
   it("passes cancellation options to the report request", async () => {

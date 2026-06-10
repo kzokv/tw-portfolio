@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vakwen Frontend Reliability Mockup</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #dbe1ea;
+      --soft: #eef2f6;
+      --blue: #2563eb;
+      --green: #047857;
+      --red: #be123c;
+      --amber: #b45309;
+      --violet: #6d28d9;
+      --shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+    }
+
+    aside {
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+      padding: 18px 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 8px 20px;
+      font-weight: 700;
+    }
+
+    .logo {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    nav {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .nav-item {
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: #475569;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .nav-item.active {
+      background: #e8eefc;
+      color: #1d4ed8;
+    }
+
+    main {
+      min-width: 0;
+      padding: 22px 24px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.15;
+    }
+
+    h2 {
+      font-size: 17px;
+      line-height: 1.2;
+    }
+
+    h3 {
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .muted { color: var(--muted); }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 4px 9px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.success { border-color: #a7f3d0; background: #ecfdf5; color: var(--green); }
+    .badge.warn { border-color: #fde68a; background: #fffbeb; color: var(--amber); }
+    .badge.danger { border-color: #fecdd3; background: #fff1f2; color: var(--red); }
+    .badge.blue { border-color: #bfdbfe; background: #eff6ff; color: var(--blue); }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #0f172a;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: #1d4ed8;
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .stack {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title-group {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .grid-toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) repeat(4, auto);
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .input, .select {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px 10px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      padding: 6px 10px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .chip.active {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: var(--blue);
+    }
+
+    .table-wrap {
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 10px;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    th .head {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .drag {
+      color: #94a3b8;
+      font-weight: 900;
+    }
+
+    .resize {
+      width: 3px;
+      align-self: stretch;
+      border-radius: 2px;
+      background: #cbd5e1;
+    }
+
+    .ticker {
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .sub {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .money {
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 800;
+      text-align: right;
+    }
+
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+
+    .health {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .note {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      margin: 14px 16px 16px;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      background: #fffbeb;
+      padding: 10px 12px;
+      color: #78350f;
+      font-size: 13px;
+    }
+
+    .quick-panel {
+      position: sticky;
+      top: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+      overflow: hidden;
+    }
+
+    .quick-head {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .quick-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .quick-action {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .quick-icon {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--soft);
+      color: #334155;
+      font-weight: 900;
+    }
+
+    .quick-icon.blue { background: #eff6ff; color: var(--blue); }
+    .quick-icon.green { background: #ecfdf5; color: var(--green); }
+    .quick-icon.amber { background: #fffbeb; color: var(--amber); }
+    .quick-icon.violet { background: #f5f3ff; color: var(--violet); }
+
+    .quick-action h3 {
+      margin-bottom: 2px;
+    }
+
+    .currency-picker {
+      margin: 0 14px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 12px;
+    }
+
+    .currency-options {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .currency-options .button {
+      min-height: 34px;
+      padding: 7px 0;
+    }
+
+    .floating-trigger {
+      position: fixed;
+      right: 28px;
+      bottom: 26px;
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 18px 32px rgba(37, 99, 235, 0.28);
+      font-size: 26px;
+      font-weight: 300;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .stat p:first-child {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stat .value {
+      font-size: 20px;
+      font-weight: 850;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 1080px) {
+      .app { grid-template-columns: 1fr; }
+      aside { display: none; }
+      main { padding: 16px; }
+      .content-grid { grid-template-columns: 1fr; }
+      .quick-panel { position: static; }
+      .grid-toolbar { grid-template-columns: 1fr 1fr; }
+      .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand"><span class="logo">V</span><span>Vakwen</span></div>
+      <nav>
+        <div class="nav-item active">Dashboard</div>
+        <div class="nav-item">Reports</div>
+        <div class="nav-item">Portfolio</div>
+        <div class="nav-item">Tickers</div>
+        <div class="nav-item">Transactions</div>
+        <div class="nav-item">Dividends</div>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>Portfolio command center</h1>
+          <p class="muted">All values use backend-authoritative reporting data.</p>
+        </div>
+        <div class="toolbar-actions">
+          <span class="badge blue">Reporting TWD</span>
+          <span class="badge warn">Snapshots through Jun 9</span>
+          <button class="button primary">Quick actions</button>
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <div class="stack">
+          <section class="status-strip">
+            <div class="stat">
+              <p>Market value</p>
+              <div class="value">TWD 21.0M</div>
+            </div>
+            <div class="stat">
+              <p>Book cost</p>
+              <div class="value">TWD 13.3M</div>
+            </div>
+            <div class="stat">
+              <p>Daily change</p>
+              <div class="value neg">-TWD 155K</div>
+            </div>
+            <div class="stat">
+              <p>Data health</p>
+              <div class="value" style="font-size: 15px;"><span class="badge success">Current</span></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div class="title-group">
+                <div class="title-row">
+                  <h2>Holdings grid</h2>
+                  <span class="badge blue">Detailed preset</span>
+                  <span class="badge">Reporting TWD</span>
+                </div>
+                <p class="muted">Shared grid used by Dashboard, Portfolio, and Reports.</p>
+              </div>
+              <button class="button">Grid settings</button>
+            </div>
+
+            <div class="grid-toolbar">
+              <div class="input">Search ticker, name, account</div>
+              <div class="select">Market: All</div>
+              <div class="select">Account: All</div>
+              <div class="select">Sort: Worst P&amp;L first</div>
+              <button class="button">Columns</button>
+            </div>
+
+            <div class="chips">
+              <span class="chip">Largest</span>
+              <span class="chip active">Worst P&amp;L first</span>
+              <span class="chip">FX exposure</span>
+              <span class="chip">Stale quotes</span>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <colgroup>
+                  <col style="width: 16%;">
+                  <col style="width: 12%;">
+                  <col style="width: 13%;">
+                  <col style="width: 15%;">
+                  <col style="width: 12%;">
+                  <col style="width: 12%;">
+                  <col style="width: 20%;">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th><div class="head"><span><span class="drag">::</span> Ticker</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>Market</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>Price</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>Market value</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>Daily</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>P&amp;L</span><span class="resize"></span></div></th>
+                    <th><div class="head"><span>Data health</span><span class="resize"></span></div></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><div class="ticker">AVGO</div><div class="sub">1 acct · 456 units</div></td>
+                    <td><span class="badge">US</span></td>
+                    <td class="money">TWD 12,377.75<div class="sub">Native USD 392.16</div></td>
+                    <td class="money">TWD 5.6M</td>
+                    <td class="money neg">-TWD 63.9K<div class="sub neg">-1.1%</div></td>
+                    <td class="money neg">-TWD 112.8K</td>
+                    <td><div class="health"><span class="badge success">Quote current</span><span class="badge success">FX complete</span><span class="badge success">Snapshot current</span></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="ticker">2330</div><div class="sub">2 accts · 5,000 units</div></td>
+                    <td><span class="badge">TW</span></td>
+                    <td class="money">TWD 2,305.00</td>
+                    <td class="money">TWD 11.5M</td>
+                    <td class="money pos">+TWD 50K<div class="sub pos">+0.4%</div></td>
+                    <td class="money pos">+TWD 7.3M</td>
+                    <td><div class="health"><span class="badge success">Quote current</span><span class="badge">Native currency</span><span class="badge success">Snapshot current</span></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="ticker">000660</div><div class="sub">1 acct · 80 units</div></td>
+                    <td><span class="badge">KR</span></td>
+                    <td class="money">TWD 43,923.16<div class="sub">Native KRW 2,126,000</div></td>
+                    <td class="money">TWD 3.5M</td>
+                    <td class="money neg">-TWD 147.1K<div class="sub neg">-4.0%</div></td>
+                    <td class="money pos">+TWD 502.7K</td>
+                    <td><div class="health"><span class="badge success">Quote current</span><span class="badge success">FX complete</span><span class="badge warn">Snapshot pending</span></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="ticker">3714</div><div class="sub">2 accts · 5,000 units</div></td>
+                    <td><span class="badge">TW</span></td>
+                    <td class="money">TWD 66.00</td>
+                    <td class="money">TWD 330K</td>
+                    <td class="money pos">+TWD 6K<div class="sub pos">+1.9%</div></td>
+                    <td class="money neg">-TWD 36.8K</td>
+                    <td><div class="health"><span class="badge success">Quote current</span><span class="badge">Native currency</span><span class="badge success">Snapshot current</span></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="note">
+              <strong>Snapshot</strong>
+              <span>Trend charts use snapshots only. Latest reliable snapshot for selected scope is Jun 9, 2026.</span>
+            </div>
+          </section>
+        </div>
+
+        <section class="quick-panel">
+          <div class="quick-head">
+            <h2>Quick actions</h2>
+            <p class="muted">Global actions for editable portfolios.</p>
+          </div>
+          <div class="quick-list">
+            <div class="quick-action">
+              <div class="quick-icon blue">+</div>
+              <div><h3>Add transaction</h3><p class="muted">Open the transaction dialog.</p></div>
+              <span class="badge">Open</span>
+            </div>
+            <div class="quick-action">
+              <div class="quick-icon amber">R</div>
+              <div><h3>Recompute portfolio</h3><p class="muted">Confirm before running.</p></div>
+              <span class="badge warn">Confirm</span>
+            </div>
+            <div class="quick-action">
+              <div class="quick-icon green">S</div>
+              <div><h3>Generate snapshots</h3><p class="muted">Current portfolio only.</p></div>
+              <span class="badge">Run</span>
+            </div>
+            <div class="quick-action">
+              <div class="quick-icon violet">C</div>
+              <div><h3>Reporting currency</h3><p class="muted">Current global setting.</p></div>
+              <span class="badge blue">TWD</span>
+            </div>
+          </div>
+          <div class="currency-picker">
+            <h3>Change reporting currency</h3>
+            <div class="currency-options">
+              <button class="button primary">TWD</button>
+              <button class="button">USD</button>
+              <button class="button">KRW</button>
+              <button class="button">AUD</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <button class="floating-trigger" aria-label="Quick actions">+</button>
+    </main>
+  </div>
+</body>
+</html>

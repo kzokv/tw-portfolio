@@ -177,8 +177,12 @@ export function TickerHistoryClient({
   const accountScopeDisplayName = transactionAccountFilter
     ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
     : dict.tickerHistory.allAccountsLabel;
-  const aggregateScopeLabel = holdingGroup
-    ? `${holdingGroup.marketCode} · ${formatNumber(holdingGroup.accountCount, locale)}`
+  const effectiveHoldingGroup = detailsState.holdingGroup ?? holdingGroup;
+  const accountBreakdownRows = effectiveHoldingGroup?.children.length
+    ? effectiveHoldingGroup.children
+    : detailsState.accountBreakdown;
+  const aggregateScopeLabel = effectiveHoldingGroup
+    ? `${effectiveHoldingGroup.marketCode} · ${formatNumber(effectiveHoldingGroup.accountCount, locale)}`
     : detailsState.identity.marketCode;
 
   useEffect(() => {
@@ -362,16 +366,22 @@ export function TickerHistoryClient({
       ? `${dict.tickerHistory.repairStatusLastRun}: ${formatLastRepairTime(locale, lastRepairAt)}`
       : dict.tickerHistory.repairStatusIdle;
   const repairDisabledReason = isDemo
-    ? "Demo mode"
+    ? dict.tickerHistory.repairDisabledDemo
     : isBackfillBusy
       ? dict.settings.repairModeUnavailableBackfill
       : cooldownRemaining > 0
         ? dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(cooldownRemaining))
         : "";
-  const quoteDirection = (detailsState.quote.changeAmount ?? 0) >= 0 ? "up" : "down";
-  const quoteAccent = quoteDirection === "up"
-    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-    : "text-rose-700 bg-rose-50 border-rose-200";
+  const quoteDirection = detailsState.quote.changeAmount == null || detailsState.quote.changeAmount === 0
+    ? "neutral"
+    : detailsState.quote.changeAmount > 0
+      ? "up"
+      : "down";
+  const quoteAccent = quoteDirection === "neutral"
+    ? "border-border bg-muted/30 text-muted-foreground"
+    : quoteDirection === "up"
+      ? "border-success/40 bg-success/10 text-success"
+      : "border-destructive/40 bg-destructive/10 text-destructive";
   const summaryCards = [
     {
       key: "quantity",
@@ -428,18 +438,28 @@ export function TickerHistoryClient({
   ];
   const chartData = detailsState.chart.points.map((point) => ({
     ...point,
-    axisLabel: point.label === "Now" ? point.label : formatDateLabel(point.date, locale),
+    axisLabel: point.label === "Now" ? dict.tickerHistory.nowLabel : formatDateLabel(point.date, locale),
   }));
   const accountContributionData = useMemo(
-    () => (holdingGroup?.children ?? []).map((child) => ({
-      accountId: child.accountId,
-      label: child.accountName?.trim() || child.accountId,
-      quantity: child.quantity,
-      averageCost: child.averageCostPerShare,
-      contribution: child.marketValueAmount ?? child.costBasisAmount,
-    })),
-    [holdingGroup],
+    () => accountBreakdownRows.map((child) => {
+      const reportingCurrency = child.reportingCurrency ?? null;
+      const marketValue = reportingCurrency ? child.reportingMarketValueAmount ?? null : null;
+      const costBasis = reportingCurrency ? child.reportingCostBasisAmount ?? null : null;
+      const contribution = marketValue ?? costBasis;
+      return {
+        accountId: child.accountId,
+        label: child.accountName?.trim() || child.accountId,
+        quantity: child.quantity,
+        averageCost: child.averageCostPerShare,
+        averageCostCurrency: child.currency,
+        contribution,
+        contributionCurrency: reportingCurrency,
+        usedCostBasisFallback: marketValue == null && costBasis != null,
+      };
+    }),
+    [accountBreakdownRows],
   );
+  const accountBreakdownChartHeight = Math.min(320, Math.max(180, accountContributionData.length * 58));
   const floatingSummary = (
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
       <Card className="min-w-0 rounded-2xl p-4">
@@ -550,19 +570,19 @@ export function TickerHistoryClient({
           data-testid="ticker-primary-refresh-strip"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span>Position summary is ready first. Chart, dividends, and fundamentals refresh independently.</span>
+            <span>{dict.tickerHistory.positionSummaryReadyMessage}</span>
             {isDetailsLoading ? (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Refreshing details
+              <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+                {dict.tickerHistory.refreshingDetails}
               </span>
             ) : (
               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
-                Primary ready
+                {dict.tickerHistory.primaryReady}
               </span>
             )}
           </div>
           <Button type="button" variant="secondary" onClick={() => { void refreshDetails(); }} disabled={isDetailsLoading}>
-            Refresh ticker
+            {dict.tickerHistory.refreshTicker}
           </Button>
         </div>
         <Card className="overflow-hidden rounded-[30px] border border-border bg-[linear-gradient(145deg,hsla(var(--background),0.98),hsla(var(--muted),0.35))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
@@ -574,7 +594,7 @@ export function TickerHistoryClient({
                   {detailsState.quote.quoteStatus}
                 </span>
                 {detailsState.quote.freshness !== "current" ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                  <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
                     {detailsState.quote.freshness}
                   </span>
                 ) : null}
@@ -584,7 +604,7 @@ export function TickerHistoryClient({
                   {detailsState.identity.name ? `${detailsState.identity.name} (${ticker})` : ticker}
                 </h1>
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? "Instrument"}
+                  {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? dict.tickerHistory.instrumentFallbackLabel}
                 </span>
               </div>
               <div className="mt-5 flex flex-wrap items-end gap-4">
@@ -607,7 +627,8 @@ export function TickerHistoryClient({
                 </div>
                 <div className={cn("rounded-2xl border px-4 py-3 text-sm", quoteAccent)} data-testid="ticker-quote-change">
                   <div className="flex items-center gap-2 font-medium">
-                    {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : null}
+                    {quoteDirection === "down" ? <ArrowDownRight className="h-4 w-4" /> : null}
                     <span>{detailsState.quote.changeAmount != null ? formatCurrencyAmount(detailsState.quote.changeAmount, currency, locale) : "-"}</span>
                     <span>{formatPercent(locale, detailsState.quote.changePercent)}</span>
                   </div>
@@ -817,37 +838,65 @@ export function TickerHistoryClient({
                   <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownEmpty}</p>
                 ) : (
                   <>
-                    <div className="mt-4 h-[220px]">
+                    <div className="mt-4 w-full min-w-0" style={{ height: accountBreakdownChartHeight }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={accountContributionData} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
                           <XAxis type="number" hide />
                           <YAxis type="category" dataKey="label" width={88} tickLine={false} axisLine={false} />
-                          <Tooltip formatter={(value) => typeof value === "number" ? formatCurrencyAmount(value, currency, locale) : value} />
+                          <Tooltip
+                            formatter={(value, _name, item) => {
+                              const payload = (item as { payload?: { contributionCurrency?: string } }).payload;
+                              return typeof value === "number"
+                                ? formatCurrencyAmount(value, payload?.contributionCurrency ?? currency, locale)
+                                : value;
+                            }}
+                          />
                           <Bar dataKey="contribution" fill="#2563eb" radius={[6, 6, 6, 6]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                          <tr>
-                            <th className="px-4 py-2.5">{dict.tickerHistory.accountBreakdownAccountLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.quantityLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.avgCostLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.accountContributionLabel}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {accountContributionData.map((row) => (
-                            <tr key={row.accountId} className="border-t border-slate-200">
-                              <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">{formatNumber(row.quantity, locale)}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">{formatCurrencyAmount(row.averageCost, currency, locale)}</td>
-                              <td className="px-4 py-3 text-right font-medium text-slate-900">{formatCurrencyAmount(row.contribution, currency, locale)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mt-4 grid gap-3" data-testid="ticker-account-breakdown-rows">
+                      {accountContributionData.map((row) => (
+                        <div
+                          key={row.accountId}
+                          className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm"
+                          data-testid={`ticker-account-breakdown-row-${row.accountId}`}
+                        >
+                          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                {dict.tickerHistory.accountBreakdownAccountLabel}
+                              </p>
+                              <p className="mt-1 break-words font-semibold text-slate-950">{row.label}</p>
+                            </div>
+                            <div className="grid min-w-0 gap-3 sm:min-w-[260px] sm:grid-cols-3">
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.quantityLabel}</p>
+                                <p className="mt-1 break-words font-medium text-slate-900">{formatNumber(row.quantity, locale)}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.avgCostLabel}</p>
+                                <p className="mt-1 break-words font-medium text-slate-900">
+                                  {formatCurrencyAmount(row.averageCost, row.averageCostCurrency, locale)}
+                                </p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.accountContributionLabel}</p>
+                                <p className="mt-1 break-words font-semibold text-slate-950">
+                                  {row.contribution != null && row.contributionCurrency
+                                    ? formatCurrencyAmount(row.contribution, row.contributionCurrency, locale)
+                                    : dict.tickerHistory.noHoldingData}
+                                </p>
+                                {row.usedCostBasisFallback ? (
+                                  <p className="mt-1 break-words text-xs font-normal text-warning">
+                                    {dict.dashboardHome.allocationFallbackLabel}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </>
                 )}
@@ -888,7 +937,7 @@ export function TickerHistoryClient({
           <TabsContent value="transactions" className="mt-0 grid gap-6" data-testid="ticker-detail-transactions">
             {isSharedContext ? (
               <div
-                className="rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
+                className="rounded-[22px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
                 data-testid="ticker-history-readonly"
                 role="status"
                 aria-live="polite"

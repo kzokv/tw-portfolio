@@ -27,12 +27,48 @@ describe("resolveReportContext", () => {
     });
   });
 
-  it("requires an explicit currency for specified mode", () => {
-    expect(() => resolveReportContext({
+  it("normalizes all-scope specified mode to the user's global reporting currency", () => {
+    expect(resolveReportContext({
+      scope: "all",
+      currencyMode: "specified",
+      currency: "AUD",
+      defaultReportingCurrency: "USD",
+    })).toEqual({
+      scope: "all",
+      currencyMode: "auto",
+      currency: null,
+      reportingCurrency: "USD",
+      nativeCurrency: null,
+    });
+  });
+
+  it("normalizes single-market specified mode to the market's native currency", () => {
+    expect(resolveReportContext({
       scope: "US",
       currencyMode: "specified",
+      currency: "TWD",
+      defaultReportingCurrency: "AUD",
+    })).toEqual({
+      scope: "US",
+      currencyMode: "auto",
+      currency: null,
+      reportingCurrency: "USD",
+      nativeCurrency: "USD",
+    });
+  });
+
+  it("ignores specified mode without a currency because manual overrides are not authoritative", () => {
+    expect(resolveReportContext({
+      scope: "KR",
+      currencyMode: "specified",
       defaultReportingCurrency: "TWD",
-    })).toThrow(/currency is required when currencyMode=specified/);
+    })).toEqual({
+      scope: "KR",
+      currencyMode: "auto",
+      currency: null,
+      reportingCurrency: "KRW",
+      nativeCurrency: "KRW",
+    });
   });
 
   it("rejects unsupported scope values", () => {

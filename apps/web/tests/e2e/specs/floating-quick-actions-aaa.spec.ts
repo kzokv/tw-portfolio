@@ -1,7 +1,7 @@
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // Phase 5e — floating ⨁ button + Sheet (replaces ActionCenter recompute/snapshots).
-// Hidden when shared-context active; on /dashboard only.
+// Available on editable app routes; hidden when shared-context active.
 
 test("[floating-A] trigger visible on /dashboard; opens sheet with 3 actions", async ({
   dashboard,
@@ -19,7 +19,7 @@ test("[floating-A] trigger visible on /dashboard; opens sheet with 3 actions", a
   await dashboard.assert.floatingActionGenerateSnapshotsIsVisible();
 });
 
-test("[floating-E] trigger hidden on non-dashboard routes", async ({
+test("[floating-E] trigger visible on editable non-dashboard routes", async ({
   dashboard,
   appShell,
 }) => {
@@ -27,5 +27,5 @@ test("[floating-E] trigger hidden on non-dashboard routes", async ({
   await appShell.actions.navigateToRoute("/portfolio");
   await appShell.assert.appIsReady();
 
-  await dashboard.assert.floatingQuickActionsTriggerIsHidden();
+  await dashboard.assert.floatingQuickActionsTriggerIsVisible();
 });

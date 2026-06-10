@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { roundToDecimal } from "@vakwen/domain";
-import type { DailyBar } from "@vakwen/domain";
+import type { DailyBar, MarketCode } from "@vakwen/domain";
 import type {
   Persistence,
   HoldingSnapshot,
@@ -45,19 +45,20 @@ export async function generateHoldingSnapshots(
   // Fetch only the inputs the walker needs — avoids loadStore's full blast radius.
   const inputs = await persistence.getSnapshotGenerationInputs(userId);
 
-  // Group trades by (accountId, ticker). Nested Map keeps the structure
-  // tuple-safe so a ticker containing a delimiter like ":" cannot collide
-  // with a different (accountId, ticker) pair.
+  // Group trades by (accountId, ticker, marketCode). Nested Map keeps the
+  // account boundary explicit while the inner key prevents cross-listed tickers
+  // from sharing price history or overwriting snapshots.
   const tradesByAccountTicker = groupTrades(inputs.trades);
   const dividendsByAccountTicker = groupDividends(inputs.postedDividends);
 
-  // Batch-fetch daily bars for every unique ticker up-front to avoid N+1.
-  const uniqueTickers = Array.from(new Set(inputs.trades.map(t => t.ticker)));
+  // Batch-fetch daily bars for every unique (ticker, market) up-front to avoid
+  // N+1 while preserving market identity.
+  const uniquePairs = uniqueTickerMarketPairs(inputs.trades);
   const earliestTradeDate = inputs.trades.length > 0
     ? inputs.trades.reduce((min, t) => t.tradeDate < min ? t.tradeDate : min, inputs.trades[0].tradeDate)
     : today;
-  const barsByTicker = uniqueTickers.length > 0
-    ? await persistence.getDailyBarsForTickers(uniqueTickers, earliestTradeDate, today)
+  const barsByTickerMarket = uniquePairs.length > 0
+    ? await persistence.getDailyBarsForTickerMarkets(uniquePairs, earliestTradeDate, today)
     : new Map<string, DailyBar[]>();
 
   const allSnapshots: HoldingSnapshot[] = [];
@@ -68,13 +69,14 @@ export async function generateHoldingSnapshots(
   const tickersNeedingBackfill = new Map<string, { ticker: string; marketCode: string }>();
 
   for (const [accountId, byTicker] of tradesByAccountTicker) {
-    for (const [ticker, groupTrades] of byTicker) {
-      const bars = barsByTicker.get(ticker) ?? [];
-      const dividends = dividendsByAccountTicker.get(accountId)?.get(ticker) ?? [];
+    for (const [pairKey, groupTrades] of byTicker) {
       // KZO-185: the (account, ticker) pair has a single marketCode by the
       // currency-coupling rule (walkPositionHistory enforces single
       // priceCurrency at line 193 below; marketCode tracks priceCurrency 1:1).
+      const ticker = groupTrades[0].ticker;
       const marketCode = groupTrades[0].marketCode;
+      const bars = barsByTickerMarket.get(pairKey) ?? [];
+      const dividends = dividendsByAccountTicker.get(accountId)?.get(pairKey) ?? [];
       const compositeKey = `${ticker}:${marketCode}`;
 
       const snapshots = walkPositionHistory({
@@ -82,6 +84,7 @@ export async function generateHoldingSnapshots(
         accountId,
         ticker,
         trades: groupTrades,
+        marketCode,
         bars,
         dividends,
         generationRunId,
@@ -127,29 +130,33 @@ export async function recomputeSnapshotsForTicker(
   ticker: string,
   fromDate: string,
   persistence: Persistence,
+  marketCode?: MarketCode,
 ): Promise<SnapshotGenerationResult> {
   const generationRunId = randomUUID();
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
 
   // Delete existing snapshots from the affected date forward
-  await persistence.deleteHoldingSnapshotsForTicker(userId, accountId, ticker, fromDate);
+  const inputs = await persistence.getSnapshotGenerationInputs(userId, { accountId, ticker, marketCode });
+  const inputMarketCode = inputs.trades[0]?.marketCode ?? marketCode;
+  await persistence.deleteHoldingSnapshotsForTicker(userId, accountId, ticker, fromDate, inputMarketCode);
 
-  const inputs = await persistence.getSnapshotGenerationInputs(userId, { accountId, ticker });
   if (inputs.trades.length === 0) {
     return { totalRows: 0, provisionalRows: 0, dateRange: null, generationRunId, tickersNeedingBackfill: [] };
   }
 
+  const scopedMarketCode = inputs.trades[0].marketCode;
   const firstTradeDate = inputs.trades[0].tradeDate;
-  const bars = await persistence.getDailyBarsForTicker(ticker, firstTradeDate, today);
+  const bars = await persistence.getDailyBarsForTickerMarket(ticker, scopedMarketCode, firstTradeDate, today);
 
   const snapshots = walkPositionHistory({
     userId,
     accountId,
     ticker,
     trades: inputs.trades,
+    marketCode: scopedMarketCode,
     bars,
-    dividends: inputs.postedDividends,
+    dividends: inputs.postedDividends.filter((dividend) => dividend.marketCode === scopedMarketCode),
     generationRunId,
     generatedAt: now,
     fromDate,
@@ -158,12 +165,11 @@ export async function recomputeSnapshotsForTicker(
   // KZO-185: composite-key Map mirrors the full-regen walker. We know
   // `inputs.trades.length > 0` from the early return above, so reading
   // `inputs.trades[0].marketCode` is safe.
-  const marketCode = inputs.trades[0].marketCode;
-  const compositeKey = `${ticker}:${marketCode}`;
+  const compositeKey = `${ticker}:${scopedMarketCode}`;
   const tickersNeedingBackfill = new Map<string, { ticker: string; marketCode: string }>();
-  if (bars.length === 0) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
+  if (bars.length === 0) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode: scopedMarketCode });
   for (const s of snapshots) {
-    if (s.isProvisional) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
+    if (s.isProvisional) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode: scopedMarketCode });
   }
 
   if (snapshots.length > 0) {
@@ -186,6 +192,7 @@ interface WalkerParams {
   userId: string;
   accountId: string;
   ticker: string;
+  marketCode: MarketCode;
   trades: SnapshotTradeInput[];
   bars: DailyBar[];
   dividends: SnapshotDividendInput[];
@@ -196,7 +203,7 @@ interface WalkerParams {
 }
 
 function walkPositionHistory(params: WalkerParams): HoldingSnapshot[] {
-  const { userId, accountId, ticker, trades, bars, dividends, generationRunId, generatedAt, fromDate } = params;
+  const { userId, accountId, ticker, marketCode, trades, bars, dividends, generationRunId, generatedAt, fromDate } = params;
 
   // KZO-165: validate single priceCurrency across all trades for this (account, ticker).
   // Mixed values are an upstream data bug — an instrument has one quote currency, and the
@@ -297,6 +304,7 @@ function walkPositionHistory(params: WalkerParams): HoldingSnapshot[] {
       userId,
       accountId,
       ticker,
+      marketCode,
       snapshotDate: date,
       quantity,
       closePrice,
@@ -331,9 +339,10 @@ function groupTrades(trades: SnapshotTradeInput[]): Map<string, Map<string, Snap
       byTicker = new Map();
       result.set(trade.accountId, byTicker);
     }
-    const list = byTicker.get(trade.ticker) ?? [];
+    const key = snapshotPairKey(trade.ticker, trade.marketCode);
+    const list = byTicker.get(key) ?? [];
     list.push(trade);
-    byTicker.set(trade.ticker, list);
+    byTicker.set(key, list);
   }
   return result;
 }
@@ -346,9 +355,25 @@ function groupDividends(dividends: SnapshotDividendInput[]): Map<string, Map<str
       byTicker = new Map();
       result.set(div.accountId, byTicker);
     }
-    const list = byTicker.get(div.ticker) ?? [];
+    const key = snapshotPairKey(div.ticker, div.marketCode);
+    const list = byTicker.get(key) ?? [];
     list.push(div);
-    byTicker.set(div.ticker, list);
+    byTicker.set(key, list);
   }
   return result;
+}
+
+function uniqueTickerMarketPairs(trades: SnapshotTradeInput[]): { ticker: string; marketCode: MarketCode }[] {
+  const byKey = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const trade of trades) {
+    byKey.set(snapshotPairKey(trade.ticker, trade.marketCode), {
+      ticker: trade.ticker,
+      marketCode: trade.marketCode,
+    });
+  }
+  return [...byKey.values()];
+}
+
+function snapshotPairKey(ticker: string, marketCode: MarketCode): string {
+  return `${ticker}\0${marketCode}`;
 }
