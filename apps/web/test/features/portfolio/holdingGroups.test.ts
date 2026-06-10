@@ -64,6 +64,36 @@ describe("resolveHoldingGroups", () => {
     expect(resolved[0]?.children[0]?.reportingUnrealizedPnlAmount).toBeNull();
   });
 
+  it("uses native amounts for explicit null reporting fields when no currency conversion is needed", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("expected holding group");
+
+    const resolved = resolveHoldingGroups({
+      holdings,
+      holdingGroups: [{
+        ...group,
+        reportingCurrency: "TWD",
+        reportingCostBasisAmount: null,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "TWD",
+          reportingCostBasisAmount: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+        })),
+      }],
+    });
+
+    expect(resolved[0]?.reportingCostBasisAmount).toBe(1_185_472);
+    expect(resolved[0]?.reportingMarketValueAmount).toBe(1_220_000);
+    expect(resolved[0]?.reportingUnrealizedPnlAmount).toBe(34_528);
+    expect(resolved[0]?.children[0]?.reportingCostBasisAmount).toBe(1_185_472);
+    expect(resolved[0]?.children[0]?.reportingMarketValueAmount).toBe(1_220_000);
+    expect(resolved[0]?.children[0]?.reportingUnrealizedPnlAmount).toBe(34_528);
+  });
+
   it("keeps legacy native fallback only when reporting fields are absent", () => {
     const group = buildHoldingGroupsFromHoldings({ holdings })[0];
     if (!group) throw new Error("expected holding group");

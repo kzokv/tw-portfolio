@@ -293,7 +293,7 @@ function resolveReportingAmount(
   nativeCurrency: CurrencyCode,
 ): number | null {
   const value = row[key];
-  if (value !== undefined) return value;
+  if (value != null) return value;
   return reportingCurrency === nativeCurrency ? nativeValue : null;
 }
 
