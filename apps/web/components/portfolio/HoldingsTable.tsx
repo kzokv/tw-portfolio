@@ -86,6 +86,16 @@ function isHoldingsDisplayMode(value: string): value is HoldingsDisplayMode {
   return value === "aggregated" || value === "expanded" || value === "accounts";
 }
 
+export function holdingGroupMatchesStatusFilter(
+  group: DashboardOverviewHoldingGroupDto,
+  selectedStatuses: DashboardOverviewHoldingDto["quoteStatus"][],
+  displayMode: HoldingsDisplayMode,
+): boolean {
+  if (selectedStatuses.length === 0) return true;
+  if (displayMode === "aggregated") return selectedStatuses.includes(group.quoteStatus);
+  return group.children.some((child) => selectedStatuses.includes(child.quoteStatus));
+}
+
 function isHoldingAllocationBasis(value: string): value is HoldingAllocationBasis {
   return value === "market_value" || value === "cost_basis";
 }
@@ -181,11 +191,11 @@ export function HoldingsTable({
   const filteredGroups = useMemo(() => {
     return groups.filter((group) => {
       if (marketFilter !== "ALL" && group.marketCode !== marketFilter) return false;
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(group.quoteStatus)) return false;
+      if (!holdingGroupMatchesStatusFilter(group, selectedStatuses, displayMode)) return false;
       if (selectedAccountIds.length > 0 && !group.children.some((child) => selectedAccountIds.includes(child.accountId))) return false;
       return holdingMatchesQuery(group, deferredQuery.trim());
     });
-  }, [deferredQuery, groups, marketFilter, selectedAccountIds, selectedStatuses]);
+  }, [deferredQuery, displayMode, groups, marketFilter, selectedAccountIds, selectedStatuses]);
 
   const visibleGroupKeys = useMemo(
     () => new Set(filteredGroups.map((group) => `${group.ticker}::${group.marketCode}`)),
@@ -454,7 +464,8 @@ export function HoldingsTable({
                     const groupKey = `${group.ticker}::${group.marketCode}`;
                     const showChildren = expandedState.has(groupKey);
                     const visibleChildren = group.children.filter((child) =>
-                      selectedAccountIds.length === 0 || selectedAccountIds.includes(child.accountId),
+                      (selectedAccountIds.length === 0 || selectedAccountIds.includes(child.accountId))
+                      && (selectedStatuses.length === 0 || selectedStatuses.includes(child.quoteStatus)),
                     );
 
                     return (

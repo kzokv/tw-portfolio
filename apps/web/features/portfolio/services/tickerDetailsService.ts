@@ -478,6 +478,7 @@ function withDerivedSnapshotValuation(
     const allocationPercent = accountMarketValueTotal > 0
       ? roundToDecimal((childMarketValue / accountMarketValueTotal) * 100, 4)
       : child.reportingAllocationPercent;
+    const canDeriveReportingAmounts = child.reportingCurrency === child.currency;
 
     return {
       ...child,
@@ -488,11 +489,11 @@ function withDerivedSnapshotValuation(
       changePercent: derivedQuote.changePercent,
       previousClose: derivedQuote.previousClose,
       quoteStatus: derivedQuote.quoteStatus,
-      reportingMarketValueAmount: child.reportingMarketValueAmount ?? childMarketValue,
-      reportingUnrealizedPnlAmount: child.reportingUnrealizedPnlAmount ?? childUnrealizedPnl,
+      reportingMarketValueAmount: child.reportingMarketValueAmount ?? (canDeriveReportingAmounts ? childMarketValue : null),
+      reportingUnrealizedPnlAmount: child.reportingUnrealizedPnlAmount ?? (canDeriveReportingAmounts ? childUnrealizedPnl : null),
       reportingDailyChangeAmount: derivedQuote.changeAmount === null
         ? child.reportingDailyChangeAmount
-        : roundToDecimal(derivedQuote.changeAmount * child.quantity, 2),
+        : child.reportingDailyChangeAmount ?? (canDeriveReportingAmounts ? roundToDecimal(derivedQuote.changeAmount * child.quantity, 2) : null),
       allocationPct: allocationPercent,
       reportingAllocationPercent: allocationPercent,
       allocationBasisUsed: "market_value",
@@ -511,11 +512,16 @@ function withDerivedSnapshotValuation(
         changePercent: derivedQuote.changePercent,
         previousClose: derivedQuote.previousClose,
         quoteStatus: derivedQuote.quoteStatus,
-        reportingMarketValueAmount: fallback.holdingGroup.reportingMarketValueAmount ?? marketValue,
-        reportingUnrealizedPnlAmount: fallback.holdingGroup.reportingUnrealizedPnlAmount ?? unrealizedPnl,
+        reportingMarketValueAmount: fallback.holdingGroup.reportingMarketValueAmount
+          ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency ? marketValue : null),
+        reportingUnrealizedPnlAmount: fallback.holdingGroup.reportingUnrealizedPnlAmount
+          ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency ? unrealizedPnl : null),
         reportingDailyChangeAmount: derivedQuote.changeAmount === null
           ? fallback.holdingGroup.reportingDailyChangeAmount
-          : roundToDecimal(derivedQuote.changeAmount * fallback.position.quantity, 2),
+          : fallback.holdingGroup.reportingDailyChangeAmount
+            ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency
+              ? roundToDecimal(derivedQuote.changeAmount * fallback.position.quantity, 2)
+              : null),
         allocationBasisUsed: "market_value" as const,
         allocationBasisFallbackReason: null,
         children: accountBreakdown,
