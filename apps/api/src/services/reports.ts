@@ -54,8 +54,8 @@ interface PreparedReportData {
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
-  realizedPnlAmount: number;
-  trailingDividendIncome: TrailingDividendIncomeResult;
+  realizedPnl: HistoricalFxAmountResult;
+  trailingDividendIncome: HistoricalFxAmountResult;
   store: Store;
   scopedStore: Store;
   asOf: string;
@@ -63,7 +63,7 @@ interface PreparedReportData {
 
 type MissingFxRatePair = ReportFxStatusDto["missingRatePairs"][number];
 
-interface TrailingDividendIncomeResult {
+interface HistoricalFxAmountResult {
   amount: number;
   missingRatePairs: MissingFxRatePair[];
 }
@@ -83,7 +83,7 @@ export async function buildDailyReviewReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -114,7 +114,7 @@ export async function buildPortfolioReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -156,7 +156,7 @@ export async function buildMarketReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnlAmount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -227,11 +227,15 @@ async function prepareReportData(
     app.persistence,
   );
 
-  const [realizedPnlAmount, trailingDividendIncome] = await Promise.all([
+  const [realizedPnl, trailingDividendIncome] = await Promise.all([
     translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
     buildTrailingDividendIncome(app, scopedStore, context.reportingCurrency),
   ]);
-  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, trailingDividendIncome.missingRatePairs);
+  const historicalMissingRatePairs = dedupeMissingRatePairs([
+    ...realizedPnl.missingRatePairs,
+    ...trailingDividendIncome.missingRatePairs,
+  ]);
+  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
   return {
     reportQuery: {
       scope: context.scope,
@@ -245,7 +249,7 @@ async function prepareReportData(
     translatedSummary,
     translatedHoldingGroups,
     quotes,
-    dataHealth: buildDataHealth(translatedHoldingGroups, trailingDividendIncome.missingRatePairs.length),
+    dataHealth: buildDataHealth(translatedHoldingGroups, historicalMissingRatePairs.length),
     fxStatus,
     fxRates: await buildFxConversionRateRows(
       app.persistence,
@@ -253,7 +257,7 @@ async function prepareReportData(
       context.reportingCurrency,
       asOf,
     ),
-    realizedPnlAmount,
+    realizedPnl,
     trailingDividendIncome,
     store,
     scopedStore,
@@ -618,23 +622,30 @@ async function translateTradeAmounts(
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
   _kind: "realized_pnl",
-): Promise<number> {
+): Promise<HistoricalFxAmountResult> {
   let total = 0;
+  const missingRatePairs: MissingFxRatePair[] = [];
   for (const trade of store.accounting.facts.tradeEvents) {
     if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
     const currency = (trade.realizedPnlCurrency ?? trade.priceCurrency) as AccountDefaultCurrency;
     const fx = currency === reportingCurrency ? 1 : await app.persistence.getFxRate(currency, reportingCurrency, trade.tradeDate);
-    if (fx === null) continue;
+    if (fx === null) {
+      missingRatePairs.push({ from: currency, to: reportingCurrency });
+      continue;
+    }
     total += trade.realizedPnlAmount * fx;
   }
-  return roundToDecimal(total, 2);
+  return {
+    amount: roundToDecimal(total, 2),
+    missingRatePairs: dedupeMissingRatePairs(missingRatePairs),
+  };
 }
 
 async function buildTrailingDividendIncome(
   app: FastifyInstance,
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
-): Promise<TrailingDividendIncomeResult> {
+): Promise<HistoricalFxAmountResult> {
   let total = 0;
   const missingRatePairs: MissingFxRatePair[] = [];
   const reversedIds = collectReversedDividendLedgerIds(store);
