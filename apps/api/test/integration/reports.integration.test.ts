@@ -1146,7 +1146,7 @@ describe("report routes", () => {
     }));
   });
 
-  it("[reports-fx]: historical dividend FX missing while later report FX exists → report marks FX partial", async () => {
+  it("[reports-fx]: historical income and realized-P&L FX missing while later report FX exists → report marks FX partial", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
     if (!feeProfile) throw new Error("expected default fee profile");
@@ -1198,6 +1198,28 @@ describe("report routes", () => {
       bookingSequence: 1,
       bookedAt: "2026-06-01T14:30:00.000Z",
     });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-us-historical-realized-fx-trade",
+      userId,
+      accountId: "acc-us-historical-dividend-fx",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 125,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-02",
+      commissionAmount: 0,
+      taxAmount: 0,
+      realizedPnlAmount: 25,
+      realizedPnlCurrency: "USD",
+      isDayTrade: false,
+      feeSnapshot: usdFeeProfile,
+      tradeTimestamp: "2026-06-02T14:30:00.000Z",
+      bookingSequence: 2,
+      bookedAt: "2026-06-02T14:30:00.000Z",
+    });
     store.marketData.dividendEvents.push({
       id: "report-us-historical-dividend-fx-event",
       ticker: "AAPL",
@@ -1240,7 +1262,7 @@ describe("report routes", () => {
       headers: { cookie: cookieHeader },
     });
     const portfolioBody = portfolioResponse.json() as {
-      summary: { incomeAmount: number };
+      summary: { incomeAmount: number; realizedPnlAmount: number };
       income: { trailingDividendAmount: number };
       fxStatus: {
         status: string;
@@ -1252,6 +1274,7 @@ describe("report routes", () => {
 
     expect(portfolioResponse.statusCode).toBe(200);
     expect(portfolioBody.summary.incomeAmount).toBe(0);
+    expect(portfolioBody.summary.realizedPnlAmount).toBe(0);
     expect(portfolioBody.income.trailingDividendAmount).toBe(0);
     expect(portfolioBody.fxStatus.status).toBe("partial");
     expect(portfolioBody.fxStatus.missingRatePairs).toEqual([
