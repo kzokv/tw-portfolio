@@ -8,9 +8,12 @@ import { parseReportRouteState, type ReportRouteState } from "../../../features/
 const refreshMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const useReportDataMock = vi.hoisted(() => vi.fn());
+const openQuickActionsMock = vi.hoisted(() => vi.fn());
 const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y" }));
 const effectiveRangesMock = vi.hoisted(() => ({ value: ["1M", "1Y"] }));
 const reportHookOverride = vi.hoisted(() => ({ errorMessage: "" }));
+const fetchMock = vi.hoisted(() => vi.fn());
+const userPreferencesMock = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
@@ -25,13 +28,134 @@ vi.mock("next/link", () => ({
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: () => ({
+    canUseGlobalQuickActions: true,
     contextRefreshSignal: 0,
     locale: "en",
+    openQuickActions: openQuickActionsMock,
     sessionUserId: "user-a",
     uiDict: {
       navigation: {
         reportsLabel: "Reports",
         reportsDescription: "Structured reports",
+      },
+      dashboardHome: {
+        performanceSnapshotAsOfTooltip: "Latest reliable snapshot: {date}. Trend charts use server snapshots only.",
+        allocationBasisLabel: "Allocation basis",
+        allocationBasisCostBasis: "Cost basis",
+        allocationBasisMarketValue: "Market value",
+        allocationFallbackLabel: "Cost basis fallback",
+      },
+      reports: {
+        tabDailyReview: "Daily Review",
+        tabPortfolio: "Portfolio Report",
+        tabMarket: "Market Report",
+        controlScope: "Scope",
+        controlRange: "Range",
+        allMarkets: "All markets",
+        resolvedCurrency: "Resolved {currency}",
+        changeInQuickActions: "Change in Quick Actions",
+        reportingCurrencyQuickActionsOnly: "Reporting currency is managed from Quick Actions.",
+        restoredFromCache: "Restored from cache at {time}",
+        contentVisibleWhileLoading: "Report content stays visible while fresh data loads.",
+        refreshing: "Refreshing",
+        refresh: "Refresh",
+        reportUnavailable: "Report unavailable",
+        noReportData: "No report data",
+        noReportDataDescription: "Run refresh after the portfolio read model is available.",
+        latestRefreshFailed: "Latest refresh failed",
+        reportingCurrencyBadge: "Reporting {currency}",
+        fxStatusBadge: "FX {status}",
+        marketValue: "Market value",
+        bookCost: "Book Cost",
+        unrealizedPnl: "Unrealized P&L",
+        realizedPnl: "Realized P&L",
+        dailyChange: "Daily change",
+        income: "Income",
+        upcomingIncome: "Upcoming income",
+        dividendsCount: "{count} dividend(s)",
+        fxStatusTitle: "FX status",
+        fxPairDescription: "{from} to {to}",
+        fxPairLabel: "{from} to {to}",
+        todayTitle: "Today",
+        todayDescription: "Deterministic observations from the report data.",
+        todayEmpty: "No observations for this scope.",
+        topMoversTitle: "Top movers",
+        holdingsDetailTitle: "Holdings detail",
+        allocationByMarketTitle: "Allocation by market",
+        allocationByAccountTitle: "Allocation by account",
+        incomeTitle: "Income",
+        postedDividendRows: "{count} posted dividend row(s)",
+        concentrationTitle: "Concentration",
+        marketSummaryTitle: "Market summary",
+        topHoldingsTitle: "Top holdings",
+        marketDetailTitle: "Market detail",
+        performanceTrendTitle: "Performance trend",
+        performanceTrendLabel: "Performance trend",
+        performanceMetaAsOf: "As of {date}",
+        performanceStaleDataWarning: "Market data stale since {date}",
+        noSnapshotSeries: "No server snapshot series is available for this scope.",
+        allocationBucketCount: "{count} bucket(s)",
+        noAllocationBuckets: "No allocation buckets for this scope.",
+        totalRows: "{count} total row(s)",
+        ticker: "Ticker",
+        position: "Position",
+        unitsLabel: "{count} units",
+        accountAbbrev: "{count} acct",
+        price: "Price",
+        pnl: "P&L",
+        weight: "Weight",
+        openTicker: "Open ticker",
+        openTickerAria: "Open {ticker} ticker page",
+        viewDetails: "View details",
+        holdingDetailTitle: "Holding detail",
+        holdingDetailDescription: "Exact report values for the selected holding row.",
+        reportingPrice: "Reporting price",
+        nativePrice: "Native price",
+        nativeMarketValue: "Native market value",
+        nativeBookCost: "Native book cost",
+        fxRate: "FX rate",
+        accounts: "Accounts",
+        quantity: "Quantity",
+        dailyChangePercent: "Daily change %",
+        allocation: "Allocation",
+        priceTranslationTitle: "Price translation",
+        reportingCurrencySentence: "Reporting currency is {currency}.",
+        reportingPriceWithCurrency: "Reporting price ({currency})",
+        nativePriceWithCurrency: "Native price ({currency})",
+        quoteStatus: "Quote status",
+        quoteStatusMissing: "No quote",
+        quoteStatusProvisional: "Provisional",
+        quoteStatusCurrent: "Current",
+      },
+      holdings: {
+        dataHealthTerm: "Data health",
+        dataHealthDescription: "Quote status, FX conversion, and price freshness. Allocation fallback appears when relevant.",
+        dataHealthHoldingCount: "Holdings",
+        dataHealthMissingQuoteCount: "Missing quotes",
+        dataHealthProvisionalQuoteCount: "Provisional quotes",
+        dataHealthMissingFxCount: "Missing FX",
+        dataHealthStaleQuoteCount: "Stale quotes",
+        statusCurrent: "Current",
+        statusProvisional: "Provisional",
+        statusMissing: "Missing quote",
+        fxStatusComplete: "FX complete",
+        fxStatusPartial: "FX partial",
+        fxStatusMissing: "FX missing",
+        freshnessCurrent: "Fresh",
+        freshnessStale: "Stale",
+        freshnessDelayed: "Delayed",
+        columnSettingsButtonLabel: "Columns",
+        columnSettingsTitle: "Column settings",
+        dragColumnTitle: "Drag to reorder {column}",
+        layoutStyleLabel: "Holding layout",
+        layoutStyleCompact: "Compact",
+        layoutStyleDetailed: "Detailed",
+        moveColumnLeftAria: "Move {column} column left",
+        moveColumnRightAria: "Move {column} column right",
+        resizeColumnAria: "Resize {column} column",
+        resetColumnsLabel: "Reset",
+        toggleColumnAria: "Show {column} column",
+        allocationFallbackMissingQuote: "Missing quote; allocation uses cost basis",
       },
     },
   }),
@@ -70,6 +194,7 @@ beforeAll(() => {
     }
   }
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 const fixture: DailyReviewReportDto = {
@@ -112,10 +237,16 @@ const fixture: DailyReviewReportDto = {
     requestedAsOf: "2026-06-08",
     lastValuationDate: "2026-06-08",
     marketDataStaleSince: null,
+    latestSnapshotDate: "2026-06-08",
+    latestReliableValuationDate: "2026-06-08",
+    expectedLatestValuationDate: "2026-06-08",
+    staleSinceDate: null,
     missingQuoteCount: 0,
     provisionalQuoteCount: 0,
     staleQuoteCount: 0,
     missingFxCount: 0,
+    missingProviderSourceCount: 0,
+    knownGapReasons: [],
     rowCounts: {
       holdingsTotal: 1,
       holdingsReturned: 1,
@@ -218,10 +349,19 @@ describe("ReportsClient", () => {
   beforeEach(() => {
     refreshMock.mockReset();
     replaceMock.mockReset();
+    openQuickActionsMock.mockReset();
     useReportDataMock.mockReset();
+    fetchMock.mockReset();
     reportHookOverride.errorMessage = "";
     searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y";
     effectiveRangesMock.value = ["1M", "1Y"];
+    userPreferencesMock.value = {};
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return new Response(JSON.stringify({ preferences: userPreferencesMock.value }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ preferences: userPreferencesMock.value }), { status: 200 });
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -242,9 +382,16 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Reports");
     expect(document.body.textContent).toContain("Daily Review");
     expect(document.body.textContent).toContain("AUD");
+    expect(document.querySelector("[data-testid='reports-control-scope']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-control-range']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-control-currency']")).toBeNull();
+    expect(document.querySelector("[data-testid='reports-control-currency-mode']")).toBeNull();
+    expect(document.body.textContent).toContain("Resolved AUD");
     expect(document.body.textContent).toContain("Upcoming income");
     expect(document.body.textContent).toContain("1 dividend(s)");
     expect(document.body.textContent).toContain("Coverage looks complete");
+    expect(document.body.textContent).toContain("Quote status, FX conversion, and price freshness. Allocation fallback appears when relevant.");
+    expect(document.body.textContent).toContain("Data health");
     expect(document.querySelector("[data-testid='reports-mobile-row-BHP-AU']")).not.toBeNull();
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
     expect(sectionRefresh).not.toBeNull();
@@ -252,6 +399,64 @@ describe("ReportsClient", () => {
       sectionRefresh?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(refreshMock).toHaveBeenCalledWith({ bypassCache: true });
+
+    const quickActionsButton = document.querySelector("[data-testid='reports-open-quick-actions']");
+    expect(quickActionsButton).not.toBeNull();
+    act(() => {
+      quickActionsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(openQuickActionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("colors Today severity badges by level", async () => {
+    const severityFixture: DailyReviewReportDto = {
+      ...fixture,
+      suggestions: [
+        { code: "coverage", severity: "info", title: "Coverage looks complete", detail: "All rows resolved." },
+        { code: "quotes", severity: "warning", title: "Quote coverage is mixed", detail: "Some rows need attention." },
+        { code: "fx", severity: "critical", title: "FX is missing", detail: "Some totals cannot be reconciled." },
+      ],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={severityFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-today-severity-coverage']")?.className).toContain("text-primary");
+    expect(document.querySelector("[data-testid='reports-today-severity-quotes']")?.className).toContain("text-warning");
+    expect(document.querySelector("[data-testid='reports-today-severity-fx']")?.className).toContain("text-destructive");
+  });
+
+  it("hydrates report holdings column order and widths from backend preferences", async () => {
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": {
+            columnOrder: ["health", "ticker", "position", "price", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+            hiddenColumns: [],
+            columnWidths: { health: 234 },
+            layoutStyle: "portfolio",
+          },
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const holdingsTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    expect(holdingsTable).not.toBeNull();
+    const firstHeader = holdingsTable?.querySelector("[data-testid^='holdings-column-drag-']");
+    expect(firstHeader?.getAttribute("data-testid")).toBe("holdings-column-drag-health");
+    expect(firstHeader?.getAttribute("draggable")).toBe("true");
+    expect((firstHeader?.closest("th") as HTMLTableCellElement | null)?.style.width).toBe("234px");
+    expect(holdingsTable?.querySelector("[data-testid='holdings-column-resize-health']")).not.toBeNull();
   });
 
   it("links tickers, colors finance values, and renders optional fx rates", async () => {
@@ -304,7 +509,7 @@ describe("ReportsClient", () => {
     const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
       node.textContent?.includes("-AUD 10") && String(node.className).includes("text-[hsl(var(--destructive))]"));
     expect(negativeValue?.className).toContain("text-[hsl(var(--destructive))]");
-    expect(document.body.textContent).toContain("Native $150.00");
+    expect(document.body.textContent).toContain("Native price $150.00");
 
     const fxRates = document.querySelector("[data-testid='reports-fx-rates']");
     expect(fxRates?.textContent).toContain("USD to AUD");
@@ -360,8 +565,6 @@ describe("ReportsClient", () => {
       root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
         tab: "portfolio",
         scope: "all",
-        currencyMode: "specified",
-        currency: "AUD",
         range: "1Y",
       })} />);
     });
@@ -372,6 +575,7 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("As of May 29, 2026");
     expect(document.body.textContent).toContain("Market data stale since May 29, 2026");
     expect(document.querySelector("[data-testid='reports-performance-stale-warning']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-performance-as-of-tooltip-trigger']")).not.toBeNull();
   });
 
   it("snaps unsupported report ranges to the configured dashboard ranges", async () => {
@@ -413,8 +617,6 @@ describe("ReportsClient", () => {
       state: {
         tab: "market",
         scope: "AU",
-        currencyMode: "auto",
-        currency: "AUD",
         range: "1M",
       },
     }));

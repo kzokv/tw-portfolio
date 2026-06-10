@@ -11,8 +11,9 @@ interface HoldingWithQuote {
   quantity: number;
   currency: string;
   costBasisAmount: number;
-  marketValueAmount: number;
-  asOf: string;
+  marketValueAmount: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  asOf: string | null;
 }
 
 function roundTo2(value: number): number {
@@ -25,7 +26,7 @@ export function buildPublicShareView(
   ownerDisplayName: string,
   expiresAt: string,
 ): PublicShareViewDto {
-  const withQuotes: HoldingWithQuote[] = [];
+  const shareRows: HoldingWithQuote[] = [];
   const accountMarket = new Map(store.accounts.map((account) => [
     account.id,
     marketCodeFor(account.defaultCurrency),
@@ -35,68 +36,82 @@ export function buildPublicShareView(
     const market = accountMarket.get(holding.accountId);
     if (!market) continue;
     const quote = quotes[quoteSnapshotKey(holding.ticker, market)] ?? quotes[holding.ticker];
-    if (!quote) continue;
-    withQuotes.push({
+    shareRows.push({
       accountId: holding.accountId,
       ticker: holding.ticker,
       marketCode: market,
       quantity: holding.quantity,
       currency: holding.currency,
       costBasisAmount: holding.costBasisAmount,
-      marketValueAmount: roundTo2(holding.quantity * quote.close),
-      asOf: quote.asOf,
+      marketValueAmount: quote ? roundTo2(holding.quantity * quote.close) : null,
+      quoteStatus: quote ? (quote.isProvisional ? "provisional" : "current") : "missing",
+      asOf: quote?.asOf ?? null,
     });
   }
 
   // Aggregate per-currency totals (market value + cost basis) across included rows.
-  const totalsByCurrency = new Map<string, { marketValue: number; costBasis: number }>();
-  for (const row of withQuotes) {
-    const agg = totalsByCurrency.get(row.currency) ?? { marketValue: 0, costBasis: 0 };
+  const totalsByCurrency = new Map<string, { hasMissingQuote: boolean; marketValue: number; costBasis: number }>();
+  for (const row of shareRows) {
+    const agg = totalsByCurrency.get(row.currency) ?? { hasMissingQuote: false, marketValue: 0, costBasis: 0 };
+    if (row.marketValueAmount === null) {
+      agg.hasMissingQuote = true;
+      totalsByCurrency.set(row.currency, agg);
+      continue;
+    }
     agg.marketValue += row.marketValueAmount;
     agg.costBasis += row.costBasisAmount;
     totalsByCurrency.set(row.currency, agg);
   }
 
-  const holdings = withQuotes
+  const holdings = shareRows
     .slice()
-    .sort((a, b) => b.marketValueAmount - a.marketValueAmount)
+    .sort(comparePublicShareRows)
     .map((row) => {
       const total = totalsByCurrency.get(row.currency)?.marketValue ?? 0;
-      const allocationPercent = total > 0 ? roundTo2((row.marketValueAmount / total) * 100) : 0;
+      const hasIncompleteDenominator = totalsByCurrency.get(row.currency)?.hasMissingQuote ?? false;
+      const allocationPercent = !hasIncompleteDenominator && row.marketValueAmount !== null && total > 0
+        ? roundTo2((row.marketValueAmount / total) * 100)
+        : null;
       return {
         ticker: row.ticker,
         quantity: row.quantity,
         marketValueAmount: row.marketValueAmount,
         marketValueCurrency: row.currency,
         allocationPercent,
+        quoteStatus: row.quoteStatus,
       };
     });
 
-  const holdingGroups = [...groupPublicShareHoldings(withQuotes).values()]
-    .sort((a, b) => b.marketValueAmount - a.marketValueAmount)
+  const holdingGroups = [...groupPublicShareHoldings(shareRows).values()]
+    .sort(comparePublicShareGroups)
     .map((row) => {
-      const total = totalsByCurrency.get(row.marketValueCurrency)?.marketValue ?? 0;
+      const currencyTotal = totalsByCurrency.get(row.marketValueCurrency);
+      const total = currencyTotal?.marketValue ?? 0;
+      const hasIncompleteDenominator = currencyTotal?.hasMissingQuote ?? false;
       return {
         ...row,
-        allocationPercent: total > 0 ? roundTo2((row.marketValueAmount / total) * 100) : 0,
+        allocationPercent: !hasIncompleteDenominator && row.marketValueAmount !== null && total > 0
+          ? roundTo2((row.marketValueAmount / total) * 100)
+          : null,
       };
     });
 
   const totalValueByCurrency = [...totalsByCurrency.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
+    .filter(([, agg]) => agg.marketValue > 0)
     .map(([currency, agg]) => ({ currency, amount: roundTo2(agg.marketValue) }));
 
   const returnByCurrency = [...totalsByCurrency.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .filter(([, agg]) => agg.costBasis > 0)
+    .filter(([, agg]) => !agg.hasMissingQuote && agg.costBasis > 0)
     .map(([currency, agg]) => ({
       currency,
       returnPercent: roundTo2(((agg.marketValue - agg.costBasis) / agg.costBasis) * 100),
     }));
 
   let quoteAsOf: string | null = null;
-  for (const row of withQuotes) {
-    if (quoteAsOf === null || row.asOf > quoteAsOf) {
+  for (const row of shareRows) {
+    if (row.asOf !== null && (quoteAsOf === null || row.asOf > quoteAsOf)) {
       quoteAsOf = row.asOf;
     }
   }
@@ -110,6 +125,11 @@ export function buildPublicShareView(
       totalValueByCurrency,
       returnByCurrency,
     },
+    dataHealth: {
+      holdingCount: shareRows.length,
+      missingQuoteCount: shareRows.filter((row) => row.quoteStatus === "missing").length,
+      provisionalQuoteCount: shareRows.filter((row) => row.quoteStatus === "provisional").length,
+    },
     quoteAsOf,
   };
 }
@@ -122,7 +142,11 @@ function groupPublicShareHoldings(rows: HoldingWithQuote[]): Map<string, PublicS
     if (existing) {
       existing.quantity += row.quantity;
       existing.accountCount += 1;
-      existing.marketValueAmount = roundTo2(existing.marketValueAmount + row.marketValueAmount);
+      existing.marketValueAmount = existing.marketValueAmount === null || row.marketValueAmount === null
+        ? null
+        : roundTo2(existing.marketValueAmount + row.marketValueAmount);
+      if (row.quoteStatus === "missing") existing.quoteStatus = "missing";
+      else if (row.quoteStatus === "provisional" && existing.quoteStatus === "current") existing.quoteStatus = "provisional";
       continue;
     }
 
@@ -134,7 +158,30 @@ function groupPublicShareHoldings(rows: HoldingWithQuote[]): Map<string, PublicS
       marketValueAmount: row.marketValueAmount,
       marketValueCurrency: row.currency,
       allocationPercent: 0,
+      quoteStatus: row.quoteStatus,
     });
   }
   return groups;
+}
+
+function comparePublicShareRows(a: HoldingWithQuote, b: HoldingWithQuote): number {
+  return compareMarketValueDescending(a.marketValueAmount, b.marketValueAmount)
+    || a.ticker.localeCompare(b.ticker)
+    || a.marketCode.localeCompare(b.marketCode);
+}
+
+function comparePublicShareGroups(
+  a: PublicShareViewDto["holdingGroups"][number],
+  b: PublicShareViewDto["holdingGroups"][number],
+): number {
+  return compareMarketValueDescending(a.marketValueAmount, b.marketValueAmount)
+    || a.ticker.localeCompare(b.ticker)
+    || a.marketCode.localeCompare(b.marketCode);
+}
+
+function compareMarketValueDescending(left: number | null, right: number | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return right - left;
 }

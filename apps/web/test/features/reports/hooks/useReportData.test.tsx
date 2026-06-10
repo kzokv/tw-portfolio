@@ -2,7 +2,7 @@ import { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DailyReviewReportDto } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DailyReviewReportDto } from "@vakwen/shared-types";
 import { REPORT_CLIENT_REFRESH_TIMEOUT_MS, useReportData } from "../../../../features/reports/hooks/useReportData";
 import type { ReportRouteState } from "../../../../features/reports/reportState";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
@@ -16,8 +16,6 @@ import { fetchReport } from "../../../../features/reports/services/reportService
 const state: ReportRouteState = {
   tab: "daily-review",
   scope: "all",
-  currencyMode: "specified",
-  currency: "AUD",
   range: "1Y",
 };
 const defaultCacheScope = "session:user-a:context:self";
@@ -42,13 +40,18 @@ function installLocalStorageMock() {
   });
 }
 
-function buildReport(title: string, asOf: string, reportState: ReportRouteState = state): DailyReviewReportDto {
+function buildReport(
+  title: string,
+  asOf: string,
+  reportState: ReportRouteState = state,
+  reportingCurrency: AccountDefaultCurrency = "AUD",
+): DailyReviewReportDto {
   return {
     query: {
       scope: reportState.scope,
-      currencyMode: reportState.currencyMode,
-      currency: reportState.currency,
-      reportingCurrency: reportState.currency,
+      currencyMode: "auto",
+      currency: null,
+      reportingCurrency,
       nativeCurrency: null,
       range: reportState.range,
       asOf,
@@ -66,8 +69,8 @@ function buildReport(title: string, asOf: string, reportState: ReportRouteState 
     },
     fxStatus: {
       status: "complete",
-      reportingCurrency: reportState.currency,
-      nativeCurrencies: [reportState.currency],
+      reportingCurrency,
+      nativeCurrencies: [reportingCurrency],
       missingRatePairs: [],
     },
     dataHealth: {
@@ -79,14 +82,20 @@ function buildReport(title: string, asOf: string, reportState: ReportRouteState 
     },
     diagnostics: {
       scope: reportState.scope,
-      reportingCurrency: reportState.currency,
+      reportingCurrency,
       requestedAsOf: asOf,
       lastValuationDate: asOf,
       marketDataStaleSince: null,
+      latestSnapshotDate: asOf,
+      latestReliableValuationDate: asOf,
+      expectedLatestValuationDate: asOf,
+      staleSinceDate: null,
       missingQuoteCount: 0,
       provisionalQuoteCount: 0,
       staleQuoteCount: 0,
       missingFxCount: 0,
+      missingProviderSourceCount: 0,
+      knownGapReasons: [],
       rowCounts: {
         holdingsTotal: 0,
         holdingsReturned: 0,
@@ -107,8 +116,6 @@ function reportCacheKey(cacheScope = defaultCacheScope, reportState: ReportRoute
     cacheScope,
     locale,
     reportState.scope,
-    reportState.currencyMode,
-    reportState.currency,
     reportState.range,
   );
 }
@@ -229,18 +236,17 @@ describe("useReportData", () => {
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey())?.payload.suggestions[0]?.title).toBe("Fresh report");
   });
 
-  it("partitions auto report cache keys by resolved currency", async () => {
-    const autoAudState: ReportRouteState = { ...state, currencyMode: "auto", currency: "AUD" };
-    const autoUsdState: ReportRouteState = { ...state, currencyMode: "auto", currency: "USD" };
-    const audReport = buildReport("Auto AUD seed", "2026-06-08", autoAudState);
+  it("uses the backend-resolved currency from the report DTO without partitioning route state by currency", async () => {
+    const audReport = buildReport("Auto AUD seed", "2026-06-08", state, "AUD");
 
     act(() => {
-      root.render(<Harness contextRefreshSignal={0} initialReport={audReport} stateOverride={autoAudState} />);
+      root.render(<Harness contextRefreshSignal={0} initialReport={audReport} stateOverride={state} />);
     });
     await act(async () => {});
 
-    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, autoAudState))?.payload.suggestions[0]?.title).toBe("Auto AUD seed");
-    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, autoUsdState))).toBeNull();
+    const cached = readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, state))?.payload;
+    expect(cached?.suggestions[0]?.title).toBe("Auto AUD seed");
+    expect(cached?.query.reportingCurrency).toBe("AUD");
   });
 
   it("times out initial client refreshes instead of leaving reports bootstrapped forever", async () => {

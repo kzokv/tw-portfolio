@@ -356,6 +356,7 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
         userId,
         accountId,
         ticker: "2002",
+        marketCode: "TW",
         snapshotDate: "2025-01-02",
         quantity: 10,
         closePrice: 100,
@@ -378,6 +379,7 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
         userId,
         accountId,
         ticker: "2002",
+        marketCode: "TW",
         snapshotDate: "2025-01-03",
         quantity: 10,
         closePrice: 105,
@@ -454,13 +456,13 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
     // together inside the same hardPurge transaction.
     await pool.query(
       `INSERT INTO daily_holding_snapshots (
-         id, user_id, account_id, ticker, snapshot_date, quantity,
+         id, user_id, account_id, ticker, market_code, snapshot_date, quantity,
          close_price, market_value, cost_basis, unrealized_pnl,
          cumulative_realized_pnl, cumulative_dividends, is_provisional,
          currency, generated_at, generation_run_id,
          value_native, cost_basis_native, unrealized_pnl_native, provider_source
        ) VALUES (
-         'purge-snap-1', $1, $2, '2002', DATE '2025-01-02', 10,
+         'purge-snap-1', $1, $2, '2002', 'TW', DATE '2025-01-02', 10,
          100, 1000, 1000, 0,
          0, 0, false,
          'TWD', NOW(), 'gen-purge',

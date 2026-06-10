@@ -57,6 +57,7 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
         marketValueAmount: row.marketValueAmount,
         marketValueCurrency: row.marketValueCurrency,
         allocationPercent: row.allocationPercent,
+        quoteStatus: row.quoteStatus ?? "current",
       }));
   const summaryValues = view.summary.totalValueByCurrency;
   const summaryReturns = view.summary.returnByCurrency;
@@ -158,6 +159,14 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
             <p className="mt-1 text-sm text-muted-foreground">
               {copy.holdingsSubtitle.replace("{count}", String(holdings.length))}
             </p>
+            {view.dataHealth?.missingQuoteCount ? (
+              <p
+                className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+                data-testid="public-share-data-health-warning"
+              >
+                {copy.dataHealthWarning.replace("{count}", String(view.dataHealth.missingQuoteCount))}
+              </p>
+            ) : null}
           </div>
 
           {holdings.length === 0 ? (
@@ -199,7 +208,15 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                         className="px-4 py-3 text-sm font-medium text-foreground"
                         data-testid={`public-share-holding-group-${row.ticker}-${row.marketCode}`}
                       >
-                        {row.ticker}
+                        <span>{row.ticker}</span>
+                        {row.quoteStatus === "missing" ? (
+                          <span
+                            className="ml-2 inline-flex rounded-md border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning"
+                            data-testid={`public-share-holding-quote-status-${row.ticker}-${row.marketCode}`}
+                          >
+                            {copy.quoteMissingLabel}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{row.marketCode}</td>
                       <td
@@ -212,10 +229,14 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                         {formatNumber(row.quantity, locale, 4)}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground">
-                        {formatCurrencyAmount(row.marketValueAmount, row.marketValueCurrency, locale)}
+                        {row.marketValueAmount === null
+                          ? copy.unavailableValue
+                          : formatCurrencyAmount(row.marketValueAmount, row.marketValueCurrency, locale)}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground">
-                        {formatPercent(row.allocationPercent, locale, 2)}
+                        {row.allocationPercent === null
+                          ? copy.unavailableValue
+                          : formatPercent(row.allocationPercent, locale, 2)}
                       </td>
                     </tr>
                   ))}

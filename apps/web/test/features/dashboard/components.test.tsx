@@ -207,7 +207,7 @@ describe("dashboard components", () => {
   // slim 2-card layout (total + day Δ). Hero rendering is covered by
   // the new E2E spec in Phase 5f (commit 5f).
 
-  it("shows reporting currency controls and per-market hero links", () => {
+  it("shows reporting currency status and simplified report links", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings })
       .map((group) => ({
         ...group,
@@ -230,7 +230,8 @@ describe("dashboard components", () => {
           rate: 0.049,
           asOf: "2026-06-08",
         }]}
-        holdingGroups={groups}
+        holdingCount={groups.length}
+        marketValues={[{ marketCode: "TW", value: 60_000, reportingCurrency: "AUD" }]}
         summary={{
           asOf: "2026-06-08",
           accountCount: 1,
@@ -248,21 +249,23 @@ describe("dashboard components", () => {
         }}
         locale="en"
         dict={dict}
-        onCurrencyChange={() => undefined}
+        canOpenQuickActions
+        onOpenQuickActions={() => undefined}
       />,
     );
 
     expect(html).toContain('data-testid="dashboard-hero-currency"');
     expect(html).toContain("Current report baseline is AUD");
+    expect(html).toContain("Change in Quick Actions");
     expect(html).toContain('data-testid="dashboard-hero-fx-rates"');
     expect(html).toContain("TWD to AUD");
     expect(html).toContain("0.049");
     expect(html).toContain('data-testid="dashboard-hero-market-strip"');
-    expect(html).toContain('href="/reports?tab=market&amp;scope=TW&amp;currencyMode=specified&amp;currency=AUD&amp;range=1Y"');
+    expect(html).toContain('href="/reports?tab=market&amp;scope=TW&amp;range=1Y"');
     expect(html).toContain("AUD");
   });
 
-  it("disables dashboard reporting currency changes for shared contexts", () => {
+  it("shows a read-only quick-actions hint when the dashboard cannot change reporting currency", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings })
       .map((group) => ({
         ...group,
@@ -279,8 +282,8 @@ describe("dashboard components", () => {
 
     const html = renderToStaticMarkup(
       <DashboardHero
-        holdingGroups={groups}
-        isCurrencyReadOnly
+        holdingCount={groups.length}
+        marketValues={[{ marketCode: "TW", value: 60_000, reportingCurrency: "AUD" }]}
         summary={{
           asOf: "2026-06-08",
           accountCount: 1,
@@ -298,13 +301,11 @@ describe("dashboard components", () => {
         }}
         locale="en"
         dict={dict}
-        onCurrencyChange={() => {
-          throw new Error("Shared dashboards must not update viewer preferences");
-        }}
       />,
     );
 
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-disabled=""[^>]*data-testid="dashboard-hero-currency-select"/);
+    expect(html).toContain("Reporting currency is managed from global Quick Actions.");
+    expect(html).not.toContain("dashboard-hero-open-quick-actions");
   });
 
   it("renders dashboard holdings as a compact reporting-currency preview with native price disclosure", () => {
@@ -316,6 +317,7 @@ describe("dashboard components", () => {
       reportingMarketValueAmount: 60_000,
       reportingCostBasisAmount: 58_000,
       reportingUnrealizedPnlAmount: 2_000,
+      reportingDailyChangeAmount: 123,
       reportingAllocationPercent: 12,
       fxStatus: "complete" as const,
       children: group.children.map((child) => ({
@@ -324,6 +326,7 @@ describe("dashboard components", () => {
         reportingMarketValueAmount: 60_000,
         reportingCostBasisAmount: 58_000,
         reportingUnrealizedPnlAmount: 2_000,
+        reportingDailyChangeAmount: 123,
       })),
     };
 
@@ -352,6 +355,8 @@ describe("dashboard components", () => {
     expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
     expect(html).toContain("AUD 60K");
+    expect(html).toContain("+AUD 123");
+    expect(html).not.toContain("A$490");
     expect(html).toContain("A$30.00");
     expect(html).toContain("Native NT$610");
     expect(html).toContain("Open Portfolio Report");
@@ -400,6 +405,23 @@ describe("dashboard components", () => {
     expect(html).toContain("Stale quotes");
   });
 
+  it("renders dashboard top holdings shell copy in zh-TW", () => {
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={[group]}
+        locale="zh-TW"
+        reportingCurrency="TWD"
+      />,
+    );
+
+    expect(html).toContain("主要持倉");
+    expect(html).toContain("報表幣別 TWD");
+    expect(html).toContain("市場");
+    expect(html).toContain("開啟投資組合報表");
+  });
+
   it("expands holding focus account rows on desktop table", () => {
     mockUserPreferencesFetch();
     const multiAccountHoldings: DashboardOverviewHoldingDto[] = [
@@ -422,6 +444,7 @@ describe("dashboard components", () => {
       reportingMarketValueAmount: 75_000,
       reportingCostBasisAmount: 72_500,
       reportingUnrealizedPnlAmount: 2_500,
+      reportingDailyChangeAmount: 500,
       reportingAllocationPercent: 12,
       fxStatus: "complete" as const,
       children: group.children.map((child, index) => ({
@@ -430,6 +453,7 @@ describe("dashboard components", () => {
         reportingMarketValueAmount: index === 0 ? 60_000 : 15_000,
         reportingCostBasisAmount: index === 0 ? 58_000 : 14_500,
         reportingUnrealizedPnlAmount: index === 0 ? 2_000 : 500,
+        reportingDailyChangeAmount: index === 0 ? 400 : 100,
         reportingAllocationPercent: index === 0 ? 9.6 : 2.4,
       })),
     };
@@ -482,6 +506,7 @@ describe("dashboard components", () => {
       reportingMarketValueAmount: 75_000,
       reportingCostBasisAmount: 72_500,
       reportingUnrealizedPnlAmount: 2_500,
+      reportingDailyChangeAmount: 500,
       reportingAllocationPercent: 12,
       fxStatus: "complete" as const,
       children: group.children.map((child, index) => ({
@@ -491,6 +516,7 @@ describe("dashboard components", () => {
         reportingMarketValueAmount: index === 0 ? 60_000 : 15_000,
         reportingCostBasisAmount: index === 0 ? 58_000 : 14_500,
         reportingUnrealizedPnlAmount: index === 0 ? 2_000 : 500,
+        reportingDailyChangeAmount: index === 0 ? 400 : 100,
         reportingAllocationPercent: index === 0 ? 9.6 : 2.4,
       })),
     };
@@ -527,6 +553,55 @@ describe("dashboard components", () => {
     expect(container.textContent).not.toContain("2,500.00 units");
     expect(container.textContent).not.toContain("AUD 75K");
     expect(container.textContent).not.toContain("+AUD 2.5K");
+  });
+
+  it("does not mix market-value and cost-basis allocation in dashboard holdings", () => {
+    const missingQuoteHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      accountId: "acc-2",
+      accountName: "US Brokerage",
+      ticker: "AAPL",
+      marketCode: "US",
+      currency: "USD",
+      quantity: 10,
+      costBasisAmount: 1_000,
+      averageCostPerShare: 100,
+      currentUnitPrice: null,
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      change: null,
+      changePercent: null,
+      previousClose: null,
+      quoteStatus: "missing",
+    };
+    const groups = buildHoldingGroupsFromHoldings({ holdings: [holdings[0]!, missingQuoteHolding] })
+      .map((group) => ({
+        ...group,
+        reportingCurrency: "TWD" as const,
+        reportingMarketValueAmount: group.ticker === "2330" ? 10_000 : null,
+        reportingCostBasisAmount: 10_000,
+        reportingUnrealizedPnlAmount: group.ticker === "2330" ? 500 : null,
+        reportingAllocationPercent: group.ticker === "2330" ? 100 : 50,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "TWD" as const,
+          reportingMarketValueAmount: group.ticker === "2330" ? 10_000 : null,
+          reportingCostBasisAmount: 10_000,
+          reportingUnrealizedPnlAmount: group.ticker === "2330" ? 500 : null,
+          reportingAllocationPercent: group.ticker === "2330" ? 100 : 50,
+        })),
+      }));
+
+    const html = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={groups}
+        locale="en"
+        reportingCurrency="TWD"
+      />,
+    );
+
+    expect(html).toContain("Portfolio allocation: 50%");
+    expect(html).not.toContain("Portfolio allocation: 100%");
   });
 
   it("opens holding focus detail sheet with account, cost, and FX sections", () => {
@@ -652,6 +727,64 @@ describe("dashboard components", () => {
         selectedPreset: "largest",
       },
     });
+  });
+
+  it("hydrates dashboard holdings column order and width settings", async () => {
+    const fetchMock = mockUserPreferencesFetch({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["pnl", "ticker", "position", "price", "marketValue", "daily", "health", "action"],
+            hiddenColumns: [],
+            columnWidths: { pnl: 222 },
+            layoutStyle: "dashboard",
+          },
+        },
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[group]}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const headers = [...container.querySelectorAll('[data-testid^="holdings-column-drag-"]')];
+    expect(headers[0]?.getAttribute("data-testid")).toBe("holdings-column-drag-pnl");
+    expect(headers[0]?.getAttribute("draggable")).toBe("true");
+    expect((headers[0]?.closest("th") as HTMLTableCellElement | null)?.style.width).toBe("222px");
+    expect(container.querySelector('[data-testid="holdings-column-resize-pnl"]')).not.toBeNull();
+
+    const settingsButton = container.querySelector('[data-testid="holdings-column-settings"]');
+    expect(settingsButton).not.toBeNull();
+    pointerDown(settingsButton!);
+    await flushPromises();
+
+    const moveRight = document.body.querySelector('[data-testid="holdings-column-move-right-pnl"]');
+    expect(moveRight).not.toBeNull();
+    click(moveRight!);
+    await flushPromises();
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(patchCall).toBeDefined();
+    const patchBody = JSON.parse(String(patchCall?.[1]?.body)) as {
+      holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; columnWidths: Record<string, number> }> };
+    };
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder).toEqual(
+      ["ticker", "pnl", "position", "price", "marketValue", "daily", "health", "action"],
+    );
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
   });
 
   it("selects the next visible chip before hiding the active holding focus preset", async () => {
@@ -880,7 +1013,8 @@ describe("dashboard components", () => {
 
     const html = renderToStaticMarkup(
       <DashboardHero
-        holdingGroups={groups}
+        holdingCount={groups.length}
+        marketValues={[]}
         summary={{
           asOf: "2026-06-08",
           accountCount: 1,
@@ -898,7 +1032,6 @@ describe("dashboard components", () => {
         }}
         locale="en"
         dict={dict}
-        onCurrencyChange={() => undefined}
       />,
     );
 
@@ -910,6 +1043,7 @@ describe("dashboard components", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings });
     const html = renderToStaticMarkup(
       <DashboardCommandModules
+        dict={dict}
         groups={groups}
         locale="en"
         summary={{
@@ -934,7 +1068,7 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-command-today"');
     expect(html).toContain('data-testid="dashboard-command-market-pulse"');
     expect(html).toContain('data-testid="dashboard-command-portfolio-health"');
-    expect(html).toContain('href="/reports?tab=daily-review&amp;scope=all&amp;currencyMode=specified&amp;currency=AUD&amp;range=1Y"');
+    expect(html).toContain('href="/reports?tab=daily-review&amp;scope=all&amp;range=1Y"');
     expect(html).not.toContain('data-testid="dashboard-intro"');
   });
 
@@ -1011,6 +1145,48 @@ describe("dashboard components", () => {
     expect(html).not.toContain("NT$200");
   });
 
+  it("shows the actual amount and Data health reason when allocation falls back to cost basis", () => {
+    const missingQuoteHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      currentUnitPrice: null,
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      quoteStatus: "missing",
+    };
+    const group = buildHoldingGroupsFromHoldings({ holdings: [missingQuoteHolding] })[0];
+    if (!group) throw new Error("Expected holding group");
+    const fallbackGroup = {
+      ...group,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      allocationBasisUsed: "cost_basis" as const,
+      allocationBasisFallbackReason: "missing_quote" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        allocationBasisUsed: "cost_basis" as const,
+        allocationBasisFallbackReason: "missing_quote" as const,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <HoldingsTable
+        holdings={[missingQuoteHolding]}
+        holdingGroups={[fallbackGroup]}
+        dict={dict}
+        locale="en"
+        allocationBasis="market_value"
+      />,
+    );
+
+    expect(html).toContain("Data health");
+    expect(html).toContain("Missing quote");
+    expect(html).toContain("FX complete");
+    expect(html).toContain("Missing quote; allocation uses cost basis");
+    expect(html).toContain("Cost basis fallback: NT$1,185,472");
+  });
+
   it("formats biggest mover daily change in native quote currency", () => {
     const usdHolding: DashboardOverviewHoldingDto = {
       ...holdings[0]!,
@@ -1060,6 +1236,36 @@ describe("dashboard components", () => {
     expect(html).toContain("TWD");
   });
 
+  it("hydrates portfolio holdings column order and widths from backend preferences", async () => {
+    mockUserPreferencesFetch({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "portfolio.holdings": {
+            columnOrder: ["allocation", "ticker", "quantity", "accounts", "avgCost", "price", "dailyChange", "marketValue", "pnl", "costBasis", "nextDividend", "lastDividend"],
+            hiddenColumns: [],
+            columnWidths: { allocation: 211 },
+            layoutStyle: "portfolio",
+          },
+        },
+      },
+    });
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);
+    });
+    await flushPromises();
+
+    const headers = [...container.querySelectorAll('[data-testid^="holdings-column-drag-"]')];
+    expect(headers[0]?.getAttribute("data-testid")).toBe("holdings-column-drag-allocation");
+    expect(headers[0]?.getAttribute("draggable")).toBe("true");
+    expect((headers[0]?.closest("th") as HTMLTableCellElement | null)?.style.width).toBe("211px");
+    expect(container.querySelector('[data-testid="holdings-column-resize-allocation"]')).not.toBeNull();
+  });
+
   it("renders freshness badge for stale_amber holdings when showFreshnessBadge=true", () => {
     const stale: DashboardOverviewHoldingDto[] = [
       { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Last quote 3 days ago" },
@@ -1069,7 +1275,7 @@ describe("dashboard components", () => {
     );
 
     expect(html).toContain("holdings-freshness-badge-acc-1-2330");
-    expect(html).toMatch(/bg-amber-500/);
+    expect(html).toMatch(/bg-warning/);
   });
 
   it("renders freshness badge for stale_red holdings", () => {
@@ -1081,7 +1287,7 @@ describe("dashboard components", () => {
     );
 
     expect(html).toContain("holdings-freshness-badge-acc-1-2330");
-    expect(html).toMatch(/bg-rose-500/);
+    expect(html).toMatch(/bg-destructive/);
   });
 
   it("does not render freshness badge when showFreshnessBadge=false", () => {
@@ -1145,6 +1351,8 @@ describe("dashboard components", () => {
     );
     expect(trendHtml).toContain("As of May 29");
     expect(trendHtml).toContain("Market data stale since May 29");
+    expect(trendHtml).toContain("dashboard-performance-as-of-tooltip-trigger");
+    expect(trendHtml).toContain("text-warning");
 
     const returnHtml = renderToStaticMarkup(
       <ReturnPercentCard
@@ -1157,6 +1365,8 @@ describe("dashboard components", () => {
     );
     expect(returnHtml).toContain("As of May 29");
     expect(returnHtml).toContain("Market data stale since May 29");
+    expect(returnHtml).toContain("dashboard-return-percent-as-of-tooltip-trigger");
+    expect(returnHtml).toContain("text-warning");
   });
 
   it("renders allocation snapshot legend and recent transactions card", () => {

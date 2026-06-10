@@ -1,5 +1,7 @@
 import type {
   DashboardOverviewHoldingDto,
+  DashboardOverviewHoldingChildDto,
+  DashboardOverviewHoldingGroupDto,
   InstrumentCatalogItemDto,
   TickerDetailsDto,
   TickerEnrichmentDto,
@@ -7,7 +9,7 @@ import type {
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import type { DashboardSnapshot } from "../../dashboard/types";
-import { findHoldingGroup, resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../holdingGroups";
+import { findHoldingGroup, resolveHoldingGroups } from "../holdingGroups";
 
 export interface TickerDetailStat {
   label: string;
@@ -69,6 +71,8 @@ export interface TickerDetailsModel {
   chart: {
     points: TickerDetailChartPoint[];
   };
+  holdingGroup: DashboardOverviewHoldingGroupDto | null;
+  accountBreakdown: DashboardOverviewHoldingChildDto[];
   stats: TickerDetailStat[];
   dividends: {
     upcomingCount: number;
@@ -105,7 +109,9 @@ function findHolding(
 ): DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined {
   if (accountId) {
     return dashboard.holdings.find(
-      (holding) => holding.ticker === ticker && holding.accountId === accountId,
+      (holding) => holding.ticker === ticker
+        && holding.accountId === accountId
+        && (!marketCode || holding.marketCode === marketCode),
     );
   }
 
@@ -258,6 +264,13 @@ export function buildPrimaryTickerDetails({
   instrument,
 }: FetchTickerDetailsOptions): TickerDetailsModel {
   const holding = findHolding(dashboard, ticker, accountId, marketCode);
+  const resolvedGroups = resolveHoldingGroups({
+    holdings: dashboard.holdings,
+    holdingGroups: dashboard.holdingGroups,
+    instruments: dashboard.instruments,
+    accounts: dashboard.accounts,
+  });
+  const holdingGroup = findHoldingGroup(resolvedGroups, ticker, marketCode) ?? null;
   const realizedPnl = transactions.reduce((sum, transaction) => sum + (transaction.realizedPnlAmount ?? 0), 0);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
@@ -299,6 +312,8 @@ export function buildPrimaryTickerDetails({
     chart: {
       points: buildFallbackChartPoints(transactions, holding),
     },
+    holdingGroup,
+    accountBreakdown: holdingGroup?.children ?? [],
     stats: [
       { label: "Quantity", value: holding?.quantity ?? 0, unit: "shares" },
       { label: "Avg cost", value: holding?.averageCostPerShare ?? null, unit: currency },
@@ -347,6 +362,12 @@ function mergeWithFallback(
           ? (payload.chart.points as TickerDetailChartPoint[])
           : fallback.chart.points,
     },
+    holdingGroup: isObject(payload.holdingGroup)
+      ? (payload.holdingGroup as unknown as DashboardOverviewHoldingGroupDto)
+      : fallback.holdingGroup,
+    accountBreakdown: Array.isArray(payload.accountBreakdown)
+      ? (payload.accountBreakdown as DashboardOverviewHoldingChildDto[])
+      : fallback.accountBreakdown,
     stats: Array.isArray(payload.stats) ? (payload.stats as TickerDetailStat[]) : fallback.stats,
     dividends: {
       ...fallback.dividends,
@@ -445,6 +466,8 @@ function mapApiDetailsToModel(
     chart: {
       points: mapApiChartPoints(payload.chart, chartFallback),
     },
+    holdingGroup: payload.holdingGroup,
+    accountBreakdown: payload.accountBreakdown,
     stats: fallback.stats,
     dividends: {
       upcomingCount: payload.dividends.upcoming.length,
@@ -520,6 +543,8 @@ function mapApiEnrichmentToModel(
     chart: {
       points: mapApiChartPoints(payload.chart, fallback),
     },
+    holdingGroup: fallback.holdingGroup,
+    accountBreakdown: fallback.accountBreakdown,
     fundamentals: {
       panels: mapApiFundamentalsToPanels(payload.fundamentals),
     },

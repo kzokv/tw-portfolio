@@ -28,6 +28,9 @@ export function PortfolioClient({
     isSharedContext,
     mutations,
     contextRefreshSignal,
+    canUseGlobalQuickActions,
+    openQuickActions,
+    reportingCurrency,
   } = useAppShellData();
   const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale);
   const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey);
@@ -69,6 +72,14 @@ export function PortfolioClient({
   const quoteCoverageDetail = holdingGroups.length === 0
     ? dict.dashboardHome.holdingsEmpty
     : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(holdingGroups.length, locale)}`;
+  const largestHoldingCostBasis = largestHolding
+    ? largestHolding.reportingCostBasisAmount ?? (
+        largestHolding.reportingCurrency === largestHolding.currency
+          ? largestHolding.costBasisAmount
+          : null
+      )
+    : null;
+  const largestHoldingCurrency = largestHolding?.reportingCurrency ?? reportingCurrency;
   const restoredLabel = portfolio.restoredAt
     ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
         hour: "2-digit",
@@ -87,23 +98,37 @@ export function PortfolioClient({
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-primary/78">{dict.navigation.portfolioLabel}</p>
             <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{dict.navigation.portfolioLabel}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {`${formatNumber(holdingGroups.length, locale)} positions`}
+              {formatPortfolioMessage(dict.dashboardHome.positionsCount, { count: formatNumber(holdingGroups.length, locale) })}
               {" · "}
-              {`${formatNumber(marketCount, locale)} markets`}
+              {formatPortfolioMessage(dict.dashboardHome.marketsCount, { count: formatNumber(marketCount, locale) })}
               {" · "}
               <Link href="/dividends" className="font-medium text-primary underline-offset-4 hover:underline">
                 {dict.dividends.viewAllLink}
               </Link>
             </p>
           </div>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{dict.navigation.portfolioDescription}</p>
+          <div className="flex max-w-2xl flex-col items-start gap-2 text-sm leading-6 text-muted-foreground lg:items-end">
+            <p>{dict.navigation.portfolioDescription}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground">
+                {dict.commandPalette.actionChangeReportingCurrency}: {reportingCurrency}
+              </span>
+              {canUseGlobalQuickActions ? (
+                <Button type="button" size="sm" variant="secondary" onClick={openQuickActions}>
+                  {dict.commandPalette.quickActionsTitle}
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <CompactMetric
             label={dict.dashboardHome.largestPositionLabel}
             value={largestHolding?.ticker ?? "-"}
             detail={largestHolding
-              ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.reportingCurrency ?? largestHolding.currency, locale)
+              ? largestHoldingCostBasis == null
+                ? "-"
+                : formatCurrencyAmount(largestHoldingCostBasis, largestHoldingCurrency, locale)
               : dict.dashboardHome.holdingsEmpty}
           />
           <CompactMetric
@@ -131,13 +156,15 @@ export function PortfolioClient({
       >
         <div className="flex flex-wrap items-center gap-2">
           {portfolio.restoredFromCache && restoredLabel ? (
-            <span data-testid="portfolio-cache-restore-label">Restored from cache at {restoredLabel}</span>
+            <span data-testid="portfolio-cache-restore-label">
+              {formatPortfolioMessage(dict.dashboardHome.restoredFromCacheAt, { time: restoredLabel })}
+            </span>
           ) : (
-            <span>Holdings stay mounted while the latest portfolio snapshot loads.</span>
+            <span>{dict.dashboardHome.portfolioSnapshotMountedDuringRefresh}</span>
           )}
           {portfolio.isRefreshing ? (
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              Refreshing
+            <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              {dict.dashboardHome.refreshingLabel}
             </span>
           ) : null}
         </div>
@@ -149,7 +176,7 @@ export function PortfolioClient({
           disabled={portfolio.isRefreshing}
           data-testid="portfolio-refresh-button"
         >
-          Refresh
+          {dict.dashboardHome.refreshLabel}
         </Button>
       </div>
       {/*
@@ -181,7 +208,6 @@ export function PortfolioClient({
                   locale={locale}
                   recomputingSymbols={mutations.recomputingSymbols}
                   showFreshnessBadge={!isSharedContext}
-                  variant="compact"
                   allocationBasis={allocationBasis}
                   onAllocationBasisChange={setAllocationBasis}
                 />
@@ -202,6 +228,10 @@ export function PortfolioClient({
       </SortableCardGrid>
     </div>
   );
+}
+
+function formatPortfolioMessage(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
 }
 
 function CompactMetric({ label, value, detail }: { label: string; value: string; detail: string }) {

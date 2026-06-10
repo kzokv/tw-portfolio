@@ -222,6 +222,9 @@ function buildAccountBreakdown(input: {
       reportingCostBasisAmount: holding.costBasisAmount,
       reportingMarketValueAmount: marketValueAmount,
       reportingUnrealizedPnlAmount: marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2),
+      reportingDailyChangeAmount: input.quote.change === null || input.quote.previousClose === null
+        ? null
+        : roundToDecimal(input.quote.change * holding.quantity, 2),
       reportingAllocationPercent: null,
       fxStatus: "complete" as const,
       allocationBasisUsed,
@@ -299,6 +302,9 @@ function buildHoldingGroup(input: {
     reportingCostBasisAmount: costBasisAmount,
     reportingMarketValueAmount: marketValueAmount,
     reportingUnrealizedPnlAmount: unrealizedPnlAmount,
+    reportingDailyChangeAmount: input.accountBreakdown.some((child) => child.reportingDailyChangeAmount == null)
+      ? null
+      : roundToDecimal(input.accountBreakdown.reduce((sum, child) => sum + (child.reportingDailyChangeAmount ?? 0), 0), 2),
     reportingAllocationPercent: null,
     fxStatus: "complete",
     allocationBasisUsed,
@@ -334,21 +340,23 @@ function resolveMarketCode(input: {
   }
 
   const tradeMarkets = [...new Set(input.matchingTrades.map((trade) => trade.marketCode))];
-  if (tradeMarkets.length === 1) {
-    return tradeMarkets[0] as MarketCode;
-  }
-
   const holdingMarkets = [...new Set(
     input.matchingHoldings
       .map((holding) => input.accountById.get(holding.accountId)?.defaultCurrency)
       .filter((currency): currency is NonNullable<typeof currency> => Boolean(currency))
       .map((currency) => marketCodeFor(currency)),
   )];
-  if (holdingMarkets.length === 1) {
-    return holdingMarkets[0]!;
+
+  const candidateMarkets = [...new Set([...tradeMarkets, ...holdingMarkets])];
+  if (candidateMarkets.length === 1) {
+    return candidateMarkets[0] as MarketCode;
   }
 
-  return "TW";
+  throw routeError(
+    400,
+    "ticker_market_required",
+    "marketCode is required when the ticker exists in multiple markets",
+  );
 }
 
 function buildQuoteFromBars(

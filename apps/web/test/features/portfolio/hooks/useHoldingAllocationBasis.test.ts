@@ -23,29 +23,11 @@ function Harness() {
   return null;
 }
 
-function installLocalStorageMock() {
-  const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        store.set(key, value);
-      },
-      clear: () => {
-        store.clear();
-      },
-    },
-  });
-}
-
 describe("useHoldingAllocationBasis", () => {
   let container: HTMLDivElement;
   let root: Root | null;
 
   beforeEach(() => {
-    installLocalStorageMock();
-    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -58,7 +40,6 @@ describe("useHoldingAllocationBasis", () => {
       act(() => root?.unmount());
     }
     container.remove();
-    window.localStorage.clear();
     vi.mocked(getJson).mockReset();
     vi.mocked(patchJson).mockReset();
   });
@@ -78,16 +59,14 @@ describe("useHoldingAllocationBasis", () => {
     await act(async () => {});
 
     expect(result.allocationBasis).toBe("cost_basis");
-    expect(window.localStorage.getItem("vakwen-holdings-allocation-basis")).toBe("cost_basis");
   });
 
-  it("persists user changes to local storage and /user-preferences", async () => {
+  it("persists user changes to /user-preferences", async () => {
     await mount();
 
     act(() => result.setAllocationBasis("cost_basis" satisfies HoldingAllocationBasis));
 
     expect(result.allocationBasis).toBe("cost_basis");
-    expect(window.localStorage.getItem("vakwen-holdings-allocation-basis")).toBe("cost_basis");
     expect(patchJson).toHaveBeenCalledWith("/user-preferences", {
       holdingAllocationBasis: "cost_basis",
     });

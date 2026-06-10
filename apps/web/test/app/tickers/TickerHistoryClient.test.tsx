@@ -23,8 +23,14 @@ vi.mock("../../../features/portfolio/services/tickerDetailsService", async () =>
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: () => ({
+    canUseGlobalQuickActions: true,
     contextRefreshSignal: 0,
     locale: "en",
+    openQuickActions: () => undefined,
+    reportingCurrency: "TWD",
+    saveReportingCurrency: async () => undefined,
+    isReportingCurrencySaving: false,
+    reportingCurrencyError: "",
     sessionUserId: "user-1",
     uiDict: {},
   }),
@@ -44,6 +50,8 @@ import {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 vi.mock("recharts", () => ({
+  Bar: () => null,
+  BarChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Line: () => null,
   LineChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
@@ -202,6 +210,66 @@ const details: TickerDetailsModel = {
     lastDividendPostedDate: null,
   },
   chart: { points: [] },
+  holdingGroup: {
+    ticker: "2330",
+    marketCode: "TW",
+    quantity: 10,
+    costBasisAmount: 1000,
+    currency: "TWD",
+    averageCostPerShare: 100,
+    currentUnitPrice: 110,
+    marketValueAmount: 1100,
+    unrealizedPnlAmount: 100,
+    allocationPct: null,
+    change: 1,
+    changePercent: 0.92,
+    previousClose: 109,
+    quoteStatus: "current",
+    nextDividendDate: null,
+    lastDividendPostedDate: null,
+    freshness: "current",
+    freshnessTooltip: null,
+    accountCount: 1,
+    reportingCurrency: "TWD",
+    reportingCostBasisAmount: 1000,
+    reportingMarketValueAmount: 1100,
+    reportingUnrealizedPnlAmount: 100,
+    reportingAllocationPercent: null,
+    fxStatus: "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+    children: [],
+  },
+  accountBreakdown: [{
+    accountId: "acc-2",
+    accountName: "Scope Brokerage",
+    ticker: "2330",
+    marketCode: "TW",
+    quantity: 10,
+    costBasisAmount: 1000,
+    currency: "TWD",
+    averageCostPerShare: 100,
+    currentUnitPrice: 110,
+    marketValueAmount: 1100,
+    unrealizedPnlAmount: 100,
+    allocationPct: 100,
+    change: 1,
+    changePercent: 0.92,
+    previousClose: 109,
+    quoteStatus: "current",
+    nextDividendDate: null,
+    lastDividendPostedDate: null,
+    freshness: "current",
+    freshnessTooltip: null,
+    reportingCurrency: "TWD",
+    reportingCostBasisAmount: 1000,
+    reportingMarketValueAmount: 1100,
+    reportingUnrealizedPnlAmount: 100,
+    reportingAllocationPercent: 100,
+    fxStatus: "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+  }],
   stats: [],
   dividends: {
     upcomingCount: 0,
@@ -332,5 +400,73 @@ describe("TickerHistoryClient", () => {
 
     const cached = readRouteDtoCache<TickerDetailsModel>(tickerCacheKey());
     expect(cached?.payload.position.marketValue).toBe(3300);
+  });
+
+  it("renders refreshed account breakdown from ticker details state", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
+      ...details,
+      accountBreakdown: [{
+        ...details.accountBreakdown[0]!,
+        accountName: "Fresh Account",
+        reportingMarketValueAmount: null,
+        marketValueAmount: null,
+        reportingCostBasisAmount: 1250,
+      }],
+    });
+
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+    await flushEffects();
+
+    const breakdown = element.querySelector('[data-testid="ticker-account-breakdown"]');
+    const rows = element.querySelector('[data-testid="ticker-account-breakdown-rows"]');
+    expect(breakdown?.textContent).toContain("Fresh Account");
+    expect(breakdown?.textContent).toContain("NT$1,250");
+    expect(breakdown?.textContent).toContain("Cost basis fallback");
+    expect(rows?.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]')).not.toBeNull();
+    expect(breakdown?.querySelector("table")).toBeNull();
+  });
+
+  it("does not relabel native account values as reporting contribution when reporting amounts are missing", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      accountBreakdown: [{
+        ...details.accountBreakdown[0]!,
+        marketValueAmount: 9876,
+        costBasisAmount: 5432,
+        reportingMarketValueAmount: null,
+        reportingCostBasisAmount: null,
+      }],
+    });
+    await flushEffects();
+
+    const row = element.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]');
+    expect(row?.textContent).toContain(dict.tickerHistory.noHoldingData);
+    expect(row?.textContent).not.toContain("NT$9,876");
+    expect(row?.textContent).not.toContain("NT$5,432");
+    expect(row?.textContent).not.toContain(dict.dashboardHome.allocationFallbackLabel);
+  });
+
+  it("renders unavailable quote changes without positive or negative styling", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      quote: {
+        ...details.quote,
+        changeAmount: null,
+        changePercent: null,
+      },
+    });
+    await flushEffects();
+
+    const quoteChange = element.querySelector('[data-testid="ticker-quote-change"]');
+    expect(quoteChange?.textContent).toContain("-");
+    expect(quoteChange?.className).toContain("text-muted-foreground");
+    expect(quoteChange?.className).not.toContain("text-success");
+    expect(quoteChange?.className).not.toContain("text-destructive");
+    expect(quoteChange?.querySelector("svg")).toBeNull();
   });
 });

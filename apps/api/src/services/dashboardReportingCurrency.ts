@@ -34,6 +34,7 @@ import type {
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
+  DashboardOverviewMarketValueDto,
   DashboardOverviewRecentDividendDto,
   DashboardOverviewSummaryDto,
   DashboardOverviewUpcomingDividendDto,
@@ -44,7 +45,6 @@ import type {
 } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
-import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 
 interface PreTranslationOverviewSummary {
   asOf: string;
@@ -310,13 +310,34 @@ export async function translateOverviewHoldingGroups(
   }));
 }
 
+export function buildOverviewMarketValues(
+  holdingGroups: ReadonlyArray<DashboardOverviewHoldingGroupDto>,
+  reportingCurrency: AccountDefaultCurrency,
+): DashboardOverviewMarketValueDto[] {
+  const values = new Map<string, number>();
+  for (const group of holdingGroups) {
+    if (group.reportingCurrency !== reportingCurrency || group.reportingMarketValueAmount === null) continue;
+    values.set(group.marketCode, (values.get(group.marketCode) ?? 0) + group.reportingMarketValueAmount);
+  }
+  return [...values.entries()]
+    .map(([marketCode, value]) => ({
+      marketCode: marketCode as DashboardOverviewMarketValueDto["marketCode"],
+      value: roundToDecimal(value, 2),
+      reportingCurrency,
+    }))
+    .filter((entry) => entry.value > 0)
+    .sort((left, right) =>
+      right.value - left.value
+      || left.marketCode.localeCompare(right.marketCode),
+    );
+}
+
 /**
  * KZO-180: Build the `/dashboard/performance` time series in reporting currency.
  *
  * Always reads from `daily_holding_snapshots` via the FX-aware persistence
- * method. When the snapshot table has zero rows for the user/range (typical for
- * fresh accounts with no posted snapshots yet), falls back to the synthetic
- * trade-replay path with a per-(symbol → currency) FX-aware translation.
+ * method. When the snapshot table has zero rows for the user/range, returns an
+ * empty series so formal trend charts do not imply unsnapshotted history.
  *
  * `fxStatus` is rolled up from per-point `fxAvailable` flags using the same
  * convention as `translateOverviewSummary`. Per-point numerics become null
@@ -329,7 +350,7 @@ export async function translatePerformancePoints(
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
   store?: Store,
-  quotes?: SyntheticQuoteInput,
+  _quotes?: SyntheticQuoteInput,
 ): Promise<DashboardPerformanceDto> {
   const earliestTradeDate = store?.accounting.facts.tradeEvents
     .map((trade) => trade.tradeDate)
@@ -389,43 +410,8 @@ export async function translatePerformancePoints(
     return withPerformanceFreshness({ range, points, reportingCurrency, fxStatus }, asOf);
   }
 
-  // Fallback synthetic path — only used when the snapshot table has zero rows
-  // for the user/range. Mirrors `buildSyntheticPerformance` from
-  // `apps/api/src/services/dashboard.ts` but FX-aware: each (account, ticker)
-  // position contributes via its native price-currency, translated at the
-  // current point's date FX rate. For TWD-only stores this collapses to the
-  // legacy synthetic shape with `fxAvailable: true`.
-  if (!store) {
-    return withPerformanceFreshness(
-      { range, points: [], reportingCurrency, fxStatus: "complete" },
-      asOf,
-    );
-  }
-
-  const syntheticQuotes = typeof quotes === "function" ? await quotes() : quotes ?? [];
-  const synthetic = await buildFxAwareSyntheticPerformance(
-    store,
-    range,
-    asOf,
-    reportingCurrency,
-    persistence,
-    syntheticQuotes,
-    datedFinance,
-  );
-  let allAvailSyn = true;
-  let allMissingSyn = true;
-  for (const pt of synthetic) {
-    if (pt.fxAvailable) allMissingSyn = false;
-    else allAvailSyn = false;
-  }
-  let fxStatusSyn: "complete" | "partial" | "missing";
-  if (synthetic.length === 0) fxStatusSyn = "complete";
-  else if (allAvailSyn) fxStatusSyn = "complete";
-  else if (allMissingSyn) fxStatusSyn = "missing";
-  else fxStatusSyn = "partial";
-
   return withPerformanceFreshness(
-    { range, points: synthetic, reportingCurrency, fxStatus: fxStatusSyn },
+    { range, points: [], reportingCurrency, fxStatus: "complete" },
     asOf,
   );
 }
@@ -437,29 +423,35 @@ function withPerformanceFreshness(
   requestedAsOf: string,
 ): DashboardPerformanceDto {
   const requestedAsOfDate = requestedAsOf.slice(0, 10);
+  const latestSnapshotDate = dto.points.at(-1)?.date ?? null;
   const lastReliableDate =
     [...dto.points].reverse().find((point) => isReliablePerformancePoint(point))?.date ?? null;
+  const staleSinceDate =
+    lastReliableDate !== null && lastReliableDate < requestedAsOfDate
+      ? lastReliableDate
+      : null;
+  const knownGapReasons: NonNullable<DashboardPerformanceDto["diagnostics"]>["knownGapReasons"] = [];
+  if (latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
+  if (staleSinceDate !== null) knownGapReasons.push("stale_snapshot");
+  if (dto.fxStatus !== "complete") knownGapReasons.push("missing_fx");
+
   return {
     ...dto,
     requestedAsOf: requestedAsOfDate,
     lastReliableDate,
-    marketDataStaleSince:
-      lastReliableDate !== null && lastReliableDate < requestedAsOfDate
-        ? lastReliableDate
-        : null,
+    marketDataStaleSince: staleSinceDate,
+    diagnostics: {
+      latestSnapshotDate,
+      latestReliableValuationDate: lastReliableDate,
+      expectedLatestValuationDate: requestedAsOfDate,
+      staleSinceDate,
+      knownGapReasons,
+    },
   };
 }
 
 function isReliablePerformancePoint(point: DashboardPerformancePointDto): boolean {
   return point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null;
-}
-
-interface SyntheticPosition {
-  quantity: number;
-  costBasisAmount: number;
-  /** Native currency from the first BUY trade for this (account, ticker). */
-  currency: string;
-  marketCode: string;
 }
 
 type SyntheticQuoteInput = ReadonlyArray<QuoteSnapshot> | (() => Promise<ReadonlyArray<QuoteSnapshot>>);
@@ -475,194 +467,6 @@ interface PerformancePositionFinance {
   quantity: number;
   bookCostAmount: number;
   hasMissingBookCost: boolean;
-}
-
-async function buildFxAwareSyntheticPerformance(
-  store: Store,
-  range: DashboardPerformanceRange,
-  asOf: string,
-  reportingCurrency: AccountDefaultCurrency,
-  persistence: Persistence,
-  quotes: ReadonlyArray<QuoteSnapshot>,
-  datedFinance: ReadonlyMap<string, DatedPerformanceFinancePoint> | null,
-): Promise<DashboardPerformancePointDto[]> {
-  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
-  const earliest = trades.length > 0 ? trades[0].tradeDate : undefined;
-  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliest);
-  const positions = new Map<string, SyntheticPosition>();
-  const quoteByKey = new Map(quotes.flatMap((q): Array<[string, QuoteSnapshot]> => {
-    const entries: Array<[string, QuoteSnapshot]> = [[quoteSnapshotKey(q.ticker, q.marketCode), q]];
-    if (!q.marketCode) entries.push([q.ticker, q]);
-    return entries;
-  }));
-  let tradeIndex = 0;
-
-  function applyTrade(trade: (typeof trades)[number]): void {
-    const key = performancePositionKey(trade);
-    const prev = positions.get(key) ?? {
-      quantity: 0,
-      costBasisAmount: 0,
-      currency: trade.priceCurrency,
-      marketCode: trade.marketCode,
-    };
-    if (trade.type === "BUY") {
-      positions.set(key, {
-        quantity: prev.quantity + trade.quantity,
-        costBasisAmount:
-          prev.costBasisAmount +
-          Math.round(trade.quantity * trade.unitPrice * 100) / 100 +
-          trade.commissionAmount +
-          trade.taxAmount,
-        currency: prev.currency, // first-BUY wins; matches snapshot walker's invariant
-        marketCode: prev.marketCode,
-      });
-      return;
-    }
-    const realized = trade.realizedPnlAmount ?? 0;
-    const proceeds =
-      Math.round(trade.quantity * trade.unitPrice * 100) / 100 -
-      trade.commissionAmount -
-      trade.taxAmount;
-    const allocated = Math.max(0, proceeds - realized);
-    const nextQty = Math.max(0, prev.quantity - trade.quantity);
-    const nextCost = Math.max(0, prev.costBasisAmount - allocated);
-    if (nextQty === 0) {
-      positions.delete(key);
-      return;
-    }
-    positions.set(key, {
-      quantity: nextQty,
-      costBasisAmount: nextCost,
-      currency: prev.currency,
-      marketCode: prev.marketCode,
-    });
-  }
-
-  while (
-    tradeIndex < trades.length &&
-    trades[tradeIndex].tradeDate < startDate
-  ) {
-    applyTrade(trades[tradeIndex]);
-    tradeIndex += 1;
-  }
-
-  const points: DashboardPerformancePointDto[] = [];
-  const activePairs = uniquePerformancePairs(trades);
-  const barsByTickerMarket = activePairs.length > 0
-    ? await Promise.all(activePairs.map(async (pair) => ({
-        pair,
-        bars: await persistence.getDailyBarsForTickerMarket(pair.ticker, pair.marketCode, startDate, endDate),
-      })))
-    : [];
-  const closeByTickerMarketDate = new Map<string, Map<string, number>>();
-  for (const { pair, bars } of barsByTickerMarket) {
-    closeByTickerMarketDate.set(
-      quoteSnapshotKey(pair.ticker, pair.marketCode),
-      new Map(bars.map((bar) => [bar.barDate, bar.close])),
-    );
-  }
-  const hasAnyHistoricalBars = barsByTickerMarket.some((entry) => entry.bars.length > 0);
-
-  // Per-currency FX cache shared across the synthetic loop; we forward-fill
-  // per-date because `getFxRate` already encodes that semantics.
-  const fxCache = new Map<string, number | null>();
-  async function fxFor(src: string, date: string): Promise<number | null> {
-    if (src === reportingCurrency) return 1.0;
-    // Cache key encodes both src and date — different dates may resolve different rates.
-    const cacheKey = `${src}|${date}`;
-    if (fxCache.has(cacheKey)) return fxCache.get(cacheKey) ?? null;
-    const rate = await persistence.getFxRate(src, reportingCurrency, date);
-    fxCache.set(cacheKey, rate);
-    return rate;
-  }
-
-  const oneDayMs = 86_400_000;
-  for (
-    let cursor = new Date(`${startDate}T00:00:00.000Z`).getTime();
-    cursor <= new Date(`${endDate}T00:00:00.000Z`).getTime();
-    cursor += oneDayMs
-  ) {
-    const currentDate = new Date(cursor).toISOString().slice(0, 10);
-    while (
-      tradeIndex < trades.length &&
-      trades[tradeIndex].tradeDate <= currentDate
-    ) {
-      applyTrade(trades[tradeIndex]);
-      tradeIndex += 1;
-    }
-
-    let marketValue = 0;
-    let hasPositions = false;
-    let hasAnyMarketPrice = false;
-    let allQuotesAvailable = true;
-    let allFxAvailable = true;
-
-    for (const [key, pos] of positions) {
-      if (pos.quantity <= 0) continue;
-      hasPositions = true;
-      const fx = await fxFor(pos.currency, currentDate);
-      if (fx === null) {
-        allFxAvailable = false;
-        continue;
-      }
-      const symbol = key.includes(":")
-        ? key.slice(key.lastIndexOf(":") + 1)
-        : key;
-      const historicalClose = closeByTickerMarketDate.get(quoteSnapshotKey(symbol, pos.marketCode))?.get(currentDate);
-      const quote = historicalClose === undefined
-        ? quoteByKey.get(quoteSnapshotKey(symbol, pos.marketCode)) ?? quoteByKey.get(symbol)
-        : undefined;
-      const close = historicalClose ?? (
-        quote && quote.asOf.slice(0, 10) === currentDate ? quote.close : null
-      );
-      if (close === null) {
-        allQuotesAvailable = false;
-        continue;
-      }
-      hasAnyMarketPrice = true;
-      marketValue += (Math.round(close * pos.quantity * 100) / 100) * fx;
-    }
-
-    // Once repaired daily bars exist, mirror snapshot generation's sparse
-    // trading-day series. Calendar days with no observed market price otherwise
-    // become null-valued points and keep the trend in a permanent warning state.
-    if (hasPositions && hasAnyHistoricalBars && !hasAnyMarketPrice) {
-      continue;
-    }
-
-    const mv =
-      hasPositions && allQuotesAvailable && allFxAvailable ? marketValue : null;
-    const finance = datedFinance?.get(currentDate) ?? null;
-    const point = finance
-      ? buildPerformancePoint({
-          date: currentDate,
-          marketValueAmount: mv,
-          bookCostAmount: finance.bookCostAmount,
-          cumulativeRealizedPnlAmount: finance.cumulativeRealizedPnlAmount,
-          cumulativeDividendsAmount: finance.cumulativeDividendsAmount,
-          fxAvailable: allFxAvailable && finance.fxAvailable,
-        })
-      : {
-          date: currentDate,
-          totalCostAmount: null,
-          marketValueAmount: mv,
-          unrealizedPnlAmount: null,
-          cumulativeRealizedPnlAmount: null,
-          cumulativeDividendsAmount: null,
-          totalReturnAmount: null,
-          totalReturnPercent: null,
-          fxAvailable: allFxAvailable,
-        };
-    if (
-      (point.totalCostAmount ?? 0) > 0 ||
-      point.marketValueAmount !== null ||
-      !point.fxAvailable
-    ) {
-      points.push(point);
-    }
-  }
-
-  return points;
 }
 
 function buildPerformancePoint(input: {
@@ -947,30 +751,16 @@ function performancePositionKey(trade: BookedTradeEvent): string {
   return `${trade.accountId}:${trade.marketCode}:${trade.ticker}`;
 }
 
-function uniquePerformancePairs(
-  trades: ReadonlyArray<BookedTradeEvent>,
-): Array<{ ticker: string; marketCode: BookedTradeEvent["marketCode"] }> {
-  const pairs = new Map<string, { ticker: string; marketCode: BookedTradeEvent["marketCode"] }>();
-  for (const trade of trades) {
-    const key = quoteSnapshotKey(trade.ticker, trade.marketCode);
-    if (!pairs.has(key)) {
-      pairs.set(key, {
-        ticker: trade.ticker,
-        marketCode: trade.marketCode,
-      });
-    }
-  }
-  return [...pairs.values()];
-}
-
 function translateHoldingGroup(
   group: DashboardOverviewHoldingGroupDto,
   reportingCurrency: AccountDefaultCurrency,
   fx: number | null,
 ): DashboardOverviewHoldingGroupDto {
+  const children = group.children.map((child) => translateHoldingRow(child, reportingCurrency, fx));
   return {
     ...translateHoldingRow(group, reportingCurrency, fx),
-    children: group.children.map((child) => translateHoldingRow(child, reportingCurrency, fx)),
+    reportingDailyChangeAmount: rollupTranslatedDailyChange(children),
+    children,
   };
 }
 
@@ -989,11 +779,22 @@ function translateHoldingRow<T extends DashboardOverviewHoldingGroupDto | Dashbo
       fx === null || row.marketValueAmount === null ? null : roundToDecimal(row.marketValueAmount * fx, 2),
     reportingUnrealizedPnlAmount:
       fx === null || row.unrealizedPnlAmount === null ? null : roundToDecimal(row.unrealizedPnlAmount * fx, 2),
+    reportingDailyChangeAmount:
+      fx === null || row.change === null || row.previousClose === null ? null : roundToDecimal(row.change * row.quantity * fx, 2),
     reportingAllocationPercent: null,
     fxStatus: fx === null ? "missing" : "complete",
     allocationBasisUsed: "market_value",
     allocationBasisFallbackReason: null,
   };
+}
+
+function rollupTranslatedDailyChange(rows: ReadonlyArray<DashboardOverviewHoldingChildDto>): number | null {
+  if (rows.length === 0) return null;
+  const values = rows.map((row) => row.reportingDailyChangeAmount ?? null);
+  const presentValues = values.filter((value): value is number => value !== null);
+  if (presentValues.length !== rows.length) return null;
+  const total = presentValues.reduce((sum, value) => sum + value, 0);
+  return roundToDecimal(total, 2);
 }
 
 function deriveAllocationDetails<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(

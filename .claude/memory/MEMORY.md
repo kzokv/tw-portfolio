@@ -90,6 +90,7 @@
 - 2026-06-09 addendum — `user-preferences-key-extension.md` — New `user_preferences.preferences` keys require shared schema/DTO when cross-app, strict `userPreferencePatchSchema` extension, no migration for ordinary JSONB keys, full-object PATCH unless nested merge is implemented, and API/web preference tests.
 - 2026-06-09 addendum — `market-data-composite-keys.md` — Report/dashboard market-data lookups must preserve `(ticker, marketCode)` identity for bars, quotes, freshness, and synthetic performance; bare-ticker collectors can mix cross-listed symbols.
 - 2026-06-10 addendum — `route-enrichment-mutation-refresh.md` — Route enrichment endpoints are valid for mount/return hydration, but mutation refreshes that can change position/accounting summaries must use the authoritative full DTO or mutation-aware primary endpoint.
+- 2026-06-10 addendum — `reporting-server-authoritative-dtos.md` — Dashboard/report trend and return charts are strict snapshot-only surfaces; missing/stale/partial snapshots must show truthful diagnostics and empty/gapped series, and scoped snapshot contributors must be market-qualified `(accountId, ticker, marketCode)`.
 
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.

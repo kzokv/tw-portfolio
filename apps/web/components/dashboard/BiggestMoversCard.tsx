@@ -44,7 +44,7 @@ export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardPro
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
           {movers.map((h) => {
-            const tone = (h.changePercent ?? 0) > 0 ? "text-emerald-600" : (h.changePercent ?? 0) < 0 ? "text-rose-600" : "text-foreground";
+            const tone = (h.changePercent ?? 0) > 0 ? "text-success" : (h.changePercent ?? 0) < 0 ? "text-destructive" : "text-foreground";
             return (
               <li
                 key={`${h.marketCode}-${h.ticker}`}

@@ -46,8 +46,9 @@ const migrationManifestPromise = loadMigrationManifest(migrationsDir);
 interface SnapshotSeed {
   accountId: string;
   ticker: string;
+  marketCode?: "TW" | "US" | "AU" | "KR";
   date: string; // YYYY-MM-DD
-  currency: "TWD" | "USD" | "AUD";
+  currency: "TWD" | "USD" | "AUD" | "KRW";
   quantity: number;
   costBasisNative: number;
   valueNative: number;
@@ -88,7 +89,7 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     }
   }
 
-  async function ensureAccount(accountId: string, currency: "TWD" | "USD" | "AUD" = "TWD") {
+  async function ensureAccount(accountId: string, currency: "TWD" | "USD" | "AUD" | "KRW" = "TWD") {
     // The post-KZO-183 schema has bidirectional FKs: accounts.fee_profile_id →
     // fee_profiles.id (NOT NULL) AND fee_profiles.account_id → accounts.id (NOT
     // NULL). Both rows must be inserted in a single transaction so the deferred
@@ -144,19 +145,19 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
       for (const s of seeds) {
         await client.query(
           `INSERT INTO daily_holding_snapshots (
-             id, user_id, account_id, ticker, snapshot_date, quantity,
+             id, user_id, account_id, ticker, market_code, snapshot_date, quantity,
              close_price, market_value, cost_basis, unrealized_pnl,
              cumulative_realized_pnl, cumulative_dividends,
              is_provisional, currency, generated_at, generation_run_id,
              value_native, cost_basis_native, unrealized_pnl_native, provider_source
            ) VALUES (
-             $1, $2, $3, $4, $5::date, $6,
-             $7, $8, $9, $10,
-             $11, $12,
-             $13, $14, NOW(), $15,
-             $16, $17, $18, $19
+             $1, $2, $3, $4, $5, $6::date, $7,
+             $8, $9, $10, $11,
+             $12, $13,
+             $14, $15, NOW(), $16,
+             $17, $18, $19, $20
            )
-           ON CONFLICT (user_id, account_id, ticker, snapshot_date) DO UPDATE SET
+           ON CONFLICT (user_id, account_id, ticker, market_code, snapshot_date) DO UPDATE SET
              quantity = EXCLUDED.quantity,
              close_price = EXCLUDED.close_price,
              market_value = EXCLUDED.market_value,
@@ -175,6 +176,7 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
             userId,
             s.accountId,
             s.ticker,
+            s.marketCode ?? (s.currency === "USD" ? "US" : s.currency === "AUD" ? "AU" : s.currency === "KRW" ? "KR" : "TW"),
             s.date,
             s.quantity,
             s.closePrice ?? null,
@@ -204,8 +206,8 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
   }
 
   async function seedFxRate(
-    base: "TWD" | "USD" | "AUD",
-    quote: "TWD" | "USD" | "AUD",
+    base: "TWD" | "USD" | "AUD" | "KRW",
+    quote: "TWD" | "USD" | "AUD" | "KRW",
     date: string,
     rate: number,
   ): Promise<void> {
@@ -554,5 +556,66 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     expect(point.totalUnrealizedPnl).toBeNull();
     expect(point.totalReturnAmount).toBeNull();
     expect(point.totalReturnPercent).toBeNull();
+  });
+
+  it("INT-9: latest snapshot diagnostics scope to the requested market and surface missing provider source rows", async () => {
+    await ensureAccount("acc-tw-diag", "TWD");
+    await ensureAccount("acc-kr-diag", "KRW");
+    await seedSnapshots([
+      {
+        accountId: "acc-tw-diag",
+        ticker: "2330",
+        date: "2026-04-27",
+        currency: "TWD",
+        quantity: 10,
+        costBasisNative: 1_000,
+        valueNative: 1_100,
+        unrealizedPnlNative: 100,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+      },
+      {
+        accountId: "acc-kr-diag",
+        ticker: "005930",
+        marketCode: "KR",
+        date: "2026-04-28",
+        currency: "KRW",
+        quantity: 3,
+        costBasisNative: 210_000,
+        valueNative: 225_000,
+        unrealizedPnlNative: 15_000,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+      },
+    ]);
+    await pool.query(
+      `UPDATE daily_holding_snapshots
+          SET provider_source = NULL
+        WHERE user_id = $1
+          AND account_id = 'acc-kr-diag'
+          AND ticker = '005930'
+          AND market_code = 'KR'
+          AND snapshot_date = DATE '2026-04-28'`,
+      [userId],
+    );
+
+    await expect(persistence!.getLatestSnapshotDiagnostics(userId)).resolves.toEqual({
+      latestSnapshotDate: "2026-04-28",
+      missingProviderSourceCount: 1,
+    });
+
+    await expect(persistence!.getLatestSnapshotDiagnostics(userId, [
+      { accountId: "acc-tw-diag", ticker: "2330", marketCode: "TW" },
+    ])).resolves.toEqual({
+      latestSnapshotDate: "2026-04-27",
+      missingProviderSourceCount: 0,
+    });
+
+    await expect(persistence!.getLatestSnapshotDiagnostics(userId, [
+      { accountId: "acc-kr-diag", ticker: "005930", marketCode: "KR" },
+    ])).resolves.toEqual({
+      latestSnapshotDate: "2026-04-28",
+      missingProviderSourceCount: 1,
+    });
   });
 });

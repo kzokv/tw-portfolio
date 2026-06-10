@@ -28,6 +28,12 @@ export interface AppShellData {
   locale: LocaleCode;
   sessionUserId: string | null;
   isSharedContext: boolean;
+  canUseGlobalQuickActions: boolean;
+  openQuickActions: () => void;
+  reportingCurrency: AccountDefaultCurrency;
+  saveReportingCurrency: (currency: AccountDefaultCurrency) => Promise<void>;
+  isReportingCurrencySaving: boolean;
+  reportingCurrencyError: string;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   mutations: ReturnType<typeof useTransactionMutations>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;

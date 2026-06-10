@@ -111,6 +111,8 @@ export function buildHoldingGroupsFromHoldings({
       reportingCostBasisAmount: holding.costBasisAmount,
       reportingMarketValueAmount: holding.marketValueAmount,
       reportingUnrealizedPnlAmount: holding.unrealizedPnlAmount,
+      reportingDailyChangeAmount:
+        holding.change === null || holding.previousClose === null ? null : holding.change * holding.quantity,
       reportingAllocationPercent: holding.allocationPct,
       fxStatus: "complete",
       allocationBasisUsed: "cost_basis",
@@ -176,6 +178,9 @@ export function buildHoldingGroupsFromHoldings({
       reportingUnrealizedPnlAmount: sumNullable(
         sortedChildren.map((child) => child.reportingUnrealizedPnlAmount ?? child.unrealizedPnlAmount),
       ),
+      reportingDailyChangeAmount: sortedChildren.some((child) => child.reportingDailyChangeAmount == null)
+        ? null
+        : sumNullable(sortedChildren.map((child) => child.reportingDailyChangeAmount)),
       reportingAllocationPercent: null,
       fxStatus: sortedChildren.every((child) => child.fxStatus === "complete") ? "complete" : "partial",
       allocationBasisUsed: "cost_basis",
@@ -235,14 +240,15 @@ export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOv
           groupReportingCurrency,
           group.currency,
         ),
-        reportingUnrealizedPnlAmount: resolveReportingAmount(
-          group,
-          "reportingUnrealizedPnlAmount",
-          group.unrealizedPnlAmount,
-          groupReportingCurrency,
-          group.currency,
-        ),
-        children: group.children.map((child) => {
+            reportingUnrealizedPnlAmount: resolveReportingAmount(
+              group,
+              "reportingUnrealizedPnlAmount",
+              group.unrealizedPnlAmount,
+              groupReportingCurrency,
+              group.currency,
+            ),
+            reportingDailyChangeAmount: group.reportingDailyChangeAmount ?? null,
+            children: group.children.map((child) => {
           const childReportingCurrency = child.reportingCurrency ?? groupReportingCurrency ?? resolveReportingCurrency(child.currency);
           return {
             ...child,
@@ -268,6 +274,7 @@ export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOv
               childReportingCurrency,
               child.currency,
             ),
+            reportingDailyChangeAmount: child.reportingDailyChangeAmount ?? null,
             marketCode: child.marketCode ?? group.marketCode,
           };
         }),
