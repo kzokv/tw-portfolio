@@ -663,6 +663,156 @@ describe("fetchTickerDetails", () => {
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
   });
 
+  it("derives missing ticker valuation from enrichment chart snapshots", async () => {
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "2330",
+        marketCode: "TW",
+        accountId: null,
+        name: "TSMC",
+        instrumentType: "STOCK",
+        priceCurrency: "TWD",
+        barsBackfillStatus: "ok",
+      },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-06-09",
+            open: 2200,
+            high: 2250,
+            low: 2190,
+            close: 2250,
+            volume: 1000,
+            source: "snapshot",
+          },
+          {
+            date: "2026-06-10",
+            open: 2250,
+            high: 2260,
+            low: 2240,
+            close: 2255,
+            volume: 1200,
+            source: "snapshot",
+          },
+        ],
+      },
+      fundamentals: {
+        marketCap: { value: null, source: null, asOf: null },
+        enterpriseValue: { value: null, source: null, asOf: null },
+        priceEarningsRatio: { value: null, source: null, asOf: null },
+        priceBookRatio: { value: null, source: null, asOf: null },
+        dividendYield: { value: null, source: null, asOf: null },
+        earningsPerShare: { value: null, source: null, asOf: null },
+        revenueTrailingTwelveMonths: { value: null, source: null, asOf: null },
+        netIncomeTrailingTwelveMonths: { value: null, source: null, asOf: null },
+      },
+      fundamentalsRefresh: {
+        providerId: null,
+        refreshedAt: null,
+        nextRefreshAt: null,
+        lastAttemptedAt: null,
+        lastError: null,
+        status: "missing",
+      },
+    } as never);
+
+    const dashboard = buildDashboard({
+      holdings: [
+        {
+          ticker: "2330",
+          accountId: "acc-1",
+          accountName: "台股國泰證券",
+          accountDefaultCurrency: "TWD",
+          marketCode: "TW",
+          quantity: 4000,
+          averageCostPerShare: 823.98,
+          currentUnitPrice: null,
+          previousClose: null,
+          change: null,
+          changePercent: null,
+          quoteStatus: "missing",
+          currency: "TWD",
+          costBasisAmount: 3295920,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+        },
+        {
+          ticker: "2330",
+          accountId: "acc-2",
+          accountName: "Fubon",
+          accountDefaultCurrency: "TWD",
+          marketCode: "TW",
+          quantity: 1000,
+          averageCostPerShare: 891.27,
+          currentUnitPrice: null,
+          previousClose: null,
+          change: null,
+          changePercent: null,
+          quoteStatus: "missing",
+          currency: "TWD",
+          costBasisAmount: 891270,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+        },
+      ],
+    });
+    const instrument = {
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      name: "TSMC",
+    } as never;
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "2330",
+      marketCode: "TW",
+      dashboard,
+      transactions: [],
+      instrument,
+    });
+
+    const details = await fetchTickerDetailsHydration({
+      ticker: "2330",
+      marketCode: "TW",
+      transactions: [],
+      instrument,
+      primaryDetails,
+    });
+
+    expect(details.quote).toMatchObject({
+      currentPrice: 2255,
+      previousClose: 2250,
+      changeAmount: 5,
+      quoteStatus: "current",
+    });
+    expect(details.position).toMatchObject({
+      quantity: 5000,
+      marketValue: 11275000,
+      unrealizedPnl: 7087810,
+    });
+    expect(details.holdingGroup).toMatchObject({
+      currentUnitPrice: 2255,
+      reportingMarketValueAmount: 11275000,
+      reportingUnrealizedPnlAmount: 7087810,
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    });
+    expect(details.accountBreakdown).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        accountName: "台股國泰證券",
+        reportingMarketValueAmount: 9020000,
+        reportingUnrealizedPnlAmount: 5724080,
+        reportingAllocationPercent: 80,
+      }),
+      expect.objectContaining({
+        accountName: "Fubon",
+        reportingMarketValueAmount: 2255000,
+        reportingUnrealizedPnlAmount: 1363730,
+        reportingAllocationPercent: 20,
+      }),
+    ]));
+  });
+
   it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
     const dashboard = buildDashboard({

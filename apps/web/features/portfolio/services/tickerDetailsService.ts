@@ -424,6 +424,120 @@ function mapApiChartPoints(
     : fallback.chart.points;
 }
 
+function roundToDecimal(value: number, places: number): number {
+  const factor = 10 ** places;
+  return Math.round(value * factor) / factor;
+}
+
+function deriveQuoteFromChartPoints(
+  payload: TickerDetailsDto["chart"],
+): Pick<TickerDetailsModel["quote"], "currentPrice" | "previousClose" | "changeAmount" | "changePercent" | "quoteStatus"> | null {
+  const latest = payload.points.at(-1);
+  if (!latest) return null;
+
+  const previous = payload.points.length >= 2 ? payload.points[payload.points.length - 2] : null;
+  const previousClose = previous?.close ?? null;
+  const changeAmount = previousClose === null ? null : roundToDecimal(latest.close - previousClose, 4);
+  const changePercent = previousClose === null || previousClose === 0
+    ? null
+    : roundToDecimal(((latest.close - previousClose) / previousClose) * 100, 4);
+
+  return {
+    currentPrice: latest.close,
+    previousClose,
+    changeAmount,
+    changePercent,
+    quoteStatus: "current",
+  };
+}
+
+function withDerivedSnapshotValuation(
+  fallback: TickerDetailsModel,
+  chart: TickerDetailsDto["chart"],
+): TickerDetailsModel {
+  if (fallback.quote.currentPrice !== null) return fallback;
+
+  const derivedQuote = deriveQuoteFromChartPoints(chart);
+  if (!derivedQuote || fallback.position.quantity <= 0) return fallback;
+  const currentPrice = derivedQuote.currentPrice;
+  if (currentPrice === null) return fallback;
+
+  const marketValue = roundToDecimal(fallback.position.quantity * currentPrice, 2);
+  const unrealizedPnl = fallback.position.costBasis === null
+    ? fallback.position.unrealizedPnl
+    : roundToDecimal(marketValue - fallback.position.costBasis, 2);
+
+  const accountMarketValues = fallback.accountBreakdown.map((child) =>
+    roundToDecimal(child.quantity * currentPrice, 2),
+  );
+  const accountMarketValueTotal = accountMarketValues.reduce((sum, value) => sum + value, 0);
+
+  const enrichChild = (child: DashboardOverviewHoldingChildDto, index: number): DashboardOverviewHoldingChildDto => {
+    const childMarketValue = accountMarketValues[index] ?? roundToDecimal(child.quantity * currentPrice, 2);
+    const childUnrealizedPnl = roundToDecimal(childMarketValue - child.costBasisAmount, 2);
+    const allocationPercent = accountMarketValueTotal > 0
+      ? roundToDecimal((childMarketValue / accountMarketValueTotal) * 100, 4)
+      : child.reportingAllocationPercent;
+
+    return {
+      ...child,
+      currentUnitPrice: currentPrice,
+      marketValueAmount: childMarketValue,
+      unrealizedPnlAmount: childUnrealizedPnl,
+      change: derivedQuote.changeAmount,
+      changePercent: derivedQuote.changePercent,
+      previousClose: derivedQuote.previousClose,
+      quoteStatus: derivedQuote.quoteStatus,
+      reportingMarketValueAmount: child.reportingMarketValueAmount ?? childMarketValue,
+      reportingUnrealizedPnlAmount: child.reportingUnrealizedPnlAmount ?? childUnrealizedPnl,
+      reportingDailyChangeAmount: derivedQuote.changeAmount === null
+        ? child.reportingDailyChangeAmount
+        : roundToDecimal(derivedQuote.changeAmount * child.quantity, 2),
+      allocationPct: allocationPercent,
+      reportingAllocationPercent: allocationPercent,
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    };
+  };
+
+  const accountBreakdown = fallback.accountBreakdown.map(enrichChild);
+  const holdingGroup = fallback.holdingGroup
+    ? {
+        ...fallback.holdingGroup,
+        currentUnitPrice: currentPrice,
+        marketValueAmount: marketValue,
+        unrealizedPnlAmount: unrealizedPnl,
+        change: derivedQuote.changeAmount,
+        changePercent: derivedQuote.changePercent,
+        previousClose: derivedQuote.previousClose,
+        quoteStatus: derivedQuote.quoteStatus,
+        reportingMarketValueAmount: fallback.holdingGroup.reportingMarketValueAmount ?? marketValue,
+        reportingUnrealizedPnlAmount: fallback.holdingGroup.reportingUnrealizedPnlAmount ?? unrealizedPnl,
+        reportingDailyChangeAmount: derivedQuote.changeAmount === null
+          ? fallback.holdingGroup.reportingDailyChangeAmount
+          : roundToDecimal(derivedQuote.changeAmount * fallback.position.quantity, 2),
+        allocationBasisUsed: "market_value" as const,
+        allocationBasisFallbackReason: null,
+        children: accountBreakdown,
+      }
+    : fallback.holdingGroup;
+
+  return {
+    ...fallback,
+    quote: {
+      ...fallback.quote,
+      ...derivedQuote,
+    },
+    position: {
+      ...fallback.position,
+      marketValue,
+      unrealizedPnl,
+    },
+    holdingGroup,
+    accountBreakdown,
+  };
+}
+
 function mapApiDetailsToModel(
   payload: TickerDetailsDto,
   fallback: TickerDetailsModel,
@@ -541,8 +655,10 @@ function mapApiEnrichmentToModel(
   payload: TickerEnrichmentDto,
   fallback: TickerDetailsModel,
 ): TickerDetailsModel {
+  const enrichedFallback = withDerivedSnapshotValuation(fallback, payload.chart);
+
   return {
-    ...fallback,
+    ...enrichedFallback,
     identity: {
       ticker: payload.identity.ticker,
       name: payload.identity.name,
@@ -551,10 +667,10 @@ function mapApiEnrichmentToModel(
       currency: payload.identity.priceCurrency,
     },
     chart: {
-      points: mapApiChartPoints(payload.chart, fallback),
+      points: mapApiChartPoints(payload.chart, enrichedFallback),
     },
-    holdingGroup: fallback.holdingGroup,
-    accountBreakdown: fallback.accountBreakdown,
+    holdingGroup: enrichedFallback.holdingGroup,
+    accountBreakdown: enrichedFallback.accountBreakdown,
     fundamentals: {
       panels: mapApiFundamentalsToPanels(payload.fundamentals),
     },
