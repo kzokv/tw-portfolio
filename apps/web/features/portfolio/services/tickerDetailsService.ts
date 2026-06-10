@@ -431,19 +431,37 @@ function mapApiDetailsToModel(
   const currency = payload.identity.priceCurrency;
   const firstUpcoming = payload.dividends.upcoming[0];
   const firstRecent = payload.dividends.recent[0];
+  const quote = payload.quote.currentUnitPrice === null && fallback.quote.currentPrice !== null
+    ? fallback.quote
+    : {
+        currentPrice: payload.quote.currentUnitPrice,
+        previousClose: payload.quote.previousClose,
+        changeAmount: payload.quote.change,
+        changePercent: payload.quote.changePercent,
+        quoteStatus: payload.quote.quoteStatus,
+        freshness: fallback.quote.freshness,
+        freshnessTooltip: fallback.quote.freshnessTooltip,
+      };
   const position = {
     accountScope: payload.identity.accountId ?? "all",
     quantity: payload.position.quantity,
     averageCost: payload.position.averageCostPerShare,
     costBasis: payload.position.costBasisAmount,
-    marketValue: payload.position.marketValueAmount,
-    unrealizedPnl: payload.position.unrealizedPnlAmount,
+    marketValue: payload.position.marketValueAmount ?? fallback.position.marketValue,
+    unrealizedPnl: payload.position.unrealizedPnlAmount ?? fallback.position.unrealizedPnl,
     realizedPnl: payload.position.realizedPnlAmount,
     transactionsCount: payload.transactions.length,
     nextDividendDate: firstUpcoming?.paymentDate ?? firstUpcoming?.exDividendDate ?? null,
     lastDividendPostedDate: firstRecent?.postedAt ?? null,
   };
   const chartFallback = { ...fallback, position };
+  const holdingGroup = payload.holdingGroup?.reportingMarketValueAmount === null && fallback.holdingGroup?.reportingMarketValueAmount !== null
+    ? fallback.holdingGroup
+    : payload.holdingGroup;
+  const accountBreakdown = payload.accountBreakdown.some((row) => row.reportingMarketValueAmount !== null)
+    || fallback.accountBreakdown.every((row) => row.reportingMarketValueAmount === null)
+    ? payload.accountBreakdown
+    : fallback.accountBreakdown;
 
   return {
     identity: {
@@ -453,21 +471,13 @@ function mapApiDetailsToModel(
       instrumentType: payload.identity.instrumentType,
       currency,
     },
-    quote: {
-      currentPrice: payload.quote.currentUnitPrice,
-      previousClose: payload.quote.previousClose,
-      changeAmount: payload.quote.change,
-      changePercent: payload.quote.changePercent,
-      quoteStatus: payload.quote.quoteStatus,
-      freshness: fallback.quote.freshness,
-      freshnessTooltip: fallback.quote.freshnessTooltip,
-    },
+    quote,
     position,
     chart: {
       points: mapApiChartPoints(payload.chart, chartFallback),
     },
-    holdingGroup: payload.holdingGroup,
-    accountBreakdown: payload.accountBreakdown,
+    holdingGroup,
+    accountBreakdown,
     stats: fallback.stats,
     dividends: {
       upcomingCount: payload.dividends.upcoming.length,
