@@ -125,6 +125,48 @@ describe("PublicSharePage", () => {
     expect(html).not.toContain('data-testid="public-share-holding-');
   });
 
+  it("does not invent a market code for legacy public-share holdings", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ownerDisplayName: "Portfolio owner",
+          expiresAt: "2026-05-18T10:00:00.000Z",
+          quoteAsOf: null,
+          holdings: [
+            {
+              ticker: "LEGACY",
+              quantity: 3,
+              marketValueAmount: 300,
+              marketValueCurrency: "USD",
+              allocationPercent: 100,
+              quoteStatus: "current",
+            },
+          ],
+          summary: {
+            totalValueByCurrency: [{ currency: "USD", amount: 300 }],
+            returnByCurrency: [{ currency: "USD", returnPercent: 1.5 }],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
+          },
+        }),
+      }),
+    );
+
+    const element = await PublicSharePage({ params: Promise.resolve({ token: "LegacyPayloadToken123" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="public-share-holding-LEGACY-UNKNOWN"');
+    expect(html).toContain("overflow-x-auto");
+    expect(html).toContain("LEGACY");
+    expect(html).not.toContain('data-testid="public-share-holding-LEGACY-TW"');
+  });
+
   it("renders missing-quote holdings as unavailable instead of hiding them", async () => {
     vi.stubGlobal(
       "fetch",

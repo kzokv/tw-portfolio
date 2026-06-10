@@ -811,6 +811,70 @@ describe("fetchTickerDetails", () => {
         reportingAllocationPercent: 20,
       }),
     ]));
+
+    const usdReportingPrimaryDetails = {
+      ...primaryDetails,
+      holdingGroup: primaryDetails.holdingGroup
+        ? {
+            ...primaryDetails.holdingGroup,
+            reportingCurrency: "USD" as const,
+            reportingMarketValueAmount: null,
+            reportingUnrealizedPnlAmount: null,
+            reportingDailyChangeAmount: null,
+            children: primaryDetails.holdingGroup.children.map((child) => ({
+              ...child,
+              reportingCurrency: "USD" as const,
+              reportingMarketValueAmount: null,
+              reportingUnrealizedPnlAmount: null,
+              reportingDailyChangeAmount: null,
+            })),
+          }
+        : null,
+      accountBreakdown: primaryDetails.accountBreakdown.map((child) => ({
+        ...child,
+        reportingCurrency: "USD" as const,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+      })),
+    };
+
+    const usdReportingDetails = await fetchTickerDetailsHydration({
+      ticker: "2330",
+      marketCode: "TW",
+      transactions: [],
+      instrument,
+      primaryDetails: usdReportingPrimaryDetails,
+    });
+
+    expect(usdReportingDetails.position).toMatchObject({
+      marketValue: 11275000,
+      unrealizedPnl: 7087810,
+    });
+    expect(usdReportingDetails.holdingGroup).toMatchObject({
+      reportingCurrency: "USD",
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
+    });
+    expect(usdReportingDetails.accountBreakdown).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        accountName: "台股國泰證券",
+        reportingCurrency: "USD",
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+        reportingAllocationPercent: 80,
+      }),
+      expect.objectContaining({
+        accountName: "Fubon",
+        reportingCurrency: "USD",
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+        reportingAllocationPercent: 20,
+      }),
+    ]));
   });
 
   it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {

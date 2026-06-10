@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
-import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
+import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { getDictionary } from "../../../lib/i18n";
 
 vi.mock("../../../lib/api", () => ({
@@ -122,5 +122,41 @@ describe("HoldingsTable", () => {
 
     expect(groupedMode?.getAttribute("data-state")).toBe("on");
     expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
+  });
+
+  it("keeps mixed-status tickers visible when account-row status filters match a child row", () => {
+    const mixedGroup: DashboardOverviewHoldingGroupDto = {
+      ...baseGroup,
+      ticker: "MIXED",
+      quoteStatus: "missing",
+      accountCount: 2,
+      children: [
+        {
+          ...baseGroup,
+          accountId: "acc-current",
+          accountName: "Current account",
+          ticker: "MIXED",
+          quoteStatus: "current",
+          reportingAllocationPercent: 70,
+        },
+        {
+          ...baseGroup,
+          accountId: "acc-missing",
+          accountName: "Missing account",
+          ticker: "MIXED",
+          quoteStatus: "missing",
+          currentUnitPrice: null,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+          reportingAllocationPercent: 30,
+        },
+      ],
+    };
+
+    expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "aggregated")).toBe(false);
+    expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "expanded")).toBe(true);
+    expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "accounts")).toBe(true);
   });
 });
