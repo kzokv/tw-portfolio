@@ -43,7 +43,7 @@ import type {
   DashboardPerformancePointDto,
   DashboardPerformanceRange,
 } from "@vakwen/shared-types";
-import type { Persistence } from "../persistence/types.js";
+import type { AggregatedSnapshotPoint, Persistence } from "../persistence/types.js";
 import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
 
 interface PreTranslationOverviewSummary {
@@ -367,33 +367,37 @@ export async function translatePerformancePoints(
       reportingCurrency,
     );
 
-  if (aggregated.length > 0) {
-    const points: DashboardPerformancePointDto[] = aggregated.map((p) => {
+  const coverage = store
+    ? filterAggregatedSnapshotsByActiveCoverage(
+        aggregated,
+        buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate),
+      )
+    : { points: aggregated, hasSnapshotCoverageGap: false };
+
+  if (coverage.points.length > 0) {
+    let usedSnapshotFinanceFallback = false;
+    const points: DashboardPerformancePointDto[] = coverage.points.map((p) => {
       const finance = datedFinance?.get(p.date) ?? null;
       if (!finance) {
-        return {
-          date: p.date,
-          totalCostAmount: p.fxAvailable ? p.totalCostBasis : null,
-          marketValueAmount: p.fxAvailable ? p.totalMarketValue : null,
-          unrealizedPnlAmount: p.fxAvailable ? p.totalUnrealizedPnl : null,
-          cumulativeRealizedPnlAmount: p.fxAvailable
-            ? p.cumulativeRealizedPnl
-            : null,
-          cumulativeDividendsAmount: p.fxAvailable ? p.cumulativeDividends : null,
-          totalReturnAmount: p.fxAvailable ? p.totalReturnAmount : null,
-          totalReturnPercent: p.fxAvailable ? p.totalReturnPercent : null,
-          fxAvailable: p.fxAvailable,
-        };
+        return translateAggregatedPerformancePoint(p);
       }
 
-      const marketValueAmount = p.fxAvailable ? p.totalMarketValue : null;
+      if (!p.fxAvailable) {
+        return translateAggregatedPerformancePoint(p);
+      }
+
+      if (!finance.fxAvailable) {
+        usedSnapshotFinanceFallback = true;
+        return translateAggregatedPerformancePoint(p);
+      }
+
       return buildPerformancePoint({
         date: p.date,
-        marketValueAmount,
+        marketValueAmount: p.totalMarketValue,
         bookCostAmount: finance.bookCostAmount,
         cumulativeRealizedPnlAmount: finance.cumulativeRealizedPnlAmount,
         cumulativeDividendsAmount: finance.cumulativeDividendsAmount,
-        fxAvailable: p.fxAvailable && finance.fxAvailable,
+        fxAvailable: true,
       });
     });
     const fxStatus: "complete" | "partial" | "missing" = (() => {
@@ -407,20 +411,101 @@ export async function translatePerformancePoints(
       if (allMissing) return "missing";
       return "partial";
     })();
-    return withPerformanceFreshness({ range, points, reportingCurrency, fxStatus }, asOf);
+    return withPerformanceFreshness(
+      {
+        range,
+        points,
+        reportingCurrency,
+        fxStatus,
+      },
+      asOf,
+      {
+        hasFinanceFxGap: usedSnapshotFinanceFallback,
+        hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+      },
+    );
   }
 
   return withPerformanceFreshness(
     { range, points: [], reportingCurrency, fxStatus: "complete" },
     asOf,
+    { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
   );
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
+function filterAggregatedSnapshotsByActiveCoverage(
+  points: ReadonlyArray<AggregatedSnapshotPoint>,
+  expectedKeysByDate: ReadonlyMap<string, ReadonlySet<string>>,
+): { points: AggregatedSnapshotPoint[]; hasSnapshotCoverageGap: boolean } {
+  let hasSnapshotCoverageGap = false;
+  const filtered = points.filter((point) => {
+    const expectedKeys = expectedKeysByDate.get(point.date);
+    if (!expectedKeys || expectedKeys.size === 0) return true;
+
+    // Older/fake persistence implementations may not expose contributor keys.
+    // In that case, keep the point rather than assuming it is incomplete.
+    if (!point.snapshotContributorKeys) return true;
+
+    const actualKeys = new Set(point.snapshotContributorKeys);
+    for (const expectedKey of expectedKeys) {
+      if (!actualKeys.has(expectedKey)) {
+        hasSnapshotCoverageGap = true;
+        return false;
+      }
+    }
+    return true;
+  });
+  return { points: filtered, hasSnapshotCoverageGap };
+}
+
+function buildExpectedSnapshotContributorKeysByDate(
+  store: Store,
+  startDate: string,
+  endDate: string,
+): Map<string, Set<string>> {
+  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
+  const activeQuantities = new Map<string, number>();
+  const expectedByDate = new Map<string, Set<string>>();
+  let tradeIndex = 0;
+
+  function applyTradeQuantity(trade: BookedTradeEvent): void {
+    const key = performancePositionKey(trade);
+    const current = activeQuantities.get(key) ?? 0;
+    const next = trade.type === "BUY"
+      ? current + trade.quantity
+      : Math.max(0, current - trade.quantity);
+    if (next === 0) activeQuantities.delete(key);
+    else activeQuantities.set(key, next);
+  }
+
+  while (tradeIndex < trades.length && trades[tradeIndex].tradeDate < startDate) {
+    applyTradeQuantity(trades[tradeIndex]);
+    tradeIndex += 1;
+  }
+
+  const oneDayMs = 86_400_000;
+  for (
+    let cursor = new Date(`${startDate}T00:00:00.000Z`).getTime();
+    cursor <= new Date(`${endDate}T00:00:00.000Z`).getTime();
+    cursor += oneDayMs
+  ) {
+    const currentDate = new Date(cursor).toISOString().slice(0, 10);
+    while (tradeIndex < trades.length && trades[tradeIndex].tradeDate <= currentDate) {
+      applyTradeQuantity(trades[tradeIndex]);
+      tradeIndex += 1;
+    }
+    expectedByDate.set(currentDate, new Set(activeQuantities.keys()));
+  }
+
+  return expectedByDate;
+}
+
 function withPerformanceFreshness(
   dto: Omit<DashboardPerformanceDto, "requestedAsOf" | "lastReliableDate" | "marketDataStaleSince">,
   requestedAsOf: string,
+  options: { hasFinanceFxGap?: boolean; hasSnapshotCoverageGap?: boolean } = {},
 ): DashboardPerformanceDto {
   const requestedAsOfDate = requestedAsOf.slice(0, 10);
   const latestSnapshotDate = dto.points.at(-1)?.date ?? null;
@@ -431,9 +516,9 @@ function withPerformanceFreshness(
       ? lastReliableDate
       : null;
   const knownGapReasons: NonNullable<DashboardPerformanceDto["diagnostics"]>["knownGapReasons"] = [];
-  if (latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
+  if (latestSnapshotDate === null || options.hasSnapshotCoverageGap) knownGapReasons.push("missing_snapshot");
   if (staleSinceDate !== null) knownGapReasons.push("stale_snapshot");
-  if (dto.fxStatus !== "complete") knownGapReasons.push("missing_fx");
+  if (dto.fxStatus !== "complete" || options.hasFinanceFxGap) knownGapReasons.push("missing_fx");
 
   return {
     ...dto,
@@ -447,6 +532,32 @@ function withPerformanceFreshness(
       staleSinceDate,
       knownGapReasons,
     },
+  };
+}
+
+function translateAggregatedPerformancePoint(
+  point: {
+    date: string;
+    totalCostBasis: number;
+    totalMarketValue: number | null;
+    totalUnrealizedPnl: number | null;
+    cumulativeRealizedPnl: number;
+    cumulativeDividends: number;
+    totalReturnAmount: number | null;
+    totalReturnPercent: number | null;
+    fxAvailable: boolean;
+  },
+): DashboardPerformancePointDto {
+  return {
+    date: point.date,
+    totalCostAmount: point.fxAvailable ? point.totalCostBasis : null,
+    marketValueAmount: point.fxAvailable ? point.totalMarketValue : null,
+    unrealizedPnlAmount: point.fxAvailable ? point.totalUnrealizedPnl : null,
+    cumulativeRealizedPnlAmount: point.fxAvailable ? point.cumulativeRealizedPnl : null,
+    cumulativeDividendsAmount: point.fxAvailable ? point.cumulativeDividends : null,
+    totalReturnAmount: point.fxAvailable ? point.totalReturnAmount : null,
+    totalReturnPercent: point.fxAvailable ? point.totalReturnPercent : null,
+    fxAvailable: point.fxAvailable,
   };
 }
 

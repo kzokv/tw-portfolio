@@ -10,7 +10,7 @@ import {
   type LocaleCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { cn, formatCompactCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/shadcn/badge";
@@ -39,9 +39,15 @@ export function DashboardHero({
   const totalValue = summary.marketValueAmount !== null
     ? formatCompactCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
     : dict.dashboardHome.noMarketValue;
+  const totalExactValue = summary.marketValueAmount !== null
+    ? formatCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
+    : null;
   const dayDeltaValue = summary.dailyChangeAmount !== null
     ? formatCompactCurrencyAmount(summary.dailyChangeAmount, summary.reportingCurrency, locale)
     : dict.dashboardHome.noMarketValue;
+  const dayDeltaExactValue = summary.dailyChangeAmount !== null
+    ? formatCurrencyAmount(summary.dailyChangeAmount, summary.reportingCurrency, locale)
+    : null;
   const dayDeltaPercent = summary.dailyChangePercent !== null
     ? formatPercent(summary.dailyChangePercent, locale)
     : null;
@@ -67,6 +73,11 @@ export function DashboardHero({
         >
           {totalValue}
         </p>
+        {totalExactValue ? (
+          <p className="mt-1 text-sm text-muted-foreground" data-testid="dashboard-hero-total-exact">
+            {formatHeroMessage(dict.dashboardHome.exactAmountInline, { amount: totalExactValue })}
+          </p>
+        ) : null}
       </Card>
 
       <Card className="p-5" data-testid="dashboard-hero-day-delta">
@@ -82,6 +93,11 @@ export function DashboardHero({
         >
           {dayDeltaValue}
         </p>
+        {dayDeltaExactValue ? (
+          <p className={cn("mt-1 text-sm", deltaTone)} data-testid="dashboard-hero-day-delta-exact">
+            {formatHeroMessage(dict.dashboardHome.exactAmountInline, { amount: dayDeltaExactValue })}
+          </p>
+        ) : null}
         {dayDeltaPercent ? (
           <p
             className={cn("mt-1 text-sm font-medium", deltaTone)}
@@ -177,6 +193,11 @@ export function DashboardHero({
                 <span className="text-xs font-medium text-muted-foreground">{market.marketCode}</span>
                 <span className="mt-1 block font-mono text-lg font-semibold tabular-nums text-foreground">
                   {formatCompactCurrencyAmount(market.value, summary.reportingCurrency, locale)}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {formatHeroMessage(dict.dashboardHome.exactAmountInline, {
+                    amount: formatCurrencyAmount(market.value, summary.reportingCurrency, locale),
+                  })}
                 </span>
               </Link>
             ))}

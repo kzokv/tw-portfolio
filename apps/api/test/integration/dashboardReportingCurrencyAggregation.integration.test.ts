@@ -435,6 +435,94 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     expect(point.totalUnrealizedPnl).toBeCloseTo(twd.unrealizedPnlNative + usd.unrealizedPnlNative * fxRate, 2);
   });
 
+  it("INT-5B: mixed TW/US/KR snapshots aggregate cleanly in USD when all FX pairs exist", async () => {
+    await ensureAccount("acc-tw", "TWD");
+    await ensureAccount("acc-us", "USD");
+    await ensureAccount("acc-kr", "KRW");
+    const date = "2026-04-24";
+    await seedSnapshots([
+      {
+        accountId: "acc-tw", ticker: "2330", marketCode: "TW", date, currency: "TWD",
+        quantity: 10, costBasisNative: 100_000, valueNative: 110_000,
+        unrealizedPnlNative: 10_000, cumulativeRealizedPnl: 0, cumulativeDividends: 500,
+      },
+      {
+        accountId: "acc-us", ticker: "AAPL", marketCode: "US", date, currency: "USD",
+        quantity: 10, costBasisNative: 1_000, valueNative: 1_200,
+        unrealizedPnlNative: 200, cumulativeRealizedPnl: 50, cumulativeDividends: 10,
+      },
+      {
+        accountId: "acc-kr", ticker: "005930", marketCode: "KR", date, currency: "KRW",
+        quantity: 3, costBasisNative: 200_000, valueNative: 240_000,
+        unrealizedPnlNative: 40_000, cumulativeRealizedPnl: 10_000, cumulativeDividends: 2_000,
+      },
+    ]);
+    await seedFxRate("TWD", "USD", date, 0.03);
+    await seedFxRate("KRW", "USD", date, 0.001);
+
+    const points = await persistence!.getAggregatedSnapshotsInReportingCurrency(
+      userId,
+      date,
+      date,
+      "USD",
+    );
+
+    expect(points).toHaveLength(1);
+    const [point] = points;
+    expect(point.fxAvailable).toBe(true);
+    expect(point.totalCostBasis).toBeCloseTo(4_200, 2);
+    expect(point.totalMarketValue).toBeCloseTo(4_740, 2);
+    expect(point.totalUnrealizedPnl).toBeCloseTo(540, 2);
+    expect(point.cumulativeRealizedPnl).toBeCloseTo(60, 2);
+    expect(point.cumulativeDividends).toBeCloseTo(27, 2);
+    expect(point.totalReturnAmount).toBeCloseTo(627, 2);
+    expect(point.totalReturnPercent).toBeCloseTo(14.9285714286, 6);
+  });
+
+  it("INT-5C: mixed TW/US/KR snapshots aggregate cleanly in KRW when all FX pairs exist", async () => {
+    await ensureAccount("acc-tw", "TWD");
+    await ensureAccount("acc-us", "USD");
+    await ensureAccount("acc-kr", "KRW");
+    const date = "2026-04-24";
+    await seedSnapshots([
+      {
+        accountId: "acc-tw", ticker: "2330", marketCode: "TW", date, currency: "TWD",
+        quantity: 10, costBasisNative: 100_000, valueNative: 110_000,
+        unrealizedPnlNative: 10_000, cumulativeRealizedPnl: 0, cumulativeDividends: 500,
+      },
+      {
+        accountId: "acc-us", ticker: "AAPL", marketCode: "US", date, currency: "USD",
+        quantity: 10, costBasisNative: 1_000, valueNative: 1_200,
+        unrealizedPnlNative: 200, cumulativeRealizedPnl: 50, cumulativeDividends: 10,
+      },
+      {
+        accountId: "acc-kr", ticker: "005930", marketCode: "KR", date, currency: "KRW",
+        quantity: 3, costBasisNative: 200_000, valueNative: 240_000,
+        unrealizedPnlNative: 40_000, cumulativeRealizedPnl: 10_000, cumulativeDividends: 2_000,
+      },
+    ]);
+    await seedFxRate("TWD", "KRW", date, 40);
+    await seedFxRate("USD", "KRW", date, 1_300);
+
+    const points = await persistence!.getAggregatedSnapshotsInReportingCurrency(
+      userId,
+      date,
+      date,
+      "KRW",
+    );
+
+    expect(points).toHaveLength(1);
+    const [point] = points;
+    expect(point.fxAvailable).toBe(true);
+    expect(point.totalCostBasis).toBeCloseTo(5_500_000, 2);
+    expect(point.totalMarketValue).toBeCloseTo(6_200_000, 2);
+    expect(point.totalUnrealizedPnl).toBeCloseTo(700_000, 2);
+    expect(point.cumulativeRealizedPnl).toBeCloseTo(75_000, 2);
+    expect(point.cumulativeDividends).toBeCloseTo(35_000, 2);
+    expect(point.totalReturnAmount).toBeCloseTo(810_000, 2);
+    expect(point.totalReturnPercent).toBeCloseTo(14.7272727273, 6);
+  });
+
   // ── INT-6 — Mixed-currency partial FX → fxAvailable=false ──────────────────
   it("INT-6: TWD + AUD positions same day, reporting=TWD, AUD→TWD FX missing → fxAvailable=false (bool_and semantics)", async () => {
     await ensureAccount("acc-twd", "TWD");

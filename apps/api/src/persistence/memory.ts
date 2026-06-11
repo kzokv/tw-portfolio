@@ -3552,6 +3552,9 @@ export class MemoryPersistence implements Persistence {
         totalReturnPercent,
         isProvisional,
         fxAvailable: allFxResolved,
+        snapshotContributorKeys: rows
+          .map((row) => `${row.accountId}:${row.marketCode ?? ""}:${row.ticker}`)
+          .sort(),
       });
     }
     return out;
