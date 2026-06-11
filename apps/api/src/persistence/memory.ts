@@ -3028,6 +3028,22 @@ export class MemoryPersistence implements Persistence {
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
     if (base === quote) return 1.0;
+    const directRate = this.findLatestFxRate(base, quote, asOfDate);
+    if (directRate !== null) return directRate;
+
+    const inverseRate = this.findLatestFxRate(quote, base, asOfDate);
+    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+
+    const pivot = "TWD";
+    const baseToPivot = this.getFxRateToPivot(base, pivot, asOfDate);
+    const quoteToPivot = this.getFxRateToPivot(quote, pivot, asOfDate);
+    if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
+      return baseToPivot / quoteToPivot;
+    }
+    return null;
+  }
+
+  private findLatestFxRate(base: string, quote: string, asOfDate: string): number | null {
     let bestDate: string | null = null;
     let bestRate: number | null = null;
     for (const r of this.fxRates.values()) {
@@ -3039,6 +3055,15 @@ export class MemoryPersistence implements Persistence {
       }
     }
     return bestRate;
+  }
+
+  private getFxRateToPivot(currency: string, pivot: string, asOfDate: string): number | null {
+    if (currency === pivot) return 1.0;
+    const directRate = this.findLatestFxRate(currency, pivot, asOfDate);
+    if (directRate !== null) return directRate;
+    const inverseRate = this.findLatestFxRate(pivot, currency, asOfDate);
+    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+    return null;
   }
 
   async getFxTransferById(
