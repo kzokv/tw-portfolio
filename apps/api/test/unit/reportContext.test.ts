@@ -27,7 +27,7 @@ describe("resolveReportContext", () => {
     });
   });
 
-  it("normalizes all-scope specified mode to the user's global reporting currency", () => {
+  it("honors all-scope specified mode for direct API and MCP callers", () => {
     expect(resolveReportContext({
       scope: "all",
       currencyMode: "specified",
@@ -35,9 +35,9 @@ describe("resolveReportContext", () => {
       defaultReportingCurrency: "USD",
     })).toEqual({
       scope: "all",
-      currencyMode: "auto",
-      currency: null,
-      reportingCurrency: "USD",
+      currencyMode: "specified",
+      currency: "AUD",
+      reportingCurrency: "AUD",
       nativeCurrency: null,
     });
   });

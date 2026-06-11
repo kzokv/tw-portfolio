@@ -329,9 +329,9 @@ describe("report routes", () => {
     expect(allScope.json()).toEqual(expect.objectContaining({
       query: expect.objectContaining({
         scope: "all",
-        currencyMode: "auto",
-        currency: null,
-        reportingCurrency: "TWD",
+        currencyMode: "specified",
+        currency: "USD",
+        reportingCurrency: "USD",
         nativeCurrency: null,
       }),
     }));
