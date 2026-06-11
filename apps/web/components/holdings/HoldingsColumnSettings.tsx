@@ -280,10 +280,12 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 export function HoldingsColumnSettingsMenu<ColumnId extends string>({
   dict,
   enableLayoutStyle = false,
+  getColumnLabel,
   settings,
 }: {
   dict?: AppDictionary;
   enableLayoutStyle?: boolean;
+  getColumnLabel?: (column: HoldingsGridColumnDefinition<ColumnId>) => string;
   settings: HoldingsColumnSettingsState<ColumnId>;
 }) {
   const copy = dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY;
@@ -302,15 +304,16 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
           {settings.orderedColumns.map((column, index) => {
             const isFirst = index === 0;
             const isLast = index === settings.orderedColumns.length - 1;
+            const columnLabel = getColumnLabel?.(column) ?? column.label;
             return (
               <div key={column.id} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm">
                 <Checkbox
                   checked={settings.visibleColumns.includes(column.id)}
                   disabled={column.canHide === false}
                   onCheckedChange={() => settings.toggleColumn(column.id)}
-                  aria-label={copy.toggleColumnAria.replace("{column}", column.label)}
+                  aria-label={copy.toggleColumnAria.replace("{column}", columnLabel)}
                 />
-                <span className="min-w-0 flex-1 break-words">{column.label}</span>
+                <span className="min-w-0 flex-1 break-words">{columnLabel}</span>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button
                     type="button"
@@ -319,7 +322,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                     className="size-7"
                     disabled={isFirst}
                     onClick={() => settings.moveColumn(column.id, "left")}
-                    aria-label={copy.moveColumnLeftAria.replace("{column}", column.label)}
+                    aria-label={copy.moveColumnLeftAria.replace("{column}", columnLabel)}
                     data-testid={`holdings-column-move-left-${column.id}`}
                   >
                     <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -331,7 +334,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                     className="size-7"
                     disabled={isLast}
                     onClick={() => settings.moveColumn(column.id, "right")}
-                    aria-label={copy.moveColumnRightAria.replace("{column}", column.label)}
+                    aria-label={copy.moveColumnRightAria.replace("{column}", columnLabel)}
                     data-testid={`holdings-column-move-right-${column.id}`}
                   >
                     <ArrowRight className="size-3.5" aria-hidden="true" />

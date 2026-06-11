@@ -1088,7 +1088,11 @@ function HoldingsCard({
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <HoldingsColumnSettingsMenu dict={dict} settings={columnSettings} />
+          <HoldingsColumnSettingsMenu
+            dict={dict}
+            getColumnLabel={(column) => reportHoldingColumnLabel(dict, column.id)}
+            settings={columnSettings}
+          />
           <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
         </div>
       </CardHeader>

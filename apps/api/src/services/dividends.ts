@@ -790,7 +790,9 @@ export function deriveEligibleQuantity(
   return Math.max(
     0,
     store.accounting.facts.tradeEvents
-      .filter((entry) => entry.accountId === accountId && entry.ticker === ticker && entry.tradeDate < exDividendDate)
+      .filter((entry) => entry.accountId === accountId
+        && entry.ticker === ticker
+        && entry.tradeDate < exDividendDate)
       .reduce((sum, entry) => sum + (entry.type === "BUY" ? entry.quantity : -entry.quantity), 0),
   );
 }

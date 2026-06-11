@@ -423,7 +423,11 @@ export function DashboardHoldingsPreview({
                   </ToggleGroup>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
-                  <HoldingsColumnSettingsMenu dict={dict} settings={columnSettings} />
+                  <HoldingsColumnSettingsMenu
+                    dict={dict}
+                    getColumnLabel={(column) => dashboardColumnLabel(dict, column.id, reportingCurrency)}
+                    settings={columnSettings}
+                  />
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button size="sm" variant="ghost" data-testid="dashboard-holdings-preset-settings">
