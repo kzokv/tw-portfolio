@@ -18,8 +18,7 @@ export function buildTimelineAxis(options: TimelineAxisOptions) {
     : options.mode;
   const startMs = dateToUtcMs(options.startDate);
   const endMs = dateToUtcMs(options.endDate);
-  const seedDates = options.pointDates?.length ? options.pointDates : [options.startDate, options.endDate];
-  const ticks = buildTicksForMode({ endMs, mode: resolvedMode, pointDates: seedDates, startMs });
+  const ticks = buildTicksForMode({ endMs, mode: resolvedMode, startMs });
   return {
     domain: [startMs, endMs] as [number, number],
     resolvedMode,
@@ -41,17 +40,53 @@ export function resolveAutoTimelineMode(startDate: string, endDate: string): Res
 function buildTicksForMode(input: {
   endMs: number;
   mode: Exclude<TimelineMode, "auto">;
-  pointDates: string[];
   startMs: number;
 }) {
-  const unique = [...new Set(input.pointDates.map(dateToUtcMs))]
+  const boundaryTicks = calendarBoundaryTicks(input.startMs, input.endMs, input.mode);
+  const unique = [...new Set([input.startMs, ...boundaryTicks, input.endMs])]
     .filter((value) => value >= input.startMs && value <= input.endMs)
     .sort((left, right) => left - right);
   if (unique.length <= 1) return unique.length === 1 ? unique : [input.startMs];
   if (input.mode === "day") return thinTicks(unique, 7);
-  if (input.mode === "week") return thinTicks(unique.filter((value) => isWeekBoundary(value) || value === unique[0] || value === unique.at(-1)), 8);
-  if (input.mode === "month") return thinTicks(unique.filter((value) => isMonthBoundary(value) || value === unique[0] || value === unique.at(-1)), 8);
-  return thinTicks(unique.filter((value) => isYearBoundary(value) || value === unique[0] || value === unique.at(-1)), 6);
+  if (input.mode === "week") return thinTicks(unique, 8);
+  if (input.mode === "month") return thinTicks(unique, 8);
+  return thinTicks(unique, 6);
+}
+
+function calendarBoundaryTicks(startMs: number, endMs: number, mode: Exclude<TimelineMode, "auto">) {
+  if (mode === "day") return steppedUtcTicks(startMs, endMs, (date) => date.setUTCDate(date.getUTCDate() + 1));
+  if (mode === "week") {
+    const first = new Date(startMs);
+    const daysUntilMonday = (8 - first.getUTCDay()) % 7;
+    first.setUTCDate(first.getUTCDate() + daysUntilMonday);
+    return steppedUtcTicks(first.getTime(), endMs, (date) => date.setUTCDate(date.getUTCDate() + 7));
+  }
+  if (mode === "month") {
+    const first = new Date(startMs);
+    if (first.getUTCDate() !== 1) {
+      first.setUTCMonth(first.getUTCMonth() + 1, 1);
+    }
+    return steppedUtcTicks(first.getTime(), endMs, (date) => date.setUTCMonth(date.getUTCMonth() + 1, 1));
+  }
+  const first = new Date(startMs);
+  if (first.getUTCDate() !== 1 || first.getUTCMonth() !== 0) {
+    first.setUTCFullYear(first.getUTCFullYear() + 1, 0, 1);
+  }
+  return steppedUtcTicks(first.getTime(), endMs, (date) => date.setUTCFullYear(date.getUTCFullYear() + 1, 0, 1));
+}
+
+function steppedUtcTicks(
+  startMs: number,
+  endMs: number,
+  advance: (date: Date) => void,
+) {
+  const ticks: number[] = [];
+  const cursor = new Date(startMs);
+  while (cursor.getTime() <= endMs) {
+    ticks.push(cursor.getTime());
+    advance(cursor);
+  }
+  return ticks;
 }
 
 function thinTicks(values: number[], maxTicks: number) {
@@ -63,26 +98,13 @@ function thinTicks(values: number[], maxTicks: number) {
 function formatTimelineTick(value: string, locale: LocaleCode, mode: ResolvedTimelineMode) {
   const intlLocale = locale === "zh-TW" ? "zh-TW" : "en-US";
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (mode === "day") {
+  if (mode === "day" || mode === "week") {
     return new Intl.DateTimeFormat(intlLocale, { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
   }
-  if (mode === "week" || mode === "month") {
-    return new Intl.DateTimeFormat(intlLocale, { month: "short", timeZone: "UTC", year: mode === "month" ? "2-digit" : undefined }).format(date);
+  if (mode === "month") {
+    return new Intl.DateTimeFormat(intlLocale, { month: "short", timeZone: "UTC", year: "2-digit" }).format(date);
   }
   return new Intl.DateTimeFormat(intlLocale, { timeZone: "UTC", year: "numeric" }).format(date);
-}
-
-function isWeekBoundary(value: number) {
-  return new Date(value).getUTCDay() === 1;
-}
-
-function isMonthBoundary(value: number) {
-  return new Date(value).getUTCDate() === 1;
-}
-
-function isYearBoundary(value: number) {
-  const date = new Date(value);
-  return date.getUTCDate() === 1 && date.getUTCMonth() === 0;
 }
 
 function dateToUtcMs(value: string): number {
