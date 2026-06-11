@@ -1,4 +1,3 @@
-import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("reports performance timeline controls", () => {
@@ -14,13 +13,21 @@ test.describe("reports performance timeline controls", () => {
     await timeline.waitFor({ state: "visible" });
 
     await timeline.getByRole("button", { name: "Week" }).click();
-    await expect(timeline.getByRole("button", { name: "Week" })).toHaveAttribute("data-state", "on");
+    await appShell.assert.mxAssertEqual(
+      await timeline.getByRole("button", { name: "Week" }).getAttribute("data-state"),
+      "on",
+      "Reports Performance Trend Week timeline state",
+    );
 
-    await expect(
-      page.getByTestId("reports-performance-chart")
-        .or(page.getByText("No server snapshot series is available for this scope."))
-        .first(),
-    ).toBeVisible();
+    const performanceState = page.getByTestId("reports-performance-chart")
+      .or(page.getByText("No server snapshot series is available for this scope."))
+      .first();
+    await performanceState.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await performanceState.isVisible(),
+      true,
+      "Reports Performance Trend shows a chart or honest no-snapshot state",
+    );
     await appShell.assert.mxAssertEqual(
       await page.getByTestId("reports-controls").getByText("Range").count(),
       1,
