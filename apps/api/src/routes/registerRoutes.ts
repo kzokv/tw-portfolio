@@ -4430,16 +4430,37 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/portfolio/primary", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/primary", async (timing) => {
       const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdings = await timing.measure("list_primary_holdings", "app", () =>
         Promise.resolve(buildPortfolioPrimaryHoldings(store, userId)));
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, holdings)));
+      const asOf = new Date().toISOString();
+      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          asOf,
+          app.persistence,
+        ));
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+          reportingCurrency,
+          asOf,
+        ));
       const instruments = await timing.measure("map_instruments", "app", () =>
         Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return {
         holdings,
-        holdingGroups,
+        holdingGroups: translatedHoldingGroups,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         dividends: {
           upcoming: [],
           recent: [],
@@ -4462,10 +4483,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker)
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
-      const snapshotMap = await timing.measure("load_quotes", "db", async () => {
-        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-      });
+      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        (async () => {
+          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+        })(),
+        app.persistence.getUserPreferences(userId),
+      ]));
       const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
       const overview = await timing.measure("build_portfolio_enrichment", "app", () =>
         Promise.resolve(buildDashboardOverview(store, {
@@ -4482,12 +4506,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           app.log.warn({ err }, "portfolio_enrichment_freshness_failed");
         }
       }
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          [
+            ...overview.holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+            ...overview.dividends.upcoming.map((dividend) => dividend.currency as AccountDefaultCurrency),
+          ],
+          reportingCurrency,
+          overview.summary.asOf,
+        ));
 
       return {
         holdings: overview.holdings,
-        holdingGroups,
+        holdingGroups: translatedHoldingGroups,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         dividends: overview.dividends,
         instruments: overview.instruments,
         accounts: overview.accounts,
