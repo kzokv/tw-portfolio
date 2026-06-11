@@ -10028,6 +10028,16 @@ export class PostgresPersistence implements Persistence {
              FROM trade_events
              WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
              UNION
+             SELECT 'lot-' || dle.id
+             FROM dividend_ledger_entries AS dle
+             JOIN accounts AS a ON a.id = dle.account_id
+             JOIN market_data.dividend_events AS event ON event.id = dle.dividend_event_id
+             WHERE a.user_id = $1
+               AND dle.account_id = $2
+               AND event.ticker = $3
+               AND event.market_code = $4
+               AND dle.received_stock_quantity > 0
+             UNION
              SELECT 'lot-' || unnest($5::text[])
            )`,
         [userId, accountId, ticker, marketCode, additionalTradeEventIds],
@@ -10065,6 +10075,16 @@ export class PostgresPersistence implements Persistence {
              OR lot_id IN (
                SELECT 'lot-' || id FROM trade_events
                WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+               UNION
+               SELECT 'lot-' || dle.id
+               FROM dividend_ledger_entries AS dle
+               JOIN accounts AS a ON a.id = dle.account_id
+               JOIN market_data.dividend_events AS event ON event.id = dle.dividend_event_id
+               WHERE a.user_id = $1
+                 AND dle.account_id = $2
+                 AND event.ticker = $3
+                 AND event.market_code = $4
+                 AND dle.received_stock_quantity > 0
                UNION
                SELECT 'lot-' || unnest($5::text[])
              )
