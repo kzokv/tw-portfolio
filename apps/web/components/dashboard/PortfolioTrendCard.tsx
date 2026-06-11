@@ -134,6 +134,7 @@ export function PortfolioTrendCard({
   const chartAxis = resolveTimelineAxis(data, locale, range, timelineMode);
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
+  const emptyStateMessage = resolveSnapshotEmptyStateMessage(data, dict, dict.dashboardHome.performanceEmpty);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-performance-card">
@@ -267,9 +268,9 @@ export function PortfolioTrendCard({
           <div className="skeleton-line h-4 w-36 rounded" />
           <div className="skeleton-line skeleton-line--delay mt-6 h-[16rem] w-full rounded-[24px]" />
         </div>
-      ) : !hasPoints ? (
+      ) : !hasPoints || !hasMarketValue ? (
         <div className="mt-6 flex items-center justify-center gap-2 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
-          <span>{dict.dashboardHome.performanceEmpty}</span>
+          <span>{emptyStateMessage}</span>
           <TooltipInfo
             label={dict.dashboardHome.performanceTitle}
             content={dict.dashboardHome.performanceSnapshotOnlyTooltip}
@@ -514,6 +515,20 @@ function dateToUtcMs(value: string): number {
 
 function msToIsoDate(value: number): string {
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function resolveSnapshotEmptyStateMessage(
+  data: DashboardPerformanceDto | null,
+  dict: AppDictionary,
+  fallback: string,
+): string {
+  const reasons = data?.diagnostics?.knownGapReasons ?? [];
+  if (reasons.includes("missing_fx")) return dict.dashboardHome.snapshotsEmptyMissingFx;
+  if (reasons.includes("stale_snapshot") || data?.diagnostics?.staleSinceDate || data?.marketDataStaleSince) {
+    return dict.dashboardHome.snapshotsEmptyStaleSnapshot;
+  }
+  if (reasons.includes("missing_snapshot")) return dict.dashboardHome.snapshotsEmptyMissingSnapshot;
+  return fallback;
 }
 
 function utcDateFromIso(value: string): Date {

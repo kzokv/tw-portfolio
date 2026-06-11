@@ -1346,7 +1346,7 @@ export function TickerHistoryClient({
       <RepairModal
         open={isRepairDialogOpen}
         pending={isRepairSubmitting}
-        title={`${dict.tickerHistory.repairAction} ${ticker}`}
+        title={formatTickerChartMessage(dict.tickerHistory.repairDialogTitle, { ticker })}
         subtitle={statusText}
         value={repairValue}
         onOpenChange={setIsRepairDialogOpen}

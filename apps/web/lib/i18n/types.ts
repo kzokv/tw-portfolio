@@ -81,6 +81,7 @@ export interface AppDictionary {
     // alongside the action label so the modal and its trigger share a section.
     actionRecomputeAll: string;
     actionGenerateSnapshots: string;
+    actionGenerateSnapshotsHint: string;
     actionChangeReportingCurrency: string;
     actionReportingCurrencySaved: string;
     recomputeConfirmTitle: string;
@@ -388,6 +389,7 @@ export interface AppDictionary {
     performanceTitle: string;
     performanceDescription: string;
     performanceEmpty: string;
+    performanceRefreshTimeout: string;
     performanceSnapshotOnlyTooltip: string;
     performanceSnapshotAsOfTooltip: string;
     performancePartialQuoteWarning: string;
@@ -456,6 +458,9 @@ export interface AppDictionary {
     snapshotsReturnPercentSeriesLabel: string;
     snapshotsProvisionalWarning: string;
     snapshotsEmpty: string;
+    snapshotsEmptyMissingSnapshot: string;
+    snapshotsEmptyStaleSnapshot: string;
+    snapshotsEmptyMissingFx: string;
     biggestMoversTitle: string;
     biggestMoversEmpty: string;
     allocationBasisLabel: string;
@@ -605,6 +610,7 @@ export interface AppDictionary {
     repairToastFailed: string;
     repairButtonCooldownTooltip: string;
     repairDisabledDemo: string;
+    repairDialogTitle: string;
     noHoldingData: string;
     positionSummaryReadyMessage: string;
     refreshingDetails: string;
