@@ -6,7 +6,7 @@ import { fetchReport } from "../services/reportService";
 import type { ReportRouteState } from "../reportState";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
-import type { LocaleCode } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES, type LocaleCode } from "@vakwen/shared-types";
 
 export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 90_000;
 const REPORT_REFRESH_TIMEOUT_MESSAGE = "Report refresh timed out. Try refreshing again.";
@@ -60,10 +60,8 @@ export function useReportData({
     setIsRefreshing(true);
     try {
       if (!bypassCache) {
-        const cached = expectedReportingCurrency
-          ? readRouteDtoCache<AnyReportDto>(buildReportCacheKey(expectedReportingCurrency))
-          : null;
-        if (cached && cached.payload.query.reportingCurrency === expectedReportingCurrency) {
+        const cached = readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
+        if (cached) {
           setData(cached.payload);
           setRestoredFromCache(true);
           setRestoredAt(cached.savedAt);
@@ -90,9 +88,9 @@ export function useReportData({
       && contextRefreshSignal === 0
       && initialCacheScopeRef.current === cacheScope
       && reportMatchesState(initialReport, state);
-    const cached = shouldUseInitialReport || !expectedReportingCurrency
+    const cached = shouldUseInitialReport
       ? null
-      : readRouteDtoCache<AnyReportDto>(buildReportCacheKey(expectedReportingCurrency));
+      : readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
     if (shouldUseInitialReport) {
       setData(initialReport);
       writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport);
@@ -123,6 +121,23 @@ export function useReportData({
     restoredFromCache,
     restoredAt,
   };
+}
+
+function readMatchingReportCache(
+  buildReportCacheKey: (reportingCurrency: string) => string,
+  expectedReportingCurrency: string | null,
+  state: ReportRouteState,
+): { payload: AnyReportDto; savedAt: number } | null {
+  const currencies = expectedReportingCurrency ? [expectedReportingCurrency] : ACCOUNT_DEFAULT_CURRENCIES;
+  let best: { payload: AnyReportDto; savedAt: number } | null = null;
+  for (const currency of currencies) {
+    const cached = readRouteDtoCache<AnyReportDto>(buildReportCacheKey(currency));
+    if (!cached) continue;
+    if (cached.payload.query.reportingCurrency !== currency) continue;
+    if (!reportMatchesState(cached.payload, state)) continue;
+    if (!best || cached.savedAt > best.savedAt) best = cached;
+  }
+  return best;
 }
 
 function reportMatchesState(report: AnyReportDto, state: ReportRouteState): boolean {
