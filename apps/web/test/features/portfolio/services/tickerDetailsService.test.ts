@@ -877,6 +877,149 @@ describe("fetchTickerDetails", () => {
     ]));
   });
 
+  it("does not derive current valuation from historical custom enrichment ranges", async () => {
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "2330",
+        marketCode: "TW",
+        accountId: null,
+        name: "TSMC",
+        instrumentType: "STOCK",
+        priceCurrency: "TWD",
+        barsBackfillStatus: "ok",
+      },
+      chart: {
+        range: "CUSTOM",
+        metadata: {
+          requested: {
+            range: null,
+            startDate: "2025-01-01",
+            endDate: "2025-06-30",
+          },
+          resolved: {
+            range: "CUSTOM",
+            startDate: "2025-01-01",
+            endDate: "2025-06-30",
+          },
+          available: {
+            startDate: "2024-01-02",
+            endDate: "2026-06-10",
+          },
+          truncated: {
+            startDate: false,
+            endDate: false,
+          },
+        },
+        points: [
+          {
+            date: "2025-06-27",
+            open: 1490,
+            high: 1510,
+            low: 1480,
+            close: 1500,
+            volume: 1000,
+            source: "snapshot",
+          },
+          {
+            date: "2025-06-30",
+            open: 1500,
+            high: 1520,
+            low: 1490,
+            close: 1515,
+            volume: 1200,
+            source: "snapshot",
+          },
+        ],
+      },
+      fundamentals: {
+        marketCap: { value: null, source: null, asOf: null },
+        enterpriseValue: { value: null, source: null, asOf: null },
+        priceEarningsRatio: { value: null, source: null, asOf: null },
+        priceBookRatio: { value: null, source: null, asOf: null },
+        dividendYield: { value: null, source: null, asOf: null },
+        earningsPerShare: { value: null, source: null, asOf: null },
+        revenueTrailingTwelveMonths: { value: null, source: null, asOf: null },
+        netIncomeTrailingTwelveMonths: { value: null, source: null, asOf: null },
+      },
+      fundamentalsRefresh: {
+        providerId: null,
+        refreshedAt: null,
+        nextRefreshAt: null,
+        lastAttemptedAt: null,
+        lastError: null,
+        status: "missing",
+      },
+    } as never);
+
+    const dashboard = buildDashboard({
+      holdings: [{
+        ticker: "2330",
+        accountId: "acc-1",
+        accountName: "台股國泰證券",
+        accountDefaultCurrency: "TWD",
+        marketCode: "TW",
+        quantity: 4000,
+        averageCostPerShare: 823.98,
+        currentUnitPrice: null,
+        previousClose: null,
+        change: null,
+        changePercent: null,
+        quoteStatus: "missing",
+        currency: "TWD",
+        costBasisAmount: 3295920,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+      }],
+    });
+    const instrument = {
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      name: "TSMC",
+    } as never;
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "2330",
+      marketCode: "TW",
+      dashboard,
+      transactions: [],
+      instrument,
+    });
+
+    const details = await fetchTickerDetailsHydration({
+      ticker: "2330",
+      marketCode: "TW",
+      startDate: "2025-01-01",
+      endDate: "2025-06-30",
+      transactions: [],
+      instrument,
+      primaryDetails,
+    });
+
+    expect(details.quote).toMatchObject({
+      currentPrice: null,
+      previousClose: null,
+      changeAmount: null,
+      quoteStatus: "missing",
+    });
+    expect(details.position).toMatchObject({
+      marketValue: null,
+      unrealizedPnl: null,
+    });
+    expect(details.holdingGroup).toMatchObject({
+      currentUnitPrice: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      allocationBasisUsed: "cost_basis",
+    });
+    expect(details.chart.points.at(-1)).toMatchObject({
+      date: "2025-06-30",
+      price: 1515,
+      averageCost: 823.98,
+      quantity: 4000,
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/enrichment?marketCode=TW&startDate=2025-01-01&endDate=2025-06-30");
+  });
+
   it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
     const dashboard = buildDashboard({

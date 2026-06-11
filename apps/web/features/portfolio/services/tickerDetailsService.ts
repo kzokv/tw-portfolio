@@ -523,6 +523,7 @@ function deriveQuoteFromChartPoints(
 ): Pick<TickerDetailsModel["quote"], "currentPrice" | "previousClose" | "changeAmount" | "changePercent" | "quoteStatus"> | null {
   const latest = payload.points.at(-1);
   if (!latest) return null;
+  if (payload.metadata.available.endDate !== latest.date) return null;
 
   const previous = payload.points.length >= 2 ? payload.points[payload.points.length - 2] : null;
   const previousClose = previous?.close ?? null;
