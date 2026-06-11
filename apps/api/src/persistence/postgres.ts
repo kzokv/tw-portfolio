@@ -5629,16 +5629,68 @@ export class PostgresPersistence implements Persistence {
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
     if (base === quote) return 1.0;
-    const result = await this.pool.query<{ rate: string }>(
-      `SELECT rate::text
-       FROM market_data.fx_rates
-       WHERE base_currency = $1 AND quote_currency = $2 AND date <= $3
-       ORDER BY date DESC
-       LIMIT 1`,
-      [base, quote, asOfDate],
+    const pivot = "TWD";
+    const result = await this.pool.query<{
+      direct_rate: string | null;
+      inverse_rate: string | null;
+      base_to_pivot_direct_rate: string | null;
+      pivot_to_base_rate: string | null;
+      quote_to_pivot_direct_rate: string | null;
+      pivot_to_quote_rate: string | null;
+    }>(
+      `SELECT
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS direct_rate,
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS inverse_rate,
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS base_to_pivot_direct_rate,
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_base_rate,
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS quote_to_pivot_direct_rate,
+         (
+           SELECT rate::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_quote_rate`,
+      [base, quote, asOfDate, pivot],
     );
-    if (result.rows.length === 0) return null;
-    return Number(result.rows[0].rate);
+    const row = result.rows[0];
+    if (!row) return null;
+
+    const directRate = row.direct_rate === null ? null : Number(row.direct_rate);
+    if (directRate !== null) return directRate;
+
+    const inverseRate = row.inverse_rate === null ? null : Number(row.inverse_rate);
+    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+
+    const baseToPivot = base === pivot
+      ? 1.0
+      : rateOrInverse(row.base_to_pivot_direct_rate, row.pivot_to_base_rate);
+    const quoteToPivot = quote === pivot
+      ? 1.0
+      : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
+
+    if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
+      return baseToPivot / quoteToPivot;
+    }
+    return null;
   }
 
   async getFxTransferById(
@@ -6019,8 +6071,8 @@ export class PostgresPersistence implements Persistence {
     endDate: string,
     reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
   ): Promise<AggregatedSnapshotPoint[]> {
-    // D8 self-pair guard — `LEFT JOIN LATERAL ... ON s.currency <> $4`
-    // gates the join so self-pair rows skip the FX lookup entirely. The
+    // D8 self-pair guard — the `needed_fx` CTE excludes self-pair currencies,
+    // so reporting-currency rows skip the FX lookup entirely. The
     // multiplication uses `CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END`
     // so self-pair rows multiply by 1.0 (not NULL). Without this guard, every
     // TWD-only row's `value_native * fx.rate` evaluates to NULL and the entire
@@ -6047,7 +6099,87 @@ export class PostgresPersistence implements Persistence {
       fx_available: boolean;
       snapshot_contributor_keys: string | null;
     }>(
-      `SELECT s.snapshot_date::text,
+      `WITH snapshot_rows AS (
+         SELECT s.*
+           FROM daily_holding_snapshots s
+          WHERE s.user_id = $1
+            AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+            AND s.snapshot_date >= $2::date
+            AND s.snapshot_date <= $3::date
+       ),
+       needed_fx AS (
+         SELECT DISTINCT snapshot_date, currency
+           FROM snapshot_rows
+          WHERE currency <> $4
+       ),
+       resolved_fx AS (
+         SELECT nf.snapshot_date, nf.currency, fx.rate
+           FROM needed_fx nf
+           LEFT JOIN LATERAL (
+             WITH resolved AS (
+               SELECT
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = nf.currency AND quote_currency = $4 AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = $4 AND quote_currency = nf.currency AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS inverse_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = nf.currency AND quote_currency = 'TWD' AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS base_to_pivot_direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = 'TWD' AND quote_currency = nf.currency AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS pivot_to_base_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = $4 AND quote_currency = 'TWD' AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS quote_to_pivot_direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = 'TWD' AND quote_currency = $4 AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS pivot_to_quote_rate
+             )
+             SELECT COALESCE(
+               direct_rate,
+               CASE WHEN inverse_rate IS NOT NULL AND inverse_rate <> 0 THEN 1.0 / inverse_rate END,
+               CASE
+                 WHEN base_to_pivot_rate IS NOT NULL AND quote_to_pivot_rate IS NOT NULL AND quote_to_pivot_rate <> 0
+                 THEN base_to_pivot_rate / quote_to_pivot_rate
+               END
+             ) AS rate
+             FROM (
+               SELECT
+                 direct_rate,
+                 inverse_rate,
+                 CASE
+                   WHEN nf.currency = 'TWD' THEN 1.0
+                   ELSE COALESCE(
+                     base_to_pivot_direct_rate,
+                     CASE WHEN pivot_to_base_rate IS NOT NULL AND pivot_to_base_rate <> 0 THEN 1.0 / pivot_to_base_rate END
+                   )
+                 END AS base_to_pivot_rate,
+                 CASE
+                   WHEN $4 = 'TWD' THEN 1.0
+                   ELSE COALESCE(
+                     quote_to_pivot_direct_rate,
+                     CASE WHEN pivot_to_quote_rate IS NOT NULL AND pivot_to_quote_rate <> 0 THEN 1.0 / pivot_to_quote_rate END
+                   )
+                 END AS quote_to_pivot_rate
+               FROM resolved
+             ) rates
+           ) fx ON true
+       )
+       SELECT s.snapshot_date::text,
               SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
               CASE WHEN bool_or(s.is_provisional) THEN NULL ELSE
                 SUM(s.value_native           * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END)
@@ -6063,20 +6195,10 @@ export class PostgresPersistence implements Persistence {
                 DISTINCT s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker,
                 ',' ORDER BY s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker
               ) AS snapshot_contributor_keys
-         FROM daily_holding_snapshots s
-         LEFT JOIN LATERAL (
-           SELECT rate FROM market_data.fx_rates
-           WHERE base_currency = s.currency
-             AND quote_currency = $4
-             AND date <= s.snapshot_date
-           ORDER BY date DESC LIMIT 1
-         ) fx ON s.currency <> $4
-        WHERE s.user_id = $1
-          -- ui-enhancement — hide soft-deleted accounts' snapshot rows from the
-          -- aggregator. [active-only filter ADDED]
-          AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
-          AND s.snapshot_date >= $2::date
-          AND s.snapshot_date <= $3::date
+         FROM snapshot_rows s
+         LEFT JOIN resolved_fx fx
+           ON fx.snapshot_date = s.snapshot_date
+          AND fx.currency = s.currency
         GROUP BY s.snapshot_date
         ORDER BY s.snapshot_date ASC`,
       [userId, startDate, endDate, reportingCurrency],
@@ -6150,6 +6272,90 @@ export class PostgresPersistence implements Persistence {
            FROM jsonb_to_recordset($5::jsonb) AS pair("accountId" text, ticker text, "marketCode" text)
           WHERE "accountId" IS NOT NULL
             AND ticker IS NOT NULL
+       ),
+       snapshot_rows AS (
+         SELECT s.*
+           FROM daily_holding_snapshots s
+           JOIN scoped_pairs pair
+             ON pair.account_id = s.account_id
+            AND pair.ticker = s.ticker
+            AND (pair.market_code IS NULL OR pair.market_code = s.market_code)
+          WHERE s.user_id = $1
+            AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+            AND s.snapshot_date >= $2::date
+            AND s.snapshot_date <= $3::date
+       ),
+       needed_fx AS (
+         SELECT DISTINCT snapshot_date, currency
+           FROM snapshot_rows
+          WHERE currency <> $4
+       ),
+       resolved_fx AS (
+         SELECT nf.snapshot_date, nf.currency, fx.rate
+           FROM needed_fx nf
+           LEFT JOIN LATERAL (
+             WITH resolved AS (
+               SELECT
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = nf.currency AND quote_currency = $4 AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = $4 AND quote_currency = nf.currency AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS inverse_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = nf.currency AND quote_currency = 'TWD' AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS base_to_pivot_direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = 'TWD' AND quote_currency = nf.currency AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS pivot_to_base_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = $4 AND quote_currency = 'TWD' AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS quote_to_pivot_direct_rate,
+                 (
+                   SELECT rate FROM market_data.fx_rates
+                    WHERE base_currency = 'TWD' AND quote_currency = $4 AND date <= nf.snapshot_date
+                    ORDER BY date DESC LIMIT 1
+                 ) AS pivot_to_quote_rate
+             )
+             SELECT COALESCE(
+               direct_rate,
+               CASE WHEN inverse_rate IS NOT NULL AND inverse_rate <> 0 THEN 1.0 / inverse_rate END,
+               CASE
+                 WHEN base_to_pivot_rate IS NOT NULL AND quote_to_pivot_rate IS NOT NULL AND quote_to_pivot_rate <> 0
+                 THEN base_to_pivot_rate / quote_to_pivot_rate
+               END
+             ) AS rate
+             FROM (
+               SELECT
+                 direct_rate,
+                 inverse_rate,
+                 CASE
+                   WHEN nf.currency = 'TWD' THEN 1.0
+                   ELSE COALESCE(
+                     base_to_pivot_direct_rate,
+                     CASE WHEN pivot_to_base_rate IS NOT NULL AND pivot_to_base_rate <> 0 THEN 1.0 / pivot_to_base_rate END
+                   )
+                 END AS base_to_pivot_rate,
+                 CASE
+                   WHEN $4 = 'TWD' THEN 1.0
+                   ELSE COALESCE(
+                     quote_to_pivot_direct_rate,
+                     CASE WHEN pivot_to_quote_rate IS NOT NULL AND pivot_to_quote_rate <> 0 THEN 1.0 / pivot_to_quote_rate END
+                   )
+                 END AS quote_to_pivot_rate
+               FROM resolved
+             ) rates
+           ) fx ON true
        )
        SELECT s.snapshot_date::text,
               SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
@@ -6167,22 +6373,10 @@ export class PostgresPersistence implements Persistence {
                 DISTINCT s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker,
                 ',' ORDER BY s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker
               ) AS snapshot_contributor_keys
-         FROM daily_holding_snapshots s
-         JOIN scoped_pairs pair
-           ON pair.account_id = s.account_id
-          AND pair.ticker = s.ticker
-          AND (pair.market_code IS NULL OR pair.market_code = s.market_code)
-         LEFT JOIN LATERAL (
-           SELECT rate FROM market_data.fx_rates
-           WHERE base_currency = s.currency
-             AND quote_currency = $4
-             AND date <= s.snapshot_date
-           ORDER BY date DESC LIMIT 1
-         ) fx ON s.currency <> $4
-        WHERE s.user_id = $1
-          AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
-          AND s.snapshot_date >= $2::date
-          AND s.snapshot_date <= $3::date
+         FROM snapshot_rows s
+         LEFT JOIN resolved_fx fx
+           ON fx.snapshot_date = s.snapshot_date
+          AND fx.currency = s.currency
         GROUP BY s.snapshot_date
         ORDER BY s.snapshot_date ASC`,
       [userId, startDate, endDate, reportingCurrency, scopedPairsJson],
@@ -15159,4 +15353,11 @@ function alignBookedTaxComponentAmounts(bookedTaxAmount: number, calculatedCompo
 function parseSnapshotContributorKeys(value: string | null): string[] {
   if (!value) return [];
   return value.split(",").filter(Boolean);
+}
+
+function rateOrInverse(directRateText: string | null, inverseRateText: string | null): number | null {
+  if (directRateText !== null) return Number(directRateText);
+  if (inverseRateText === null) return null;
+  const inverseRate = Number(inverseRateText);
+  return inverseRate === 0 ? null : 1 / inverseRate;
 }

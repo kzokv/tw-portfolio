@@ -479,7 +479,7 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     expect(point.totalReturnPercent).toBeCloseTo(14.9285714286, 6);
   });
 
-  it("INT-5C: mixed TW/US/KR snapshots aggregate cleanly in KRW when all FX pairs exist", async () => {
+  it("INT-5C: mixed TW/US/KR snapshots aggregate cleanly in KRW via TWD-pivot FX", async () => {
     await ensureAccount("acc-tw", "TWD");
     await ensureAccount("acc-us", "USD");
     await ensureAccount("acc-kr", "KRW");
@@ -501,8 +501,8 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
         unrealizedPnlNative: 40_000, cumulativeRealizedPnl: 10_000, cumulativeDividends: 2_000,
       },
     ]);
-    await seedFxRate("TWD", "KRW", date, 40);
-    await seedFxRate("USD", "KRW", date, 1_300);
+    await seedFxRate("USD", "TWD", date, 32.5);
+    await seedFxRate("KRW", "TWD", date, 0.025);
 
     const points = await persistence!.getAggregatedSnapshotsInReportingCurrency(
       userId,

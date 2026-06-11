@@ -219,4 +219,23 @@ describePostgres("getFxRate — Postgres integration (KZO-166)", () => {
     expect(typeof result).toBe("number");
     expect(result).toBeCloseTo(31.5, 6);
   });
+
+  it("derives inverse rates when the direct pair is absent", async () => {
+    await seedRate("2026-04-24", "USD", "TWD", 31.5);
+
+    const result = await persistence!.getFxRate("TWD", "USD", "2026-04-24");
+
+    expect(result).not.toBeNull();
+    expect(result).toBeCloseTo(1 / 31.5, 8);
+  });
+
+  it("derives cross-currency rates through TWD when direct and inverse pairs are absent", async () => {
+    await seedRate("2026-04-24", "USD", "TWD", 32.5);
+    await seedRate("2026-04-24", "KRW", "TWD", 0.025);
+
+    const result = await persistence!.getFxRate("USD", "KRW", "2026-04-24");
+
+    expect(result).not.toBeNull();
+    expect(result).toBeCloseTo(1300, 6);
+  });
 });

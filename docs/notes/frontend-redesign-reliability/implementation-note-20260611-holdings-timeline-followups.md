@@ -30,6 +30,7 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - Replaced the per-contributor dashboard snapshot coverage daily-bar lookup with the existing batched `(ticker, marketCode)` reader to avoid N+1 historical-bar queries on chart requests.
 - `/si-review` found the existing reporting DTO boundary rule as the correct home for the new durable lesson; `/si-promote` added a rule requiring multi-contributor completeness checks to prefer market-qualified batched readers when available.
 - Resolved the latest Codex review feedback by preventing a late `/user-preferences` holdings-table hydration response from overwriting local optimistic column edits.
+- Fixed the live KRW reporting-currency chart/numbers gap by deriving FX rates from direct pairs, inverse pairs, or a TWD pivot in both memory and Postgres persistence, and by applying the same resolution inside Postgres snapshot aggregation SQL.
 
 ## Still Open
 
@@ -51,8 +52,10 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` passed after adding a regression that asserts the batched daily-bar reader is used once for all-market snapshot coverage: 23 tests.
 - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` passed after adding exact-inline, `lg+` breakpoint, and sticky Reports ticker-column assertions: 46 tests.
 - `npx vitest run test/components/portfolio/HoldingsTable.test.tsx` from `apps/web` passed after adding the late preference-hydration regression: 4 tests.
+- `npx vitest run apps/api/test/unit/fxRateResolution.test.ts apps/api/test/unit/dashboardReportingCurrency.test.ts` passed after adding memory FX inverse/TWD-pivot coverage: 24 tests.
+- `npm run test:integration:full:host` passed after adding Postgres `getFxRate` inverse/TWD-pivot coverage and changing the mixed TW/US/KR dashboard aggregation KRW case to use only USD->TWD and KRW->TWD source rates: 82 files / 822 passed / 1 skipped. After the aggregation SQL was optimized to resolve FX once per distinct `(snapshot_date, currency)`, the focused managed Postgres rerun passed with file parallelism disabled: `npx vitest run --no-file-parallelism apps/api/test/integration/getFxRate.integration.test.ts apps/api/test/integration/dashboardReportingCurrencyAggregation.integration.test.ts` (24 tests passed).
 - Focused ESLint passed for the post-audit Dashboard, Reports, dashboard reporting currency, and focused test files.
-- `npx tsc --noEmit -p apps/web/tsconfig.json` and `npx tsc --noEmit -p apps/api/tsconfig.json` passed after the post-audit fixes.
+- `npx tsc --noEmit -p apps/web/tsconfig.json` and `npx tsc --noEmit -p apps/api/tsconfig.json` passed after the post-audit fixes; `npx tsc --noEmit -p apps/api/tsconfig.json` passed again after the FX pivot fix.
 - Focused ESLint passed for changed TS/TSX files, including API report/public-share services, shared types, holdings settings, Dashboard, Portfolio, Reports, Ticker, public share, and focused tests.
 - `git diff --check` passed.
 
