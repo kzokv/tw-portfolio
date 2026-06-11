@@ -4538,7 +4538,7 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT ticker, instrument_type, market_code, is_provisional, last_synced_at
+        `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
          FROM market_data.instruments
          ORDER BY market_code, ticker`,
       ),
@@ -4828,6 +4828,7 @@ export class PostgresPersistence implements Persistence {
       .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
       .map((row) => ({
         ticker: row.ticker,
+        name: row.name ?? undefined,
         instrumentType: row.instrument_type,
         // KZO-169: market_code is NOT NULL on `symbols`/`instruments` (since
         // migration 012). Strip the `?? "TW"` provider-stamping fallback (G1).
