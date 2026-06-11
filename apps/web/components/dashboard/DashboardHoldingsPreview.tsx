@@ -323,7 +323,7 @@ export function DashboardHoldingsPreview({
                   {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsDescription, { currency: reportingCurrency })}
                 </CardDescription>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[40rem] xl:grid-cols-4">
                 <label className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsSearchLabel}</span>
                   <div className="relative">
@@ -342,7 +342,7 @@ export function DashboardHoldingsPreview({
                   <Select value={marketFilter} onValueChange={setMarketFilter}>
                     <SelectTrigger
                       aria-label={dict.dashboardHome.topHoldingsMarketLabel}
-                      className="min-w-36"
+                      className="w-full"
                       data-testid="dashboard-holdings-market-filter"
                     >
                       <SelectValue />
@@ -363,7 +363,7 @@ export function DashboardHoldingsPreview({
                   <Select value={accountFilter} onValueChange={setAccountFilter}>
                     <SelectTrigger
                       aria-label={dict.dashboardHome.topHoldingsAccountLabel}
-                      className="min-w-36"
+                      className="w-full"
                       data-testid="dashboard-holdings-account-filter"
                     >
                       <SelectValue />
@@ -384,7 +384,7 @@ export function DashboardHoldingsPreview({
                   <Select value={sortMode} onValueChange={(value) => setSortMode(value as HoldingsPreviewSort)}>
                     <SelectTrigger
                       aria-label={dict.dashboardHome.topHoldingsSortLabel}
-                      className="min-w-36"
+                      className="w-full"
                       data-testid="dashboard-holdings-sort"
                     >
                       <SelectValue />

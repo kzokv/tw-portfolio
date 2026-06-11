@@ -10,6 +10,7 @@ function makeStore(input: {
   accounts: Array<{ id: string; name: string; defaultCurrency: "TWD" | "USD" | "AUD" | "KRW" }>;
   holdings: Array<{ accountId: string; ticker: string; quantity: number; costBasisAmount: number; currency: string }>;
   instruments?: Array<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR"; name: string }>;
+  catalogInstruments?: Array<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR"; name: string }>;
 }): Store {
   return {
     settings: {
@@ -37,7 +38,11 @@ function makeStore(input: {
       dividendEvents: [],
       instruments: input.instruments ?? [],
     },
-    instruments: [],
+    instruments: (input.catalogInstruments ?? []).map((instrument) => ({
+      ...instrument,
+      type: "STOCK",
+      isProvisional: false,
+    })),
     feeProfiles: [],
     feeProfileBindings: [],
   } as unknown as Store;
@@ -77,7 +82,7 @@ describe("dashboard holdingGroups", () => {
         { accountId: "acc-us-2", ticker: "BHP", quantity: 5, costBasisAmount: 600, currency: "USD" },
         { accountId: "acc-au-1", ticker: "BHP", quantity: 8, costBasisAmount: 200, currency: "AUD" },
       ],
-      instruments: [
+      catalogInstruments: [
         { ticker: "BHP", marketCode: "US", name: "BHP Group US" },
         { ticker: "BHP", marketCode: "AU", name: "BHP Group AU" },
       ],

@@ -157,13 +157,19 @@ function buildOverviewHoldings(
     marketCodeFor(account.defaultCurrency),
   ]));
   const instrumentNameByKey = new Map<string, string>();
-  for (const instrument of store.marketData.instruments) {
+  const addInstrumentName = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
     const name = instrument.name?.trim();
-    if (!name) continue;
+    if (!name) return;
     instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, name);
     if (!instrumentNameByKey.has(instrument.ticker)) {
       instrumentNameByKey.set(instrument.ticker, name);
     }
+  };
+  for (const instrument of store.marketData.instruments) {
+    addInstrumentName(instrument);
+  }
+  for (const instrument of store.instruments as ReadonlyArray<{ ticker: string; marketCode: string; name?: string | null }>) {
+    addInstrumentName(instrument);
   }
   const recentPostedDividends = new Map(
     dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.postedAt]),
