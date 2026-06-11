@@ -10010,7 +10010,13 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
-  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteLotsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     // lots table has no user_id column — accountId provides tenant scoping
     if (marketCode) {
       const result = await this.pool.query(
@@ -10021,8 +10027,10 @@ export class PostgresPersistence implements Persistence {
              SELECT 'lot-' || id
              FROM trade_events
              WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+             UNION
+             SELECT 'lot-' || unnest($5::text[])
            )`,
-        [userId, accountId, ticker, marketCode],
+        [userId, accountId, ticker, marketCode, additionalTradeEventIds],
       );
       return result.rowCount ?? 0;
     }
@@ -10034,7 +10042,13 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
-  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     if (marketCode) {
       const result = await this.pool.query(
         `DELETE FROM lot_allocations
@@ -10045,13 +10059,17 @@ export class PostgresPersistence implements Persistence {
              trade_event_id IN (
                SELECT id FROM trade_events
                WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+               UNION
+               SELECT unnest($5::text[])
              )
              OR lot_id IN (
                SELECT 'lot-' || id FROM trade_events
                WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+               UNION
+               SELECT 'lot-' || unnest($5::text[])
              )
            )`,
-        [userId, accountId, ticker, marketCode],
+        [userId, accountId, ticker, marketCode, additionalTradeEventIds],
       );
       return result.rowCount ?? 0;
     }
@@ -10063,7 +10081,30 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
-  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
+    if (marketCode) {
+      const result = await this.pool.query(
+        `DELETE FROM cash_ledger_entries
+         WHERE user_id = $1
+           AND account_id = $2
+           AND entry_type IN ('TRADE_SETTLEMENT_IN', 'TRADE_SETTLEMENT_OUT')
+           AND related_trade_event_id IN (
+             SELECT id FROM trade_events
+             WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+             UNION
+             SELECT unnest($5::text[])
+           )`,
+        [userId, accountId, ticker, marketCode, additionalTradeEventIds],
+      );
+      return result.rowCount ?? 0;
+    }
+
     const result = await this.pool.query(
       `DELETE FROM cash_ledger_entries
        WHERE user_id = $1
@@ -10072,9 +10113,8 @@ export class PostgresPersistence implements Persistence {
          AND related_trade_event_id IN (
            SELECT id FROM trade_events
            WHERE user_id = $1 AND account_id = $2 AND ticker = $3
-             ${marketCode ? "AND market_code = $4" : ""}
          )`,
-      marketCode ? [userId, accountId, ticker, marketCode] : [userId, accountId, ticker],
+      [userId, accountId, ticker],
     );
     return result.rowCount ?? 0;
   }

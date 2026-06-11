@@ -3792,14 +3792,24 @@ export class MemoryPersistence implements Persistence {
       .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
   }
 
-  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteLotsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
-    const scopedLotIds = marketCode
-      ? new Set(
-          store.accounting.facts.tradeEvents
+    const scopedTradeEventIds = marketCode
+      ? [
+          ...store.accounting.facts.tradeEvents
             .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
-            .map((t) => `lot-${t.id}`),
-        )
+            .map((t) => t.id),
+          ...additionalTradeEventIds,
+        ]
+      : [];
+    const scopedLotIds = marketCode
+      ? new Set(scopedTradeEventIds.map((id) => `lot-${id}`))
       : null;
     const before = store.accounting.projections.lots.length;
     store.accounting.projections.lots = store.accounting.projections.lots.filter(
@@ -3809,14 +3819,21 @@ export class MemoryPersistence implements Persistence {
     return before - store.accounting.projections.lots.length;
   }
 
-  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
     const scopedTradeEventIds = marketCode
-      ? new Set(
-          store.accounting.facts.tradeEvents
+      ? new Set([
+          ...store.accounting.facts.tradeEvents
             .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
             .map((t) => t.id),
-        )
+          ...additionalTradeEventIds,
+        ])
       : null;
     const before = store.accounting.projections.lotAllocations.length;
     store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
@@ -3826,14 +3843,21 @@ export class MemoryPersistence implements Persistence {
     return before - store.accounting.projections.lotAllocations.length;
   }
 
-  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
     // Collect trade event IDs for the given account+ticker
-    const tradeEventIds = new Set(
-      store.accounting.facts.tradeEvents
+    const tradeEventIds = new Set([
+      ...store.accounting.facts.tradeEvents
         .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
         .map((t) => t.id),
-    );
+      ...additionalTradeEventIds,
+    ]);
 
     const before = store.accounting.facts.cashLedgerEntries.length;
     store.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(

@@ -40,6 +40,7 @@ export class ReplayError extends Error {
 
 interface ReplayPositionHistoryOptions {
   marketCode?: MarketCode;
+  deletedTradeEventIds?: readonly string[];
 }
 
 export async function replayPositionHistory(
@@ -53,13 +54,13 @@ export async function replayPositionHistory(
   const trades = await persistence.getTradeEventsForAccountTicker(userId, accountId, ticker, options.marketCode);
 
   // 2. Delete lots for account+ticker (CRITICAL — blocker from debate)
-  await persistence.deleteLotsForAccountTicker(userId, accountId, ticker, options.marketCode);
+  await persistence.deleteLotsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 3. Delete lot_allocations for account+ticker
-  await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker, options.marketCode);
+  await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker
-  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker, options.marketCode);
+  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 5. Replay each trade in order
   let lots: Lot[] = [];
@@ -254,6 +255,7 @@ async function emitDividendLedgerChangeEvents(
 export interface ScheduleReplayOptions {
   snapshotFromDate?: string;
   marketCode?: MarketCode;
+  deletedTradeEventIds?: readonly string[];
 }
 
 /**
@@ -298,7 +300,10 @@ export function scheduleReplayWithRetry(
 
   setImmediate(async () => {
     try {
-      const summary = await replayPositionHistory(persistence, userId, accountId, ticker, { marketCode: options.marketCode });
+      const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+        marketCode: options.marketCode,
+        deletedTradeEventIds: options.deletedTradeEventIds,
+      });
 
       await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
@@ -329,7 +334,10 @@ export function scheduleReplayWithRetry(
       // into.
       setImmediate(async () => {
         try {
-          const summary = await replayPositionHistory(persistence, userId, accountId, ticker, { marketCode: options.marketCode });
+          const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+            marketCode: options.marketCode,
+            deletedTradeEventIds: options.deletedTradeEventIds,
+          });
 
           await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
