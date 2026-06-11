@@ -619,6 +619,9 @@ export interface AppDictionary {
     instrumentFallbackLabel: string;
     nowLabel: string;
     aggregateScopeLabel: string;
+    reportingCurrencyValue: string;
+    reportingCurrencyDescription: string;
+    changeReportingCurrency: string;
     accountBreakdownTitle: string;
     accountBreakdownSubtitle: string;
     accountBreakdownContributionTitle: string;

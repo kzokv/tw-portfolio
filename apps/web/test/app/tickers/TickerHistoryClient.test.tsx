@@ -10,6 +10,10 @@ import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistory
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
 
+const appShellDataMocks = vi.hoisted(() => ({
+  openQuickActions: vi.fn(),
+}));
+
 vi.mock("../../../features/portfolio/services/tickerDetailsService", async () => {
   const actual = await vi.importActual<typeof import("../../../features/portfolio/services/tickerDetailsService")>(
     "../../../features/portfolio/services/tickerDetailsService",
@@ -26,7 +30,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
     canUseGlobalQuickActions: true,
     contextRefreshSignal: 0,
     locale: "en",
-    openQuickActions: () => undefined,
+    openQuickActions: appShellDataMocks.openQuickActions,
     reportingCurrency: "TWD",
     saveReportingCurrency: async () => undefined,
     isReportingCurrencySaving: false,
@@ -113,6 +117,7 @@ afterEach(() => {
   container = null;
   window.localStorage.clear();
   vi.clearAllMocks();
+  appShellDataMocks.openQuickActions.mockReset();
 });
 
 const dict = getDictionary("en");
@@ -494,6 +499,27 @@ describe("TickerHistoryClient", () => {
     expect(breakdown?.textContent).toContain("Cost basis fallback");
     expect(rows?.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]')).not.toBeNull();
     expect(breakdown?.querySelector("table")).toBeNull();
+  });
+
+  it("shows resolved reporting currency and routes currency changes to Quick Actions", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+
+    const headerBadge = element.querySelector('[data-testid="ticker-reporting-currency"]');
+    const breakdownBadge = element.querySelector('[data-testid="ticker-account-breakdown-reporting-currency"]');
+
+    expect(headerBadge?.textContent).toContain("Reporting TWD");
+    expect(headerBadge?.textContent).toContain(dict.tickerHistory.changeReportingCurrency);
+    expect(breakdownBadge?.textContent).toContain("Reporting TWD");
+    expect(breakdownBadge?.textContent).toContain(dict.tickerHistory.reportingCurrencyDescription);
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.changeReportingCurrency).click();
+    });
+
+    expect(appShellDataMocks.openQuickActions).toHaveBeenCalledTimes(1);
   });
 
   it("does not relabel native account values as reporting contribution when reporting amounts are missing", async () => {
