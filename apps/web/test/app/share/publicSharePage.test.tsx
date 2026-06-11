@@ -38,16 +38,21 @@ describe("PublicSharePage", () => {
           holdings: [
             {
               ticker: "2330.TW",
+              instrumentName: "TSMC",
               quantity: 500,
               marketValueAmount: 625000,
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
               quoteStatus: "current",
+              averageCostPerShare: 1234.56,
+              currentUnitPrice: 6543.21,
+              unrealizedPnlAmount: 9876.54,
             },
           ],
           holdingGroups: [
             {
               ticker: "2330.TW",
+              instrumentName: "TSMC",
               marketCode: "TW",
               quantity: 500,
               accountCount: 2,
@@ -55,6 +60,9 @@ describe("PublicSharePage", () => {
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
               quoteStatus: "current",
+              averageCostPerShare: 1234.56,
+              currentUnitPrice: 6543.21,
+              unrealizedPnlAmount: 9876.54,
             },
           ],
           summary: {
@@ -80,9 +88,18 @@ describe("PublicSharePage", () => {
     expect(html).toContain('data-testid="public-share-total-TWD"');
     expect(html).toContain('data-testid="public-share-return-TWD"');
     expect(html).toContain('data-testid="public-share-holding-2330.TW-TW"');
+    expect(html).toContain("TSMC");
     expect(html).toContain('data-testid="public-share-expires-at"');
     expect(html).toContain('data-testid="public-share-quote-as-of"');
     expect(html).not.toContain("costBasisAmount");
+    expect(html).not.toContain("averageCostPerShare");
+    expect(html).not.toContain("currentUnitPrice");
+    expect(html).not.toContain("unrealizedPnlAmount");
+    expect(html).not.toContain("Avg cost");
+    expect(html).not.toContain("Unit P&L");
+    expect(html).not.toContain("1234.56");
+    expect(html).not.toContain("6543.21");
+    expect(html).not.toContain("9876.54");
 
     const fetchMock = vi.mocked(global.fetch);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -138,6 +155,7 @@ describe("PublicSharePage", () => {
           holdings: [
             {
               ticker: "LEGACY",
+              instrumentName: "Legacy Holding",
               quantity: 3,
               marketValueAmount: 300,
               marketValueCurrency: "USD",
@@ -164,6 +182,7 @@ describe("PublicSharePage", () => {
     expect(html).toContain('data-testid="public-share-holding-LEGACY-UNKNOWN"');
     expect(html).toContain("overflow-x-auto");
     expect(html).toContain("LEGACY");
+    expect(html).toContain("Legacy Holding");
     expect(html).not.toContain('data-testid="public-share-holding-LEGACY-TW"');
   });
 

@@ -95,6 +95,11 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         performanceTrendLabel: "Performance trend",
         performanceMetaAsOf: "As of {date}",
         performanceStaleDataWarning: "Market data stale since {date}",
+        timelineAuto: "Auto",
+        timelineDay: "Day",
+        timelineWeek: "Week",
+        timelineMonth: "Month",
+        timelineYear: "Year",
         noSnapshotSeries: "No server snapshot series is available for this scope.",
         allocationBucketCount: "{count} bucket(s)",
         noAllocationBuckets: "No allocation buckets for this scope.",
@@ -146,6 +151,8 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         freshnessCurrent: "Fresh",
         freshnessStale: "Stale",
         freshnessDelayed: "Delayed",
+        avgCostTerm: "Avg Cost",
+        unitPnlTerm: "Unit P&L",
         columnSettingsButtonLabel: "Columns",
         columnSettingsTitle: "Column settings",
         dragColumnTitle: "Drag to reorder {column}",
@@ -264,6 +271,7 @@ const fixture: DailyReviewReportDto = {
     offset: 0,
     rows: [{
       ticker: "BHP",
+      instrumentName: "BHP Group",
       marketCode: "AU",
       accountCount: 1,
       quantity: 5,
@@ -394,6 +402,7 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Coverage looks complete");
     expect(document.body.textContent).toContain("Quote status, FX conversion, and price freshness. Allocation fallback appears when relevant.");
     expect(document.body.textContent).toContain("Data health");
+    expect(document.body.textContent).toContain("BHP Group");
     expect(document.querySelector("[data-testid='reports-mobile-row-BHP-AU']")).not.toBeNull();
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
     expect(sectionRefresh).not.toBeNull();
@@ -437,7 +446,7 @@ describe("ReportsClient", () => {
         version: 1,
         contexts: {
           "reports.dailyReview.holdings": {
-            columnOrder: ["health", "ticker", "position", "price", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+            columnOrder: ["health", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
             hiddenColumns: [],
             columnWidths: { health: 234 },
             layoutStyle: "portfolio",

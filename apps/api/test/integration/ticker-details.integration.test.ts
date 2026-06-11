@@ -406,6 +406,126 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: validates range query shape on details and enrichment endpoints", async () => {
+    const detailsResponse = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?range=1Y&startDate=2026-01-01&endDate=2026-06-01",
+      headers: authHeaders(),
+    });
+    expect(detailsResponse.statusCode).toBe(400);
+
+    const enrichmentResponse = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/enrichment?startDate=2026-01-01",
+      headers: authHeaders(),
+    });
+    expect(enrichmentResponse.statusCode).toBe(400);
+  });
+
+  it("[ticker details]: returns requested and available chart metadata without backfilling provider data", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-details-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 5,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2025-01-15",
+        open: 100,
+        high: 102,
+        low: 99,
+        close: 101,
+        volume: 1_000,
+        source: "test-bars",
+        ingestedAt: "2025-01-15T08:00:00.000Z",
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-10",
+        open: 120,
+        high: 122,
+        low: 119,
+        close: 121,
+        volume: 1_000,
+        source: "test-bars",
+        ingestedAt: "2026-06-10T08:00:00.000Z",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?startDate=2024-01-01&endDate=2026-12-31",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      quote: expect.objectContaining({
+        currentUnitPrice: 121,
+      }),
+      chart: expect.objectContaining({
+        range: "CUSTOM",
+        metadata: {
+          requested: { range: null, startDate: "2024-01-01", endDate: "2026-12-31" },
+          resolved: { range: "CUSTOM", startDate: "2024-01-01", endDate: "2026-12-31" },
+          available: { startDate: "2025-01-15", endDate: "2026-06-10" },
+          truncated: { startDate: true, endDate: true },
+        },
+      }),
+    }));
+  });
+
+  it("[ticker details]: rejects custom ranges beyond 10 years", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-details-invalid-custom-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 1,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?startDate=2010-01-01&endDate=2021-01-02",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(expect.objectContaining({
+      error: "ticker_chart_custom_range_too_large",
+    }));
+  });
+
   it("[ticker details]: hanging fundamentals refresh does not block the response", async () => {
     const ticker = "QAASYNC";
     const createTrade = await app.inject({

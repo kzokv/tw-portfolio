@@ -233,13 +233,13 @@ async function prepareReportData(
     asOf,
     app.persistence,
   );
-  const translatedHoldingGroups = await translateOverviewHoldingGroups(
+  const translatedHoldingGroups = attachInstrumentNames(await translateOverviewHoldingGroups(
     buildOverviewHoldingGroups(scopedStore, overview.holdings),
     context.reportingCurrency,
     "market_value",
     asOf,
     app.persistence,
-  );
+  ), scopedStore);
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
     translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
@@ -250,10 +250,10 @@ async function prepareReportData(
     ...trailingDividendIncome.missingRatePairs,
   ]);
   const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
-  const snapshotDiagnostics = await app.persistence.getLatestSnapshotDiagnostics(
-    userId,
-    buildSnapshotScopePairs(context.scope, scopedStore),
-  );
+  const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
+  const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
+    ? { latestSnapshotDate: null, missingProviderSourceCount: 0 }
+    : await app.persistence.getLatestSnapshotDiagnostics(userId, snapshotScopePairs);
   return {
     reportQuery: {
       scope: context.scope,
@@ -425,6 +425,7 @@ function mapHoldingRows(groups: Awaited<ReturnType<typeof translateOverviewHoldi
     const fxRateToReporting = deriveFxRateToReporting(group);
     return {
       ticker: group.ticker,
+      instrumentName: group.instrumentName ?? null,
       marketCode: group.marketCode,
       accountCount: group.accountCount,
       accounts: group.children
@@ -469,6 +470,42 @@ function deriveFxRateToReporting(
   return null;
 }
 
+function buildInstrumentNameLookup(
+  store: Pick<Store, "marketData">,
+): ReadonlyMap<string, string> {
+  const lookup = new Map<string, string>();
+  for (const instrument of store.marketData.instruments) {
+    const name = instrument.name?.trim();
+    if (!name) continue;
+    lookup.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!lookup.has(instrument.ticker)) {
+      lookup.set(instrument.ticker, name);
+    }
+  }
+  return lookup;
+}
+
+function attachInstrumentNames(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  store: Pick<Store, "marketData">,
+): Awaited<ReturnType<typeof translateOverviewHoldingGroups>> {
+  const instrumentNames = buildInstrumentNameLookup(store);
+  return groups.map((group) => {
+    const instrumentName = instrumentNames.get(`${group.marketCode}:${group.ticker}`)
+      ?? instrumentNames.get(group.ticker)
+      ?? group.instrumentName
+      ?? null;
+    return {
+      ...group,
+      instrumentName,
+      children: group.children.map((child) => ({
+        ...child,
+        instrumentName,
+      })),
+    };
+  });
+}
+
 function translateUnitAmount(value: number | null, fxRateToReporting: number | null): number | null {
   if (value === null || fxRateToReporting === null) return null;
   return roundToDecimal(value * fxRateToReporting, 4);
@@ -505,9 +542,10 @@ function buildReportDiagnostics(
 ): ReportDiagnosticsDto {
   const performanceLastDate = options.performance?.lastReliableDate ?? findLastPerformancePointDate(options.performance);
   const latestReliableValuationDate = performanceLastDate ?? prepared.snapshotDiagnostics.latestSnapshotDate ?? null;
+  const requestedAsOfDate = prepared.reportQuery.asOf.slice(0, 10);
   const staleSinceDate = options.performance?.marketDataStaleSince
     ?? (
-      latestReliableValuationDate !== null && latestReliableValuationDate < prepared.reportQuery.asOf
+      latestReliableValuationDate !== null && latestReliableValuationDate < requestedAsOfDate
         ? latestReliableValuationDate
         : null
     );
@@ -527,7 +565,7 @@ function buildReportDiagnostics(
     marketDataStaleSince: staleSinceDate,
     latestSnapshotDate: prepared.snapshotDiagnostics.latestSnapshotDate,
     latestReliableValuationDate,
-    expectedLatestValuationDate: prepared.reportQuery.asOf,
+    expectedLatestValuationDate: requestedAsOfDate,
     staleSinceDate,
     missingQuoteCount: prepared.dataHealth.missingQuoteCount,
     provisionalQuoteCount: prepared.dataHealth.provisionalQuoteCount,
@@ -554,6 +592,7 @@ function buildSnapshotScopePairs(
   if (scope === "all") return undefined;
   const pairs = new Map<string, HoldingSnapshotScopePair>();
   for (const trade of store.accounting.facts.tradeEvents) {
+    if (trade.marketCode !== scope) continue;
     const key = `${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
     pairs.set(key, {
       accountId: trade.accountId,

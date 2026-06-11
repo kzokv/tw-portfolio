@@ -1,5 +1,5 @@
 import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain";
-import type { Lot } from "@vakwen/domain";
+import type { Lot, MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
@@ -248,6 +248,7 @@ async function emitDividendLedgerChangeEvents(
  */
 export interface ScheduleReplayOptions {
   snapshotFromDate?: string;
+  marketCode?: MarketCode;
 }
 
 /**
@@ -262,11 +263,16 @@ async function recomputeSnapshotsIfExists(
   accountId: string,
   ticker: string,
   fromDate: string,
+  marketCode?: MarketCode,
 ): Promise<void> {
   try {
-    const existingCount = await persistence.countHoldingSnapshotsAfterDate(userId, accountId, ticker, "1970-01-01");
+    if (!marketCode) {
+      console.warn(`[snapshot-recompute] Skipped for ${ticker}: marketCode is required for scoped recompute`);
+      return;
+    }
+    const existingCount = await persistence.countHoldingSnapshotsAfterDate(userId, accountId, ticker, "1970-01-01", marketCode);
     if (existingCount > 0) {
-      await recomputeSnapshotsForTicker(userId, accountId, ticker, fromDate, persistence);
+      await recomputeSnapshotsForTicker(userId, accountId, ticker, fromDate, persistence, marketCode);
     }
   } catch (snapshotError) {
     console.warn(`[snapshot-recompute] Failed for ${ticker}:`, snapshotError instanceof Error ? snapshotError.message : snapshotError);
@@ -289,7 +295,7 @@ export function scheduleReplayWithRetry(
     try {
       const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
 
-      await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+      await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
       await eventBus.publishEvent(userId, "recompute_complete", {
         accountId: summary.accountId,
@@ -320,7 +326,7 @@ export function scheduleReplayWithRetry(
         try {
           const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
 
-          await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+          await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
           await eventBus.publishEvent(userId, "recompute_complete", {
             accountId: summary.accountId,

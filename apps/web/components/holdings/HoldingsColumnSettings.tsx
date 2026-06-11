@@ -42,6 +42,7 @@ interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>;
   contextKey: string;
   defaultLayoutStyle?: HoldingsTableLayoutStyle;
+  defaultHiddenColumns?: ColumnId[];
 }
 
 interface ColumnRuntimeSettings<ColumnId extends string> {
@@ -75,6 +76,7 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 420;
+const EMPTY_DEFAULT_HIDDEN_COLUMNS: never[] = [];
 const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   columnSettingsButtonLabel: "Columns",
   columnSettingsTitle: "Column settings",
@@ -106,11 +108,12 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   columns,
   contextKey,
   defaultLayoutStyle = "portfolio",
+  defaultHiddenColumns = EMPTY_DEFAULT_HIDDEN_COLUMNS,
 }: UseHoldingsColumnSettingsOptions<ColumnId>): HoldingsColumnSettingsState<ColumnId> {
   const columnIds = useMemo(() => columns.map((column) => column.id), [columns]);
   const defaultSettings = useMemo(
-    () => buildDefaultSettings(columns, defaultLayoutStyle),
-    [columns, defaultLayoutStyle],
+    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns),
+    [columns, defaultLayoutStyle, defaultHiddenColumns],
   );
   const [contexts, setContexts] = useState<Record<string, HoldingsTableContextPreferenceDto>>({});
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
@@ -118,8 +121,11 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   const [settingsError, setSettingsError] = useState("");
 
   useEffect(() => {
-    setSettings((current) => normalizeContextSettings(current, columns, defaultLayoutStyle));
-  }, [columns, defaultLayoutStyle]);
+    setSettings((current) => {
+      const next = normalizeContextSettings(current, columns, defaultLayoutStyle, defaultHiddenColumns);
+      return columnSettingsEqual(current, next) ? current : next;
+    });
+  }, [columns, defaultHiddenColumns, defaultLayoutStyle]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +135,10 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
         const nextContexts = parsed.success ? parsed.data.contexts : {};
         setContexts(nextContexts);
-        setSettings(normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle));
+        setSettings((current) => {
+          const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns);
+          return columnSettingsEqual(current, next) ? current : next;
+        });
       })
       .catch(() => {
         // Keep local defaults when preference hydration is unavailable.
@@ -137,7 +146,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     return () => {
       cancelled = true;
     };
-  }, [columns, contextKey, defaultLayoutStyle]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle]);
 
   const orderedColumns = useMemo(
     () => settings.columnOrder
@@ -431,10 +440,11 @@ export function holdingsColumnCellStyle<ColumnId extends string>(
 function buildDefaultSettings<ColumnId extends string>(
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>,
   layoutStyle: HoldingsTableLayoutStyle,
+  defaultHiddenColumns: ColumnId[],
 ): ColumnRuntimeSettings<ColumnId> {
   return {
     columnOrder: columns.map((column) => column.id),
-    hiddenColumns: [],
+    hiddenColumns: defaultHiddenColumns,
     columnWidths: Object.fromEntries(columns.map((column) => [column.id, clampWidth(column.defaultWidth)])) as Record<ColumnId, number>,
     layoutStyle,
   };
@@ -444,16 +454,23 @@ function normalizeContextSettings<ColumnId extends string>(
   rawSettings: HoldingsTableContextPreferenceDto | ColumnRuntimeSettings<ColumnId> | undefined,
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>,
   defaultLayoutStyle: HoldingsTableLayoutStyle,
+  defaultHiddenColumns: ColumnId[],
 ): ColumnRuntimeSettings<ColumnId> {
-  const defaults = buildDefaultSettings(columns, defaultLayoutStyle);
+  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns);
   const validIds = new Set(columns.map((column) => column.id));
   const rawOrder = Array.isArray(rawSettings?.columnOrder) ? rawSettings.columnOrder : [];
   const columnOrder = [
     ...rawOrder.filter((column): column is ColumnId => validIds.has(column as ColumnId)) as ColumnId[],
     ...defaults.columnOrder.filter((column) => !rawOrder.includes(column)),
   ];
-  const hiddenColumns = (Array.isArray(rawSettings?.hiddenColumns) ? rawSettings.hiddenColumns : [])
+  const rawHiddenColumns = (Array.isArray(rawSettings?.hiddenColumns) ? rawSettings.hiddenColumns : [])
     .filter((column): column is ColumnId => validIds.has(column as ColumnId));
+  const hiddenColumns = rawSettings
+    ? [
+        ...rawHiddenColumns,
+        ...defaultHiddenColumns.filter((column) => !rawOrder.includes(column) && !rawHiddenColumns.includes(column)),
+      ]
+    : defaults.hiddenColumns;
   const columnWidths = { ...defaults.columnWidths };
   for (const [column, width] of Object.entries(rawSettings?.columnWidths ?? {})) {
     if (validIds.has(column as ColumnId) && typeof width === "number" && Number.isFinite(width)) {
@@ -475,6 +492,27 @@ function serializeSettings<ColumnId extends string>(
     columnWidths: settings.columnWidths,
     layoutStyle: settings.layoutStyle,
   };
+}
+
+function columnSettingsEqual<ColumnId extends string>(
+  left: ColumnRuntimeSettings<ColumnId>,
+  right: ColumnRuntimeSettings<ColumnId>,
+): boolean {
+  return left.layoutStyle === right.layoutStyle
+    && arraysEqual(left.columnOrder, right.columnOrder)
+    && arraysEqual(left.hiddenColumns, right.hiddenColumns)
+    && recordEqual(left.columnWidths, right.columnWidths);
+}
+
+function arraysEqual<ColumnId extends string>(left: ColumnId[], right: ColumnId[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function recordEqual<ColumnId extends string>(left: Record<ColumnId, number>, right: Record<ColumnId, number>): boolean {
+  const leftEntries = Object.entries(left) as Array<[ColumnId, number]>;
+  const rightKeys = new Set(Object.keys(right));
+  return leftEntries.length === rightKeys.size
+    && leftEntries.every(([key, value]) => right[key] === value);
 }
 
 function clampWidth(width: number) {

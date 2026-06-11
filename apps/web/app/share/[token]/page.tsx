@@ -55,6 +55,7 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
     ? view.holdingGroups
     : view.holdings.map((row) => ({
         ticker: row.ticker,
+        instrumentName: row.instrumentName ?? null,
         marketCode: "UNKNOWN",
         quantity: row.quantity,
         accountCount: 1,
@@ -212,7 +213,10 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                         className="px-4 py-3 text-sm font-medium text-foreground"
                         data-testid={`public-share-holding-group-${row.ticker}-${row.marketCode}`}
                       >
-                        <span>{row.ticker}</span>
+                        <div className="flex min-w-0 flex-col">
+                          <span>{row.ticker}</span>
+                          {row.instrumentName ? <span className="text-xs font-normal text-muted-foreground">{row.instrumentName}</span> : null}
+                        </div>
                         {row.quoteStatus === "missing" ? (
                           <span
                             className="ml-2 inline-flex rounded-md border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning"

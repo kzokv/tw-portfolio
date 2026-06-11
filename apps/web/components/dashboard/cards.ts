@@ -24,9 +24,9 @@ export interface DashboardCard {
 }
 
 export const DASHBOARD_CARDS: ReadonlyArray<DashboardCard> = [
-  { slug: "portfolio-trend", fullWidth: false },
-  { slug: "allocation-snapshot", fullWidth: false },
-  { slug: "return-percent", fullWidth: false },
+  { slug: "portfolio-trend", fullWidth: true },
+  { slug: "allocation-snapshot", fullWidth: true },
+  { slug: "return-percent", fullWidth: true },
   { slug: "holdings-table", fullWidth: true },
   { slug: "dividends-section", fullWidth: true },
   // Phase 5e — action-center removed; recompute/generate-snapshots moved

@@ -1,8 +1,12 @@
+import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
 import type {
   DashboardOverviewHoldingDto,
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   InstrumentCatalogItemDto,
+  TickerChartRange,
+  TickerChartSelection,
+  TickerDetailsChartMetadataDto,
   TickerDetailsDto,
   TickerEnrichmentDto,
   TransactionHistoryItemDto,
@@ -69,6 +73,8 @@ export interface TickerDetailsModel {
     lastDividendPostedDate: string | null;
   };
   chart: {
+    range: TickerChartSelection;
+    metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailChartPoint[];
   };
   holdingGroup: DashboardOverviewHoldingGroupDto | null;
@@ -97,8 +103,41 @@ interface TickerDetailsRequest {
   ticker: string;
   accountId?: string;
   marketCode?: string;
+  range?: TickerChartRange;
+  startDate?: string;
+  endDate?: string;
   instrument?: InstrumentCatalogItemDto | null;
   transactions?: TransactionHistoryItemDto[];
+}
+
+const DEFAULT_TICKER_CHART_RANGE: TickerChartRange = "1Y";
+
+function buildFallbackChartMetadata(
+  range: TickerChartSelection,
+  points: TickerDetailChartPoint[],
+): TickerDetailsChartMetadataDto {
+  const startDate = points[0]?.date ?? null;
+  const endDate = points.at(-1)?.date ?? null;
+  return {
+    requested: {
+      range: range === "CUSTOM" ? null : range,
+      startDate: range === "CUSTOM" ? startDate : null,
+      endDate: range === "CUSTOM" ? endDate : null,
+    },
+    resolved: {
+      range,
+      startDate,
+      endDate,
+    },
+    available: {
+      startDate,
+      endDate,
+    },
+    truncated: {
+      startDate: false,
+      endDate: false,
+    },
+  };
 }
 
 function findHolding(
@@ -279,6 +318,7 @@ export function buildPrimaryTickerDetails({
   const recentDividends = dashboard.dividends.recent.filter(
     (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
   );
+  const fallbackChartPoints = buildFallbackChartPoints(transactions, holding);
 
   return {
     identity: {
@@ -310,7 +350,9 @@ export function buildPrimaryTickerDetails({
       lastDividendPostedDate: holding?.lastDividendPostedDate ?? null,
     },
     chart: {
-      points: buildFallbackChartPoints(transactions, holding),
+      range: DEFAULT_TICKER_CHART_RANGE,
+      metadata: buildFallbackChartMetadata(DEFAULT_TICKER_CHART_RANGE, fallbackChartPoints),
+      points: fallbackChartPoints,
     },
     holdingGroup,
     accountBreakdown: holdingGroup?.children ?? [],
@@ -357,6 +399,8 @@ function mergeWithFallback(
       ...(isObject(payload.position) ? payload.position : {}),
     },
     chart: {
+      range: fallback.chart.range,
+      metadata: fallback.chart.metadata,
       points:
         isObject(payload.chart) && Array.isArray(payload.chart.points)
           ? (payload.chart.points as TickerDetailChartPoint[])
@@ -422,6 +466,51 @@ function mapApiChartPoints(
         quantity: fallback.position.quantity,
       }))
     : fallback.chart.points;
+}
+
+function normalizeApiChartPayload(
+  payload: TickerDetailsDto["chart"],
+  fallbackChart: TickerDetailsModel["chart"],
+): TickerDetailsDto["chart"] {
+  const range = payload.range && (payload.range === "CUSTOM" || TICKER_CHART_RANGES.includes(payload.range as TickerChartRange))
+    ? payload.range
+    : fallbackChart.range;
+  const metadata = isObject(payload.metadata)
+    ? payload.metadata as TickerDetailsDto["chart"]["metadata"]
+    : buildApiChartMetadata(range, payload.points);
+  return {
+    range,
+    metadata,
+    points: payload.points,
+  };
+}
+
+function buildApiChartMetadata(
+  range: TickerChartSelection,
+  points: TickerDetailsDto["chart"]["points"],
+): TickerDetailsDto["chart"]["metadata"] {
+  const startDate = points[0]?.date ?? null;
+  const endDate = points.at(-1)?.date ?? null;
+  return {
+    requested: {
+      range: range === "CUSTOM" ? null : range,
+      startDate: null,
+      endDate: null,
+    },
+    resolved: {
+      range,
+      startDate,
+      endDate,
+    },
+    available: {
+      startDate,
+      endDate,
+    },
+    truncated: {
+      startDate: false,
+      endDate: false,
+    },
+  };
 }
 
 function roundToDecimal(value: number, places: number): number {
@@ -575,6 +664,7 @@ function mapApiDetailsToModel(
     lastDividendPostedDate: firstRecent?.postedAt ?? null,
   };
   const chartFallback = { ...fallback, position };
+  const chart = normalizeApiChartPayload(payload.chart, chartFallback.chart);
   const holdingGroup = payload.holdingGroup?.reportingMarketValueAmount === null && fallback.holdingGroup?.reportingMarketValueAmount !== null
     ? fallback.holdingGroup
     : payload.holdingGroup;
@@ -594,7 +684,9 @@ function mapApiDetailsToModel(
     quote,
     position,
     chart: {
-      points: mapApiChartPoints(payload.chart, chartFallback),
+      range: chart.range,
+      metadata: chart.metadata,
+      points: mapApiChartPoints(chart, chartFallback),
     },
     holdingGroup,
     accountBreakdown,
@@ -616,6 +708,7 @@ function isTickerDetailsDto(value: unknown): value is TickerDetailsDto {
     && isObject(value.quote)
     && isObject(value.position)
     && isObject(value.chart)
+    && Array.isArray(value.chart.points)
     && Array.isArray(value.transactions)
     && isObject(value.dividends)
     && isObject(value.fundamentals);
@@ -653,6 +746,12 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: "detail
   if (marketCode) {
     params.set("marketCode", marketCode);
   }
+  if (request.startDate && request.endDate) {
+    params.set("startDate", request.startDate);
+    params.set("endDate", request.endDate);
+  } else if (request.range) {
+    params.set("range", request.range);
+  }
 
   return `/tickers/${encodeURIComponent(request.ticker)}/${endpoint}${params.toString() ? `?${params.toString()}` : ""}`;
 }
@@ -661,7 +760,8 @@ function mapApiEnrichmentToModel(
   payload: TickerEnrichmentDto,
   fallback: TickerDetailsModel,
 ): TickerDetailsModel {
-  const enrichedFallback = withDerivedSnapshotValuation(fallback, payload.chart);
+  const chart = normalizeApiChartPayload(payload.chart, fallback.chart);
+  const enrichedFallback = withDerivedSnapshotValuation(fallback, chart);
 
   return {
     ...enrichedFallback,
@@ -673,7 +773,9 @@ function mapApiEnrichmentToModel(
       currency: payload.identity.priceCurrency,
     },
     chart: {
-      points: mapApiChartPoints(payload.chart, enrichedFallback),
+      range: chart.range,
+      metadata: chart.metadata,
+      points: mapApiChartPoints(chart, enrichedFallback),
     },
     holdingGroup: enrichedFallback.holdingGroup,
     accountBreakdown: enrichedFallback.accountBreakdown,
@@ -687,6 +789,9 @@ export async function fetchTickerDetailsHydration({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -697,6 +802,9 @@ export async function fetchTickerDetailsHydration({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -707,6 +815,9 @@ export async function fetchTickerDetailsFullRefresh({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -717,6 +828,9 @@ export async function fetchTickerDetailsFullRefresh({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -727,6 +841,9 @@ export async function fetchTickerDetailsEnrichment({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -737,6 +854,9 @@ export async function fetchTickerDetailsEnrichment({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -747,13 +867,16 @@ async function fetchTickerDetailsFromEndpoint({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }, endpoint: "details" | "enrichment"): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions }, endpoint);
+  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, range, startDate, endDate, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);

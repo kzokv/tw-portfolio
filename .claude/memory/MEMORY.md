@@ -94,6 +94,7 @@
 - 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — Formal trend DTOs with valid persisted snapshot aggregates must not null chart points only because replay-only dated finance FX is incomplete; use the snapshot aggregate and surface a diagnostic for the replay basis gap.
 - 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — All-market formal trend DTOs must filter snapshot dates missing active `(accountId, marketCode, ticker)` contributors and surface missing/stale snapshot diagnostics instead of plotting partial all-market totals as complete.
 - 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — Formal trend DTOs must expose server-resolved inclusive range bounds, and chart x-axes must render those bounds instead of inferring timelines from the first available snapshot point.
+- 2026-06-11 addendum — `react-persisted-ui-settings-stability.md` — Persisted React UI settings hooks must use stable default arrays/objects and skip value-equivalent state writes; fresh defaults in dependencies can create render loops and slow client rendering.
 
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.

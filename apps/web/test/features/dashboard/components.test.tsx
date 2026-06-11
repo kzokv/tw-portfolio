@@ -746,7 +746,7 @@ describe("dashboard components", () => {
         version: 1,
         contexts: {
           "dashboard.topHoldings": {
-            columnOrder: ["pnl", "ticker", "position", "price", "marketValue", "daily", "health", "action"],
+            columnOrder: ["pnl", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "daily", "health", "action"],
             hiddenColumns: [],
             columnWidths: { pnl: 222 },
             layoutStyle: "dashboard",
@@ -793,7 +793,7 @@ describe("dashboard components", () => {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; columnWidths: Record<string, number> }> };
     };
     expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder).toEqual(
-      ["ticker", "pnl", "position", "price", "marketValue", "daily", "health", "action"],
+      ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "daily", "health", "action"],
     );
     expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
   });
@@ -1253,7 +1253,7 @@ describe("dashboard components", () => {
         version: 1,
         contexts: {
           "portfolio.holdings": {
-            columnOrder: ["allocation", "ticker", "quantity", "accounts", "avgCost", "price", "dailyChange", "marketValue", "pnl", "costBasis", "nextDividend", "lastDividend"],
+            columnOrder: ["allocation", "ticker", "quantity", "accounts", "avgCost", "unitPnl", "price", "dailyChange", "marketValue", "pnl", "costBasis", "nextDividend", "lastDividend"],
             hiddenColumns: [],
             columnWidths: { allocation: 211 },
             layoutStyle: "portfolio",
@@ -1331,6 +1331,8 @@ describe("dashboard components", () => {
         isLoading={false}
         errorMessage=""
         onRangeChange={() => undefined}
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
       />,
     );
 
@@ -1371,6 +1373,8 @@ describe("dashboard components", () => {
         isLoading={false}
         errorMessage=""
         onRangeChange={() => undefined}
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
       />,
     );
     const returnHtml = renderToStaticMarkup(
@@ -1380,6 +1384,8 @@ describe("dashboard components", () => {
         dict={dict}
         isLoading={false}
         errorMessage=""
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
       />,
     );
     const expectedDomain = JSON.stringify([Date.parse("2026-03-10T00:00:00.000Z"), Date.parse("2026-06-10T00:00:00.000Z")]);
@@ -1406,6 +1412,8 @@ describe("dashboard components", () => {
         isLoading={false}
         errorMessage=""
         onRangeChange={() => undefined}
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
       />,
     );
     expect(trendHtml).toContain("As of May 29");
@@ -1423,6 +1431,8 @@ describe("dashboard components", () => {
         dict={dict}
         isLoading={false}
         errorMessage=""
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
       />,
     );
     expect(returnHtml).toContain("As of May 29");

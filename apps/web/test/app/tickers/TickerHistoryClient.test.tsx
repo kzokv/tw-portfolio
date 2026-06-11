@@ -209,7 +209,16 @@ const details: TickerDetailsModel = {
     nextDividendDate: null,
     lastDividendPostedDate: null,
   },
-  chart: { points: [] },
+  chart: {
+    range: "1Y",
+    metadata: {
+      requested: { range: "1Y", startDate: null, endDate: null },
+      resolved: { range: "1Y", startDate: null, endDate: null },
+      available: { startDate: null, endDate: null },
+      truncated: { startDate: false, endDate: false },
+    },
+    points: [],
+  },
   holdingGroup: {
     ticker: "2330",
     marketCode: "TW",
@@ -280,7 +289,7 @@ const details: TickerDetailsModel = {
 };
 
 function tickerCacheKey() {
-  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2");
+  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "");
 }
 
 function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details) {
@@ -317,6 +326,22 @@ function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details)
 async function flushEffects() {
   await act(async () => {
     await Promise.resolve();
+  });
+}
+
+function findButtonByText(element: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(element.querySelectorAll("button"))
+    .find((candidate) => candidate.textContent?.trim() === text);
+  if (!button) throw new Error(`Button not found: ${text}`);
+  return button as HTMLButtonElement;
+}
+
+async function changeInput(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -400,6 +425,41 @@ describe("TickerHistoryClient", () => {
 
     const cached = readRouteDtoCache<TickerDetailsModel>(tickerCacheKey());
     expect(cached?.payload.position.marketValue).toBe(3300);
+  });
+
+  it("requests ticker chart ranges and custom date windows from the details endpoint", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+    vi.mocked(fetchTickerDetailsHydration).mockClear();
+
+    await act(async () => {
+      findButtonByText(element, "3Y").click();
+    });
+    await flushEffects();
+    expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: "3Y",
+      startDate: undefined,
+      endDate: undefined,
+    }));
+
+    vi.mocked(fetchTickerDetailsHydration).mockClear();
+    await act(async () => {
+      findButtonByText(element, "Custom").click();
+    });
+    const inputs = Array.from(element.querySelectorAll('[data-testid="ticker-chart-custom-range"] input'));
+    await changeInput(inputs[0] as HTMLInputElement, "2024-01-01");
+    await changeInput(inputs[1] as HTMLInputElement, "2024-06-30");
+    await act(async () => {
+      findButtonByText(element, "Apply").click();
+    });
+    await flushEffects();
+
+    expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: undefined,
+      startDate: "2024-01-01",
+      endDate: "2024-06-30",
+    }));
   });
 
   it("renders refreshed account breakdown from ticker details state", async () => {
