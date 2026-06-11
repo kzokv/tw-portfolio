@@ -457,15 +457,13 @@ function mapApiChartPoints(
   payload: TickerDetailsDto["chart"],
   fallback: TickerDetailsModel,
 ): TickerDetailChartPoint[] {
-  return payload.points.length > 0
-    ? payload.points.map((point) => ({
-        date: point.date,
-        label: point.date,
-        price: point.close,
-        averageCost: fallback.position.averageCost,
-        quantity: fallback.position.quantity,
-      }))
-    : fallback.chart.points;
+  return payload.points.map((point) => ({
+    date: point.date,
+    label: point.date,
+    price: point.close,
+    averageCost: fallback.position.averageCost,
+    quantity: fallback.position.quantity,
+  }));
 }
 
 function normalizeApiChartPayload(

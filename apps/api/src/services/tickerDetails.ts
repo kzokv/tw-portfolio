@@ -1,4 +1,4 @@
-import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
+import { resolveRangeBounds, roundToDecimal, type DailyBar } from "@vakwen/domain";
 import {
   MARKET_CODES,
   currencyFor,
@@ -25,7 +25,7 @@ type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
 type TickerChartSelection = TickerChartRange | "CUSTOM";
 
 interface BuildTickerDetailsInput {
-  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getInstrument">;
+  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getInstrument">;
   store: Store;
   userId: string;
   ticker: string;
@@ -34,6 +34,7 @@ interface BuildTickerDetailsInput {
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
+  loadChart?: boolean;
   getSettledTradingDay?: (marketCode: MarketCode) => Promise<string | null>;
   fundamentalsRecord: PersistedTickerFundamentalsRecord | null;
   now?: Date;
@@ -92,19 +93,10 @@ export async function buildTickerDetails(
     .sort(compareTransactionsForHistory);
   const filteredHoldings = matchingHoldings.filter((holding) => scopedAccountIds.has(holding.accountId));
 
-  const latestBarDates = await input.persistence.getLatestBarDatesByTickerMarket([
-    { ticker: normalizedTicker, marketCode: resolvedMarketCode },
-  ]);
-  const latestBarDate = latestBarDates.get(`${normalizedTicker}:${resolvedMarketCode}`) ?? null;
-  const allLocalBars = latestBarDate
-    ? await input.persistence.getDailyBarsForTickerMarket(
-      normalizedTicker,
-      resolvedMarketCode,
-      historyStartFor(resolvedMarketCode),
-      latestBarDate,
-    )
-    : [];
-  const quoteBars = allLocalBars.slice(-2);
+  const loadChart = input.loadChart ?? true;
+  const { allLocalBars, latestBarDate, quoteBars } = loadChart
+    ? await loadTickerChartBars(input.persistence, normalizedTicker, resolvedMarketCode)
+    : await loadTickerQuoteBars(input.persistence, normalizedTicker, resolvedMarketCode);
   const settledTradingDay = input.getSettledTradingDay
     ? await input.getSettledTradingDay(resolvedMarketCode)
     : null;
@@ -393,8 +385,51 @@ async function resolveMarketCode(input: {
   );
 }
 
+async function loadTickerChartBars(
+  persistence: BuildTickerDetailsInput["persistence"],
+  ticker: string,
+  marketCode: MarketCode,
+): Promise<{ allLocalBars: DailyBar[]; latestBarDate: string | null; quoteBars: DailyBar[] }> {
+  const latestBarDates = await persistence.getLatestBarDatesByTickerMarket([{ ticker, marketCode }]);
+  const latestBarDate = latestBarDates.get(`${ticker}:${marketCode}`) ?? null;
+  const allLocalBars = latestBarDate
+    ? await persistence.getDailyBarsForTickerMarket(ticker, marketCode, historyStartFor(marketCode), latestBarDate)
+    : [];
+  return {
+    allLocalBars,
+    latestBarDate,
+    quoteBars: allLocalBars.slice(-2),
+  };
+}
+
+async function loadTickerQuoteBars(
+  persistence: BuildTickerDetailsInput["persistence"],
+  ticker: string,
+  marketCode: MarketCode,
+): Promise<{ allLocalBars: DailyBar[]; latestBarDate: string | null; quoteBars: DailyBar[] }> {
+  const latestBars = await persistence.getLatestBarsByTickerMarket([{ ticker, marketCode }], 2);
+  const quoteBars = latestBars
+    .map((bar) => ({
+      ticker: bar.ticker,
+      barDate: bar.barDate,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+      source: bar.source,
+      ingestedAt: bar.ingestedAt,
+    }))
+    .sort((left, right) => left.barDate.localeCompare(right.barDate));
+  return {
+    allLocalBars: [],
+    latestBarDate: quoteBars.at(-1)?.barDate ?? null,
+    quoteBars,
+  };
+}
+
 function buildQuoteFromBars(
-  chartBars: Awaited<ReturnType<BuildTickerDetailsInput["persistence"]["getDailyBarsForTickerMarket"]>>,
+  chartBars: readonly DailyBar[],
   settledTradingDay: string | null,
 ): TickerDetailsDto["quote"] {
   const latest = chartBars.at(-1);
@@ -430,7 +465,7 @@ function buildQuoteFromBars(
 }
 
 function buildChart(input: {
-  allLocalBars: Awaited<ReturnType<BuildTickerDetailsInput["persistence"]["getDailyBarsForTickerMarket"]>>;
+  allLocalBars: readonly DailyBar[];
   latestBarDate: string | null;
   range?: TickerChartRange;
   startDate?: string;

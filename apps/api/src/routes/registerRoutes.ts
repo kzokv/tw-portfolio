@@ -4529,6 +4529,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });

@@ -16,9 +16,14 @@ describe("buildTickerDetails", () => {
       volume: number;
       source: string;
     }> = [],
+    calls: {
+      historicalReads?: Array<{ ticker: string; marketCode: string; startDate: string; endDate: string }>;
+      latestReads?: Array<{ pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>; limit: number }>;
+    } = {},
   ) {
     return {
       async getDailyBarsForTickerMarket(ticker: string, marketCode: string, startDate: string, endDate: string) {
+        calls.historicalReads?.push({ ticker, marketCode, startDate, endDate });
         return bars
           .filter((bar) => (
             bar.ticker === ticker
@@ -31,10 +36,39 @@ describe("buildTickerDetails", () => {
             ingestedAt: "2026-06-01T00:00:00.000Z",
           }));
       },
+      async getLatestBarsByTickerMarket(
+        pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>,
+        limit: number,
+      ) {
+        calls.latestReads?.push({ pairs, limit });
+        const pairKeys = new Set(pairs.map((pair) => `${pair.ticker}:${pair.marketCode}`));
+        const grouped = new Map<string, typeof bars>();
+        for (const bar of bars) {
+          const key = `${bar.ticker}:${bar.marketCode}`;
+          if (!pairKeys.has(key)) continue;
+          const group = grouped.get(key) ?? [];
+          group.push(bar);
+          grouped.set(key, group);
+        }
+        return [...grouped.values()]
+          .flatMap((group) => group
+            .sort((left, right) => right.barDate.localeCompare(left.barDate))
+            .slice(0, limit))
+          .map((bar) => ({
+            ...bar,
+            ingestedAt: "2026-06-01T00:00:00.000Z",
+          }));
+      },
       async getLatestBarDatesByTickerMarket() {
-        return new Map(
-          bars.map((bar) => [`${bar.ticker}:${bar.marketCode}`, bar.barDate] as const),
-        );
+        const result = new Map<string, string>();
+        for (const bar of bars) {
+          const key = `${bar.ticker}:${bar.marketCode}`;
+          const current = result.get(key);
+          if (!current || bar.barDate > current) {
+            result.set(key, bar.barDate);
+          }
+        }
+        return result;
       },
       async getInstrument(ticker: string, marketCode?: string) {
         return ticker && marketCode
@@ -272,6 +306,68 @@ describe("buildTickerDetails", () => {
       },
     }));
     expect(details.chart.points.map((point) => point.date)).toEqual(["2026-06-01", "2026-06-10"]);
+  });
+
+  it("uses the bounded latest-bar reader when chart data is not requested", async () => {
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2025-01-15",
+        open: 30,
+        high: 31,
+        low: 29,
+        close: 30,
+        volume: 100,
+        source: "test-bars",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-06-01",
+        open: 42,
+        high: 43,
+        low: 41,
+        close: 42,
+        volume: 100,
+        source: "test-bars",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-06-10",
+        open: 45,
+        high: 46,
+        low: 44,
+        close: 45,
+        volume: 100,
+        source: "test-bars",
+      },
+    ];
+    const calls = {
+      historicalReads: [] as Array<{ ticker: string; marketCode: string; startDate: string; endDate: string }>,
+      latestReads: [] as Array<{ pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>; limit: number }>,
+    };
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, calls),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(calls.historicalReads).toEqual([]);
+    expect(calls.latestReads).toEqual([
+      { pairs: [{ ticker: "BHP", marketCode: "AU" }], limit: 2 },
+    ]);
+    expect(details.quote).toEqual(expect.objectContaining({
+      currentUnitPrice: 45,
+      previousClose: 42,
+    }));
+    expect(details.chart.points).toEqual([]);
   });
 
   it("returns all locally stored bars for ALL and marks custom-range truncation against local history", async () => {
