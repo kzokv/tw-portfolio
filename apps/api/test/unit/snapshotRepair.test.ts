@@ -1,15 +1,113 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
+import type { DailyBar } from "@vakwen/domain";
 import {
+  createSnapshotRepairHandler,
   createSnapshotRepairScanHandler,
   DEFAULT_SNAPSHOT_REPAIR_SCAN_LIMIT,
   SNAPSHOT_REPAIR_QUEUE,
+  type SnapshotRepairJobData,
   type SnapshotRepairScanJobData,
 } from "../../src/services/snapshotRepair.js";
+
+function createRepairJob(data: SnapshotRepairJobData): JobWithMetadata<SnapshotRepairJobData> {
+  return { data } as JobWithMetadata<SnapshotRepairJobData>;
+}
 
 function createScanJob(data: SnapshotRepairScanJobData): JobWithMetadata<SnapshotRepairScanJobData> {
   return { data } as JobWithMetadata<SnapshotRepairScanJobData>;
 }
+
+function makeBar(date: string, close: number): DailyBar {
+  return {
+    ticker: "2330",
+    barDate: date,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 1000,
+    source: "test",
+    ingestedAt: new Date("2026-06-01T00:00:00.000Z").toISOString(),
+  };
+}
+
+describe("snapshot repair worker", () => {
+  it("recomputes each matched scope from the repair date using the scoped market persistence", async () => {
+    const persistence = {
+      listHoldingSnapshotRepairScopesForTickerMarket: vi.fn().mockResolvedValue([
+        { userId: "user-1", accountId: "acc-1", ticker: "2330", marketCode: "TW" },
+      ]),
+      listHoldingSnapshotRepairTargets: vi.fn(),
+      getSnapshotGenerationInputs: vi.fn().mockResolvedValue({
+        trades: [
+          {
+            id: "trade-1",
+            accountId: "acc-1",
+            ticker: "2330",
+            type: "BUY",
+            quantity: 10,
+            unitPrice: 100,
+            tradeDate: "2026-05-28",
+            commissionAmount: 0,
+            taxAmount: 0,
+            priceCurrency: "TWD",
+            marketCode: "TW",
+          },
+        ],
+        postedDividends: [],
+      }),
+      deleteHoldingSnapshotsForTicker: vi.fn().mockResolvedValue(2),
+      getDailyBarsForTickerMarket: vi.fn().mockResolvedValue([
+        makeBar("2026-05-28", 100),
+        makeBar("2026-05-29", 105),
+        makeBar("2026-06-01", 110),
+      ]),
+      bulkUpsertHoldingSnapshots: vi.fn().mockResolvedValue(undefined),
+    };
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const handler = createSnapshotRepairHandler({ persistence, log });
+
+    await handler([createRepairJob({
+      ticker: "2330",
+      marketCode: "TW",
+      fromDate: "2026-05-29",
+      trigger: "repair",
+    })]);
+
+    expect(persistence.listHoldingSnapshotRepairScopesForTickerMarket).toHaveBeenCalledWith("2330", "TW");
+    expect(persistence.getSnapshotGenerationInputs).toHaveBeenCalledWith("user-1", {
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+    });
+    expect(persistence.deleteHoldingSnapshotsForTicker).toHaveBeenCalledWith(
+      "user-1",
+      "acc-1",
+      "2330",
+      "2026-05-29",
+      "TW",
+    );
+    expect(persistence.getDailyBarsForTickerMarket).toHaveBeenCalledWith(
+      "2330",
+      "TW",
+      "2026-05-28",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    );
+    expect(persistence.bulkUpsertHoldingSnapshots).toHaveBeenCalledWith(
+      "user-1",
+      expect.arrayContaining([
+        expect.objectContaining({ snapshotDate: "2026-05-29", marketCode: "TW", marketValue: 1050 }),
+        expect.objectContaining({ snapshotDate: "2026-06-01", marketCode: "TW", marketValue: 1100 }),
+      ]),
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ ticker: "2330", marketCode: "TW", repairedScopes: 1, failedScopes: 0 }),
+      "snapshot_repair_complete",
+    );
+  });
+});
 
 describe("snapshot repair scan worker", () => {
   it("discovers repairable snapshot targets and enqueues bounded singleton repair jobs", async () => {
