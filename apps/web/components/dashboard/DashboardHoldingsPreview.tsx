@@ -509,7 +509,7 @@ export function DashboardHoldingsPreview({
                   locale={locale}
                   reportingCurrency={reportingCurrency}
                 />
-                <div className="flex flex-col gap-3 md:hidden">
+                <div className="flex flex-col gap-3 lg:hidden">
                   {visibleGroups.map((group) => (
                     <DashboardHoldingRow
                       dict={dict}
@@ -626,6 +626,11 @@ function DashboardHoldingRow({
           <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
             {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
           </p>
+          {group.reportingMarketValueAmount === null ? null : (
+            <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">
+              {formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsValueInCurrency, { currency: reportingCurrency })}
           </p>
@@ -658,6 +663,7 @@ function DashboardHoldingRow({
           title={dailyMetric.title}
           toneValue={dailyMetric.toneValue}
           value={dailyMetric.value}
+          subValue={dailyMetric.exactValue}
         />
         <PreviewMetric
           label={dict.reports.pnl}
@@ -706,7 +712,7 @@ function DashboardHoldingsTable({
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   return (
-    <div className="hidden max-h-[34rem] overflow-auto rounded-md border border-border md:block">
+    <div className="hidden max-h-[34rem] overflow-auto rounded-md border border-border lg:block">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -940,7 +946,16 @@ function renderDashboardGroupCell({
   if (column === "marketValue") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
-        {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+        <div className="flex flex-col items-end gap-1">
+          <span>
+            {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+          </span>
+          {group.reportingMarketValueAmount === null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+            </span>
+          )}
+        </div>
       </TableCell>
     );
   }
@@ -949,6 +964,11 @@ function renderDashboardGroupCell({
       <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(reportingDailyMove ?? group.changePercent)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale, true)}</span>
+          {reportingDailyMove === null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)}
+            </span>
+          )}
           <span className="text-xs">{group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}</span>
         </div>
       </TableCell>
@@ -1058,7 +1078,16 @@ function renderDashboardChildCell({
   if (column === "marketValue") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
-        {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+        <div className="flex flex-col items-end gap-1">
+          <span>
+            {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+          </span>
+          {child.reportingMarketValueAmount === null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+            </span>
+          )}
+        </div>
       </TableCell>
     );
   }
@@ -1066,7 +1095,15 @@ function renderDashboardChildCell({
     const dailyMove = getReportingDailyMove(child);
     return (
       <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(dailyMove)))} style={style}>
-        {dailyMove === null ? "-" : formatFinanceCurrencyAmount(dailyMove, reportingCurrency, locale, true)}
+        <div className="flex flex-col items-end gap-1">
+          <span>{dailyMove === null ? "-" : formatFinanceCurrencyAmount(dailyMove, reportingCurrency, locale, true)}</span>
+          {dailyMove === null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatFinanceCurrencyAmount(dailyMove, reportingCurrency, locale)}
+            </span>
+          )}
+          {child.changePercent === null ? null : <span className="text-xs">{formatSignedPercent(child.changePercent, locale)}</span>}
+        </div>
       </TableCell>
     );
   }
@@ -1157,6 +1194,7 @@ function PreviewMetric({
   title,
   toneValue,
   value,
+  subValue,
 }: {
   label: string;
   labelTestId?: string;
@@ -1164,6 +1202,7 @@ function PreviewMetric({
   title?: string;
   toneValue?: number | null;
   value: string;
+  subValue?: string;
 }) {
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
@@ -1171,6 +1210,7 @@ function PreviewMetric({
       <p className={cn("mt-1 truncate font-mono text-sm font-semibold tabular-nums", financeToneClass(toneValue))} data-testid={testId} title={title}>
         {value}
       </p>
+      {subValue ? <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">{subValue}</p> : null}
     </div>
   );
 }
@@ -1732,7 +1772,11 @@ function formatTopHoldingsMessage(template: string, values: Record<string, strin
   );
 }
 
-function getDailyMetric(dict: ReturnType<typeof getDictionary>, group: DashboardOverviewHoldingGroupDto, locale: LocaleCode): { title?: string; toneValue: number | null; value: string } {
+function getDailyMetric(
+  dict: ReturnType<typeof getDictionary>,
+  group: DashboardOverviewHoldingGroupDto,
+  locale: LocaleCode,
+): { exactValue?: string; title?: string; toneValue: number | null; value: string } {
   if (group.quoteStatus === "missing") {
     return {
       toneValue: null,
@@ -1745,6 +1789,10 @@ function getDailyMetric(dict: ReturnType<typeof getDictionary>, group: Dashboard
     title: group.change === null ? undefined : formatCurrencyAmount(group.change, group.currency, locale),
     toneValue: group.change ?? group.changePercent,
     value: `${group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}${suffix}`,
+    exactValue:
+      group.reportingDailyChangeAmount == null
+        ? undefined
+        : formatFinanceCurrencyAmount(group.reportingDailyChangeAmount, group.reportingCurrency, locale),
   };
 }
 

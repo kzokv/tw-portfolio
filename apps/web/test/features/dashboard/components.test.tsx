@@ -366,7 +366,11 @@ describe("dashboard components", () => {
     expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
     expect(html).toContain("AUD 60K");
+    expect(html).toContain("A$60,000");
     expect(html).toContain("+AUD 123");
+    expect(html).toContain("+A$123");
+    expect(html).toContain("lg:hidden");
+    expect(html).toContain("lg:block");
     expect(html).not.toContain("A$490");
     expect(html).toContain("A$30.00");
     expect(html).toContain("Native NT$610");

@@ -985,7 +985,7 @@ function HoldingsCard({
   isRefreshing,
   onRefresh,
   rows,
-  stickyFirstColumn = false,
+  stickyFirstColumn = true,
   title,
 }: {
   contextKey: string;
@@ -1169,7 +1169,7 @@ function HoldingsCard({
           </ToggleGroup>
         </div>
         <HoldingsMobileList dict={dict} rows={filteredRowsPage.rows} locale={locale} />
-        <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border md:block">
+        <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border lg:block">
           <Table className="table-fixed" data-testid={`reports-holdings-table-${contextKey}`}>
             <TableHeader>
               <TableRow>
@@ -1492,7 +1492,7 @@ function formatExactAmountInline(dict: AppDictionary, amount: string): string {
 function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; locale: LocaleCode; rows: ReportHoldingRowDto[] }) {
   const [selected, setSelected] = useState<ReportHoldingRowDto | null>(null);
   return (
-    <div className="flex flex-col gap-3 md:hidden">
+    <div className="flex flex-col gap-3 lg:hidden">
       {rows.map((row) => (
         <div
           key={`${row.ticker}-${row.marketCode}`}

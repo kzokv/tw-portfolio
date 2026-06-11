@@ -536,19 +536,26 @@ async function buildSnapshotAvailableDatesByContributor(
   persistence: Persistence,
 ): Promise<Map<string, Set<string>>> {
   const availableDatesByContributor = new Map<string, Set<string>>();
-  await Promise.all([...contributors].map(async ([key, contributor]) => {
-    const bars = await persistence.getDailyBarsForTickerMarket(
-      contributor.ticker,
-      contributor.marketCode,
-      startDate,
-      endDate,
-    );
-    availableDatesByContributor.set(
-      key,
-      new Set(bars.map((bar) => bar.barDate)),
-    );
-  }));
+  const pairsByTickerMarket = new Map<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>();
+  for (const contributor of contributors.values()) {
+    pairsByTickerMarket.set(tickerMarketKey(contributor.ticker, contributor.marketCode), contributor);
+  }
+
+  const barsByTickerMarket = await persistence.getDailyBarsForTickerMarkets(
+    [...pairsByTickerMarket.values()],
+    startDate,
+    endDate,
+  );
+
+  for (const [key, contributor] of contributors) {
+    const bars = barsByTickerMarket.get(tickerMarketKey(contributor.ticker, contributor.marketCode)) ?? [];
+    availableDatesByContributor.set(key, new Set(bars.map((bar) => bar.barDate)));
+  }
   return availableDatesByContributor;
+}
+
+function tickerMarketKey(ticker: string, marketCode: string): string {
+  return `${ticker}\0${marketCode}`;
 }
 
 function withPerformanceFreshness(

@@ -26,11 +26,14 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - Fixed ticker chart render downsampling to preserve the latest point.
 - Fixed Ticker Account Breakdown `Unit P&L` so missing average cost renders unavailable instead of `0`.
 - Resolved current Codex review feedback around scoped snapshot diagnostics, report cache currency partitioning, ticker catalog market resolution, date-only staleness comparison, and market-scoped snapshot recompute scheduling.
+- Fixed the post-audit holdings grid gaps: Dashboard holdings now show visible exact reporting-currency market value and daily-change sublines beside compact values, Dashboard/Reports holdings tables switch to desktop table mode only at `lg+`, and every Reports holdings table defaults to a sticky ticker column.
+- Replaced the per-contributor dashboard snapshot coverage daily-bar lookup with the existing batched `(ticker, marketCode)` reader to avoid N+1 historical-bar queries on chart requests.
+- `/si-review` found the existing reporting DTO boundary rule as the correct home for the new durable lesson; `/si-promote` added a rule requiring multi-contributor completeness checks to prefer market-qualified batched readers when available.
 
 ## Still Open
 
 - Full shared holdings grid extraction is still deferred.
-- Admin/system repair wording separation, admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
+- Richer admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
 
 ## Validation
 
@@ -44,9 +47,13 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/dashboard-shared-timeline-aaa.spec.ts` passed: 1 test.
 - `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/reports-performance-timeline-aaa.spec.ts tests/e2e/specs/portfolio-ticker-followups-aaa.spec.ts` passed: 3 tests.
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` passed: 25 tests.
+- `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` passed after adding a regression that asserts the batched daily-bar reader is used once for all-market snapshot coverage: 23 tests.
+- `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` passed after adding exact-inline, `lg+` breakpoint, and sticky Reports ticker-column assertions: 46 tests.
+- Focused ESLint passed for the post-audit Dashboard, Reports, dashboard reporting currency, and focused test files.
+- `npx tsc --noEmit -p apps/web/tsconfig.json` and `npx tsc --noEmit -p apps/api/tsconfig.json` passed after the post-audit fixes.
 - Focused ESLint passed for changed TS/TSX files, including API report/public-share services, shared types, holdings settings, Dashboard, Portfolio, Reports, Ticker, public share, and focused tests.
 - `git diff --check` passed.
 
 ## Validation Caveat
 
-Earlier component spec hangs were resolved by stabilizing holdings column-settings defaults and suppressing value-equivalent state writes. The focused component and new focused E2E groups now pass, but the full eight-suite repo gate, CI for the latest pushed head, live Vakwen Dev validation, and post-deploy Chrome validation are still pending. Existing non-failing warnings remain in focused web tests: React `act`, Radix SSR/useLayoutEffect, and Recharts zero-size warnings.
+Earlier component spec hangs were resolved by stabilizing holdings column-settings defaults and suppressing value-equivalent state writes. The focused component and new focused E2E groups now pass, but the full eight-suite repo gate and broader live Vakwen Dev / post-deploy Chrome validation across Portfolio, Reports, Ticker, and public share are still pending. Dashboard post-deploy validation is recorded in the June 11 gap note. Existing non-failing warnings remain in focused web tests: React `act`, Radix SSR/useLayoutEffect, and Recharts zero-size warnings.
