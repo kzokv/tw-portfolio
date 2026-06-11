@@ -28,6 +28,7 @@ import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
 import { StatusToast } from "../../../components/ui/StatusToast";
 import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
+import { Badge } from "../../../components/ui/shadcn/badge";
 import { Input } from "../../../components/ui/shadcn/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/toggle-group";
@@ -348,7 +349,7 @@ export function TickerHistoryClient({
     includeDividends: true,
   });
   const sharedContextOwnerId = useSharedContextOwnerId();
-  const { sessionUserId } = useAppShellData();
+  const { sessionUserId, openQuickActions, reportingCurrency } = useAppShellData();
   const tickerDetailsCacheKey = useMemo(
     () => buildRouteDtoCacheKey(
       "ticker-details",
@@ -669,6 +670,11 @@ export function TickerHistoryClient({
     }),
     [accountBreakdownRows],
   );
+  const resolvedReportingCurrency =
+    accountContributionData.find((row) => row.contributionCurrency)?.contributionCurrency
+    ?? effectiveHoldingGroup?.reportingCurrency
+    ?? reportingCurrency
+    ?? currency;
   const accountBreakdownChartHeight = Math.min(320, Math.max(180, accountContributionData.length * 58));
   const floatingSummary = (
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
@@ -860,6 +866,14 @@ export function TickerHistoryClient({
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
                   {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? dict.tickerHistory.instrumentFallbackLabel}
                 </span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="ticker-reporting-currency">
+                <Badge variant="secondary">
+                  {formatTickerChartMessage(dict.tickerHistory.reportingCurrencyValue, { currency: resolvedReportingCurrency })}
+                </Badge>
+                <Button type="button" variant="ghost" size="sm" onClick={openQuickActions}>
+                  {dict.tickerHistory.changeReportingCurrency}
+                </Button>
               </div>
               <div className="mt-5 flex flex-wrap items-end gap-4">
                 <div>
@@ -1177,6 +1191,12 @@ export function TickerHistoryClient({
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.accountBreakdownTitle}</p>
                 <h3 className="mt-2 text-base font-semibold text-slate-950">{dict.tickerHistory.accountBreakdownContributionTitle}</h3>
                 <p className="mt-1 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownSubtitle}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="ticker-account-breakdown-reporting-currency">
+                  <Badge variant="outline">
+                    {formatTickerChartMessage(dict.tickerHistory.reportingCurrencyValue, { currency: resolvedReportingCurrency })}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground">{dict.tickerHistory.reportingCurrencyDescription}</p>
+                </div>
                 {accountContributionData.length === 0 ? (
                   <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownEmpty}</p>
                 ) : (
