@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
 import type { DailyBar } from "@vakwen/domain";
+import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import {
   createSnapshotRepairHandler,
   createSnapshotRepairScanHandler,
@@ -110,6 +111,28 @@ describe("snapshot repair worker", () => {
 });
 
 describe("snapshot repair scan worker", () => {
+  it("does not classify zero-quantity null valuation snapshots as repair targets", async () => {
+    const persistence = new PostgresPersistence({
+      databaseUrl: "postgres://localhost/test",
+      redisUrl: "redis://localhost:6379",
+    });
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    Object.defineProperty(persistence, "pool", {
+      configurable: true,
+      value: { query },
+    });
+
+    await persistence.listHoldingSnapshotRepairTargets({
+      fromDate: "2026-05-01",
+      toDate: "2026-06-10",
+      limit: 10,
+    });
+
+    const sql = String(query.mock.calls[0]?.[0] ?? "");
+    expect(sql).toContain("s.quantity IS NULL");
+    expect(sql).toMatch(/s\.quantity > 0\s+AND \(\s+s\.market_value IS NULL\s+OR s\.value_native IS NULL\s+\)/);
+  });
+
   it("discovers repairable snapshot targets and enqueues bounded singleton repair jobs", async () => {
     const persistence = {
       listHoldingSnapshotRepairTargets: vi.fn().mockResolvedValue([
