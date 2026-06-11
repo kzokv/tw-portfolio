@@ -14,19 +14,13 @@ test.describe("reports performance timeline controls", () => {
     await timeline.waitFor({ state: "visible" });
 
     await timeline.getByRole("button", { name: "Week" }).click();
-    await expect.poll(
-      async () => timeline.getByRole("button", { name: "Week" }).getAttribute("data-state"),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe("on");
+    await expect(timeline.getByRole("button", { name: "Week" })).toHaveAttribute("data-state", "on");
 
-    await expect.poll(
-      async () => {
-        const chartVisible = await page.getByTestId("reports-performance-chart").isVisible().catch(() => false);
-        const noSnapshotVisible = await page.getByText("No server snapshot series is available for this scope.").isVisible().catch(() => false);
-        return chartVisible || noSnapshotVisible;
-      },
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe(true);
+    await expect(
+      page.getByTestId("reports-performance-chart")
+        .or(page.getByText("No server snapshot series is available for this scope."))
+        .first(),
+    ).toBeVisible();
     await appShell.assert.mxAssertEqual(
       await page.getByTestId("reports-controls").getByText("Range").count(),
       1,

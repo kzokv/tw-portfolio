@@ -17,18 +17,10 @@ test.describe("dashboard shared timeline controls", () => {
 
     await trendTimeline.getByRole("button", { name: "Month" }).click();
 
-    await expect.poll(
-      async () => ({
-        trend: await trendTimeline.getByRole("button", { name: "Month" }).getAttribute("data-state"),
-        returns: await returnTimeline.getByRole("button", { name: "Month" }).getAttribute("data-state"),
-      }),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toEqual({ trend: "on", returns: "on" });
+    await expect(trendTimeline.getByRole("button", { name: "Month" })).toHaveAttribute("data-state", "on");
+    await expect(returnTimeline.getByRole("button", { name: "Month" })).toHaveAttribute("data-state", "on");
 
     await trendTimeline.getByRole("button", { name: "Year" }).click();
-    await expect.poll(
-      async () => returnTimeline.getByRole("button", { name: "Year" }).getAttribute("data-state"),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe("on");
+    await expect(returnTimeline.getByRole("button", { name: "Year" })).toHaveAttribute("data-state", "on");
   });
 });

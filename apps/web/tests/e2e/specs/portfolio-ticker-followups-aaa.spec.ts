@@ -21,17 +21,11 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
 
     await styleControl.getByTestId("portfolio-holdings-style-dashboard").click();
-    await expect.poll(
-      async () => styleControl.getByTestId("portfolio-holdings-style-dashboard").getAttribute("data-state"),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe("on");
+    await expect(styleControl.getByTestId("portfolio-holdings-style-dashboard")).toHaveAttribute("data-state", "on");
     await page.getByTestId("dashboard-holdings-preview").waitFor({ state: "visible" });
 
     await styleControl.getByTestId("portfolio-holdings-style-portfolio").click();
-    await expect.poll(
-      async () => styleControl.getByTestId("portfolio-holdings-style-portfolio").getAttribute("data-state"),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe("on");
+    await expect(styleControl.getByTestId("portfolio-holdings-style-portfolio")).toHaveAttribute("data-state", "on");
     await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
   });
 
@@ -53,10 +47,7 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await customRange.getByLabel("End date").fill("2025-06-30");
     await customRange.getByRole("button", { name: "Apply" }).click();
 
-    await expect.poll(
-      async () => new URL(page.url()).searchParams.get("chartRange"),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe("CUSTOM");
+    await expect(page).toHaveURL(/chartRange=CUSTOM/);
     await appShell.assert.mxAssertEqual(
       new URL(page.url()).searchParams.get("chartStart"),
       "2025-01-01",
@@ -71,9 +62,6 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await customRange.getByLabel("Start date").fill("2010-01-01");
     await customRange.getByLabel("End date").fill("2025-06-30");
     await customRange.getByRole("button", { name: "Apply" }).click();
-    await expect.poll(
-      async () => page.getByText(/custom range within 10 years/i).isVisible(),
-      { timeout: 5_000, intervals: [200, 400] },
-    ).toBe(true);
+    await expect(page.getByText(/custom range within 10 years/i)).toBeVisible();
   });
 });
