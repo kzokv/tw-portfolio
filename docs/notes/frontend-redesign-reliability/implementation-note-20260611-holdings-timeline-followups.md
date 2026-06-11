@@ -30,7 +30,7 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 ## Still Open
 
 - Full shared holdings grid extraction is still deferred.
-- Admin/system repair wording separation, admin diagnostics/repair preview, E2E additions, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
+- Admin/system repair wording separation, admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
 
 ## Validation
 
@@ -41,10 +41,12 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - `npx vitest run -c vitest.config.ts test/lib/timelineAxis.test.ts` from `apps/web` passed: 2 tests.
 - `npm run test --prefix apps/web` passed after the report cache-key CI fix: 39 files / 215 tests, then 55 files / 365 tests.
 - `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/card-reorder-aaa.spec.ts` passed after updating the OAuth full-width assertion: 5 tests.
+- `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/dashboard-shared-timeline-aaa.spec.ts` passed: 1 test.
+- `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/reports-performance-timeline-aaa.spec.ts tests/e2e/specs/portfolio-ticker-followups-aaa.spec.ts` passed: 3 tests.
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` passed: 25 tests.
 - Focused ESLint passed for changed TS/TSX files, including API report/public-share services, shared types, holdings settings, Dashboard, Portfolio, Reports, Ticker, public share, and focused tests.
 - `git diff --check` passed.
 
 ## Validation Caveat
 
-Earlier component spec hangs were resolved by stabilizing holdings column-settings defaults and suppressing value-equivalent state writes. The focused component group now passes, but the full eight-suite repo gate, E2E additions, CI, live Vakwen Dev validation, and post-deploy Chrome validation are still pending. Existing non-failing warnings remain in focused web tests: React `act`, Radix SSR/useLayoutEffect, and Recharts zero-size warnings.
+Earlier component spec hangs were resolved by stabilizing holdings column-settings defaults and suppressing value-equivalent state writes. The focused component and new focused E2E groups now pass, but the full eight-suite repo gate, CI for the latest pushed head, live Vakwen Dev validation, and post-deploy Chrome validation are still pending. Existing non-failing warnings remain in focused web tests: React `act`, Radix SSR/useLayoutEffect, and Recharts zero-size warnings.

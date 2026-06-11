@@ -299,6 +299,7 @@ export function HoldingsTable({
               <span className="sr-only">{dict.holdings.displayModeLabel}</span>
               <ToggleGroup
                 type="single"
+                aria-label={dict.holdings.displayModeLabel}
                 value={displayMode}
                 onValueChange={(value) => {
                   if (isHoldingsDisplayMode(value)) setDisplayMode(value);
@@ -408,6 +409,7 @@ export function HoldingsTable({
                 <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
                 <ToggleGroup
                   type="single"
+                  aria-label={dict.dashboardHome.allocationBasisLabel}
                   value={effectiveAllocationBasis}
                   onValueChange={(value) => {
                     if (isHoldingAllocationBasis(value)) setEffectiveAllocationBasis(value);

@@ -11,3 +11,9 @@ AAA E2E specs must keep raw Playwright assertions out of the `test(...)` body. P
 Do not move conditional assertion branches into the test body to satisfy a one-off scenario. If a scenario needs optional UI handling, put the conditional locator checks in a helper outside `test(...)`, then call that helper from the Assert phase.
 
 **Why:** KZO-225 Phase 3 added AI connector and AI Inbox E2E specs. Lint correctly rejected direct `expect(...)` calls and conditional checks inside the spec bodies; moving those checks into helpers preserved the AAA shape and kept the rule enforceable.
+
+## Assert Stable UI Contracts, Not Fixture-Dependent Data
+
+For focused browser coverage of configurable dashboard/reporting surfaces, assert stable controls, selected states, URL state, and honest empty/unavailable states before asserting data-dependent charts or populated rows. Memory/OAuth E2E fixtures can have user preferences or sparse snapshot data that legitimately hide optional columns or render no-chart states.
+
+**Why:** Frontend redesign reliability follow-up tests initially forced Dashboard holdings columns and Reports charts to be visible. The product behavior was correct, but OAuth user column preferences and memory snapshot scarcity made those assertions fixture-dependent. The stable checks are timeline selected-state mirroring, Portfolio style switching, Reports chart-or-no-snapshot state, and Ticker custom range URL/error behavior.

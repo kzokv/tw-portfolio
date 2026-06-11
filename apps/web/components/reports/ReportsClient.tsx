@@ -1482,7 +1482,7 @@ function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocu
 }
 
 function formatExactAmountInline(dict: AppDictionary, amount: string): string {
-  return (dict.dashboardHome.exactAmountInline ?? "Exact {amount}").replace("{amount}", amount);
+  return dict.dashboardHome.exactAmountInline.replace("{amount}", amount);
 }
 
 function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; locale: LocaleCode; rows: ReportHoldingRowDto[] }) {

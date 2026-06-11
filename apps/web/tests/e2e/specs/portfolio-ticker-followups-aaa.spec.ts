@@ -1,0 +1,79 @@
+import { expect } from "@playwright/test";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
+
+test.describe("portfolio and ticker follow-up controls", () => {
+  test("[portfolio-style-A]: holdings style switches between Portfolio Holdings and Dashboard Top Holdings", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.setViewport(1440, 960);
+    await appShell.actions.navigateToRoute("/portfolio");
+    await appShell.assert.appIsReady();
+
+    const styleControl = page.getByTestId("portfolio-holdings-style-control");
+    await styleControl.waitFor({ state: "visible" });
+
+    await appShell.assert.mxAssertEqual(
+      await styleControl.getByTestId("portfolio-holdings-style-portfolio").getAttribute("data-state"),
+      "on",
+      "Portfolio Holdings is the default style",
+    );
+    await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
+
+    await styleControl.getByTestId("portfolio-holdings-style-dashboard").click();
+    await expect.poll(
+      async () => styleControl.getByTestId("portfolio-holdings-style-dashboard").getAttribute("data-state"),
+      { timeout: 5_000, intervals: [200, 400] },
+    ).toBe("on");
+    await page.getByTestId("dashboard-holdings-preview").waitFor({ state: "visible" });
+
+    await styleControl.getByTestId("portfolio-holdings-style-portfolio").click();
+    await expect.poll(
+      async () => styleControl.getByTestId("portfolio-holdings-style-portfolio").getAttribute("data-state"),
+      { timeout: 5_000, intervals: [200, 400] },
+    ).toBe("on");
+    await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
+  });
+
+  test("[ticker-range-A]: custom ticker range writes URL state and rejects ranges over ten years", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.setViewport(1440, 960);
+    await appShell.actions.navigateToRoute("/tickers/2330");
+    await appShell.assert.appIsReady();
+
+    const rangeControls = page.getByTestId("ticker-chart-range-controls");
+    await rangeControls.waitFor({ state: "visible" });
+    await rangeControls.getByRole("button", { name: "Custom" }).click();
+
+    const customRange = page.getByTestId("ticker-chart-custom-range");
+    await customRange.waitFor({ state: "visible" });
+    await customRange.getByLabel("Start date").fill("2025-01-01");
+    await customRange.getByLabel("End date").fill("2025-06-30");
+    await customRange.getByRole("button", { name: "Apply" }).click();
+
+    await expect.poll(
+      async () => new URL(page.url()).searchParams.get("chartRange"),
+      { timeout: 5_000, intervals: [200, 400] },
+    ).toBe("CUSTOM");
+    await appShell.assert.mxAssertEqual(
+      new URL(page.url()).searchParams.get("chartStart"),
+      "2025-01-01",
+      "custom chart start is reflected in the URL",
+    );
+    await appShell.assert.mxAssertEqual(
+      new URL(page.url()).searchParams.get("chartEnd"),
+      "2025-06-30",
+      "custom chart end is reflected in the URL",
+    );
+
+    await customRange.getByLabel("Start date").fill("2010-01-01");
+    await customRange.getByLabel("End date").fill("2025-06-30");
+    await customRange.getByRole("button", { name: "Apply" }).click();
+    await expect.poll(
+      async () => page.getByText(/custom range within 10 years/i).isVisible(),
+      { timeout: 5_000, intervals: [200, 400] },
+    ).toBe(true);
+  });
+});

@@ -44,6 +44,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         allocationBasisCostBasis: "Cost basis",
         allocationBasisMarketValue: "Market value",
         allocationFallbackLabel: "Cost basis fallback",
+        exactAmountInline: "Exact {amount}",
         latestAvailableSnapshot: "Latest available snapshot",
         requestedAsOfLabel: "Requested {date}",
       },

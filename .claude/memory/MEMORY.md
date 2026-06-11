@@ -95,6 +95,7 @@
 - 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — All-market formal trend DTOs must filter snapshot dates missing active `(accountId, marketCode, ticker)` contributors and surface missing/stale snapshot diagnostics instead of plotting partial all-market totals as complete.
 - 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — Formal trend DTOs must expose server-resolved inclusive range bounds, and chart x-axes must render those bounds instead of inferring timelines from the first available snapshot point.
 - 2026-06-11 addendum — `react-persisted-ui-settings-stability.md` — Persisted React UI settings hooks must use stable default arrays/objects and skip value-equivalent state writes; fresh defaults in dependencies can create render loops and slow client rendering.
+- 2026-06-11 addendum — `e2e-aaa-guardrails.md` — Focused browser tests for configurable reporting/dashboard surfaces should assert stable controls, selected state, URL state, and honest empty/unavailable UI, not fixture-dependent populated charts/rows or user-preference-controlled optional columns.
 
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.
