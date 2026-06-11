@@ -56,6 +56,7 @@ const holdings: DashboardOverviewHoldingDto[] = [
     accountId: "acc-1",
     accountName: "Main Brokerage",
     ticker: "2330",
+    instrumentName: "Taiwan Semiconductor Manufacturing",
     marketCode: "TW",
     quantity: 2_000,
     costBasisAmount: 1_185_472,
@@ -365,6 +366,7 @@ describe("dashboard components", () => {
     expect(html).toContain("Price (AUD)");
     expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
+    expect(html).toContain("Taiwan Semiconductor Manufacturing");
     expect(html).toContain("AUD 60K");
     expect(html).toContain("A$60,000");
     expect(html).toContain("+AUD 123");

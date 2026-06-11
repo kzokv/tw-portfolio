@@ -156,6 +156,15 @@ function buildOverviewHoldings(
     account.id,
     marketCodeFor(account.defaultCurrency),
   ]));
+  const instrumentNameByKey = new Map<string, string>();
+  for (const instrument of store.marketData.instruments) {
+    const name = instrument.name?.trim();
+    if (!name) continue;
+    instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!instrumentNameByKey.has(instrument.ticker)) {
+      instrumentNameByKey.set(instrument.ticker, name);
+    }
+  }
   const recentPostedDividends = new Map(
     dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.postedAt]),
   );
@@ -168,10 +177,12 @@ function buildOverviewHoldings(
       const market = resolveHoldingMarketCode(store, holding, accountMarket);
       const quote = quoteByKey.get(quoteSnapshotKey(holding.ticker, market)) ?? quoteByKey.get(holding.ticker);
       const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
+      const instrumentName = instrumentNameByKey.get(`${market}:${holding.ticker}`) ?? instrumentNameByKey.get(holding.ticker) ?? null;
       return {
         accountId: holding.accountId,
         accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
         ticker: holding.ticker,
+        instrumentName,
         marketCode: market,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
@@ -214,6 +225,7 @@ export function buildOverviewHoldingGroups(
       accountId: holding.accountId,
       accountName: holding.accountName,
       ticker: holding.ticker,
+      instrumentName: holding.instrumentName ?? null,
       marketCode,
       quantity: holding.quantity,
       costBasisAmount: holding.costBasisAmount,
@@ -244,6 +256,7 @@ export function buildOverviewHoldingGroups(
 
     const existing = groups.get(groupKey);
     if (existing) {
+      existing.instrumentName = existing.instrumentName ?? child.instrumentName ?? null;
       existing.quantity += child.quantity;
       existing.costBasisAmount += child.costBasisAmount;
       existing.marketValueAmount = existing.marketValueAmount === null || child.marketValueAmount === null
@@ -270,6 +283,7 @@ export function buildOverviewHoldingGroups(
 
     groups.set(groupKey, {
       ticker: child.ticker,
+      instrumentName: child.instrumentName ?? null,
       marketCode,
       quantity: child.quantity,
       costBasisAmount: child.costBasisAmount,

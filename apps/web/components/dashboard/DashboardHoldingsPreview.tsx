@@ -609,6 +609,9 @@ function DashboardHoldingRow({
           >
             {group.ticker}
           </Link>
+          {group.instrumentName ? (
+            <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p>
+          ) : null}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(group.quantity, locale, 2) })}</span>
             <span>{formatTopHoldingsMessage(dict.reports.accountAbbrev, { count: formatNumber(group.accountCount, locale) })}</span>
@@ -880,6 +883,7 @@ function renderDashboardGroupCell({
             >
               {group.ticker}
             </Link>
+            {group.instrumentName ? <span className="break-words text-xs text-muted-foreground">{group.instrumentName}</span> : null}
             <span className="text-xs text-muted-foreground">{group.marketCode}</span>
           </div>
         </div>

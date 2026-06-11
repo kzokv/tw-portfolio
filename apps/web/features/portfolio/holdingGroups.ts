@@ -129,6 +129,7 @@ export function buildHoldingGroupsFromHoldings({
 
   const built = Array.from(groups.values()).map((children) => {
     const sortedChildren = sortChildren(children, accountsById);
+    const instrumentName = sortedChildren.find((child) => child.instrumentName?.trim())?.instrumentName ?? null;
     const quantity = sortedChildren.reduce((sum, child) => sum + child.quantity, 0);
     const costBasisAmount = sortedChildren.reduce((sum, child) => sum + child.costBasisAmount, 0);
     const marketValueAmount = sumNullable(sortedChildren.map((child) => child.marketValueAmount));
@@ -147,6 +148,7 @@ export function buildHoldingGroupsFromHoldings({
 
     return {
       ticker: sortedChildren[0]!.ticker,
+      instrumentName,
       marketCode: sortedChildren[0]!.marketCode,
       currency: sortedChildren[0]!.currency,
       quantity,
