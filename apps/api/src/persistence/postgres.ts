@@ -9968,7 +9968,8 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]> {
+  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<BookedTradeEvent[]> {
+    const params = marketCode ? [userId, accountId, ticker, marketCode] : [userId, accountId, ticker];
     const tradeResult = await this.pool.query(
       `SELECT te.id, te.user_id, te.account_id, te.ticker,
               te.market_code, te.instrument_type, te.trade_type, te.quantity,
@@ -9985,8 +9986,9 @@ export class PostgresPersistence implements Persistence {
        FROM trade_events AS te
        JOIN trade_fee_policy_snapshots AS s ON s.id = te.fee_policy_snapshot_id
        WHERE te.user_id = $1 AND te.account_id = $2 AND te.ticker = $3
+         ${marketCode ? "AND te.market_code = $4" : ""}
        ORDER BY te.trade_date ASC, te.booking_sequence ASC`,
-      [userId, accountId, ticker],
+      params,
     );
 
     if (tradeResult.rows.length === 0) return [];
@@ -10008,8 +10010,23 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
-  async deleteLotsForAccountTicker(_userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
     // lots table has no user_id column — accountId provides tenant scoping
+    if (marketCode) {
+      const result = await this.pool.query(
+        `DELETE FROM lots
+         WHERE account_id = $2
+           AND ticker = $3
+           AND id IN (
+             SELECT 'lot-' || id
+             FROM trade_events
+             WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+           )`,
+        [userId, accountId, ticker, marketCode],
+      );
+      return result.rowCount ?? 0;
+    }
+
     const result = await this.pool.query(
       `DELETE FROM lots WHERE account_id = $1 AND ticker = $2`,
       [accountId, ticker],
@@ -10017,7 +10034,28 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
-  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
+    if (marketCode) {
+      const result = await this.pool.query(
+        `DELETE FROM lot_allocations
+         WHERE user_id = $1
+           AND account_id = $2
+           AND ticker = $3
+           AND (
+             trade_event_id IN (
+               SELECT id FROM trade_events
+               WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+             )
+             OR lot_id IN (
+               SELECT 'lot-' || id FROM trade_events
+               WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
+             )
+           )`,
+        [userId, accountId, ticker, marketCode],
+      );
+      return result.rowCount ?? 0;
+    }
+
     const result = await this.pool.query(
       `DELETE FROM lot_allocations WHERE user_id = $1 AND account_id = $2 AND ticker = $3`,
       [userId, accountId, ticker],
@@ -10025,7 +10063,7 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
-  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
     const result = await this.pool.query(
       `DELETE FROM cash_ledger_entries
        WHERE user_id = $1
@@ -10034,8 +10072,9 @@ export class PostgresPersistence implements Persistence {
          AND related_trade_event_id IN (
            SELECT id FROM trade_events
            WHERE user_id = $1 AND account_id = $2 AND ticker = $3
+             ${marketCode ? "AND market_code = $4" : ""}
          )`,
-      [userId, accountId, ticker],
+      marketCode ? [userId, accountId, ticker, marketCode] : [userId, accountId, ticker],
     );
     return result.rowCount ?? 0;
   }

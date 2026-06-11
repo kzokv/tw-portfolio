@@ -3785,38 +3785,53 @@ export class MemoryPersistence implements Persistence {
     return { accountId: trade.accountId, ticker: trade.ticker };
   }
 
-  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]> {
+  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<BookedTradeEvent[]> {
     const store = await this.loadStore(userId);
     return store.accounting.facts.tradeEvents
-      .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
+      .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
       .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
   }
 
-  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
     const store = await this.loadStore(userId);
+    const scopedLotIds = marketCode
+      ? new Set(
+          store.accounting.facts.tradeEvents
+            .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
+            .map((t) => `lot-${t.id}`),
+        )
+      : null;
     const before = store.accounting.projections.lots.length;
     store.accounting.projections.lots = store.accounting.projections.lots.filter(
-      (l) => !(l.accountId === accountId && l.ticker === ticker),
+      (l) => !(l.accountId === accountId && l.ticker === ticker && (!scopedLotIds || scopedLotIds.has(l.id))),
     );
     rebuildHoldingProjection(store);
     return before - store.accounting.projections.lots.length;
   }
 
-  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
     const store = await this.loadStore(userId);
+    const scopedTradeEventIds = marketCode
+      ? new Set(
+          store.accounting.facts.tradeEvents
+            .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
+            .map((t) => t.id),
+        )
+      : null;
     const before = store.accounting.projections.lotAllocations.length;
     store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
-      (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker),
+      (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker
+        && (!scopedTradeEventIds || scopedTradeEventIds.has(a.tradeEventId) || scopedTradeEventIds.has(a.lotId.replace(/^lot-/, "")))),
     );
     return before - store.accounting.projections.lotAllocations.length;
   }
 
-  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number> {
     const store = await this.loadStore(userId);
     // Collect trade event IDs for the given account+ticker
     const tradeEventIds = new Set(
       store.accounting.facts.tradeEvents
-        .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
+        .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
         .map((t) => t.id),
     );
 

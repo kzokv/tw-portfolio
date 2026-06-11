@@ -402,7 +402,11 @@ export function HoldingsTable({
 
             <div className="flex flex-wrap items-center justify-end gap-2">
               <div data-testid="holdings-filter-columns">
-                <HoldingsColumnSettingsMenu dict={dict} settings={columnSettings} />
+                <HoldingsColumnSettingsMenu
+                  dict={dict}
+                  getColumnLabel={(column) => portfolioColumnLabel(dict, column.id)}
+                  settings={columnSettings}
+                />
               </div>
 
               <div className="min-w-0 overflow-x-auto pb-1">

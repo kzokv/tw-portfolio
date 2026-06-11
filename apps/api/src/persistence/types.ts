@@ -2152,10 +2152,10 @@ export interface Persistence {
   getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null>;
   deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult>;
   updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; ticker: string }>;
-  getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]>;
-  deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
-  deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
-  deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
+  getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<BookedTradeEvent[]>;
+  deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number>;
+  deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number>;
+  deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<number>;
   bulkUpsertLots(userId: string, lots: Lot[]): Promise<void>;
   bulkInsertLotAllocations(userId: string, allocations: LotAllocationProjection[]): Promise<void>;
   bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;
