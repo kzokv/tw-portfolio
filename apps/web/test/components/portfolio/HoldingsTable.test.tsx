@@ -2,7 +2,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
+import { useHoldingsColumnSettings, type HoldingsGridColumnDefinition } from "../../../components/holdings/HoldingsColumnSettings";
 import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
+import { getJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
 
 vi.mock("../../../lib/api", () => ({
@@ -13,6 +15,12 @@ vi.mock("../../../lib/api", () => ({
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const dict = getDictionary("en");
+type TestColumn = "ticker" | "marketValue";
+
+const testColumns: Array<HoldingsGridColumnDefinition<TestColumn>> = [
+  { id: "ticker", label: "Ticker", defaultWidth: 120, canHide: false },
+  { id: "marketValue", label: "Market Value", defaultWidth: 160, align: "right" },
+];
 
 const baseGroup: DashboardOverviewHoldingGroupDto = {
   ticker: "AAPL",
@@ -66,12 +74,38 @@ function renderTable(holdingGroups: DashboardOverviewHoldingGroupDto[], options:
   return { container, root };
 }
 
+function ColumnSettingsHarness() {
+  const settings = useHoldingsColumnSettings<TestColumn>({
+    columns: testColumns,
+    contextKey: "portfolio",
+  });
+  return (
+    <div>
+      <p data-testid="visible-columns">{settings.visibleColumns.join(",")}</p>
+      <button type="button" data-testid="toggle-market-value" onClick={() => settings.toggleColumn("marketValue")}>
+        Toggle market value
+      </button>
+    </div>
+  );
+}
+
+function renderColumnSettingsHarness() {
+  const testContainer = document.createElement("div");
+  document.body.appendChild(testContainer);
+  const testRoot = createRoot(testContainer);
+  act(() => {
+    testRoot.render(<ColumnSettingsHarness />);
+  });
+  return { container: testContainer, root: testRoot };
+}
+
 describe("HoldingsTable", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getJson).mockResolvedValue({ preferences: {} });
   });
 
   afterEach(() => {
@@ -130,6 +164,45 @@ describe("HoldingsTable", () => {
 
     expect(groupedMode?.getAttribute("data-state")).toBe("on");
     expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
+  });
+
+  it("does not let late preference hydration overwrite local column edits", async () => {
+    let resolvePreferences: (value: unknown) => void = () => undefined;
+    vi.mocked(getJson).mockReturnValueOnce(new Promise((resolve) => {
+      resolvePreferences = resolve;
+    }) as ReturnType<typeof getJson>);
+
+    const rendered = renderColumnSettingsHarness();
+    root = rendered.root;
+    container = rendered.container;
+
+    expect(container.querySelector("[data-testid='visible-columns']")?.textContent).toContain("marketValue");
+
+    await act(async () => {
+      container?.querySelector("[data-testid='toggle-market-value']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='visible-columns']")?.textContent).not.toContain("marketValue");
+
+    await act(async () => {
+      resolvePreferences({
+        preferences: {
+          holdingsTableSettings: {
+            version: 1,
+            contexts: {
+              portfolio: {
+                columnOrder: ["ticker", "marketValue"],
+                columnWidths: {},
+                hiddenColumns: [],
+                layoutStyle: "portfolio",
+              },
+            },
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='visible-columns']")?.textContent).not.toContain("marketValue");
   });
 
   it("keeps mixed-status tickers visible when account-row status filters match a child row", () => {

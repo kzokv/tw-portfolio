@@ -29,6 +29,7 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - Fixed the post-audit holdings grid gaps: Dashboard holdings now show visible exact reporting-currency market value and daily-change sublines beside compact values, Dashboard/Reports holdings tables switch to desktop table mode only at `lg+`, and every Reports holdings table defaults to a sticky ticker column.
 - Replaced the per-contributor dashboard snapshot coverage daily-bar lookup with the existing batched `(ticker, marketCode)` reader to avoid N+1 historical-bar queries on chart requests.
 - `/si-review` found the existing reporting DTO boundary rule as the correct home for the new durable lesson; `/si-promote` added a rule requiring multi-contributor completeness checks to prefer market-qualified batched readers when available.
+- Resolved the latest Codex review feedback by preventing a late `/user-preferences` holdings-table hydration response from overwriting local optimistic column edits.
 
 ## Still Open
 
@@ -49,6 +50,7 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` passed: 25 tests.
 - `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` passed after adding a regression that asserts the batched daily-bar reader is used once for all-market snapshot coverage: 23 tests.
 - `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` passed after adding exact-inline, `lg+` breakpoint, and sticky Reports ticker-column assertions: 46 tests.
+- `npx vitest run test/components/portfolio/HoldingsTable.test.tsx` from `apps/web` passed after adding the late preference-hydration regression: 4 tests.
 - Focused ESLint passed for the post-audit Dashboard, Reports, dashboard reporting currency, and focused test files.
 - `npx tsc --noEmit -p apps/web/tsconfig.json` and `npx tsc --noEmit -p apps/api/tsconfig.json` passed after the post-audit fixes.
 - Focused ESLint passed for changed TS/TSX files, including API report/public-share services, shared types, holdings settings, Dashboard, Portfolio, Reports, Ticker, public share, and focused tests.

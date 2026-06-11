@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type {
   HoldingsTableContextPreferenceDto,
   HoldingsTableLayoutStyle,
@@ -119,6 +119,12 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
   const [settings, setSettings] = useState<ColumnRuntimeSettings<ColumnId>>(defaultSettings);
   const [settingsError, setSettingsError] = useState("");
+  const hasLocalEditRef = useRef(false);
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     setSettings((current) => {
@@ -134,6 +140,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         if (cancelled) return;
         const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
         const nextContexts = parsed.success ? parsed.data.contexts : {};
+        if (hasLocalEditRef.current) {
+          setContexts((current) => ({
+            ...nextContexts,
+            ...current,
+            [contextKey]: serializeSettings(settingsRef.current),
+          }));
+          return;
+        }
         setContexts(nextContexts);
         setSettings((current) => {
           const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns);
@@ -156,6 +170,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   );
 
   function persist(next: ColumnRuntimeSettings<ColumnId>) {
+    hasLocalEditRef.current = true;
     const serialized = serializeSettings(next);
     const mergedContexts = { ...contexts, [contextKey]: serialized };
     setContexts(mergedContexts);
