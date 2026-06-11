@@ -137,6 +137,12 @@ describe("backfill handler trigger branching", () => {
       fromDate: "2026-03-30",
       trigger: "daily_refresh",
     });
+    const repairOrder = deps.enqueueSnapshotRepair.mock.invocationCallOrder[0] ?? 0;
+    const dividendFetchOrder = deps.provider.fetchDividends.mock.invocationCallOrder[0] ?? 0;
+    const poolWriteOrders = deps.pool.query.mock.invocationCallOrder;
+    expect(poolWriteOrders).toHaveLength(2);
+    expect(repairOrder).toBeGreaterThan(dividendFetchOrder);
+    expect(repairOrder).toBeGreaterThan(poolWriteOrders[1] ?? 0);
     expect(deps.eventBus.publishEvent).toHaveBeenCalledTimes(2);
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-1", "daily_refresh_complete", {
       ticker: "2330",

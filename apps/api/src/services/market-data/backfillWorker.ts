@@ -451,6 +451,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       }
 
       let barsCount = 0;
+      let snapshotRepairFromDate: string | null = null;
       if (includeBars) {
         const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
         log.info(
@@ -471,13 +472,8 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
         // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
-        if (barsCount > 0 && enqueueSnapshotRepair) {
-          const fromDate = bars.reduce((min, bar) => bar.barDate < min ? bar.barDate : min, bars[0].barDate);
-          try {
-            await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate, trigger });
-          } catch (error) {
-            log.warn({ err: error, ticker, marketCode: market, fromDate, trigger }, "snapshot_repair_enqueue_failed");
-          }
+        if (barsCount > 0 && bars.length > 0) {
+          snapshotRepairFromDate = bars.reduce((min, bar) => bar.barDate < min ? bar.barDate : min, bars[0].barDate);
         }
         if (onBarsUpserted) {
           for (const [upsertedMarket, dates] of collectDistinctBarDatesByMarket(bars)) {
@@ -532,6 +528,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             errorMessage: divErr instanceof Error ? divErr.message : String(divErr),
             context: { ticker, marketCode: market, phase: "dividends" },
           });
+        }
+      }
+
+      if (snapshotRepairFromDate && enqueueSnapshotRepair) {
+        try {
+          await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger });
+        } catch (error) {
+          log.warn({ err: error, ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger }, "snapshot_repair_enqueue_failed");
         }
       }
 
