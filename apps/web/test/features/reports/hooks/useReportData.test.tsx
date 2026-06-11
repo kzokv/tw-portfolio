@@ -218,22 +218,32 @@ describe("useReportData", () => {
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
   });
 
-  it("refreshes without restoring cached reports before the backend-resolved currency is known", async () => {
+  it("restores a matching cached report while refreshing when SSR data is absent", async () => {
     const cached = buildReport("Cached report", "2026-06-08");
     const refreshed = buildReport("Fresh report", "2026-06-09");
+    let resolveRefresh: (report: DailyReviewReportDto) => void = () => {};
+    const refreshPromise = new Promise<DailyReviewReportDto>((resolve) => {
+      resolveRefresh = resolve;
+    });
     writeRouteDtoCache(reportCacheKey(), cached);
-    vi.mocked(fetchReport).mockResolvedValue(refreshed);
+    vi.mocked(fetchReport).mockReturnValue(refreshPromise);
 
     act(() => {
       flushSync(() => {
         root.render(<Harness contextRefreshSignal={0} initialReport={null} />);
       });
-      expect(result.data).toBeNull();
-      expect(result.isBootstrapping).toBe(true);
-      expect(result.restoredFromCache).toBe(false);
     });
 
     await act(async () => {});
+
+    expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Cached report");
+    expect(result.isBootstrapping).toBe(false);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {
+      resolveRefresh(refreshed);
+      await refreshPromise;
+    });
 
     expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Fresh report");
     expect(result.isBootstrapping).toBe(false);
