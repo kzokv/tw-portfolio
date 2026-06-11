@@ -73,7 +73,7 @@ Before starting this follow-up implementation, check current Codex review feedba
 - [x] Add API tests for ticker chart range/custom date behavior, available/truncated metadata, and 10-year custom range validation.
 - [x] Run `/aaa` or equivalent E2E planning for new user-facing flows.
 - [x] Add or update E2E coverage for Dashboard shared timeline controls, Reports Performance Trend timeline controls, holdings table responsiveness/columns, Portfolio table style/details behavior, and Ticker custom range controls.
-- [ ] Validate in the existing Chrome session against Vakwen Dev after deployment/branch availability: Dashboard, Portfolio, Reports, Ticker Overview, and representative public share view.
+- [ ] Validate the remaining surfaces in the existing Chrome session against Vakwen Dev after deployment/branch availability: Portfolio, Reports, Ticker Overview, and a representative public share view. Dashboard post-deploy validation is recorded in the June 11 gap note.
 - [ ] Run the smallest relevant tests first, then broader regression gates. Only claim all tests pass if all eight repo-defined suites pass. Focused checks listed below have run; full eight-suite gate remains pending.
 
 ## Status Update — 2026-06-11
@@ -94,7 +94,7 @@ Delivered in this pass:
 Still open or partial:
 
 - Full reusable shared holdings grid extraction remains deferred/open, matching the original scope note.
-- Admin/system repair wording separation, admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
+- Richer admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
 
 Validation so far:
 
@@ -112,6 +112,7 @@ Validation so far:
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` — 25 tests passed.
 - `git diff --check` — passed.
 - Component spec hangs were fixed by stabilizing holdings column-settings defaults and skipping value-equal settings writes.
+- 2026-06-12 post-audit fixes closed concrete delivery gaps found by the frontend/backend review team: Dashboard holdings exact-inline market value and daily-change sublines are visible beside compact values, Dashboard/Reports holdings tables now use card rows below `lg` and desktop tables at `lg+`, Reports holdings tables default to sticky ticker columns, and dashboard snapshot coverage uses the batched daily-bar reader instead of one query per contributor. Focused validation passed: `npx eslint apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/reports/ReportsClient.tsx apps/web/test/features/dashboard/components.test.tsx apps/web/test/components/reports/ReportsClient.test.tsx apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts`; `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` (`23` tests); `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` (`46` tests); `npx tsc --noEmit -p apps/web/tsconfig.json`; `npx tsc --noEmit -p apps/api/tsconfig.json`; `git diff --check`.
 
 ## Acceptance Checks
 

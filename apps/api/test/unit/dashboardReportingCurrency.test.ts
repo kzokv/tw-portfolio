@@ -36,6 +36,11 @@ function makeFakePersistence(opts: {
   fxRates?: FakeFxRecord[];
   aggregated?: AggregatedSnapshotPoint[];
   dailyBars?: DailyBar[];
+  dailyBarReadStats?: {
+    batchCalls: number;
+    batchPairCounts: number[];
+    singleCalls: number;
+  };
 }): Persistence {
   const fx = opts.fxRates ?? [];
   const aggregated = opts.aggregated ?? [];
@@ -63,14 +68,42 @@ function makeFakePersistence(opts: {
       }
       return result;
     },
-    getDailyBarsForTickerMarket: async (ticker: string, marketCode: string, startDate: string, endDate: string) =>
-      dailyBars
+    getDailyBarsForTickerMarket: async (ticker: string, marketCode: string, startDate: string, endDate: string) => {
+      if (opts.dailyBarReadStats) {
+        opts.dailyBarReadStats.singleCalls += 1;
+      }
+      return dailyBars
         .filter((bar) =>
           bar.ticker === ticker &&
           ((bar as DailyBar & { marketCode?: string }).marketCode ?? marketCode) === marketCode &&
           bar.barDate >= startDate &&
           bar.barDate <= endDate)
-        .sort((a, b) => a.barDate.localeCompare(b.barDate)),
+        .sort((a, b) => a.barDate.localeCompare(b.barDate));
+    },
+    getDailyBarsForTickerMarkets: async (
+      pairs: readonly { ticker: string; marketCode: string }[],
+      startDate: string,
+      endDate: string,
+    ) => {
+      if (opts.dailyBarReadStats) {
+        opts.dailyBarReadStats.batchCalls += 1;
+        opts.dailyBarReadStats.batchPairCounts.push(pairs.length);
+      }
+      const result = new Map<string, DailyBar[]>();
+      for (const pair of pairs) {
+        result.set(
+          `${pair.ticker}\0${pair.marketCode}`,
+          dailyBars
+            .filter((bar) =>
+              bar.ticker === pair.ticker &&
+              ((bar as DailyBar & { marketCode?: string }).marketCode ?? pair.marketCode) === pair.marketCode &&
+              bar.barDate >= startDate &&
+              bar.barDate <= endDate)
+            .sort((a, b) => a.barDate.localeCompare(b.barDate)),
+        );
+      }
+      return result;
+    },
   } as unknown as Persistence;
 }
 
@@ -768,7 +801,9 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
   });
 
   it("does not publish a partial latest all-market snapshot as the portfolio trend total", async () => {
+    const dailyBarReadStats = { batchCalls: 0, batchPairCounts: [] as number[], singleCalls: 0 };
     const persistence = makeFakePersistence({
+      dailyBarReadStats,
       fxRates: [
         { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
         { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
@@ -878,6 +913,11 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       expectedLatestValuationDate: "2026-06-10",
       staleSinceDate: "2026-06-09",
       knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    });
+    expect(dailyBarReadStats).toEqual({
+      batchCalls: 1,
+      batchPairCounts: [3],
+      singleCalls: 0,
     });
   });
 
