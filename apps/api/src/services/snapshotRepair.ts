@@ -65,6 +65,9 @@ export function createSnapshotRepairHandler(deps: {
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }) {
   return async (jobs: JobWithMetadata<SnapshotRepairJobData>[]): Promise<void> => {
+    let failedJobs = 0;
+    let totalFailedScopes = 0;
+
     for (const job of jobs) {
       const data = SnapshotRepairJobDataSchema.parse(job.data);
       const scopes = await deps.persistence.listHoldingSnapshotRepairScopesForTickerMarket(data.ticker, data.marketCode);
@@ -110,6 +113,15 @@ export function createSnapshotRepairHandler(deps: {
         },
         "snapshot_repair_complete",
       );
+
+      if (failedScopes > 0) {
+        failedJobs++;
+        totalFailedScopes += failedScopes;
+      }
+    }
+
+    if (totalFailedScopes > 0) {
+      throw new Error(`Snapshot repair failed for ${totalFailedScopes} scope(s) across ${failedJobs} job(s)`);
     }
   };
 }

@@ -108,6 +108,63 @@ describe("snapshot repair worker", () => {
       "snapshot_repair_complete",
     );
   });
+
+  it("rejects the repair job after logging failed scopes so pg-boss can retry", async () => {
+    const persistence = {
+      listHoldingSnapshotRepairScopesForTickerMarket: vi.fn().mockResolvedValue([
+        { userId: "user-1", accountId: "acc-ok", ticker: "2330", marketCode: "TW" },
+        { userId: "user-1", accountId: "acc-fail", ticker: "2330", marketCode: "TW" },
+      ]),
+      listHoldingSnapshotRepairTargets: vi.fn(),
+      getSnapshotGenerationInputs: vi.fn().mockImplementation((_userId: string, options: { accountId: string }) => {
+        if (options.accountId === "acc-fail") {
+          return Promise.reject(new Error("transient snapshot write failure"));
+        }
+        return Promise.resolve({
+          trades: [
+            {
+              id: "trade-1",
+              accountId: "acc-ok",
+              ticker: "2330",
+              type: "BUY",
+              quantity: 10,
+              unitPrice: 100,
+              tradeDate: "2026-05-28",
+              commissionAmount: 0,
+              taxAmount: 0,
+              priceCurrency: "TWD",
+              marketCode: "TW",
+            },
+          ],
+          postedDividends: [],
+        });
+      }),
+      deleteHoldingSnapshotsForTicker: vi.fn().mockResolvedValue(1),
+      getDailyBarsForTickerMarket: vi.fn().mockResolvedValue([
+        makeBar("2026-05-28", 100),
+        makeBar("2026-05-29", 105),
+      ]),
+      bulkUpsertHoldingSnapshots: vi.fn().mockResolvedValue(undefined),
+    };
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const handler = createSnapshotRepairHandler({ persistence, log });
+
+    await expect(handler([createRepairJob({
+      ticker: "2330",
+      marketCode: "TW",
+      fromDate: "2026-05-29",
+      trigger: "repair",
+    })])).rejects.toThrow("Snapshot repair failed for 1 scope(s) across 1 job(s)");
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc-fail", ticker: "2330", marketCode: "TW" }),
+      "snapshot_repair_scope_failed",
+    );
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ ticker: "2330", marketCode: "TW", repairedScopes: 1, failedScopes: 1 }),
+      "snapshot_repair_complete",
+    );
+  });
 });
 
 describe("snapshot repair scan worker", () => {
