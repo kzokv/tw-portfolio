@@ -104,6 +104,7 @@ Validation so far:
 - `npx vitest run -c vitest.config.ts test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/TickerHistoryClient.test.tsx test/app/share/publicSharePage.test.tsx` from `apps/web` — 22 tests passed; existing React `act` warning remains in one ticker test.
 - `npx vitest run -c vitest.config.ts test/components/portfolio/HoldingsTable.test.tsx test/components/portfolio/PortfolioClient.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/components.test.tsx` from `apps/web` — 50 tests passed; existing Recharts zero-size, React `act`, and Radix SSR warnings remain.
 - `npx vitest run -c vitest.config.ts test/lib/timelineAxis.test.ts` from `apps/web` — 2 tests passed.
+- `npm run test --prefix apps/web` — passed after fixing report route-cache currency partitioning: 39 files / 215 tests, then 55 files / 365 tests. Existing non-failing Recharts zero-size, React `act`, Radix SSR/useLayoutEffect, and admin act-environment warnings remain.
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` — 25 tests passed.
 - `git diff --check` — passed.
 - Component spec hangs were fixed by stabilizing holdings column-settings defaults and skipping value-equal settings writes.

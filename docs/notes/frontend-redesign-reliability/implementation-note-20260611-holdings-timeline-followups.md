@@ -39,6 +39,7 @@ This note records the implementation state for `scope-todo-202606111428-holdings
 - `npx vitest run -c vitest.config.ts test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/TickerHistoryClient.test.tsx test/app/share/publicSharePage.test.tsx` from `apps/web` passed: 22 tests.
 - `npx vitest run -c vitest.config.ts test/components/portfolio/HoldingsTable.test.tsx test/components/portfolio/PortfolioClient.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/components.test.tsx` from `apps/web` passed: 50 tests.
 - `npx vitest run -c vitest.config.ts test/lib/timelineAxis.test.ts` from `apps/web` passed: 2 tests.
+- `npm run test --prefix apps/web` passed after the report cache-key CI fix: 39 files / 215 tests, then 55 files / 365 tests.
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` passed: 25 tests.
 - Focused ESLint passed for changed TS/TSX files, including API report/public-share services, shared types, holdings settings, Dashboard, Portfolio, Reports, Ticker, public share, and focused tests.
 - `git diff --check` passed.

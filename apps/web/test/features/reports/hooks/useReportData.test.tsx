@@ -109,7 +109,11 @@ function buildReport(
   };
 }
 
-function reportCacheKey(cacheScope = defaultCacheScope, reportState: ReportRouteState = state) {
+function reportCacheKey(
+  cacheScope = defaultCacheScope,
+  reportState: ReportRouteState = state,
+  reportingCurrency: AccountDefaultCurrency = "AUD",
+) {
   return buildRouteDtoCacheKey(
     "reports",
     reportState.tab,
@@ -117,6 +121,7 @@ function reportCacheKey(cacheScope = defaultCacheScope, reportState: ReportRoute
     locale,
     reportState.scope,
     reportState.range,
+    reportingCurrency,
   );
 }
 
@@ -213,7 +218,7 @@ describe("useReportData", () => {
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
   });
 
-  it("restores cached reports after mount instead of during the first render", async () => {
+  it("refreshes without restoring cached reports before the backend-resolved currency is known", async () => {
     const cached = buildReport("Cached report", "2026-06-08");
     const refreshed = buildReport("Fresh report", "2026-06-09");
     writeRouteDtoCache(reportCacheKey(), cached);
@@ -236,7 +241,7 @@ describe("useReportData", () => {
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey())?.payload.suggestions[0]?.title).toBe("Fresh report");
   });
 
-  it("uses the backend-resolved currency from the report DTO without partitioning route state by currency", async () => {
+  it("uses the backend-resolved currency from the report DTO when partitioning route cache state", async () => {
     const audReport = buildReport("Auto AUD seed", "2026-06-08", state, "AUD");
 
     act(() => {
@@ -247,6 +252,7 @@ describe("useReportData", () => {
     const cached = readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, state))?.payload;
     expect(cached?.suggestions[0]?.title).toBe("Auto AUD seed");
     expect(cached?.query.reportingCurrency).toBe("AUD");
+    expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(defaultCacheScope, state, "USD"))).toBeNull();
   });
 
   it("times out initial client refreshes instead of leaving reports bootstrapped forever", async () => {

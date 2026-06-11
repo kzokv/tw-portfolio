@@ -24,17 +24,22 @@ export function useReportData({
   locale: LocaleCode;
   state: ReportRouteState;
 }) {
-  const cacheKey = useMemo(
-    () => buildRouteDtoCacheKey(
+  const buildReportCacheKey = useCallback(
+    (reportingCurrency: string) => buildRouteDtoCacheKey(
       "reports",
       state.tab,
       cacheScope,
       locale,
       state.scope,
       state.range,
-      initialReport?.query.reportingCurrency ?? "unknown",
+      reportingCurrency,
     ),
-    [cacheScope, initialReport?.query.reportingCurrency, locale, state.range, state.scope, state.tab],
+    [cacheScope, locale, state.range, state.scope, state.tab],
+  );
+  const expectedReportingCurrency = initialReport?.query.reportingCurrency ?? null;
+  const cacheKey = useMemo(
+    () => buildReportCacheKey(expectedReportingCurrency ?? "unknown"),
+    [buildReportCacheKey, expectedReportingCurrency],
   );
   const [data, setData] = useState<AnyReportDto | null>(initialReport);
   const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
@@ -55,8 +60,10 @@ export function useReportData({
     setIsRefreshing(true);
     try {
       if (!bypassCache) {
-        const cached = readRouteDtoCache<AnyReportDto>(cacheKey);
-        if (cached && cached.payload.query.reportingCurrency === initialReport?.query.reportingCurrency) {
+        const cached = expectedReportingCurrency
+          ? readRouteDtoCache<AnyReportDto>(buildReportCacheKey(expectedReportingCurrency))
+          : null;
+        if (cached && cached.payload.query.reportingCurrency === expectedReportingCurrency) {
           setData(cached.payload);
           setRestoredFromCache(true);
           setRestoredAt(cached.savedAt);
@@ -65,7 +72,7 @@ export function useReportData({
       const next = await fetchReport(state.tab, state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
       setData(next);
-      writeRouteDtoCache(cacheKey, next);
+      writeRouteDtoCache(buildReportCacheKey(next.query.reportingCurrency), next);
       setErrorMessage("");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
@@ -76,17 +83,19 @@ export function useReportData({
       clearTimeout(timeoutId);
       if (version === requestVersionRef.current) setIsRefreshing(false);
     }
-  }, [cacheKey, state]);
+  }, [buildReportCacheKey, expectedReportingCurrency, state]);
 
   useEffect(() => {
     const shouldUseInitialReport = initialReport !== null
       && contextRefreshSignal === 0
       && initialCacheScopeRef.current === cacheScope
       && reportMatchesState(initialReport, state);
-    const cached = shouldUseInitialReport ? null : readRouteDtoCache<AnyReportDto>(cacheKey);
+    const cached = shouldUseInitialReport || !expectedReportingCurrency
+      ? null
+      : readRouteDtoCache<AnyReportDto>(buildReportCacheKey(expectedReportingCurrency));
     if (shouldUseInitialReport) {
       setData(initialReport);
-      writeRouteDtoCache(cacheKey, initialReport);
+      writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport);
       setIsBootstrapping(false);
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
