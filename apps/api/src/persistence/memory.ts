@@ -429,6 +429,31 @@ function mapMemoryTickerFundamentals(
   };
 }
 
+function stockDividendLotIdsForScope(
+  store: Store,
+  accountId: string,
+  ticker: string,
+  marketCode: MarketCode,
+): string[] {
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+
+  return store.accounting.facts.dividendLedgerEntries
+    .filter((entry) => entry.accountId === accountId && entry.receivedStockQuantity > 0)
+    .flatMap((entry) => {
+      const event = eventById.get(entry.dividendEventId);
+      if (!event || event.ticker !== ticker) return [];
+
+      let eventMarketCode: MarketCode;
+      try {
+        eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
+      } catch {
+        return [];
+      }
+
+      return eventMarketCode === marketCode ? [`lot-${entry.id}`] : [];
+    });
+}
+
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
@@ -3809,7 +3834,10 @@ export class MemoryPersistence implements Persistence {
         ]
       : [];
     const scopedLotIds = marketCode
-      ? new Set(scopedTradeEventIds.map((id) => `lot-${id}`))
+      ? new Set([
+          ...scopedTradeEventIds.map((id) => `lot-${id}`),
+          ...stockDividendLotIdsForScope(store, accountId, ticker, marketCode),
+        ])
       : null;
     const before = store.accounting.projections.lots.length;
     store.accounting.projections.lots = store.accounting.projections.lots.filter(
@@ -3835,10 +3863,16 @@ export class MemoryPersistence implements Persistence {
           ...additionalTradeEventIds,
         ])
       : null;
+    const scopedLotIds = marketCode
+      ? new Set([
+          ...Array.from(scopedTradeEventIds ?? []).map((id) => `lot-${id}`),
+          ...stockDividendLotIdsForScope(store, accountId, ticker, marketCode),
+        ])
+      : null;
     const before = store.accounting.projections.lotAllocations.length;
     store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
       (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker
-        && (!scopedTradeEventIds || scopedTradeEventIds.has(a.tradeEventId) || scopedTradeEventIds.has(a.lotId.replace(/^lot-/, "")))),
+        && (!scopedTradeEventIds || scopedTradeEventIds.has(a.tradeEventId) || scopedLotIds?.has(a.lotId))),
     );
     return before - store.accounting.projections.lotAllocations.length;
   }
