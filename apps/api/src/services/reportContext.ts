@@ -42,6 +42,16 @@ export function resolveReportContext(input: ResolveReportContextInput): ReportCo
   }
 
   const nativeCurrency = resolvedScope === "all" ? null : currencyFor(resolvedScope);
+  if (resolvedScope === "all" && currencyMode === "specified" && normalizedCurrency) {
+    return {
+      scope: resolvedScope,
+      currencyMode: "specified",
+      currency: normalizedCurrency as AccountDefaultCurrency,
+      reportingCurrency: normalizedCurrency as AccountDefaultCurrency,
+      nativeCurrency,
+    };
+  }
+
   return {
     scope: resolvedScope,
     currencyMode: "auto",
