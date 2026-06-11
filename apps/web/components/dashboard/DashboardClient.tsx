@@ -82,7 +82,11 @@ export function DashboardClient({
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
-  const performance = useDashboardPerformance({ range: performanceRange, enabled: true });
+  const performance = useDashboardPerformance({
+    range: performanceRange,
+    enabled: true,
+    timeoutMessage: dict.dashboardHome.performanceRefreshTimeout,
+  });
 
   // Re-fetch performance series when AppShell signals a context/data change
   // (shared-context switch, trade mutation, recompute confirm, reporting-currency

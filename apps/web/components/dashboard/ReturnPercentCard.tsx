@@ -72,6 +72,7 @@ export function ReturnPercentCard({
 
   const chartConfig = buildChartConfig(dict);
   const chartAxis = resolvePerformanceChartDomain(data, locale, timelineMode);
+  const emptyStateMessage = resolveSnapshotEmptyStateMessage(data, dict);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-return-percent-card">
@@ -172,7 +173,7 @@ export function ReturnPercentCard({
         </div>
       ) : !hasPoints || !hasReturnPercent ? (
         <div className="mt-6 flex items-center justify-center gap-2 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
-          <span>{dict.dashboardHome.snapshotsEmpty}</span>
+          <span>{emptyStateMessage}</span>
           <TooltipInfo
             label={dict.dashboardHome.snapshotsReturnPercentTitle}
             content={dict.dashboardHome.performanceSnapshotOnlyTooltip}
@@ -346,6 +347,19 @@ function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: Lo
     "{date}",
     formatAxisDateLabel(date, locale),
   );
+}
+
+function resolveSnapshotEmptyStateMessage(
+  data: DashboardPerformanceDto | null,
+  dict: AppDictionary,
+): string {
+  const reasons = data?.diagnostics?.knownGapReasons ?? [];
+  if (reasons.includes("missing_fx")) return dict.dashboardHome.snapshotsEmptyMissingFx;
+  if (reasons.includes("stale_snapshot") || data?.diagnostics?.staleSinceDate || data?.marketDataStaleSince) {
+    return dict.dashboardHome.snapshotsEmptyStaleSnapshot;
+  }
+  if (reasons.includes("missing_snapshot")) return dict.dashboardHome.snapshotsEmptyMissingSnapshot;
+  return dict.dashboardHome.snapshotsEmpty;
 }
 
 function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {

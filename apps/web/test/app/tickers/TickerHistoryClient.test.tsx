@@ -358,6 +358,15 @@ describe("TickerHistoryClient", () => {
     expect(totalCostCard?.textContent).not.toContain("acc-2");
   });
 
+  it("scopes the repair action copy to ticker data", () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    const element = renderTickerHistoryClient();
+
+    const repairButton = element.querySelector('[data-testid="repair-button"]');
+    expect(repairButton?.textContent).toContain("Repair ticker data");
+    expect(repairButton?.getAttribute("title")).toBe("Ticker repair is on cooldown");
+  });
+
   it("restores cached ticker details before the silent refresh completes", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
     writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey(), {

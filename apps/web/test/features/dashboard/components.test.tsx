@@ -1441,6 +1441,71 @@ describe("dashboard components", () => {
     expect(returnHtml).toContain("text-warning");
   });
 
+  it("renders explicit snapshot-gap empty states for missing snapshots and missing FX", () => {
+    const missingSnapshotPerformance: DashboardPerformanceDto = {
+      ...performance,
+      points: [],
+      requestedAsOf: "2026-06-10",
+      diagnostics: {
+        latestSnapshotDate: null,
+        latestReliableValuationDate: null,
+        expectedLatestValuationDate: "2026-06-10",
+        staleSinceDate: null,
+        knownGapReasons: ["missing_snapshot"],
+      },
+    };
+    const missingFxPerformance: DashboardPerformanceDto = {
+      ...performance,
+      points: [
+        {
+          ...performance.points[0]!,
+          marketValueAmount: null,
+          totalCostAmount: null,
+          totalReturnPercent: null,
+          fxAvailable: false,
+        },
+      ],
+      diagnostics: {
+        latestSnapshotDate: "2026-03-01",
+        latestReliableValuationDate: null,
+        expectedLatestValuationDate: "2026-06-10",
+        staleSinceDate: null,
+        knownGapReasons: ["missing_fx"],
+      },
+    };
+
+    const trendHtml = renderToStaticMarkup(
+      <PortfolioTrendCard
+        data={missingSnapshotPerformance}
+        range="1M"
+        currency="TWD"
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+        onRangeChange={() => undefined}
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
+      />,
+    );
+    const returnHtml = renderToStaticMarkup(
+      <ReturnPercentCard
+        data={missingFxPerformance}
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+        timelineMode="auto"
+        onTimelineModeChange={() => undefined}
+      />,
+    );
+
+    expect(trendHtml).toContain("No snapshot-backed series is available for the selected range yet.");
+    expect(trendHtml).not.toContain("dashboard-performance-chart");
+    expect(returnHtml).toContain("Snapshot-backed series is unavailable because FX conversion is incomplete for one or more points.");
+    expect(returnHtml).not.toContain("dashboard-return-percent-chart");
+  });
+
   it("renders allocation snapshot legend and recent transactions card", () => {
     const allocationHtml = renderToStaticMarkup(
       <AllocationSnapshotCard

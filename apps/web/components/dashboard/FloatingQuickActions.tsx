@@ -159,19 +159,24 @@ export function FloatingQuickActions({
           <RefreshCw data-icon="inline-start" aria-hidden="true" />
           {dict.commandPalette.actionRecomputeAll}
         </Button>
-        <Button
-          variant="secondary"
-          className="w-full justify-start"
-          disabled={isGeneratingSnapshots}
-          onClick={() => {
-            close();
-            void onGenerateSnapshots();
-          }}
-          data-testid="floating-action-generate-snapshots"
-        >
-          <FileClock data-icon="inline-start" aria-hidden="true" />
-          {dict.commandPalette.actionGenerateSnapshots}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="secondary"
+            className="w-full justify-start"
+            disabled={isGeneratingSnapshots}
+            onClick={() => {
+              close();
+              void onGenerateSnapshots();
+            }}
+            data-testid="floating-action-generate-snapshots"
+          >
+            <FileClock data-icon="inline-start" aria-hidden="true" />
+            {dict.commandPalette.actionGenerateSnapshots}
+          </Button>
+          <p className="px-1 text-xs text-muted-foreground" data-testid="floating-action-generate-snapshots-hint">
+            {dict.commandPalette.actionGenerateSnapshotsHint}
+          </p>
+        </div>
       </SheetContent>
     </Sheet>
   );
