@@ -411,6 +411,7 @@ export interface DashboardOverviewHoldingDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -435,6 +436,7 @@ export interface DashboardOverviewHoldingChildDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -466,6 +468,7 @@ export interface DashboardOverviewHoldingChildDto {
 
 export interface DashboardOverviewHoldingGroupDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -922,6 +925,7 @@ export interface ReportSummaryTotalsDto {
 
 export interface ReportHoldingRowDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   accountCount: number;
   accounts?: Array<{
@@ -1117,6 +1121,31 @@ export interface TickerDetailsChartPointDto {
   source: string;
 }
 
+export const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
+export type TickerChartRange = (typeof TICKER_CHART_RANGES)[number];
+export type TickerChartSelection = TickerChartRange | "CUSTOM";
+
+export interface TickerDetailsChartMetadataDto {
+  requested: {
+    range: TickerChartRange | null;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  resolved: {
+    range: TickerChartSelection;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  available: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  truncated: {
+    startDate: boolean;
+    endDate: boolean;
+  };
+}
+
 export interface TickerDetailsDto {
   identity: {
     ticker: string;
@@ -1130,7 +1159,8 @@ export interface TickerDetailsDto {
   quote: TickerDetailsQuoteDto;
   position: TickerDetailsPositionDto;
   chart: {
-    range: "1Y";
+    range: TickerChartSelection;
+    metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailsChartPointDto[];
   };
   transactions: TransactionHistoryItemDto[];
@@ -2111,6 +2141,7 @@ export interface AnonymousShareTokenDto {
 
 export interface PublicShareHoldingDto {
   ticker: string;
+  instrumentName?: string | null;
   quantity: number;
   marketValueAmount: number | null;
   marketValueCurrency: CurrencyCode;
@@ -2120,6 +2151,7 @@ export interface PublicShareHoldingDto {
 
 export interface PublicShareHoldingGroupDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   accountCount: number;

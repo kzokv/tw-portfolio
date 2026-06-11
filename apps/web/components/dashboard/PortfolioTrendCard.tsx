@@ -25,6 +25,8 @@ import { TooltipInfo } from "../ui/TooltipInfo";
 import { Badge } from "../ui/shadcn/badge";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
+import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
 
 const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 
@@ -42,6 +44,8 @@ interface PortfolioTrendCardProps {
   isLoading: boolean;
   errorMessage: string;
   onRangeChange: (range: DashboardPerformanceRange) => void;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
   // KZO-161 (158C): optional click handler for the "Customize ranges" gear
   // icon. When omitted, the gear is hidden entirely so this card stays
   // usable in non-dashboard contexts (e.g. the shared-portfolio view).
@@ -83,6 +87,8 @@ export function PortfolioTrendCard({
   isLoading,
   errorMessage,
   onRangeChange,
+  timelineMode,
+  onTimelineModeChange,
   onOpenCustomize,
 }: PortfolioTrendCardProps) {
   const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
@@ -125,8 +131,7 @@ export function PortfolioTrendCard({
   }));
 
   const chartConfig = buildChartConfig(dict);
-  const chartDomain = resolvePerformanceChartDomain(data, range);
-  const chartTicks = buildTimeAxisTicks(chartDomain);
+  const chartAxis = resolveTimelineAxis(data, locale, range, timelineMode);
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
 
@@ -138,7 +143,7 @@ export function PortfolioTrendCard({
           <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{dict.dashboardHome.performanceTitle}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.performanceDescription}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
             {rangeItems.map((item) => (
               <Button
@@ -168,6 +173,24 @@ export function PortfolioTrendCard({
               <span aria-hidden="true" className="text-sm leading-none">⚙</span>
             </button>
           ) : null}
+          <ToggleGroup
+            type="single"
+            aria-label={dict.tickerHistory.chartTimelineLabel}
+            value={timelineMode}
+            onValueChange={(value) => {
+              if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+                onTimelineModeChange(value);
+              }
+            }}
+            className="flex-wrap justify-end"
+            data-testid="dashboard-performance-timeline"
+          >
+            {(["auto", "day", "week", "month", "year"] as const).map((mode) => (
+              <ToggleGroupItem key={mode} value={mode}>
+                {resolveTimelineLabel(dict, mode)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
       </div>
 
@@ -275,10 +298,10 @@ export function PortfolioTrendCard({
                 dataKey="dateMs"
                 type="number"
                 scale="time"
-                domain={chartDomain}
-                ticks={chartTicks}
+                domain={chartAxis.domain}
+                ticks={chartAxis.ticks}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value: number) => formatAxisDateLabel(msToIsoDate(value), locale)}
+                tickFormatter={chartAxis.tickFormatter}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
@@ -440,17 +463,6 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
   }).format(new Date(value));
 }
 
-function resolvePerformanceChartDomain(
-  data: DashboardPerformanceDto | null,
-  range: DashboardPerformanceRange,
-): [number, number] {
-  const points = data?.points ?? [];
-  const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
-  const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
-  const startDate = data?.rangeStartDate ?? resolveRangeStartDate(range, endDate, points.at(0)?.date);
-  return [dateToUtcMs(startDate), dateToUtcMs(endDate)];
-}
-
 function resolveRangeStartDate(
   range: DashboardPerformanceRange,
   endDate: string,
@@ -477,11 +489,23 @@ function resolveRangeStartDate(
   return firstPointDate ?? endDate;
 }
 
-function buildTimeAxisTicks([start, end]: [number, number]): number[] {
-  if (end <= start) return [start];
-  const tickCount = 8;
-  const step = (end - start) / (tickCount - 1);
-  return Array.from({ length: tickCount }, (_, index) => Math.round(start + (step * index)));
+function resolveTimelineAxis(
+  data: DashboardPerformanceDto | null,
+  locale: LocaleCode,
+  range: DashboardPerformanceRange,
+  mode: TimelineMode,
+) {
+  const points = data?.points ?? [];
+  const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
+  const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
+  const startDate = data?.rangeStartDate ?? resolveRangeStartDate(range, endDate, points.at(0)?.date);
+  return buildTimelineAxis({
+    endDate,
+    locale,
+    mode,
+    pointDates: points.map((point) => point.date),
+    startDate,
+  });
 }
 
 function dateToUtcMs(value: string): number {
@@ -548,4 +572,12 @@ function resolveRangeLabel(dict: AppDictionary, range: DashboardPerformanceRange
   // keeps the four hardcoded labels intact while making the broader
   // chip palette readable.
   return range;
+}
+
+function resolveTimelineLabel(dict: AppDictionary, mode: TimelineMode) {
+  if (mode === "auto") return dict.reports.timelineAuto;
+  if (mode === "day") return dict.reports.timelineDay;
+  if (mode === "week") return dict.reports.timelineWeek;
+  if (mode === "month") return dict.reports.timelineMonth;
+  return dict.reports.timelineYear;
 }

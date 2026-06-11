@@ -511,6 +511,11 @@ export interface AppDictionary {
     performanceTrendLabel: string;
     performanceMetaAsOf: string;
     performanceStaleDataWarning: string;
+    timelineAuto: string;
+    timelineDay: string;
+    timelineWeek: string;
+    timelineMonth: string;
+    timelineYear: string;
     noSnapshotSeries: string;
     allocationBucketCount: string;
     noAllocationBuckets: string;
@@ -572,6 +577,16 @@ export interface AppDictionary {
       transactionsTabLabel: string;
       chartTitle: string;
       chartSubtitle: string;
+      chartRangeLabel: string;
+      chartTimelineLabel: string;
+      chartAllRangeLabel: string;
+      chartCustomRangeLabel: string;
+      chartCustomStartLabel: string;
+      chartCustomEndLabel: string;
+      chartApplyCustomRange: string;
+      chartCustomRangeError: string;
+      chartTruncatedNote: string;
+      chartDownsampledNote: string;
       dividendsPanelTitle: string;
       upcomingDividendsLabel: string;
       nextDividendLabel: string;
@@ -1293,6 +1308,7 @@ export interface AppDictionary {
     dividendTerm: string;
     pnlTerm: string;
     avgCostTerm: string;
+    unitPnlTerm: string;
     priceTerm: string;
     marketValueTerm: string;
     allocationTerm: string;

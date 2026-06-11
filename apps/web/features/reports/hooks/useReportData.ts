@@ -32,8 +32,9 @@ export function useReportData({
       locale,
       state.scope,
       state.range,
+      initialReport?.query.reportingCurrency ?? "unknown",
     ),
-    [cacheScope, locale, state.range, state.scope, state.tab],
+    [cacheScope, initialReport?.query.reportingCurrency, locale, state.range, state.scope, state.tab],
   );
   const [data, setData] = useState<AnyReportDto | null>(initialReport);
   const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
@@ -55,7 +56,7 @@ export function useReportData({
     try {
       if (!bypassCache) {
         const cached = readRouteDtoCache<AnyReportDto>(cacheKey);
-        if (cached) {
+        if (cached && cached.payload.query.reportingCurrency === initialReport?.query.reportingCurrency) {
           setData(cached.payload);
           setRestoredFromCache(true);
           setRestoredAt(cached.savedAt);

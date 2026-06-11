@@ -14,6 +14,8 @@ import type { AppDictionary } from "../../lib/i18n";
 import { Card } from "../ui/Card";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
+import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
 
 interface ReturnPercentCardProps {
   data: DashboardPerformanceDto | null;
@@ -21,6 +23,8 @@ interface ReturnPercentCardProps {
   dict: AppDictionary;
   isLoading: boolean;
   errorMessage: string;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
 }
 
 interface ChartPoint {
@@ -44,6 +48,8 @@ export function ReturnPercentCard({
   dict,
   isLoading,
   errorMessage,
+  timelineMode,
+  onTimelineModeChange,
 }: ReturnPercentCardProps) {
   const points = data?.points ?? [];
   const hasPoints = points.length > 0;
@@ -65,21 +71,40 @@ export function ReturnPercentCard({
   }));
 
   const chartConfig = buildChartConfig(dict);
-  const chartDomain = resolvePerformanceChartDomain(data);
-  const chartTicks = buildTimeAxisTicks(chartDomain);
+  const chartAxis = resolvePerformanceChartDomain(data, locale, timelineMode);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-return-percent-card">
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500/78">
-          {dict.dashboardHome.snapshotsReturnPercentTitle}
-        </p>
-        <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">
-          {dict.dashboardHome.snapshotsReturnPercentTitle}
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-          {dict.dashboardHome.snapshotsReturnPercentDescription}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500/78">
+            {dict.dashboardHome.snapshotsReturnPercentTitle}
+          </p>
+          <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">
+            {dict.dashboardHome.snapshotsReturnPercentTitle}
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            {dict.dashboardHome.snapshotsReturnPercentDescription}
+          </p>
+        </div>
+        <ToggleGroup
+          type="single"
+          aria-label={dict.tickerHistory.chartTimelineLabel}
+          value={timelineMode}
+          onValueChange={(value) => {
+            if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+              onTimelineModeChange(value);
+            }
+          }}
+          className="flex-wrap justify-end"
+          data-testid="dashboard-return-percent-timeline"
+        >
+          {(["auto", "day", "week", "month", "year"] as const).map((mode) => (
+            <ToggleGroupItem key={mode} value={mode}>
+              {resolveTimelineLabel(dict, mode)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </div>
 
       {errorMessage ? (
@@ -170,10 +195,10 @@ export function ReturnPercentCard({
                 dataKey="dateMs"
                 type="number"
                 scale="time"
-                domain={chartDomain}
-                ticks={chartTicks}
+                domain={chartAxis.domain}
+                ticks={chartAxis.ticks}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value: number) => formatAxisDateLabel(msToIsoDate(value), locale)}
+                tickFormatter={chartAxis.tickFormatter}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
@@ -241,12 +266,22 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
   }).format(new Date(value));
 }
 
-function resolvePerformanceChartDomain(data: DashboardPerformanceDto | null): [number, number] {
+function resolvePerformanceChartDomain(
+  data: DashboardPerformanceDto | null,
+  locale: LocaleCode,
+  mode: TimelineMode,
+) {
   const points = data?.points ?? [];
   const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
   const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
   const startDate = data?.rangeStartDate ?? resolveRangeStartDate(data?.range ?? "ALL", endDate, points.at(0)?.date);
-  return [dateToUtcMs(startDate), dateToUtcMs(endDate)];
+  return buildTimelineAxis({
+    endDate,
+    locale,
+    mode,
+    pointDates: points.map((point) => point.date),
+    startDate,
+  });
 }
 
 function resolveRangeStartDate(
@@ -275,11 +310,12 @@ function resolveRangeStartDate(
   return firstPointDate ?? endDate;
 }
 
-function buildTimeAxisTicks([start, end]: [number, number]): number[] {
-  if (end <= start) return [start];
-  const tickCount = 8;
-  const step = (end - start) / (tickCount - 1);
-  return Array.from({ length: tickCount }, (_, index) => Math.round(start + (step * index)));
+function resolveTimelineLabel(dict: AppDictionary, mode: TimelineMode) {
+  if (mode === "auto") return dict.reports.timelineAuto;
+  if (mode === "day") return dict.reports.timelineDay;
+  if (mode === "week") return dict.reports.timelineWeek;
+  if (mode === "month") return dict.reports.timelineMonth;
+  return dict.reports.timelineYear;
 }
 
 function dateToUtcMs(value: string): number {

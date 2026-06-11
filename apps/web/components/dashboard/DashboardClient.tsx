@@ -28,6 +28,7 @@ import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
+import type { TimelineMode } from "../../lib/timelineAxis";
 import {
   Card as ShadcnCard,
   CardContent,
@@ -77,6 +78,7 @@ export function DashboardClient({
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis } = useHoldingAllocationBasis();
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
@@ -255,6 +257,8 @@ export function DashboardClient({
                   isLoading={performance.isLoading}
                   errorMessage={performance.errorMessage}
                   onRangeChange={setPerformanceRange}
+                  timelineMode={timelineMode}
+                  onTimelineModeChange={setTimelineMode}
                   onOpenCustomize={() => setCustomizeRangesOpen(true)}
                 />
               );
@@ -275,6 +279,8 @@ export function DashboardClient({
                   dict={dict}
                   isLoading={performance.isLoading}
                   errorMessage={performance.errorMessage}
+                  timelineMode={timelineMode}
+                  onTimelineModeChange={setTimelineMode}
                 />
               );
             case "holdings-table":

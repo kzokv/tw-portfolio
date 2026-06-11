@@ -8,6 +8,11 @@ function seedStoreWithHoldings(
   holdings: Array<{ accountId?: string; ticker: string; quantity: number; costBasisAmount: number; currency: "TWD" | "USD" | "AUD" }>,
 ): Store {
   const store = createStore();
+  store.marketData.instruments = [
+    { ticker: "2330", instrumentType: "STOCK", marketCode: "TW", name: "TSMC", isProvisional: false, lastSyncedAt: null },
+    { ticker: "AAPL", instrumentType: "STOCK", marketCode: "US", name: "Apple Inc.", isProvisional: false, lastSyncedAt: null },
+    { ticker: "BHP", instrumentType: "STOCK", marketCode: "AU", name: "BHP Group", isProvisional: false, lastSyncedAt: null },
+  ];
   store.accounting.projections.holdings = holdings.map((h) => ({
     accountId: h.accountId ?? "acc-1",
     ticker: h.ticker,
@@ -54,6 +59,7 @@ describe("buildPublicShareView", () => {
     expect(view.holdings).toHaveLength(2);
     expect(view.holdings[0]!.ticker).toBe("2330");
     expect(view.holdings[0]).toEqual(expect.objectContaining({
+      instrumentName: "TSMC",
       marketValueAmount: 60_000,
       allocationPercent: null,
       quoteStatus: "current",
@@ -105,8 +111,14 @@ describe("buildPublicShareView", () => {
     const flat = JSON.stringify(view);
     expect(flat).not.toMatch(/cost[-_]?basis/i);
     expect(flat).not.toMatch(/"costBasisAmount"/);
+    expect(flat).not.toMatch(/"averageCostPerShare"/);
+    expect(flat).not.toMatch(/"currentUnitPrice"/);
+    expect(flat).not.toMatch(/"unrealizedPnlAmount"/);
     for (const holding of view.holdings) {
       expect(Object.keys(holding)).not.toContain("costBasisAmount");
+      expect(Object.keys(holding)).not.toContain("averageCostPerShare");
+      expect(Object.keys(holding)).not.toContain("currentUnitPrice");
+      expect(Object.keys(holding)).not.toContain("unrealizedPnlAmount");
     }
   });
 
@@ -165,6 +177,7 @@ describe("buildPublicShareView", () => {
     expect(view.holdings).toEqual([
       expect.objectContaining({
         ticker: "2330",
+        instrumentName: "TSMC",
         marketValueAmount: null,
         allocationPercent: null,
         quoteStatus: "missing",
@@ -173,6 +186,7 @@ describe("buildPublicShareView", () => {
     expect(view.holdingGroups).toEqual([
       expect.objectContaining({
         ticker: "2330",
+        instrumentName: "TSMC",
         marketValueAmount: null,
         allocationPercent: null,
         quoteStatus: "missing",

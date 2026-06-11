@@ -1,5 +1,6 @@
-import { roundToDecimal } from "@vakwen/domain";
+import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
 import {
+  MARKET_CODES,
   currencyFor,
   marketCodeFor,
   type DashboardOverviewHoldingChildDto,
@@ -15,9 +16,13 @@ import { routeError } from "../lib/routeError.js";
 import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvents } from "./accountingStore.js";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
+import { historyStartFor } from "./market-data/types.js";
 import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
 import type { Store, Transaction } from "../types/store.js";
+
+type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
+type TickerChartSelection = TickerChartRange | "CUSTOM";
 
 interface BuildTickerDetailsInput {
   persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getInstrument">;
@@ -26,6 +31,9 @@ interface BuildTickerDetailsInput {
   ticker: string;
   accountId?: string;
   marketCode?: MarketCode;
+  range?: TickerChartRange;
+  startDate?: string;
+  endDate?: string;
   getSettledTradingDay?: (marketCode: MarketCode) => Promise<string | null>;
   fundamentalsRecord: PersistedTickerFundamentalsRecord | null;
   now?: Date;
@@ -49,12 +57,14 @@ export async function buildTickerDetails(
     .filter((holding) => holding.ticker === normalizedTicker)
     .filter((holding) => (input.accountId ? holding.accountId === input.accountId : true));
 
-  const resolvedMarketCode = resolveMarketCode({
+  const resolvedMarketCode = await resolveMarketCode({
     requestedMarketCode: input.marketCode,
     requestedAccountId: input.accountId,
     matchingTrades,
     matchingHoldings,
     accountById,
+    getInstrument: (ticker, marketCode) => input.persistence.getInstrument(ticker, marketCode),
+    ticker: normalizedTicker,
   });
 
   const instrument = await input.persistence.getInstrument(normalizedTicker, resolvedMarketCode);
@@ -86,18 +96,26 @@ export async function buildTickerDetails(
     { ticker: normalizedTicker, marketCode: resolvedMarketCode },
   ]);
   const latestBarDate = latestBarDates.get(`${normalizedTicker}:${resolvedMarketCode}`) ?? null;
-  const chartBars = latestBarDate
+  const allLocalBars = latestBarDate
     ? await input.persistence.getDailyBarsForTickerMarket(
       normalizedTicker,
       resolvedMarketCode,
-      subtractDays(latestBarDate, 365),
+      historyStartFor(resolvedMarketCode),
       latestBarDate,
     )
     : [];
+  const quoteBars = allLocalBars.slice(-2);
   const settledTradingDay = input.getSettledTradingDay
     ? await input.getSettledTradingDay(resolvedMarketCode)
     : null;
-  const quote = buildQuoteFromBars(chartBars, settledTradingDay);
+  const quote = buildQuoteFromBars(quoteBars, settledTradingDay);
+  const chart = buildChart({
+    allLocalBars,
+    latestBarDate,
+    range: input.range,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
 
   const quantity = filteredHoldings.reduce((sum, holding) => sum + holding.quantity, 0);
   const costBasisAmount = filteredHoldings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
@@ -111,6 +129,7 @@ export async function buildTickerDetails(
   const accountBreakdown = buildAccountBreakdown({
     holdings: filteredHoldings,
     accountById,
+    instrumentName: instrument?.name ?? null,
     marketCode: resolvedMarketCode,
     quote,
     upcomingDividends,
@@ -118,6 +137,7 @@ export async function buildTickerDetails(
   });
   const holdingGroup = buildHoldingGroup({
     ticker: normalizedTicker,
+    instrumentName: instrument?.name ?? null,
     marketCode: resolvedMarketCode,
     currency,
     quote,
@@ -147,16 +167,9 @@ export async function buildTickerDetails(
       lastTradeDate: filteredTransactions[0]?.tradeDate ?? null,
     },
     chart: {
-      range: "1Y",
-      points: chartBars.map((bar) => ({
-        date: bar.barDate,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        volume: bar.volume,
-        source: bar.source,
-      })),
+      range: chart.range,
+      metadata: chart.metadata,
+      points: chart.points,
     },
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById)),
     dividends: {
@@ -178,6 +191,7 @@ export async function buildTickerDetails(
 function buildAccountBreakdown(input: {
   holdings: ReturnType<typeof listHoldings>;
   accountById: ReadonlyMap<string, Store["accounts"][number]>;
+  instrumentName: string | null;
   marketCode: MarketCode;
   quote: TickerDetailsDto["quote"];
   upcomingDividends: DashboardOverviewUpcomingDividendDto[];
@@ -193,6 +207,7 @@ function buildAccountBreakdown(input: {
       accountId: holding.accountId,
       accountName: input.accountById.get(holding.accountId)?.name ?? holding.accountId,
       ticker: holding.ticker,
+      instrumentName: input.instrumentName,
       marketCode: input.marketCode,
       quantity: holding.quantity,
       costBasisAmount: holding.costBasisAmount,
@@ -257,6 +272,7 @@ function buildAccountBreakdown(input: {
 
 function buildHoldingGroup(input: {
   ticker: string;
+  instrumentName: string | null;
   marketCode: MarketCode;
   currency: string;
   quote: TickerDetailsDto["quote"];
@@ -280,6 +296,7 @@ function buildHoldingGroup(input: {
 
   return {
     ticker: input.ticker,
+    instrumentName: input.instrumentName,
     marketCode: input.marketCode,
     quantity,
     costBasisAmount,
@@ -321,13 +338,15 @@ function maxNullableDate(values: Array<string | null>): string | null {
   return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
 }
 
-function resolveMarketCode(input: {
+async function resolveMarketCode(input: {
   requestedMarketCode?: MarketCode;
   requestedAccountId?: string;
   matchingTrades: Store["accounting"]["facts"]["tradeEvents"];
   matchingHoldings: ReturnType<typeof listHoldings>;
   accountById: ReadonlyMap<string, Store["accounts"][number]>;
-}): MarketCode {
+  getInstrument: Persistence["getInstrument"];
+  ticker: string;
+}): Promise<MarketCode> {
   if (input.requestedMarketCode) {
     return input.requestedMarketCode;
   }
@@ -350,6 +369,21 @@ function resolveMarketCode(input: {
   const candidateMarkets = [...new Set([...tradeMarkets, ...holdingMarkets])];
   if (candidateMarkets.length === 1) {
     return candidateMarkets[0] as MarketCode;
+  }
+  if (candidateMarkets.length === 0) {
+    const catalogMarkets = (
+      await Promise.all(MARKET_CODES.map(async (marketCode) => {
+        const instrument = await input.getInstrument(input.ticker, marketCode);
+        return instrument ? marketCode : null;
+      }))
+    ).filter((marketCode): marketCode is MarketCode => marketCode !== null);
+
+    if (catalogMarkets.length === 1) {
+      return catalogMarkets[0];
+    }
+    if (catalogMarkets.length === 0) {
+      return "TW";
+    }
   }
 
   throw routeError(
@@ -393,6 +427,131 @@ function buildQuoteFromBars(
     source: latest.source,
     quoteStatus,
   };
+}
+
+function buildChart(input: {
+  allLocalBars: Awaited<ReturnType<BuildTickerDetailsInput["persistence"]["getDailyBarsForTickerMarket"]>>;
+  latestBarDate: string | null;
+  range?: TickerChartRange;
+  startDate?: string;
+  endDate?: string;
+}): TickerDetailsDto["chart"] {
+  const requestedRange = input.startDate || input.endDate ? null : (input.range ?? "1Y");
+  const resolvedRange: TickerChartSelection = input.startDate || input.endDate ? "CUSTOM" : (requestedRange ?? "1Y");
+  const availableStartDate = input.allLocalBars[0]?.barDate ?? null;
+  const availableEndDate = input.allLocalBars.at(-1)?.barDate ?? null;
+
+  if (input.startDate && input.endDate) {
+    assertCustomRangeWithinTenYears(input.startDate, input.endDate);
+  }
+
+  const resolvedBounds = resolveChartBounds({
+    latestBarDate: input.latestBarDate,
+    availableStartDate,
+    availableEndDate,
+    range: requestedRange,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+
+  return {
+    range: resolvedRange,
+    metadata: {
+      requested: {
+        range: requestedRange,
+        startDate: input.startDate ?? null,
+        endDate: input.endDate ?? null,
+      },
+      resolved: {
+        range: resolvedRange,
+        startDate: resolvedBounds.startDate,
+        endDate: resolvedBounds.endDate,
+      },
+      available: {
+        startDate: availableStartDate,
+        endDate: availableEndDate,
+      },
+      truncated: {
+        startDate: Boolean(
+          resolvedBounds.startDate
+          && availableStartDate
+          && resolvedBounds.startDate < availableStartDate,
+        ),
+        endDate: Boolean(
+          resolvedBounds.endDate
+          && availableEndDate
+          && resolvedBounds.endDate > availableEndDate,
+        ),
+      },
+    },
+    points: input.allLocalBars
+      .filter((bar) => (
+        resolvedBounds.startDate !== null
+        && resolvedBounds.endDate !== null
+        && bar.barDate >= resolvedBounds.startDate
+        && bar.barDate <= resolvedBounds.endDate
+      ))
+      .map((bar) => ({
+        date: bar.barDate,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+        source: bar.source,
+      })),
+  };
+}
+
+function resolveChartBounds(input: {
+  latestBarDate: string | null;
+  availableStartDate: string | null;
+  availableEndDate: string | null;
+  range: TickerChartRange | null;
+  startDate?: string;
+  endDate?: string;
+}): { startDate: string | null; endDate: string | null } {
+  if (input.startDate && input.endDate) {
+    return {
+      startDate: input.startDate,
+      endDate: input.endDate,
+    };
+  }
+
+  if (!input.latestBarDate) {
+    return {
+      startDate: null,
+      endDate: null,
+    };
+  }
+
+  if (input.range === "ALL") {
+    return {
+      startDate: input.availableStartDate ?? input.latestBarDate,
+      endDate: input.availableEndDate ?? input.latestBarDate,
+    };
+  }
+
+  const { startDate, endDate } = resolveRangeBounds(
+    input.range ?? "1Y",
+    input.latestBarDate,
+    input.availableStartDate ?? undefined,
+  );
+  return { startDate, endDate };
+}
+
+function assertCustomRangeWithinTenYears(startDate: string, endDate: string): void {
+  if (startDate > endDate) {
+    throw routeError(400, "ticker_chart_invalid_date_range", "startDate must be before or equal to endDate");
+  }
+
+  if (endDate > addYears(startDate, 10)) {
+    throw routeError(
+      400,
+      "ticker_chart_custom_range_too_large",
+      "Custom ticker chart ranges cannot exceed 10 years",
+    );
+  }
 }
 
 function buildUpcomingDividends(
@@ -587,8 +746,8 @@ function resolveUpcomingStatus(
   return diffMs <= 7 * 24 * 60 * 60 * 1000 ? "paying-soon" : "declared";
 }
 
-function subtractDays(date: string, days: number): string {
+function addYears(date: string, years: number): string {
   const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() - days);
+  next.setUTCFullYear(next.getUTCFullYear() + years);
   return next.toISOString().slice(0, 10);
 }

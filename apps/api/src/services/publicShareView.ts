@@ -7,6 +7,7 @@ import type { Store } from "../types/store.js";
 interface HoldingWithQuote {
   accountId: string;
   ticker: string;
+  instrumentName: string | null;
   marketCode: ReturnType<typeof marketCodeFor>;
   quantity: number;
   currency: string;
@@ -27,6 +28,7 @@ export function buildPublicShareView(
   expiresAt: string,
 ): PublicShareViewDto {
   const shareRows: HoldingWithQuote[] = [];
+  const instrumentNames = buildInstrumentNameLookup(store);
   const accountMarket = new Map(store.accounts.map((account) => [
     account.id,
     marketCodeFor(account.defaultCurrency),
@@ -39,6 +41,7 @@ export function buildPublicShareView(
     shareRows.push({
       accountId: holding.accountId,
       ticker: holding.ticker,
+      instrumentName: instrumentNames.get(`${market}:${holding.ticker}`) ?? instrumentNames.get(holding.ticker) ?? null,
       marketCode: market,
       quantity: holding.quantity,
       currency: holding.currency,
@@ -74,6 +77,7 @@ export function buildPublicShareView(
         : null;
       return {
         ticker: row.ticker,
+        instrumentName: row.instrumentName,
         quantity: row.quantity,
         marketValueAmount: row.marketValueAmount,
         marketValueCurrency: row.currency,
@@ -150,8 +154,9 @@ function groupPublicShareHoldings(rows: HoldingWithQuote[]): Map<string, PublicS
       continue;
     }
 
-    groups.set(key, {
+    const group = {
       ticker: row.ticker,
+      instrumentName: row.instrumentName,
       marketCode: row.marketCode,
       quantity: row.quantity,
       accountCount: 1,
@@ -159,9 +164,26 @@ function groupPublicShareHoldings(rows: HoldingWithQuote[]): Map<string, PublicS
       marketValueCurrency: row.currency,
       allocationPercent: 0,
       quoteStatus: row.quoteStatus,
-    });
+    } as PublicShareViewDto["holdingGroups"][number];
+
+    groups.set(key, group);
   }
   return groups;
+}
+
+function buildInstrumentNameLookup(
+  store: Pick<Store, "marketData">,
+): ReadonlyMap<string, string> {
+  const lookup = new Map<string, string>();
+  for (const instrument of store.marketData.instruments) {
+    const name = instrument.name?.trim();
+    if (!name) continue;
+    lookup.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!lookup.has(instrument.ticker)) {
+      lookup.set(instrument.ticker, name);
+    }
+  }
+  return lookup;
 }
 
 function comparePublicShareRows(a: HoldingWithQuote, b: HoldingWithQuote): number {

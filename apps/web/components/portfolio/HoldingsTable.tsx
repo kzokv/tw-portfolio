@@ -5,12 +5,14 @@ import Link from "next/link";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import type {
   AccountDto,
+  AccountDefaultCurrency,
   DashboardOverviewHoldingDto,
   InstrumentOptionDto,
   LocaleCode,
 } from "@vakwen/shared-types";
 import { Building2, ChevronDown, ChevronRight, Search, SlidersHorizontal } from "lucide-react";
 import type { AppDictionary } from "../../lib/i18n";
+import { getDashboardReportingAverageCost, getDashboardUnitPnl, getNativeUnitPnl } from "../../lib/holdingsMetrics";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { buildAllocationPercentages, getAmountForAllocationBasis, resolveHoldingGroups, type DashboardOverviewHoldingChildDto, type DashboardOverviewHoldingGroupDto, type HoldingAllocationBasis } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
@@ -42,6 +44,7 @@ type HoldingsColumn =
   | "accounts"
   | "quantity"
   | "avgCost"
+  | "unitPnl"
   | "price"
   | "dailyChange"
   | "marketValue"
@@ -71,6 +74,7 @@ const PORTFOLIO_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<HoldingsCol
   { id: "accounts", label: "Accounts", defaultWidth: 112, align: "right" },
   { id: "quantity", label: "Quantity", defaultWidth: 128, canHide: false, align: "right" },
   { id: "avgCost", label: "Average cost", defaultWidth: 144, align: "right" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 152, align: "right" },
   { id: "price", label: "Price", defaultWidth: 144, align: "right" },
   { id: "dailyChange", label: "Daily change", defaultWidth: 144, align: "right" },
   { id: "marketValue", label: "Market value", defaultWidth: 160, align: "right" },
@@ -81,6 +85,9 @@ const PORTFOLIO_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<HoldingsCol
   { id: "nextDividend", label: "Next dividend", defaultWidth: 152, align: "right" },
   { id: "lastDividend", label: "Last dividend", defaultWidth: 152, align: "right" },
 ];
+
+const PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = [];
+const PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = ["avgCost", "unitPnl"];
 
 function isHoldingsDisplayMode(value: string): value is HoldingsDisplayMode {
   return value === "aggregated" || value === "expanded" || value === "accounts";
@@ -161,6 +168,7 @@ export function HoldingsTable({
     columns: PORTFOLIO_HOLDINGS_COLUMNS,
     contextKey: "portfolio.holdings",
     defaultLayoutStyle: variant === "compact" ? "dashboard" : "portfolio",
+    defaultHiddenColumns: variant === "compact" ? PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS : PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS,
   });
   const visibleColumnDefs = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const visibleColumns = visibleColumnDefs.map((column) => column.id);
@@ -287,7 +295,7 @@ export function HoldingsTable({
               />
             </label>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-0 overflow-x-auto pb-1">
               <span className="sr-only">{dict.holdings.displayModeLabel}</span>
               <ToggleGroup
                 type="single"
@@ -295,7 +303,7 @@ export function HoldingsTable({
                 onValueChange={(value) => {
                   if (isHoldingsDisplayMode(value)) setDisplayMode(value);
                 }}
-                className="w-fit"
+                className="flex w-max min-w-full flex-nowrap justify-start"
               >
                 <ToggleGroupItem value="aggregated" data-testid="holdings-display-mode-grouped">{dict.holdings.displayModeAggregated}</ToggleGroupItem>
                 <ToggleGroupItem value="expanded" data-testid="holdings-display-mode-expanded">{dict.holdings.displayModeExpanded}</ToggleGroupItem>
@@ -307,7 +315,7 @@ export function HoldingsTable({
               <DropdownMenuTrigger asChild>
                 <button type="button" className={toolbarButtonClassName} data-testid="holdings-filter-market">
                   {dict.holdings.marketFilterLabel}: {marketFilter === "ALL" ? dict.holdings.allMarketsOption : marketFilter}
-                  <ChevronDown className="size-4" />
+                  <ChevronDown />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -396,7 +404,7 @@ export function HoldingsTable({
                 <HoldingsColumnSettingsMenu dict={dict} settings={columnSettings} />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="min-w-0 overflow-x-auto pb-1">
                 <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
                 <ToggleGroup
                   type="single"
@@ -404,6 +412,7 @@ export function HoldingsTable({
                   onValueChange={(value) => {
                     if (isHoldingAllocationBasis(value)) setEffectiveAllocationBasis(value);
                   }}
+                  className="mt-2 flex w-max flex-nowrap"
                 >
                   <ToggleGroupItem value="market_value" data-testid="holdings-allocation-basis-market-value">{dict.dashboardHome.allocationBasisMarketValue}</ToggleGroupItem>
                   <ToggleGroupItem value="cost_basis" data-testid="holdings-allocation-basis-cost-basis">{dict.dashboardHome.allocationBasisCostBasis}</ToggleGroupItem>
@@ -418,7 +427,58 @@ export function HoldingsTable({
             {dict.holdings.noResults}
           </div>
         ) : (
-          <div className="mt-6 overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
+          <>
+            <div className="mt-6 flex flex-col gap-3 lg:hidden" data-testid="holdings-mobile-list">
+              {displayMode === "accounts"
+                ? visibleChildRows.map((child) => (
+                  <HoldingChildMobileCard
+                    key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
+                    child={child}
+                    dict={dict}
+                    locale={locale}
+                    allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
+                    allocationBasis={effectiveAllocationBasis}
+                    nested={false}
+                  />
+                ))
+                : filteredGroups.map((group) => {
+                  const groupKey = `${group.ticker}::${group.marketCode}`;
+                  const showChildren = expandedState.has(groupKey);
+                  const visibleChildren = group.children.filter((child) =>
+                    (selectedAccountIds.length === 0 || selectedAccountIds.includes(child.accountId))
+                    && (selectedStatuses.length === 0 || selectedStatuses.includes(child.quoteStatus)),
+                  );
+
+                  return (
+                    <div key={groupKey} className="flex flex-col gap-2">
+                      <HoldingGroupMobileCard
+                        group={group}
+                        dict={dict}
+                        locale={locale}
+                        allocationPercent={groupAllocationMap.get(groupKey) ?? null}
+                        allocationBasis={effectiveAllocationBasis}
+                        expanded={showChildren}
+                        onToggle={() => toggleGroup(groupKey)}
+                      />
+                      {showChildren
+                        ? visibleChildren.map((child) => (
+                          <HoldingChildMobileCard
+                            key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
+                            child={child}
+                            dict={dict}
+                            locale={locale}
+                            allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
+                            allocationBasis={effectiveAllocationBasis}
+                            nested
+                          />
+                        ))
+                        : null}
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="mt-6 hidden overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card lg:block">
             <table className="w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words" data-testid="holdings-table">
               <thead>
                 <tr className="bg-muted/40 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -504,10 +564,215 @@ export function HoldingsTable({
                   })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </Card>
     </Tooltip.Provider>
+  );
+}
+
+function HoldingGroupMobileCard({
+  group,
+  dict,
+  locale,
+  allocationPercent,
+  allocationBasis,
+  expanded,
+  onToggle,
+}: {
+  group: DashboardOverviewHoldingGroupDto;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  allocationPercent: number | null;
+  allocationBasis: HoldingAllocationBasis;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const reportingCurrency = group.reportingCurrency;
+  const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
+  const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
+  const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
+  const allocation = getAmountForAllocationBasis(group, allocationBasis);
+
+  return (
+    <div
+      className="rounded-xl border border-border bg-background p-4 shadow-sm"
+      data-testid={`holding-group-mobile-row-${group.ticker}-${group.marketCode}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="mt-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted"
+            data-testid={`holding-group-mobile-toggle-${group.ticker}-${group.marketCode}`}
+          >
+            {expanded ? <ChevronDown /> : <ChevronRight />}
+          </button>
+          <div className="min-w-0">
+            <Link href={groupLinkHref(group)} className="break-words font-semibold text-foreground hover:text-primary">
+              {group.ticker}
+            </Link>
+            {group.instrumentName ? <p className="mt-1 text-sm text-foreground">{group.instrumentName}</p> : null}
+            <p className="mt-1 text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {dict.holdings.parentAccountCountLabel}: {formatNumber(group.accountCount, locale)}
+            </p>
+          </div>
+        </div>
+        <div className="min-w-0 text-right">
+          <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+            {group.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+          </p>
+          <p className={cn("mt-1 font-mono text-xs tabular-nums", getUnrealizedPnlTone(group.reportingUnrealizedPnlAmount))}>
+            {group.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MobileHoldingMetric label={dict.holdings.marketValueTerm} value={group.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />
+        <MobileHoldingMetric
+          label={dict.holdings.pnlTerm}
+          tone={group.reportingUnrealizedPnlAmount}
+          value={group.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
+        />
+        <MobileHoldingMetric label={dict.holdings.avgCostTerm} value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)} secondary={group.currency !== reportingCurrency ? formatCurrencyAmount(group.averageCostPerShare, group.currency, locale) : undefined} />
+        <MobileHoldingMetric
+          label={dict.holdings.unitPnlTerm}
+          tone={unitPnl.amount}
+          value={unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
+          secondary={group.currency !== reportingCurrency ? (nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, group.currency, locale)) : undefined}
+          detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
+        />
+        <MobileHoldingMetric
+          label={dict.holdings.priceTerm}
+          tone={group.currentUnitPrice == null ? null : group.currentUnitPrice - group.averageCostPerShare}
+          value={group.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(group.currentUnitPrice, group.currency, locale)}
+        />
+        <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(group.quantity, locale)} detail={allocationPercent == null ? "-" : `${dict.holdings.allocationTerm}: ${formatPercent(allocationPercent, locale)}`} />
+      </div>
+
+      {allocation.usedFallback ? (
+        <p className="mt-3 text-xs text-warning">
+          {dict.dashboardHome.allocationFallbackLabel}: {formatCurrencyAmount(allocation.amount, reportingCurrency, locale)}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
+        <HoldingsDataHealthBadges dict={dict} row={group} showAllocationFallback />
+      </div>
+    </div>
+  );
+}
+
+function HoldingChildMobileCard({
+  child,
+  dict,
+  locale,
+  allocationPercent,
+  allocationBasis,
+  nested,
+}: {
+  child: DashboardOverviewHoldingChildDto;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  allocationPercent: number | null;
+  allocationBasis: HoldingAllocationBasis;
+  nested: boolean;
+}) {
+  const reportingCurrency = child.reportingCurrency;
+  const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
+  const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
+  const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
+  const allocation = getAmountForAllocationBasis(child, allocationBasis);
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border bg-background p-4 shadow-sm",
+        nested && "ml-4 border-border/70 bg-muted/[0.18]",
+      )}
+      data-testid={`holding-child-mobile-row-${child.ticker}-${child.marketCode}-${child.accountId}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link href={childLinkHref(child)} className="break-words font-semibold text-foreground hover:text-primary">
+            {child.ticker}
+          </Link>
+          {child.instrumentName ? <p className="mt-1 text-sm text-foreground">{child.instrumentName}</p> : null}
+          <p className="mt-1 text-xs text-muted-foreground">{child.marketCode} · {child.currency}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{child.accountName?.trim() || child.accountId}</p>
+        </div>
+        <div className="min-w-0 text-right">
+          <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+            {child.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+          </p>
+          <p className={cn("mt-1 font-mono text-xs tabular-nums", getUnrealizedPnlTone(child.reportingUnrealizedPnlAmount))}>
+            {child.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MobileHoldingMetric label={dict.holdings.marketValueTerm} value={child.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)} />
+        <MobileHoldingMetric
+          label={dict.holdings.pnlTerm}
+          tone={child.reportingUnrealizedPnlAmount}
+          value={child.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
+        />
+        <MobileHoldingMetric label={dict.holdings.avgCostTerm} value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)} secondary={child.currency !== reportingCurrency ? formatCurrencyAmount(child.averageCostPerShare, child.currency, locale) : undefined} />
+        <MobileHoldingMetric
+          label={dict.holdings.unitPnlTerm}
+          tone={unitPnl.amount}
+          value={unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
+          secondary={child.currency !== reportingCurrency ? (nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, child.currency, locale)) : undefined}
+          detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
+        />
+        <MobileHoldingMetric
+          label={dict.holdings.priceTerm}
+          tone={child.currentUnitPrice == null ? null : child.currentUnitPrice - child.averageCostPerShare}
+          value={child.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(child.currentUnitPrice, child.currency, locale)}
+        />
+        <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(child.quantity, locale)} detail={allocationPercent == null ? "-" : `${dict.holdings.allocationTerm}: ${formatPercent(allocationPercent, locale)}`} />
+      </div>
+
+      {allocation.usedFallback ? (
+        <p className="mt-3 text-xs text-warning">
+          {dict.dashboardHome.allocationFallbackLabel}: {formatCurrencyAmount(allocation.amount, reportingCurrency, locale)}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
+        <HoldingsDataHealthBadges dict={dict} row={child} showAllocationFallback />
+      </div>
+    </div>
+  );
+}
+
+function MobileHoldingMetric({
+  label,
+  value,
+  tone = null,
+  secondary,
+  detail,
+}: {
+  label: string;
+  value: string;
+  tone?: number | null;
+  secondary?: string;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", getUnrealizedPnlTone(tone))}>{value}</p>
+      {secondary ? <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{secondary}</p> : null}
+      {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
+    </div>
   );
 }
 
@@ -624,6 +889,8 @@ function portfolioColumnLabel(dict: AppDictionary, column: HoldingsColumn) {
       return dict.holdings.quantityTerm;
     case "avgCost":
       return dict.holdings.avgCostTerm;
+    case "unitPnl":
+      return dict.holdings.unitPnlTerm;
     case "price":
       return dict.holdings.priceTerm;
     case "dailyChange":
@@ -672,7 +939,7 @@ function HoldingGroupCell({
   locale: LocaleCode;
   marketValueAmount: number | null;
   onToggle: () => void;
-  reportingCurrency: string;
+  reportingCurrency: AccountDefaultCurrency;
   showFreshnessBadge: boolean;
   unrealizedPnlAmount: number | null;
 }) {
@@ -687,7 +954,7 @@ function HoldingGroupCell({
             className="mt-1 rounded p-0.5 text-muted-foreground hover:bg-muted"
             data-testid={`holding-group-toggle-${group.ticker}-${group.marketCode}`}
           >
-            {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {expanded ? <ChevronDown /> : <ChevronRight />}
           </button>
           <div className="min-w-0">
             <Link href={groupLinkHref(group)} className="break-words font-semibold text-foreground hover:text-primary">
@@ -706,7 +973,30 @@ function HoldingGroupCell({
     return <td className="px-4 py-3 text-right text-foreground" style={style}>{formatNumber(group.quantity, locale)}</td>;
   }
   if (column === "avgCost") {
-    return <td className="px-4 py-3 text-right" style={style}>{formatCurrencyAmount(group.averageCostPerShare, group.currency, locale)}</td>;
+    const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
+    return (
+      <td className="px-4 py-3 text-right font-mono tabular-nums" style={style}>
+        {avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}
+        {group.currency !== reportingCurrency ? (
+          <div className="text-xs text-muted-foreground">{formatCurrencyAmount(group.averageCostPerShare, group.currency, locale)}</div>
+        ) : null}
+      </td>
+    );
+  }
+  if (column === "unitPnl") {
+    const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
+    const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
+    return (
+      <td className={cn("px-4 py-3 text-right font-mono font-medium tabular-nums", getUnrealizedPnlTone(unitPnl.amount))} style={style}>
+        {unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
+        <div className="text-xs">{unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}</div>
+        {group.currency !== reportingCurrency ? (
+          <div className="text-xs text-muted-foreground">
+            {nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, group.currency, locale)}
+          </div>
+        ) : null}
+      </td>
+    );
   }
   if (column === "price") {
     return (
@@ -794,7 +1084,7 @@ function HoldingChildCell({
   locale: LocaleCode;
   marketValueAmount: number | null;
   nested: boolean;
-  reportingCurrency: string;
+  reportingCurrency: AccountDefaultCurrency;
   showFreshnessBadge: boolean;
   unrealizedPnlAmount: number | null;
 }) {
@@ -818,7 +1108,30 @@ function HoldingChildCell({
     return <td className="px-4 py-3 text-right" style={style}>{formatNumber(child.quantity, locale)}</td>;
   }
   if (column === "avgCost") {
-    return <td className="px-4 py-3 text-right" style={style}>{formatCurrencyAmount(child.averageCostPerShare, child.currency, locale)}</td>;
+    const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
+    return (
+      <td className="px-4 py-3 text-right font-mono tabular-nums" style={style}>
+        {avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}
+        {child.currency !== reportingCurrency ? (
+          <div className="text-xs text-muted-foreground">{formatCurrencyAmount(child.averageCostPerShare, child.currency, locale)}</div>
+        ) : null}
+      </td>
+    );
+  }
+  if (column === "unitPnl") {
+    const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
+    const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
+    return (
+      <td className={cn("px-4 py-3 text-right font-mono font-medium tabular-nums", getUnrealizedPnlTone(unitPnl.amount))} style={style}>
+        {unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
+        <div className="text-xs">{unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}</div>
+        {child.currency !== reportingCurrency ? (
+          <div className="text-xs text-muted-foreground">
+            {nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, child.currency, locale)}
+          </div>
+        ) : null}
+      </td>
+    );
   }
   if (column === "price") {
     return (

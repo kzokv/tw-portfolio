@@ -239,4 +239,5 @@ describe("dashboard holdingGroups", () => {
     expect(group.children.find((child) => child.accountId === "acc-us-1")?.freshness).toBe("stale_red");
     expect(group.children.find((child) => child.accountId === "acc-us-2")?.freshness).toBe("current");
   });
+
 });

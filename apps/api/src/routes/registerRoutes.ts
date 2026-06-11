@@ -185,6 +185,8 @@ const tickerSchema = z
   .min(1);
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
+const tickerChartRangeSchema = z.enum(TICKER_CHART_RANGES);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const currencyCodeSchema = z
   .string()
@@ -208,6 +210,41 @@ const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiCo
 // transactions must commit to a specific market).
 const marketCodeSchema = z.enum(MARKET_CODES);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
+const tickerChartQuerySchema = z.object({
+  accountId: userScopedIdSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
+  range: tickerChartRangeSchema.optional(),
+  startDate: isoDateSchema.optional(),
+  endDate: isoDateSchema.optional(),
+}).superRefine((value, ctx) => {
+  const hasCustomStart = Boolean(value.startDate);
+  const hasCustomEnd = Boolean(value.endDate);
+  const hasCustomRange = hasCustomStart || hasCustomEnd;
+
+  if (value.range && hasCustomRange) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provide either range or startDate/endDate, not both",
+      path: ["range"],
+    });
+  }
+
+  if (hasCustomStart !== hasCustomEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Both startDate and endDate are required for a custom range",
+      path: [hasCustomStart ? "endDate" : "startDate"],
+    });
+  }
+
+  if (value.startDate && value.endDate && value.startDate > value.endDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "startDate must be before or equal to endDate",
+      path: ["startDate"],
+    });
+  }
+});
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
@@ -4008,6 +4045,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // POST remains 200 and the client refetches on SSE.
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker, {
       snapshotFromDate: tx.tradeDate,
+      marketCode: tx.marketCode,
     });
 
     // KZO-126: First-trade backfill trigger
@@ -4127,6 +4165,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // onward may change, nothing before that can.
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker, {
       snapshotFromDate: trade.tradeDate,
+      marketCode: trade.marketCode,
     });
 
     reply.code(202);
@@ -4225,6 +4264,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const effectiveFromDate = patch.date && patch.date < trade.tradeDate ? patch.date : trade.tradeDate;
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker, {
       snapshotFromDate: effectiveFromDate,
+      marketCode: trade.marketCode,
     });
 
     reply.code(202);
@@ -4504,10 +4544,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/enrichment", async (req): Promise<TickerEnrichmentDto> => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      marketCode: marketCodeSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
     const resolvedTicker = params.ticker.trim().toUpperCase();
     const preferredMarketCode = query.marketCode
@@ -4527,6 +4564,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });
@@ -4571,10 +4611,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/details", async (req) => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      marketCode: marketCodeSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
 
     const resolvedTicker = params.ticker.trim().toUpperCase();
@@ -4596,6 +4633,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });
@@ -5810,16 +5850,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // KZO-37 Invariant 5: each new trade may retroactively change the
     // eligibility of existing dividend ledger entries. Schedule a replay
-    // per unique (accountId, ticker) affected by this batch, scoped to the
-    // earliest trade date for that ticker so snapshot recompute stays narrow.
-    const earliestByTicker = new Map<string, string>();
+    // per unique (accountId, ticker, market) affected by this batch, scoped to
+    // the earliest trade date for that market-qualified ticker so snapshot
+    // recompute stays narrow and never mixes cross-listed symbols.
+    const earliestByTicker = new Map<string, { ticker: string; marketCode: typeof marketCode; fromDate: string }>();
     for (const proposal of body.proposals) {
-      const prev = earliestByTicker.get(proposal.ticker);
-      if (!prev || proposal.tradeDate < prev) earliestByTicker.set(proposal.ticker, proposal.tradeDate);
+      const key = `${proposal.ticker}:${marketCode}`;
+      const prev = earliestByTicker.get(key);
+      if (!prev || proposal.tradeDate < prev.fromDate) {
+        earliestByTicker.set(key, { ticker: proposal.ticker, marketCode, fromDate: proposal.tradeDate });
+      }
     }
-    for (const [ticker, fromDate] of earliestByTicker) {
-      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, ticker, {
-        snapshotFromDate: fromDate,
+    for (const item of earliestByTicker.values()) {
+      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, item.ticker, {
+        snapshotFromDate: item.fromDate,
+        marketCode: item.marketCode,
       });
     }
 

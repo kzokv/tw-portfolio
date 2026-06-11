@@ -6,7 +6,7 @@ import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../compone
 import { getDictionary } from "../../../lib/i18n";
 
 vi.mock("../../../lib/api", () => ({
-  getJson: vi.fn(() => new Promise(() => {})),
+  getJson: vi.fn(async () => ({ preferences: {} })),
   patchJson: vi.fn(async () => ({ preferences: {} })),
 }));
 

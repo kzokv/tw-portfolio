@@ -83,14 +83,21 @@ import {
   HoldingsDataHealthBadges,
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
+import {
+  getDashboardReportingAverageCost,
+  getDashboardUnitPnl,
+  getNativeUnitPnl,
+} from "../../lib/holdingsMetrics";
 
-type HoldingsPreviewSort = "value" | "daily" | "pnl" | "ticker";
-type DashboardHoldingsColumn = "ticker" | "position" | "price" | "marketValue" | "daily" | "pnl" | "health" | "action";
+type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
+type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
 
 const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHoldingsColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
   { id: "position", label: "Position", defaultWidth: 160 },
+  { id: "avgCost", label: "Average cost", defaultWidth: 156, align: "right" },
   { id: "price", label: "Price", defaultWidth: 156, align: "right" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 156, align: "right" },
   { id: "marketValue", label: "Market value", defaultWidth: 176, align: "right" },
   { id: "daily", label: "Daily", defaultWidth: 156, align: "right" },
   { id: "pnl", label: "P&L", defaultWidth: 156, align: "right" },
@@ -212,9 +219,9 @@ export function DashboardHoldingsPreview({
   const visibleGroups = useMemo(
     () => filteredGroups
       .slice()
-      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset))
+      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency))
       .slice(0, 12),
-    [filteredGroups, selectedPreset, sortMode],
+    [filteredGroups, reportingCurrency, selectedPreset, sortMode],
   );
   const visiblePresets = presetOrder
     .filter((presetId) => !hiddenPresetIds.has(presetId))
@@ -387,6 +394,7 @@ export function DashboardHoldingsPreview({
                         <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
                         <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
                         <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
+                        <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
                         <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
                       </SelectGroup>
                     </SelectContent>
@@ -578,9 +586,11 @@ function DashboardHoldingRow({
   reportingCurrency: AccountDefaultCurrency;
 }) {
   const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
+  const reportingAvgCost = getDashboardReportingAverageCost(group, reportingCurrency);
   const nativePrice = group.currentUnitPrice;
   const dailyMetric = getDailyMetric(dict, group, locale);
   const allocationLabel = group.reportingAllocationPercent === null ? null : formatPercent(group.reportingAllocationPercent, locale);
+  const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
 
   return (
     <div
@@ -618,7 +628,11 @@ function DashboardHoldingRow({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <PreviewMetric
+          label={dict.holdings.avgCostTerm}
+          value={reportingAvgCost == null ? "-" : formatCurrencyAmount(reportingAvgCost, reportingCurrency, locale)}
+        />
         <PricePreviewMetric
           dict={dict}
           fxRate={fxRate}
@@ -626,6 +640,12 @@ function DashboardHoldingRow({
           locale={locale}
           reportingCurrency={reportingCurrency}
           reportingPrice={reportingPrice}
+        />
+        <PreviewMetric
+          label={dict.holdings.unitPnlTerm}
+          toneValue={unitPnl.amount}
+          value={unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}
+          title={unitPnl.percent == null ? undefined : formatSignedPercent(unitPnl.percent, locale)}
         />
         <PreviewMetric
           label={dict.reports.dailyChange}
@@ -766,6 +786,10 @@ function dashboardColumnLabel(dict: ReturnType<typeof getDictionary>, column: Da
       return dict.reports.position;
     case "price":
       return formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency });
+    case "avgCost":
+      return dict.holdings.avgCostTerm;
+    case "unitPnl":
+      return dict.holdings.unitPnlTerm;
     case "marketValue":
       return formatTopHoldingsMessage(dict.dashboardHome.topHoldingsMarketValueWithCurrency, { currency: reportingCurrency });
     case "daily":
@@ -783,7 +807,7 @@ function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string)
   return cn(
     "whitespace-normal break-words align-top",
     column === "ticker" && "sticky left-0 z-10 bg-card",
-    ["price", "marketValue", "daily", "pnl", "action"].includes(column) && "text-right",
+    ["avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "action"].includes(column) && "text-right",
     extra,
   );
 }
@@ -879,6 +903,36 @@ function renderDashboardGroupCell({
       </TableCell>
     );
   }
+  if (column === "avgCost") {
+    const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        <div className="flex flex-col items-end gap-1">
+          <span>{avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}</span>
+          {group.currency !== reportingCurrency ? (
+            <span className="text-xs text-muted-foreground">{formatCurrencyAmount(group.averageCostPerShare, group.currency, locale)}</span>
+          ) : null}
+        </div>
+      </TableCell>
+    );
+  }
+  if (column === "unitPnl") {
+    const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
+    const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(unitPnl.amount)))} style={style}>
+        <div className="flex flex-col items-end gap-1">
+          <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
+          <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
+          {group.currency !== reportingCurrency ? (
+            <span className="text-xs text-muted-foreground">
+              {nativeUnitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(nativeUnitPnl.amount, group.currency, locale, true)}
+            </span>
+          ) : null}
+        </div>
+      </TableCell>
+    );
+  }
   if (column === "marketValue") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
@@ -964,6 +1018,36 @@ function renderDashboardChildCell({
     return (
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         {price === null ? "-" : formatUnitPrice(price, reportingCurrency, locale)}
+      </TableCell>
+    );
+  }
+  if (column === "avgCost") {
+    const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        <div className="flex flex-col items-end gap-1">
+          <span>{avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}</span>
+          {child.currency !== reportingCurrency ? (
+            <span className="text-xs text-muted-foreground">{formatCurrencyAmount(child.averageCostPerShare, child.currency, locale)}</span>
+          ) : null}
+        </div>
+      </TableCell>
+    );
+  }
+  if (column === "unitPnl") {
+    const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
+    const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(unitPnl.amount)))} style={style}>
+        <div className="flex flex-col items-end gap-1">
+          <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
+          <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
+          {child.currency !== reportingCurrency ? (
+            <span className="text-xs text-muted-foreground">
+              {nativeUnitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(nativeUnitPnl.amount, child.currency, locale, true)}
+            </span>
+          ) : null}
+        </div>
       </TableCell>
     );
   }
@@ -1377,6 +1461,7 @@ function compareHoldingGroups(
   right: DashboardOverviewHoldingGroupDto,
   sortMode: HoldingsPreviewSort,
   selectedPreset: DashboardHoldingFocusPreset,
+  reportingCurrency: AccountDefaultCurrency,
 ): number {
   if (selectedPreset === "stale-quotes") {
     const freshnessRankDiff = freshnessSortRank(right) - freshnessSortRank(left);
@@ -1395,6 +1480,10 @@ function compareHoldingGroups(
     }
     return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
       - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
+  }
+  if (sortMode === "unitPnl") {
+    return (getDashboardUnitPnl(right, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY)
+      - (getDashboardUnitPnl(left, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY);
   }
   return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
