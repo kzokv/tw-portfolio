@@ -370,7 +370,7 @@ export async function translatePerformancePoints(
   const coverage = store
     ? filterAggregatedSnapshotsByActiveCoverage(
         aggregated,
-        buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate),
+        await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence),
       )
     : { points: aggregated, hasSnapshotCoverageGap: false };
 
@@ -462,18 +462,21 @@ function filterAggregatedSnapshotsByActiveCoverage(
   return { points: filtered, hasSnapshotCoverageGap };
 }
 
-function buildExpectedSnapshotContributorKeysByDate(
+async function buildExpectedSnapshotContributorKeysByDate(
   store: Store,
   startDate: string,
   endDate: string,
-): Map<string, Set<string>> {
+  persistence: Persistence,
+): Promise<Map<string, Set<string>>> {
   const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
   const activeQuantities = new Map<string, number>();
   const expectedByDate = new Map<string, Set<string>>();
+  const contributors = new Map<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>();
   let tradeIndex = 0;
 
   function applyTradeQuantity(trade: BookedTradeEvent): void {
     const key = performancePositionKey(trade);
+    contributors.set(key, { ticker: trade.ticker, marketCode: trade.marketCode });
     const current = activeQuantities.get(key) ?? 0;
     const next = trade.type === "BUY"
       ? current + trade.quantity
@@ -501,7 +504,44 @@ function buildExpectedSnapshotContributorKeysByDate(
     expectedByDate.set(currentDate, new Set(activeQuantities.keys()));
   }
 
+  const availableDatesByContributor = await buildSnapshotAvailableDatesByContributor(
+    contributors,
+    startDate,
+    endDate,
+    persistence,
+  );
+
+  for (const [date, keys] of expectedByDate) {
+    for (const key of [...keys]) {
+      if (!availableDatesByContributor.get(key)?.has(date)) {
+        keys.delete(key);
+      }
+    }
+  }
+
   return expectedByDate;
+}
+
+async function buildSnapshotAvailableDatesByContributor(
+  contributors: ReadonlyMap<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>,
+  startDate: string,
+  endDate: string,
+  persistence: Persistence,
+): Promise<Map<string, Set<string>>> {
+  const availableDatesByContributor = new Map<string, Set<string>>();
+  await Promise.all([...contributors].map(async ([key, contributor]) => {
+    const bars = await persistence.getDailyBarsForTickerMarket(
+      contributor.ticker,
+      contributor.marketCode,
+      startDate,
+      endDate,
+    );
+    availableDatesByContributor.set(
+      key,
+      new Set(bars.map((bar) => bar.barDate)),
+    );
+  }));
+  return availableDatesByContributor;
 }
 
 function withPerformanceFreshness(

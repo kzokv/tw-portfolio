@@ -773,6 +773,14 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
         { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
         { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
       ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-09", 1000, "TW"),
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+        makeDailyBar("AVGO", "2026-06-09", 500, "US"),
+        makeDailyBar("AVGO", "2026-06-10", 510, "US"),
+        makeDailyBar("000660", "2026-06-09", 200000, "KR"),
+        makeDailyBar("000660", "2026-06-10", 201000, "KR"),
+      ],
       aggregated: [
         {
           date: "2026-06-09",
@@ -871,6 +879,92 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       staleSinceDate: "2026-06-09",
       knownGapReasons: ["missing_snapshot", "stale_snapshot"],
     });
+  });
+
+  it("keeps an all-market snapshot date when the absent market has no bar for that date", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
+        { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+        makeDailyBar("000660", "2026-06-10", 201000, "KR"),
+      ],
+      aggregated: [
+        {
+          date: "2026-06-10",
+          totalCostBasis: 13_310_288.12,
+          totalMarketValue: 14_983_264.80,
+          totalUnrealizedPnl: 1_672_976.68,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 1_672_976.68,
+          totalReturnPercent: 12.568,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 837.44,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "us-buy",
+              accountId: "acct-us",
+              ticker: "AVGO",
+              marketCode: "US",
+              quantity: 456,
+              unitPrice: 400,
+              priceCurrency: "USD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "kr-buy",
+              accountId: "acct-kr",
+              ticker: "000660",
+              marketCode: "KR",
+              quantity: 80,
+              unitPrice: 1_821_831.73,
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-10"]);
+    expect(out.points[0]?.marketValueAmount).toBe(14_983_264.80);
+    expect(out.lastReliableDate).toBe("2026-06-10");
+    expect(out.diagnostics?.knownGapReasons).toEqual([]);
   });
 
   it("Maps fxAvailable=false rows to nullable point fields and rolls up partial", async () => {
