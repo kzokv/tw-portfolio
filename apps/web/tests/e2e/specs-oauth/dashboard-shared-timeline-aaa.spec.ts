@@ -1,4 +1,3 @@
-import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 test.describe("dashboard shared timeline controls", () => {
@@ -17,10 +16,22 @@ test.describe("dashboard shared timeline controls", () => {
 
     await trendTimeline.getByRole("button", { name: "Month" }).click();
 
-    await expect(trendTimeline.getByRole("button", { name: "Month" })).toHaveAttribute("data-state", "on");
-    await expect(returnTimeline.getByRole("button", { name: "Month" })).toHaveAttribute("data-state", "on");
+    await appShell.assert.mxAssertEqual(
+      await trendTimeline.getByRole("button", { name: "Month" }).getAttribute("data-state"),
+      "on",
+      "Portfolio Trend Month timeline state",
+    );
+    await appShell.assert.mxAssertEqual(
+      await returnTimeline.getByRole("button", { name: "Month" }).getAttribute("data-state"),
+      "on",
+      "Return % Month timeline state mirrors Portfolio Trend",
+    );
 
     await trendTimeline.getByRole("button", { name: "Year" }).click();
-    await expect(returnTimeline.getByRole("button", { name: "Year" })).toHaveAttribute("data-state", "on");
+    await appShell.assert.mxAssertEqual(
+      await returnTimeline.getByRole("button", { name: "Year" }).getAttribute("data-state"),
+      "on",
+      "Return % Year timeline state mirrors Portfolio Trend",
+    );
   });
 });

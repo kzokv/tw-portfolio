@@ -1,4 +1,3 @@
-import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("portfolio and ticker follow-up controls", () => {
@@ -21,11 +20,19 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
 
     await styleControl.getByTestId("portfolio-holdings-style-dashboard").click();
-    await expect(styleControl.getByTestId("portfolio-holdings-style-dashboard")).toHaveAttribute("data-state", "on");
+    await appShell.assert.mxAssertEqual(
+      await styleControl.getByTestId("portfolio-holdings-style-dashboard").getAttribute("data-state"),
+      "on",
+      "Dashboard Top Holdings style is selected",
+    );
     await page.getByTestId("dashboard-holdings-preview").waitFor({ state: "visible" });
 
     await styleControl.getByTestId("portfolio-holdings-style-portfolio").click();
-    await expect(styleControl.getByTestId("portfolio-holdings-style-portfolio")).toHaveAttribute("data-state", "on");
+    await appShell.assert.mxAssertEqual(
+      await styleControl.getByTestId("portfolio-holdings-style-portfolio").getAttribute("data-state"),
+      "on",
+      "Portfolio Holdings style is selected",
+    );
     await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
   });
 
@@ -47,7 +54,7 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await customRange.getByLabel("End date").fill("2025-06-30");
     await customRange.getByRole("button", { name: "Apply" }).click();
 
-    await expect(page).toHaveURL(/chartRange=CUSTOM/);
+    await page.waitForURL(/chartRange=CUSTOM/);
     await appShell.assert.mxAssertEqual(
       new URL(page.url()).searchParams.get("chartStart"),
       "2025-01-01",
@@ -62,6 +69,12 @@ test.describe("portfolio and ticker follow-up controls", () => {
     await customRange.getByLabel("Start date").fill("2010-01-01");
     await customRange.getByLabel("End date").fill("2025-06-30");
     await customRange.getByRole("button", { name: "Apply" }).click();
-    await expect(page.getByText(/custom range within 10 years/i)).toBeVisible();
+    const customRangeError = page.getByText(/custom range within 10 years/i);
+    await customRangeError.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await customRangeError.isVisible(),
+      true,
+      "custom range over 10 years shows validation error",
+    );
   });
 });
