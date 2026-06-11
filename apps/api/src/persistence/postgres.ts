@@ -5506,8 +5506,14 @@ export class PostgresPersistence implements Persistence {
               AND (
                 s.is_provisional
                 OR s.close_price IS NULL
-                OR s.market_value IS NULL
-                OR s.value_native IS NULL
+                OR s.quantity IS NULL
+                OR (
+                  s.quantity > 0
+                  AND (
+                    s.market_value IS NULL
+                    OR s.value_native IS NULL
+                  )
+                )
                 OR s.provider_source IS NULL
               )
              THEN 1
@@ -5528,8 +5534,14 @@ export class PostgresPersistence implements Persistence {
         WHERE s.id IS NULL
            OR s.is_provisional
            OR s.close_price IS NULL
-           OR s.market_value IS NULL
-           OR s.value_native IS NULL
+           OR s.quantity IS NULL
+           OR (
+             s.quantity > 0
+             AND (
+               s.market_value IS NULL
+               OR s.value_native IS NULL
+             )
+           )
            OR s.provider_source IS NULL
        )
        SELECT
