@@ -257,12 +257,17 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-hero-currency"');
     expect(html).toContain("Current report baseline is AUD");
     expect(html).toContain("Change in Quick Actions");
+    expect(html).toContain('data-testid="dashboard-hero-total-exact"');
+    expect(html).toContain("Exact A$60,000");
+    expect(html).toContain('data-testid="dashboard-hero-day-delta-exact"');
+    expect(html).toContain("Exact A$120");
     expect(html).toContain('data-testid="dashboard-hero-fx-rates"');
     expect(html).toContain("TWD to AUD");
     expect(html).toContain("0.049");
     expect(html).toContain('data-testid="dashboard-hero-market-strip"');
     expect(html).toContain('href="/reports?tab=market&amp;scope=TW&amp;range=1Y"');
     expect(html).toContain("AUD");
+    expect(html).toContain("Exact A$60,000");
   });
 
   it("shows a read-only quick-actions hint when the dashboard cannot change reporting currency", () => {
@@ -1351,6 +1356,9 @@ describe("dashboard components", () => {
     );
     expect(trendHtml).toContain("As of May 29");
     expect(trendHtml).toContain("Market data stale since May 29");
+    expect(trendHtml).toContain("Latest available snapshot");
+    expect(trendHtml).toContain("Requested Jun 8");
+    expect(trendHtml).toContain("dashboard-performance-market-value-meta");
     expect(trendHtml).toContain("dashboard-performance-as-of-tooltip-trigger");
     expect(trendHtml).toContain("text-warning");
 

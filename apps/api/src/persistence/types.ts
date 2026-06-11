@@ -1716,6 +1716,13 @@ export interface AggregatedSnapshotPoint {
    * argument) does not perform FX translation and always emits `true`.
    */
   fxAvailable: boolean;
+  /**
+   * Internal coverage keys for rows that contributed to this snapshot date,
+   * formatted as `${accountId}:${marketCode}:${ticker}`. Dashboard/report
+   * performance services use these keys to reject partial all-market dates
+   * instead of presenting a subset total as the whole portfolio.
+   */
+  snapshotContributorKeys?: string[];
 }
 
 export interface HoldingSnapshotScopePair {

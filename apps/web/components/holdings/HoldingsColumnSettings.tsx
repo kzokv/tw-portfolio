@@ -79,9 +79,9 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   columnSettingsButtonLabel: "Columns",
   columnSettingsTitle: "Column settings",
   dragColumnTitle: "Drag to reorder {column}",
-  layoutStyleLabel: "Holding layout",
-  layoutStyleCompact: "Compact",
-  layoutStyleDetailed: "Detailed",
+  layoutStyleLabel: "Style preset",
+  layoutStyleCompact: "Compact holdings",
+  layoutStyleDetailed: "Detailed holdings",
   moveColumnLeftAria: "Move {column} column left",
   moveColumnRightAria: "Move {column} column right",
   resizeColumnAria: "Resize {column} column",
@@ -346,10 +346,22 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                 onValueChange={(value) => {
                   if (value === "dashboard" || value === "portfolio") settings.setLayoutStyle(value);
                 }}
-                className="justify-start"
+                className="flex-wrap justify-start"
               >
-                <ToggleGroupItem value="dashboard" data-testid="holdings-layout-dashboard">{copy.layoutStyleCompact}</ToggleGroupItem>
-                <ToggleGroupItem value="portfolio" data-testid="holdings-layout-portfolio">{copy.layoutStyleDetailed}</ToggleGroupItem>
+                <ToggleGroupItem
+                  value="dashboard"
+                  className="h-auto whitespace-normal text-left leading-5"
+                  data-testid="holdings-layout-dashboard"
+                >
+                  {copy.layoutStyleCompact}
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="portfolio"
+                  className="h-auto whitespace-normal text-left leading-5"
+                  data-testid="holdings-layout-portfolio"
+                >
+                  {copy.layoutStyleDetailed}
+                </ToggleGroupItem>
               </ToggleGroup>
             </div>
           </>

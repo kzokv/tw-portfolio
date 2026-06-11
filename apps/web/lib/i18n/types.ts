@@ -397,9 +397,11 @@ export interface AppDictionary {
     primaryDataMountedDuringRefresh: string;
     silentRefreshRunning: string;
     latestAvailableSnapshot: string;
+    requestedAsOfLabel: string;
     restoredFromCacheAt: string;
     portfolioSnapshotMountedDuringRefresh: string;
     marketValuesInCurrency: string;
+    exactAmountInline: string;
     reportsLinkLabel: string;
     fxStatusCompleteDescription: string;
     fxStatusMissingDescription: string;

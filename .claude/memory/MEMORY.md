@@ -91,6 +91,8 @@
 - 2026-06-09 addendum — `market-data-composite-keys.md` — Report/dashboard market-data lookups must preserve `(ticker, marketCode)` identity for bars, quotes, freshness, and synthetic performance; bare-ticker collectors can mix cross-listed symbols.
 - 2026-06-10 addendum — `route-enrichment-mutation-refresh.md` — Route enrichment endpoints are valid for mount/return hydration, but mutation refreshes that can change position/accounting summaries must use the authoritative full DTO or mutation-aware primary endpoint.
 - 2026-06-10 addendum — `reporting-server-authoritative-dtos.md` — Dashboard/report trend and return charts are strict snapshot-only surfaces; missing/stale/partial snapshots must show truthful diagnostics and empty/gapped series, and scoped snapshot contributors must be market-qualified `(accountId, ticker, marketCode)`.
+- 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — Formal trend DTOs with valid persisted snapshot aggregates must not null chart points only because replay-only dated finance FX is incomplete; use the snapshot aggregate and surface a diagnostic for the replay basis gap.
+- 2026-06-11 addendum — `reporting-server-authoritative-dtos.md` — All-market formal trend DTOs must filter snapshot dates missing active `(accountId, marketCode, ticker)` contributors and surface missing/stale snapshot diagnostics instead of plotting partial all-market totals as complete.
 
 ## Promoted to .claude/rules/ (KZO-197 review closure, 2026-06-03)
 - `provider-registry-ui-coverage.md` — Provider registry/admin-provider changes must audit provider-keyed UI dictionaries and assert real content, not only trigger presence. Promoted from the KR resolver empty-popover review finding.

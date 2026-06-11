@@ -87,7 +87,7 @@ describe("FloatingQuickActions", () => {
 
     expect(document.body.textContent).toContain("Quick actions");
     expect(document.body.textContent).toContain("Add transaction");
-    expect(document.body.textContent).toContain("Generate snapshots");
+    expect(document.body.textContent).toContain("Generate snapshots for current context");
     expect(document.body.textContent).toContain("Change reporting currency");
     expect(document.body.textContent).toContain("TWD");
 

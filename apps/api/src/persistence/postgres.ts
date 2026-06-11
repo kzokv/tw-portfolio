@@ -5951,6 +5951,7 @@ export class PostgresPersistence implements Persistence {
       cumulative_realized_pnl: string;
       cumulative_dividends: string;
       is_provisional: boolean;
+      snapshot_contributor_keys: string | null;
     }>(
       `SELECT
          snapshot_date::text,
@@ -5959,7 +5960,11 @@ export class PostgresPersistence implements Persistence {
          CASE WHEN bool_or(is_provisional) THEN NULL ELSE SUM(unrealized_pnl) END AS total_unrealized_pnl,
          SUM(cumulative_realized_pnl) AS cumulative_realized_pnl,
          SUM(cumulative_dividends) AS cumulative_dividends,
-         bool_or(is_provisional) AS is_provisional
+         bool_or(is_provisional) AS is_provisional,
+         string_agg(
+           DISTINCT account_id || ':' || COALESCE(market_code, '') || ':' || ticker,
+           ',' ORDER BY account_id || ':' || COALESCE(market_code, '') || ':' || ticker
+         ) AS snapshot_contributor_keys
        FROM daily_holding_snapshots
        WHERE user_id = $1 AND snapshot_date >= $2::date AND snapshot_date <= $3::date
        GROUP BY snapshot_date
@@ -5989,6 +5994,7 @@ export class PostgresPersistence implements Persistence {
         isProvisional: row.is_provisional,
         // Legacy method does no FX translation — every row is trivially "available".
         fxAvailable: true,
+        snapshotContributorKeys: parseSnapshotContributorKeys(row.snapshot_contributor_keys),
       };
     });
   }
@@ -6027,6 +6033,7 @@ export class PostgresPersistence implements Persistence {
       cumulative_dividends: string;
       is_provisional: boolean;
       fx_available: boolean;
+      snapshot_contributor_keys: string | null;
     }>(
       `SELECT s.snapshot_date::text,
               SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
@@ -6039,7 +6046,11 @@ export class PostgresPersistence implements Persistence {
               SUM(s.cumulative_realized_pnl  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_realized_pnl,
               SUM(s.cumulative_dividends     * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_dividends,
               bool_or(s.is_provisional) AS is_provisional,
-              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available
+              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available,
+              string_agg(
+                DISTINCT s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker,
+                ',' ORDER BY s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker
+              ) AS snapshot_contributor_keys
          FROM daily_holding_snapshots s
          LEFT JOIN LATERAL (
            SELECT rate FROM market_data.fx_rates
@@ -6097,6 +6108,7 @@ export class PostgresPersistence implements Persistence {
         totalReturnPercent,
         isProvisional: row.is_provisional,
         fxAvailable,
+        snapshotContributorKeys: parseSnapshotContributorKeys(row.snapshot_contributor_keys),
       };
     });
   }
@@ -6119,6 +6131,7 @@ export class PostgresPersistence implements Persistence {
       cumulative_dividends: string;
       is_provisional: boolean;
       fx_available: boolean;
+      snapshot_contributor_keys: string | null;
     }>(
       `WITH scoped_pairs AS (
          SELECT DISTINCT "accountId" AS account_id, ticker, "marketCode" AS market_code
@@ -6137,7 +6150,11 @@ export class PostgresPersistence implements Persistence {
               SUM(s.cumulative_realized_pnl  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_realized_pnl,
               SUM(s.cumulative_dividends     * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_dividends,
               bool_or(s.is_provisional) AS is_provisional,
-              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available
+              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available,
+              string_agg(
+                DISTINCT s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker,
+                ',' ORDER BY s.account_id || ':' || COALESCE(s.market_code, '') || ':' || s.ticker
+              ) AS snapshot_contributor_keys
          FROM daily_holding_snapshots s
          JOIN scoped_pairs pair
            ON pair.account_id = s.account_id
@@ -6185,6 +6202,7 @@ export class PostgresPersistence implements Persistence {
         totalReturnPercent,
         isProvisional: row.is_provisional,
         fxAvailable,
+        snapshotContributorKeys: parseSnapshotContributorKeys(row.snapshot_contributor_keys),
       };
     });
   }
@@ -15025,4 +15043,9 @@ function alignBookedTaxComponentAmounts(bookedTaxAmount: number, calculatedCompo
   const calculatedTotal = aligned.reduce((total, amount) => total + amount, 0);
   aligned[aligned.length - 1] = Math.max(0, aligned[aligned.length - 1] + (bookedTaxAmount - calculatedTotal));
   return aligned;
+}
+
+function parseSnapshotContributorKeys(value: string | null): string[] {
+  if (!value) return [];
+  return value.split(",").filter(Boolean);
 }

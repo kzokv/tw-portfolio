@@ -22,6 +22,7 @@ import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { TooltipInfo } from "../ui/TooltipInfo";
+import { Badge } from "../ui/shadcn/badge";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
 
@@ -90,6 +91,13 @@ export function PortfolioTrendCard({
   const latestTotalReturnPoint = [...points].reverse().find((point) => point.totalReturnAmount != null) ?? null;
   const lastReliableDate = data?.lastReliableDate ?? findLastReliablePointDate(points);
   const marketDataStaleSince = data?.marketDataStaleSince ?? null;
+  const expectedLatestValuationDate = data?.diagnostics?.expectedLatestValuationDate ?? data?.requestedAsOf ?? null;
+  const latestMarketValueDate = latestMarketValuePoint?.date ?? data?.diagnostics?.latestReliableValuationDate ?? lastReliableDate;
+  const marketValueUsesLatestAvailableSnapshot = Boolean(
+    latestMarketValueDate
+      && expectedLatestValuationDate
+      && latestMarketValueDate !== expectedLatestValuationDate,
+  );
   const hasPoints = points.length > 0;
   const hasMarketValue = points.some((point) => point.marketValueAmount !== null);
   const hasTotalReturn = points.some((point) => point.totalReturnAmount != null);
@@ -171,6 +179,9 @@ export function PortfolioTrendCard({
           value={latestMarketValuePoint?.marketValueAmount !== null && latestMarketValuePoint?.marketValueAmount !== undefined
             ? formatCurrencyAmount(latestMarketValuePoint.marketValueAmount, currency, locale)
             : dict.dashboardHome.noMarketValue}
+          meta={formatMetricDateMeta(dict, locale, latestMarketValueDate, expectedLatestValuationDate)}
+          badgeLabel={marketValueUsesLatestAvailableSnapshot ? dict.dashboardHome.latestAvailableSnapshot : undefined}
+          metaTestId="dashboard-performance-market-value-meta"
           swatchClassName="bg-[hsl(var(--chart-primary))]"
         />
         <LegendMetric
@@ -343,10 +354,10 @@ export function PortfolioTrendCard({
                   isFront
                 />
               ) : null}
-              {latestPoint && latestPoint.marketValueAmount !== null && lastDate ? (
+              {latestMarketValuePoint && latestMarketValuePoint.marketValueAmount !== null ? (
                 <ReferenceDot
-                  x={lastDate}
-                  y={latestPoint.marketValueAmount}
+                  x={latestMarketValuePoint.date}
+                  y={latestMarketValuePoint.marketValueAmount}
                   r={6}
                   fill="var(--color-marketValue)"
                   stroke="none"
@@ -371,14 +382,34 @@ export function PortfolioTrendCard({
   );
 }
 
-function LegendMetric({ label, value, swatchClassName }: { label: string; value: string; swatchClassName: string }) {
+function LegendMetric({
+  label,
+  value,
+  meta,
+  metaTestId,
+  badgeLabel,
+  swatchClassName,
+}: {
+  label: string;
+  value: string;
+  meta?: string | null;
+  metaTestId?: string;
+  badgeLabel?: string;
+  swatchClassName: string;
+}) {
   return (
-    <div className="rounded-[22px] border border-slate-200 bg-white/88 px-4 py-4 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-      <div className="flex items-center gap-2">
+    <div className="rounded-[22px] border border-border bg-card px-4 py-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className={cn("h-2.5 w-2.5 rounded-full", swatchClassName)} aria-hidden="true" />
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+        {badgeLabel ? <Badge variant="outline" className="font-medium">{badgeLabel}</Badge> : null}
       </div>
-      <p className="mt-3 text-lg font-semibold text-slate-950">{value}</p>
+      <p className="mt-3 text-lg font-semibold text-foreground">{value}</p>
+      {meta ? (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid={metaTestId}>
+          {meta}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -411,6 +442,24 @@ function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: Lo
     "{date}",
     formatAxisDateLabel(date, locale),
   );
+}
+
+function formatMetricDateMeta(
+  dict: AppDictionary,
+  locale: LocaleCode,
+  actualDate: string | null,
+  requestedDate: string | null,
+): string | null {
+  const parts: string[] = [];
+  if (actualDate) {
+    parts.push(`${dict.dashboardHome.asOfLabel} ${formatAxisDateLabel(actualDate, locale)}`);
+  }
+  if (requestedDate && requestedDate !== actualDate) {
+    parts.push(
+      dict.dashboardHome.requestedAsOfLabel.replace("{date}", formatAxisDateLabel(requestedDate, locale)),
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {

@@ -397,6 +397,33 @@ export function HoldingsTable({
             </DropdownMenu>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center gap-2" data-testid="holdings-layout-style-control">
+                <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
+                <ToggleGroup
+                  type="single"
+                  value={columnSettings.layoutStyle}
+                  onValueChange={(value) => {
+                    if (value === "dashboard" || value === "portfolio") columnSettings.setLayoutStyle(value);
+                  }}
+                  className="w-full flex-wrap justify-start sm:w-auto"
+                >
+                  <ToggleGroupItem
+                    value="dashboard"
+                    className="h-auto whitespace-normal text-left leading-5"
+                    data-testid="holdings-layout-dashboard-inline"
+                  >
+                    {dict.holdings.layoutStyleCompact}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="portfolio"
+                    className="h-auto whitespace-normal text-left leading-5"
+                    data-testid="holdings-layout-portfolio-inline"
+                  >
+                    {dict.holdings.layoutStyleDetailed}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+
               <div data-testid="holdings-filter-columns">
                 <HoldingsColumnSettingsMenu dict={dict} enableLayoutStyle settings={columnSettings} />
               </div>

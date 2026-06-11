@@ -700,6 +700,179 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     });
   });
 
+  it("falls back to snapshot-backed return metrics when dated finance FX is missing but snapshot FX exists", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "KRW", rate: 1300, asOf: "2026-01-03" },
+      ],
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 130000,
+          totalMarketValue: 143000,
+          totalUnrealizedPnl: 13000,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 2600,
+          totalReturnAmount: 15600,
+          totalReturnPercent: 12,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+    const store = makeStore({
+      accounting: {
+        ...makeStore().accounting,
+        facts: {
+          ...makeStore().accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "usd-buy",
+              ticker: "AAPL",
+              marketCode: "US",
+              quantity: 10,
+              unitPrice: 10,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "KRW",
+      persistence,
+      store,
+    );
+
+    expect(out.fxStatus).toBe("complete");
+    expect(out.points).toEqual([
+      {
+        date: "2026-01-03",
+        totalCostAmount: 130000,
+        marketValueAmount: 143000,
+        unrealizedPnlAmount: 13000,
+        cumulativeRealizedPnlAmount: 0,
+        cumulativeDividendsAmount: 2600,
+        totalReturnAmount: 15600,
+        totalReturnPercent: 12,
+        fxAvailable: true,
+      },
+    ]);
+    expect(out.lastReliableDate).toBe("2026-01-03");
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
+  });
+
+  it("does not publish a partial latest all-market snapshot as the portfolio trend total", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
+        { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
+      ],
+      aggregated: [
+        {
+          date: "2026-06-09",
+          totalCostBasis: 19_000_000,
+          totalMarketValue: 21_160_204.21,
+          totalUnrealizedPnl: 2_160_204.21,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 2_160_204.21,
+          totalReturnPercent: 11.3695,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+            "acct-us:US:AVGO",
+          ],
+        },
+        {
+          date: "2026-06-10",
+          totalCostBasis: 13_310_288.12,
+          totalMarketValue: 14_983_264.80,
+          totalUnrealizedPnl: 1_672_976.68,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 1_672_976.68,
+          totalReturnPercent: 12.568,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 837.44,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "us-buy",
+              accountId: "acct-us",
+              ticker: "AVGO",
+              marketCode: "US",
+              quantity: 456,
+              unitPrice: 400,
+              priceCurrency: "USD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "kr-buy",
+              accountId: "acct-kr",
+              ticker: "000660",
+              marketCode: "KR",
+              quantity: 80,
+              unitPrice: 1_821_831.73,
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-09"]);
+    expect(out.points[0]?.marketValueAmount).toBe(21_160_204.21);
+    expect(out.lastReliableDate).toBe("2026-06-09");
+    expect(out.marketDataStaleSince).toBe("2026-06-09");
+    expect(out.diagnostics).toMatchObject({
+      latestSnapshotDate: "2026-06-09",
+      latestReliableValuationDate: "2026-06-09",
+      expectedLatestValuationDate: "2026-06-10",
+      staleSinceDate: "2026-06-09",
+      knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    });
+  });
+
   it("Maps fxAvailable=false rows to nullable point fields and rolls up partial", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
@@ -1035,7 +1208,7 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(finalPoint?.totalReturnPercent).toBeCloseTo((190 / 320) * 100);
   });
 
-  it("marks realized replay incomplete when lot allocation FX is missing", async () => {
+  it("falls back to snapshot-backed point data when lot allocation FX is missing", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
         {
@@ -1119,12 +1292,15 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
 
     const finalPoint = out.points.at(-1);
-    expect(out.fxStatus).toBe("missing");
+    expect(out.fxStatus).toBe("complete");
     expect(finalPoint).toMatchObject({
       date: "2026-01-03",
-      fxAvailable: false,
-      cumulativeRealizedPnlAmount: null,
+      totalCostAmount: 0,
+      marketValueAmount: 150,
+      fxAvailable: true,
+      cumulativeRealizedPnlAmount: 0,
       totalReturnAmount: null,
     });
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
   });
 });
