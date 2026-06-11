@@ -556,6 +556,7 @@ describe("fetchTickerDetails", () => {
       reportingMarketValueAmount: 9000,
       reportingUnrealizedPnlAmount: 4000,
     });
+    expect(details.chart.points).toEqual([]);
   });
 
   it("maps the ticker enrichment API DTO without replacing primary position data", async () => {
