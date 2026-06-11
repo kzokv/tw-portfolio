@@ -118,7 +118,7 @@ import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
 import { buildFxConversionRateRows } from "../services/fxConversionRates.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
-import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
+import { REPORT_HOLDINGS_MAX_LIMIT, buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -1773,7 +1773,7 @@ const reportQuerySchema = z.object({
   currencyMode: z.enum(REPORT_CURRENCY_MODES).optional(),
   currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
   range: z.string().trim().min(1).max(20).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(REPORT_HOLDINGS_MAX_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
 
