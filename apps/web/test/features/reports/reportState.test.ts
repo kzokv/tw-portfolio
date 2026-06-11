@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReportRouteState, reportApiPath, reportRouteStateToSearchParams } from "../../../features/reports/reportState";
+import { REPORT_HOLDINGS_FILTER_LIMIT, parseReportRouteState, reportApiPath, reportRouteStateToSearchParams } from "../../../features/reports/reportState";
 
 describe("report route state", () => {
   it("validates query params with predictable fallbacks", () => {
@@ -41,19 +41,19 @@ describe("report route state", () => {
       scope: "all",
       range: "1Y",
     });
-    expect(reportApiPath("portfolio", state)).toBe("/reports/portfolio?scope=all&currencyMode=auto&range=1Y&limit=25");
+    expect(reportApiPath("portfolio", state)).toBe(`/reports/portfolio?scope=all&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("omits currency from the API query in auto mode", () => {
     const state = parseReportRouteState(new URLSearchParams("tab=market&scope=AU&currencyMode=auto&currency=AUD&range=1Y"));
 
-    expect(reportApiPath("market", state)).toBe("/reports/market?scope=AU&currencyMode=auto&range=1Y&limit=25");
+    expect(reportApiPath("market", state)).toBe(`/reports/market?scope=AU&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("omits range from daily review API queries", () => {
     const state = parseReportRouteState(new URLSearchParams("tab=daily-review&scope=TW&currencyMode=specified&currency=AUD&range=1Y"));
 
-    expect(reportApiPath("daily-review", state)).toBe("/reports/daily-review?scope=TW&currencyMode=auto&limit=25");
+    expect(reportApiPath("daily-review", state)).toBe(`/reports/daily-review?scope=TW&currencyMode=auto&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("serializes report URLs without currency overrides", () => {
@@ -66,6 +66,6 @@ describe("report route state", () => {
     });
 
     expect(reportRouteStateToSearchParams(state).toString()).toBe("tab=portfolio&scope=all&range=1Y");
-    expect(reportApiPath("portfolio", state)).toBe("/reports/portfolio?scope=all&currencyMode=auto&range=1Y&limit=25");
+    expect(reportApiPath("portfolio", state)).toBe(`/reports/portfolio?scope=all&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 });

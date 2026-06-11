@@ -38,6 +38,8 @@ import { routeError } from "../lib/routeError.js";
 import type { HoldingSnapshotScopePair } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
 
+export const REPORT_HOLDINGS_MAX_LIMIT = 1000;
+
 export interface BuildReportInput {
   scope?: string;
   currencyMode?: string;
@@ -943,7 +945,7 @@ function buildDailyReviewSuggestions(prepared: PreparedReportData, rows: ReportH
 }
 
 function pageRows(rows: ReportHoldingRowDto[], limit?: number, offset?: number) {
-  const safeLimit = Math.min(Math.max(limit ?? 25, 1), 100);
+  const safeLimit = Math.min(Math.max(limit ?? 25, 1), REPORT_HOLDINGS_MAX_LIMIT);
   const safeOffset = Math.max(offset ?? 0, 0);
   return {
     total: rows.length,

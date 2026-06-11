@@ -6,7 +6,7 @@ vi.mock("../../../lib/api", () => ({
 
 import { getJson } from "../../../lib/api";
 import { fetchReport } from "../../../features/reports/services/reportService";
-import { parseReportRouteState } from "../../../features/reports/reportState";
+import { REPORT_HOLDINGS_FILTER_LIMIT, parseReportRouteState } from "../../../features/reports/reportState";
 
 describe("reportService", () => {
   beforeEach(() => {
@@ -22,7 +22,7 @@ describe("reportService", () => {
 
     await fetchReport("daily-review", state);
 
-    expect(getJson).toHaveBeenCalledWith("/reports/daily-review?scope=TW&currencyMode=auto&limit=25");
+    expect(getJson).toHaveBeenCalledWith(`/reports/daily-review?scope=TW&currencyMode=auto&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("normalizes legacy specified currency route state to backend auto mode", async () => {
@@ -30,7 +30,7 @@ describe("reportService", () => {
 
     await fetchReport("portfolio", state);
 
-    expect(getJson).toHaveBeenCalledWith("/reports/portfolio?scope=all&currencyMode=auto&range=5Y&limit=25");
+    expect(getJson).toHaveBeenCalledWith(`/reports/portfolio?scope=all&currencyMode=auto&range=5Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("passes cancellation options to the report request", async () => {
@@ -40,7 +40,7 @@ describe("reportService", () => {
     await fetchReport("market", state, { signal: controller.signal });
 
     expect(getJson).toHaveBeenCalledWith(
-      "/reports/market?scope=TW&currencyMode=auto&range=1Y&limit=25",
+      `/reports/market?scope=TW&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`,
       { signal: controller.signal },
     );
   });

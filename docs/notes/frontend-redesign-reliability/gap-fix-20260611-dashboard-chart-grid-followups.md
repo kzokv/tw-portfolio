@@ -33,6 +33,7 @@ Root cause confirmed on Vakwen Dev: all-market snapshot aggregates could publish
 - Copy must make the user/admin repair boundary explicit:
   - User action: regenerate snapshots for current editable portfolio/context.
   - Admin/system action: broad repair/backfill across users/date ranges.
+- Before final delivery, cross-check this gap note and the main locked scope todo item-by-item. Do not close the PR or call the work done while any required item is unchecked, unimplemented, or missing evidence.
 
 ## Implementation Slices
 
@@ -85,6 +86,7 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - Portfolio style chooser labels match the actual target table surfaces: Dashboard Top Holdings and Portfolio Holdings.
 - User-facing snapshot action copy says the action affects the current editable portfolio/context only.
 - Any mention of broad repair/backfill is clearly framed as admin/system behavior.
+- The final handoff includes an explicit cross-check against this file and `scope-todo-202606101138-frontend-redesign-reliability.md`, with remaining gaps called out instead of implied complete.
 
 ## Focused Tests To Run
 

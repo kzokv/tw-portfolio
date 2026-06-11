@@ -21,6 +21,8 @@ Do not silently fall back, synthesize trend data, or recompute financial totals 
 
 Ticker correctness is not specific to `2330`. Use `2330` as a sanity check because it reproduced the issue, but all tickers and markets must render market value, unrealized P&L, account breakdown, and related reporting-currency values correctly after the fix.
 
+Before final delivery, cross-check every item in this locked scope and the active gap note `gap-fix-20260611-dashboard-chart-grid-followups.md`. Any unchecked, unimplemented, or unevidenced item must be reported as a remaining gap rather than implied complete.
+
 ## Locked Scope
 
 1. Ship one large PR covering data correctness, snapshot repair, shared holdings UI, global Quick Actions, Reports/Portfolio/Ticker fixes, i18n, and tests.
@@ -94,6 +96,7 @@ Ticker correctness is not specific to `2330`. Use `2330` as a sanity check becau
 - [ ] Add desktop and mobile responsive validation for the shared holdings grid, Reports cards, Portfolio holdings, Ticker account breakdown, and global Quick Actions. Assert no page-level horizontal overflow and no clipped control text.
 - [ ] Validate live in Chrome against Vakwen Dev for Dashboard, Reports, Portfolio, Ticker, and representative share/non-admin routes.
 - [x] Run the smallest relevant tests during implementation, then broad final validation. Only claim "all tests pass" if all eight repo-defined suites pass.
+- [ ] Cross-check every locked item in this scope and the active gap note before final handoff, with remaining gaps called out explicitly.
 
 ## Open Items
 
