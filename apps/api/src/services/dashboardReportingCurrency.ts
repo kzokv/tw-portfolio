@@ -356,9 +356,6 @@ export async function translatePerformancePoints(
     .map((trade) => trade.tradeDate)
     .sort()[0];
   const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
-  const datedFinance = store
-    ? await buildDatedPerformanceFinance(store, startDate, endDate, reportingCurrency, persistence)
-    : null;
   const aggregated =
     await persistence.getAggregatedSnapshotsInReportingCurrency(
       userId,
@@ -366,6 +363,13 @@ export async function translatePerformancePoints(
       endDate,
       reportingCurrency,
     );
+
+  if (aggregated.length === 0) {
+    return withPerformanceFreshness(
+      { range, rangeStartDate: startDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
+      asOf,
+    );
+  }
 
   const coverage = store
     ? filterAggregatedSnapshotsByActiveCoverage(
@@ -375,6 +379,9 @@ export async function translatePerformancePoints(
     : { points: aggregated, hasSnapshotCoverageGap: false };
 
   if (coverage.points.length > 0) {
+    const datedFinance = store
+      ? await buildDatedPerformanceFinance(store, startDate, endDate, reportingCurrency, persistence)
+      : null;
     let usedSnapshotFinanceFallback = false;
     const points: DashboardPerformancePointDto[] = coverage.points.map((p) => {
       const finance = datedFinance?.get(p.date) ?? null;
