@@ -71,8 +71,8 @@ Before starting this follow-up implementation, check current Codex review feedba
 - [x] Add English and zh-TW dictionary entries for all new labels, tooltips, validation messages, notes, and column labels.
 - [x] Add unit/component tests for unit P&L calculation/display, missing FX behavior, default-hidden portfolio detailed columns, holdings responsiveness states, shared timeline auto/tick generation, and ticker range validation. Focused API, service, component, public-share privacy, ticker page, Portfolio/Dashboard/Reports holdings, and direct timeline-axis coverage now pass.
 - [x] Add API tests for ticker chart range/custom date behavior, available/truncated metadata, and 10-year custom range validation.
-- [ ] Run `/aaa` or equivalent E2E planning for new user-facing flows.
-- [ ] Add or update E2E coverage for Dashboard shared timeline controls, Reports Performance Trend timeline controls, holdings table responsiveness/columns, Portfolio table style/details behavior, and Ticker custom range controls.
+- [x] Run `/aaa` or equivalent E2E planning for new user-facing flows.
+- [x] Add or update E2E coverage for Dashboard shared timeline controls, Reports Performance Trend timeline controls, holdings table responsiveness/columns, Portfolio table style/details behavior, and Ticker custom range controls.
 - [ ] Validate in the existing Chrome session against Vakwen Dev after deployment/branch availability: Dashboard, Portfolio, Reports, Ticker Overview, and representative public share view.
 - [ ] Run the smallest relevant tests first, then broader regression gates. Only claim all tests pass if all eight repo-defined suites pass. Focused checks listed below have run; full eight-suite gate remains pending.
 
@@ -94,7 +94,7 @@ Delivered in this pass:
 Still open or partial:
 
 - Full reusable shared holdings grid extraction remains deferred/open, matching the original scope note.
-- Admin/system repair wording separation, admin diagnostics/repair preview, focused E2E additions, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
+- Admin/system repair wording separation, admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
 
 Validation so far:
 
@@ -106,6 +106,9 @@ Validation so far:
 - `npx vitest run -c vitest.config.ts test/lib/timelineAxis.test.ts` from `apps/web` — 2 tests passed.
 - `npm run test --prefix apps/web` — passed after fixing report route-cache currency partitioning: 39 files / 215 tests, then 55 files / 365 tests. Existing non-failing Recharts zero-size, React `act`, Radix SSR/useLayoutEffect, and admin act-environment warnings remain.
 - `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/card-reorder-aaa.spec.ts` — passed after aligning the OAuth full-width assertion with the locked Dashboard analytical-card full-row behavior: 5 tests.
+- `/aaa` equivalent planning was performed by the QA review pass; it identified focused browser gaps for Dashboard timeline state, Reports Performance Trend timeline controls, Portfolio style switching, and Ticker custom range controls.
+- `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/dashboard-shared-timeline-aaa.spec.ts` — passed: 1 test. Covers shared Dashboard Portfolio Trend/Return % timeline mode state.
+- `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/reports-performance-timeline-aaa.spec.ts tests/e2e/specs/portfolio-ticker-followups-aaa.spec.ts` — passed: 3 tests. Covers Reports Performance Trend timeline state/no-snapshot presentation, Portfolio `Dashboard Top Holdings`/`Portfolio Holdings` style switching, and Ticker custom range URL/error behavior.
 - `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/dashboardHoldingGroups.test.ts apps/api/test/unit/publicShareView.test.ts apps/api/test/integration/ticker-details.integration.test.ts` — 25 tests passed.
 - `git diff --check` — passed.
 - Component spec hangs were fixed by stabilizing holdings column-settings defaults and skipping value-equal settings writes.

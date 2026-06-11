@@ -113,9 +113,9 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - [x] Portfolio Holdings style chooser uses `Dashboard Top Holdings` and `Portfolio Holdings` labels instead of generic compact/detailed presets.
 - [x] User-facing snapshot regeneration copy is scoped to current editable portfolio/context.
 - [ ] Admin/system repair wording is separated from user action copy.
-- [ ] Shared holdings grid extraction/foundation gap is closed or explicitly deferred with rationale.
+- [x] Shared holdings grid extraction/foundation gap is closed or explicitly deferred with rationale.
 - [x] Remaining non-admin i18n strings touched by this gap are moved into dictionaries.
-- [ ] Focused E2E coverage is added or updated for the affected flows.
+- [x] Focused E2E coverage is added or updated for the affected flows.
 - [ ] Live validation is rerun on a representative non-TWD portfolio and recorded back into the main scope note.
 - [ ] Admin diagnostics/repair preview follow-up is either implemented or linked to the owning note/ticket.
 
@@ -132,3 +132,4 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - 2026-06-11: Follow-up implementation exposes server-resolved `rangeStartDate`/`rangeEndDate` on Dashboard performance DTOs and renders Portfolio Trend/Return % x-axes against that full requested range instead of compressing to the first available snapshot point. Focused validation passed: `npx vitest run test/features/dashboard/components.test.tsx -t "performance range controls|requested trend timeline|performance as-of"` from `apps/web` (`3` tests passed), plus `npx vitest run test/unit/dashboardReportingCurrency.test.ts` from `apps/api` (`22` tests passed).
 - 2026-06-11: Reports holdings cards now add Dashboard Top Holdings-aligned search, market/account filters, focus chips, sorting, exact inline money sublines, and account metadata from report rows. Focused validation passed with the same reports/portfolio component run above.
 - 2026-06-11: Chrome validation against the currently deployed Vakwen Dev build, after waiting through USD and KRW switches in the existing Chrome session, still shows old live behavior: Quick Actions says `Generate snapshots`, Dashboard hero/market strip reconcile after FX conversion, Portfolio Trend eventually mounts for USD/KRW, Return % has no chart element, and the deployed build is not yet using this branch's scoped snapshot-copy/preset-label fixes. Do not treat live Dev as fixed until this branch is deployed and retested.
+- 2026-06-11: Follow-up focused E2E coverage was added for the new browser flows. Passing commands: `npm run test:e2e:oauth:mem --prefix apps/web -- tests/e2e/specs-oauth/dashboard-shared-timeline-aaa.spec.ts` (`1` test), and `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/reports-performance-timeline-aaa.spec.ts tests/e2e/specs/portfolio-ticker-followups-aaa.spec.ts` (`3` tests). These cover Dashboard shared timeline state, Reports Performance Trend timeline/no-snapshot state, Portfolio style switching, and Ticker custom range URL/error behavior.

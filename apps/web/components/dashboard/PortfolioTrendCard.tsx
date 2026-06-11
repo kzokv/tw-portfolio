@@ -166,7 +166,7 @@ export function PortfolioTrendCard({
             <button
               type="button"
               onClick={onOpenCustomize}
-              aria-label={dict.settings.customizeRangesTitle ?? "Customize timeframes"}
+              aria-label={dict.settings.customizeRangesTitle}
               data-testid="timeframe-gear-btn"
               className="hidden h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 lg:inline-flex"
             >

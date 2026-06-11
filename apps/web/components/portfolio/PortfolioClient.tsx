@@ -207,6 +207,7 @@ export function PortfolioClient({
                     <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
                     <ToggleGroup
                       type="single"
+                      aria-label={dict.holdings.layoutStyleLabel}
                       value={holdingsTableStyle}
                       onValueChange={(value) => {
                         if (value === "dashboard" || value === "portfolio") setHoldingsTableStyle(value);
