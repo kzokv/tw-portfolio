@@ -4166,6 +4166,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker, {
       snapshotFromDate: trade.tradeDate,
       marketCode: trade.marketCode,
+      deletedTradeEventIds: [trade.id],
     });
 
     reply.code(202);
