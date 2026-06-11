@@ -113,14 +113,15 @@ describe("HoldingsTable", () => {
     const groupedMode = container.querySelector('[data-testid="holdings-display-mode-expanded"]');
     const marketValueBasis = container.querySelector('[data-testid="holdings-allocation-basis-market-value"]');
     const layoutStyleControl = container.querySelector('[data-testid="holdings-layout-style-control"]');
-    const dashboardStyle = container.querySelector('[data-testid="holdings-layout-dashboard-inline"]');
-    const portfolioStyle = container.querySelector('[data-testid="holdings-layout-portfolio-inline"]');
+    const portfolioSection = container.querySelector('[data-testid="portfolio-holdings-section"]');
+    const tickerHeader = container.querySelector('[data-testid="holdings-column-drag-ticker"]')?.closest("th");
+    const tickerCell = container.querySelector("[data-testid='holding-group-row-AAPL-US'] td");
+    expect(portfolioSection).not.toBeNull();
     expect(groupedMode?.getAttribute("data-state")).toBe("on");
     expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
-    expect(layoutStyleControl?.textContent).toContain("Style preset");
-    expect(layoutStyleControl?.textContent).toContain("Compact holdings");
-    expect(layoutStyleControl?.textContent).toContain("Detailed holdings");
-    expect(portfolioStyle?.getAttribute("data-state")).toBe("on");
+    expect(layoutStyleControl).toBeNull();
+    expect(tickerHeader?.className).toContain("sticky");
+    expect(tickerCell?.className).toContain("sticky");
 
     act(() => {
       groupedMode?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -129,12 +130,6 @@ describe("HoldingsTable", () => {
 
     expect(groupedMode?.getAttribute("data-state")).toBe("on");
     expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
-
-    act(() => {
-      dashboardStyle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(dashboardStyle?.getAttribute("data-state")).toBe("on");
   });
 
   it("keeps mixed-status tickers visible when account-row status filters match a child row", () => {

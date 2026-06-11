@@ -37,7 +37,13 @@ vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   ReferenceDot: () => null,
   Tooltip: () => null,
-  XAxis: () => null,
+  XAxis: (props: { domain?: unknown; ticks?: unknown }) => (
+    <span
+      data-testid="mock-xaxis"
+      data-domain={JSON.stringify(props.domain ?? null)}
+      data-ticks={JSON.stringify(props.ticks ?? null)}
+    />
+  ),
   YAxis: () => null,
 }));
 
@@ -1332,6 +1338,54 @@ describe("dashboard components", () => {
     expect(html).toContain("dashboard-performance-range-1m");
     expect(html).toContain("Market Value");
     expect(html).toContain("Book Cost");
+  });
+
+  it("keeps the requested trend timeline when snapshot points start later", () => {
+    const rangedPerformance: DashboardPerformanceDto = {
+      ...performance,
+      range: "3M",
+      rangeStartDate: "2026-03-10",
+      rangeEndDate: "2026-06-10",
+      requestedAsOf: "2026-06-10",
+      points: [
+        {
+          ...performance.points[0]!,
+          date: "2026-05-29",
+          totalReturnPercent: 0.05,
+        },
+        {
+          ...performance.points[1]!,
+          date: "2026-06-10",
+          totalReturnPercent: 0.08,
+        },
+      ],
+    };
+
+    const trendHtml = renderToStaticMarkup(
+      <PortfolioTrendCard
+        data={rangedPerformance}
+        range="3M"
+        currency="TWD"
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+        onRangeChange={() => undefined}
+      />,
+    );
+    const returnHtml = renderToStaticMarkup(
+      <ReturnPercentCard
+        data={rangedPerformance}
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+      />,
+    );
+    const expectedDomain = JSON.stringify([Date.parse("2026-03-10T00:00:00.000Z"), Date.parse("2026-06-10T00:00:00.000Z")]);
+
+    expect(trendHtml).toContain(`data-domain="${expectedDomain.replaceAll("\"", "&quot;")}"`);
+    expect(returnHtml).toContain(`data-domain="${expectedDomain.replaceAll("\"", "&quot;")}"`);
   });
 
   it("renders performance as-of and stale-data warnings from server metadata", () => {

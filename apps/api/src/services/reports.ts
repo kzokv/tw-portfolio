@@ -427,6 +427,12 @@ function mapHoldingRows(groups: Awaited<ReturnType<typeof translateOverviewHoldi
       ticker: group.ticker,
       marketCode: group.marketCode,
       accountCount: group.accountCount,
+      accounts: group.children
+        .map((child) => ({
+          id: child.accountId,
+          name: child.accountName?.trim() || child.accountId,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
       quantity: group.quantity,
       nativeCurrency: group.currency,
       nativeAverageCostPerShare: group.averageCostPerShare,

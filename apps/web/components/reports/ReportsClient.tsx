@@ -22,13 +22,14 @@ import {
   type ReportSummaryTotalsDto,
 } from "@vakwen/shared-types";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { Button } from "../ui/Button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Badge } from "../ui/shadcn/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
+import { Input } from "../ui/shadcn/input";
 import {
   Select,
   SelectContent,
@@ -51,6 +52,7 @@ import {
 } from "../ui/shadcn/sheet";
 import { Skeleton } from "../ui/shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/shadcn/tabs";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
   Table,
   TableBody,
@@ -96,6 +98,16 @@ type OptionalFxRateDto = {
 };
 
 type ReportHoldingsColumn = "ticker" | "position" | "price" | "marketValue" | "costBasis" | "unrealized" | "daily" | "weight" | "health";
+type ReportHoldingFocusPreset = "largest" | "worst-pnl" | "best-pnl" | "stale-quotes" | "fx-exposure";
+type ReportHoldingSort = "value" | "daily" | "pnl" | "ticker";
+
+const REPORT_HOLDING_FOCUS_PRESETS: Array<{ id: ReportHoldingFocusPreset; sortMode: ReportHoldingSort }> = [
+  { id: "largest", sortMode: "value" },
+  { id: "worst-pnl", sortMode: "pnl" },
+  { id: "best-pnl", sortMode: "pnl" },
+  { id: "stale-quotes", sortMode: "ticker" },
+  { id: "fx-exposure", sortMode: "value" },
+];
 
 const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
@@ -545,6 +557,11 @@ function SummaryGrid({
                   ? formatCompactCurrencyAmount(item.value, currency, locale)
                   : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
             </CardTitle>
+            {item.value !== null ? (
+              <CardDescription className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
+                {formatExactAmountInline(dict, formatCurrencyAmount(item.value, currency, locale))}
+              </CardDescription>
+            ) : null}
           </CardHeader>
           {item.detail ? (
             <CardContent className={cn("px-4 pb-4 pt-0 text-sm", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
@@ -735,6 +752,9 @@ function PortfolioReportView({
             <p className="font-mono text-2xl font-semibold tabular-nums">
               {formatCompactCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale)}
             </p>
+            <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">
+              {formatExactAmountInline(dict, formatCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale))}
+            </p>
           </CardContent>
         </Card>
         <HoldingsCard
@@ -920,6 +940,11 @@ function HoldingsCard({
   title: string;
 }) {
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
+  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
+  const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
   const columns = useMemo(
     () => REPORT_HOLDINGS_COLUMNS.map((column) => ({
       ...column,
@@ -933,6 +958,50 @@ function HoldingsCard({
     defaultLayoutStyle: "portfolio",
   });
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
+  const marketOptions = useMemo(
+    () => ["ALL", ...new Set(rows.rows.map((row) => row.marketCode))],
+    [rows.rows],
+  );
+  const accountOptions = useMemo(() => {
+    const accounts = new Map<string, string>();
+    for (const row of rows.rows) {
+      for (const account of row.accounts ?? []) {
+        accounts.set(account.id, account.name);
+      }
+    }
+    return [{ id: "ALL", name: dict.holdings.allAccountsOption }, ...[...accounts.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))];
+  }, [dict.holdings.allAccountsOption, rows.rows]);
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = query.trim().toUpperCase();
+    const baseRows = rows.rows.filter((row) => {
+      const marketMatches = marketFilter === "ALL" || row.marketCode === marketFilter;
+      const accountMatches = accountFilter === "ALL" || (row.accounts ?? []).some((account) => account.id === accountFilter);
+      const queryMatches = normalizedQuery === ""
+        || row.ticker.toUpperCase().includes(normalizedQuery)
+        || row.marketCode.toUpperCase().includes(normalizedQuery)
+        || (row.accounts ?? []).some((account) =>
+          account.name.toUpperCase().includes(normalizedQuery) || account.id.toUpperCase().includes(normalizedQuery));
+      return marketMatches && accountMatches && queryMatches;
+    });
+    return applyReportHoldingPreset(baseRows, selectedPreset)
+      .slice()
+      .sort((left, right) => compareReportHoldingRows(left, right, sortMode, selectedPreset));
+  }, [accountFilter, marketFilter, query, rows.rows, selectedPreset, sortMode]);
+  const filteredRowsPage: ReportHoldingRowsPageDto = {
+    ...rows,
+    limit: filteredRows.length,
+    offset: 0,
+    rows: filteredRows,
+    total: filteredRows.length,
+  };
+
+  function handlePresetChange(value: string) {
+    if (!isReportHoldingFocusPreset(value)) return;
+    setSelectedPreset(value);
+    setSortMode(REPORT_HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+  }
 
   return (
     <Card>
@@ -940,7 +1009,7 @@ function HoldingsCard({
         <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>{title}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <CardDescription>{formatReportMessage(dict.reports.totalRows, { count: formatNumber(rows.total, locale) })}</CardDescription>
+            <CardDescription>{formatReportMessage(dict.reports.totalRows, { count: formatNumber(filteredRows.length, locale) })}</CardDescription>
             {reportingCurrency ? <Badge variant="outline">{formatReportMessage(dict.reports.reportingCurrencyBadge, { currency: reportingCurrency })}</Badge> : null}
             <CardDescription className="basis-full">
               {dict.holdings.dataHealthDescription}
@@ -953,7 +1022,77 @@ function HoldingsCard({
         </div>
       </CardHeader>
       <CardContent>
-        <HoldingsMobileList dict={dict} rows={rows.rows} locale={locale} />
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
+          <label className="relative block min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <span className="sr-only">{dict.dashboardHome.topHoldingsSearchLabel}</span>
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={dict.dashboardHome.topHoldingsSearchPlaceholder}
+              className="pl-9"
+              data-testid={`reports-holdings-search-${contextKey}`}
+            />
+          </label>
+          <Select value={marketFilter} onValueChange={setMarketFilter}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsMarketLabel} className="min-w-36" data-testid={`reports-holdings-market-filter-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {marketOptions.map((market) => (
+                  <SelectItem key={market} value={market}>
+                    {market === "ALL" ? dict.dashboardHome.topHoldingsAllMarkets : market}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={accountFilter} onValueChange={setAccountFilter}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsAccountLabel} className="min-w-36" data-testid={`reports-holdings-account-filter-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {accountOptions.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
+                <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
+                <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
+                <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-4 flex min-w-0 overflow-x-auto pb-1">
+          <ToggleGroup
+            className="w-max"
+            type="single"
+            value={selectedPreset}
+            onValueChange={handlePresetChange}
+            aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
+            data-testid={`reports-holdings-presets-${contextKey}`}
+          >
+            {REPORT_HOLDING_FOCUS_PRESETS.map((preset) => (
+              <ToggleGroupItem key={preset.id} value={preset.id}>
+                {reportHoldingPresetLabel(dict, preset.id)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+        <HoldingsMobileList dict={dict} rows={filteredRowsPage.rows} locale={locale} />
         <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border md:block">
           <Table className="table-fixed" data-testid={`reports-holdings-table-${contextKey}`}>
             <TableHeader>
@@ -980,7 +1119,7 @@ function HoldingsCard({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.rows.map((row) => (
+              {filteredRowsPage.rows.map((row) => (
                 <TableRow key={`${row.ticker}-${row.marketCode}`} className="hover:bg-muted/10">
                   {visibleColumns.map((column) => (
                     <ReportHoldingTableCell
@@ -1142,6 +1281,11 @@ function ReportMoneyTableCell({
                 ? formatCompactCurrencyAmount(value, currency, locale)
                 : formatCurrencyAmount(value, currency, locale)}
         </span>
+        {compact && value !== null ? (
+          <span className={cn("text-xs", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+            {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
+          </span>
+        ) : null}
         {percent !== undefined ? (
           <span className={cn("text-xs", financeToneClass(percent, "text-muted-foreground"))}>
             {percent === null ? "-" : formatSignedPercent(percent, locale)}
@@ -1159,6 +1303,78 @@ function reportHoldingCellClassName(column: ReportHoldingsColumn, stickyFirstCol
     stickyFirstColumn && column === "ticker" && "sticky left-0 z-10 bg-card",
     ["price", "marketValue", "costBasis", "unrealized", "daily", "weight"].includes(column) && "text-right",
   );
+}
+
+function applyReportHoldingPreset(
+  rows: ReportHoldingRowDto[],
+  preset: ReportHoldingFocusPreset,
+): ReportHoldingRowDto[] {
+  if (preset === "stale-quotes") {
+    return rows.filter((row) => row.quoteStatus !== "current" || row.freshness !== "current");
+  }
+  if (preset === "fx-exposure") {
+    return rows.filter((row) => row.nativeCurrency !== row.reportingCurrency);
+  }
+  return rows;
+}
+
+function compareReportHoldingRows(
+  left: ReportHoldingRowDto,
+  right: ReportHoldingRowDto,
+  sortMode: ReportHoldingSort,
+  selectedPreset: ReportHoldingFocusPreset,
+): number {
+  if (selectedPreset === "stale-quotes") {
+    const freshnessRankDiff = reportFreshnessSortRank(right) - reportFreshnessSortRank(left);
+    if (freshnessRankDiff !== 0) return freshnessRankDiff;
+  }
+  if (sortMode === "ticker") {
+    return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
+  }
+  if (sortMode === "daily") {
+    return Math.abs(right.dailyChangePercent ?? 0) - Math.abs(left.dailyChangePercent ?? 0);
+  }
+  if (sortMode === "pnl") {
+    if (selectedPreset === "worst-pnl") {
+      return (left.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY)
+        - (right.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY);
+    }
+    return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
+      - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
+  }
+  return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
+    - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
+}
+
+function reportFreshnessSortRank(row: ReportHoldingRowDto): number {
+  if (row.quoteStatus === "missing") return 4;
+  if (row.freshness === "stale_red") return 3;
+  if (row.freshness === "stale_amber") return 2;
+  if (row.quoteStatus === "provisional") return 1;
+  return 0;
+}
+
+function isReportHoldingFocusPreset(value: string): value is ReportHoldingFocusPreset {
+  return REPORT_HOLDING_FOCUS_PRESETS.some((preset) => preset.id === value);
+}
+
+function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocusPreset): string {
+  switch (preset) {
+    case "largest":
+      return dict.dashboardHome.topHoldingsPresetLargest;
+    case "worst-pnl":
+      return dict.dashboardHome.topHoldingsPresetWorstPnl;
+    case "best-pnl":
+      return dict.dashboardHome.topHoldingsPresetBestPnl;
+    case "stale-quotes":
+      return dict.dashboardHome.topHoldingsPresetStaleQuotes;
+    case "fx-exposure":
+      return dict.dashboardHome.topHoldingsPresetFxExposure;
+  }
+}
+
+function formatExactAmountInline(dict: AppDictionary, amount: string): string {
+  return (dict.dashboardHome.exactAmountInline ?? "Exact {amount}").replace("{amount}", amount);
 }
 
 function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; locale: LocaleCode; rows: ReportHoldingRowDto[] }) {
@@ -1182,9 +1398,16 @@ function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; local
                 <HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness />
               </div>
             </div>
-            <p className="text-right font-mono text-sm font-semibold tabular-nums">
-              {row.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
-            </p>
+            <div className="text-right font-mono tabular-nums">
+              <p className="text-sm font-semibold">
+                {row.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
+              </p>
+              {row.reportingMarketValueAmount !== null ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <CompactFinanceStat
@@ -1414,6 +1637,11 @@ function CompactFinanceStat({
       <div className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", tone ? financeToneClass(value, "text-foreground") : "text-foreground")}>
         {valueOverride ?? (value === null ? "-" : tone ? formatFinanceCurrencyAmount(value, currency, locale, true) : formatCompactCurrencyAmount(value, currency, locale))}
       </div>
+      {valueOverride === undefined && value !== null ? (
+        <p className={cn("mt-1 font-mono text-xs tabular-nums", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+          {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
+        </p>
+      ) : null}
       {percent !== undefined ? (
         <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(percent, "text-muted-foreground"))}>
           {percent === null ? "-" : formatSignedPercent(percent, locale)}

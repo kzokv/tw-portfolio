@@ -414,6 +414,8 @@ export async function translatePerformancePoints(
     return withPerformanceFreshness(
       {
         range,
+        rangeStartDate: startDate,
+        rangeEndDate: endDate,
         points,
         reportingCurrency,
         fxStatus,
@@ -427,7 +429,7 @@ export async function translatePerformancePoints(
   }
 
   return withPerformanceFreshness(
-    { range, points: [], reportingCurrency, fxStatus: "complete" },
+    { range, rangeStartDate: startDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
     asOf,
     { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
   );
