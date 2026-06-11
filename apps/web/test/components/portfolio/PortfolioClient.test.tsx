@@ -5,6 +5,7 @@ import { PortfolioClient } from "../../../components/portfolio/PortfolioClient";
 import { getDictionary } from "../../../lib/i18n";
 
 const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-holdings-table" />));
+const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: vi.fn(),
@@ -22,6 +23,10 @@ vi.mock("../../../components/layout/SortableCardGrid", () => ({
 
 vi.mock("../../../components/portfolio/HoldingsTable", () => ({
   HoldingsTable: holdingsTableMock,
+}));
+
+vi.mock("../../../components/dashboard/DashboardHoldingsPreview", () => ({
+  DashboardHoldingsPreview: dashboardHoldingsPreviewMock,
 }));
 
 vi.mock("../../../components/dashboard/DividendsSection", () => ({
@@ -80,6 +85,7 @@ const portfolioData = {
     },
   ],
   dividends: { upcoming: [], recent: [] },
+  fxRates: [],
   instruments: [],
   accounts: [],
   feeProfiles: [],
@@ -98,6 +104,7 @@ describe("PortfolioClient", () => {
   beforeEach(() => {
     openQuickActions.mockReset();
     holdingsTableMock.mockClear();
+    dashboardHoldingsPreviewMock.mockClear();
     vi.mocked(useAppShellData).mockReturnValue({
       uiDict: dict,
       locale: "en",
@@ -149,12 +156,26 @@ describe("PortfolioClient", () => {
     expect(openQuickActions).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the detailed holdings layout by default", () => {
+  it("uses portfolio holdings by default and can switch to dashboard top holdings", () => {
     act(() => {
       root!.render(<PortfolioClient />);
     });
 
+    expect(container.textContent).toContain("Table style");
+    expect(container.textContent).toContain("Dashboard Top Holdings");
+    expect(container.textContent).toContain("Portfolio Holdings");
+    expect(container.textContent).not.toContain("Compact holdings");
+    expect(container.textContent).not.toContain("Detailed holdings");
     expect(holdingsTableMock).toHaveBeenCalledTimes(1);
     expect(holdingsTableMock.mock.calls[0]?.[0]).not.toHaveProperty("variant");
+    expect(dashboardHoldingsPreviewMock).not.toHaveBeenCalled();
+
+    const dashboardButton = container.querySelector('[data-testid="portfolio-holdings-style-dashboard"]');
+    expect(dashboardButton).not.toBeNull();
+    act(() => {
+      dashboardButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(dashboardHoldingsPreviewMock).toHaveBeenCalledTimes(1);
   });
 });

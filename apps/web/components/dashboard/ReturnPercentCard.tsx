@@ -1,6 +1,6 @@
 "use client";
 
-import type { DashboardPerformanceDto, LocaleCode } from "@vakwen/shared-types";
+import type { DashboardPerformanceDto, DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
 import {
   CartesianGrid,
   Line,
@@ -25,6 +25,7 @@ interface ReturnPercentCardProps {
 
 interface ChartPoint {
   date: string;
+  dateMs: number;
   totalReturnPercent: number | null;
 }
 
@@ -59,10 +60,13 @@ export function ReturnPercentCard({
 
   const chartData: ChartPoint[] = points.map((point) => ({
     date: point.date,
+    dateMs: dateToUtcMs(point.date),
     totalReturnPercent: point.totalReturnPercent ?? null,
   }));
 
   const chartConfig = buildChartConfig(dict);
+  const chartDomain = resolvePerformanceChartDomain(data);
+  const chartTicks = buildTimeAxisTicks(chartDomain);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-return-percent-card">
@@ -163,9 +167,13 @@ export function ReturnPercentCard({
             <LineChart data={chartData} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="4 6" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
-                dataKey="date"
+                dataKey="dateMs"
+                type="number"
+                scale="time"
+                domain={chartDomain}
+                ticks={chartTicks}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                tickFormatter={(value: number) => formatAxisDateLabel(msToIsoDate(value), locale)}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
@@ -181,7 +189,9 @@ export function ReturnPercentCard({
                 formatter={(value: number | string) =>
                   typeof value === "number" ? formatPercent(value, locale) : value
                 }
-                labelFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                labelFormatter={(value: number | string) =>
+                  typeof value === "number" ? formatAxisDateLabel(msToIsoDate(value), locale) : value
+                }
               />
               <Line
                 type="monotone"
@@ -197,7 +207,7 @@ export function ReturnPercentCard({
               />
               {latestReturnPoint?.totalReturnPercent != null ? (
                 <ReferenceDot
-                  x={latestReturnPoint.date}
+                  x={dateToUtcMs(latestReturnPoint.date)}
                   y={latestReturnPoint.totalReturnPercent}
                   r={5}
                   fill="var(--color-totalReturnPercent)"
@@ -229,6 +239,63 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function resolvePerformanceChartDomain(data: DashboardPerformanceDto | null): [number, number] {
+  const points = data?.points ?? [];
+  const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
+  const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
+  const startDate = data?.rangeStartDate ?? resolveRangeStartDate(data?.range ?? "ALL", endDate, points.at(0)?.date);
+  return [dateToUtcMs(startDate), dateToUtcMs(endDate)];
+}
+
+function resolveRangeStartDate(
+  range: DashboardPerformanceRange,
+  endDate: string,
+  firstPointDate?: string,
+): string {
+  const end = utcDateFromIso(endDate);
+  const match = /^(\d+)([MY])$/.exec(range);
+  if (range === "YTD") {
+    end.setUTCMonth(0, 1);
+    return toIsoDate(end);
+  }
+  if (range === "ALL") {
+    return firstPointDate ?? endDate;
+  }
+  if (match) {
+    const amount = Number(match[1]);
+    if (match[2] === "M") {
+      end.setUTCMonth(end.getUTCMonth() - amount);
+      return toIsoDate(end);
+    }
+    end.setUTCFullYear(end.getUTCFullYear() - amount);
+    return toIsoDate(end);
+  }
+  return firstPointDate ?? endDate;
+}
+
+function buildTimeAxisTicks([start, end]: [number, number]): number[] {
+  if (end <= start) return [start];
+  const tickCount = 8;
+  const step = (end - start) / (tickCount - 1);
+  return Array.from({ length: tickCount }, (_, index) => Math.round(start + (step * index)));
+}
+
+function dateToUtcMs(value: string): number {
+  return utcDateFromIso(value).getTime();
+}
+
+function msToIsoDate(value: number): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function utcDateFromIso(value: string): Date {
+  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function toIsoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {

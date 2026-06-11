@@ -826,6 +826,10 @@ export interface DashboardPerformanceDiagnosticsDto {
 export interface DashboardPerformanceDto {
   range: DashboardPerformanceRange;
   points: DashboardPerformancePointDto[];
+  /** Inclusive start date resolved from `range`, used by clients to render the honest selected timeline. */
+  rangeStartDate?: string;
+  /** Inclusive end date resolved from `range`, normally the requested as-of date. */
+  rangeEndDate?: string;
   /** KZO-180: chosen reporting currency for all translated point numerics. */
   reportingCurrency: AccountDefaultCurrency;
   /** KZO-180: rollup of `fxAvailable` across the points list. See
@@ -920,6 +924,10 @@ export interface ReportHoldingRowDto {
   ticker: string;
   marketCode: MarketCode;
   accountCount: number;
+  accounts?: Array<{
+    id: string;
+    name: string;
+  }>;
   quantity: number;
   nativeCurrency: CurrencyCode;
   nativeAverageCostPerShare: number;

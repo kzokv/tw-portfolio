@@ -50,6 +50,7 @@ interface PortfolioTrendCardProps {
 
 interface ChartPoint {
   date: string;
+  dateMs: number;
   totalCost: number | null;
   marketValue: number | null;
   totalReturn: number | null;
@@ -117,12 +118,15 @@ export function PortfolioTrendCard({
 
   const chartData: ChartPoint[] = points.map((point) => ({
     date: point.date,
+    dateMs: dateToUtcMs(point.date),
     totalCost: point.totalCostAmount,
     marketValue: point.marketValueAmount,
     totalReturn: point.totalReturnAmount ?? null,
   }));
 
   const chartConfig = buildChartConfig(dict);
+  const chartDomain = resolvePerformanceChartDomain(data, range);
+  const chartTicks = buildTimeAxisTicks(chartDomain);
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
 
@@ -268,9 +272,13 @@ export function PortfolioTrendCard({
               </defs>
               <CartesianGrid strokeDasharray="4 6" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
-                dataKey="date"
+                dataKey="dateMs"
+                type="number"
+                scale="time"
+                domain={chartDomain}
+                ticks={chartTicks}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                tickFormatter={(value: number) => formatAxisDateLabel(msToIsoDate(value), locale)}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
@@ -288,7 +296,9 @@ export function PortfolioTrendCard({
                     ? formatCurrencyAmount(value, currency, locale)
                     : value
                 }
-                labelFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                labelFormatter={(value: number | string) =>
+                  typeof value === "number" ? formatAxisDateLabel(msToIsoDate(value), locale) : value
+                }
               />
               {showArea ? (
                 <Area
@@ -346,7 +356,7 @@ export function PortfolioTrendCard({
               {/* Latest-point markers (one per series at the rightmost data point). */}
               {latestPoint && latestPoint.totalCostAmount !== null && lastDate ? (
                 <ReferenceDot
-                  x={lastDate}
+                  x={dateToUtcMs(lastDate)}
                   y={latestPoint.totalCostAmount}
                   r={5}
                   fill="var(--color-totalCost)"
@@ -356,7 +366,7 @@ export function PortfolioTrendCard({
               ) : null}
               {latestMarketValuePoint && latestMarketValuePoint.marketValueAmount !== null ? (
                 <ReferenceDot
-                  x={latestMarketValuePoint.date}
+                  x={dateToUtcMs(latestMarketValuePoint.date)}
                   y={latestMarketValuePoint.marketValueAmount}
                   r={6}
                   fill="var(--color-marketValue)"
@@ -366,7 +376,7 @@ export function PortfolioTrendCard({
               ) : null}
               {latestTotalReturnPoint?.totalReturnAmount != null && latestTotalReturnPoint.date ? (
                 <ReferenceDot
-                  x={latestTotalReturnPoint.date}
+                  x={dateToUtcMs(latestTotalReturnPoint.date)}
                   y={latestTotalReturnPoint.totalReturnAmount}
                   r={5}
                   fill="var(--color-totalReturn)"
@@ -428,6 +438,66 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function resolvePerformanceChartDomain(
+  data: DashboardPerformanceDto | null,
+  range: DashboardPerformanceRange,
+): [number, number] {
+  const points = data?.points ?? [];
+  const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
+  const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
+  const startDate = data?.rangeStartDate ?? resolveRangeStartDate(range, endDate, points.at(0)?.date);
+  return [dateToUtcMs(startDate), dateToUtcMs(endDate)];
+}
+
+function resolveRangeStartDate(
+  range: DashboardPerformanceRange,
+  endDate: string,
+  firstPointDate?: string,
+): string {
+  const end = utcDateFromIso(endDate);
+  const match = /^(\d+)([MY])$/.exec(range);
+  if (range === "YTD") {
+    end.setUTCMonth(0, 1);
+    return toIsoDate(end);
+  }
+  if (range === "ALL") {
+    return firstPointDate ?? endDate;
+  }
+  if (match) {
+    const amount = Number(match[1]);
+    if (match[2] === "M") {
+      end.setUTCMonth(end.getUTCMonth() - amount);
+      return toIsoDate(end);
+    }
+    end.setUTCFullYear(end.getUTCFullYear() - amount);
+    return toIsoDate(end);
+  }
+  return firstPointDate ?? endDate;
+}
+
+function buildTimeAxisTicks([start, end]: [number, number]): number[] {
+  if (end <= start) return [start];
+  const tickCount = 8;
+  const step = (end - start) / (tickCount - 1);
+  return Array.from({ length: tickCount }, (_, index) => Math.round(start + (step * index)));
+}
+
+function dateToUtcMs(value: string): number {
+  return utcDateFromIso(value).getTime();
+}
+
+function msToIsoDate(value: number): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function utcDateFromIso(value: string): Date {
+  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function toIsoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {

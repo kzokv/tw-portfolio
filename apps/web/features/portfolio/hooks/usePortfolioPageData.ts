@@ -20,6 +20,7 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
     recent: [],
   },
   instruments: [],
+  fxRates: [],
   accounts: [],
   feeProfiles: [],
   feeProfileBindings: [],

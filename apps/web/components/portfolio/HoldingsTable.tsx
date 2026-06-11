@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
+import React, { useDeferredValue, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import type {
@@ -165,10 +165,6 @@ export function HoldingsTable({
   const visibleColumnDefs = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const visibleColumns = visibleColumnDefs.map((column) => column.id);
 
-  useEffect(() => {
-    setDisplayMode(columnSettings.layoutStyle === "dashboard" ? "aggregated" : "expanded");
-  }, [columnSettings.layoutStyle]);
-
   const groups = useMemo(
     () => resolveHoldingGroups({ holdings, holdingGroups, instruments, accounts }),
     [accounts, holdingGroups, holdings, instruments],
@@ -261,14 +257,13 @@ export function HoldingsTable({
     );
   }
 
-  const isCompact = columnSettings.layoutStyle === "dashboard";
   const visibleGroupCountLabel = dict.holdings.showingTickers
     .replace("{visible}", String(filteredGroups.length))
     .replace("{total}", String(groups.length));
 
   return (
     <Tooltip.Provider delayDuration={150}>
-      <Card data-testid="dashboard-holdings-section">
+      <Card data-testid="portfolio-holdings-section">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
@@ -397,35 +392,8 @@ export function HoldingsTable({
             </DropdownMenu>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <div className="flex flex-wrap items-center gap-2" data-testid="holdings-layout-style-control">
-                <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
-                <ToggleGroup
-                  type="single"
-                  value={columnSettings.layoutStyle}
-                  onValueChange={(value) => {
-                    if (value === "dashboard" || value === "portfolio") columnSettings.setLayoutStyle(value);
-                  }}
-                  className="w-full flex-wrap justify-start sm:w-auto"
-                >
-                  <ToggleGroupItem
-                    value="dashboard"
-                    className="h-auto whitespace-normal text-left leading-5"
-                    data-testid="holdings-layout-dashboard-inline"
-                  >
-                    {dict.holdings.layoutStyleCompact}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="portfolio"
-                    className="h-auto whitespace-normal text-left leading-5"
-                    data-testid="holdings-layout-portfolio-inline"
-                  >
-                    {dict.holdings.layoutStyleDetailed}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-
               <div data-testid="holdings-filter-columns">
-                <HoldingsColumnSettingsMenu dict={dict} enableLayoutStyle settings={columnSettings} />
+                <HoldingsColumnSettingsMenu dict={dict} settings={columnSettings} />
               </div>
 
               <div className="flex items-center gap-2">
@@ -451,13 +419,17 @@ export function HoldingsTable({
           </div>
         ) : (
           <div className="mt-6 overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
-            <table className={cn("w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words", isCompact && "text-xs")} data-testid="holdings-table">
+            <table className="w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words" data-testid="holdings-table">
               <thead>
                 <tr className="bg-muted/40 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   {visibleColumnDefs.map((column) => (
                     <th
                       key={column.id}
-                      className={cn("px-4 py-3 align-top font-medium", column.align === "right" ? "text-right" : "text-left")}
+                      className={cn(
+                        "px-4 py-3 align-top font-medium",
+                        column.id === "ticker" && "sticky left-0 z-20 bg-muted/95",
+                        column.align === "right" ? "text-right" : "text-left",
+                      )}
                       style={holdingsColumnCellStyle(columnSettings, column.id)}
                     >
                       <HoldingsColumnHeaderContent
@@ -707,7 +679,7 @@ function HoldingGroupCell({
   const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
-      <td className="px-4 py-3" style={style}>
+      <td className="sticky left-0 z-10 bg-card px-4 py-3" style={style}>
         <div className="flex min-w-0 items-start gap-3">
           <button
             type="button"
@@ -829,7 +801,7 @@ function HoldingChildCell({
   const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
-      <td className="px-4 py-3" style={style}>
+      <td className="sticky left-0 z-10 bg-muted px-4 py-3" style={style}>
         <div className={cn("min-w-0", nested && "pl-8")}>
           <Link href={childLinkHref(child)} className="break-words font-medium text-primary hover:underline">
             {child.accountName?.trim() || child.accountId}

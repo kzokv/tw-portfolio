@@ -16,7 +16,7 @@ Live validation still shows a truthfulness gap on non-TWD portfolios:
 - Dashboard hero totals and market strip reconcile after FX conversion.
 - Dashboard Portfolio Trend and Return % do not reconcile for the same USD/KRW portfolio. Trend can render axes with no usable plotted data, Return % can render empty, and refresh can stay long-running.
 - Holdings surfaces still need explicit inline numeric disclosure beside abbreviated `Market Value` and `Daily Change` values so users can compare cards, rows, and charts without guessing.
-- Holdings style selection is still unclear because "Dashboard Top Holdings style" and "Portfolio Holdings style" are implementation concepts, not user-facing labels.
+- Portfolio Holdings still needs a direct style switch between the Dashboard Top Holdings table and the Portfolio Holdings table; generic compact/detailed presets are not the requested model.
 - Snapshot repair ownership is still easy to misread: users can regenerate their own current editable context, while broad repair/backfill is an admin/system path.
 
 Root cause confirmed on Vakwen Dev: all-market snapshot aggregates could publish a partial latest date as if every active market contributed. On 2026-06-10 the all-market snapshot included TW/KR but not US, so Dashboard Portfolio Trend showed `14,983,264.80` TWD while current-market cards summed to about `20.6M` TWD. The chart must either use the latest complete snapshot date or show a stale/missing-snapshot diagnostic; it must not plot a partial latest date as the all-market total.
@@ -27,7 +27,9 @@ Root cause confirmed on Vakwen Dev: all-market snapshot aggregates could publish
 - If chart inputs are missing, mismatched, or incomplete, show an honest unavailable/stale state and let refresh settle. Never leave the card in indefinite loading.
 - For the same selected portfolio/scope/currency, dashboard chart values, holdings row values, and hero/market totals must come from the same backend-authoritative reporting-currency read models.
 - Show exact inline numbers beside abbreviated market value and daily change displays wherever abbreviation is the default visible format in the redesigned holdings surfaces.
-- Style preset controls must use user-facing labels. Required distinction: compact dashboard-oriented preset versus detailed portfolio-oriented preset.
+- Portfolio style controls must use the concrete user-requested choices:
+  - `Dashboard Top Holdings`
+  - `Portfolio Holdings`
 - Copy must make the user/admin repair boundary explicit:
   - User action: regenerate snapshots for current editable portfolio/context.
   - Admin/system action: broad repair/backfill across users/date ranges.
@@ -52,15 +54,11 @@ Root cause confirmed on Vakwen Dev: all-market snapshot aggregates could publish
   - exact value is visible inline, not hidden behind hover-only disclosure
 - Verify the same reporting-currency amount shown in holdings rows can be reconciled to chart/card totals for the same scope.
 
-### Slice 3: Preset naming and chooser clarity
+### Slice 3: Portfolio Holdings style chooser clarity
 
-- Replace implementation-facing preset labels with user-facing labels.
-- Minimum labels:
-  - `Compact holdings`
-  - `Detailed holdings`
-- If helper text is present, clarify default intent:
-  - compact for dashboard scanning
-  - detailed for portfolio/report analysis
+- Remove the generic `Compact holdings` / `Detailed holdings` preset language.
+- Keep Portfolio Holdings as the default.
+- Add a visible Portfolio page control that can render the same Dashboard Top Holdings table style used on Dashboard.
 
 ### Slice 4: Snapshot action ownership copy
 
@@ -84,7 +82,7 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - Manual refresh on dashboard settles into success or honest incomplete-state messaging. No long-running disabled refresh state after the request finishes or times out.
 - Non-TWD performance cards never render empty axes as if usable chart data exists.
 - Holdings rows show abbreviated and exact visible numbers for market value and daily change.
-- Preset chooser labels are understandable without knowing page internals.
+- Portfolio style chooser labels match the actual target table surfaces: Dashboard Top Holdings and Portfolio Holdings.
 - User-facing snapshot action copy says the action affects the current editable portfolio/context only.
 - Any mention of broad repair/backfill is clearly framed as admin/system behavior.
 
@@ -101,7 +99,7 @@ These are still implementation-tracked gaps and should be ticked only when compl
   - dashboard non-TWD reporting currency chart truthfulness
   - dashboard refresh completion/error state
   - holdings exact-inline-number visibility
-  - preset chooser label clarity
+- Portfolio Holdings style chooser label clarity
   - snapshot regeneration copy/scope
 
 ## Working Checklist
@@ -112,7 +110,7 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - [x] Exact inline market value numbers are visible beside abbreviated values.
 - [x] Exact inline daily change numbers are visible beside abbreviated values.
 - [x] Holdings visible values reconcile with chart/card totals for the same scope and reporting currency.
-- [x] Style preset chooser uses explicit user-facing labels for compact versus detailed holdings.
+- [x] Portfolio Holdings style chooser uses `Dashboard Top Holdings` and `Portfolio Holdings` labels instead of generic compact/detailed presets.
 - [x] User-facing snapshot regeneration copy is scoped to current editable portfolio/context.
 - [ ] Admin/system repair wording is separated from user action copy.
 - [ ] Shared holdings grid extraction/foundation gap is closed or explicitly deferred with rationale.
@@ -130,5 +128,7 @@ These are still implementation-tracked gaps and should be ticked only when compl
 - 2026-06-11: Touched-file lint passed for the API/web files in this gap, `npm run typecheck` passed, and `git diff --check` passed.
 - 2026-06-11: Live Chrome validation before deploying this branch still reproduced the USD/KRW dashboard chart failure on Vakwen Dev. Do not tick live validation until this branch is deployed and retested.
 - 2026-06-11: Local branch now carries snapshot contributor keys through memory/Postgres aggregate DTOs and filters all-market performance points whose `(accountId, marketCode, ticker)` contributors do not cover the active positions for that date. This prevents a partial latest all-market snapshot from being rendered as the Portfolio Trend total; the DTO instead reports `missing_snapshot`/`stale_snapshot` and uses the latest complete snapshot point. Focused API validation passed: `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` (`22` tests passed). Managed Postgres integration gate passed: `npm run test:integration:full:host` (`81` files, `816` tests passed, `1` skipped).
-- 2026-06-11: Portfolio holdings style preset labels were changed from implementation-facing page names to user-facing `Compact holdings` and `Detailed holdings`; the inline chooser remains visible in Portfolio Holdings and the Columns menu keeps the same persisted backend preference. Focused web validation passed: `npx vitest run test/components/portfolio/HoldingsTable.test.tsx test/components/reports/ReportsClient.test.tsx test/features/dashboard/components.test.tsx test/components/dashboard/FloatingQuickActions.test.tsx` from `apps/web` (`4` files, `50` tests passed). Touched-file lint passed.
+- 2026-06-11: Follow-up implementation removes the Portfolio table's generic inline `Compact holdings` / `Detailed holdings` preset control and adds a Portfolio page style chooser with the requested `Dashboard Top Holdings` and `Portfolio Holdings` choices. Portfolio Holdings remains the default; selecting Dashboard Top Holdings renders `DashboardHoldingsPreview` with the Portfolio page's grouped holdings and reporting currency. The Portfolio table first column is sticky. Focused validation passed: `npx vitest run test/components/portfolio/HoldingsTable.test.tsx test/components/portfolio/PortfolioClient.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` (`3` files, `14` tests passed).
+- 2026-06-11: Follow-up implementation exposes server-resolved `rangeStartDate`/`rangeEndDate` on Dashboard performance DTOs and renders Portfolio Trend/Return % x-axes against that full requested range instead of compressing to the first available snapshot point. Focused validation passed: `npx vitest run test/features/dashboard/components.test.tsx -t "performance range controls|requested trend timeline|performance as-of"` from `apps/web` (`3` tests passed), plus `npx vitest run test/unit/dashboardReportingCurrency.test.ts` from `apps/api` (`22` tests passed).
+- 2026-06-11: Reports holdings cards now add Dashboard Top Holdings-aligned search, market/account filters, focus chips, sorting, exact inline money sublines, and account metadata from report rows. Focused validation passed with the same reports/portfolio component run above.
 - 2026-06-11: Chrome validation against the currently deployed Vakwen Dev build, after waiting through USD and KRW switches in the existing Chrome session, still shows old live behavior: Quick Actions says `Generate snapshots`, Dashboard hero/market strip reconcile after FX conversion, Portfolio Trend eventually mounts for USD/KRW, Return % has no chart element, and the deployed build is not yet using this branch's scoped snapshot-copy/preset-label fixes. Do not treat live Dev as fixed until this branch is deployed and retested.

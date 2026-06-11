@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
+import { DashboardHoldingsPreview } from "../dashboard/DashboardHoldingsPreview";
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
@@ -15,6 +16,7 @@ import { usePortfolioPrimaryData } from "../../features/portfolio/hooks/usePortf
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import type { PortfolioPageData } from "../../features/portfolio/services/portfolioService";
 import { Button } from "../ui/Button";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 
 export function PortfolioClient({
   initialPrimaryData = null,
@@ -36,6 +38,7 @@ export function PortfolioClient({
   const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
+  const [holdingsTableStyle, setHoldingsTableStyle] = useState<"dashboard" | "portfolio">("portfolio");
   const firstSignalRef = useRef(true);
   const refreshPortfolioRef = useRef(portfolio.refresh);
   refreshPortfolioRef.current = portfolio.refresh;
@@ -199,18 +202,48 @@ export function PortfolioClient({
           switch (slug) {
             case "holdings-table":
               return (
-                <HoldingsTable
-                  holdings={portfolio.data.holdings}
-                  holdingGroups={holdingGroups}
-                  instruments={portfolio.data.instruments}
-                  accounts={portfolio.data.accounts}
-                  dict={dict}
-                  locale={locale}
-                  recomputingSymbols={mutations.recomputingSymbols}
-                  showFreshnessBadge={!isSharedContext}
-                  allocationBasis={allocationBasis}
-                  onAllocationBasisChange={setAllocationBasis}
-                />
+                <div className="grid gap-3" data-testid="portfolio-holdings-style-shell">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
+                    <ToggleGroup
+                      type="single"
+                      value={holdingsTableStyle}
+                      onValueChange={(value) => {
+                        if (value === "dashboard" || value === "portfolio") setHoldingsTableStyle(value);
+                      }}
+                      className="w-full flex-wrap justify-start sm:w-auto"
+                      data-testid="portfolio-holdings-style-control"
+                    >
+                      <ToggleGroupItem value="dashboard" data-testid="portfolio-holdings-style-dashboard">
+                        {dict.holdings.layoutStyleCompact}
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="portfolio" data-testid="portfolio-holdings-style-portfolio">
+                        {dict.holdings.layoutStyleDetailed}
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
+                  {holdingsTableStyle === "dashboard" ? (
+                    <DashboardHoldingsPreview
+                      fxRates={portfolio.data.fxRates ?? []}
+                      groups={holdingGroups}
+                      locale={locale}
+                      reportingCurrency={reportingCurrency}
+                    />
+                  ) : (
+                    <HoldingsTable
+                      holdings={portfolio.data.holdings}
+                      holdingGroups={holdingGroups}
+                      instruments={portfolio.data.instruments}
+                      accounts={portfolio.data.accounts}
+                      dict={dict}
+                      locale={locale}
+                      recomputingSymbols={mutations.recomputingSymbols}
+                      showFreshnessBadge={!isSharedContext}
+                      allocationBasis={allocationBasis}
+                      onAllocationBasisChange={setAllocationBasis}
+                    />
+                  )}
+                </div>
               );
             case "dividends-section":
               return (
