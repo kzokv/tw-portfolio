@@ -192,6 +192,7 @@ describe("buildTickerDetails", () => {
       {
         id: "bhp-us-dividend",
         ticker: "BHP",
+        marketCode: "US",
         eventType: "CASH",
         exDividendDate: "2026-04-01",
         paymentDate: null,
@@ -203,17 +204,19 @@ describe("buildTickerDetails", () => {
       {
         id: "bhp-au-dividend",
         ticker: "BHP",
+        marketCode: "AU",
         eventType: "CASH",
         exDividendDate: "2026-04-01",
         paymentDate: null,
         cashDividendPerShare: 2,
-        cashDividendCurrency: "AUD",
+        cashDividendCurrency: "USD",
         stockDividendPerShare: 0,
         source: "test",
       },
       {
         id: "bhp-us-upcoming-dividend",
         ticker: "BHP",
+        marketCode: "US",
         eventType: "CASH",
         exDividendDate: "2026-05-01",
         paymentDate: null,
@@ -225,11 +228,12 @@ describe("buildTickerDetails", () => {
       {
         id: "bhp-au-upcoming-dividend",
         ticker: "BHP",
+        marketCode: "AU",
         eventType: "CASH",
         exDividendDate: "2026-05-01",
         paymentDate: null,
         cashDividendPerShare: 2.5,
-        cashDividendCurrency: "AUD",
+        cashDividendCurrency: "USD",
         stockDividendPerShare: 0,
         source: "test",
       },
@@ -315,14 +319,14 @@ describe("buildTickerDetails", () => {
     expect(details.dividends.upcoming).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
-        currency: "AUD",
+        currency: "USD",
         expectedAmount: 7.5,
       }),
     ]);
     expect(details.dividends.recent).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
-        currency: "AUD",
+        currency: "USD",
         grossAmount: 6,
       }),
     ]);

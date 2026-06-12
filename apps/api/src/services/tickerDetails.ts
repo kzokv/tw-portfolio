@@ -19,7 +19,7 @@ import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
 import { historyStartFor } from "./market-data/types.js";
 import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
-import type { Store, Transaction } from "../types/store.js";
+import type { DividendEvent, Store, Transaction } from "../types/store.js";
 
 type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
 type TickerChartSelection = TickerChartRange | "CUSTOM";
@@ -618,7 +618,7 @@ function buildUpcomingDividends(
     .flatMap((account) =>
       store.marketData.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
         if (event.ticker !== ticker) return [];
-        if (marketCodeFor(event.cashDividendCurrency) !== marketCode) return [];
+        if (resolveDividendEventMarketCode(event) !== marketCode) return [];
         const ledgerKey = `${account.id}:${event.id}`;
         if (postedEventKeys.has(ledgerKey)) return [];
         if (event.paymentDate !== null) {
@@ -658,7 +658,7 @@ function buildRecentDividends(
   const eventById = new Map(
     store.marketData.dividendEvents
       .filter((event) => event.ticker === ticker)
-      .filter((event) => marketCodeFor(event.cashDividendCurrency) === marketCode)
+      .filter((event) => resolveDividendEventMarketCode(event) === marketCode)
       .map((event) => [event.id, event]),
   );
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
@@ -692,6 +692,10 @@ function buildRecentDividends(
       }];
     })
     .sort((left, right) => right.postedAt.localeCompare(left.postedAt));
+}
+
+function resolveDividendEventMarketCode(event: Pick<DividendEvent, "marketCode" | "cashDividendCurrency">): MarketCode {
+  return (event.marketCode ?? marketCodeFor(event.cashDividendCurrency)) as MarketCode;
 }
 
 function buildFundamentalsRefresh(
