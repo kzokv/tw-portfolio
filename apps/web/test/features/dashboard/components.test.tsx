@@ -887,6 +887,47 @@ describe("dashboard components", () => {
     expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
   });
 
+  it("does not persist holdings table contexts when preference hydration fails", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return new Response(JSON.stringify({ preferences: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error("preferences unavailable");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[group]}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const settingsButton = container.querySelector('[data-testid="holdings-column-settings"]');
+    expect(settingsButton).not.toBeNull();
+    pointerDown(settingsButton!);
+    await flushPromises();
+
+    const moveRight = document.body.querySelector('[data-testid="holdings-column-move-right-ticker"]');
+    expect(moveRight).not.toBeNull();
+    click(moveRight!);
+    await flushPromises();
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(0);
+  });
+
   it("selects the next visible chip before hiding the active holding focus preset", async () => {
     const fetchMock = mockUserPreferencesFetch({
       dashboardHoldingFocus: {
