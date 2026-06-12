@@ -1007,6 +1007,75 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.diagnostics?.knownGapReasons).toEqual([]);
   });
 
+  it("keeps a snapshot date when a sibling ticker in the same market has no bar for that date", async () => {
+    const persistence = makeFakePersistence({
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+      ],
+      aggregated: [
+        {
+          date: "2026-06-10",
+          totalCostBasis: 5_000_000,
+          totalMarketValue: 5_050_000,
+          totalUnrealizedPnl: 50_000,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50_000,
+          totalReturnPercent: 1,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-2330-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 1000,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "tw-2317-buy",
+              accountId: "acct-tw",
+              ticker: "2317",
+              marketCode: "TW",
+              quantity: 1000,
+              unitPrice: 200,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-10"]);
+    expect(out.points[0]?.marketValueAmount).toBe(5_050_000);
+    expect(out.diagnostics?.knownGapReasons).toEqual([]);
+  });
+
   it("Maps fxAvailable=false rows to nullable point fields and rolls up partial", async () => {
     const persistence = makeFakePersistence({
       aggregated: [

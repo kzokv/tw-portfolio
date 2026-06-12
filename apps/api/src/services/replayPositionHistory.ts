@@ -1,5 +1,6 @@
 import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain";
 import type { Lot, MarketCode } from "@vakwen/domain";
+import { MARKET_CODES, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
@@ -186,7 +187,7 @@ export async function replayPositionHistory(
   const storeAfterReplay = await persistence.loadStore(userId);
   const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
     resetReconciliation: true,
-    marketCode: options.marketCode,
+    marketCode: toSharedMarketCode(options.marketCode),
   });
   const appliedChanges = dividendChanges.length > 0
     ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
@@ -367,4 +368,11 @@ export function scheduleReplayWithRetry(
       });
     }
   });
+}
+
+function toSharedMarketCode(marketCode: MarketCode | undefined): SharedMarketCode | undefined {
+  if (marketCode && (MARKET_CODES as readonly string[]).includes(marketCode)) {
+    return marketCode as SharedMarketCode;
+  }
+  return undefined;
 }

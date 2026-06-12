@@ -33,8 +33,8 @@ async function resetDatabase(): Promise<void> {
 }
 
 describePostgres("PostgresPersistence replay artifact cleanup", () => {
-  let persistence: PostgresPersistence | undefined;
-  let pool: Pool | undefined;
+  let persistence: PostgresPersistence;
+  let pool: Pool;
   let userId: string;
   let accountId: string;
   let feeProfileId: string;

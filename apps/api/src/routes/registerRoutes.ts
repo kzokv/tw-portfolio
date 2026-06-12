@@ -2372,10 +2372,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         isDayTrade: false,
       });
     }
+    const dividendMarketCode = marketCodeFor(account.defaultCurrency);
 
     const dividendEvent = createDividendEvent(store, {
       id: randomUUID(),
       ticker: body.ticker,
+      marketCode: dividendMarketCode,
       eventType: body.eventType,
       exDividendDate: body.exDividendDate,
       paymentDate: body.paymentDate ?? null,
@@ -4431,7 +4433,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ? query.date
       : trade.tradeDate;
     const holdingSnapshots = await app.persistence.countHoldingSnapshotsAfterDate(
-      userId, trade.accountId, trade.ticker, effectiveSnapshotFromDate,
+      userId,
+      trade.accountId,
+      trade.ticker,
+      effectiveSnapshotFromDate,
+      trade.marketCode,
     );
 
     // Check for negative lots
