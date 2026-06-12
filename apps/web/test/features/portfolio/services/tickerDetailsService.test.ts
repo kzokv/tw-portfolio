@@ -11,6 +11,7 @@ import {
   fetchTickerDetailsEnrichment,
   fetchTickerDetailsFullRefresh,
   fetchTickerDetailsHydration,
+  type TickerDetailsModel,
 } from "../../../../features/portfolio/services/tickerDetailsService";
 
 const getJsonMock = vi.mocked(getJson);
@@ -661,6 +662,199 @@ describe("fetchTickerDetails", () => {
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
   });
 
+  it("hydrates cold ticker visits from the full details endpoint before enrichment", async () => {
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "NVDA",
+        marketCode: "US",
+        accountId: "acc-1",
+        name: "NVIDIA",
+        instrumentType: "STOCK",
+        priceCurrency: "USD",
+        barsBackfillStatus: "ready",
+      },
+      quote: {
+        currentUnitPrice: 912,
+        previousClose: 900,
+        change: 12,
+        changePercent: 1.3333,
+        asOf: "2026-06-10",
+        source: "test",
+        quoteStatus: "current",
+      },
+      position: {
+        quantity: 10,
+        averageCostPerShare: 500,
+        costBasisAmount: 5000,
+        marketValueAmount: 9120,
+        unrealizedPnlAmount: 4120,
+        realizedPnlAmount: 0,
+        currency: "USD",
+        accountIds: ["acc-1"],
+        lastTradeDate: "2026-01-02",
+      },
+      chart: {
+        range: "1Y",
+        points: [],
+      },
+      transactions: [],
+      dividends: {
+        upcoming: [],
+        recent: [],
+      },
+      holdingGroup: {
+        ticker: "NVDA",
+        marketCode: "US",
+        quantity: 10,
+        costBasisAmount: 5000,
+        currency: "USD",
+        averageCostPerShare: 500,
+        currentUnitPrice: 912,
+        marketValueAmount: 9120,
+        unrealizedPnlAmount: 4120,
+        allocationPct: null,
+        change: 12,
+        changePercent: 1.3333,
+        previousClose: 900,
+        quoteStatus: "current",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current",
+        freshnessTooltip: null,
+        accountCount: 1,
+        reportingCurrency: "USD",
+        reportingCostBasisAmount: 5000,
+        reportingMarketValueAmount: 9120,
+        reportingUnrealizedPnlAmount: 4120,
+        reportingAllocationPercent: null,
+        fxStatus: "complete",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+        children: [{
+          accountId: "acc-1",
+          accountName: "Broker",
+          ticker: "NVDA",
+          marketCode: "US",
+          quantity: 10,
+          costBasisAmount: 5000,
+          currency: "USD",
+          averageCostPerShare: 500,
+          currentUnitPrice: 912,
+          marketValueAmount: 9120,
+          unrealizedPnlAmount: 4120,
+          allocationPct: 100,
+          change: 12,
+          changePercent: 1.3333,
+          previousClose: 900,
+          quoteStatus: "current",
+          nextDividendDate: null,
+          lastDividendPostedDate: null,
+          freshness: "current",
+          freshnessTooltip: null,
+          reportingCurrency: "USD",
+          reportingCostBasisAmount: 5000,
+          reportingMarketValueAmount: 9120,
+          reportingUnrealizedPnlAmount: 4120,
+          reportingAllocationPercent: 100,
+          fxStatus: "complete",
+          allocationBasisUsed: "market_value",
+          allocationBasisFallbackReason: null,
+        }],
+      },
+      accountBreakdown: [{
+        accountId: "acc-1",
+        accountName: "Broker",
+        ticker: "NVDA",
+        marketCode: "US",
+        quantity: 10,
+        costBasisAmount: 5000,
+        currency: "USD",
+        averageCostPerShare: 500,
+        currentUnitPrice: 912,
+        marketValueAmount: 9120,
+        unrealizedPnlAmount: 4120,
+        allocationPct: 100,
+        change: 12,
+        changePercent: 1.3333,
+        previousClose: 900,
+        quoteStatus: "current",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current",
+        freshnessTooltip: null,
+        reportingCurrency: "USD",
+        reportingCostBasisAmount: 5000,
+        reportingMarketValueAmount: 9120,
+        reportingUnrealizedPnlAmount: 4120,
+        reportingAllocationPercent: 100,
+        fxStatus: "complete",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+      }],
+      fundamentals: {
+        marketCap: { value: null, source: null, asOf: null },
+        enterpriseValue: { value: null, source: null, asOf: null },
+        priceEarningsRatio: { value: null, source: null, asOf: null },
+        priceBookRatio: { value: null, source: null, asOf: null },
+        dividendYield: { value: null, source: null, asOf: null },
+        earningsPerShare: { value: null, source: null, asOf: null },
+        revenueTrailingTwelveMonths: { value: null, source: null, asOf: null },
+        netIncomeTrailingTwelveMonths: { value: null, source: null, asOf: null },
+      },
+    } as never);
+
+    const dashboard = buildDashboard({
+      holdings: [{
+        ticker: "NVDA",
+        accountId: "acc-1",
+        accountName: "Broker",
+        accountDefaultCurrency: "USD",
+        marketCode: "US",
+        quantity: 10,
+        averageCostPerShare: 500,
+        currentUnitPrice: 900,
+        currency: "USD",
+        costBasisAmount: 5000,
+        marketValueAmount: 9000,
+        unrealizedPnlAmount: 4000,
+      }],
+    });
+    const instrument = {
+      ticker: "NVDA",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "NVIDIA",
+    } as never;
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "NVDA",
+      dashboard,
+      transactions: [],
+      instrument,
+    });
+
+    const details = await fetchTickerDetailsHydration({
+      ticker: "NVDA",
+      accountId: "acc-1",
+      marketCode: "US",
+      transactions: [],
+      instrument,
+      primaryDetails,
+    });
+
+    expect(details.quote.currentPrice).toBe(912);
+    expect(details.position.marketValue).toBe(9120);
+    expect(details.holdingGroup).toMatchObject({
+      reportingMarketValueAmount: 9120,
+      reportingUnrealizedPnlAmount: 4120,
+    });
+    expect(details.accountBreakdown[0]).toMatchObject({
+      accountId: "acc-1",
+      reportingMarketValueAmount: 9120,
+      reportingUnrealizedPnlAmount: 4120,
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?accountId=acc-1&marketCode=US");
+  });
+
   it("does not derive missing ticker valuation from enrichment chart snapshots", async () => {
     getJsonMock.mockResolvedValue({
       identity: {
@@ -769,7 +963,7 @@ describe("fetchTickerDetails", () => {
       instrument,
     });
 
-    const details = await fetchTickerDetailsHydration({
+    const details = await fetchTickerDetailsEnrichment({
       ticker: "2330",
       marketCode: "TW",
       transactions: [],
@@ -824,7 +1018,7 @@ describe("fetchTickerDetails", () => {
       })),
     };
 
-    const usdReportingDetails = await fetchTickerDetailsHydration({
+    const usdReportingDetails = await fetchTickerDetailsEnrichment({
       ticker: "2330",
       marketCode: "TW",
       transactions: [],
@@ -948,7 +1142,7 @@ describe("fetchTickerDetails", () => {
       instrument,
     });
 
-    const details = await fetchTickerDetailsHydration({
+    const details = await fetchTickerDetailsEnrichment({
       ticker: "2330",
       marketCode: "TW",
       startDate: "2025-01-01",
@@ -1002,12 +1196,75 @@ describe("fetchTickerDetails", () => {
       instrumentType: "STOCK",
       name: "NVIDIA",
     } as never;
-    const primaryDetails = buildPrimaryTickerDetails({
+    const fallbackPrimaryDetails = buildPrimaryTickerDetails({
       ticker: "NVDA",
       dashboard,
       transactions: [],
       instrument,
     });
+    const primaryDetails = {
+      ...fallbackPrimaryDetails,
+      holdingGroup: {
+        ticker: "NVDA",
+        marketCode: "US",
+        quantity: 10,
+        costBasisAmount: 5000,
+        currency: "USD",
+        averageCostPerShare: 500,
+        currentUnitPrice: null,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+        allocationPct: null,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "missing" as const,
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current" as const,
+        freshnessTooltip: null,
+        accountCount: 1,
+        reportingCurrency: "USD" as const,
+        reportingCostBasisAmount: 5000,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingAllocationPercent: null,
+        fxStatus: "complete" as const,
+        allocationBasisUsed: "cost_basis" as const,
+        allocationBasisFallbackReason: "missing_quote" as const,
+        children: [],
+      },
+      accountBreakdown: [{
+        accountId: "acc-1",
+        accountName: "Broker",
+        ticker: "NVDA",
+        marketCode: "US",
+        quantity: 10,
+        costBasisAmount: 5000,
+        currency: "USD",
+        averageCostPerShare: 500,
+        currentUnitPrice: null,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+        allocationPct: 100,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "missing" as const,
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current" as const,
+        freshnessTooltip: null,
+        reportingCurrency: "USD" as const,
+        reportingCostBasisAmount: 5000,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingAllocationPercent: 100,
+        fxStatus: "complete" as const,
+        allocationBasisUsed: "cost_basis" as const,
+        allocationBasisFallbackReason: "missing_quote" as const,
+      }],
+    } as TickerDetailsModel;
 
     const details = await fetchTickerDetailsHydration({
       ticker: "NVDA",
