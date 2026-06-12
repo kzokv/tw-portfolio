@@ -48,6 +48,32 @@ function resolveHoldingMarketCode(
   }
 }
 
+function buildHoldingNameLookup(holdings: DashboardOverviewHoldingDto[]): ReadonlyMap<string, string> {
+  const namesByKey = new Map<string, string>();
+  for (const holding of holdings) {
+    const name = holding.instrumentName?.trim();
+    if (!name) continue;
+    const marketCode = (holding as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(holding.currency);
+    namesByKey.set(`${marketCode}:${holding.ticker}`, name);
+    if (!namesByKey.has(holding.ticker)) {
+      namesByKey.set(holding.ticker, name);
+    }
+  }
+  return namesByKey;
+}
+
+function resolveInstrumentName(
+  namesByKey: ReadonlyMap<string, string>,
+  ticker: string,
+  marketCode: MarketCode,
+  currentName?: string | null,
+): string | null {
+  return currentName?.trim()
+    || namesByKey.get(`${marketCode}:${ticker}`)
+    || namesByKey.get(ticker)
+    || null;
+}
+
 function resolveReportingCurrency(currency: CurrencyCode): AccountDefaultCurrency {
   return REPORTING_CURRENCIES.has(currency) ? currency as AccountDefaultCurrency : "TWD";
 }
@@ -222,11 +248,14 @@ export function buildHoldingGroupsFromHoldings({
 }
 
 export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOverviewHoldingGroupDto[] {
+  const instrumentNames = buildHoldingNameLookup(snapshot.holdings);
   if (Array.isArray(snapshot.holdingGroups) && snapshot.holdingGroups.length > 0) {
     return snapshot.holdingGroups.map((group) => {
       const groupReportingCurrency = group.reportingCurrency ?? group.currency;
+      const instrumentName = resolveInstrumentName(instrumentNames, group.ticker, group.marketCode, group.instrumentName);
       return {
         ...group,
+        instrumentName,
         reportingCurrency: groupReportingCurrency,
         reportingCostBasisAmount: resolveReportingAmount(
           group,
@@ -254,6 +283,7 @@ export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOv
           const childReportingCurrency = child.reportingCurrency ?? groupReportingCurrency ?? resolveReportingCurrency(child.currency);
           return {
             ...child,
+            instrumentName: resolveInstrumentName(instrumentNames, child.ticker, child.marketCode, child.instrumentName ?? instrumentName),
             reportingCurrency: childReportingCurrency,
             reportingCostBasisAmount: resolveReportingAmount(
               child,
