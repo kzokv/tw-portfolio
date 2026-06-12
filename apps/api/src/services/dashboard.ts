@@ -11,7 +11,7 @@ import type {
 import { currencyFor, MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
-import { deriveEligibleQuantity } from "./dividends.js";
+import { deriveEligibleQuantity, resolveDividendEventMarketCode } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
@@ -437,7 +437,13 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
         // upcoming widget immediately. Do not trust any stored
         // expected_cash_amount on an active ledger entry: those are
         // snapshots captured at posting time and may be stale.
-        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate);
+        const eligibleQuantity = deriveEligibleQuantity(
+          store,
+          account.id,
+          event.ticker,
+          event.exDividendDate,
+          resolveDividendEventMarketCode(event),
+        );
         if (eligibleQuantity <= 0) return [];
 
         const expectedAmount = event.cashDividendPerShare > 0

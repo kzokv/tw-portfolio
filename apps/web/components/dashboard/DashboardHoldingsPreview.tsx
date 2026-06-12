@@ -126,6 +126,7 @@ interface DashboardHoldingsPreviewProps {
   groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
+  settingsContextKey?: string;
 }
 
 export function DashboardHoldingsPreview({
@@ -133,6 +134,7 @@ export function DashboardHoldingsPreview({
   groups,
   locale,
   reportingCurrency,
+  settingsContextKey = "dashboard.topHoldings",
 }: DashboardHoldingsPreviewProps) {
   const dict = getDictionary(locale);
   const [accountFilter, setAccountFilter] = useState("ALL");
@@ -163,7 +165,7 @@ export function DashboardHoldingsPreview({
   );
   const columnSettings = useHoldingsColumnSettings<DashboardHoldingsColumn>({
     columns: dashboardHoldingColumns,
-    contextKey: "dashboard.topHoldings",
+    contextKey: settingsContextKey,
     defaultLayoutStyle: "dashboard",
   });
   const marketOptions = useMemo(

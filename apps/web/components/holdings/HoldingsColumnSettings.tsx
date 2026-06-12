@@ -119,8 +119,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
   const [settings, setSettings] = useState<ColumnRuntimeSettings<ColumnId>>(defaultSettings);
   const [settingsError, setSettingsError] = useState("");
+  const hasHydratedPreferencesRef = useRef(false);
   const hasLocalEditRef = useRef(false);
+  const contextsRef = useRef(contexts);
   const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    contextsRef.current = contexts;
+  }, [contexts]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -140,14 +146,19 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         if (cancelled) return;
         const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
         const nextContexts = parsed.success ? parsed.data.contexts : {};
+        hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
-          setContexts((current) => ({
+          const mergedContexts = {
             ...nextContexts,
-            ...current,
+            ...contextsRef.current,
             [contextKey]: serializeSettings(settingsRef.current),
-          }));
+          };
+          contextsRef.current = mergedContexts;
+          setContexts(mergedContexts);
+          persistContexts(mergedContexts);
           return;
         }
+        contextsRef.current = nextContexts;
         setContexts(nextContexts);
         setSettings((current) => {
           const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns);
@@ -155,6 +166,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         });
       })
       .catch(() => {
+        hasHydratedPreferencesRef.current = true;
         // Keep local defaults when preference hydration is unavailable.
       });
     return () => {
@@ -169,18 +181,25 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     [columns, settings.columnOrder],
   );
 
-  function persist(next: ColumnRuntimeSettings<ColumnId>) {
-    hasLocalEditRef.current = true;
-    const serialized = serializeSettings(next);
-    const mergedContexts = { ...contexts, [contextKey]: serialized };
-    setContexts(mergedContexts);
-    setSettings(next);
-    setSettingsError("");
-    const payload: HoldingsTableSettingsPreferenceDto = { version: 1, contexts: mergedContexts };
+  function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>) {
+    const payload: HoldingsTableSettingsPreferenceDto = { version: 1, contexts: nextContexts };
     void patchJson("/user-preferences", { holdingsTableSettings: payload })
       .catch((error) => {
         setSettingsError(error instanceof Error ? error.message : String(error));
       });
+  }
+
+  function persist(next: ColumnRuntimeSettings<ColumnId>) {
+    hasLocalEditRef.current = true;
+    const serialized = serializeSettings(next);
+    const mergedContexts = { ...contextsRef.current, [contextKey]: serialized };
+    contextsRef.current = mergedContexts;
+    setContexts(mergedContexts);
+    setSettings(next);
+    setSettingsError("");
+    if (hasHydratedPreferencesRef.current) {
+      persistContexts(mergedContexts);
+    }
   }
 
   function toggleColumn(column: ColumnId) {

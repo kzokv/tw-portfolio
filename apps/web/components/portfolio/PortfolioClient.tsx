@@ -229,6 +229,7 @@ export function PortfolioClient({
                       groups={holdingGroups}
                       locale={locale}
                       reportingCurrency={reportingCurrency}
+                      settingsContextKey="portfolio.topHoldings"
                     />
                   ) : (
                     <HoldingsTable
