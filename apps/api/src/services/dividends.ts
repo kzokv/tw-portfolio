@@ -9,6 +9,7 @@ import type {
   DividendSourceLine,
   SourceCompositionStatus,
 } from "@vakwen/shared-types";
+import { marketCodeFor } from "@vakwen/shared-types";
 import {
   listDividendLedgerEntries,
   listInventoryLots,
@@ -786,12 +787,14 @@ export function deriveEligibleQuantity(
   accountId: string,
   ticker: string,
   exDividendDate: string,
+  marketCode?: string,
 ): number {
   return Math.max(
     0,
     store.accounting.facts.tradeEvents
       .filter((entry) => entry.accountId === accountId
         && entry.ticker === ticker
+        && (marketCode === undefined || entry.marketCode === marketCode)
         && entry.tradeDate < exDividendDate)
       .reduce((sum, entry) => sum + (entry.type === "BUY" ? entry.quantity : -entry.quantity), 0),
   );
@@ -861,7 +864,7 @@ export function planDividendLedgerRecompute(
   store: Store,
   accountId: string,
   ticker: string,
-  options: { resetReconciliation: boolean },
+  options: { resetReconciliation: boolean; marketCode?: string },
 ): DividendLedgerRecomputeChange[] {
   const supersededIds = new Set(
     store.accounting.facts.dividendLedgerEntries
@@ -882,8 +885,10 @@ export function planDividendLedgerRecompute(
     const dividendEvent = eventById.get(entry.dividendEventId);
     if (!dividendEvent) continue;
     if (dividendEvent.ticker !== ticker) continue;
+    const dividendMarketCode = marketCodeFor(dividendEvent.cashDividendCurrency);
+    if (options.marketCode !== undefined && dividendMarketCode !== options.marketCode) continue;
 
-    const nextEligibleQuantity = deriveEligibleQuantity(store, accountId, ticker, dividendEvent.exDividendDate);
+    const nextEligibleQuantity = deriveEligibleQuantity(store, accountId, ticker, dividendEvent.exDividendDate, dividendMarketCode);
     const nextExpectedCashAmount = calculateExpectedCashAmount(
       nextEligibleQuantity,
       dividendEvent.cashDividendPerShare,

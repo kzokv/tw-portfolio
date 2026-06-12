@@ -186,6 +186,7 @@ export async function replayPositionHistory(
   const storeAfterReplay = await persistence.loadStore(userId);
   const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
     resetReconciliation: true,
+    marketCode: options.marketCode,
   });
   const appliedChanges = dividendChanges.length > 0
     ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
