@@ -38,7 +38,7 @@ async function assertWithinViewport(
 }
 
 test.describe("frontend redesign mobile fit", () => {
-  test("[mobile-fit-portfolio-A]: portfolio controls stay visible without page overflow", async ({
+  test("[mobile-fit-portfolio-A]: validate portfolio controls → stay visible without page overflow", async ({
     appShell,
     page,
   }) => {
@@ -52,7 +52,7 @@ test.describe("frontend redesign mobile fit", () => {
     await assertNoBodyOverflow(page);
   });
 
-  test("[mobile-fit-reports-A]: reports controls stay visible without page overflow", async ({
+  test("[mobile-fit-reports-A]: validate reports controls → stay visible without page overflow", async ({
     appShell,
     page,
   }) => {
@@ -65,7 +65,7 @@ test.describe("frontend redesign mobile fit", () => {
     await assertNoBodyOverflow(page);
   });
 
-  test("[mobile-fit-ticker-A]: ticker account breakdown cards stay visible without page overflow", async ({
+  test("[mobile-fit-ticker-A]: validate ticker account breakdown cards → stay visible without page overflow", async ({
     appShell,
     page,
   }) => {
