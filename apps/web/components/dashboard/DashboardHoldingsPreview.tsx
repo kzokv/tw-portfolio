@@ -73,6 +73,11 @@ import {
   type HoldingsColumnSettingsState,
 } from "../holdings/HoldingsColumnSettings";
 import {
+  HoldingsGridDesktopFrame,
+  HoldingsGridEmptyState,
+  HoldingsGridMobileList,
+} from "../holdings/HoldingsGrid";
+import {
   HoldingsDataHealthBadges,
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
@@ -497,9 +502,9 @@ export function DashboardHoldingsPreview({
                 </div>
               </div>
               {visibleGroups.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-8 text-sm text-muted-foreground">
+                <HoldingsGridEmptyState>
                   {dict.dashboardHome.topHoldingsNoMatches}
-                </div>
+                </HoldingsGridEmptyState>
               ) : (
                 <>
                 <HoldingsFxStrip
@@ -509,7 +514,7 @@ export function DashboardHoldingsPreview({
                   locale={locale}
                   reportingCurrency={reportingCurrency}
                 />
-                <div className="flex flex-col gap-3 lg:hidden">
+                <HoldingsGridMobileList>
                   {visibleGroups.map((group) => (
                     <DashboardHoldingRow
                       dict={dict}
@@ -521,7 +526,7 @@ export function DashboardHoldingsPreview({
                       reportingCurrency={reportingCurrency}
                     />
                   ))}
-                </div>
+                </HoldingsGridMobileList>
                 <DashboardHoldingsTable
                   dict={dict}
                   fxRates={fxRates}
@@ -713,7 +718,7 @@ function DashboardHoldingsTable({
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   return (
-    <div className="hidden max-h-[34rem] overflow-auto rounded-md border border-border lg:block">
+    <HoldingsGridDesktopFrame className="max-h-[34rem]">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -785,7 +790,7 @@ function DashboardHoldingsTable({
           })}
         </TableBody>
       </Table>
-    </div>
+    </HoldingsGridDesktopFrame>
   );
 }
 

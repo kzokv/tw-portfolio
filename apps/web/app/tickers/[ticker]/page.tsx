@@ -13,7 +13,6 @@ import { TickerHistoryClient } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 import { buildPrimaryTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
-import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfolio/holdingGroups";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
@@ -79,16 +78,6 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   const locale = settings?.locale ?? dashboard.settings?.locale ?? "en";
   const dict = getDictionary(locale);
-  const holdingGroup = findHoldingGroup(
-    resolveHoldingGroups({
-      holdings: dashboard.holdings,
-      holdingGroups: dashboard.holdingGroups,
-      instruments: dashboard.instruments,
-      accounts: dashboard.accounts,
-    }),
-    ticker,
-    scopedMarketCode,
-  );
   const details = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
@@ -134,7 +123,6 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           feeProfiles={dashboard.feeProfiles}
           feeProfileBindings={dashboard.feeProfileBindings}
           details={details}
-          holdingGroup={holdingGroup}
         />
       </AppShell>
     </Suspense>

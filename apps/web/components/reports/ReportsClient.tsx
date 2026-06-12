@@ -65,6 +65,10 @@ import {
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
 import {
+  HoldingsGridDesktopFrame,
+  HoldingsGridEmptyState,
+} from "../holdings/HoldingsGrid";
+import {
   holdingsFinanceToneClass,
   holdingsInfoBadgeClassName,
   holdingsStickyFirstColumnClassName,
@@ -973,7 +977,7 @@ function AllocationChart({
       </CardHeader>
       <CardContent>
         {visible.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">{dict.reports.noAllocationBuckets}</div>
+          <HoldingsGridEmptyState className="p-6">{dict.reports.noAllocationBuckets}</HoldingsGridEmptyState>
         ) : (
           <ChartContainer config={ALLOCATION_CHART_CONFIG} className="h-64 w-full aspect-auto" data-testid={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-chart`}>
             <BarChart data={visible} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
@@ -1181,7 +1185,7 @@ function HoldingsCard({
           </ToggleGroup>
         </div>
         <HoldingsMobileList dict={dict} rows={filteredRowsPage.rows} locale={locale} />
-        <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border lg:block">
+        <HoldingsGridDesktopFrame className="max-h-[32rem]">
           <Table className="table-fixed" data-testid={`reports-holdings-table-${contextKey}`}>
             <TableHeader>
               <TableRow>
@@ -1224,7 +1228,7 @@ function HoldingsCard({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </HoldingsGridDesktopFrame>
       </CardContent>
     </Card>
   );

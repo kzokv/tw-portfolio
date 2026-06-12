@@ -37,6 +37,12 @@ import {
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
+import {
+  HoldingsGridDesktopFrame,
+  HoldingsGridEmptyState,
+  HoldingsGridMobileList,
+  HoldingsGridNativeTable,
+} from "../holdings/HoldingsGrid";
 import { holdingsFreshnessDotClassName, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
@@ -430,12 +436,12 @@ export function HoldingsTable({
         </div>
 
         {filteredGroups.length === 0 ? (
-          <div className="mt-6 rounded-xl border border-dashed border-border bg-muted/30 px-5 py-8 text-sm text-muted-foreground">
+          <HoldingsGridEmptyState className="mt-6 rounded-xl bg-muted/30 px-5">
             {dict.holdings.noResults}
-          </div>
+          </HoldingsGridEmptyState>
         ) : (
           <>
-            <div className="mt-6 flex flex-col gap-3 lg:hidden" data-testid="holdings-mobile-list">
+            <HoldingsGridMobileList className="mt-6" testId="holdings-mobile-list">
               {displayMode === "accounts"
                 ? visibleChildRows.map((child) => (
                   <HoldingChildMobileCard
@@ -483,10 +489,10 @@ export function HoldingsTable({
                     </div>
                   );
                 })}
-            </div>
+            </HoldingsGridMobileList>
 
-            <div className="mt-6 hidden overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card lg:block">
-            <table className="w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words" data-testid="holdings-table">
+            <HoldingsGridDesktopFrame className="mt-6 overflow-x-auto overflow-y-hidden rounded-xl bg-card">
+            <HoldingsGridNativeTable testId="holdings-table">
               <thead>
                 <tr className="bg-muted/40 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   {visibleColumnDefs.map((column) => (
@@ -570,8 +576,8 @@ export function HoldingsTable({
                     );
                   })}
               </tbody>
-            </table>
-            </div>
+            </HoldingsGridNativeTable>
+            </HoldingsGridDesktopFrame>
           </>
         )}
       </Card>
