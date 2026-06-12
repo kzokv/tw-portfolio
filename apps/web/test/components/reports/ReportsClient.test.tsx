@@ -134,6 +134,9 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         quoteStatusMissing: "No quote",
         quoteStatusProvisional: "Provisional",
         quoteStatusCurrent: "Current",
+        severityCritical: "Critical",
+        severityWarning: "Warning",
+        severityInfo: "Info",
       },
       holdings: {
         dataHealthTerm: "Data health",
@@ -256,6 +259,7 @@ const fixture: DailyReviewReportDto = {
     staleQuoteCount: 0,
     missingFxCount: 0,
     missingProviderSourceCount: 0,
+    markets: [],
     knownGapReasons: [],
     rowCounts: {
       holdingsTotal: 1,
@@ -404,7 +408,24 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Quote status, FX conversion, and price freshness. Allocation fallback appears when relevant.");
     expect(document.body.textContent).toContain("Data health");
     expect(document.body.textContent).toContain("BHP Group");
-    expect(document.querySelector("[data-testid='reports-mobile-row-BHP-AU']")).not.toBeNull();
+    const mobileRow = document.querySelector("[data-testid='reports-mobile-row-BHP-AU']");
+    expect(mobileRow).not.toBeNull();
+    expect(mobileRow?.textContent).toContain("BHP");
+    expect(mobileRow?.textContent).toContain("BHP Group");
+    expect(mobileRow?.textContent).toContain("5");
+    expect(mobileRow?.textContent).toContain("A$1,200");
+    expect(mobileRow?.textContent).toContain("Open ticker");
+    expect(mobileRow?.textContent).toContain("View details");
+
+    const viewDetailsButton = Array.from(mobileRow?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("View details"));
+    expect(viewDetailsButton).not.toBeUndefined();
+    act(() => {
+      viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.body.textContent).toContain("Reporting price");
+    expect(document.body.textContent).toContain("Daily change %");
+    expect(document.body.textContent).toContain("Allocation");
+
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
     expect(sectionRefresh).not.toBeNull();
     act(() => {
@@ -437,8 +458,11 @@ describe("ReportsClient", () => {
     await act(async () => {});
 
     expect(document.querySelector("[data-testid='reports-today-severity-coverage']")?.className).toContain("text-primary");
+    expect(document.querySelector("[data-testid='reports-today-severity-coverage']")?.textContent).toContain("Info");
     expect(document.querySelector("[data-testid='reports-today-severity-quotes']")?.className).toContain("text-warning");
+    expect(document.querySelector("[data-testid='reports-today-severity-quotes']")?.textContent).toContain("Warning");
     expect(document.querySelector("[data-testid='reports-today-severity-fx']")?.className).toContain("text-destructive");
+    expect(document.querySelector("[data-testid='reports-today-severity-fx']")?.textContent).toContain("Critical");
   });
 
   it("hydrates report holdings column order and widths from backend preferences", async () => {

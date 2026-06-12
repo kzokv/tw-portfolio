@@ -650,21 +650,33 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     await ensureAccount("acc-tw-diag", "TWD");
     await ensureAccount("acc-kr-diag", "KRW");
     await seedSnapshots([
-      {
-        accountId: "acc-tw-diag",
-        ticker: "2330",
-        date: "2026-04-27",
-        currency: "TWD",
+	      {
+	        accountId: "acc-tw-diag",
+	        ticker: "2330",
+	        date: "2026-04-27",
+	        currency: "TWD",
         quantity: 10,
         costBasisNative: 1_000,
         valueNative: 1_100,
         unrealizedPnlNative: 100,
-        cumulativeRealizedPnl: 0,
-        cumulativeDividends: 0,
-      },
-      {
-        accountId: "acc-kr-diag",
-        ticker: "005930",
+	        cumulativeRealizedPnl: 0,
+	        cumulativeDividends: 0,
+	      },
+	      {
+	        accountId: "acc-tw-diag",
+	        ticker: "2317",
+	        date: "2026-04-27",
+	        currency: "TWD",
+	        quantity: 5,
+	        costBasisNative: 500,
+	        valueNative: 525,
+	        unrealizedPnlNative: 25,
+	        cumulativeRealizedPnl: 0,
+	        cumulativeDividends: 0,
+	      },
+	      {
+	        accountId: "acc-kr-diag",
+	        ticker: "005930",
         marketCode: "KR",
         date: "2026-04-28",
         currency: "KRW",
@@ -676,27 +688,59 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
         cumulativeDividends: 0,
       },
     ]);
-    await pool.query(
-      `UPDATE daily_holding_snapshots
-          SET provider_source = NULL
+	    await pool.query(
+	      `UPDATE daily_holding_snapshots
+	          SET provider_source = NULL
         WHERE user_id = $1
           AND account_id = 'acc-kr-diag'
           AND ticker = '005930'
           AND market_code = 'KR'
           AND snapshot_date = DATE '2026-04-28'`,
-      [userId],
-    );
+	      [userId],
+	    );
+	    await pool.query(
+	      `UPDATE daily_holding_snapshots
+	          SET provider_source = 'aaa-int'
+	        WHERE user_id = $1
+	          AND account_id = 'acc-tw-diag'
+	          AND ticker = '2317'
+	          AND market_code = 'TW'
+	          AND snapshot_date = DATE '2026-04-27'`,
+	      [userId],
+	    );
 
     await expect(persistence!.getLatestSnapshotDiagnostics(userId)).resolves.toEqual({
       latestSnapshotDate: "2026-04-28",
       missingProviderSourceCount: 1,
-    });
+      markets: [
+        {
+          marketCode: "KR",
+          latestSnapshotDate: "2026-04-28",
+          missingProviderSourceCount: 1,
+          providerSources: [],
+        },
+        {
+	          marketCode: "TW",
+	          latestSnapshotDate: "2026-04-27",
+	          missingProviderSourceCount: 0,
+	          providerSources: ["aaa-int", "kzo180-int"],
+	        },
+	      ],
+	    });
 
     await expect(persistence!.getLatestSnapshotDiagnostics(userId, [
       { accountId: "acc-tw-diag", ticker: "2330", marketCode: "TW" },
     ])).resolves.toEqual({
       latestSnapshotDate: "2026-04-27",
       missingProviderSourceCount: 0,
+      markets: [
+        {
+          marketCode: "TW",
+          latestSnapshotDate: "2026-04-27",
+          missingProviderSourceCount: 0,
+          providerSources: ["kzo180-int"],
+        },
+      ],
     });
 
     await expect(persistence!.getLatestSnapshotDiagnostics(userId, [
@@ -704,6 +748,14 @@ describePostgres("dashboard reporting currency aggregation (KZO-180)", () => {
     ])).resolves.toEqual({
       latestSnapshotDate: "2026-04-28",
       missingProviderSourceCount: 1,
+      markets: [
+        {
+          marketCode: "KR",
+          latestSnapshotDate: "2026-04-28",
+          missingProviderSourceCount: 1,
+          providerSources: [],
+        },
+      ],
     });
   });
 });

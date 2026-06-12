@@ -93,6 +93,7 @@ function buildReport(
       missingQuoteCount: 0,
       provisionalQuoteCount: 0,
       staleQuoteCount: 0,
+      markets: [],
       missingFxCount: 0,
       missingProviderSourceCount: 0,
       knownGapReasons: [],

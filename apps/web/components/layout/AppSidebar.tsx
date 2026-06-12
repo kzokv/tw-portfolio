@@ -302,10 +302,10 @@ export function AppSidebar({
                   const buttonContent = (
                     <>
                       <Icon className="h-4 w-4" aria-hidden="true" />
-                      <span>{item.label}</span>
+                      <span className="min-w-0 truncate">{item.label}</span>
                       {item.badgeCount && item.badgeCount > 0 ? (
                         <span
-                          className="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700"
+                          className="ml-auto shrink-0 rounded-full bg-sidebar-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-sidebar-accent-foreground"
                           data-testid={`app-sidebar-nav-${item.key}-badge`}
                         >
                           {item.badgeCount}

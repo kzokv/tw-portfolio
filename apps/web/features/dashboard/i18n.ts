@@ -313,6 +313,9 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       quoteStatusMissing: "No quote",
       quoteStatusProvisional: "Provisional",
       quoteStatusCurrent: "Current",
+      severityCritical: "Critical",
+      severityWarning: "Warning",
+      severityInfo: "Info",
     },
     tickerHistory: {
       eyebrow: "Ticker Ledger",
@@ -737,6 +740,9 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       quoteStatusMissing: "無報價",
       quoteStatusProvisional: "暫定",
       quoteStatusCurrent: "最新",
+      severityCritical: "嚴重",
+      severityWarning: "警告",
+      severityInfo: "資訊",
     },
     tickerHistory: {
       eyebrow: "標的帳本",

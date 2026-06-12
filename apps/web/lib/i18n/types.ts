@@ -554,6 +554,9 @@ export interface AppDictionary {
     quoteStatusMissing: string;
     quoteStatusProvisional: string;
     quoteStatusCurrent: string;
+    severityCritical: string;
+    severityWarning: string;
+    severityInfo: string;
   };
   tickerHistory: {
     eyebrow: string;

@@ -85,6 +85,9 @@ describe("buildTickerDetails", () => {
             }
           : null;
       },
+      async getFxRate() {
+        return null;
+      },
     };
   }
 
@@ -544,5 +547,96 @@ describe("buildTickerDetails", () => {
       code: "ticker_chart_custom_range_too_large",
       statusCode: 400,
     });
+  });
+
+  it("keeps reporting ticker values unavailable when the requested reporting FX is missing", async () => {
+    const persistence = {
+      ...createPersistence([
+        {
+          ticker: "BHP",
+          marketCode: "AU" as const,
+          barDate: "2026-06-10",
+          open: 45,
+          high: 46,
+          low: 44,
+          close: 45,
+          volume: 100,
+          source: "test-bars",
+        },
+      ]),
+      async getFxRate() {
+        return null;
+      },
+    };
+
+    const { details } = await buildTickerDetails({
+      persistence,
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      reportingCurrency: "TWD",
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(details.position).toEqual(expect.objectContaining({
+      marketValueAmount: 135,
+      unrealizedPnlAmount: 15,
+      currency: "AUD",
+    }));
+    expect(details.holdingGroup).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
+      fxStatus: "missing",
+    }));
+    expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
+      fxStatus: "missing",
+    }));
+  });
+
+  it("keeps missing-quote allocation reason when reporting FX is also missing", async () => {
+    const persistence = {
+      ...createPersistence(),
+      async getFxRate() {
+        return null;
+      },
+    };
+
+    const { details } = await buildTickerDetails({
+      persistence,
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      reportingCurrency: "TWD",
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(details.holdingGroup).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      fxStatus: "missing",
+      allocationBasisUsed: "cost_basis",
+      allocationBasisFallbackReason: "missing_quote",
+    }));
+    expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      fxStatus: "missing",
+      allocationBasisUsed: "cost_basis",
+      allocationBasisFallbackReason: "missing_quote",
+    }));
   });
 });

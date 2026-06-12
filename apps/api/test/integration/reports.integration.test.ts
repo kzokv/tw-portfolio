@@ -181,6 +181,15 @@ describe("report routes", () => {
         missingFxCount: 0,
         missingProviderSourceCount: 1,
         knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
+        markets: expect.arrayContaining([
+          expect.objectContaining({
+            marketCode: "TW",
+            latestSnapshotDate: "2026-06-03",
+            missingProviderSourceCount: 1,
+            providerSources: [],
+            knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
+          }),
+        ]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -227,6 +236,14 @@ describe("report routes", () => {
         staleSinceDate: null,
         missingProviderSourceCount: 1,
         knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
+        markets: expect.arrayContaining([
+          expect.objectContaining({
+            marketCode: "TW",
+            latestSnapshotDate: "2026-06-03",
+            missingProviderSourceCount: 1,
+            providerSources: [],
+          }),
+        ]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -263,6 +280,14 @@ describe("report routes", () => {
         staleSinceDate: null,
         missingProviderSourceCount: 1,
         knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
+        markets: expect.arrayContaining([
+          expect.objectContaining({
+            marketCode: "TW",
+            latestSnapshotDate: "2026-06-03",
+            missingProviderSourceCount: 1,
+            providerSources: [],
+          }),
+        ]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -280,6 +305,152 @@ describe("report routes", () => {
         ],
       }),
     }));
+  });
+
+  it("includes markets with missing snapshots in all-market report diagnostics", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usFeeProfile = {
+      ...feeProfile,
+      id: "fp-us-missing-diagnostics",
+      accountId: "acc-us-missing-diagnostics",
+      name: "US Broker Fee",
+      commissionCurrency: "USD" as const,
+    };
+    store.feeProfiles.push(usFeeProfile);
+    store.accounts.push({
+      id: "acc-us-missing-diagnostics",
+      userId,
+      name: "US Broker",
+      feeProfileId: usFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.instruments.push(
+      {
+        ticker: "2330",
+        type: "STOCK",
+        marketCode: "TW",
+      },
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+      },
+    );
+    store.accounting.projections.holdings.push(
+      {
+        accountId: "acc-1",
+        ticker: "2330",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+      },
+      {
+        accountId: "acc-us-missing-diagnostics",
+        ticker: "AAPL",
+        quantity: 2,
+        costBasisAmount: 300,
+        currency: "USD",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-market-diag-tw-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-01T09:00:00.000Z",
+      },
+      {
+        id: "report-market-diag-us-trade",
+        userId,
+        accountId: "acc-us-missing-diagnostics",
+        ticker: "AAPL",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 2,
+        unitPrice: 150,
+        priceCurrency: "USD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: usFeeProfile,
+        tradeTimestamp: "2026-06-01T14:00:00.000Z",
+        bookingSequence: 2,
+        bookedAt: "2026-06-01T14:00:00.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "report-diagnostics-snapshot-tw-only",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-06-03",
+        quantity: 10,
+        closePrice: 105,
+        marketValue: 1050,
+        costBasis: 1000,
+        unrealizedPnl: 50,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1050,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 50,
+        providerSource: "test",
+        generatedAt: "2026-06-03T10:05:00.000Z",
+        generationRunId: "report-market-diag-gen",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      diagnostics: {
+        markets: Array<{
+          knownGapReasons: string[];
+          latestSnapshotDate: string | null;
+          marketCode: string;
+        }>;
+      };
+    };
+    expect(body.diagnostics.markets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        marketCode: "TW",
+        latestSnapshotDate: "2026-06-03",
+      }),
+      expect.objectContaining({
+        marketCode: "US",
+        latestSnapshotDate: null,
+        knownGapReasons: expect.arrayContaining(["missing_snapshot"]),
+      }),
+    ]));
   });
 
   it("normalizes legacy report currency overrides to backend-authoritative scope rules", async () => {
@@ -1434,6 +1605,28 @@ describe("report routes", () => {
       bookingSequence: 1,
       bookedAt: "2026-06-01T09:00:00.000Z",
     });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-krw-realized-pnl-trade-duplicate-date",
+      userId,
+      accountId: "acc-1",
+      ticker: "005930",
+      marketCode: "KR",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 10_000,
+      priceCurrency: "KRW",
+      realizedPnlAmount: 2_000,
+      realizedPnlCurrency: "KRW",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:01:00.000Z",
+      bookingSequence: 2,
+      bookedAt: "2026-06-01T09:01:00.000Z",
+    });
     store.marketData.dividendEvents.push({
       id: "report-krw-dividend-event",
       ticker: "005930",
@@ -1459,7 +1652,22 @@ describe("report routes", () => {
       version: 1,
       sourceCompositionStatus: "provided",
     });
+    store.accounting.facts.dividendLedgerEntries.push({
+      id: "report-krw-dividend-ledger-duplicate-date",
+      accountId: "acc-1",
+      dividendEventId: "report-krw-dividend-event",
+      eligibleQuantity: 1,
+      expectedCashAmount: 50,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 50,
+      receivedStockQuantity: 0,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "provided",
+    });
     await app.persistence.saveStore(store);
+    const getFxRateSpy = vi.spyOn(app.persistence, "getFxRate");
 
     const response = await app.inject({
       method: "GET",
@@ -1477,6 +1685,10 @@ describe("report routes", () => {
         ]),
       }),
     }));
+    const historicalKrwCalls = getFxRateSpy.mock.calls
+      .filter(([from, to, date]) => from === "KRW" && to === "TWD" && (date === "2026-06-01" || date === "2026-06-03"))
+      .map(([, , date]) => date);
+    expect(historicalKrwCalls).toEqual(["2026-06-01", "2026-06-03"]);
   });
 
   it("[reports-fx]: historical income and realized-P&L FX missing while later report FX exists → report marks FX partial", async () => {

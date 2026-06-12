@@ -17,7 +17,13 @@ import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfo
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
-  searchParams: Promise<{ accountId?: string; marketCode?: string }>;
+  searchParams: Promise<{
+    accountId?: string;
+    chartEnd?: string;
+    chartRange?: string;
+    chartStart?: string;
+    marketCode?: string;
+  }>;
 }
 
 function normalizeMarketCode(value?: string): MarketCode | undefined {
@@ -27,7 +33,7 @@ function normalizeMarketCode(value?: string): MarketCode | undefined {
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId, marketCode }, session, profile, sidebarOpen, settings] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, chartEnd, chartRange, chartStart, marketCode }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
     searchParams,
     requireSession(),
@@ -97,6 +103,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     feeProfileBindings: dashboard.feeProfileBindings,
     integrityIssue: dashboard.actions.integrityIssue,
   };
+  const initialTradeDate = new Date().toISOString().slice(0, 10);
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
@@ -116,6 +123,12 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           isDemo={session.isDemo}
           transactionAccountFilter={scopedAccountId}
           transactionMarketFilter={scopedMarketCode}
+          initialChartQuery={{
+            chartEnd,
+            chartRange,
+            chartStart,
+          }}
+          initialTradeDate={initialTradeDate}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}

@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/shadcn/tooltip";
+import { holdingsWarningBadgeClassName } from "./holdingsStyle";
 
 type QuoteStatus = "current" | "missing" | "provisional";
 type FxStatus = "complete" | "missing" | "partial";
@@ -40,26 +41,26 @@ export function HoldingsDataHealthBadges({
           <div className="flex flex-wrap gap-1" aria-label={formatHoldingsDataHealthTitle(dict, row)}>
             <Badge
               variant={row.quoteStatus === "current" ? "secondary" : row.quoteStatus === "missing" ? "destructive" : "outline"}
-              className={row.quoteStatus === "provisional" ? "border-warning/50 bg-warning/10 text-warning" : undefined}
+              className={row.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined}
             >
               {getHoldingsQuoteStatusLabel(dict, row.quoteStatus)}
             </Badge>
             <Badge
               variant={row.fxStatus === "complete" ? "secondary" : row.fxStatus === "missing" ? "destructive" : "outline"}
-              className={row.fxStatus === "partial" ? "border-warning/50 bg-warning/10 text-warning" : undefined}
+              className={row.fxStatus === "partial" ? holdingsWarningBadgeClassName : undefined}
             >
               {getHoldingsFxStatusLabel(dict, row.fxStatus)}
             </Badge>
             {showCurrentFreshness || row.freshness !== "current" ? (
               <Badge
                 variant={row.freshness === "current" ? "secondary" : row.freshness === "stale_red" ? "destructive" : "outline"}
-                className={row.freshness === "stale_amber" ? "border-warning/50 bg-warning/10 text-warning" : undefined}
+                className={row.freshness === "stale_amber" ? holdingsWarningBadgeClassName : undefined}
               >
                 {getHoldingsFreshnessLabel(dict, row.freshness)}
               </Badge>
             ) : null}
             {showAllocationFallback && row.allocationBasisFallbackReason === "missing_quote" ? (
-              <Badge variant="outline" className="border-warning/50 bg-warning/10 text-warning">
+              <Badge variant="outline" className={holdingsWarningBadgeClassName}>
                 {dict.dashboardHome.allocationFallbackLabel}
               </Badge>
             ) : null}

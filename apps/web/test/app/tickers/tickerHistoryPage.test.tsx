@@ -36,12 +36,16 @@ vi.mock("../../../components/dashboard/DashboardLoading", () => ({
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
     details,
+    initialChartQuery,
+    initialTradeDate,
     instrument,
     ticker,
     transactionAccountFilter,
     transactionMarketFilter,
   }: {
     details: { position?: { accountScope?: string } };
+    initialChartQuery?: { chartEnd?: string; chartRange?: string; chartStart?: string };
+    initialTradeDate?: string;
     instrument: { ticker?: string } | null;
     ticker: string;
     transactionAccountFilter?: string;
@@ -51,6 +55,10 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
       data-testid="ticker-history-client"
       data-instrument-ticker={instrument?.ticker ?? ""}
       data-primary-account-scope={details.position?.accountScope ?? ""}
+      data-chart-range={initialChartQuery?.chartRange ?? ""}
+      data-chart-start={initialChartQuery?.chartStart ?? ""}
+      data-chart-end={initialChartQuery?.chartEnd ?? ""}
+      data-initial-trade-date={initialTradeDate ?? ""}
       data-transaction-account-filter={transactionAccountFilter ?? ""}
       data-transaction-market-filter={transactionMarketFilter ?? ""}
       data-ticker={ticker}
@@ -102,7 +110,13 @@ describe("TickerHistoryPage", () => {
 
     const element = await TickerHistoryPage({
       params: Promise.resolve({ ticker: "2330" }),
-      searchParams: Promise.resolve({ accountId: "acc-2", marketCode: "tw" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        chartEnd: "2024-06-30",
+        chartRange: "CUSTOM",
+        chartStart: "2024-01-01",
+        marketCode: "tw",
+      }),
     });
     const html = renderToStaticMarkup(element);
 
@@ -111,6 +125,9 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-transaction-account-filter="acc-2"');
     expect(html).toContain('data-transaction-market-filter="TW"');
     expect(html).toContain('data-primary-account-scope="acc-2"');
+    expect(html).toContain('data-chart-range="CUSTOM"');
+    expect(html).toContain('data-chart-start="2024-01-01"');
+    expect(html).toContain('data-chart-end="2024-06-30"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
   });

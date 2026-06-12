@@ -265,6 +265,7 @@ describe("GET /tickers/:ticker/details", () => {
   });
 
   it("[ticker details]: computes market value and P&L for non-TW tickers by market", async () => {
+    await app.persistence._setUserPreferences(userId, { reportingCurrency: "USD" });
     const createUsAccount = await app.inject({
       method: "POST",
       url: "/accounts",
@@ -401,6 +402,131 @@ describe("GET /tickers/:ticker/details", () => {
           reportingMarketValueAmount: 375,
           reportingUnrealizedPnlAmount: 75,
           reportingDailyChangeAmount: 15,
+        }),
+      ],
+    }));
+  });
+
+  it("[ticker details]: preserves null reporting amounts when user reporting FX is unavailable", async () => {
+    const createUsAccount = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      headers: authHeaders(),
+      payload: {
+        name: "US Reporting Gap Broker",
+        defaultCurrency: "USD",
+        accountType: "broker",
+      },
+    });
+    expect(createUsAccount.statusCode).toBe(200);
+    const usAccount = createUsAccount.json() as { id: string; feeProfileId: string };
+
+    await app.persistence._setUserPreferences(userId, { reportingCurrency: "TWD" });
+    const store = await app.persistence.loadStore(userId);
+    const usdFeeProfile = store.feeProfiles.find((profile) => profile.id === usAccount.feeProfileId);
+    if (!usdFeeProfile) throw new Error("expected US account fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: usAccount.id,
+      ticker: "AAPL",
+      quantity: 3,
+      costBasisAmount: 300,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "ticker-details-aapl-missing-fx",
+      userId,
+      accountId: usAccount.id,
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 3,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-04-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: usdFeeProfile,
+      tradeTimestamp: "2026-04-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-04-01T14:30:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertInstruments(userId, [
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    ]);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-04-02",
+        open: 120,
+        high: 121,
+        low: 119,
+        close: 120,
+        volume: 10_000,
+        source: "test-bars",
+        ingestedAt: "2026-04-02T20:00:00.000Z",
+      },
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-04-03",
+        open: 124,
+        high: 126,
+        low: 123,
+        close: 125,
+        volume: 12_000,
+        source: "test-bars",
+        ingestedAt: "2026-04-03T20:00:00.000Z",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/tickers/AAPL/details?accountId=${usAccount.id}`,
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      holdingGroup: expect.objectContaining({
+        reportingCurrency: "TWD",
+        reportingCostBasisAmount: null,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+        fxStatus: "missing",
+      }),
+      accountBreakdown: [
+        expect.objectContaining({
+          reportingCurrency: "TWD",
+          reportingCostBasisAmount: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+          reportingDailyChangeAmount: null,
+          fxStatus: "missing",
         }),
       ],
     }));
