@@ -429,6 +429,31 @@ function mapMemoryTickerFundamentals(
   };
 }
 
+function stockDividendLotIdsForScope(
+  store: Store,
+  accountId: string,
+  ticker: string,
+  marketCode: MarketCode,
+): string[] {
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+
+  return store.accounting.facts.dividendLedgerEntries
+    .filter((entry) => entry.accountId === accountId && entry.receivedStockQuantity > 0)
+    .flatMap((entry) => {
+      const event = eventById.get(entry.dividendEventId);
+      if (!event || event.ticker !== ticker) return [];
+
+      let eventMarketCode: MarketCode;
+      try {
+        eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
+      } catch {
+        return [];
+      }
+
+      return eventMarketCode === marketCode ? [`lot-${entry.id}`] : [];
+    });
+}
+
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
@@ -3003,6 +3028,22 @@ export class MemoryPersistence implements Persistence {
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
     if (base === quote) return 1.0;
+    const directRate = this.findLatestFxRate(base, quote, asOfDate);
+    if (directRate !== null) return directRate;
+
+    const inverseRate = this.findLatestFxRate(quote, base, asOfDate);
+    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+
+    const pivot = "TWD";
+    const baseToPivot = this.getFxRateToPivot(base, pivot, asOfDate);
+    const quoteToPivot = this.getFxRateToPivot(quote, pivot, asOfDate);
+    if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
+      return baseToPivot / quoteToPivot;
+    }
+    return null;
+  }
+
+  private findLatestFxRate(base: string, quote: string, asOfDate: string): number | null {
     let bestDate: string | null = null;
     let bestRate: number | null = null;
     for (const r of this.fxRates.values()) {
@@ -3014,6 +3055,15 @@ export class MemoryPersistence implements Persistence {
       }
     }
     return bestRate;
+  }
+
+  private getFxRateToPivot(currency: string, pivot: string, asOfDate: string): number | null {
+    if (currency === pivot) return 1.0;
+    const directRate = this.findLatestFxRate(currency, pivot, asOfDate);
+    if (directRate !== null) return directRate;
+    const inverseRate = this.findLatestFxRate(pivot, currency, asOfDate);
+    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+    return null;
   }
 
   async getFxTransferById(
@@ -3107,6 +3157,34 @@ export class MemoryPersistence implements Persistence {
       .sort((left, right) => left.barDate.localeCompare(right.barDate));
   }
 
+  async getDailyBarsForTickerMarkets(
+    pairs: readonly { ticker: string; marketCode: MarketCode }[],
+    startDate: string,
+    endDate: string,
+  ): Promise<Map<string, DailyBar[]>> {
+    const result = new Map<string, DailyBar[]>();
+    const wanted = new Set<string>();
+    for (const pair of pairs) {
+      const key = `${pair.ticker}\0${pair.marketCode}`;
+      wanted.add(key);
+      result.set(key, []);
+    }
+    const sorted = [...this.dailyBars]
+      .filter((bar) => wanted.has(`${bar.ticker}\0${bar.marketCode}`) && bar.barDate >= startDate && bar.barDate <= endDate)
+      .sort((a, b) =>
+        a.ticker.localeCompare(b.ticker)
+        || a.marketCode.localeCompare(b.marketCode)
+        || a.barDate.localeCompare(b.barDate),
+      );
+    for (const bar of sorted) {
+      const key = `${bar.ticker}\0${bar.marketCode}`;
+      const list = result.get(key) ?? [];
+      list.push(bar);
+      result.set(key, list);
+    }
+    return result;
+  }
+
   async getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>> {
     const result = new Map<string, DailyBar[]>();
     for (const t of tickers) result.set(t, []);
@@ -3124,13 +3202,20 @@ export class MemoryPersistence implements Persistence {
 
   async getSnapshotGenerationInputs(
     userId: string,
-    scope?: { accountId: string; ticker: string },
+    scope?: { accountId: string; ticker: string; marketCode?: MarketCode },
   ): Promise<import("./types.js").SnapshotGenerationInputs> {
     const store = await this.loadStore(userId);
 
     // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → id.
     const trades = store.accounting.facts.tradeEvents
-      .filter(t => !scope || (t.accountId === scope.accountId && t.ticker === scope.ticker))
+      .filter(t => (
+        !scope
+        || (
+          t.accountId === scope.accountId
+          && t.ticker === scope.ticker
+          && (scope.marketCode === undefined || t.marketCode === scope.marketCode)
+        )
+      ))
       .slice()
       .sort((a, b) =>
         a.tradeDate.localeCompare(b.tradeDate)
@@ -3164,10 +3249,19 @@ export class MemoryPersistence implements Persistence {
       .map(entry => {
         const event = eventById.get(entry.dividendEventId);
         if (!event?.paymentDate) return null;
-        if (scope && (entry.accountId !== scope.accountId || event.ticker !== scope.ticker)) return null;
+        const eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
+        if (
+          scope
+          && (
+            entry.accountId !== scope.accountId
+            || event.ticker !== scope.ticker
+            || (scope.marketCode !== undefined && eventMarketCode !== scope.marketCode)
+          )
+        ) return null;
         return {
           accountId: entry.accountId,
           ticker: event.ticker,
+          marketCode: eventMarketCode,
           paymentDate: event.paymentDate,
           amount: entry.receivedCashAmount,
         };
@@ -3178,10 +3272,140 @@ export class MemoryPersistence implements Persistence {
     return { trades, postedDividends };
   }
 
+  async listHoldingSnapshotRepairScopesForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<import("./types.js").HoldingSnapshotRepairScope[]> {
+    const scopes = new Map<string, import("./types.js").HoldingSnapshotRepairScope>();
+    for (const [userId, store] of this.stores) {
+      const activeAccountIds = new Set(store.accounts.map((account) => account.id));
+      for (const trade of store.accounting.facts.tradeEvents) {
+        if (trade.ticker !== ticker || trade.marketCode !== marketCode) continue;
+        if (!activeAccountIds.has(trade.accountId)) continue;
+        const key = `${userId}\0${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
+        scopes.set(key, {
+          userId,
+          accountId: trade.accountId,
+          ticker: trade.ticker,
+          marketCode: trade.marketCode,
+        });
+      }
+    }
+    return [...scopes.values()].sort((a, b) =>
+      a.userId.localeCompare(b.userId)
+      || a.accountId.localeCompare(b.accountId)
+      || a.ticker.localeCompare(b.ticker)
+      || a.marketCode.localeCompare(b.marketCode),
+    );
+  }
+
+  async listHoldingSnapshotRepairTargets(
+    options: import("./types.js").HoldingSnapshotRepairTargetOptions,
+  ): Promise<import("./types.js").HoldingSnapshotRepairTarget[]> {
+    const aggregates = new Map<string, {
+      ticker: string;
+      marketCode: MarketCode;
+      fromDate: string;
+      affectedScopes: Set<string>;
+      repairableRows: number;
+      missingRows: number;
+      incompleteRows: number;
+    }>();
+
+    for (const [userId, store] of this.stores) {
+      const activeAccountIds = new Set(store.accounts.map((account) => account.id));
+      const firstTradeByScope = new Map<string, {
+        userId: string;
+        accountId: string;
+        ticker: string;
+        marketCode: MarketCode;
+        firstTradeDate: string;
+      }>();
+
+      for (const trade of store.accounting.facts.tradeEvents) {
+        if (!activeAccountIds.has(trade.accountId)) continue;
+        const key = `${userId}\0${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
+        const existing = firstTradeByScope.get(key);
+        if (!existing || trade.tradeDate < existing.firstTradeDate) {
+          firstTradeByScope.set(key, {
+            userId,
+            accountId: trade.accountId,
+            ticker: trade.ticker,
+            marketCode: trade.marketCode,
+            firstTradeDate: trade.tradeDate,
+          });
+        }
+      }
+
+      for (const scope of firstTradeByScope.values()) {
+        const scanFromDate = scope.firstTradeDate > options.fromDate ? scope.firstTradeDate : options.fromDate;
+        for (const bar of this.dailyBars) {
+          if (bar.ticker !== scope.ticker || bar.marketCode !== scope.marketCode) continue;
+          if (bar.barDate < scanFromDate || bar.barDate > options.toDate) continue;
+          const snapshot = this.holdingSnapshots.find((candidate) =>
+            candidate.userId === scope.userId
+            && candidate.accountId === scope.accountId
+            && candidate.ticker === scope.ticker
+            && candidate.marketCode === scope.marketCode
+            && candidate.snapshotDate === bar.barDate,
+          );
+          const missing = snapshot === undefined;
+          const incomplete = snapshot !== undefined && (
+            snapshot.isProvisional
+            || snapshot.closePrice === null
+            || (snapshot.quantity > 0 && (snapshot.marketValue === null || snapshot.valueNative === null))
+            || snapshot.providerSource === null
+          );
+          if (!missing && !incomplete) continue;
+
+          const targetKey = `${scope.ticker}\0${scope.marketCode}`;
+          const current = aggregates.get(targetKey) ?? {
+            ticker: scope.ticker,
+            marketCode: scope.marketCode,
+            fromDate: bar.barDate,
+            affectedScopes: new Set<string>(),
+            repairableRows: 0,
+            missingRows: 0,
+            incompleteRows: 0,
+          };
+          if (bar.barDate < current.fromDate) current.fromDate = bar.barDate;
+          current.affectedScopes.add(`${scope.userId}\0${scope.accountId}`);
+          current.repairableRows += 1;
+          if (missing) current.missingRows += 1;
+          if (incomplete) current.incompleteRows += 1;
+          aggregates.set(targetKey, current);
+        }
+      }
+    }
+
+    return [...aggregates.values()]
+      .sort((a, b) =>
+        a.fromDate.localeCompare(b.fromDate)
+        || a.ticker.localeCompare(b.ticker)
+        || a.marketCode.localeCompare(b.marketCode),
+      )
+      .slice(0, options.limit)
+      .map((target) => ({
+        ticker: target.ticker,
+        marketCode: target.marketCode,
+        fromDate: target.fromDate,
+        affectedScopeCount: target.affectedScopes.size,
+        repairableRows: target.repairableRows,
+        missingRows: target.missingRows,
+        incompleteRows: target.incompleteRows,
+      }));
+  }
+
   async bulkUpsertHoldingSnapshots(_userId: string, snapshots: HoldingSnapshot[]): Promise<void> {
     for (const s of snapshots) {
       const idx = this.holdingSnapshots.findIndex(
-        e => e.userId === s.userId && e.accountId === s.accountId && e.ticker === s.ticker && e.snapshotDate === s.snapshotDate,
+        e => (
+          e.userId === s.userId
+          && e.accountId === s.accountId
+          && e.ticker === s.ticker
+          && e.marketCode === s.marketCode
+          && e.snapshotDate === s.snapshotDate
+        ),
       );
       if (idx >= 0) {
         this.holdingSnapshots[idx] = s;
@@ -3191,11 +3415,23 @@ export class MemoryPersistence implements Persistence {
     }
   }
 
-  async deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+  async deleteHoldingSnapshotsForTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number> {
     let deleted = 0;
     for (let i = this.holdingSnapshots.length - 1; i >= 0; i--) {
       const s = this.holdingSnapshots[i];
-      if (s.userId === userId && s.accountId === accountId && s.ticker === ticker && s.snapshotDate >= fromDate) {
+      if (
+        s.userId === userId
+        && s.accountId === accountId
+        && s.ticker === ticker
+        && (marketCode === undefined || s.marketCode === marketCode)
+        && s.snapshotDate >= fromDate
+      ) {
         this.holdingSnapshots.splice(i, 1);
         deleted++;
       }
@@ -3277,13 +3513,16 @@ export class MemoryPersistence implements Persistence {
     pairs: readonly import("./types.js").HoldingSnapshotScopePair[],
   ): Promise<AggregatedSnapshotPoint[]> {
     if (pairs.length === 0) return [];
-    const pairKeys = new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}`));
+    const pairKeys = new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}\0${pair.marketCode ?? ""}`));
     return this.aggregateSnapshotsInReportingCurrency(
       this.holdingSnapshots.filter(s =>
         s.userId === userId
         && s.snapshotDate >= startDate
         && s.snapshotDate <= endDate
-        && pairKeys.has(`${s.accountId}\0${s.ticker}`)),
+        && (
+          pairKeys.has(`${s.accountId}\0${s.ticker}\0${s.marketCode}`)
+          || pairKeys.has(`${s.accountId}\0${s.ticker}\0`)
+        )),
       reportingCurrency,
     );
   }
@@ -3362,15 +3601,69 @@ export class MemoryPersistence implements Persistence {
         totalReturnPercent,
         isProvisional,
         fxAvailable: allFxResolved,
+        snapshotContributorKeys: rows
+          .map((row) => `${row.accountId}:${row.marketCode ?? ""}:${row.ticker}`)
+          .sort(),
       });
     }
     return out;
   }
 
-  async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+  async countHoldingSnapshotsAfterDate(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    fromDate: string,
+    marketCode?: MarketCode,
+  ): Promise<number> {
     return this.holdingSnapshots.filter(
-      s => s.userId === userId && s.accountId === accountId && s.ticker === ticker && s.snapshotDate >= fromDate,
+      s => (
+        s.userId === userId
+        && s.accountId === accountId
+        && s.ticker === ticker
+        && (marketCode === undefined || s.marketCode === marketCode)
+        && s.snapshotDate >= fromDate
+      ),
     ).length;
+  }
+
+  async getLatestSnapshotDiagnostics(
+    userId: string,
+    pairs?: readonly import("./types.js").HoldingSnapshotScopePair[],
+  ): Promise<import("./types.js").SnapshotScopeDiagnostics> {
+    const scopedKeys = pairs && pairs.length > 0
+      ? new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}\0${pair.marketCode ?? ""}`))
+      : null;
+    const activeAccountIds = new Set((this.stores.get(userId)?.accounts ?? []).map((account) => account.id));
+    const snapshots = this.holdingSnapshots.filter((snapshot) =>
+      snapshot.userId === userId
+      && activeAccountIds.has(snapshot.accountId)
+      && (
+        scopedKeys === null
+        || scopedKeys.has(`${snapshot.accountId}\0${snapshot.ticker}\0${snapshot.marketCode}`)
+        || scopedKeys.has(`${snapshot.accountId}\0${snapshot.ticker}\0`)
+      ));
+
+    let latestSnapshotDate: string | null = null;
+    for (const snapshot of snapshots) {
+      if (latestSnapshotDate === null || snapshot.snapshotDate > latestSnapshotDate) {
+        latestSnapshotDate = snapshot.snapshotDate;
+      }
+    }
+
+    if (latestSnapshotDate === null) {
+      return {
+        latestSnapshotDate: null,
+        missingProviderSourceCount: 0,
+      };
+    }
+
+    return {
+      latestSnapshotDate,
+      missingProviderSourceCount: snapshots.filter((snapshot) =>
+        snapshot.snapshotDate === latestSnapshotDate
+        && snapshot.providerSource === null).length,
+    };
   }
 
   async getHoldingSnapshotsForTicker(
@@ -3379,7 +3672,7 @@ export class MemoryPersistence implements Persistence {
     return this.holdingSnapshots
       .filter(s => s.userId === userId && s.accountId === accountId && s.ticker === ticker
         && s.snapshotDate >= startDate && s.snapshotDate <= endDate)
-      .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+      .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate) || a.marketCode.localeCompare(b.marketCode));
   }
 
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
@@ -3541,40 +3834,88 @@ export class MemoryPersistence implements Persistence {
     return { accountId: trade.accountId, ticker: trade.ticker };
   }
 
-  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]> {
+  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<BookedTradeEvent[]> {
     const store = await this.loadStore(userId);
     return store.accounting.facts.tradeEvents
-      .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
+      .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
       .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
   }
 
-  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
+    const scopedTradeEventIds = marketCode
+      ? [
+          ...store.accounting.facts.tradeEvents
+            .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
+            .map((t) => t.id),
+          ...additionalTradeEventIds,
+        ]
+      : [];
+    const scopedLotIds = marketCode
+      ? new Set([
+          ...scopedTradeEventIds.map((id) => `lot-${id}`),
+          ...stockDividendLotIdsForScope(store, accountId, ticker, marketCode),
+        ])
+      : null;
     const before = store.accounting.projections.lots.length;
     store.accounting.projections.lots = store.accounting.projections.lots.filter(
-      (l) => !(l.accountId === accountId && l.ticker === ticker),
+      (l) => !(l.accountId === accountId && l.ticker === ticker && (!scopedLotIds || scopedLotIds.has(l.id))),
     );
     rebuildHoldingProjection(store);
     return before - store.accounting.projections.lots.length;
   }
 
-  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
+    const scopedTradeEventIds = marketCode
+      ? new Set([
+          ...store.accounting.facts.tradeEvents
+            .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && t.marketCode === marketCode)
+            .map((t) => t.id),
+          ...additionalTradeEventIds,
+        ])
+      : null;
+    const scopedLotIds = marketCode
+      ? new Set([
+          ...Array.from(scopedTradeEventIds ?? []).map((id) => `lot-${id}`),
+          ...stockDividendLotIdsForScope(store, accountId, ticker, marketCode),
+        ])
+      : null;
     const before = store.accounting.projections.lotAllocations.length;
     store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
-      (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker),
+      (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker
+        && (!scopedTradeEventIds || scopedTradeEventIds.has(a.tradeEventId) || scopedLotIds?.has(a.lotId))),
     );
     return before - store.accounting.projections.lotAllocations.length;
   }
 
-  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+    additionalTradeEventIds: readonly string[] = [],
+  ): Promise<number> {
     const store = await this.loadStore(userId);
     // Collect trade event IDs for the given account+ticker
-    const tradeEventIds = new Set(
-      store.accounting.facts.tradeEvents
-        .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
+    const tradeEventIds = new Set([
+      ...store.accounting.facts.tradeEvents
+        .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
         .map((t) => t.id),
-    );
+      ...additionalTradeEventIds,
+    ]);
 
     const before = store.accounting.facts.cashLedgerEntries.length;
     store.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(

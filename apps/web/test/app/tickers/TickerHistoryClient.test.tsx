@@ -10,6 +10,10 @@ import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistory
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
 
+const appShellDataMocks = vi.hoisted(() => ({
+  openQuickActions: vi.fn(),
+}));
+
 vi.mock("../../../features/portfolio/services/tickerDetailsService", async () => {
   const actual = await vi.importActual<typeof import("../../../features/portfolio/services/tickerDetailsService")>(
     "../../../features/portfolio/services/tickerDetailsService",
@@ -23,8 +27,14 @@ vi.mock("../../../features/portfolio/services/tickerDetailsService", async () =>
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: () => ({
+    canUseGlobalQuickActions: true,
     contextRefreshSignal: 0,
     locale: "en",
+    openQuickActions: appShellDataMocks.openQuickActions,
+    reportingCurrency: "TWD",
+    saveReportingCurrency: async () => undefined,
+    isReportingCurrencySaving: false,
+    reportingCurrencyError: "",
     sessionUserId: "user-1",
     uiDict: {},
   }),
@@ -44,6 +54,8 @@ import {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 vi.mock("recharts", () => ({
+  Bar: () => null,
+  BarChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Line: () => null,
   LineChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
@@ -105,6 +117,7 @@ afterEach(() => {
   container = null;
   window.localStorage.clear();
   vi.clearAllMocks();
+  appShellDataMocks.openQuickActions.mockReset();
 });
 
 const dict = getDictionary("en");
@@ -201,7 +214,76 @@ const details: TickerDetailsModel = {
     nextDividendDate: null,
     lastDividendPostedDate: null,
   },
-  chart: { points: [] },
+  chart: {
+    range: "1Y",
+    metadata: {
+      requested: { range: "1Y", startDate: null, endDate: null },
+      resolved: { range: "1Y", startDate: null, endDate: null },
+      available: { startDate: null, endDate: null },
+      truncated: { startDate: false, endDate: false },
+    },
+    points: [],
+  },
+  holdingGroup: {
+    ticker: "2330",
+    marketCode: "TW",
+    quantity: 10,
+    costBasisAmount: 1000,
+    currency: "TWD",
+    averageCostPerShare: 100,
+    currentUnitPrice: 110,
+    marketValueAmount: 1100,
+    unrealizedPnlAmount: 100,
+    allocationPct: null,
+    change: 1,
+    changePercent: 0.92,
+    previousClose: 109,
+    quoteStatus: "current",
+    nextDividendDate: null,
+    lastDividendPostedDate: null,
+    freshness: "current",
+    freshnessTooltip: null,
+    accountCount: 1,
+    reportingCurrency: "TWD",
+    reportingCostBasisAmount: 1000,
+    reportingMarketValueAmount: 1100,
+    reportingUnrealizedPnlAmount: 100,
+    reportingAllocationPercent: null,
+    fxStatus: "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+    children: [],
+  },
+  accountBreakdown: [{
+    accountId: "acc-2",
+    accountName: "Scope Brokerage",
+    ticker: "2330",
+    marketCode: "TW",
+    quantity: 10,
+    costBasisAmount: 1000,
+    currency: "TWD",
+    averageCostPerShare: 100,
+    currentUnitPrice: 110,
+    marketValueAmount: 1100,
+    unrealizedPnlAmount: 100,
+    allocationPct: 100,
+    change: 1,
+    changePercent: 0.92,
+    previousClose: 109,
+    quoteStatus: "current",
+    nextDividendDate: null,
+    lastDividendPostedDate: null,
+    freshness: "current",
+    freshnessTooltip: null,
+    reportingCurrency: "TWD",
+    reportingCostBasisAmount: 1000,
+    reportingMarketValueAmount: 1100,
+    reportingUnrealizedPnlAmount: 100,
+    reportingAllocationPercent: 100,
+    fxStatus: "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+  }],
   stats: [],
   dividends: {
     upcomingCount: 0,
@@ -212,7 +294,7 @@ const details: TickerDetailsModel = {
 };
 
 function tickerCacheKey() {
-  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2");
+  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "");
 }
 
 function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details) {
@@ -252,6 +334,22 @@ async function flushEffects() {
   });
 }
 
+function findButtonByText(element: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(element.querySelectorAll("button"))
+    .find((candidate) => candidate.textContent?.trim() === text);
+  if (!button) throw new Error(`Button not found: ${text}`);
+  return button as HTMLButtonElement;
+}
+
+async function changeInput(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 describe("TickerHistoryClient", () => {
   it("renders scoped account names instead of account ids in summary panels", () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
@@ -263,6 +361,15 @@ describe("TickerHistoryClient", () => {
     expect(quantityCard?.textContent).not.toContain("acc-2");
     expect(totalCostCard?.textContent).toContain("Scope Brokerage");
     expect(totalCostCard?.textContent).not.toContain("acc-2");
+  });
+
+  it("scopes the repair action copy to ticker data", () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    const element = renderTickerHistoryClient();
+
+    const repairButton = element.querySelector('[data-testid="repair-button"]');
+    expect(repairButton?.textContent).toContain("Repair ticker data");
+    expect(repairButton?.getAttribute("title")).toBe("Ticker repair is on cooldown");
   });
 
   it("restores cached ticker details before the silent refresh completes", async () => {
@@ -332,5 +439,129 @@ describe("TickerHistoryClient", () => {
 
     const cached = readRouteDtoCache<TickerDetailsModel>(tickerCacheKey());
     expect(cached?.payload.position.marketValue).toBe(3300);
+  });
+
+  it("requests ticker chart ranges and custom date windows from the details endpoint", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+    vi.mocked(fetchTickerDetailsHydration).mockClear();
+
+    await act(async () => {
+      findButtonByText(element, "3Y").click();
+    });
+    await flushEffects();
+    expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: "3Y",
+      startDate: undefined,
+      endDate: undefined,
+    }));
+
+    vi.mocked(fetchTickerDetailsHydration).mockClear();
+    await act(async () => {
+      findButtonByText(element, "Custom").click();
+    });
+    const inputs = Array.from(element.querySelectorAll('[data-testid="ticker-chart-custom-range"] input'));
+    await changeInput(inputs[0] as HTMLInputElement, "2024-01-01");
+    await changeInput(inputs[1] as HTMLInputElement, "2024-06-30");
+    await act(async () => {
+      findButtonByText(element, "Apply").click();
+    });
+    await flushEffects();
+
+    expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: undefined,
+      startDate: "2024-01-01",
+      endDate: "2024-06-30",
+    }));
+  });
+
+  it("renders refreshed account breakdown from ticker details state", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
+      ...details,
+      accountBreakdown: [{
+        ...details.accountBreakdown[0]!,
+        accountName: "Fresh Account",
+        reportingMarketValueAmount: null,
+        marketValueAmount: null,
+        reportingCostBasisAmount: 1250,
+      }],
+    });
+
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+    await flushEffects();
+
+    const breakdown = element.querySelector('[data-testid="ticker-account-breakdown"]');
+    const rows = element.querySelector('[data-testid="ticker-account-breakdown-rows"]');
+    expect(breakdown?.textContent).toContain("Fresh Account");
+    expect(breakdown?.textContent).toContain("NT$1,250");
+    expect(breakdown?.textContent).toContain("Cost basis fallback");
+    expect(rows?.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]')).not.toBeNull();
+    expect(breakdown?.querySelector("table")).toBeNull();
+  });
+
+  it("shows resolved reporting currency and routes currency changes to Quick Actions", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+
+    const headerBadge = element.querySelector('[data-testid="ticker-reporting-currency"]');
+    const breakdownBadge = element.querySelector('[data-testid="ticker-account-breakdown-reporting-currency"]');
+
+    expect(headerBadge?.textContent).toContain("Reporting TWD");
+    expect(headerBadge?.textContent).toContain(dict.tickerHistory.changeReportingCurrency);
+    expect(breakdownBadge?.textContent).toContain("Reporting TWD");
+    expect(breakdownBadge?.textContent).toContain(dict.tickerHistory.reportingCurrencyDescription);
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.changeReportingCurrency).click();
+    });
+
+    expect(appShellDataMocks.openQuickActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not relabel native account values as reporting contribution when reporting amounts are missing", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      accountBreakdown: [{
+        ...details.accountBreakdown[0]!,
+        marketValueAmount: 9876,
+        costBasisAmount: 5432,
+        reportingMarketValueAmount: null,
+        reportingCostBasisAmount: null,
+      }],
+    });
+    await flushEffects();
+
+    const row = element.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]');
+    expect(row?.textContent).toContain(dict.tickerHistory.noHoldingData);
+    expect(row?.textContent).not.toContain("NT$9,876");
+    expect(row?.textContent).not.toContain("NT$5,432");
+    expect(row?.textContent).not.toContain(dict.dashboardHome.allocationFallbackLabel);
+  });
+
+  it("renders unavailable quote changes without positive or negative styling", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      quote: {
+        ...details.quote,
+        changeAmount: null,
+        changePercent: null,
+      },
+    });
+    await flushEffects();
+
+    const quoteChange = element.querySelector('[data-testid="ticker-quote-change"]');
+    expect(quoteChange?.textContent).toContain("-");
+    expect(quoteChange?.className).toContain("text-muted-foreground");
+    expect(quoteChange?.className).not.toContain("text-success");
+    expect(quoteChange?.className).not.toContain("text-destructive");
+    expect(quoteChange?.querySelector("svg")).toBeNull();
   });
 });

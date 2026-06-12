@@ -21,8 +21,12 @@ import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { TooltipInfo } from "../ui/TooltipInfo";
+import { Badge } from "../ui/shadcn/badge";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
+import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
 
 const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 
@@ -40,6 +44,8 @@ interface PortfolioTrendCardProps {
   isLoading: boolean;
   errorMessage: string;
   onRangeChange: (range: DashboardPerformanceRange) => void;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
   // KZO-161 (158C): optional click handler for the "Customize ranges" gear
   // icon. When omitted, the gear is hidden entirely so this card stays
   // usable in non-dashboard contexts (e.g. the shared-portfolio view).
@@ -48,6 +54,7 @@ interface PortfolioTrendCardProps {
 
 interface ChartPoint {
   date: string;
+  dateMs: number;
   totalCost: number | null;
   marketValue: number | null;
   totalReturn: number | null;
@@ -80,6 +87,8 @@ export function PortfolioTrendCard({
   isLoading,
   errorMessage,
   onRangeChange,
+  timelineMode,
+  onTimelineModeChange,
   onOpenCustomize,
 }: PortfolioTrendCardProps) {
   const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
@@ -89,6 +98,13 @@ export function PortfolioTrendCard({
   const latestTotalReturnPoint = [...points].reverse().find((point) => point.totalReturnAmount != null) ?? null;
   const lastReliableDate = data?.lastReliableDate ?? findLastReliablePointDate(points);
   const marketDataStaleSince = data?.marketDataStaleSince ?? null;
+  const expectedLatestValuationDate = data?.diagnostics?.expectedLatestValuationDate ?? data?.requestedAsOf ?? null;
+  const latestMarketValueDate = latestMarketValuePoint?.date ?? data?.diagnostics?.latestReliableValuationDate ?? lastReliableDate;
+  const marketValueUsesLatestAvailableSnapshot = Boolean(
+    latestMarketValueDate
+      && expectedLatestValuationDate
+      && latestMarketValueDate !== expectedLatestValuationDate,
+  );
   const hasPoints = points.length > 0;
   const hasMarketValue = points.some((point) => point.marketValueAmount !== null);
   const hasTotalReturn = points.some((point) => point.totalReturnAmount != null);
@@ -108,14 +124,17 @@ export function PortfolioTrendCard({
 
   const chartData: ChartPoint[] = points.map((point) => ({
     date: point.date,
+    dateMs: dateToUtcMs(point.date),
     totalCost: point.totalCostAmount,
     marketValue: point.marketValueAmount,
     totalReturn: point.totalReturnAmount ?? null,
   }));
 
   const chartConfig = buildChartConfig(dict);
+  const chartAxis = resolveTimelineAxis(data, locale, range, timelineMode);
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
+  const emptyStateMessage = resolveSnapshotEmptyStateMessage(data, dict, dict.dashboardHome.performanceEmpty);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-performance-card">
@@ -125,7 +144,7 @@ export function PortfolioTrendCard({
           <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{dict.dashboardHome.performanceTitle}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.performanceDescription}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
             {rangeItems.map((item) => (
               <Button
@@ -148,18 +167,36 @@ export function PortfolioTrendCard({
             <button
               type="button"
               onClick={onOpenCustomize}
-              aria-label={dict.settings.customizeRangesTitle ?? "Customize timeframes"}
+              aria-label={dict.settings.customizeRangesTitle}
               data-testid="timeframe-gear-btn"
               className="hidden h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 lg:inline-flex"
             >
               <span aria-hidden="true" className="text-sm leading-none">⚙</span>
             </button>
           ) : null}
+          <ToggleGroup
+            type="single"
+            aria-label={dict.tickerHistory.chartTimelineLabel}
+            value={timelineMode}
+            onValueChange={(value) => {
+              if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+                onTimelineModeChange(value);
+              }
+            }}
+            className="flex-wrap justify-end"
+            data-testid="dashboard-performance-timeline"
+          >
+            {(["auto", "day", "week", "month", "year"] as const).map((mode) => (
+              <ToggleGroupItem key={mode} value={mode}>
+                {resolveTimelineLabel(dict, mode)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
       </div>
 
       {errorMessage ? (
-        <div className="mt-5 rounded-[20px] border border-[rgba(251,113,133,0.24)] bg-[rgba(254,226,226,0.92)] px-4 py-3 text-sm text-rose-700">
+        <div className="mt-5 rounded-[20px] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {errorMessage}
         </div>
       ) : null}
@@ -170,6 +207,9 @@ export function PortfolioTrendCard({
           value={latestMarketValuePoint?.marketValueAmount !== null && latestMarketValuePoint?.marketValueAmount !== undefined
             ? formatCurrencyAmount(latestMarketValuePoint.marketValueAmount, currency, locale)
             : dict.dashboardHome.noMarketValue}
+          meta={formatMetricDateMeta(dict, locale, latestMarketValueDate, expectedLatestValuationDate)}
+          badgeLabel={marketValueUsesLatestAvailableSnapshot ? dict.dashboardHome.latestAvailableSnapshot : undefined}
+          metaTestId="dashboard-performance-market-value-meta"
           swatchClassName="bg-[hsl(var(--chart-primary))]"
         />
         <LegendMetric
@@ -191,17 +231,23 @@ export function PortfolioTrendCard({
       </div>
 
       {lastReliableDate ? (
-        <p
-          className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
+        <div
+          className="mt-4 flex flex-wrap items-center gap-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-500"
           data-testid="dashboard-performance-as-of"
         >
-          {dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}
-        </p>
+          <span>{dict.dashboardHome.asOfLabel} {formatAxisDateLabel(lastReliableDate, locale)}</span>
+          <TooltipInfo
+            label={dict.dashboardHome.performanceTitle}
+            content={formatSnapshotAsOfTooltip(dict, lastReliableDate, locale)}
+            triggerTestId="dashboard-performance-as-of-tooltip-trigger"
+            contentTestId="dashboard-performance-as-of-tooltip-content"
+          />
+        </div>
       ) : null}
 
       {marketDataStaleSince ? (
         <p
-          className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="mt-3 rounded-[18px] border border-warning/60 bg-warning/10 px-4 py-3 text-sm text-warning"
           data-testid="dashboard-performance-stale-warning"
         >
           {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
@@ -210,7 +256,7 @@ export function PortfolioTrendCard({
 
       {hasPartialQuotes ? (
         <p
-          className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="mt-4 rounded-[18px] border border-warning/60 bg-warning/10 px-4 py-3 text-sm text-warning"
           data-testid="dashboard-performance-partial-warning"
         >
           {dict.dashboardHome.performancePartialQuoteWarning}
@@ -222,9 +268,15 @@ export function PortfolioTrendCard({
           <div className="skeleton-line h-4 w-36 rounded" />
           <div className="skeleton-line skeleton-line--delay mt-6 h-[16rem] w-full rounded-[24px]" />
         </div>
-      ) : !hasPoints ? (
-        <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
-          {dict.dashboardHome.performanceEmpty}
+      ) : !hasPoints || !hasMarketValue ? (
+        <div className="mt-6 flex items-center justify-center gap-2 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-12 text-sm text-slate-600">
+          <span>{emptyStateMessage}</span>
+          <TooltipInfo
+            label={dict.dashboardHome.performanceTitle}
+            content={dict.dashboardHome.performanceSnapshotOnlyTooltip}
+            triggerTestId="dashboard-performance-empty-tooltip-trigger"
+            contentTestId="dashboard-performance-empty-tooltip-content"
+          />
         </div>
       ) : (
         <div className="mt-6 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:p-5">
@@ -244,9 +296,13 @@ export function PortfolioTrendCard({
               </defs>
               <CartesianGrid strokeDasharray="4 6" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
-                dataKey="date"
+                dataKey="dateMs"
+                type="number"
+                scale="time"
+                domain={chartAxis.domain}
+                ticks={chartAxis.ticks}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                tickFormatter={chartAxis.tickFormatter}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
@@ -264,7 +320,9 @@ export function PortfolioTrendCard({
                     ? formatCurrencyAmount(value, currency, locale)
                     : value
                 }
-                labelFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                labelFormatter={(value: number | string) =>
+                  typeof value === "number" ? formatAxisDateLabel(msToIsoDate(value), locale) : value
+                }
               />
               {showArea ? (
                 <Area
@@ -322,7 +380,7 @@ export function PortfolioTrendCard({
               {/* Latest-point markers (one per series at the rightmost data point). */}
               {latestPoint && latestPoint.totalCostAmount !== null && lastDate ? (
                 <ReferenceDot
-                  x={lastDate}
+                  x={dateToUtcMs(lastDate)}
                   y={latestPoint.totalCostAmount}
                   r={5}
                   fill="var(--color-totalCost)"
@@ -330,10 +388,10 @@ export function PortfolioTrendCard({
                   isFront
                 />
               ) : null}
-              {latestPoint && latestPoint.marketValueAmount !== null && lastDate ? (
+              {latestMarketValuePoint && latestMarketValuePoint.marketValueAmount !== null ? (
                 <ReferenceDot
-                  x={lastDate}
-                  y={latestPoint.marketValueAmount}
+                  x={dateToUtcMs(latestMarketValuePoint.date)}
+                  y={latestMarketValuePoint.marketValueAmount}
                   r={6}
                   fill="var(--color-marketValue)"
                   stroke="none"
@@ -342,7 +400,7 @@ export function PortfolioTrendCard({
               ) : null}
               {latestTotalReturnPoint?.totalReturnAmount != null && latestTotalReturnPoint.date ? (
                 <ReferenceDot
-                  x={latestTotalReturnPoint.date}
+                  x={dateToUtcMs(latestTotalReturnPoint.date)}
                   y={latestTotalReturnPoint.totalReturnAmount}
                   r={5}
                   fill="var(--color-totalReturn)"
@@ -358,14 +416,34 @@ export function PortfolioTrendCard({
   );
 }
 
-function LegendMetric({ label, value, swatchClassName }: { label: string; value: string; swatchClassName: string }) {
+function LegendMetric({
+  label,
+  value,
+  meta,
+  metaTestId,
+  badgeLabel,
+  swatchClassName,
+}: {
+  label: string;
+  value: string;
+  meta?: string | null;
+  metaTestId?: string;
+  badgeLabel?: string;
+  swatchClassName: string;
+}) {
   return (
-    <div className="rounded-[22px] border border-slate-200 bg-white/88 px-4 py-4 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-      <div className="flex items-center gap-2">
+    <div className="rounded-[22px] border border-border bg-card px-4 py-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className={cn("h-2.5 w-2.5 rounded-full", swatchClassName)} aria-hidden="true" />
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+        {badgeLabel ? <Badge variant="outline" className="font-medium">{badgeLabel}</Badge> : null}
       </div>
-      <p className="mt-3 text-lg font-semibold text-slate-950">{value}</p>
+      <p className="mt-3 text-lg font-semibold text-foreground">{value}</p>
+      {meta ? (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid={metaTestId}>
+          {meta}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -386,11 +464,111 @@ function formatAxisDateLabel(value: string, locale: LocaleCode): string {
   }).format(new Date(value));
 }
 
+function resolveRangeStartDate(
+  range: DashboardPerformanceRange,
+  endDate: string,
+  firstPointDate?: string,
+): string {
+  const end = utcDateFromIso(endDate);
+  const match = /^(\d+)([MY])$/.exec(range);
+  if (range === "YTD") {
+    end.setUTCMonth(0, 1);
+    return toIsoDate(end);
+  }
+  if (range === "ALL") {
+    return firstPointDate ?? endDate;
+  }
+  if (match) {
+    const amount = Number(match[1]);
+    if (match[2] === "M") {
+      end.setUTCMonth(end.getUTCMonth() - amount);
+      return toIsoDate(end);
+    }
+    end.setUTCFullYear(end.getUTCFullYear() - amount);
+    return toIsoDate(end);
+  }
+  return firstPointDate ?? endDate;
+}
+
+function resolveTimelineAxis(
+  data: DashboardPerformanceDto | null,
+  locale: LocaleCode,
+  range: DashboardPerformanceRange,
+  mode: TimelineMode,
+) {
+  const points = data?.points ?? [];
+  const fallbackEndDate = points.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
+  const endDate = data?.rangeEndDate ?? data?.requestedAsOf ?? fallbackEndDate;
+  const startDate = data?.rangeStartDate ?? resolveRangeStartDate(range, endDate, points.at(0)?.date);
+  return buildTimelineAxis({
+    endDate,
+    locale,
+    mode,
+    pointDates: points.map((point) => point.date),
+    startDate,
+  });
+}
+
+function dateToUtcMs(value: string): number {
+  return utcDateFromIso(value).getTime();
+}
+
+function msToIsoDate(value: number): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function resolveSnapshotEmptyStateMessage(
+  data: DashboardPerformanceDto | null,
+  dict: AppDictionary,
+  fallback: string,
+): string {
+  const reasons = data?.diagnostics?.knownGapReasons ?? [];
+  if (reasons.includes("missing_fx")) return dict.dashboardHome.snapshotsEmptyMissingFx;
+  if (reasons.includes("stale_snapshot") || data?.diagnostics?.staleSinceDate || data?.marketDataStaleSince) {
+    return dict.dashboardHome.snapshotsEmptyStaleSnapshot;
+  }
+  if (reasons.includes("missing_snapshot")) return dict.dashboardHome.snapshotsEmptyMissingSnapshot;
+  return fallback;
+}
+
+function utcDateFromIso(value: string): Date {
+  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function toIsoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
 function formatStaleDataWarning(dict: AppDictionary, date: string, locale: LocaleCode): string {
   return dict.dashboardHome.performanceStaleDataWarning.replace(
     "{date}",
     formatAxisDateLabel(date, locale),
   );
+}
+
+function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: LocaleCode): string {
+  return dict.dashboardHome.performanceSnapshotAsOfTooltip.replace(
+    "{date}",
+    formatAxisDateLabel(date, locale),
+  );
+}
+
+function formatMetricDateMeta(
+  dict: AppDictionary,
+  locale: LocaleCode,
+  actualDate: string | null,
+  requestedDate: string | null,
+): string | null {
+  const parts: string[] = [];
+  if (actualDate) {
+    parts.push(`${dict.dashboardHome.asOfLabel} ${formatAxisDateLabel(actualDate, locale)}`);
+  }
+  if (requestedDate && requestedDate !== actualDate) {
+    parts.push(
+      dict.dashboardHome.requestedAsOfLabel.replace("{date}", formatAxisDateLabel(requestedDate, locale)),
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {
@@ -409,4 +587,12 @@ function resolveRangeLabel(dict: AppDictionary, range: DashboardPerformanceRange
   // keeps the four hardcoded labels intact while making the broader
   // chip palette readable.
   return range;
+}
+
+function resolveTimelineLabel(dict: AppDictionary, mode: TimelineMode) {
+  if (mode === "auto") return dict.reports.timelineAuto;
+  if (mode === "day") return dict.reports.timelineDay;
+  if (mode === "week") return dict.reports.timelineWeek;
+  if (mode === "month") return dict.reports.timelineMonth;
+  return dict.reports.timelineYear;
 }

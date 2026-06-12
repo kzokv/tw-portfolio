@@ -1,13 +1,19 @@
+import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
 import type {
   DashboardOverviewHoldingDto,
+  DashboardOverviewHoldingChildDto,
+  DashboardOverviewHoldingGroupDto,
   InstrumentCatalogItemDto,
+  TickerChartRange,
+  TickerChartSelection,
+  TickerDetailsChartMetadataDto,
   TickerDetailsDto,
   TickerEnrichmentDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import type { DashboardSnapshot } from "../../dashboard/types";
-import { findHoldingGroup, resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../holdingGroups";
+import { findHoldingGroup, resolveHoldingGroups } from "../holdingGroups";
 
 export interface TickerDetailStat {
   label: string;
@@ -67,8 +73,12 @@ export interface TickerDetailsModel {
     lastDividendPostedDate: string | null;
   };
   chart: {
+    range: TickerChartSelection;
+    metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailChartPoint[];
   };
+  holdingGroup: DashboardOverviewHoldingGroupDto | null;
+  accountBreakdown: DashboardOverviewHoldingChildDto[];
   stats: TickerDetailStat[];
   dividends: {
     upcomingCount: number;
@@ -93,8 +103,41 @@ interface TickerDetailsRequest {
   ticker: string;
   accountId?: string;
   marketCode?: string;
+  range?: TickerChartRange;
+  startDate?: string;
+  endDate?: string;
   instrument?: InstrumentCatalogItemDto | null;
   transactions?: TransactionHistoryItemDto[];
+}
+
+const DEFAULT_TICKER_CHART_RANGE: TickerChartRange = "1Y";
+
+function buildFallbackChartMetadata(
+  range: TickerChartSelection,
+  points: TickerDetailChartPoint[],
+): TickerDetailsChartMetadataDto {
+  const startDate = points[0]?.date ?? null;
+  const endDate = points.at(-1)?.date ?? null;
+  return {
+    requested: {
+      range: range === "CUSTOM" ? null : range,
+      startDate: range === "CUSTOM" ? startDate : null,
+      endDate: range === "CUSTOM" ? endDate : null,
+    },
+    resolved: {
+      range,
+      startDate,
+      endDate,
+    },
+    available: {
+      startDate,
+      endDate,
+    },
+    truncated: {
+      startDate: false,
+      endDate: false,
+    },
+  };
 }
 
 function findHolding(
@@ -105,7 +148,9 @@ function findHolding(
 ): DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined {
   if (accountId) {
     return dashboard.holdings.find(
-      (holding) => holding.ticker === ticker && holding.accountId === accountId,
+      (holding) => holding.ticker === ticker
+        && holding.accountId === accountId
+        && (!marketCode || holding.marketCode === marketCode),
     );
   }
 
@@ -258,6 +303,13 @@ export function buildPrimaryTickerDetails({
   instrument,
 }: FetchTickerDetailsOptions): TickerDetailsModel {
   const holding = findHolding(dashboard, ticker, accountId, marketCode);
+  const resolvedGroups = resolveHoldingGroups({
+    holdings: dashboard.holdings,
+    holdingGroups: dashboard.holdingGroups,
+    instruments: dashboard.instruments,
+    accounts: dashboard.accounts,
+  });
+  const holdingGroup = findHoldingGroup(resolvedGroups, ticker, marketCode) ?? null;
   const realizedPnl = transactions.reduce((sum, transaction) => sum + (transaction.realizedPnlAmount ?? 0), 0);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
@@ -266,6 +318,7 @@ export function buildPrimaryTickerDetails({
   const recentDividends = dashboard.dividends.recent.filter(
     (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
   );
+  const fallbackChartPoints = buildFallbackChartPoints(transactions, holding);
 
   return {
     identity: {
@@ -297,8 +350,12 @@ export function buildPrimaryTickerDetails({
       lastDividendPostedDate: holding?.lastDividendPostedDate ?? null,
     },
     chart: {
-      points: buildFallbackChartPoints(transactions, holding),
+      range: DEFAULT_TICKER_CHART_RANGE,
+      metadata: buildFallbackChartMetadata(DEFAULT_TICKER_CHART_RANGE, fallbackChartPoints),
+      points: fallbackChartPoints,
     },
+    holdingGroup,
+    accountBreakdown: holdingGroup?.children ?? [],
     stats: [
       { label: "Quantity", value: holding?.quantity ?? 0, unit: "shares" },
       { label: "Avg cost", value: holding?.averageCostPerShare ?? null, unit: currency },
@@ -342,11 +399,19 @@ function mergeWithFallback(
       ...(isObject(payload.position) ? payload.position : {}),
     },
     chart: {
+      range: fallback.chart.range,
+      metadata: fallback.chart.metadata,
       points:
         isObject(payload.chart) && Array.isArray(payload.chart.points)
           ? (payload.chart.points as TickerDetailChartPoint[])
           : fallback.chart.points,
     },
+    holdingGroup: isObject(payload.holdingGroup)
+      ? (payload.holdingGroup as unknown as DashboardOverviewHoldingGroupDto)
+      : fallback.holdingGroup,
+    accountBreakdown: Array.isArray(payload.accountBreakdown)
+      ? (payload.accountBreakdown as DashboardOverviewHoldingChildDto[])
+      : fallback.accountBreakdown,
     stats: Array.isArray(payload.stats) ? (payload.stats as TickerDetailStat[]) : fallback.stats,
     dividends: {
       ...fallback.dividends,
@@ -392,15 +457,179 @@ function mapApiChartPoints(
   payload: TickerDetailsDto["chart"],
   fallback: TickerDetailsModel,
 ): TickerDetailChartPoint[] {
-  return payload.points.length > 0
-    ? payload.points.map((point) => ({
-        date: point.date,
-        label: point.date,
-        price: point.close,
-        averageCost: fallback.position.averageCost,
-        quantity: fallback.position.quantity,
-      }))
-    : fallback.chart.points;
+  return payload.points.map((point) => ({
+    date: point.date,
+    label: point.date,
+    price: point.close,
+    averageCost: fallback.position.averageCost,
+    quantity: fallback.position.quantity,
+  }));
+}
+
+function normalizeApiChartPayload(
+  payload: TickerDetailsDto["chart"],
+  fallbackChart: TickerDetailsModel["chart"],
+): TickerDetailsDto["chart"] {
+  const range = payload.range && (payload.range === "CUSTOM" || TICKER_CHART_RANGES.includes(payload.range as TickerChartRange))
+    ? payload.range
+    : fallbackChart.range;
+  const metadata = isObject(payload.metadata)
+    ? payload.metadata as TickerDetailsDto["chart"]["metadata"]
+    : buildApiChartMetadata(range, payload.points);
+  return {
+    range,
+    metadata,
+    points: payload.points,
+  };
+}
+
+function buildApiChartMetadata(
+  range: TickerChartSelection,
+  points: TickerDetailsDto["chart"]["points"],
+): TickerDetailsDto["chart"]["metadata"] {
+  const startDate = points[0]?.date ?? null;
+  const endDate = points.at(-1)?.date ?? null;
+  return {
+    requested: {
+      range: range === "CUSTOM" ? null : range,
+      startDate: null,
+      endDate: null,
+    },
+    resolved: {
+      range,
+      startDate,
+      endDate,
+    },
+    available: {
+      startDate,
+      endDate,
+    },
+    truncated: {
+      startDate: false,
+      endDate: false,
+    },
+  };
+}
+
+function roundToDecimal(value: number, places: number): number {
+  const factor = 10 ** places;
+  return Math.round(value * factor) / factor;
+}
+
+function deriveQuoteFromChartPoints(
+  payload: TickerDetailsDto["chart"],
+): Pick<TickerDetailsModel["quote"], "currentPrice" | "previousClose" | "changeAmount" | "changePercent" | "quoteStatus"> | null {
+  const latest = payload.points.at(-1);
+  if (!latest) return null;
+  if (payload.metadata.available.endDate !== latest.date) return null;
+
+  const previous = payload.points.length >= 2 ? payload.points[payload.points.length - 2] : null;
+  const previousClose = previous?.close ?? null;
+  const changeAmount = previousClose === null ? null : roundToDecimal(latest.close - previousClose, 4);
+  const changePercent = previousClose === null || previousClose === 0
+    ? null
+    : roundToDecimal(((latest.close - previousClose) / previousClose) * 100, 4);
+
+  return {
+    currentPrice: latest.close,
+    previousClose,
+    changeAmount,
+    changePercent,
+    quoteStatus: "current",
+  };
+}
+
+function withDerivedSnapshotValuation(
+  fallback: TickerDetailsModel,
+  chart: TickerDetailsDto["chart"],
+): TickerDetailsModel {
+  if (fallback.quote.currentPrice !== null) return fallback;
+
+  const derivedQuote = deriveQuoteFromChartPoints(chart);
+  if (!derivedQuote || fallback.position.quantity <= 0) return fallback;
+  const currentPrice = derivedQuote.currentPrice;
+  if (currentPrice === null) return fallback;
+
+  const marketValue = roundToDecimal(fallback.position.quantity * currentPrice, 2);
+  const unrealizedPnl = fallback.position.costBasis === null
+    ? fallback.position.unrealizedPnl
+    : roundToDecimal(marketValue - fallback.position.costBasis, 2);
+
+  const accountMarketValues = fallback.accountBreakdown.map((child) =>
+    roundToDecimal(child.quantity * currentPrice, 2),
+  );
+  const accountMarketValueTotal = accountMarketValues.reduce((sum, value) => sum + value, 0);
+
+  const enrichChild = (child: DashboardOverviewHoldingChildDto, index: number): DashboardOverviewHoldingChildDto => {
+    const childMarketValue = accountMarketValues[index] ?? roundToDecimal(child.quantity * currentPrice, 2);
+    const childUnrealizedPnl = roundToDecimal(childMarketValue - child.costBasisAmount, 2);
+    const allocationPercent = accountMarketValueTotal > 0
+      ? roundToDecimal((childMarketValue / accountMarketValueTotal) * 100, 4)
+      : child.reportingAllocationPercent;
+    const canDeriveReportingAmounts = child.reportingCurrency === child.currency;
+
+    return {
+      ...child,
+      currentUnitPrice: currentPrice,
+      marketValueAmount: childMarketValue,
+      unrealizedPnlAmount: childUnrealizedPnl,
+      change: derivedQuote.changeAmount,
+      changePercent: derivedQuote.changePercent,
+      previousClose: derivedQuote.previousClose,
+      quoteStatus: derivedQuote.quoteStatus,
+      reportingMarketValueAmount: child.reportingMarketValueAmount ?? (canDeriveReportingAmounts ? childMarketValue : null),
+      reportingUnrealizedPnlAmount: child.reportingUnrealizedPnlAmount ?? (canDeriveReportingAmounts ? childUnrealizedPnl : null),
+      reportingDailyChangeAmount: derivedQuote.changeAmount === null
+        ? child.reportingDailyChangeAmount
+        : child.reportingDailyChangeAmount ?? (canDeriveReportingAmounts ? roundToDecimal(derivedQuote.changeAmount * child.quantity, 2) : null),
+      allocationPct: allocationPercent,
+      reportingAllocationPercent: allocationPercent,
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    };
+  };
+
+  const accountBreakdown = fallback.accountBreakdown.map(enrichChild);
+  const holdingGroup = fallback.holdingGroup
+    ? {
+        ...fallback.holdingGroup,
+        currentUnitPrice: currentPrice,
+        marketValueAmount: marketValue,
+        unrealizedPnlAmount: unrealizedPnl,
+        change: derivedQuote.changeAmount,
+        changePercent: derivedQuote.changePercent,
+        previousClose: derivedQuote.previousClose,
+        quoteStatus: derivedQuote.quoteStatus,
+        reportingMarketValueAmount: fallback.holdingGroup.reportingMarketValueAmount
+          ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency ? marketValue : null),
+        reportingUnrealizedPnlAmount: fallback.holdingGroup.reportingUnrealizedPnlAmount
+          ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency ? unrealizedPnl : null),
+        reportingDailyChangeAmount: derivedQuote.changeAmount === null
+          ? fallback.holdingGroup.reportingDailyChangeAmount
+          : fallback.holdingGroup.reportingDailyChangeAmount
+            ?? (fallback.holdingGroup.reportingCurrency === fallback.holdingGroup.currency
+              ? roundToDecimal(derivedQuote.changeAmount * fallback.position.quantity, 2)
+              : null),
+        allocationBasisUsed: "market_value" as const,
+        allocationBasisFallbackReason: null,
+        children: accountBreakdown,
+      }
+    : fallback.holdingGroup;
+
+  return {
+    ...fallback,
+    quote: {
+      ...fallback.quote,
+      ...derivedQuote,
+    },
+    position: {
+      ...fallback.position,
+      marketValue,
+      unrealizedPnl,
+    },
+    holdingGroup,
+    accountBreakdown,
+  };
 }
 
 function mapApiDetailsToModel(
@@ -410,19 +639,38 @@ function mapApiDetailsToModel(
   const currency = payload.identity.priceCurrency;
   const firstUpcoming = payload.dividends.upcoming[0];
   const firstRecent = payload.dividends.recent[0];
+  const quote = payload.quote.currentUnitPrice === null && fallback.quote.currentPrice !== null
+    ? fallback.quote
+    : {
+        currentPrice: payload.quote.currentUnitPrice,
+        previousClose: payload.quote.previousClose,
+        changeAmount: payload.quote.change,
+        changePercent: payload.quote.changePercent,
+        quoteStatus: payload.quote.quoteStatus,
+        freshness: fallback.quote.freshness,
+        freshnessTooltip: fallback.quote.freshnessTooltip,
+      };
   const position = {
     accountScope: payload.identity.accountId ?? "all",
     quantity: payload.position.quantity,
     averageCost: payload.position.averageCostPerShare,
     costBasis: payload.position.costBasisAmount,
-    marketValue: payload.position.marketValueAmount,
-    unrealizedPnl: payload.position.unrealizedPnlAmount,
+    marketValue: payload.position.marketValueAmount ?? fallback.position.marketValue,
+    unrealizedPnl: payload.position.unrealizedPnlAmount ?? fallback.position.unrealizedPnl,
     realizedPnl: payload.position.realizedPnlAmount,
     transactionsCount: payload.transactions.length,
     nextDividendDate: firstUpcoming?.paymentDate ?? firstUpcoming?.exDividendDate ?? null,
     lastDividendPostedDate: firstRecent?.postedAt ?? null,
   };
   const chartFallback = { ...fallback, position };
+  const chart = normalizeApiChartPayload(payload.chart, chartFallback.chart);
+  const holdingGroup = payload.holdingGroup?.reportingMarketValueAmount === null && fallback.holdingGroup?.reportingMarketValueAmount !== null
+    ? fallback.holdingGroup
+    : payload.holdingGroup;
+  const accountBreakdown = payload.accountBreakdown.some((row) => row.reportingMarketValueAmount !== null)
+    || fallback.accountBreakdown.every((row) => row.reportingMarketValueAmount === null)
+    ? payload.accountBreakdown
+    : fallback.accountBreakdown;
 
   return {
     identity: {
@@ -432,19 +680,15 @@ function mapApiDetailsToModel(
       instrumentType: payload.identity.instrumentType,
       currency,
     },
-    quote: {
-      currentPrice: payload.quote.currentUnitPrice,
-      previousClose: payload.quote.previousClose,
-      changeAmount: payload.quote.change,
-      changePercent: payload.quote.changePercent,
-      quoteStatus: payload.quote.quoteStatus,
-      freshness: fallback.quote.freshness,
-      freshnessTooltip: fallback.quote.freshnessTooltip,
-    },
+    quote,
     position,
     chart: {
-      points: mapApiChartPoints(payload.chart, chartFallback),
+      range: chart.range,
+      metadata: chart.metadata,
+      points: mapApiChartPoints(chart, chartFallback),
     },
+    holdingGroup,
+    accountBreakdown,
     stats: fallback.stats,
     dividends: {
       upcomingCount: payload.dividends.upcoming.length,
@@ -463,6 +707,7 @@ function isTickerDetailsDto(value: unknown): value is TickerDetailsDto {
     && isObject(value.quote)
     && isObject(value.position)
     && isObject(value.chart)
+    && Array.isArray(value.chart.points)
     && Array.isArray(value.transactions)
     && isObject(value.dividends)
     && isObject(value.fundamentals);
@@ -500,6 +745,12 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: "detail
   if (marketCode) {
     params.set("marketCode", marketCode);
   }
+  if (request.startDate && request.endDate) {
+    params.set("startDate", request.startDate);
+    params.set("endDate", request.endDate);
+  } else if (request.range) {
+    params.set("range", request.range);
+  }
 
   return `/tickers/${encodeURIComponent(request.ticker)}/${endpoint}${params.toString() ? `?${params.toString()}` : ""}`;
 }
@@ -508,8 +759,11 @@ function mapApiEnrichmentToModel(
   payload: TickerEnrichmentDto,
   fallback: TickerDetailsModel,
 ): TickerDetailsModel {
+  const chart = normalizeApiChartPayload(payload.chart, fallback.chart);
+  const enrichedFallback = withDerivedSnapshotValuation(fallback, chart);
+
   return {
-    ...fallback,
+    ...enrichedFallback,
     identity: {
       ticker: payload.identity.ticker,
       name: payload.identity.name,
@@ -518,8 +772,12 @@ function mapApiEnrichmentToModel(
       currency: payload.identity.priceCurrency,
     },
     chart: {
-      points: mapApiChartPoints(payload.chart, fallback),
+      range: chart.range,
+      metadata: chart.metadata,
+      points: mapApiChartPoints(chart, enrichedFallback),
     },
+    holdingGroup: enrichedFallback.holdingGroup,
+    accountBreakdown: enrichedFallback.accountBreakdown,
     fundamentals: {
       panels: mapApiFundamentalsToPanels(payload.fundamentals),
     },
@@ -530,6 +788,9 @@ export async function fetchTickerDetailsHydration({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -540,6 +801,9 @@ export async function fetchTickerDetailsHydration({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -550,6 +814,9 @@ export async function fetchTickerDetailsFullRefresh({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -560,6 +827,9 @@ export async function fetchTickerDetailsFullRefresh({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -570,6 +840,9 @@ export async function fetchTickerDetailsEnrichment({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -580,6 +853,9 @@ export async function fetchTickerDetailsEnrichment({
     ticker,
     accountId,
     marketCode,
+    range,
+    startDate,
+    endDate,
     instrument,
     transactions,
     primaryDetails,
@@ -590,13 +866,16 @@ async function fetchTickerDetailsFromEndpoint({
   ticker,
   accountId,
   marketCode,
+  range,
+  startDate,
+  endDate,
   instrument = null,
   transactions = [],
   primaryDetails,
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }, endpoint: "details" | "enrichment"): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, instrument, transactions }, endpoint);
+  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, range, startDate, endDate, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);

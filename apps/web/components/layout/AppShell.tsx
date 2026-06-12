@@ -1,54 +1,61 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { type LocaleCode, type ShellPortfolioConfigDto } from "@vakwen/shared-types";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  type AccountDefaultCurrency,
+  type LocaleCode,
+  type ShellPortfolioConfigDto,
+} from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
+import { getJson, patchJson } from "../../lib/api";
+import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "../../lib/routeDtoCache";
+import { useNotifications } from "../../hooks/useNotifications";
+import { useCommandPalette } from "../../hooks/useCommandPalette";
+import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
+import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
+import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
+import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { TransactionInput } from "../portfolio/types";
+import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
+import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
+import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
 import { AppShellLayout } from "./AppShellLayout";
 import { BreadcrumbProvider } from "./BreadcrumbProvider";
-import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
-import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
-import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
-import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
-import { useNotifications } from "../../hooks/useNotifications";
-import { PortfolioSwitcher } from "./PortfolioSwitcher";
-import { ImpersonationBanner } from "./ImpersonationBanner";
-import { AppShellDataProvider } from "./AppShellDataContext";
-import { useAppShellDataValue } from "./useAppShellDataValue";
-import { useSnapshotGeneration } from "./useSnapshotGeneration";
-import { useSharedContext } from "./useSharedContext";
-import { useAppNavigation } from "./useAppNavigation";
 import { CommandPalette } from "./CommandPalette";
 import { CommandPaletteProvider } from "./CommandPaletteContext";
+import { AppShellDataProvider } from "./AppShellDataContext";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NavigationFeedbackProvider } from "./NavigationFeedbackContext";
-import { useCommandPalette } from "../../hooks/useCommandPalette";
-import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
-import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
-import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
-import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
+import { PortfolioSwitcher } from "./PortfolioSwitcher";
+import { useAppNavigation } from "./useAppNavigation";
+import { useAppShellDataValue } from "./useAppShellDataValue";
+import { useSharedContext } from "./useSharedContext";
 import { useShellInstrumentIndex } from "./useShellInstrumentIndex";
-import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "../../lib/routeDtoCache";
+import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
+import { useSnapshotGeneration } from "./useSnapshotGeneration";
 
 type AppSection = "dashboard" | "reports" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
 interface AppShellProps {
-  /** Retained for back-compat with callers; the new shell derives the
-   * active surface from `usePathname` so callers can stop passing this. */
   section?: AppSection;
   isDemo?: boolean;
   localeOverride?: LocaleCode;
-  /** Legacy props retained for back-compat (used by the sharing page to
-   * pass overrides); now ignored — the breadcrumb owns titling. */
   titleOverride?: string;
   descriptionOverride?: string;
   activeSectionOverride?: AppSection | null;
   initialProfile?: ProfileWithImpersonationDto | null;
   initialPortfolioConfig?: ShellPortfolioConfigDto | null;
   portfolioConfigMode?: "eager" | "lazy";
-  /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
   initialSidebarOpen?: boolean;
   children?: React.ReactNode;
+}
+
+interface UserPreferencesResponse {
+  preferences?: {
+    reportingCurrency?: unknown;
+  } | null;
 }
 
 const DEFAULT_TRANSACTION: TransactionInput = {
@@ -63,6 +70,24 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   isDayTrade: false,
 };
 
+function isEditableQuickActionsPath(pathname: string): boolean {
+  return [
+    "/dashboard",
+    "/reports",
+    "/portfolio",
+    "/transactions",
+    "/dividends",
+    "/cash-ledger",
+    "/tickers",
+  ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function normalizeReportingCurrency(value: unknown): AccountDefaultCurrency {
+  return typeof value === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(value)
+    ? value as AccountDefaultCurrency
+    : "TWD";
+}
+
 export function AppShell({
   section: _section = "dashboard",
   isDemo = false,
@@ -76,7 +101,14 @@ export function AppShell({
   initialSidebarOpen = true,
   children,
 }: AppShellProps) {
+  const router = useRouter();
+  const pathname = usePathname() ?? "/";
   const [isClientReady, setIsClientReady] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [reportingCurrency, setReportingCurrency] = useState<AccountDefaultCurrency>("TWD");
+  const [isReportingCurrencySaving, setIsReportingCurrencySaving] = useState(false);
+  const [reportingCurrencyError, setReportingCurrencyError] = useState("");
+
   const portfolioConfig = useShellPortfolioConfig({
     initialTransaction: DEFAULT_TRANSACTION,
     initialConfig: initialPortfolioConfig,
@@ -111,8 +143,6 @@ export function AppShell({
     handleSharingNotification,
   } = sharedContext;
 
-  // Preserves §8 item 4 — shared-context dictionary remapping for empty
-  // portfolio / empty transactions copy.
   const uiDict = useMemo(() => {
     if (!isSharedContext) return dict;
     return {
@@ -134,6 +164,19 @@ export function AppShell({
 
   useEffect(() => {
     setIsClientReady(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<UserPreferencesResponse>("/user-preferences")
+      .then((response) => {
+        if (cancelled) return;
+        setReportingCurrency(normalizeReportingCurrency(response?.preferences?.reportingCurrency));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const refreshAfterTransaction = useCallback(async () => {
@@ -168,8 +211,6 @@ export function AppShell({
     onSnapshotsGenerated: snapshotGeneration.handleSnapshotsGenerated,
   });
 
-  // Preserves §8 item 11 — useNotifications stays here with `enabled: true`
-  // (SSE pre-connect) per `react-useEventStream-preconnect-pattern.md`.
   const notificationData = useNotifications({ onSharingNotification: handleSharingNotification });
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
 
@@ -210,6 +251,27 @@ export function AppShell({
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal]);
 
+  const saveReportingCurrency = useCallback(async (next: AccountDefaultCurrency) => {
+    if (isReportingCurrencySaving || next === reportingCurrency) return;
+
+    const previous = reportingCurrency;
+    setReportingCurrency(next);
+    setIsReportingCurrencySaving(true);
+    setReportingCurrencyError("");
+
+    try {
+      await patchJson("/user-preferences", { reportingCurrency: next });
+      handleReportingCurrencySaved();
+      router.refresh();
+    } catch (error) {
+      setReportingCurrency(previous);
+      setReportingCurrencyError(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      setIsReportingCurrencySaving(false);
+    }
+  }, [handleReportingCurrencySaved, isReportingCurrencySaving, reportingCurrency, router]);
+
   const previousSessionUserIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (previousSessionUserIdRef.current === undefined) {
@@ -222,7 +284,6 @@ export function AppShell({
     previousSessionUserIdRef.current = sessionUserId;
   }, [sessionUserId]);
 
-  // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
   const commandPalette = useCommandPalette();
   const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
   const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
@@ -241,11 +302,19 @@ export function AppShell({
     })().catch(() => undefined);
   }, [portfolioConfig]);
 
+  const canUseGlobalQuickActions = isEditableQuickActionsPath(pathname) && !isSharedContext;
+
   const appShellDataValue = useAppShellDataValue({
     uiDict,
     locale,
     sessionUserId,
     isSharedContext,
+    canUseGlobalQuickActions,
+    openQuickActions: () => setQuickActionsOpen(true),
+    reportingCurrency,
+    saveReportingCurrency,
+    isReportingCurrencySaving,
+    reportingCurrencyError,
     transactionSubmission,
     mutations,
     recomputeAction,
@@ -273,13 +342,8 @@ export function AppShell({
     />
   ) : null;
 
-  // Phase 5e — pathname used to gate the floating ⨁ to /dashboard only.
-  const pathname = usePathname() ?? "/";
-
   const handleRecomputeConfirm = useCallback(() => {
     setRecomputeDialogOpen(false);
-    // §12 A2 — skip the in-hook `window.confirm` because the AlertDialog
-    // has already collected the user's confirmation.
     void recomputeAction.runRecompute({ skipConfirm: true });
   }, [recomputeAction]);
 
@@ -294,27 +358,21 @@ export function AppShell({
 
   return (
     <div className="app-shell relative flex min-h-screen w-full min-w-0 max-w-full flex-col overflow-x-clip" data-testid="app-shell">
-      {isDemo && (
+      {isDemo ? (
         <div
           className="flex h-8 items-center justify-center bg-amber-100 text-xs font-medium text-amber-800"
           data-testid="demo-banner"
         >
           {dict.feedback.demoSession}
         </div>
-      )}
-      {/* Preserves §8 item 6 — ImpersonationBanner above SidebarProvider so
-          it spans the full viewport above sidebar + content. ResizeObserver
-          dropped per design §3; banner stacks naturally. */}
+      ) : null}
+
       <ImpersonationBanner
         impersonation={impersonation}
         onRefreshContext={refreshContextDependentData}
       />
 
       <BreadcrumbProvider>
-        {/* AppShellDataProvider lifted to wrap SidebarProvider so the
-            Breadcrumb in TopBar can read `uiDict` for locale-aware fallback
-            labels (e.g. "持倉" in zh-TW). Children still consume the same
-            context via useAppShellData inside <main> below. */}
         <AppShellDataProvider value={appShellDataValue}>
           <CommandPaletteProvider value={commandPaletteContextValue}>
             <NavigationFeedbackProvider>
@@ -391,16 +449,19 @@ export function AppShell({
               pending={recomputeAction.isRunning}
             />
 
-            {/* Phase 5e — floating ⨁ quick-actions Sheet. Dashboard-only
-                surface; hidden in shared context (read-only). Reuses the
-                same AddTransactionDialog + RecomputeConfirmDialog handlers
-                already wired for the ⌘K palette. */}
             <FloatingQuickActions
-              hidden={pathname !== "/dashboard" || isSharedContext}
+              hidden={!canUseGlobalQuickActions}
+              open={quickActionsOpen}
+              onOpenChange={setQuickActionsOpen}
+              reportingCurrency={reportingCurrency}
+              onReportingCurrencyChange={saveReportingCurrency}
+              isReportingCurrencySaving={isReportingCurrencySaving}
+              reportingCurrencyError={reportingCurrencyError}
               onAddTransaction={handleAddTransactionFromPalette}
               onRecompute={handleRecomputeFromPalette}
               onGenerateSnapshots={snapshotGeneration.generateSnapshots}
               isGeneratingSnapshots={snapshotGeneration.isGeneratingSnapshots}
+              dict={dict}
             />
           </CommandPaletteProvider>
         </AppShellDataProvider>

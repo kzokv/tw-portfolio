@@ -71,6 +71,13 @@ describe("report routes", () => {
     await app.persistence.saveStore(store);
 
     const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedInstrument?: (instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK" | "ETF" | "BOND_ETF";
+        marketCode: "TW" | "US" | "AU";
+        barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
+      }) => void;
       _seedDailyBars?: (bars: Array<{
         ticker: string;
         marketCode: "TW" | "US" | "AU";
@@ -84,6 +91,13 @@ describe("report routes", () => {
         ingestedAt: string;
       }>) => void;
     };
+    memoryPersistence._seedInstrument?.({
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+    });
     memoryPersistence._seedDailyBars?.([
       {
         ticker: "2330",
@@ -110,6 +124,31 @@ describe("report routes", () => {
         ingestedAt: "2026-06-03T10:00:00.000Z",
       },
     ]);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "report-diagnostics-snapshot-2330",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-06-03",
+        quantity: 10,
+        closePrice: 105,
+        marketValue: 1050,
+        costBasis: 1000,
+        unrealizedPnl: 50,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1050,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 50,
+        providerSource: null,
+        generatedAt: "2026-06-03T10:05:00.000Z",
+        generationRunId: "report-diagnostics-gen",
+      },
+    ]);
 
     const dailyReview = await app.inject({
       method: "GET",
@@ -132,10 +171,16 @@ describe("report routes", () => {
         requestedAsOf: expect.any(String),
         lastValuationDate: expect.any(String),
         marketDataStaleSince: null,
+        latestSnapshotDate: "2026-06-03",
+        latestReliableValuationDate: "2026-06-03",
+        expectedLatestValuationDate: expect.any(String),
+        staleSinceDate: null,
         missingQuoteCount: expect.any(Number),
         provisionalQuoteCount: 0,
         staleQuoteCount: 0,
         missingFxCount: 0,
+        missingProviderSourceCount: 1,
+        knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -149,6 +194,7 @@ describe("report routes", () => {
         rows: [
           expect.objectContaining({
             ticker: "2330",
+            instrumentName: "台積電",
             marketCode: "TW",
           }),
         ],
@@ -175,6 +221,12 @@ describe("report routes", () => {
       diagnostics: expect.objectContaining({
         scope: "all",
         reportingCurrency: "TWD",
+        latestSnapshotDate: "2026-06-03",
+        latestReliableValuationDate: "2026-06-03",
+        expectedLatestValuationDate: expect.any(String),
+        staleSinceDate: null,
+        missingProviderSourceCount: 1,
+        knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -185,7 +237,7 @@ describe("report routes", () => {
       }),
       concentration: expect.objectContaining({
         topHoldings: expect.arrayContaining([
-          expect.objectContaining({ ticker: "2330" }),
+          expect.objectContaining({ ticker: "2330", instrumentName: "台積電" }),
         ]),
       }),
     }));
@@ -205,6 +257,12 @@ describe("report routes", () => {
       diagnostics: expect.objectContaining({
         scope: "TW",
         reportingCurrency: "TWD",
+        latestSnapshotDate: "2026-06-03",
+        latestReliableValuationDate: "2026-06-03",
+        expectedLatestValuationDate: expect.any(String),
+        staleSinceDate: null,
+        missingProviderSourceCount: 1,
+        knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -217,6 +275,103 @@ describe("report routes", () => {
         rows: [
           expect.objectContaining({
             ticker: "2330",
+            instrumentName: "台積電",
+          }),
+        ],
+      }),
+    }));
+  });
+
+  it("normalizes legacy report currency overrides to backend-authoritative scope rules", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const audFeeProfile = {
+      ...feeProfile,
+      id: "fp-au-authoritative-report",
+      accountId: "acc-au-authoritative-report",
+      name: "AU Broker Fee",
+    };
+    store.feeProfiles.push(audFeeProfile);
+    store.accounts.push({
+      id: "acc-au-authoritative-report",
+      userId,
+      name: "AU Broker",
+      feeProfileId: audFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.instruments.push({
+      ticker: "BHP",
+      type: "STOCK",
+      marketCode: "AU",
+      isProvisional: false,
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-au-authoritative-report",
+      ticker: "BHP",
+      quantity: 5,
+      costBasisAmount: 200,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-authoritative-au-trade",
+      userId,
+      accountId: "acc-au-authoritative-report",
+      ticker: "BHP",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 5,
+      unitPrice: 40,
+      priceCurrency: "AUD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: audFeeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const allScope = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&currencyMode=specified&currency=USD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    expect(allScope.statusCode).toBe(200);
+    expect(allScope.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "all",
+        currencyMode: "specified",
+        currency: "USD",
+        reportingCurrency: "USD",
+        nativeCurrency: null,
+      }),
+    }));
+
+    const singleMarket = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=AU&currencyMode=specified&currency=USD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    expect(singleMarket.statusCode).toBe(200);
+    expect(singleMarket.json()).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        scope: "AU",
+        currencyMode: "auto",
+        currency: null,
+        reportingCurrency: "AUD",
+        nativeCurrency: "AUD",
+      }),
+      detail: expect.objectContaining({
+        rows: [
+          expect.objectContaining({
+            ticker: "BHP",
+            marketCode: "AU",
+            reportingCurrency: "AUD",
           }),
         ],
       }),
@@ -306,7 +461,177 @@ describe("report routes", () => {
     ]));
   });
 
-  it("uses quote snapshots for all-market synthetic performance when holding snapshots are absent", async () => {
+  it("keeps report summary totals reconciled with reporting-currency rows and market buckets", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usdFeeProfile = {
+      ...feeProfile,
+      id: "fp-usd-reconcile",
+      accountId: "acc-usd-reconcile",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(usdFeeProfile);
+    store.accounts.push({
+      id: "acc-usd-reconcile",
+      userId,
+      name: "US Broker",
+      feeProfileId: usdFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.accounting.projections.holdings.push(
+      {
+        accountId: "acc-1",
+        ticker: "2330",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+      },
+      {
+        accountId: "acc-usd-reconcile",
+        ticker: "AAPL",
+        quantity: 2,
+        costBasisAmount: 100,
+        currency: "USD",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-reconcile-tw-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-01T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-01T09:00:00.000Z",
+      },
+      {
+        id: "report-reconcile-us-trade",
+        userId,
+        accountId: "acc-usd-reconcile",
+        ticker: "AAPL",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 2,
+        unitPrice: 50,
+        priceCurrency: "USD",
+        tradeDate: "2026-06-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: usdFeeProfile,
+        tradeTimestamp: "2026-06-01T14:30:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-01T14:30:00.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertInstruments(userId, [
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    ]);
+    await app.persistence.upsertFxRates([
+      {
+        date: "2026-06-03",
+        baseCurrency: "USD",
+        quoteCurrency: "TWD",
+        rate: 32,
+        source: "test",
+      },
+    ]);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-02", open: 100, high: 100, low: 100, close: 100, volume: 10_000, source: "test", ingestedAt: "2026-06-02T10:00:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-03", open: 110, high: 110, low: 110, close: 110, volume: 10_000, source: "test", ingestedAt: "2026-06-03T10:00:00.000Z" },
+      { ticker: "AAPL", marketCode: "US", barDate: "2026-06-02", open: 50, high: 50, low: 50, close: 50, volume: 10_000, source: "test", ingestedAt: "2026-06-02T20:00:00.000Z" },
+      { ticker: "AAPL", marketCode: "US", barDate: "2026-06-03", open: 55, high: 55, low: 55, close: 55, volume: 10_000, source: "test", ingestedAt: "2026-06-03T20:00:00.000Z" },
+    ]);
+
+    const allScope = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y&limit=10",
+      headers: { cookie: cookieHeader },
+    });
+    expect(allScope.statusCode).toBe(200);
+    const allBody = allScope.json() as {
+      summary: {
+        costBasisAmount: number;
+        marketValueAmount: number | null;
+        dailyChangeAmount: number | null;
+      };
+      holdings: {
+        rows: Array<{
+          ticker: string;
+          reportingCostBasisAmount: number | null;
+          reportingMarketValueAmount: number | null;
+          dailyChangeAmount: number | null;
+        }>;
+      };
+      allocation: { byMarket: Array<{ amount: number | null }> };
+    };
+    const allRowMarketValue = allBody.holdings.rows.reduce((sum, row) => sum + (row.reportingMarketValueAmount ?? 0), 0);
+    const allRowCostBasis = allBody.holdings.rows.reduce((sum, row) => sum + (row.reportingCostBasisAmount ?? 0), 0);
+    const allRowDailyChange = allBody.holdings.rows.reduce((sum, row) => sum + (row.dailyChangeAmount ?? 0), 0);
+    const allMarketBucketValue = allBody.allocation.byMarket.reduce((sum, bucket) => sum + (bucket.amount ?? 0), 0);
+
+    expect(allBody.summary.costBasisAmount).toBe(4200);
+    expect(allBody.summary.marketValueAmount).toBe(4620);
+    expect(allBody.summary.dailyChangeAmount).toBe(420);
+    expect(allRowCostBasis).toBe(allBody.summary.costBasisAmount);
+    expect(allRowMarketValue).toBe(allBody.summary.marketValueAmount);
+    expect(allRowDailyChange).toBe(allBody.summary.dailyChangeAmount);
+    expect(allMarketBucketValue).toBe(allBody.summary.marketValueAmount);
+    expect(allBody.holdings.rows.find((row) => row.ticker === "AAPL")?.dailyChangeAmount).toBe(320);
+
+    const usScope = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=US&range=1Y&limit=10",
+      headers: { cookie: cookieHeader },
+    });
+    expect(usScope.statusCode).toBe(200);
+    const usBody = usScope.json() as typeof allBody & { query: { reportingCurrency: string } };
+    const usRow = usBody.holdings.rows[0];
+    expect(usBody.query.reportingCurrency).toBe("USD");
+    expect(usBody.summary.costBasisAmount).toBe(100);
+    expect(usBody.summary.marketValueAmount).toBe(110);
+    expect(usBody.summary.dailyChangeAmount).toBe(10);
+    expect(usRow?.reportingCostBasisAmount).toBe(usBody.summary.costBasisAmount);
+    expect(usRow?.reportingMarketValueAmount).toBe(usBody.summary.marketValueAmount);
+    expect(usRow?.dailyChangeAmount).toBe(usBody.summary.dailyChangeAmount);
+  });
+
+  it("returns an empty all-market performance series when holding snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
     if (!feeProfile) throw new Error("expected default fee profile");
@@ -376,6 +701,12 @@ describe("report routes", () => {
       headers: { cookie: cookieHeader },
     });
     const portfolioBody = portfolioReport.json() as {
+      diagnostics: {
+        lastValuationDate: string | null;
+        latestReliableValuationDate: string | null;
+        latestSnapshotDate: string | null;
+        knownGapReasons: string[];
+      };
       performance: {
         fxStatus: string;
         points: Array<{
@@ -389,17 +720,13 @@ describe("report routes", () => {
     };
 
     expect(portfolioReport.statusCode).toBe(200);
-    expect(historicalBarsSpy).toHaveBeenCalled();
+    expect(historicalBarsSpy).not.toHaveBeenCalled();
     expect(portfolioBody.performance.fxStatus).toBe("complete");
-    expect(portfolioBody.performance.points).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        date: quoteDate,
-        totalCostAmount: 1000,
-        marketValueAmount: 1050,
-        totalReturnAmount: 50,
-        totalReturnPercent: 5,
-      }),
-    ]));
+    expect(portfolioBody.performance.points).toEqual([]);
+    expect(portfolioBody.diagnostics.lastValuationDate).toBeNull();
+    expect(portfolioBody.diagnostics.latestReliableValuationDate).toBeNull();
+    expect(portfolioBody.diagnostics.latestSnapshotDate).toBeNull();
+    expect(portfolioBody.diagnostics.knownGapReasons).toContain("missing_snapshot");
 
     historicalBarsSpy.mockClear();
 
@@ -409,6 +736,12 @@ describe("report routes", () => {
       headers: { cookie: cookieHeader },
     });
     const marketBody = marketReport.json() as {
+      diagnostics: {
+        lastValuationDate: string | null;
+        latestReliableValuationDate: string | null;
+        latestSnapshotDate: string | null;
+        knownGapReasons: string[];
+      };
       performance: {
         fxStatus: string;
         points: Array<{
@@ -422,20 +755,16 @@ describe("report routes", () => {
     };
 
     expect(marketReport.statusCode).toBe(200);
-    expect(historicalBarsSpy).toHaveBeenCalled();
+    expect(historicalBarsSpy).not.toHaveBeenCalled();
     expect(marketBody.performance.fxStatus).toBe("complete");
-    expect(marketBody.performance.points).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        date: quoteDate,
-        totalCostAmount: 1000,
-        marketValueAmount: 1050,
-        totalReturnAmount: 50,
-        totalReturnPercent: 5,
-      }),
-    ]));
+    expect(marketBody.performance.points).toEqual([]);
+    expect(marketBody.diagnostics.lastValuationDate).toBeNull();
+    expect(marketBody.diagnostics.latestReliableValuationDate).toBeNull();
+    expect(marketBody.diagnostics.latestSnapshotDate).toBeNull();
+    expect(marketBody.diagnostics.knownGapReasons).toContain("missing_snapshot");
   });
 
-  it("builds synthetic TW-scoped performance when TW snapshots are absent", async () => {
+  it("returns empty TW-scoped performance when TW snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
     if (!feeProfile) throw new Error("expected default fee profile");
@@ -562,6 +891,7 @@ describe("report routes", () => {
         userId,
         accountId: "acc-usd-tw-scope",
         ticker: "AAPL",
+        marketCode: "US",
         snapshotDate: "2026-06-02",
         quantity: 5,
         closePrice: 110,
@@ -627,29 +957,14 @@ describe("report routes", () => {
     expect(portfolioBody.allocation.byMarket.map((bucket) => bucket.key)).toEqual(["TW"]);
     expect(portfolioBody.concentration.topHoldings.map((row) => row.ticker)).toEqual(["2330"]);
     expect(portfolioBody.performance.fxStatus).toBe("complete");
-    expect(portfolioBody.performance.points).toEqual([
-      expect.objectContaining({
-        date: "2026-06-02",
-        totalCostAmount: 1000,
-        marketValueAmount: 1030,
-        totalReturnAmount: 30,
-        totalReturnPercent: 3,
-      }),
-      expect.objectContaining({
-        date: "2026-06-03",
-        totalCostAmount: 1000,
-        marketValueAmount: 1050,
-        totalReturnAmount: 50,
-        totalReturnPercent: 5,
-      }),
-    ]);
+    expect(portfolioBody.performance.points).toEqual([]);
     expect(snapshotSpy).not.toHaveBeenCalled();
     expect(scopedAggregateSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
       expect.any(String),
       "TWD",
-      [{ accountId: "acc-1", ticker: "2330" }],
+      [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
     );
 
     snapshotSpy.mockClear();
@@ -675,27 +990,14 @@ describe("report routes", () => {
     expect(marketReport.statusCode).toBe(200);
     expect(marketBody.detail.rows.map((row) => row.ticker)).toEqual(["2330"]);
     expect(marketBody.performance.fxStatus).toBe("complete");
-    expect(marketBody.performance.points).toEqual([
-      expect.objectContaining({
-        date: "2026-06-02",
-        totalCostAmount: 1000,
-        marketValueAmount: 1030,
-        totalReturnAmount: 30,
-      }),
-      expect.objectContaining({
-        date: "2026-06-03",
-        totalCostAmount: 1000,
-        marketValueAmount: 1050,
-        totalReturnAmount: 50,
-      }),
-    ]);
+    expect(marketBody.performance.points).toEqual([]);
     expect(snapshotSpy).not.toHaveBeenCalled();
     expect(scopedAggregateSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
       expect.any(String),
       "TWD",
-      [{ accountId: "acc-1", ticker: "2330" }],
+      [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
     );
   });
 
@@ -737,6 +1039,7 @@ describe("report routes", () => {
         userId,
         accountId: "acc-1",
         ticker: "2330",
+        marketCode: "TW",
         snapshotDate: "2026-06-02",
         quantity: 10,
         closePrice: 103,
@@ -778,7 +1081,7 @@ describe("report routes", () => {
     expect(quoteBarsSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to scoped synthetic performance when account ticker snapshots are market-ambiguous", async () => {
+  it("uses market-qualified scoped snapshots when the same ticker exists in another market", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
     if (!feeProfile) throw new Error("expected default fee profile");
@@ -877,10 +1180,34 @@ describe("report routes", () => {
     ]);
     await app.persistence.bulkUpsertHoldingSnapshots(userId, [
       {
+        id: "bhp-ambiguous-tw-snapshot",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "TW",
+        snapshotDate: "2026-06-02",
+        quantity: 10,
+        closePrice: 105,
+        marketValue: 1050,
+        costBasis: 1000,
+        unrealizedPnl: 50,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1050,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 50,
+        providerSource: "test",
+        generatedAt: "2026-06-02T10:00:00.000Z",
+        generationRunId: "bhp-ambiguous-tw",
+      },
+      {
         id: "bhp-ambiguous-au-snapshot",
         userId,
         accountId: "acc-1",
         ticker: "BHP",
+        marketCode: "AU",
         snapshotDate: "2026-06-02",
         quantity: 2,
         closePrice: 50,
@@ -928,7 +1255,13 @@ describe("report routes", () => {
         totalReturnAmount: 50,
       }),
     ]);
-    expect(scopedAggregateSpy).not.toHaveBeenCalled();
+    expect(scopedAggregateSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      "TWD",
+      [{ accountId: "acc-1", ticker: "BHP", marketCode: "TW" }],
+    );
   });
 
   it("preserves scoped upcoming dividend events that do not have ledger rows", async () => {

@@ -36,32 +36,27 @@ export function resolveReportContext(input: ResolveReportContextInput): ReportCo
   }
 
   const resolvedScope = scope as ReportScope;
-  const resolvedMode = currencyMode as ReportCurrencyMode;
   const normalizedCurrency = input.currency?.trim().toUpperCase() ?? null;
   if (normalizedCurrency !== null && !(ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(normalizedCurrency)) {
     throw routeError(400, "invalid_report_currency", "currency must be TWD, USD, AUD, or KRW");
   }
 
   const nativeCurrency = resolvedScope === "all" ? null : currencyFor(resolvedScope);
-  if (resolvedMode === "auto") {
+  if (resolvedScope === "all" && currencyMode === "specified" && normalizedCurrency) {
     return {
       scope: resolvedScope,
-      currencyMode: resolvedMode,
-      currency: null,
-      reportingCurrency: nativeCurrency ?? input.defaultReportingCurrency,
+      currencyMode: "specified",
+      currency: normalizedCurrency as AccountDefaultCurrency,
+      reportingCurrency: normalizedCurrency as AccountDefaultCurrency,
       nativeCurrency,
     };
   }
 
-  if (normalizedCurrency === null) {
-    throw routeError(400, "invalid_report_currency", "currency is required when currencyMode=specified");
-  }
-
   return {
     scope: resolvedScope,
-    currencyMode: resolvedMode,
-    currency: normalizedCurrency as AccountDefaultCurrency,
-    reportingCurrency: normalizedCurrency as AccountDefaultCurrency,
+    currencyMode: "auto",
+    currency: null,
+    reportingCurrency: nativeCurrency ?? input.defaultReportingCurrency,
     nativeCurrency,
   };
 }

@@ -1,16 +1,18 @@
 // KZO-180 — Pure-helper tests for the FX-aware dashboard aggregator.
 //
 // `translateOverviewSummary` is exercised here with mocked `getFxRate`. The
-// `translatePerformancePoints` time-series path is partially covered here for
-// the snapshot-backed branch; the synthetic-fallback branch + persistence
-// behavior are covered in the integration suite (slice 7).
+// `translatePerformancePoints` time-series path is covered here for the
+// snapshot-backed branch and the strict snapshot-only empty-series behavior.
 
 import { describe, it, expect } from "vitest";
 import {
+  buildOverviewMarketValues,
+  translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../../src/services/dashboardReportingCurrency.js";
 import type {
+  DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewUpcomingDividendDto,
   DashboardOverviewRecentDividendDto,
@@ -34,6 +36,11 @@ function makeFakePersistence(opts: {
   fxRates?: FakeFxRecord[];
   aggregated?: AggregatedSnapshotPoint[];
   dailyBars?: DailyBar[];
+  dailyBarReadStats?: {
+    batchCalls: number;
+    batchPairCounts: number[];
+    singleCalls: number;
+  };
 }): Persistence {
   const fx = opts.fxRates ?? [];
   const aggregated = opts.aggregated ?? [];
@@ -61,14 +68,42 @@ function makeFakePersistence(opts: {
       }
       return result;
     },
-    getDailyBarsForTickerMarket: async (ticker: string, marketCode: string, startDate: string, endDate: string) =>
-      dailyBars
+    getDailyBarsForTickerMarket: async (ticker: string, marketCode: string, startDate: string, endDate: string) => {
+      if (opts.dailyBarReadStats) {
+        opts.dailyBarReadStats.singleCalls += 1;
+      }
+      return dailyBars
         .filter((bar) =>
           bar.ticker === ticker &&
           ((bar as DailyBar & { marketCode?: string }).marketCode ?? marketCode) === marketCode &&
           bar.barDate >= startDate &&
           bar.barDate <= endDate)
-        .sort((a, b) => a.barDate.localeCompare(b.barDate)),
+        .sort((a, b) => a.barDate.localeCompare(b.barDate));
+    },
+    getDailyBarsForTickerMarkets: async (
+      pairs: readonly { ticker: string; marketCode: string }[],
+      startDate: string,
+      endDate: string,
+    ) => {
+      if (opts.dailyBarReadStats) {
+        opts.dailyBarReadStats.batchCalls += 1;
+        opts.dailyBarReadStats.batchPairCounts.push(pairs.length);
+      }
+      const result = new Map<string, DailyBar[]>();
+      for (const pair of pairs) {
+        result.set(
+          `${pair.ticker}\0${pair.marketCode}`,
+          dailyBars
+            .filter((bar) =>
+              bar.ticker === pair.ticker &&
+              ((bar as DailyBar & { marketCode?: string }).marketCode ?? pair.marketCode) === pair.marketCode &&
+              bar.barDate >= startDate &&
+              bar.barDate <= endDate)
+            .sort((a, b) => a.barDate.localeCompare(b.barDate)),
+        );
+      }
+      return result;
+    },
   } as unknown as Persistence;
 }
 
@@ -198,6 +233,102 @@ const baseSummary = {
 };
 
 const noDividends = { upcoming: [] as DashboardOverviewUpcomingDividendDto[], recent: [] as DashboardOverviewRecentDividendDto[] };
+
+function makeHoldingGroup(overrides: Partial<DashboardOverviewHoldingGroupDto> = {}): DashboardOverviewHoldingGroupDto {
+  return {
+    ticker: baseHolding.ticker,
+    marketCode: baseHolding.marketCode,
+    quantity: baseHolding.quantity,
+    costBasisAmount: baseHolding.costBasisAmount,
+    currency: baseHolding.currency,
+    averageCostPerShare: baseHolding.averageCostPerShare,
+    currentUnitPrice: baseHolding.currentUnitPrice,
+    marketValueAmount: baseHolding.marketValueAmount,
+    unrealizedPnlAmount: baseHolding.unrealizedPnlAmount,
+    allocationPct: baseHolding.allocationPct,
+    change: baseHolding.change,
+    changePercent: baseHolding.changePercent,
+    previousClose: baseHolding.previousClose,
+    quoteStatus: baseHolding.quoteStatus,
+    nextDividendDate: baseHolding.nextDividendDate,
+    lastDividendPostedDate: baseHolding.lastDividendPostedDate,
+    freshness: baseHolding.freshness,
+    freshnessTooltip: baseHolding.freshnessTooltip,
+    accountCount: 1,
+    reportingCurrency: "TWD",
+    reportingCostBasisAmount: null,
+    reportingMarketValueAmount: null,
+    reportingUnrealizedPnlAmount: null,
+    reportingDailyChangeAmount: null,
+    reportingAllocationPercent: null,
+    fxStatus: "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+    children: [{
+      ...baseHolding,
+      reportingCurrency: "TWD",
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
+      reportingAllocationPercent: null,
+      fxStatus: "complete",
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    }],
+    ...overrides,
+  };
+}
+
+describe("translateOverviewHoldingGroups", () => {
+  it("populates row-level reporting daily change from backend FX translation", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [{ base: "TWD", quote: "AUD", rate: 0.05, asOf: "2026-04-29" }],
+    });
+
+    const [group] = await translateOverviewHoldingGroups(
+      [makeHoldingGroup()],
+      "AUD",
+      "market_value",
+      "2026-04-29",
+      persistence,
+    );
+
+    expect(group?.reportingDailyChangeAmount).toBe(0.5);
+    expect(group?.children[0]?.reportingDailyChangeAmount).toBe(0.5);
+  });
+});
+
+describe("buildOverviewMarketValues", () => {
+  it("builds market breakdowns from backend reporting values only", () => {
+    const rows = [
+      makeHoldingGroup({
+        marketCode: "TW",
+        reportingCurrency: "TWD",
+        reportingMarketValueAmount: 1_000,
+      }),
+      makeHoldingGroup({
+        ticker: "0050",
+        marketCode: "TW",
+        reportingCurrency: "TWD",
+        reportingMarketValueAmount: 2_500,
+      }),
+      makeHoldingGroup({
+        ticker: "AAPL",
+        marketCode: "US",
+        currency: "USD",
+        marketValueAmount: 999_999,
+        reportingCurrency: "TWD",
+        reportingMarketValueAmount: null,
+        fxStatus: "missing",
+      }),
+    ];
+
+    expect(buildOverviewMarketValues(rows, "TWD")).toEqual([
+      { marketCode: "TW", value: 3_500, reportingCurrency: "TWD" },
+    ]);
+  });
+});
 
 describe("translateOverviewSummary", () => {
   it("TWD-only no-op: every translated field equals the native value", async () => {
@@ -398,6 +529,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.requestedAsOf).toBe("2026-04-29");
     expect(out.lastReliableDate).toBe("2026-04-29");
     expect(out.marketDataStaleSince).toBeNull();
+    expect(out.diagnostics).toEqual({
+      latestSnapshotDate: "2026-04-29",
+      latestReliableValuationDate: "2026-04-29",
+      expectedLatestValuationDate: "2026-04-29",
+      staleSinceDate: null,
+      knownGapReasons: [],
+    });
   });
 
   it("marks performance series stale when the latest reliable point predates the requested as-of date", async () => {
@@ -443,6 +581,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.requestedAsOf).toBe("2026-06-08");
     expect(out.lastReliableDate).toBe("2026-05-29");
     expect(out.marketDataStaleSince).toBe("2026-05-29");
+    expect(out.diagnostics).toEqual({
+      latestSnapshotDate: "2026-06-08",
+      latestReliableValuationDate: "2026-05-29",
+      expectedLatestValuationDate: "2026-06-08",
+      staleSinceDate: "2026-05-29",
+      knownGapReasons: ["stale_snapshot", "missing_fx"],
+    });
   });
 
   it("does not mark same-day reliable data stale when requestedAsOf is a timestamp", async () => {
@@ -588,6 +733,349 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     });
   });
 
+  it("falls back to snapshot-backed return metrics when dated finance FX is missing but snapshot FX exists", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "KRW", rate: 1300, asOf: "2026-01-03" },
+      ],
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 130000,
+          totalMarketValue: 143000,
+          totalUnrealizedPnl: 13000,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 2600,
+          totalReturnAmount: 15600,
+          totalReturnPercent: 12,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+    const store = makeStore({
+      accounting: {
+        ...makeStore().accounting,
+        facts: {
+          ...makeStore().accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "usd-buy",
+              ticker: "AAPL",
+              marketCode: "US",
+              quantity: 10,
+              unitPrice: 10,
+              priceCurrency: "USD",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "KRW",
+      persistence,
+      store,
+    );
+
+    expect(out.fxStatus).toBe("complete");
+    expect(out.points).toEqual([
+      {
+        date: "2026-01-03",
+        totalCostAmount: 130000,
+        marketValueAmount: 143000,
+        unrealizedPnlAmount: 13000,
+        cumulativeRealizedPnlAmount: 0,
+        cumulativeDividendsAmount: 2600,
+        totalReturnAmount: 15600,
+        totalReturnPercent: 12,
+        fxAvailable: true,
+      },
+    ]);
+    expect(out.lastReliableDate).toBe("2026-01-03");
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
+  });
+
+  it("does not publish a partial latest all-market snapshot as the portfolio trend total", async () => {
+    const dailyBarReadStats = { batchCalls: 0, batchPairCounts: [] as number[], singleCalls: 0 };
+    const persistence = makeFakePersistence({
+      dailyBarReadStats,
+      fxRates: [
+        { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
+        { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-09", 1000, "TW"),
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+        makeDailyBar("AVGO", "2026-06-09", 500, "US"),
+        makeDailyBar("AVGO", "2026-06-10", 510, "US"),
+        makeDailyBar("000660", "2026-06-09", 200000, "KR"),
+        makeDailyBar("000660", "2026-06-10", 201000, "KR"),
+      ],
+      aggregated: [
+        {
+          date: "2026-06-09",
+          totalCostBasis: 19_000_000,
+          totalMarketValue: 21_160_204.21,
+          totalUnrealizedPnl: 2_160_204.21,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 2_160_204.21,
+          totalReturnPercent: 11.3695,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+            "acct-us:US:AVGO",
+          ],
+        },
+        {
+          date: "2026-06-10",
+          totalCostBasis: 13_310_288.12,
+          totalMarketValue: 14_983_264.80,
+          totalUnrealizedPnl: 1_672_976.68,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 1_672_976.68,
+          totalReturnPercent: 12.568,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 837.44,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "us-buy",
+              accountId: "acct-us",
+              ticker: "AVGO",
+              marketCode: "US",
+              quantity: 456,
+              unitPrice: 400,
+              priceCurrency: "USD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "kr-buy",
+              accountId: "acct-kr",
+              ticker: "000660",
+              marketCode: "KR",
+              quantity: 80,
+              unitPrice: 1_821_831.73,
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-09"]);
+    expect(out.points[0]?.marketValueAmount).toBe(21_160_204.21);
+    expect(out.lastReliableDate).toBe("2026-06-09");
+    expect(out.marketDataStaleSince).toBe("2026-06-09");
+    expect(out.diagnostics).toMatchObject({
+      latestSnapshotDate: "2026-06-09",
+      latestReliableValuationDate: "2026-06-09",
+      expectedLatestValuationDate: "2026-06-10",
+      staleSinceDate: "2026-06-09",
+      knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    });
+    expect(dailyBarReadStats).toEqual({
+      batchCalls: 1,
+      batchPairCounts: [3],
+      singleCalls: 0,
+    });
+  });
+
+  it("keeps an all-market snapshot date when the absent market has no bar for that date", async () => {
+    const persistence = makeFakePersistence({
+      fxRates: [
+        { base: "USD", quote: "TWD", rate: 31.6, asOf: "2026-06-01" },
+        { base: "KRW", quote: "TWD", rate: 0.0207, asOf: "2026-06-01" },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+        makeDailyBar("000660", "2026-06-10", 201000, "KR"),
+      ],
+      aggregated: [
+        {
+          date: "2026-06-10",
+          totalCostBasis: 13_310_288.12,
+          totalMarketValue: 14_983_264.80,
+          totalUnrealizedPnl: 1_672_976.68,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 1_672_976.68,
+          totalReturnPercent: 12.568,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-kr:KR:000660",
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 837.44,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "us-buy",
+              accountId: "acct-us",
+              ticker: "AVGO",
+              marketCode: "US",
+              quantity: 456,
+              unitPrice: 400,
+              priceCurrency: "USD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "kr-buy",
+              accountId: "acct-kr",
+              ticker: "000660",
+              marketCode: "KR",
+              quantity: 80,
+              unitPrice: 1_821_831.73,
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-10"]);
+    expect(out.points[0]?.marketValueAmount).toBe(14_983_264.80);
+    expect(out.lastReliableDate).toBe("2026-06-10");
+    expect(out.diagnostics?.knownGapReasons).toEqual([]);
+  });
+
+  it("keeps a snapshot date when a sibling ticker in the same market has no bar for that date", async () => {
+    const persistence = makeFakePersistence({
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-10", 1010, "TW"),
+      ],
+      aggregated: [
+        {
+          date: "2026-06-10",
+          totalCostBasis: 5_000_000,
+          totalMarketValue: 5_050_000,
+          totalUnrealizedPnl: 50_000,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50_000,
+          totalReturnPercent: 1,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: [
+            "acct-tw:TW:2330",
+          ],
+        },
+      ],
+    });
+    const base = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...base.accounting,
+        facts: {
+          ...base.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "tw-2330-buy",
+              accountId: "acct-tw",
+              ticker: "2330",
+              marketCode: "TW",
+              quantity: 5000,
+              unitPrice: 1000,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "tw-2317-buy",
+              accountId: "acct-tw",
+              ticker: "2317",
+              marketCode: "TW",
+              quantity: 1000,
+              unitPrice: 200,
+              priceCurrency: "TWD",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-10",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-10"]);
+    expect(out.points[0]?.marketValueAmount).toBe(5_050_000);
+    expect(out.diagnostics?.knownGapReasons).toEqual([]);
+  });
+
   it("Maps fxAvailable=false rows to nullable point fields and rolls up partial", async () => {
     const persistence = makeFakePersistence({
       aggregated: [
@@ -638,6 +1126,7 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(p2.cumulativeDividendsAmount).toBe(null);
     expect(p2.totalReturnAmount).toBe(null);
     expect(p2.totalReturnPercent).toBe(null);
+    expect(out.diagnostics?.knownGapReasons).toEqual(["stale_snapshot", "missing_fx"]);
   });
 
   it("Empty aggregated + no store returns empty points list with fxStatus=complete", async () => {
@@ -651,9 +1140,16 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
     expect(out.points).toEqual([]);
     expect(out.fxStatus).toBe("complete");
+    expect(out.diagnostics).toEqual({
+      latestSnapshotDate: null,
+      latestReliableValuationDate: null,
+      expectedLatestValuationDate: "2026-04-29",
+      staleSinceDate: null,
+      knownGapReasons: ["missing_snapshot"],
+    });
   });
 
-  it("Empty snapshots + repaired daily bars builds historical market-value points", async () => {
+  it("Empty snapshots + repaired daily bars returns an empty snapshot-only series", async () => {
     const persistence = makeFakePersistence({
       dailyBars: [
         makeDailyBar("2330", "2026-01-02", 100),
@@ -696,13 +1192,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
 
     expect(out.fxStatus).toBe("complete");
-    expect(out.points).toHaveLength(2);
-    expect(out.points.map((point) => point.date)).toEqual(["2026-01-02", "2026-01-05"]);
-    expect(out.points.map((point) => point.marketValueAmount)).toEqual([1000, 1200]);
-    expect(out.points.every((point) => point.marketValueAmount !== null)).toBe(true);
+    expect(out.points).toEqual([]);
+    expect(out.lastReliableDate).toBe(null);
+    expect(out.marketDataStaleSince).toBe(null);
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_snapshot"]);
   });
 
-  it("derives synthetic Book Cost and realized return from weighted-average transaction-date FX", async () => {
+  it("does not derive synthetic Book Cost or realized return when snapshots are absent", async () => {
     const persistence = makeFakePersistence({
       fxRates: [
         { base: "USD", quote: "AUD", rate: 1.5, asOf: "2026-01-01" },
@@ -755,23 +1251,11 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
 
     expect(out.fxStatus).toBe("complete");
-    expect(out.points.map((point) => point.date)).toEqual(["2026-01-01", "2026-01-02"]);
-    expect(out.points[0]).toMatchObject({
-      totalCostAmount: 150,
-      marketValueAmount: 150,
-      cumulativeRealizedPnlAmount: 0,
-      totalReturnAmount: 0,
-    });
-    expect(out.points[1]).toMatchObject({
-      totalCostAmount: 90,
-      marketValueAmount: 192,
-      cumulativeRealizedPnlAmount: 68,
-      totalReturnAmount: 170,
-    });
-    expect(out.points[1]?.totalReturnPercent).toBeCloseTo((170 / 90) * 100);
+    expect(out.points).toEqual([]);
+    expect(out.lastReliableDate).toBe(null);
   });
 
-  it("uses market-specific bars for same-ticker synthetic market values", async () => {
+  it("does not synthesize same-ticker cross-market performance when snapshots are absent", async () => {
     const persistence = makeFakePersistence({
       dailyBars: [
         makeDailyBar("BHP", "2026-01-01", 40, "AU"),
@@ -809,13 +1293,8 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       store,
     );
 
-    expect(out.points).toHaveLength(1);
-    expect(out.points[0]).toMatchObject({
-      date: "2026-01-01",
-      totalCostAmount: 40,
-      marketValueAmount: 40,
-      totalReturnAmount: 0,
-    });
+    expect(out.fxStatus).toBe("complete");
+    expect(out.points).toEqual([]);
   });
 
   it("uses canonical lot allocations and realized amounts for dated FX replay", async () => {
@@ -824,6 +1303,20 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
         { base: "USD", quote: "AUD", rate: 1.5, asOf: "2026-01-01" },
         { base: "USD", quote: "AUD", rate: 1.6, asOf: "2026-01-02" },
         { base: "USD", quote: "AUD", rate: 1.7, asOf: "2026-01-03" },
+      ],
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 0,
+          totalMarketValue: 425,
+          totalUnrealizedPnl: null,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          isProvisional: false,
+          fxAvailable: true,
+        },
       ],
       dailyBars: [
         makeDailyBar("AAPL", "2026-01-01", 100),
@@ -918,8 +1411,22 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(finalPoint?.totalReturnPercent).toBeCloseTo((190 / 320) * 100);
   });
 
-  it("marks realized replay incomplete when lot allocation FX is missing", async () => {
+  it("falls back to snapshot-backed point data when lot allocation FX is missing", async () => {
     const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 0,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: null,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
       dailyBars: [
         makeDailyBar("AAPL", "2026-01-01", 100),
         makeDailyBar("AAPL", "2026-01-03", 150),
@@ -988,12 +1495,15 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
 
     const finalPoint = out.points.at(-1);
-    expect(out.fxStatus).toBe("partial");
+    expect(out.fxStatus).toBe("complete");
     expect(finalPoint).toMatchObject({
       date: "2026-01-03",
-      fxAvailable: false,
-      cumulativeRealizedPnlAmount: null,
+      totalCostAmount: 0,
+      marketValueAmount: 150,
+      fxAvailable: true,
+      cumulativeRealizedPnlAmount: 0,
       totalReturnAmount: null,
     });
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
   });
 });

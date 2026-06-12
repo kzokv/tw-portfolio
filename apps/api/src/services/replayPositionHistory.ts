@@ -1,5 +1,6 @@
 import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain";
-import type { Lot } from "@vakwen/domain";
+import type { Lot, MarketCode } from "@vakwen/domain";
+import { MARKET_CODES, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
@@ -38,23 +39,29 @@ export class ReplayError extends Error {
   }
 }
 
+interface ReplayPositionHistoryOptions {
+  marketCode?: MarketCode;
+  deletedTradeEventIds?: readonly string[];
+}
+
 export async function replayPositionHistory(
   persistence: Persistence,
   userId: string,
   accountId: string,
   ticker: string,
+  options: ReplayPositionHistoryOptions = {},
 ): Promise<ReplaySummary> {
   // 1. Load all trade events for account+ticker, ordered by trade_date ASC, booking_sequence ASC
-  const trades = await persistence.getTradeEventsForAccountTicker(userId, accountId, ticker);
+  const trades = await persistence.getTradeEventsForAccountTicker(userId, accountId, ticker, options.marketCode);
 
   // 2. Delete lots for account+ticker (CRITICAL — blocker from debate)
-  await persistence.deleteLotsForAccountTicker(userId, accountId, ticker);
+  await persistence.deleteLotsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 3. Delete lot_allocations for account+ticker
-  await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker);
+  await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker
-  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker);
+  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
   // 5. Replay each trade in order
   let lots: Lot[] = [];
@@ -180,6 +187,7 @@ export async function replayPositionHistory(
   const storeAfterReplay = await persistence.loadStore(userId);
   const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
     resetReconciliation: true,
+    marketCode: toSharedMarketCode(options.marketCode),
   });
   const appliedChanges = dividendChanges.length > 0
     ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
@@ -248,6 +256,8 @@ async function emitDividendLedgerChangeEvents(
  */
 export interface ScheduleReplayOptions {
   snapshotFromDate?: string;
+  marketCode?: MarketCode;
+  deletedTradeEventIds?: readonly string[];
 }
 
 /**
@@ -262,11 +272,16 @@ async function recomputeSnapshotsIfExists(
   accountId: string,
   ticker: string,
   fromDate: string,
+  marketCode?: MarketCode,
 ): Promise<void> {
   try {
-    const existingCount = await persistence.countHoldingSnapshotsAfterDate(userId, accountId, ticker, "1970-01-01");
+    if (!marketCode) {
+      console.warn(`[snapshot-recompute] Skipped for ${ticker}: marketCode is required for scoped recompute`);
+      return;
+    }
+    const existingCount = await persistence.countHoldingSnapshotsAfterDate(userId, accountId, ticker, "1970-01-01", marketCode);
     if (existingCount > 0) {
-      await recomputeSnapshotsForTicker(userId, accountId, ticker, fromDate, persistence);
+      await recomputeSnapshotsForTicker(userId, accountId, ticker, fromDate, persistence, marketCode);
     }
   } catch (snapshotError) {
     console.warn(`[snapshot-recompute] Failed for ${ticker}:`, snapshotError instanceof Error ? snapshotError.message : snapshotError);
@@ -287,9 +302,12 @@ export function scheduleReplayWithRetry(
 
   setImmediate(async () => {
     try {
-      const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
+      const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+        marketCode: options.marketCode,
+        deletedTradeEventIds: options.deletedTradeEventIds,
+      });
 
-      await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+      await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
       await eventBus.publishEvent(userId, "recompute_complete", {
         accountId: summary.accountId,
@@ -318,9 +336,12 @@ export function scheduleReplayWithRetry(
       // into.
       setImmediate(async () => {
         try {
-          const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
+          const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+            marketCode: options.marketCode,
+            deletedTradeEventIds: options.deletedTradeEventIds,
+          });
 
-          await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+          await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate, options.marketCode);
 
           await eventBus.publishEvent(userId, "recompute_complete", {
             accountId: summary.accountId,
@@ -347,4 +368,11 @@ export function scheduleReplayWithRetry(
       });
     }
   });
+}
+
+function toSharedMarketCode(marketCode: MarketCode | undefined): SharedMarketCode | undefined {
+  if (marketCode && (MARKET_CODES as readonly string[]).includes(marketCode)) {
+    return marketCode as SharedMarketCode;
+  }
+  return undefined;
 }

@@ -38,26 +38,41 @@ describe("PublicSharePage", () => {
           holdings: [
             {
               ticker: "2330.TW",
+              instrumentName: "TSMC",
               quantity: 500,
               marketValueAmount: 625000,
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
+              quoteStatus: "current",
+              averageCostPerShare: 1234.56,
+              currentUnitPrice: 6543.21,
+              unrealizedPnlAmount: 9876.54,
             },
           ],
           holdingGroups: [
             {
               ticker: "2330.TW",
+              instrumentName: "TSMC",
               marketCode: "TW",
               quantity: 500,
               accountCount: 2,
               marketValueAmount: 625000,
               marketValueCurrency: "TWD",
               allocationPercent: 50.6,
+              quoteStatus: "current",
+              averageCostPerShare: 1234.56,
+              currentUnitPrice: 6543.21,
+              unrealizedPnlAmount: 9876.54,
             },
           ],
           summary: {
             totalValueByCurrency: [{ currency: "TWD", amount: 1234567 }],
             returnByCurrency: [{ currency: "TWD", returnPercent: 14.2 }],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
           },
         }),
       }),
@@ -73,9 +88,18 @@ describe("PublicSharePage", () => {
     expect(html).toContain('data-testid="public-share-total-TWD"');
     expect(html).toContain('data-testid="public-share-return-TWD"');
     expect(html).toContain('data-testid="public-share-holding-2330.TW-TW"');
+    expect(html).toContain("TSMC");
     expect(html).toContain('data-testid="public-share-expires-at"');
     expect(html).toContain('data-testid="public-share-quote-as-of"');
     expect(html).not.toContain("costBasisAmount");
+    expect(html).not.toContain("averageCostPerShare");
+    expect(html).not.toContain("currentUnitPrice");
+    expect(html).not.toContain("unrealizedPnlAmount");
+    expect(html).not.toContain("Avg cost");
+    expect(html).not.toContain("Unit P&L");
+    expect(html).not.toContain("1234.56");
+    expect(html).not.toContain("6543.21");
+    expect(html).not.toContain("9876.54");
 
     const fetchMock = vi.mocked(global.fetch);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -102,6 +126,11 @@ describe("PublicSharePage", () => {
             totalValueByCurrency: [{ currency: "USD", amount: 0 }],
             returnByCurrency: [{ currency: "USD", returnPercent: 0 }],
           },
+          dataHealth: {
+            holdingCount: 0,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
+          },
         }),
       }),
     );
@@ -111,6 +140,107 @@ describe("PublicSharePage", () => {
 
     expect(html).toContain('data-testid="public-share-empty"');
     expect(html).not.toContain('data-testid="public-share-holding-');
+  });
+
+  it("does not invent a market code for legacy public-share holdings", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ownerDisplayName: "Portfolio owner",
+          expiresAt: "2026-05-18T10:00:00.000Z",
+          quoteAsOf: null,
+          holdings: [
+            {
+              ticker: "LEGACY",
+              instrumentName: "Legacy Holding",
+              quantity: 3,
+              marketValueAmount: 300,
+              marketValueCurrency: "USD",
+              allocationPercent: 100,
+              quoteStatus: "current",
+            },
+          ],
+          summary: {
+            totalValueByCurrency: [{ currency: "USD", amount: 300 }],
+            returnByCurrency: [{ currency: "USD", returnPercent: 1.5 }],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 0,
+            provisionalQuoteCount: 0,
+          },
+        }),
+      }),
+    );
+
+    const element = await PublicSharePage({ params: Promise.resolve({ token: "LegacyPayloadToken123" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="public-share-holding-LEGACY-UNKNOWN"');
+    expect(html).toContain("overflow-x-auto");
+    expect(html).toContain("LEGACY");
+    expect(html).toContain("Legacy Holding");
+    expect(html).not.toContain('data-testid="public-share-holding-LEGACY-TW"');
+  });
+
+  it("renders missing-quote holdings as unavailable instead of hiding them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ownerDisplayName: "Portfolio owner",
+          expiresAt: "2026-05-18T10:00:00.000Z",
+          quoteAsOf: null,
+          holdings: [
+            {
+              ticker: "NODATA",
+              quantity: 10,
+              marketValueAmount: null,
+              marketValueCurrency: "TWD",
+              allocationPercent: null,
+              quoteStatus: "missing",
+            },
+          ],
+          holdingGroups: [
+            {
+              ticker: "NODATA",
+              marketCode: "TW",
+              quantity: 10,
+              accountCount: 1,
+              marketValueAmount: null,
+              marketValueCurrency: "TWD",
+              allocationPercent: null,
+              quoteStatus: "missing",
+            },
+          ],
+          summary: {
+            totalValueByCurrency: [],
+            returnByCurrency: [],
+          },
+          dataHealth: {
+            holdingCount: 1,
+            missingQuoteCount: 1,
+            provisionalQuoteCount: 0,
+          },
+        }),
+      }),
+    );
+
+    const element = await PublicSharePage({ params: Promise.resolve({ token: "ZyXwVuTsRqPoNmLkJiHgFe" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="public-share-holding-NODATA-TW"');
+    expect(html).toContain('data-testid="public-share-data-health-warning"');
+    expect(html).toContain('data-testid="public-share-holding-quote-status-NODATA-TW"');
+    expect(html).toContain("Missing quote");
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain('data-testid="public-share-empty"');
+    expect(html).not.toContain("costBasisAmount");
   });
 
   it("delegates missing tokens to next/navigation.notFound()", async () => {

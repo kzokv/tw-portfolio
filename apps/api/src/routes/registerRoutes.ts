@@ -29,6 +29,7 @@ import type {
   AiConnectorSummaryDto,
   AiConnectorScope,
   DashboardOverviewDto,
+  DashboardOverviewHoldingGroupDto,
   DashboardPerformanceRange,
   IntegrityIssueDto,
   InstrumentOptionDto,
@@ -56,12 +57,14 @@ import {
   dashboardHoldingFocusPreferenceSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
+  holdingsTableSettingsPreferenceSchema,
   themeAccentSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveHoldingAllocationBasis, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
+  buildOverviewMarketValues,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
@@ -116,7 +119,7 @@ import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
 import { buildFxConversionRateRows } from "../services/fxConversionRates.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
-import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
+import { REPORT_HOLDINGS_MAX_LIMIT, buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -151,6 +154,7 @@ import type {
   AiTransactionDraftUnsupportedItemRecord,
   AnonymousShareTokenRecord,
   PendingShareInviteRecord,
+  Persistence,
   ShareGrantRecord,
   UserRole,
 } from "../persistence/types.js";
@@ -182,7 +186,17 @@ const tickerSchema = z
   .toUpperCase()
   .min(1);
 
-const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+const isoDateSchema = z.string().refine(isIsoCalendarDate, {
+  message: "Expected a valid ISO calendar date (YYYY-MM-DD)",
+});
+const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
+const tickerChartRangeSchema = z.enum(TICKER_CHART_RANGES);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const currencyCodeSchema = z
   .string()
@@ -206,6 +220,41 @@ const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiCo
 // transactions must commit to a specific market).
 const marketCodeSchema = z.enum(MARKET_CODES);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
+const tickerChartQuerySchema = z.object({
+  accountId: userScopedIdSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
+  range: tickerChartRangeSchema.optional(),
+  startDate: isoDateSchema.optional(),
+  endDate: isoDateSchema.optional(),
+}).superRefine((value, ctx) => {
+  const hasCustomStart = Boolean(value.startDate);
+  const hasCustomEnd = Boolean(value.endDate);
+  const hasCustomRange = hasCustomStart || hasCustomEnd;
+
+  if (value.range && hasCustomRange) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provide either range or startDate/endDate, not both",
+      path: ["range"],
+    });
+  }
+
+  if (hasCustomStart !== hasCustomEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Both startDate and endDate are required for a custom range",
+      path: [hasCustomStart ? "endDate" : "startDate"],
+    });
+  }
+
+  if (value.startDate && value.endDate && value.startDate > value.endDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "startDate must be before or equal to endDate",
+      path: ["startDate"],
+    });
+  }
+});
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
@@ -1734,7 +1783,7 @@ const reportQuerySchema = z.object({
   currencyMode: z.enum(REPORT_CURRENCY_MODES).optional(),
   currency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
   range: z.string().trim().min(1).max(20).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(REPORT_HOLDINGS_MAX_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
 
@@ -1771,44 +1820,159 @@ function buildTransactionAccountOptions(store: Store): TransactionAccountOptionD
   }));
 }
 
+function buildInstrumentNameLookup(store: Pick<Store, "marketData" | "instruments">): ReadonlyMap<string, string> {
+  const namesByKey = new Map<string, string>();
+  const addName = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
+    const name = instrument.name?.trim();
+    if (!name) return;
+    if (!MARKET_CODES.includes(instrument.marketCode as SharedMarketCode)) return;
+    namesByKey.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!namesByKey.has(instrument.ticker)) {
+      namesByKey.set(instrument.ticker, name);
+    }
+  };
+
+  for (const instrument of store.marketData.instruments) {
+    addName(instrument);
+  }
+  for (const instrument of store.instruments as ReadonlyArray<{ ticker: string; marketCode: SharedMarketCode; name?: string | null }>) {
+    addName(instrument);
+  }
+  return namesByKey;
+}
+
+const CATALOG_NAME_LOOKUP_BATCH_SIZE = 25;
+
+async function resolveMissingCatalogInstrumentNames<T extends { ticker: string; marketCode: SharedMarketCode; instrumentName?: string | null }>(
+  groups: T[],
+  existingNames: ReadonlyMap<string, string>,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<ReadonlyMap<string, string>> {
+  const missingPairs = new Map<string, { ticker: string; marketCode: SharedMarketCode }>();
+  for (const group of groups) {
+    if (group.instrumentName) continue;
+    if (existingNames.has(`${group.marketCode}:${group.ticker}`) || existingNames.has(group.ticker)) continue;
+    missingPairs.set(`${group.marketCode}:${group.ticker}`, {
+      ticker: group.ticker,
+      marketCode: group.marketCode,
+    });
+  }
+  const resolvedNames = new Map<string, string>();
+  const pairs = [...missingPairs.values()];
+  for (let index = 0; index < pairs.length; index += CATALOG_NAME_LOOKUP_BATCH_SIZE) {
+    const chunk = pairs.slice(index, index + CATALOG_NAME_LOOKUP_BATCH_SIZE);
+    const instruments = await Promise.all(chunk.map(async (pair) => ({
+      ...pair,
+      instrument: await persistence.getInstrument(pair.ticker, pair.marketCode),
+    })));
+    for (const { ticker, marketCode, instrument } of instruments) {
+      const name = instrument?.name?.trim();
+      if (!name) continue;
+      resolvedNames.set(`${marketCode}:${ticker}`, name);
+      if (!resolvedNames.has(ticker)) {
+        resolvedNames.set(ticker, name);
+      }
+    }
+  }
+  return resolvedNames;
+}
+
+async function attachInstrumentNamesToHoldingGroups<T extends DashboardOverviewHoldingGroupDto>(
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+  groups: T[],
+): Promise<T[]> {
+  const storeNamesByKey = buildInstrumentNameLookup(store);
+  const catalogNamesByKey = await resolveMissingCatalogInstrumentNames(groups, storeNamesByKey, persistence);
+  const namesByKey = new Map([...storeNamesByKey, ...catalogNamesByKey]);
+  return groups.map((group) => {
+    const instrumentName = namesByKey.get(`${group.marketCode}:${group.ticker}`)
+      ?? namesByKey.get(group.ticker)
+      ?? group.instrumentName
+      ?? null;
+    return {
+      ...group,
+      instrumentName,
+      children: group.children.map((child) => ({
+        ...child,
+        instrumentName: child.instrumentName ?? instrumentName,
+      })),
+    };
+  });
+}
+
 function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const instrumentNameByKey = buildInstrumentNameLookup(store);
   const holdings = listHoldings(store, userId);
   const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
 
   return holdings
-    .map((holding) => ({
-      accountId: holding.accountId,
-      accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
-      ticker: holding.ticker,
-      marketCode: marketCodeFor(holding.currency),
-      quantity: holding.quantity,
-      costBasisAmount: holding.costBasisAmount,
-      currency: holding.currency,
-      averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
-      currentUnitPrice: null,
-      marketValueAmount: null,
-      unrealizedPnlAmount: null,
-      allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
-      change: null,
-      changePercent: null,
-      previousClose: null,
-      quoteStatus: "missing" as const,
-      nextDividendDate: null,
-      lastDividendPostedDate: null,
-      freshness: "current" as const,
-      freshnessTooltip: null,
-    }))
+    .map((holding) => {
+      const marketCode = marketCodeFor(holding.currency);
+      const instrumentName = instrumentNameByKey.get(`${marketCode}:${holding.ticker}`)
+        ?? instrumentNameByKey.get(holding.ticker)
+        ?? null;
+      return {
+        accountId: holding.accountId,
+        accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
+        ticker: holding.ticker,
+        instrumentName,
+        marketCode,
+        quantity: holding.quantity,
+        costBasisAmount: holding.costBasisAmount,
+        currency: holding.currency,
+        averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
+        currentUnitPrice: null,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+        allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "missing" as const,
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current" as const,
+        freshnessTooltip: null,
+      };
+    })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
-function buildDashboardPrimaryOverview(
+async function attachInstrumentNamesToPrimaryHoldings<T extends ReturnType<typeof buildPortfolioPrimaryHoldings>[number]>(
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+  holdings: T[],
+): Promise<T[]> {
+  const storeNamesByKey = buildInstrumentNameLookup(store);
+  const catalogNamesByKey = await resolveMissingCatalogInstrumentNames(holdings, storeNamesByKey, persistence);
+  const namesByKey = new Map([...storeNamesByKey, ...catalogNamesByKey]);
+  return holdings.map((holding) => ({
+    ...holding,
+    instrumentName: namesByKey.get(`${holding.marketCode}:${holding.ticker}`)
+      ?? namesByKey.get(holding.ticker)
+      ?? holding.instrumentName
+      ?? null,
+  }));
+}
+
+async function buildDashboardPrimaryOverview(
   store: Store,
   userId: string,
   reportingCurrency: AccountDefaultCurrency,
-): DashboardOverviewDto {
-  const holdings = buildPortfolioPrimaryHoldings(store, userId);
-  const holdingGroups = buildOverviewHoldingGroups(store, holdings);
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<DashboardOverviewDto> {
+  const holdings = await attachInstrumentNamesToPrimaryHoldings(
+    store,
+    persistence,
+    buildPortfolioPrimaryHoldings(store, userId),
+  );
+  const holdingGroups = await attachInstrumentNamesToHoldingGroups(
+    store,
+    persistence,
+    buildOverviewHoldingGroups(store, holdings),
+  );
   const sourceCurrencies = new Set(holdings.map((holding) => holding.currency));
   const isReportingNative = [...sourceCurrencies].every((currency) => currency === reportingCurrency);
   const totalCostAmount = isReportingNative
@@ -1834,6 +1998,7 @@ function buildDashboardPrimaryOverview(
       openIssueCount: integrityIssue ? 1 : 0,
     },
     fxRates: [],
+    marketValues: [],
     holdings,
     holdingGroups,
     dividends: {
@@ -2207,10 +2372,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         isDayTrade: false,
       });
     }
+    const dividendMarketCode = marketCodeFor(account.defaultCurrency);
 
     const dividendEvent = createDividendEvent(store, {
       id: randomUUID(),
       ticker: body.ticker,
+      marketCode: dividendMarketCode,
       eventType: body.eventType,
       exDividendDate: body.exDividendDate,
       paymentDate: body.paymentDate ?? null,
@@ -2931,6 +3098,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
+        .optional(),
+      holdingsTableSettings: z
+        .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.
@@ -4002,6 +4172,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // POST remains 200 and the client refetches on SSE.
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker, {
       snapshotFromDate: tx.tradeDate,
+      marketCode: tx.marketCode,
     });
 
     // KZO-126: First-trade backfill trigger
@@ -4121,6 +4292,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // onward may change, nothing before that can.
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker, {
       snapshotFromDate: trade.tradeDate,
+      marketCode: trade.marketCode,
+      deletedTradeEventIds: [trade.id],
     });
 
     reply.code(202);
@@ -4219,6 +4392,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const effectiveFromDate = patch.date && patch.date < trade.tradeDate ? patch.date : trade.tradeDate;
     scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker, {
       snapshotFromDate: effectiveFromDate,
+      marketCode: trade.marketCode,
     });
 
     reply.code(202);
@@ -4259,7 +4433,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ? query.date
       : trade.tradeDate;
     const holdingSnapshots = await app.persistence.countHoldingSnapshotsAfterDate(
-      userId, trade.accountId, trade.ticker, effectiveSnapshotFromDate,
+      userId,
+      trade.accountId,
+      trade.ticker,
+      effectiveSnapshotFromDate,
+      trade.marketCode,
     );
 
     // Check for negative lots
@@ -4383,16 +4561,44 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/portfolio/primary", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/primary", async (timing) => {
       const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      const holdings = await timing.measure("list_primary_holdings", "app", () =>
+      const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
+      const primaryHoldings = await timing.measure("list_primary_holdings", "app", () =>
         Promise.resolve(buildPortfolioPrimaryHoldings(store, userId)));
+      const holdings = await timing.measure("attach_primary_holding_names", "db", () =>
+        attachInstrumentNamesToPrimaryHoldings(store, app.persistence, primaryHoldings));
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, holdings)));
+      const asOf = new Date().toISOString();
+      const baseTranslatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          asOf,
+          app.persistence,
+        ));
+      const translatedHoldingGroups = await timing.measure("attach_instrument_names", "db", () => attachInstrumentNamesToHoldingGroups(
+        store,
+        app.persistence,
+        baseTranslatedHoldingGroups,
+      ));
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+          reportingCurrency,
+          asOf,
+        ));
       const instruments = await timing.measure("map_instruments", "app", () =>
         Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return {
         holdings,
-        holdingGroups,
+        holdingGroups: translatedHoldingGroups,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         dividends: {
           upcoming: [],
           recent: [],
@@ -4415,10 +4621,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker)
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
-      const snapshotMap = await timing.measure("load_quotes", "db", async () => {
-        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-      });
+      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        (async () => {
+          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+        })(),
+        app.persistence.getUserPreferences(userId),
+      ]));
       const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
       const overview = await timing.measure("build_portfolio_enrichment", "app", () =>
         Promise.resolve(buildDashboardOverview(store, {
@@ -4435,12 +4644,39 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           app.log.warn({ err }, "portfolio_enrichment_freshness_failed");
         }
       }
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+      const baseTranslatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      const translatedHoldingGroups = await timing.measure("attach_instrument_names", "db", () => attachInstrumentNamesToHoldingGroups(
+        store,
+        app.persistence,
+        baseTranslatedHoldingGroups,
+      ));
+      const fxRates = await timing.measure("load_fx_rates", "db", () =>
+        buildFxConversionRateRows(
+          app.persistence,
+          [
+            ...overview.holdings.map((holding) => holding.currency as AccountDefaultCurrency),
+            ...overview.dividends.upcoming.map((dividend) => dividend.currency as AccountDefaultCurrency),
+          ],
+          reportingCurrency,
+          overview.summary.asOf,
+        ));
 
       return {
         holdings: overview.holdings,
-        holdingGroups,
+        holdingGroups: translatedHoldingGroups,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         dividends: overview.dividends,
         instruments: overview.instruments,
         accounts: overview.accounts,
@@ -4482,6 +4718,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });
@@ -4498,10 +4735,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/enrichment", async (req): Promise<TickerEnrichmentDto> => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      marketCode: marketCodeSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
     const resolvedTicker = params.ticker.trim().toUpperCase();
     const preferredMarketCode = query.marketCode
@@ -4521,6 +4755,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });
@@ -4565,10 +4802,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/details", async (req) => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      marketCode: marketCodeSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
 
     const resolvedTicker = params.ticker.trim().toUpperCase();
@@ -4590,6 +4824,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
     });
@@ -4694,7 +4931,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
+      return {
+        ...overview,
+        summary: translatedSummary,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
+        holdingGroups: translatedHoldingGroups,
+      };
     });
   });
 
@@ -4704,7 +4947,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
       const reportingCurrency = resolveReportingCurrency(prefs);
       return timing.measure("build_primary_overview", "app", () =>
-        Promise.resolve(buildDashboardPrimaryOverview(store, userId, reportingCurrency)));
+        buildDashboardPrimaryOverview(store, userId, reportingCurrency, app.persistence));
     });
   });
 
@@ -4770,7 +5013,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      return { ...overview, summary: translatedSummary, fxRates, holdingGroups: translatedHoldingGroups };
+      return {
+        ...overview,
+        summary: translatedSummary,
+        fxRates,
+        marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
+        holdingGroups: translatedHoldingGroups,
+      };
     });
   });
 
@@ -5792,16 +6041,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // KZO-37 Invariant 5: each new trade may retroactively change the
     // eligibility of existing dividend ledger entries. Schedule a replay
-    // per unique (accountId, ticker) affected by this batch, scoped to the
-    // earliest trade date for that ticker so snapshot recompute stays narrow.
-    const earliestByTicker = new Map<string, string>();
+    // per unique (accountId, ticker, market) affected by this batch, scoped to
+    // the earliest trade date for that market-qualified ticker so snapshot
+    // recompute stays narrow and never mixes cross-listed symbols.
+    const earliestByTicker = new Map<string, { ticker: string; marketCode: typeof marketCode; fromDate: string }>();
     for (const proposal of body.proposals) {
-      const prev = earliestByTicker.get(proposal.ticker);
-      if (!prev || proposal.tradeDate < prev) earliestByTicker.set(proposal.ticker, proposal.tradeDate);
+      const key = `${proposal.ticker}:${marketCode}`;
+      const prev = earliestByTicker.get(key);
+      if (!prev || proposal.tradeDate < prev.fromDate) {
+        earliestByTicker.set(key, { ticker: proposal.ticker, marketCode, fromDate: proposal.tradeDate });
+      }
     }
-    for (const [ticker, fromDate] of earliestByTicker) {
-      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, ticker, {
-        snapshotFromDate: fromDate,
+    for (const item of earliestByTicker.values()) {
+      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, item.ticker, {
+        snapshotFromDate: item.fromDate,
+        marketCode: item.marketCode,
       });
     }
 

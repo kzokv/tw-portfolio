@@ -11,7 +11,7 @@ import type {
 import { currencyFor, MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
-import { deriveEligibleQuantity } from "./dividends.js";
+import { deriveEligibleQuantity, resolveDividendEventMarketCode } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
@@ -112,6 +112,7 @@ export function buildDashboardOverview(
       upcomingDividendAmount: dividends.upcoming.reduce((sum, dividend) => sum + (dividend.expectedAmount ?? 0), 0) || null,
       openIssueCount: integrityIssue ? 1 : 0,
     },
+    marketValues: [],
     holdings,
     holdingGroups: buildOverviewHoldingGroups(store, holdings),
     dividends,
@@ -155,6 +156,21 @@ function buildOverviewHoldings(
     account.id,
     marketCodeFor(account.defaultCurrency),
   ]));
+  const instrumentNameByKey = new Map<string, string>();
+  const addInstrumentName = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
+    const name = instrument.name?.trim();
+    if (!name) return;
+    instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!instrumentNameByKey.has(instrument.ticker)) {
+      instrumentNameByKey.set(instrument.ticker, name);
+    }
+  };
+  for (const instrument of store.marketData.instruments) {
+    addInstrumentName(instrument);
+  }
+  for (const instrument of store.instruments as ReadonlyArray<{ ticker: string; marketCode: string; name?: string | null }>) {
+    addInstrumentName(instrument);
+  }
   const recentPostedDividends = new Map(
     dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.postedAt]),
   );
@@ -167,10 +183,12 @@ function buildOverviewHoldings(
       const market = resolveHoldingMarketCode(store, holding, accountMarket);
       const quote = quoteByKey.get(quoteSnapshotKey(holding.ticker, market)) ?? quoteByKey.get(holding.ticker);
       const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
+      const instrumentName = instrumentNameByKey.get(`${market}:${holding.ticker}`) ?? instrumentNameByKey.get(holding.ticker) ?? null;
       return {
         accountId: holding.accountId,
         accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
         ticker: holding.ticker,
+        instrumentName,
         marketCode: market,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
@@ -213,6 +231,7 @@ export function buildOverviewHoldingGroups(
       accountId: holding.accountId,
       accountName: holding.accountName,
       ticker: holding.ticker,
+      instrumentName: holding.instrumentName ?? null,
       marketCode,
       quantity: holding.quantity,
       costBasisAmount: holding.costBasisAmount,
@@ -234,6 +253,7 @@ export function buildOverviewHoldingGroups(
       reportingCostBasisAmount: null,
       reportingMarketValueAmount: null,
       reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
       reportingAllocationPercent: null,
       fxStatus: "complete",
       allocationBasisUsed: "market_value",
@@ -242,6 +262,7 @@ export function buildOverviewHoldingGroups(
 
     const existing = groups.get(groupKey);
     if (existing) {
+      existing.instrumentName = existing.instrumentName ?? child.instrumentName ?? null;
       existing.quantity += child.quantity;
       existing.costBasisAmount += child.costBasisAmount;
       existing.marketValueAmount = existing.marketValueAmount === null || child.marketValueAmount === null
@@ -268,6 +289,7 @@ export function buildOverviewHoldingGroups(
 
     groups.set(groupKey, {
       ticker: child.ticker,
+      instrumentName: child.instrumentName ?? null,
       marketCode,
       quantity: child.quantity,
       costBasisAmount: child.costBasisAmount,
@@ -290,6 +312,7 @@ export function buildOverviewHoldingGroups(
       reportingCostBasisAmount: null,
       reportingMarketValueAmount: null,
       reportingUnrealizedPnlAmount: null,
+      reportingDailyChangeAmount: null,
       reportingAllocationPercent: null,
       fxStatus: "complete",
       allocationBasisUsed: "market_value",
@@ -414,7 +437,13 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
         // upcoming widget immediately. Do not trust any stored
         // expected_cash_amount on an active ledger entry: those are
         // snapshots captured at posting time and may be stale.
-        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate);
+        const eligibleQuantity = deriveEligibleQuantity(
+          store,
+          account.id,
+          event.ticker,
+          event.exDividendDate,
+          resolveDividendEventMarketCode(event),
+        );
         if (eligibleQuantity <= 0) return [];
 
         const expectedAmount = event.cashDividendPerShare > 0

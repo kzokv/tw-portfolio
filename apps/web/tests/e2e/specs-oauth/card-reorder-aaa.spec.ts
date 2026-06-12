@@ -11,7 +11,8 @@
 //
 // Card slugs from DASHBOARD_CARDS (design doc §F5):
 //   "portfolio-trend", "allocation-snapshot", "return-percent",
-//   "holdings-table" (fullWidth), "dividends-section" (fullWidth)
+//   "holdings-table", "dividends-section"; frontend-redesign-reliability
+//   makes all five analytical Dashboard cards fullWidth.
 //
 // Drag pattern uses locator.dragTo() — spike (Task #0) confirmed Stage 1 is sufficient.
 
@@ -425,30 +426,16 @@ test.describe("card reorder (KZO-161 F5)", () => {
 
   test("[card-A-fullwidth]: full-width cards span both columns at xl viewport", async ({
     appShell,
-    testUser,
     page,
   }) => {
     // Arrange
-    const session = await mintSessionCookie({
-      sub: "card-reorder-fullwidth-sub",
-      email: "card-reorder-fullwidth@example.com",
-      name: "Card Reorder FullWidth",
-    });
-    await seedUserPreferences(session.cookieHeader, testUser.userId, {});
+    await seedAsBrowser(page, { cardOrder: { dashboard: null } });
 
     await appShell.actions.navigateToRoute("/dashboard");
 
-    // Assert — holdings-table and dividends-section are full-width (xl:col-span-2).
+    // Assert — analytical Dashboard cards are full-width (xl:col-span-2).
+    await appShell.assert.cardIsFullWidth("portfolio-trend");
     await appShell.assert.cardIsFullWidth("holdings-table");
     await appShell.assert.cardIsFullWidth("dividends-section");
-
-    // Assert — half-width cards do NOT span 2 columns.
-    // (This is a negative check via the same helper — the span should NOT
-    // include "span 2" for these cards.)
-    const portfolioTrendSpan = await page.getByTestId("card-portfolio-trend").evaluate((el) => {
-      return getComputedStyle(el).gridColumn;
-    });
-    // At xl, a half-width card should not have col-span-2.
-    await appShell.assert.mxAssertEqual((/span\s*2/).test(portfolioTrendSpan), false, "portfolio-trend is NOT full-width");
   });
 });

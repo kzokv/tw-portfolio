@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../../src/services/snapshotGeneration.js";
 import type { BookedTradeEvent } from "../../src/types/store.js";
-import type { DailyBar } from "@vakwen/domain";
+import type { DailyBar, MarketCode } from "@vakwen/domain";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 
 let app: AppInstance;
@@ -49,9 +49,10 @@ function makeTrade(overrides: Partial<BookedTradeEvent> = {}): BookedTradeEvent 
   };
 }
 
-function makeBar(ticker: string, date: string, close: number): DailyBar {
+function makeBar(ticker: string, date: string, close: number, marketCode: MarketCode = "TW"): DailyBar & { marketCode: MarketCode } {
   return {
     ticker,
+    marketCode,
     barDate: date,
     open: close,
     high: close,
@@ -625,5 +626,67 @@ describe("tickersNeedingBackfill — same ticker across markets (KZO-185)", () =
     expect(auEntry).toBeDefined();
     expect(usEntry).toBeDefined();
     expect(auEntry).not.toEqual(usEntry);
+  });
+
+  it("cross-listed ticker: full generation uses market-specific bars and snapshot keys", async () => {
+    const store = await persistence.loadStore("user-1");
+
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        accountId: "acc-1",
+        ticker: "CROSS",
+        marketCode: "AU",
+        priceCurrency: "AUD",
+        tradeDate: "2025-02-03",
+        quantity: 100,
+        unitPrice: 50,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+      makeTrade({
+        accountId: "acc-2",
+        ticker: "CROSS",
+        marketCode: "US",
+        priceCurrency: "USD",
+        tradeDate: "2025-02-03",
+        quantity: 50,
+        unitPrice: 200,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    persistence._seedDailyBars([
+      makeBar("CROSS", "2025-02-03", 51, "AU"),
+      makeBar("CROSS", "2025-02-03", 202, "US"),
+    ]);
+
+    const result = await generateHoldingSnapshots("user-1", persistence);
+
+    expect(result.totalRows).toBe(2);
+    expect(result.provisionalRows).toBe(0);
+
+    const auSnapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "CROSS", "2025-02-03", "2025-02-03",
+    );
+    const usSnapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-2", "CROSS", "2025-02-03", "2025-02-03",
+    );
+
+    expect(auSnapshots).toHaveLength(1);
+    expect(auSnapshots[0]).toMatchObject({
+      marketCode: "AU",
+      closePrice: 51,
+      marketValue: 5100,
+      currency: "AUD",
+    });
+    expect(usSnapshots).toHaveLength(1);
+    expect(usSnapshots[0]).toMatchObject({
+      marketCode: "US",
+      closePrice: 202,
+      marketValue: 10100,
+      currency: "USD",
+    });
   });
 });

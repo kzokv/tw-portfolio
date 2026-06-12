@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
 import type {
   LocaleCode,
   MarketCode,
@@ -13,6 +14,8 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   InstrumentCatalogItemDto,
+  TickerChartRange,
+  TickerChartSelection,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
@@ -25,7 +28,10 @@ import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
 import { StatusToast } from "../../../components/ui/StatusToast";
 import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
+import { Badge } from "../../../components/ui/shadcn/badge";
+import { Input } from "../../../components/ui/shadcn/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
+import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/toggle-group";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
@@ -51,6 +57,8 @@ import {
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
+import { getNativeUnitPnl } from "../../../lib/holdingsMetrics";
+import { buildTimelineAxis, type TimelineMode } from "../../../lib/timelineAxis";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -71,6 +79,16 @@ interface TickerHistoryClientProps {
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
 const TICKER_DETAILS_CACHE_TTL_MS = 3 * 60 * 1000;
+const TICKER_RANGE_ITEMS = [...TICKER_CHART_RANGES, "CUSTOM"] as const;
+const MAX_TICKER_CHART_POINTS = 900;
+
+type TickerRangeControl = TickerChartRange | "CUSTOM";
+
+interface TickerChartRequest {
+  range?: TickerChartRange;
+  startDate?: string;
+  endDate?: string;
+}
 
 function isMatchingTickerDetailsCache(
   cached: { payload: TickerDetailsModel } | null,
@@ -110,6 +128,169 @@ function metricValueClassName(value: string, emptyValue: string, compact = false
     : `mt-3 font-semibold tracking-tight text-foreground ${size}`;
 }
 
+function isTickerChartRange(value: string): value is TickerChartRange {
+  return (TICKER_CHART_RANGES as readonly string[]).includes(value);
+}
+
+function isTickerRangeControl(value: string): value is TickerRangeControl {
+  return value === "CUSTOM" || isTickerChartRange(value);
+}
+
+function buildTickerChartRequest(selection: TickerRangeControl, startDate?: string | null, endDate?: string | null): TickerChartRequest {
+  if (selection === "CUSTOM" && startDate && endDate) {
+    return { startDate, endDate };
+  }
+  if (selection !== "CUSTOM") {
+    return { range: selection };
+  }
+  return { range: "1Y" };
+}
+
+function getTickerChartMetadata(chart: TickerDetailsModel["chart"]) {
+  return chart.metadata ?? {
+    requested: {
+      range: chart.range === "CUSTOM" ? null : chart.range ?? "1Y",
+      startDate: null,
+      endDate: null,
+    },
+    resolved: {
+      range: chart.range ?? "1Y",
+      startDate: chart.points[0]?.date ?? null,
+      endDate: chart.points.at(-1)?.date ?? null,
+    },
+    available: {
+      startDate: chart.points[0]?.date ?? null,
+      endDate: chart.points.at(-1)?.date ?? null,
+    },
+    truncated: {
+      startDate: false,
+      endDate: false,
+    },
+  };
+}
+
+function resolveInitialTickerChartState(
+  searchParams: Pick<URLSearchParams, "get">,
+  fallbackRange: TickerChartSelection,
+  fallbackStartDate: string | null,
+  fallbackEndDate: string | null,
+): {
+  customEndDate: string;
+  customStartDate: string;
+  request: TickerChartRequest;
+  selection: TickerRangeControl;
+} {
+  const queryRange = searchParams.get("chartRange")?.trim().toUpperCase();
+  const queryStart = searchParams.get("chartStart")?.trim() ?? "";
+  const queryEnd = searchParams.get("chartEnd")?.trim() ?? "";
+
+  if (queryRange === "CUSTOM" && isValidCustomTickerChartRange(queryStart, queryEnd)) {
+    return {
+      customEndDate: queryEnd,
+      customStartDate: queryStart,
+      request: { startDate: queryStart, endDate: queryEnd },
+      selection: "CUSTOM",
+    };
+  }
+
+  if (queryRange && isTickerChartRange(queryRange)) {
+    return {
+      customEndDate: fallbackEndDate ?? "",
+      customStartDate: fallbackStartDate ?? "",
+      request: { range: queryRange },
+      selection: queryRange,
+    };
+  }
+
+  const selection = fallbackRange === "CUSTOM" && fallbackStartDate && fallbackEndDate
+    ? "CUSTOM"
+    : fallbackRange === "CUSTOM"
+      ? "1Y"
+      : fallbackRange;
+  return {
+    customEndDate: fallbackEndDate ?? "",
+    customStartDate: fallbackStartDate ?? "",
+    request: buildTickerChartRequest(selection, fallbackStartDate, fallbackEndDate),
+    selection,
+  };
+}
+
+function isValidCustomTickerChartRange(startDate: string, endDate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return false;
+  if (startDate > endDate) return false;
+  const maxEnd = new Date(`${startDate}T00:00:00.000Z`);
+  maxEnd.setUTCFullYear(maxEnd.getUTCFullYear() + 10);
+  return new Date(`${endDate}T00:00:00.000Z`).getTime() <= maxEnd.getTime();
+}
+
+function formatTickerChartRangeLabel(dict: AppDictionary, range: TickerRangeControl): string {
+  if (range === "ALL") return dict.tickerHistory.chartAllRangeLabel;
+  if (range === "CUSTOM") return dict.tickerHistory.chartCustomRangeLabel;
+  if (range === "YTD") return dict.dashboardHome.rangeYtdLabel;
+  if (range === "1M") return dict.dashboardHome.range1MLabel;
+  if (range === "3M") return dict.dashboardHome.range3MLabel;
+  if (range === "1Y") return dict.dashboardHome.range1YLabel;
+  return range;
+}
+
+function formatTickerChartMessage(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replace(new RegExp(`\\{${key}\\}`, "g"), value),
+    template,
+  );
+}
+
+function downsampleTickerChartPoints(
+  points: TickerDetailsModel["chart"]["points"],
+  maxPoints: number,
+): { downsampled: boolean; points: TickerDetailsModel["chart"]["points"]; total: number } {
+  if (points.length <= maxPoints) return { downsampled: false, points, total: points.length };
+  const first = points[0]!;
+  const last = points.at(-1)!;
+  const bucketCount = Math.max(1, Math.floor((maxPoints - 2) / 2));
+  const interior = points.slice(1, -1);
+  const bucketSize = Math.ceil(interior.length / bucketCount);
+  const sampled = [first];
+
+  for (let index = 0; index < interior.length; index += bucketSize) {
+    const bucket = interior.slice(index, index + bucketSize);
+    const priced = bucket.filter((point) => point.price !== null);
+    if (priced.length === 0) {
+      sampled.push(bucket[0]!);
+      continue;
+    }
+    const min = priced.reduce((current, point) => (point.price! < current.price! ? point : current), priced[0]!);
+    const max = priced.reduce((current, point) => (point.price! > current.price! ? point : current), priced[0]!);
+    sampled.push(min, max);
+  }
+
+  sampled.push(last);
+  const uniqueSorted = [...new Map(sampled.map((point) => [`${point.date}:${point.label}`, point])).values()]
+    .sort((left, right) => left.date.localeCompare(right.date));
+  if (uniqueSorted.length <= maxPoints) {
+    return { downsampled: true, points: uniqueSorted, total: points.length };
+  }
+
+  const lastKey = `${last.date}:${last.label}`;
+  const withoutLast = uniqueSorted.filter((point) => `${point.date}:${point.label}` !== lastKey);
+  return {
+    downsampled: true,
+    points: [...thinTickerChartPoints(withoutLast, Math.max(1, maxPoints - 1)), last],
+    total: points.length,
+  };
+}
+
+function thinTickerChartPoints(
+  points: TickerDetailsModel["chart"]["points"],
+  maxPoints: number,
+): TickerDetailsModel["chart"]["points"] {
+  if (points.length <= maxPoints) return points;
+  if (maxPoints <= 1) return points.slice(0, 1);
+  const step = (points.length - 1) / (maxPoints - 1);
+  return Array.from({ length: maxPoints }, (_, index) => points[Math.round(index * step)]!)
+    .filter((point, index, arr) => index === 0 || point !== arr[index - 1]);
+}
+
 export function TickerHistoryClient({
   transactions,
   dict,
@@ -127,6 +308,10 @@ export function TickerHistoryClient({
   holdingGroup,
 }: TickerHistoryClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialChartMetadata = getTickerChartMetadata(details.chart);
+  const initialTickerChartState = resolveInitialTickerChartState(searchParams, details.chart.range ?? "1Y", initialChartMetadata.resolved.startDate, initialChartMetadata.resolved.endDate);
   // Per-page breadcrumb override (spec amendment #21). Display label uses the
   // instrument name + ticker symbol when available, otherwise the ticker itself.
   // The Portfolio parent segment keeps the breadcrumb actionable.
@@ -151,6 +336,12 @@ export function TickerHistoryClient({
   const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
+  const [tickerTimelineMode, setTickerTimelineMode] = useState<TimelineMode>("auto");
+  const [tickerChartRequest, setTickerChartRequest] = useState<TickerChartRequest>(() => initialTickerChartState.request);
+  const [customStartDate, setCustomStartDate] = useState(initialTickerChartState.customStartDate);
+  const [customEndDate, setCustomEndDate] = useState(initialTickerChartState.customEndDate);
+  const [tickerChartError, setTickerChartError] = useState("");
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
     startDate: "",
     endDate: "",
@@ -158,7 +349,7 @@ export function TickerHistoryClient({
     includeDividends: true,
   });
   const sharedContextOwnerId = useSharedContextOwnerId();
-  const { sessionUserId } = useAppShellData();
+  const { sessionUserId, openQuickActions, reportingCurrency } = useAppShellData();
   const tickerDetailsCacheKey = useMemo(
     () => buildRouteDtoCacheKey(
       "ticker-details",
@@ -167,8 +358,11 @@ export function TickerHistoryClient({
       ticker,
       transactionMarketFilter ?? details.identity.marketCode,
       transactionAccountFilter ?? "all",
+      tickerChartRequest.range ?? "CUSTOM",
+      tickerChartRequest.startDate ?? "",
+      tickerChartRequest.endDate ?? "",
     ),
-    [details.identity.marketCode, locale, sessionUserId, ticker, transactionAccountFilter, transactionMarketFilter],
+    [details.identity.marketCode, locale, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
@@ -177,8 +371,12 @@ export function TickerHistoryClient({
   const accountScopeDisplayName = transactionAccountFilter
     ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
     : dict.tickerHistory.allAccountsLabel;
-  const aggregateScopeLabel = holdingGroup
-    ? `${holdingGroup.marketCode} · ${formatNumber(holdingGroup.accountCount, locale)}`
+  const effectiveHoldingGroup = detailsState.holdingGroup ?? holdingGroup;
+  const accountBreakdownRows = effectiveHoldingGroup?.children.length
+    ? effectiveHoldingGroup.children
+    : detailsState.accountBreakdown;
+  const aggregateScopeLabel = effectiveHoldingGroup
+    ? `${effectiveHoldingGroup.marketCode} · ${formatNumber(effectiveHoldingGroup.accountCount, locale)}`
     : detailsState.identity.marketCode;
 
   useEffect(() => {
@@ -220,6 +418,9 @@ export function TickerHistoryClient({
         ticker,
         accountId: transactionAccountFilter,
         marketCode: transactionMarketFilter,
+        range: tickerChartRequest.range,
+        startDate: tickerChartRequest.startDate,
+        endDate: tickerChartRequest.endDate,
         instrument,
         transactions,
         primaryDetails,
@@ -229,7 +430,7 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, ticker, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
@@ -246,6 +447,9 @@ export function TickerHistoryClient({
       ticker,
       accountId: transactionAccountFilter,
       marketCode: transactionMarketFilter,
+      range: tickerChartRequest.range,
+      startDate: tickerChartRequest.startDate,
+      endDate: tickerChartRequest.endDate,
       instrument,
       transactions: nextTransactions,
       primaryDetails: detailsStateRef.current,
@@ -254,7 +458,7 @@ export function TickerHistoryClient({
     setDetailsState(nextDetails);
     writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
-  }, [instrument, router, ticker, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter]);
+  }, [instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
@@ -362,16 +566,22 @@ export function TickerHistoryClient({
       ? `${dict.tickerHistory.repairStatusLastRun}: ${formatLastRepairTime(locale, lastRepairAt)}`
       : dict.tickerHistory.repairStatusIdle;
   const repairDisabledReason = isDemo
-    ? "Demo mode"
+    ? dict.tickerHistory.repairDisabledDemo
     : isBackfillBusy
       ? dict.settings.repairModeUnavailableBackfill
       : cooldownRemaining > 0
         ? dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(cooldownRemaining))
         : "";
-  const quoteDirection = (detailsState.quote.changeAmount ?? 0) >= 0 ? "up" : "down";
-  const quoteAccent = quoteDirection === "up"
-    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-    : "text-rose-700 bg-rose-50 border-rose-200";
+  const quoteDirection = detailsState.quote.changeAmount == null || detailsState.quote.changeAmount === 0
+    ? "neutral"
+    : detailsState.quote.changeAmount > 0
+      ? "up"
+      : "down";
+  const quoteAccent = quoteDirection === "neutral"
+    ? "border-border bg-muted/30 text-muted-foreground"
+    : quoteDirection === "up"
+      ? "border-success/40 bg-success/10 text-success"
+      : "border-destructive/40 bg-destructive/10 text-destructive";
   const summaryCards = [
     {
       key: "quantity",
@@ -426,20 +636,46 @@ export function TickerHistoryClient({
       testId: "ticker-history-realized-pnl",
     },
   ];
-  const chartData = detailsState.chart.points.map((point) => ({
+  const currentChartMetadata = getTickerChartMetadata(detailsState.chart);
+  const chartAxis = buildTimelineAxis({
+    endDate: currentChartMetadata.resolved.endDate ?? detailsState.chart.points.at(-1)?.date ?? new Date().toISOString().slice(0, 10),
+    locale,
+    mode: tickerTimelineMode,
+    pointDates: detailsState.chart.points.map((point) => point.date),
+    startDate: currentChartMetadata.resolved.startDate ?? detailsState.chart.points[0]?.date ?? new Date().toISOString().slice(0, 10),
+  });
+  const downsampledChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
+  const chartData = downsampledChart.points.map((point) => ({
     ...point,
-    axisLabel: point.label === "Now" ? point.label : formatDateLabel(point.date, locale),
+    dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
+    axisLabel: point.label === "Now" ? dict.tickerHistory.nowLabel : formatDateLabel(point.date, locale),
   }));
   const accountContributionData = useMemo(
-    () => (holdingGroup?.children ?? []).map((child) => ({
-      accountId: child.accountId,
-      label: child.accountName?.trim() || child.accountId,
-      quantity: child.quantity,
-      averageCost: child.averageCostPerShare,
-      contribution: child.marketValueAmount ?? child.costBasisAmount,
-    })),
-    [holdingGroup],
+    () => accountBreakdownRows.map((child) => {
+      const reportingCurrency = child.reportingCurrency ?? null;
+      const marketValue = reportingCurrency ? child.reportingMarketValueAmount ?? null : null;
+      const costBasis = reportingCurrency ? child.reportingCostBasisAmount ?? null : null;
+      const contribution = marketValue ?? costBasis;
+      return {
+        accountId: child.accountId,
+        label: child.accountName?.trim() || child.accountId,
+        quantity: child.quantity,
+        averageCost: child.averageCostPerShare,
+        averageCostCurrency: child.currency,
+        currentPrice: child.currentUnitPrice,
+        contribution,
+        contributionCurrency: reportingCurrency,
+        usedCostBasisFallback: marketValue == null && costBasis != null,
+      };
+    }),
+    [accountBreakdownRows],
   );
+  const resolvedReportingCurrency =
+    accountContributionData.find((row) => row.contributionCurrency)?.contributionCurrency
+    ?? effectiveHoldingGroup?.reportingCurrency
+    ?? reportingCurrency
+    ?? currency;
+  const accountBreakdownChartHeight = Math.min(320, Math.max(180, accountContributionData.length * 58));
   const floatingSummary = (
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
       <Card className="min-w-0 rounded-2xl p-4">
@@ -476,6 +712,50 @@ export function TickerHistoryClient({
       </Card>
     </div>
   );
+
+  const syncTickerChartUrl = useCallback(
+    (selection: TickerRangeControl, request: TickerChartRequest) => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.set("chartRange", selection);
+      if (request.startDate && request.endDate) {
+        nextParams.set("chartStart", request.startDate);
+        nextParams.set("chartEnd", request.endDate);
+      } else {
+        nextParams.delete("chartStart");
+        nextParams.delete("chartEnd");
+      }
+      const query = nextParams.toString();
+      window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+    },
+    [pathname, searchParams],
+  );
+
+  const selectTickerChartRange = useCallback(
+    (selection: TickerRangeControl) => {
+      if (!selection) return;
+      setTickerChartSelection(selection);
+      setTickerChartError("");
+      if (selection === "CUSTOM") {
+        return;
+      }
+      const request = buildTickerChartRequest(selection);
+      setTickerChartRequest(request);
+      syncTickerChartUrl(selection, request);
+    },
+    [syncTickerChartUrl],
+  );
+
+  const applyCustomTickerChartRange = useCallback(() => {
+    if (!isValidCustomTickerChartRange(customStartDate, customEndDate)) {
+      setTickerChartError(dict.tickerHistory.chartCustomRangeError);
+      return;
+    }
+    const request = buildTickerChartRequest("CUSTOM", customStartDate, customEndDate);
+    setTickerChartSelection("CUSTOM");
+    setTickerChartError("");
+    setTickerChartRequest(request);
+    syncTickerChartUrl("CUSTOM", request);
+  }, [customEndDate, customStartDate, dict.tickerHistory.chartCustomRangeError, syncTickerChartUrl]);
 
   async function handleRepairSubmit(): Promise<void> {
     setIsRepairSubmitting(true);
@@ -550,19 +830,19 @@ export function TickerHistoryClient({
           data-testid="ticker-primary-refresh-strip"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span>Position summary is ready first. Chart, dividends, and fundamentals refresh independently.</span>
+            <span>{dict.tickerHistory.positionSummaryReadyMessage}</span>
             {isDetailsLoading ? (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Refreshing details
+              <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+                {dict.tickerHistory.refreshingDetails}
               </span>
             ) : (
               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
-                Primary ready
+                {dict.tickerHistory.primaryReady}
               </span>
             )}
           </div>
           <Button type="button" variant="secondary" onClick={() => { void refreshDetails(); }} disabled={isDetailsLoading}>
-            Refresh ticker
+            {dict.tickerHistory.refreshTicker}
           </Button>
         </div>
         <Card className="overflow-hidden rounded-[30px] border border-border bg-[linear-gradient(145deg,hsla(var(--background),0.98),hsla(var(--muted),0.35))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
@@ -574,7 +854,7 @@ export function TickerHistoryClient({
                   {detailsState.quote.quoteStatus}
                 </span>
                 {detailsState.quote.freshness !== "current" ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                  <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
                     {detailsState.quote.freshness}
                   </span>
                 ) : null}
@@ -584,8 +864,16 @@ export function TickerHistoryClient({
                   {detailsState.identity.name ? `${detailsState.identity.name} (${ticker})` : ticker}
                 </h1>
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? "Instrument"}
+                  {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? dict.tickerHistory.instrumentFallbackLabel}
                 </span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="ticker-reporting-currency">
+                <Badge variant="secondary">
+                  {formatTickerChartMessage(dict.tickerHistory.reportingCurrencyValue, { currency: resolvedReportingCurrency })}
+                </Badge>
+                <Button type="button" variant="ghost" size="sm" onClick={openQuickActions}>
+                  {dict.tickerHistory.changeReportingCurrency}
+                </Button>
               </div>
               <div className="mt-5 flex flex-wrap items-end gap-4">
                 <div>
@@ -607,7 +895,8 @@ export function TickerHistoryClient({
                 </div>
                 <div className={cn("rounded-2xl border px-4 py-3 text-sm", quoteAccent)} data-testid="ticker-quote-change">
                   <div className="flex items-center gap-2 font-medium">
-                    {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : null}
+                    {quoteDirection === "down" ? <ArrowDownRight className="h-4 w-4" /> : null}
                     <span>{detailsState.quote.changeAmount != null ? formatCurrencyAmount(detailsState.quote.changeAmount, currency, locale) : "-"}</span>
                     <span>{formatPercent(locale, detailsState.quote.changePercent)}</span>
                   </div>
@@ -742,7 +1031,7 @@ export function TickerHistoryClient({
 
           <TabsContent value="overview" className="mt-0 grid gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.9fr)]">
             <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-detail-chart">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.chartTitle}</p>
                   <h2 className="mt-2 text-xl font-semibold text-slate-950">{dict.tickerHistory.chartSubtitle}</h2>
@@ -751,12 +1040,101 @@ export function TickerHistoryClient({
                   {detailsState.identity.currency}
                 </div>
               </div>
+              <div className="mt-5 flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartRangeLabel}</span>
+                  <ToggleGroup
+                    type="single"
+                    aria-label={dict.tickerHistory.chartRangeLabel}
+                    value={tickerChartSelection}
+                    onValueChange={(value) => {
+                      if (isTickerRangeControl(value)) selectTickerChartRange(value);
+                    }}
+                    className="flex-wrap justify-start"
+                    data-testid="ticker-chart-range-controls"
+                  >
+                    {TICKER_RANGE_ITEMS.map((rangeItem) => (
+                      <ToggleGroupItem key={rangeItem} value={rangeItem}>
+                        {formatTickerChartRangeLabel(dict, rangeItem)}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+                {tickerChartSelection === "CUSTOM" ? (
+                  <div className="flex flex-wrap items-end gap-2" data-testid="ticker-chart-custom-range">
+                    <label className="grid gap-1 text-xs text-slate-500">
+                      <span>{dict.tickerHistory.chartCustomStartLabel}</span>
+                      <Input type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} className="h-9 w-[150px]" />
+                    </label>
+                    <label className="grid gap-1 text-xs text-slate-500">
+                      <span>{dict.tickerHistory.chartCustomEndLabel}</span>
+                      <Input type="date" value={customEndDate} onChange={(event) => setCustomEndDate(event.target.value)} className="h-9 w-[150px]" />
+                    </label>
+                    <Button type="button" variant="secondary" onClick={applyCustomTickerChartRange}>
+                      {dict.tickerHistory.chartApplyCustomRange}
+                    </Button>
+                  </div>
+                ) : null}
+                {tickerChartError ? <p className="text-sm text-destructive">{tickerChartError}</p> : null}
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartTimelineLabel}</span>
+                  <ToggleGroup
+                    type="single"
+                    aria-label={dict.tickerHistory.chartTimelineLabel}
+                    value={tickerTimelineMode}
+                    onValueChange={(value) => {
+                      if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+                        setTickerTimelineMode(value);
+                      }
+                    }}
+                    className="flex-wrap justify-start"
+                    data-testid="ticker-chart-timeline-controls"
+                  >
+                    <ToggleGroupItem value="auto">{dict.reports.timelineAuto}</ToggleGroupItem>
+                    <ToggleGroupItem value="day">{dict.reports.timelineDay}</ToggleGroupItem>
+                    <ToggleGroupItem value="week">{dict.reports.timelineWeek}</ToggleGroupItem>
+                    <ToggleGroupItem value="month">{dict.reports.timelineMonth}</ToggleGroupItem>
+                    <ToggleGroupItem value="year">{dict.reports.timelineYear}</ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+                {currentChartMetadata.truncated.startDate || currentChartMetadata.truncated.endDate ? (
+                  <p className="text-sm text-warning">
+                    {formatTickerChartMessage(dict.tickerHistory.chartTruncatedNote, {
+                      start: currentChartMetadata.resolved.startDate ?? "-",
+                      end: currentChartMetadata.resolved.endDate ?? "-",
+                    })}
+                  </p>
+                ) : null}
+                {downsampledChart.downsampled ? (
+                  <p className="text-sm text-slate-500">
+                    {formatTickerChartMessage(dict.tickerHistory.chartDownsampledNote, {
+                      shown: String(downsampledChart.points.length),
+                      total: String(downsampledChart.total),
+                    })}
+                  </p>
+                ) : null}
+              </div>
               <div className="mt-6 h-[320px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-                    <XAxis dataKey="axisLabel" tickLine={false} axisLine={false} minTickGap={32} />
+                    <XAxis
+                      dataKey="dateMs"
+                      type="number"
+                      scale="time"
+                      domain={chartAxis.domain}
+                      ticks={chartAxis.ticks}
+                      tickFormatter={chartAxis.tickFormatter}
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={32}
+                    />
                     <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
                     <Tooltip
+                      labelFormatter={(value) => (
+                        typeof value === "number"
+                          ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
+                          : String(value)
+                      )}
                       formatter={(value, name) => {
                         if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
                         if (name === "quantity") return formatNumber(value, locale);
@@ -813,41 +1191,91 @@ export function TickerHistoryClient({
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.accountBreakdownTitle}</p>
                 <h3 className="mt-2 text-base font-semibold text-slate-950">{dict.tickerHistory.accountBreakdownContributionTitle}</h3>
                 <p className="mt-1 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownSubtitle}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="ticker-account-breakdown-reporting-currency">
+                  <Badge variant="outline">
+                    {formatTickerChartMessage(dict.tickerHistory.reportingCurrencyValue, { currency: resolvedReportingCurrency })}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground">{dict.tickerHistory.reportingCurrencyDescription}</p>
+                </div>
                 {accountContributionData.length === 0 ? (
                   <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownEmpty}</p>
                 ) : (
                   <>
-                    <div className="mt-4 h-[220px]">
+                    <div className="mt-4 w-full min-w-0" style={{ height: accountBreakdownChartHeight }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={accountContributionData} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
                           <XAxis type="number" hide />
                           <YAxis type="category" dataKey="label" width={88} tickLine={false} axisLine={false} />
-                          <Tooltip formatter={(value) => typeof value === "number" ? formatCurrencyAmount(value, currency, locale) : value} />
+                          <Tooltip
+                            formatter={(value, _name, item) => {
+                              const payload = (item as { payload?: { contributionCurrency?: string } }).payload;
+                              return typeof value === "number"
+                                ? formatCurrencyAmount(value, payload?.contributionCurrency ?? currency, locale)
+                                : value;
+                            }}
+                          />
                           <Bar dataKey="contribution" fill="#2563eb" radius={[6, 6, 6, 6]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                          <tr>
-                            <th className="px-4 py-2.5">{dict.tickerHistory.accountBreakdownAccountLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.quantityLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.avgCostLabel}</th>
-                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.accountContributionLabel}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {accountContributionData.map((row) => (
-                            <tr key={row.accountId} className="border-t border-slate-200">
-                              <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">{formatNumber(row.quantity, locale)}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">{formatCurrencyAmount(row.averageCost, currency, locale)}</td>
-                              <td className="px-4 py-3 text-right font-medium text-slate-900">{formatCurrencyAmount(row.contribution, currency, locale)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mt-4 grid gap-3" data-testid="ticker-account-breakdown-rows">
+                      {accountContributionData.map((row) => (
+                        <div
+                          key={row.accountId}
+                          className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm"
+                          data-testid={`ticker-account-breakdown-row-${row.accountId}`}
+                        >
+                          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                {dict.tickerHistory.accountBreakdownAccountLabel}
+                              </p>
+                              <p className="mt-1 break-words font-semibold text-slate-950">{row.label}</p>
+                            </div>
+                            <div className="grid min-w-0 gap-3 sm:min-w-[360px] sm:grid-cols-4">
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.quantityLabel}</p>
+                                <p className="mt-1 break-words font-medium text-slate-900">{formatNumber(row.quantity, locale)}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.avgCostLabel}</p>
+                                <p className="mt-1 break-words font-medium text-slate-900">
+                                  {formatCurrencyAmount(row.averageCost, row.averageCostCurrency, locale)}
+                                </p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.holdings.unitPnlTerm}</p>
+                                {(() => {
+                                  const unitPnl = getNativeUnitPnl(row.currentPrice, row.averageCost);
+                                  return (
+                                    <>
+                                      <p className="mt-1 break-words font-medium text-slate-900">
+                                        {unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, row.averageCostCurrency, locale)}
+                                      </p>
+                                      <p className="mt-1 break-words text-xs text-slate-500">
+                                        {unitPnl.percent == null ? "-" : `${formatNumber(unitPnl.percent, locale)}%`}
+                                      </p>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-500">{dict.tickerHistory.accountContributionLabel}</p>
+                                <p className="mt-1 break-words font-semibold text-slate-950">
+                                  {row.contribution != null && row.contributionCurrency
+                                    ? formatCurrencyAmount(row.contribution, row.contributionCurrency, locale)
+                                    : dict.tickerHistory.noHoldingData}
+                                </p>
+                                {row.usedCostBasisFallback ? (
+                                  <p className="mt-1 break-words text-xs font-normal text-warning">
+                                    {dict.dashboardHome.allocationFallbackLabel}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </>
                 )}
@@ -888,7 +1316,7 @@ export function TickerHistoryClient({
           <TabsContent value="transactions" className="mt-0 grid gap-6" data-testid="ticker-detail-transactions">
             {isSharedContext ? (
               <div
-                className="rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
+                className="rounded-[22px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
                 data-testid="ticker-history-readonly"
                 role="status"
                 aria-live="polite"
@@ -938,7 +1366,7 @@ export function TickerHistoryClient({
       <RepairModal
         open={isRepairDialogOpen}
         pending={isRepairSubmitting}
-        title={`${dict.tickerHistory.repairAction} ${ticker}`}
+        title={formatTickerChartMessage(dict.tickerHistory.repairDialogTitle, { ticker })}
         subtitle={statusText}
         value={repairValue}
         onOpenChange={setIsRepairDialogOpen}

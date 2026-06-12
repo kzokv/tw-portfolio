@@ -1323,17 +1323,19 @@ export async function postTransactionDraftRows(
     throw error;
   }
 
-  const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; fromDate: string }>();
+  const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; marketCode: MarketCode; fromDate: string }>();
   for (const row of selectedRows) {
-    const key = `${row.accountId}:${row.ticker}`;
+    if (!row.marketCode) continue;
+    const key = `${row.accountId}:${row.ticker}:${row.marketCode}`;
     const current = earliestByAccountTicker.get(key);
     if (!current || row.tradeDate! < current.fromDate) {
-      earliestByAccountTicker.set(key, { accountId: row.accountId!, ticker: row.ticker!, fromDate: row.tradeDate! });
+      earliestByAccountTicker.set(key, { accountId: row.accountId!, ticker: row.ticker!, marketCode: row.marketCode as MarketCode, fromDate: row.tradeDate! });
     }
   }
   for (const item of earliestByAccountTicker.values()) {
     scheduleReplayWithRetry(deps.app.persistence, deps.app.eventBus, contextUserId, item.accountId, item.ticker, {
       snapshotFromDate: item.fromDate,
+      marketCode: item.marketCode,
     });
   }
   await deps.app.eventBus.publishEvent(contextUserId, "ai_transaction_draft_confirmed", {

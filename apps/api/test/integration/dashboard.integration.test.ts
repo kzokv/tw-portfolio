@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
+  return {
+    ...original,
+    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const },
+  };
+});
+
 import { buildApp } from "../../src/app.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
@@ -470,7 +479,7 @@ describe("dashboard overview", () => {
     );
   });
 
-  it("returns ordered performance points for the requested range", async () => {
+  it("returns an empty performance series until holding snapshots exist", async () => {
     (app.persistence as MemoryPersistence)._seedDailyBars([
       { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
       { ticker: "0050", barDate: "2026-03-28", open: 100, high: 102, low: 99, close: 101, volume: 30000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
@@ -508,20 +517,14 @@ describe("dashboard overview", () => {
     expect(response.json()).toEqual(
       expect.objectContaining({
         range: "YTD",
-        points: [
-          expect.objectContaining({
-            date: "2026-03-28",
-            totalCostAmount: 1600,
-            marketValueAmount: 1505,
-            unrealizedPnlAmount: -95,
-            totalReturnAmount: -95,
-          }),
-        ],
+        points: [],
+        lastReliableDate: null,
+        marketDataStaleSince: null,
       }),
     );
   });
 
-  it("leaves performance market-value fields empty when any active symbol lacks quotes", async () => {
+  it("does not synthesize provisional performance points when snapshots are absent", async () => {
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
@@ -542,14 +545,9 @@ describe("dashboard overview", () => {
     expect(response.json()).toEqual(
       expect.objectContaining({
         range: "YTD",
-        points: expect.arrayContaining([
-          expect.objectContaining({
-            date: "2026-01-15",
-            totalCostAmount: 400,
-            marketValueAmount: null,
-            unrealizedPnlAmount: null,
-          }),
-        ]),
+        points: [],
+        lastReliableDate: null,
+        marketDataStaleSince: null,
       }),
     );
   });

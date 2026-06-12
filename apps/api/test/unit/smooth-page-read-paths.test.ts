@@ -72,6 +72,13 @@ describe("smooth page read paths", () => {
       costBasisAmount: 1000,
       currency: "TWD",
     });
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+    });
 
     const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
 
@@ -87,9 +94,22 @@ describe("smooth page read paths", () => {
     expect(body.holdings).toEqual([
       expect.objectContaining({
         ticker: "2330",
+        instrumentName: "台積電",
         currentUnitPrice: null,
         freshness: "current",
         quoteStatus: "missing",
+      }),
+    ]);
+    expect(body.holdingGroups).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        instrumentName: "台積電",
+        children: [
+          expect.objectContaining({
+            ticker: "2330",
+            instrumentName: "台積電",
+          }),
+        ],
       }),
     ]);
     expect(body.instruments).toEqual(expect.arrayContaining([
@@ -101,6 +121,119 @@ describe("smooth page read paths", () => {
     expect(body.accounts).toEqual([
       expect.objectContaining({
         id: "acc-1",
+      }),
+    ]);
+  });
+
+  it("serves portfolio enrichment holding groups in the user's reporting currency", async () => {
+    await app.persistence._setUserPreferences("user-1", { reportingCurrency: "TWD" });
+    const store = await app.persistence.loadStore("user-1");
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usFeeProfile = {
+      ...feeProfile,
+      id: "fp-us-1",
+      accountId: "acc-us-1",
+      name: "US Broker Fee",
+    };
+    store.feeProfiles.push(usFeeProfile);
+    store.accounts.push({
+      id: "acc-us-1",
+      userId: "user-1",
+      name: "US Broker",
+      defaultCurrency: "USD",
+      accountType: "broker",
+      feeProfileId: usFeeProfile.id,
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-us-1",
+      ticker: "AAPL",
+      quantity: 5,
+      costBasisAmount: 500,
+      currency: "USD",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertInstruments("user-1", [{
+      ticker: "AAPL",
+      type: "STOCK",
+      marketCode: "US",
+      isProvisional: false,
+      lastSyncedAt: null,
+      typeRaw: null,
+      industryCategoryRaw: null,
+      finmindDate: null,
+    }]);
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-06-02",
+        open: 109,
+        high: 112,
+        low: 108,
+        close: 110,
+        volume: 10000,
+        source: "test",
+        ingestedAt: "2026-06-02T21:00:00.000Z",
+      },
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-06-03",
+        open: 119,
+        high: 122,
+        low: 118,
+        close: 120,
+        volume: 12000,
+        source: "test",
+        ingestedAt: "2026-06-03T21:00:00.000Z",
+      },
+    ]);
+    await app.persistence.upsertFxRates([
+      {
+        date: "2026-06-03",
+        baseCurrency: "USD",
+        quoteCurrency: "TWD",
+        rate: 32,
+        source: "test",
+      },
+    ]);
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/enrichment" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("translate_holding_groups;dur=");
+    expect(response.headers["server-timing"]).toContain("load_fx_rates;dur=");
+    const body = response.json();
+    const group = body.holdingGroups.find((item: { ticker: string }) => item.ticker === "AAPL");
+    expect(group).toEqual(expect.objectContaining({
+      ticker: "AAPL",
+      reportingCurrency: "TWD",
+      reportingCurrentUnitPrice: 3840,
+      reportingCostBasisAmount: 16000,
+      reportingMarketValueAmount: 19200,
+      reportingUnrealizedPnlAmount: 3200,
+      reportingDailyChangeAmount: 1600,
+      fxStatus: "complete",
+    }));
+    expect(group.children[0]).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      reportingMarketValueAmount: 19200,
+      reportingUnrealizedPnlAmount: 3200,
+    }));
+    expect(body.fxRates).toEqual([
+      expect.objectContaining({
+        fromCurrency: "USD",
+        toCurrency: "TWD",
+        rate: 32,
+        asOf: expect.any(String),
+      }),
+    ]);
+    expect(body.marketValues).toEqual([
+      expect.objectContaining({
+        marketCode: "US",
+        value: 19200,
+        reportingCurrency: "TWD",
       }),
     ]);
   });

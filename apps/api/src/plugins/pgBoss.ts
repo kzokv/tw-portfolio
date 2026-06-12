@@ -28,6 +28,11 @@ import { MockAsxGicsCatalogProvider } from "../services/market-data/providers/mo
 import { getAppConfigCacheEntry } from "../services/appConfig/cache.js";
 import { RateLimiter } from "../services/market-data/rateLimiter.js";
 import { handleBatchComplete } from "../services/notificationService.js";
+import {
+  getSnapshotRepairSingletonKey,
+  SNAPSHOT_REPAIR_QUEUE,
+  type SnapshotRepairJobData,
+} from "../services/snapshotRepair.js";
 import type { AppInstance } from "../app.js";
 
 /**
@@ -108,6 +113,10 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     onBarsUpserted: (market: MarketCode, dates: ReadonlyArray<string>) => {
       app.tradingCalendarCache.notifyBarsUpserted(market, dates);
     },
+    enqueueSnapshotRepair: (input: SnapshotRepairJobData) =>
+      boss.send(SNAPSHOT_REPAIR_QUEUE, input, {
+        singletonKey: getSnapshotRepairSingletonKey(input),
+      }).then(() => undefined),
     // KZO-177: feed provider outcomes (success/error/rate_limit) into the
     // health aggregator. Decorated by `registerProviderHealth(app)` in app.ts.
     providerHealth: app.providerHealth,

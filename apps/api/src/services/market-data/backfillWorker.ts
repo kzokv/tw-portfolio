@@ -137,6 +137,12 @@ export interface BackfillWorkerDeps {
   ) => Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
   onBatchComplete?: (batchId: string) => Promise<void>;
   onBarsUpserted?: (market: MarketCode, dates: ReadonlyArray<string>) => void;
+  enqueueSnapshotRepair?: (input: {
+    ticker: string;
+    marketCode: MarketCode;
+    fromDate: string;
+    trigger: BackfillJobData["trigger"];
+  }) => Promise<void>;
   /**
    * KZO-177 — provider health aggregator. The worker calls
    * `providerHealth.recordOutcome(providerId, outcome)` after each provider
@@ -199,6 +205,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     updateBatchTickerResult,
     onBatchComplete,
     onBarsUpserted,
+    enqueueSnapshotRepair,
     providerHealth,
     providerOperationLogger,
     log,
@@ -444,6 +451,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       }
 
       let barsCount = 0;
+      let snapshotRepairFromDate: string | null = null;
       if (includeBars) {
         const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
         log.info(
@@ -464,6 +472,9 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
         // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
+        if (barsCount > 0 && bars.length > 0) {
+          snapshotRepairFromDate = bars.reduce((min, bar) => bar.barDate < min ? bar.barDate : min, bars[0].barDate);
+        }
         if (onBarsUpserted) {
           for (const [upsertedMarket, dates] of collectDistinctBarDatesByMarket(bars)) {
             onBarsUpserted(upsertedMarket, [...dates]);
@@ -517,6 +528,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             errorMessage: divErr instanceof Error ? divErr.message : String(divErr),
             context: { ticker, marketCode: market, phase: "dividends" },
           });
+        }
+      }
+
+      if (snapshotRepairFromDate && enqueueSnapshotRepair) {
+        try {
+          await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger });
+        } catch (error) {
+          log.warn({ err: error, ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger }, "snapshot_repair_enqueue_failed");
         }
       }
 

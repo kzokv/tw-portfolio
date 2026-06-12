@@ -48,6 +48,32 @@ function resolveHoldingMarketCode(
   }
 }
 
+function buildHoldingNameLookup(holdings: DashboardOverviewHoldingDto[]): ReadonlyMap<string, string> {
+  const namesByKey = new Map<string, string>();
+  for (const holding of holdings) {
+    const name = holding.instrumentName?.trim();
+    if (!name) continue;
+    const marketCode = (holding as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(holding.currency);
+    namesByKey.set(`${marketCode}:${holding.ticker}`, name);
+    if (!namesByKey.has(holding.ticker)) {
+      namesByKey.set(holding.ticker, name);
+    }
+  }
+  return namesByKey;
+}
+
+function resolveInstrumentName(
+  namesByKey: ReadonlyMap<string, string>,
+  ticker: string,
+  marketCode: MarketCode,
+  currentName?: string | null,
+): string | null {
+  return currentName?.trim()
+    || namesByKey.get(`${marketCode}:${ticker}`)
+    || namesByKey.get(ticker)
+    || null;
+}
+
 function resolveReportingCurrency(currency: CurrencyCode): AccountDefaultCurrency {
   return REPORTING_CURRENCIES.has(currency) ? currency as AccountDefaultCurrency : "TWD";
 }
@@ -111,6 +137,8 @@ export function buildHoldingGroupsFromHoldings({
       reportingCostBasisAmount: holding.costBasisAmount,
       reportingMarketValueAmount: holding.marketValueAmount,
       reportingUnrealizedPnlAmount: holding.unrealizedPnlAmount,
+      reportingDailyChangeAmount:
+        holding.change === null || holding.previousClose === null ? null : holding.change * holding.quantity,
       reportingAllocationPercent: holding.allocationPct,
       fxStatus: "complete",
       allocationBasisUsed: "cost_basis",
@@ -127,6 +155,7 @@ export function buildHoldingGroupsFromHoldings({
 
   const built = Array.from(groups.values()).map((children) => {
     const sortedChildren = sortChildren(children, accountsById);
+    const instrumentName = sortedChildren.find((child) => child.instrumentName?.trim())?.instrumentName ?? null;
     const quantity = sortedChildren.reduce((sum, child) => sum + child.quantity, 0);
     const costBasisAmount = sortedChildren.reduce((sum, child) => sum + child.costBasisAmount, 0);
     const marketValueAmount = sumNullable(sortedChildren.map((child) => child.marketValueAmount));
@@ -145,6 +174,7 @@ export function buildHoldingGroupsFromHoldings({
 
     return {
       ticker: sortedChildren[0]!.ticker,
+      instrumentName,
       marketCode: sortedChildren[0]!.marketCode,
       currency: sortedChildren[0]!.currency,
       quantity,
@@ -176,6 +206,9 @@ export function buildHoldingGroupsFromHoldings({
       reportingUnrealizedPnlAmount: sumNullable(
         sortedChildren.map((child) => child.reportingUnrealizedPnlAmount ?? child.unrealizedPnlAmount),
       ),
+      reportingDailyChangeAmount: sortedChildren.some((child) => child.reportingDailyChangeAmount == null)
+        ? null
+        : sumNullable(sortedChildren.map((child) => child.reportingDailyChangeAmount)),
       reportingAllocationPercent: null,
       fxStatus: sortedChildren.every((child) => child.fxStatus === "complete") ? "complete" : "partial",
       allocationBasisUsed: "cost_basis",
@@ -215,11 +248,14 @@ export function buildHoldingGroupsFromHoldings({
 }
 
 export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOverviewHoldingGroupDto[] {
+  const instrumentNames = buildHoldingNameLookup(snapshot.holdings);
   if (Array.isArray(snapshot.holdingGroups) && snapshot.holdingGroups.length > 0) {
     return snapshot.holdingGroups.map((group) => {
       const groupReportingCurrency = group.reportingCurrency ?? group.currency;
+      const instrumentName = resolveInstrumentName(instrumentNames, group.ticker, group.marketCode, group.instrumentName);
       return {
         ...group,
+        instrumentName,
         reportingCurrency: groupReportingCurrency,
         reportingCostBasisAmount: resolveReportingAmount(
           group,
@@ -235,17 +271,19 @@ export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOv
           groupReportingCurrency,
           group.currency,
         ),
-        reportingUnrealizedPnlAmount: resolveReportingAmount(
-          group,
-          "reportingUnrealizedPnlAmount",
-          group.unrealizedPnlAmount,
-          groupReportingCurrency,
-          group.currency,
-        ),
-        children: group.children.map((child) => {
+            reportingUnrealizedPnlAmount: resolveReportingAmount(
+              group,
+              "reportingUnrealizedPnlAmount",
+              group.unrealizedPnlAmount,
+              groupReportingCurrency,
+              group.currency,
+            ),
+            reportingDailyChangeAmount: group.reportingDailyChangeAmount ?? null,
+            children: group.children.map((child) => {
           const childReportingCurrency = child.reportingCurrency ?? groupReportingCurrency ?? resolveReportingCurrency(child.currency);
           return {
             ...child,
+            instrumentName: resolveInstrumentName(instrumentNames, child.ticker, child.marketCode, child.instrumentName ?? instrumentName),
             reportingCurrency: childReportingCurrency,
             reportingCostBasisAmount: resolveReportingAmount(
               child,
@@ -268,6 +306,7 @@ export function resolveHoldingGroups(snapshot: HoldingSnapshotLike): DashboardOv
               childReportingCurrency,
               child.currency,
             ),
+            reportingDailyChangeAmount: child.reportingDailyChangeAmount ?? null,
             marketCode: child.marketCode ?? group.marketCode,
           };
         }),
@@ -286,7 +325,7 @@ function resolveReportingAmount(
   nativeCurrency: CurrencyCode,
 ): number | null {
   const value = row[key];
-  if (value !== undefined) return value;
+  if (value != null) return value;
   return reportingCurrency === nativeCurrency ? nativeValue : null;
 }
 

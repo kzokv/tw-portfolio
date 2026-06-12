@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ACCOUNT_DEFAULT_CURRENCIES,
-  REPORT_CURRENCY_MODES,
   REPORT_SCOPES,
   type AccountDefaultCurrency,
   type AllocationBucketDto,
@@ -24,13 +22,14 @@ import {
   type ReportSummaryTotalsDto,
 } from "@vakwen/shared-types";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { Button } from "../ui/Button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Badge } from "../ui/shadcn/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
+import { Input } from "../ui/shadcn/input";
 import {
   Select,
   SelectContent,
@@ -53,6 +52,7 @@ import {
 } from "../ui/shadcn/sheet";
 import { Skeleton } from "../ui/shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/shadcn/tabs";
+import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
   Table,
   TableBody,
@@ -61,16 +61,30 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/shadcn/table";
+import {
+  HoldingsColumnHeaderContent,
+  HoldingsColumnSettingsMenu,
+  holdingsColumnCellStyle,
+  useHoldingsColumnSettings,
+  type HoldingsColumnSettingsState,
+  type HoldingsGridColumnDefinition,
+} from "../holdings/HoldingsColumnSettings";
+import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
+import { TooltipInfo } from "../ui/TooltipInfo";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import {
+  REPORT_TABS,
   parseReportRouteState,
   reportRouteStateToSearchParams,
   type ReportRouteState,
   type ReportTab,
 } from "../../features/reports/reportState";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
+import type { AppDictionary } from "../../lib/i18n";
 import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
+import { getNativeUnitPnl, getReportUnitPnl } from "../../lib/holdingsMetrics";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 
 type OptionalFxRateDto = {
@@ -85,11 +99,58 @@ type OptionalFxRateDto = {
   toCurrency?: string;
 };
 
-const TAB_LABELS: Record<ReportTab, string> = {
-  "daily-review": "Daily Review",
-  portfolio: "Portfolio Report",
-  market: "Market Report",
-};
+type ReportHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "unrealized" | "daily" | "weight" | "health";
+type ReportHoldingFocusPreset = "largest" | "worst-pnl" | "best-pnl" | "stale-quotes" | "fx-exposure";
+type ReportHoldingSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
+
+const REPORT_HOLDING_FOCUS_PRESETS: Array<{ id: ReportHoldingFocusPreset; sortMode: ReportHoldingSort }> = [
+  { id: "largest", sortMode: "value" },
+  { id: "worst-pnl", sortMode: "pnl" },
+  { id: "best-pnl", sortMode: "pnl" },
+  { id: "stale-quotes", sortMode: "ticker" },
+  { id: "fx-exposure", sortMode: "value" },
+];
+
+const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>> = [
+  { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
+  { id: "position", label: "Position", defaultWidth: 156 },
+  { id: "avgCost", label: "Avg cost", defaultWidth: 148, align: "right" },
+  { id: "price", label: "Price", defaultWidth: 148, align: "right" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 148, align: "right" },
+  { id: "marketValue", label: "Market value", defaultWidth: 168, align: "right" },
+  { id: "costBasis", label: "Book Cost", defaultWidth: 156, align: "right" },
+  { id: "unrealized", label: "Unrealized", defaultWidth: 156, align: "right" },
+  { id: "daily", label: "Daily", defaultWidth: 156, align: "right" },
+  { id: "weight", label: "Weight", defaultWidth: 128, align: "right" },
+  { id: "health", label: "Data health", defaultWidth: 192 },
+];
+
+function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsColumn): string {
+  switch (column) {
+    case "ticker":
+      return dict.reports.ticker;
+    case "position":
+      return dict.reports.position;
+    case "price":
+      return dict.reports.price;
+    case "avgCost":
+      return dict.holdings.avgCostTerm;
+    case "unitPnl":
+      return dict.holdings.unitPnlTerm;
+    case "marketValue":
+      return dict.reports.marketValue;
+    case "costBasis":
+      return dict.reports.bookCost;
+    case "unrealized":
+      return dict.reports.unrealizedPnl;
+    case "daily":
+      return dict.reports.dailyChange;
+    case "weight":
+      return dict.reports.weight;
+    case "health":
+      return dict.holdings.dataHealthTerm;
+  }
+}
 
 const PERFORMANCE_CHART_CONFIG = {
   marketValueAmount: {
@@ -122,7 +183,15 @@ export function ReportsClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { contextRefreshSignal, locale, sessionUserId, uiDict } = useAppShellData();
+  const {
+    canUseGlobalQuickActions,
+    contextRefreshSignal,
+    locale,
+    openQuickActions,
+    reportingCurrency,
+    sessionUserId,
+    uiDict,
+  } = useAppShellData();
   const searchParamsKey = searchParams?.toString() ?? "";
   const routeState = useMemo(
     () => parseReportRouteState(
@@ -133,6 +202,7 @@ export function ReportsClient({
     [initialState, searchParamsKey],
   );
   const [state, setState] = useState(() => routeState);
+  const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges } = useEffectiveRanges();
   const cacheScope = getRouteDtoContextScope(sessionUserId);
   const report = useReportData({ cacheScope, contextRefreshSignal, initialReport, locale, state });
@@ -159,6 +229,7 @@ export function ReportsClient({
       minute: "2-digit",
     }).format(new Date(report.restoredAt))
     : null;
+  const resolvedReportingCurrency = report.data?.query.reportingCurrency ?? initialReport?.query.reportingCurrency ?? reportingCurrency;
 
   return (
     <div className="stagger flex min-w-0 flex-col gap-6" data-testid="reports-page">
@@ -170,11 +241,20 @@ export function ReportsClient({
               <CardTitle className="mt-2 text-2xl sm:text-3xl">{uiDict.navigation.reportsLabel}</CardTitle>
               <CardDescription className="mt-2 max-w-3xl leading-6">{uiDict.navigation.reportsDescription}</CardDescription>
             </div>
-            <ReportControls ranges={effectiveRanges} state={state} onChange={updateState} />
+            <ReportControls
+              dict={uiDict}
+              ranges={effectiveRanges}
+              state={state}
+              resolvedReportingCurrency={resolvedReportingCurrency}
+              canOpenQuickActions={canUseGlobalQuickActions}
+              onOpenQuickActions={openQuickActions}
+              onChange={updateState}
+            />
           </div>
         </CardHeader>
         <CardContent>
           <FreshnessStrip
+            dict={uiDict}
             isRefreshing={report.isRefreshing}
             restoredFromCache={report.restoredFromCache}
             restoredLabel={restoredLabel}
@@ -189,9 +269,9 @@ export function ReportsClient({
         data-testid="reports-tabs"
       >
         <TabsList className="h-auto w-full flex-wrap justify-start">
-          {Object.entries(TAB_LABELS).map(([value, label]) => (
+          {REPORT_TABS.map((value) => (
             <TabsTrigger key={value} value={value} data-testid={`reports-tab-${value}`}>
-              {label}
+              {reportTabLabel(uiDict, value)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -205,6 +285,9 @@ export function ReportsClient({
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
             tab="daily-review"
+            timelineMode={timelineMode}
+            onTimelineModeChange={setTimelineMode}
+            uiDict={uiDict}
           />
         </TabsContent>
         <TabsContent value="portfolio" className="mt-5">
@@ -216,6 +299,9 @@ export function ReportsClient({
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
             tab="portfolio"
+            timelineMode={timelineMode}
+            onTimelineModeChange={setTimelineMode}
+            uiDict={uiDict}
           />
         </TabsContent>
         <TabsContent value="market" className="mt-5">
@@ -227,6 +313,9 @@ export function ReportsClient({
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
             tab="market"
+            timelineMode={timelineMode}
+            onTimelineModeChange={setTimelineMode}
+            uiDict={uiDict}
           />
         </TabsContent>
       </Tabs>
@@ -237,39 +326,66 @@ export function ReportsClient({
 function reportRouteStatesEqual(left: ReportRouteState, right: ReportRouteState): boolean {
   return left.tab === right.tab
     && left.scope === right.scope
-    && left.currencyMode === right.currencyMode
-    && left.currency === right.currency
     && left.range === right.range;
 }
 
+function reportTabLabel(dict: AppDictionary, tab: ReportTab): string {
+  if (tab === "daily-review") return dict.reports.tabDailyReview;
+  if (tab === "portfolio") return dict.reports.tabPortfolio;
+  return dict.reports.tabMarket;
+}
+
+function formatReportMessage(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+    template,
+  );
+}
+
 function ReportControls({
+  dict,
   ranges,
+  resolvedReportingCurrency,
+  canOpenQuickActions,
+  onOpenQuickActions,
   state,
   onChange,
 }: {
+  dict: AppDictionary;
   ranges: string[];
+  resolvedReportingCurrency: string;
+  canOpenQuickActions: boolean;
+  onOpenQuickActions: () => void;
   state: ReportRouteState;
   onChange: (patch: Partial<ReportRouteState>) => void;
 }) {
   const rangeOptions = ranges.length > 0 ? ranges : [state.range];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="reports-controls">
-      <ControlSelect label="Scope" value={state.scope} onValueChange={(scope) => onChange({ scope: scope as ReportRouteState["scope"] })}>
-        {REPORT_SCOPES.map((scope) => <SelectItem key={scope} value={scope}>{scope === "all" ? "All markets" : scope}</SelectItem>)}
-      </ControlSelect>
-      <ControlSelect label="Currency mode" value={state.currencyMode} onValueChange={(currencyMode) => onChange({ currencyMode: currencyMode as ReportRouteState["currencyMode"] })}>
-        {REPORT_CURRENCY_MODES.map((mode) => <SelectItem key={mode} value={mode}>{mode === "auto" ? "Auto" : "Specified"}</SelectItem>)}
-      </ControlSelect>
-      <ControlSelect
-        label="Currency"
-        value={state.currency}
-        onValueChange={(currency) => onChange({ currency: currency as AccountDefaultCurrency, currencyMode: "specified" })}
-      >
-        {ACCOUNT_DEFAULT_CURRENCIES.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}
-      </ControlSelect>
-      <ControlSelect label="Range" value={state.range} onValueChange={(range) => onChange({ range })}>
-        {rangeOptions.map((range) => <SelectItem key={range} value={range}>{range}</SelectItem>)}
-      </ControlSelect>
+    <div className="flex min-w-0 flex-col gap-3 lg:max-w-xl" data-testid="reports-controls">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ControlSelect label={dict.reports.controlScope} value={state.scope} onValueChange={(scope) => onChange({ scope: scope as ReportRouteState["scope"] })}>
+          {REPORT_SCOPES.map((scope) => <SelectItem key={scope} value={scope}>{scope === "all" ? dict.reports.allMarkets : scope}</SelectItem>)}
+        </ControlSelect>
+        <ControlSelect label={dict.reports.controlRange} value={state.range} onValueChange={(range) => onChange({ range })}>
+          {rangeOptions.map((range) => <SelectItem key={range} value={range}>{range}</SelectItem>)}
+        </ControlSelect>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="reports-controls-meta">
+        <Badge variant="secondary">{formatReportMessage(dict.reports.resolvedCurrency, { currency: resolvedReportingCurrency })}</Badge>
+        {canOpenQuickActions ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto px-0 text-sm font-medium text-primary hover:bg-transparent"
+            onClick={onOpenQuickActions}
+            data-testid="reports-open-quick-actions"
+          >
+            {dict.reports.changeInQuickActions}
+          </Button>
+        ) : (
+          <span>{dict.reports.reportingCurrencyQuickActionsOnly}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -303,11 +419,13 @@ function ControlSelect({
 }
 
 function FreshnessStrip({
+  dict,
   isRefreshing,
   onRefresh,
   restoredFromCache,
   restoredLabel,
 }: {
+  dict: AppDictionary;
   isRefreshing: boolean;
   onRefresh: () => void;
   restoredFromCache: boolean;
@@ -317,15 +435,15 @@ function FreshnessStrip({
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
       <div className="flex flex-wrap items-center gap-2">
         {restoredFromCache && restoredLabel ? (
-          <span data-testid="reports-cache-restore-label">Restored from cache at {restoredLabel}</span>
+          <span data-testid="reports-cache-restore-label">{formatReportMessage(dict.reports.restoredFromCache, { time: restoredLabel })}</span>
         ) : (
-          <span>Report content stays visible while fresh data loads.</span>
+          <span>{dict.reports.contentVisibleWhileLoading}</span>
         )}
-        {isRefreshing ? <Badge variant="secondary">Refreshing</Badge> : null}
+        {isRefreshing ? <Badge variant="secondary">{dict.reports.refreshing}</Badge> : null}
       </div>
       <Button size="sm" variant="secondary" onClick={onRefresh} disabled={isRefreshing} data-testid="reports-refresh-button">
         <RefreshCw data-icon="inline-start" />
-        Refresh
+        {dict.reports.refresh}
       </Button>
     </div>
   );
@@ -339,6 +457,9 @@ function ReportBody({
   locale,
   onRefresh,
   tab,
+  timelineMode,
+  onTimelineModeChange,
+  uiDict,
 }: {
   data: AnyReportDto | null;
   errorMessage: string;
@@ -347,13 +468,16 @@ function ReportBody({
   locale: LocaleCode;
   onRefresh: () => void;
   tab: ReportTab;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
+  uiDict: AppDictionary;
 }) {
   if (isBootstrapping) return <ReportSkeleton />;
   if (errorMessage && !data) {
     return (
       <Card data-testid="reports-error">
         <CardHeader>
-          <CardTitle>Report unavailable</CardTitle>
+          <CardTitle>{uiDict.reports.reportUnavailable}</CardTitle>
           <CardDescription>{errorMessage}</CardDescription>
         </CardHeader>
       </Card>
@@ -363,8 +487,8 @@ function ReportBody({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>No report data</CardTitle>
-          <CardDescription>Run refresh after the portfolio read model is available.</CardDescription>
+          <CardTitle>{uiDict.reports.noReportData}</CardTitle>
+          <CardDescription>{uiDict.reports.noReportDataDescription}</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -375,19 +499,19 @@ function ReportBody({
     <div className="flex flex-col gap-6" data-testid={`reports-${tab}-content`}>
       {errorMessage ? (
         <Alert data-testid="reports-refresh-error">
-          <AlertTitle>Latest refresh failed</AlertTitle>
+          <AlertTitle>{uiDict.reports.latestRefreshFailed}</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       ) : null}
-      <ReportMeta data={data} locale={locale} />
-      <SummaryGrid summary={data.summary} currency={data.query.reportingCurrency} locale={locale} />
+      <ReportMeta data={data} dict={uiDict} locale={locale} />
+      <SummaryGrid summary={data.summary} currency={data.query.reportingCurrency} dict={uiDict} locale={locale} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <FxStatusCard fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
-        <DataHealthCard dataHealth={data.dataHealth} />
+        <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
+        <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
       </div>
-      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
-      {tab === "portfolio" ? <PortfolioReportView data={data as PortfolioReportDto} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
-      {tab === "market" ? <MarketReportView data={data as MarketReportDto} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
+      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
+      {tab === "portfolio" ? <PortfolioReportView data={data as PortfolioReportDto} isRefreshing={isRefreshing} locale={locale} dict={uiDict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} /> : null}
+      {tab === "market" ? <MarketReportView data={data as MarketReportDto} isRefreshing={isRefreshing} locale={locale} dict={uiDict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} /> : null}
     </div>
   );
 }
@@ -398,12 +522,12 @@ function reportDataMatchesTab(data: AnyReportDto, tab: ReportTab): boolean {
   return "performance" in data && "marketSummary" in data && "detail" in data;
 }
 
-function ReportMeta({ data, locale }: { data: AnyReportDto; locale: LocaleCode }) {
+function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDictionary; locale: LocaleCode }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="reports-meta">
-      <Badge variant="outline">{data.query.scope === "all" ? "All markets" : data.query.scope}</Badge>
-      <Badge variant="secondary">Reporting {data.query.reportingCurrency}</Badge>
-      <Badge variant={data.fxStatus.status === "complete" ? "secondary" : "outline"}>FX {data.fxStatus.status}</Badge>
+      <Badge variant="outline">{data.query.scope === "all" ? dict.reports.allMarkets : data.query.scope}</Badge>
+      <Badge variant="secondary">{formatReportMessage(dict.reports.reportingCurrencyBadge, { currency: data.query.reportingCurrency })}</Badge>
+      <Badge variant={data.fxStatus.status === "complete" ? "secondary" : "outline"}>{formatReportMessage(dict.reports.fxStatusBadge, { status: data.fxStatus.status })}</Badge>
       <span>{formatDateLabel(data.query.asOf, locale)}</span>
     </div>
   );
@@ -411,23 +535,25 @@ function ReportMeta({ data, locale }: { data: AnyReportDto; locale: LocaleCode }
 
 function SummaryGrid({
   currency,
+  dict,
   locale,
   summary,
 }: {
   currency: AccountDefaultCurrency;
+  dict: AppDictionary;
   locale: LocaleCode;
   summary: ReportSummaryTotalsDto;
 }) {
   const items = [
-    { label: "Market value", value: summary.marketValueAmount },
-    { label: "Book Cost", value: summary.costBasisAmount },
-    { label: "Unrealized P&L", toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
-    { label: "Realized P&L", toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
-    { label: "Daily change", detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
-    { label: "Income", value: summary.incomeAmount },
+    { label: dict.reports.marketValue, value: summary.marketValueAmount },
+    { label: dict.reports.bookCost, value: summary.costBasisAmount },
+    { label: dict.reports.unrealizedPnl, toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
+    { label: dict.reports.realizedPnl, toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
+    { label: dict.reports.dailyChange, detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
+    { label: dict.reports.income, value: summary.incomeAmount },
     {
-      label: "Upcoming income",
-      detail: `${formatNumber(summary.upcomingDividendCount, locale)} dividend(s)`,
+      label: dict.reports.upcomingIncome,
+      detail: formatReportMessage(dict.reports.dividendsCount, { count: formatNumber(summary.upcomingDividendCount, locale) }),
       value: summary.upcomingDividendAmount,
     },
   ];
@@ -450,6 +576,11 @@ function SummaryGrid({
                   ? formatCompactCurrencyAmount(item.value, currency, locale)
                   : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
             </CardTitle>
+            {item.value !== null ? (
+              <CardDescription className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
+                {formatExactAmountInline(dict, formatCurrencyAmount(item.value, currency, locale))}
+              </CardDescription>
+            ) : null}
           </CardHeader>
           {item.detail ? (
             <CardContent className={cn("px-4 pb-4 pt-0 text-sm", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
@@ -463,10 +594,12 @@ function SummaryGrid({
 }
 
 function FxStatusCard({
+  dict,
   fxRates,
   fxStatus,
   locale,
 }: {
+  dict: AppDictionary;
   fxRates?: FxConversionRateDto[];
   fxStatus: ReportFxStatusDto;
   locale: LocaleCode;
@@ -475,14 +608,21 @@ function FxStatusCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>FX status</CardTitle>
-        <CardDescription>{fxStatus.nativeCurrencies.join(", ") || fxStatus.reportingCurrency} to {fxStatus.reportingCurrency}</CardDescription>
+        <CardTitle>{dict.reports.fxStatusTitle}</CardTitle>
+        <CardDescription>{formatReportMessage(dict.reports.fxPairDescription, {
+          from: fxStatus.nativeCurrencies.join(", ") || fxStatus.reportingCurrency,
+          to: fxStatus.reportingCurrency,
+        })}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <Badge variant={fxStatus.status === "complete" ? "secondary" : "outline"} className="w-fit">{fxStatus.status}</Badge>
         {fxStatus.missingRatePairs.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {fxStatus.missingRatePairs.map((pair) => <Badge key={`${pair.from}-${pair.to}`} variant="outline">{pair.from} to {pair.to}</Badge>)}
+            {fxStatus.missingRatePairs.map((pair) => (
+              <Badge key={`${pair.from}-${pair.to}`} variant="outline">
+                {formatReportMessage(dict.reports.fxPairLabel, { from: pair.from, to: pair.to })}
+              </Badge>
+            ))}
           </div>
         ) : null}
         {rates.length > 0 ? (
@@ -490,7 +630,7 @@ function FxStatusCard({
             {rates.map((rate) => (
               <div key={`${rate.from}-${rate.to}-${rate.asOf ?? "latest"}`} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-sm font-medium text-foreground">{rate.from} to {rate.to}</span>
+                  <span className="text-sm font-medium text-foreground">{formatReportMessage(dict.reports.fxPairLabel, { from: rate.from, to: rate.to })}</span>
                   {rate.asOf ? <span className="text-xs text-muted-foreground">As of {formatDateLabel(rate.asOf, locale)}</span> : null}
                 </div>
                 <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
@@ -505,19 +645,19 @@ function FxStatusCard({
   );
 }
 
-function DataHealthCard({ dataHealth }: { dataHealth: ReportDataHealthDto }) {
+function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto; dict: AppDictionary }) {
   const rows = [
-    ["Holdings", dataHealth.holdingCount],
-    ["Missing quotes", dataHealth.missingQuoteCount],
-    ["Provisional quotes", dataHealth.provisionalQuoteCount],
-    ["Missing FX", dataHealth.missingFxCount],
-    ["Stale quotes", dataHealth.staleQuoteCount],
+    [dict.holdings.dataHealthHoldingCount, dataHealth.holdingCount],
+    [dict.holdings.dataHealthMissingQuoteCount, dataHealth.missingQuoteCount],
+    [dict.holdings.dataHealthProvisionalQuoteCount, dataHealth.provisionalQuoteCount],
+    [dict.holdings.dataHealthMissingFxCount, dataHealth.missingFxCount],
+    [dict.holdings.dataHealthStaleQuoteCount, dataHealth.staleQuoteCount],
   ];
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Data health</CardTitle>
-        <CardDescription>Quote, FX, and freshness coverage for the selected scope.</CardDescription>
+        <CardTitle>{dict.holdings.dataHealthTerm}</CardTitle>
+        <CardDescription>{dict.holdings.dataHealthDescription}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2 sm:grid-cols-2">
         {rows.map(([label, value]) => (
@@ -533,11 +673,13 @@ function DataHealthCard({ dataHealth }: { dataHealth: ReportDataHealthDto }) {
 
 function DailyReviewView({
   data,
+  dict,
   isRefreshing,
   locale,
   onRefresh,
 }: {
   data: DailyReviewReportDto;
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -548,18 +690,24 @@ function DailyReviewView({
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3">
             <div>
-              <CardTitle>Today</CardTitle>
-              <CardDescription>Deterministic observations from the report data.</CardDescription>
+              <CardTitle>{dict.reports.todayTitle}</CardTitle>
+              <CardDescription>{dict.reports.todayDescription}</CardDescription>
             </div>
-            <SectionRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-today-refresh" />
+            <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-today-refresh" />
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {data.suggestions.length === 0 ? <p className="text-sm text-muted-foreground">No observations for this scope.</p> : null}
+            {data.suggestions.length === 0 ? <p className="text-sm text-muted-foreground">{dict.reports.todayEmpty}</p> : null}
             {data.suggestions.map((item) => (
               <div key={item.code} className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium">{item.title}</p>
-                  <Badge variant={item.severity === "critical" ? "destructive" : "secondary"}>{item.severity}</Badge>
+                  <Badge
+                    variant={item.severity === "critical" ? "destructive" : "outline"}
+                    className={dailyReviewSeverityBadgeClass(item.severity)}
+                    data-testid={`reports-today-severity-${item.code}`}
+                  >
+                    {item.severity}
+                  </Badge>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
               </div>
@@ -567,136 +715,212 @@ function DailyReviewView({
           </CardContent>
         </Card>
         <HoldingsCard
-          title="Top movers"
+          dict={dict}
+          title={dict.reports.topMoversTitle}
+          contextKey="reports.dailyReview.topMovers"
           rows={{ total: data.topMovers.length, limit: data.topMovers.length, offset: 0, rows: data.topMovers }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
         />
       </div>
-      <HoldingsCard title="Holdings detail" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
     </>
   );
 }
 
+function dailyReviewSeverityBadgeClass(severity: DailyReviewReportDto["suggestions"][number]["severity"]): string {
+  switch (severity) {
+    case "critical":
+      return "border-destructive/70 bg-destructive/10 text-destructive";
+    case "warning":
+      return "border-warning/60 bg-warning/10 text-warning";
+    case "info":
+    default:
+      return "border-primary/40 bg-primary/10 text-primary";
+  }
+}
+
 function PortfolioReportView({
   data,
+  dict,
   isRefreshing,
   locale,
   onRefresh,
+  timelineMode,
+  onTimelineModeChange,
 }: {
   data: PortfolioReportDto;
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
   return (
     <>
-      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
+      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} dict={dict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <AllocationChart title="Allocation by market" buckets={data.allocation.byMarket} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
-        <AllocationChart title="Allocation by account" buckets={data.allocation.byAccount} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
+        <AllocationChart dict={dict} title={dict.reports.allocationByMarketTitle} buckets={data.allocation.byMarket} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
+        <AllocationChart dict={dict} title={dict.reports.allocationByAccountTitle} buckets={data.allocation.byAccount} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Income</CardTitle>
-            <CardDescription>{formatNumber(data.income.recentDividendCount, locale)} posted dividend rows</CardDescription>
+            <CardTitle>{dict.reports.incomeTitle}</CardTitle>
+            <CardDescription>{formatReportMessage(dict.reports.postedDividendRows, { count: formatNumber(data.income.recentDividendCount, locale) })}</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="font-mono text-2xl font-semibold tabular-nums">
               {formatCompactCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale)}
             </p>
+            <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">
+              {formatExactAmountInline(dict, formatCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale))}
+            </p>
           </CardContent>
         </Card>
         <HoldingsCard
-          title="Concentration"
+          dict={dict}
+          title={dict.reports.concentrationTitle}
+          contextKey="reports.portfolio.concentration"
           rows={{ total: data.concentration.topHoldings.length, limit: data.concentration.topHoldings.length, offset: 0, rows: data.concentration.topHoldings }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
         />
       </div>
-      <HoldingsCard title="Holdings detail" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
     </>
   );
 }
 
 function MarketReportView({
   data,
+  dict,
   isRefreshing,
   locale,
   onRefresh,
+  timelineMode,
+  onTimelineModeChange,
 }: {
   data: MarketReportDto;
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
   return (
     <>
-      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
+      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} dict={dict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} />
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
-        <AllocationChart title="Market summary" buckets={data.marketSummary} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
+        <AllocationChart dict={dict} title={dict.reports.marketSummaryTitle} buckets={data.marketSummary} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <HoldingsCard
-          title="Top holdings"
+          dict={dict}
+          title={dict.reports.topHoldingsTitle}
+          contextKey="reports.market.topHoldings"
           rows={{ total: data.topHoldings.length, limit: data.topHoldings.length, offset: 0, rows: data.topHoldings }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
         />
       </div>
-      <HoldingsCard title="Market detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
     </>
   );
 }
 
 function PerformanceChart({
+  dict,
   isRefreshing,
   locale,
   onRefresh,
   performance,
+  timelineMode,
+  onTimelineModeChange,
 }: {
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
   performance: DashboardPerformanceDto;
+  timelineMode: TimelineMode;
+  onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
   const points = performance.points;
+  const chartPoints = points.map((point) => ({ ...point, dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime() }));
   const lastReliableDate = performance.lastReliableDate ?? findLastReliablePointDate(points);
   const marketDataStaleSince = performance.marketDataStaleSince ?? null;
+  const timelineAxis = buildTimelineAxis({
+    endDate: performance.rangeEndDate ?? performance.requestedAsOf ?? points.at(-1)?.date ?? new Date().toISOString().slice(0, 10),
+    locale,
+    mode: timelineMode,
+    pointDates: points.map((point) => point.date),
+    startDate: performance.rangeStartDate ?? points[0]?.date ?? performance.requestedAsOf ?? new Date().toISOString().slice(0, 10),
+  });
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
-          <CardTitle>Performance trend</CardTitle>
-          <CardDescription>
-            {performance.range} · {performance.reportingCurrency} · FX {performance.fxStatus}
-            {lastReliableDate ? ` · As of ${formatDateLabel(lastReliableDate, locale)}` : ""}
+          <CardTitle>{dict.reports.performanceTrendTitle}</CardTitle>
+          <CardDescription className="flex flex-wrap items-center gap-1">
+            <span>
+              {performance.range} · {performance.reportingCurrency} · FX {performance.fxStatus}
+              {lastReliableDate ? ` · ${formatReportMessage(dict.reports.performanceMetaAsOf, { date: formatDateLabel(lastReliableDate, locale) })}` : ""}
+            </span>
+            {lastReliableDate ? (
+              <TooltipInfo
+                label={dict.reports.performanceTrendLabel}
+                content={formatSnapshotAsOfTooltip(dict, lastReliableDate, locale)}
+                triggerTestId="reports-performance-as-of-tooltip-trigger"
+                contentTestId="reports-performance-as-of-tooltip-content"
+              />
+            ) : null}
           </CardDescription>
         </div>
-        <SectionRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-performance-refresh" />
+        <div className="flex flex-wrap justify-end gap-2">
+          <ToggleGroup
+            type="single"
+            aria-label={dict.reports.performanceTrendLabel}
+            value={timelineMode}
+            onValueChange={(value) => {
+              if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+                onTimelineModeChange(value);
+              }
+            }}
+            data-testid="reports-performance-timeline"
+          >
+            <ToggleGroupItem value="auto">{dict.reports.timelineAuto}</ToggleGroupItem>
+            <ToggleGroupItem value="day">{dict.reports.timelineDay}</ToggleGroupItem>
+            <ToggleGroupItem value="week">{dict.reports.timelineWeek}</ToggleGroupItem>
+            <ToggleGroupItem value="month">{dict.reports.timelineMonth}</ToggleGroupItem>
+            <ToggleGroupItem value="year">{dict.reports.timelineYear}</ToggleGroupItem>
+          </ToggleGroup>
+          <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-performance-refresh" />
+        </div>
       </CardHeader>
       <CardContent>
         {marketDataStaleSince ? (
           <div
-            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+            className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
             data-testid="reports-performance-stale-warning"
           >
-            Market data stale since {formatDateLabel(marketDataStaleSince, locale)}
+            {formatReportMessage(dict.reports.performanceStaleDataWarning, { date: formatDateLabel(marketDataStaleSince, locale) })}
           </div>
         ) : null}
         {points.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">No server snapshot series is available for this scope.</div>
+          <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">{dict.reports.noSnapshotSeries}</div>
         ) : (
           <ChartContainer config={PERFORMANCE_CHART_CONFIG} className="h-72 w-full aspect-auto" data-testid="reports-performance-chart">
-            <LineChart data={points} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
+            <LineChart data={chartPoints} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
               <CartesianGrid strokeDasharray="4 6" vertical={false} />
-              <XAxis dataKey="date" tickFormatter={(value: string) => formatShortDate(value, locale)} tickLine={false} axisLine={false} minTickGap={40} />
+              <XAxis dataKey="dateMs" type="number" domain={timelineAxis.domain} ticks={timelineAxis.ticks} tickFormatter={timelineAxis.tickFormatter} tickLine={false} axisLine={false} minTickGap={40} />
               <YAxis tickFormatter={(value: number) => formatCompactCurrencyAmount(value, performance.reportingCurrency, locale)} tickLine={false} axisLine={false} width={74} />
               <Tooltip
                 formatter={(value: number | string) => typeof value === "number" ? formatCurrencyAmount(value, performance.reportingCurrency, locale) : value}
-                labelFormatter={(value: string) => formatDateLabel(value, locale)}
+                labelFormatter={(value: number | string) => typeof value === "number" ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale) : formatDateLabel(value, locale)}
               />
               <Line dataKey="marketValueAmount" type="monotone" stroke="var(--color-marketValueAmount)" strokeWidth={3} dot={false} connectNulls={false} />
               <Line dataKey="totalCostAmount" type="monotone" stroke="var(--color-totalCostAmount)" strokeWidth={2} dot={false} connectNulls={false} />
@@ -711,12 +935,14 @@ function PerformanceChart({
 
 function AllocationChart({
   buckets,
+  dict,
   isRefreshing,
   locale,
   onRefresh,
   title,
 }: {
   buckets: AllocationBucketDto[];
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -729,13 +955,13 @@ function AllocationChart({
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
           <CardTitle>{title}</CardTitle>
-          <CardDescription>{formatNumber(buckets.length, locale)} bucket(s)</CardDescription>
+          <CardDescription>{formatReportMessage(dict.reports.allocationBucketCount, { count: formatNumber(buckets.length, locale) })}</CardDescription>
         </div>
-        <SectionRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
+        <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
       </CardHeader>
       <CardContent>
         {visible.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">No allocation buckets for this scope.</div>
+          <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">{dict.reports.noAllocationBuckets}</div>
         ) : (
           <ChartContainer config={ALLOCATION_CHART_CONFIG} className="h-64 w-full aspect-auto" data-testid={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-chart`}>
             <BarChart data={visible} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
@@ -753,13 +979,17 @@ function AllocationChart({
 }
 
 function HoldingsCard({
+  contextKey,
+  dict,
   locale,
   isRefreshing,
   onRefresh,
   rows,
-  stickyFirstColumn = false,
+  stickyFirstColumn = true,
   title,
 }: {
+  contextKey: string;
+  dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -768,70 +998,216 @@ function HoldingsCard({
   title: string;
 }) {
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
+  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
+  const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
+  const columns = useMemo(
+    () => REPORT_HOLDINGS_COLUMNS.map((column) => ({
+      ...column,
+      label: reportHoldingColumnLabel(dict, column.id),
+    })),
+    [
+      dict.holdings.avgCostTerm,
+      dict.holdings.dataHealthTerm,
+      dict.holdings.unitPnlTerm,
+      dict.reports.bookCost,
+      dict.reports.dailyChange,
+      dict.reports.marketValue,
+      dict.reports.pnl,
+      dict.reports.position,
+      dict.reports.price,
+      dict.reports.ticker,
+      dict.reports.weight,
+    ],
+  );
+  const columnSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
+    columns,
+    contextKey,
+    defaultLayoutStyle: "portfolio",
+  });
+  const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
+  const marketOptions = useMemo(
+    () => ["ALL", ...new Set(rows.rows.map((row) => row.marketCode))],
+    [rows.rows],
+  );
+  const accountOptions = useMemo(() => {
+    const accounts = new Map<string, string>();
+    for (const row of rows.rows) {
+      for (const account of row.accounts ?? []) {
+        accounts.set(account.id, account.name);
+      }
+    }
+    return [{ id: "ALL", name: dict.holdings.allAccountsOption }, ...[...accounts.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))];
+  }, [dict.holdings.allAccountsOption, rows.rows]);
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = query.trim().toUpperCase();
+    const baseRows = rows.rows.filter((row) => {
+      const marketMatches = marketFilter === "ALL" || row.marketCode === marketFilter;
+      const accountMatches = accountFilter === "ALL" || (row.accounts ?? []).some((account) => account.id === accountFilter);
+      const queryMatches = normalizedQuery === ""
+        || row.ticker.toUpperCase().includes(normalizedQuery)
+        || row.instrumentName?.toUpperCase().includes(normalizedQuery) === true
+        || row.marketCode.toUpperCase().includes(normalizedQuery)
+        || (row.accounts ?? []).some((account) =>
+          account.name.toUpperCase().includes(normalizedQuery) || account.id.toUpperCase().includes(normalizedQuery));
+      return marketMatches && accountMatches && queryMatches;
+    });
+    return applyReportHoldingPreset(baseRows, selectedPreset)
+      .slice()
+      .sort((left, right) => compareReportHoldingRows(left, right, sortMode, selectedPreset));
+  }, [accountFilter, marketFilter, query, rows.rows, selectedPreset, sortMode]);
+  const filteredRowsPage: ReportHoldingRowsPageDto = {
+    ...rows,
+    limit: filteredRows.length,
+    offset: 0,
+    rows: filteredRows,
+    total: filteredRows.length,
+  };
+
+  function handlePresetChange(value: string) {
+    if (!isReportHoldingFocusPreset(value)) return;
+    setSelectedPreset(value);
+    setSortMode(REPORT_HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+  }
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>{title}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <CardDescription>{formatNumber(rows.total, locale)} total row(s)</CardDescription>
-            {reportingCurrency ? <Badge variant="outline">Reporting {reportingCurrency}</Badge> : null}
+            <CardDescription>{formatReportMessage(dict.reports.totalRows, { count: formatNumber(filteredRows.length, locale) })}</CardDescription>
+            {reportingCurrency ? <Badge variant="outline">{formatReportMessage(dict.reports.reportingCurrencyBadge, { currency: reportingCurrency })}</Badge> : null}
+            <CardDescription className="basis-full">
+              {dict.holdings.dataHealthDescription}
+            </CardDescription>
           </div>
         </div>
-        <SectionRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
+        <div className="flex flex-wrap justify-end gap-2">
+          <HoldingsColumnSettingsMenu
+            dict={dict}
+            getColumnLabel={(column) => reportHoldingColumnLabel(dict, column.id)}
+            settings={columnSettings}
+          />
+          <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
+        </div>
       </CardHeader>
       <CardContent>
-        <HoldingsMobileList rows={rows.rows} locale={locale} />
-        <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border md:block">
-          <Table>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
+          <label className="relative block min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <span className="sr-only">{dict.dashboardHome.topHoldingsSearchLabel}</span>
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={dict.dashboardHome.topHoldingsSearchPlaceholder}
+              className="pl-9"
+              data-testid={`reports-holdings-search-${contextKey}`}
+            />
+          </label>
+          <Select value={marketFilter} onValueChange={setMarketFilter}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsMarketLabel} className="min-w-36" data-testid={`reports-holdings-market-filter-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {marketOptions.map((market) => (
+                  <SelectItem key={market} value={market}>
+                    {market === "ALL" ? dict.dashboardHome.topHoldingsAllMarkets : market}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={accountFilter} onValueChange={setAccountFilter}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsAccountLabel} className="min-w-36" data-testid={`reports-holdings-account-filter-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {accountOptions.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
+            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
+                <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
+                <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
+                <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
+                <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-4 flex min-w-0 overflow-x-auto pb-1">
+          <ToggleGroup
+            className="w-max"
+            type="single"
+            value={selectedPreset}
+            onValueChange={handlePresetChange}
+            aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
+            data-testid={`reports-holdings-presets-${contextKey}`}
+          >
+            {REPORT_HOLDING_FOCUS_PRESETS.map((preset) => (
+              <ToggleGroupItem key={preset.id} value={preset.id}>
+                {reportHoldingPresetLabel(dict, preset.id)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+        <HoldingsMobileList dict={dict} rows={filteredRowsPage.rows} locale={locale} />
+        <div className="hidden max-h-[32rem] overflow-auto rounded-md border border-border lg:block">
+          <Table className="table-fixed" data-testid={`reports-holdings-table-${contextKey}`}>
             <TableHeader>
               <TableRow>
-                <TableHead className={cn("sticky top-0 z-20 bg-card", stickyFirstColumn && "left-0 z-30")}>Ticker</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card">Position</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Price</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Market value</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Book Cost</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Unrealized</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Daily</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card text-right">Weight</TableHead>
-                <TableHead className="sticky top-0 z-20 bg-card">Health</TableHead>
+                {visibleColumns.map((column) => (
+                  <TableHead
+                    key={column.id}
+                    className={cn(
+                      "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
+                      stickyFirstColumn && column.id === "ticker" && "left-0 z-30",
+                      column.align === "right" && "text-right",
+                    )}
+                    style={holdingsColumnCellStyle(columnSettings, column.id)}
+                  >
+                    <HoldingsColumnHeaderContent
+                      align={column.align}
+                      column={column.id}
+                      dict={dict}
+                      label={column.label}
+                      settings={columnSettings}
+                    />
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.rows.map((row) => (
+              {filteredRowsPage.rows.map((row) => (
                 <TableRow key={`${row.ticker}-${row.marketCode}`} className="hover:bg-muted/10">
-                  <TableCell className={cn("font-medium", stickyFirstColumn && "sticky left-0 z-10 bg-card")}>
-                    <div className="flex min-w-[8rem] flex-col gap-1">
-                      <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
-                      <span className="text-xs text-muted-foreground">
-                        {formatNumber(row.accountCount, locale)} acct · {formatNumber(row.quantity, locale, 2)} units
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex min-w-[7rem] flex-col gap-1">
-                      <Badge variant="outline" className="w-fit">{row.marketCode}</Badge>
-                      <span className="text-xs text-muted-foreground">{getFreshnessLabel(row.freshness)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <PriceDisclosure row={row} locale={locale} align="end" />
-                  </TableCell>
-                  <MoneyCell value={row.reportingMarketValueAmount} currency={row.reportingCurrency} locale={locale} compact />
-                  <MoneyCell value={row.reportingCostBasisAmount} currency={row.reportingCurrency} locale={locale} compact />
-                  <MoneyCell value={row.reportingUnrealizedPnlAmount} currency={row.reportingCurrency} locale={locale} tone compact />
-                  <MoneyCell value={row.dailyChangeAmount} currency={row.reportingCurrency} locale={locale} percent={row.dailyChangePercent} tone compact />
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      <Badge variant={getQuoteStatusBadgeVariant(row.quoteStatus)}>{getQuoteStatusLabel(row.quoteStatus)}</Badge>
-                      <Badge variant={row.fxStatus === "complete" ? "secondary" : "outline"}>{getFxStatusLabel(row.fxStatus)}</Badge>
-                      <Badge variant={getFreshnessBadgeVariant(row.freshness)}>{getFreshnessLabel(row.freshness)}</Badge>
-                    </div>
-                  </TableCell>
+                  {visibleColumns.map((column) => (
+                    <ReportHoldingTableCell
+                      key={column.id}
+                      column={column.id}
+                      columnSettings={columnSettings}
+                      dict={dict}
+                      locale={locale}
+                      row={row}
+                      stickyFirstColumn={stickyFirstColumn}
+                    />
+                  ))}
                 </TableRow>
               ))}
             </TableBody>
@@ -843,10 +1219,12 @@ function HoldingsCard({
 }
 
 function SectionRefreshButton({
+  dict,
   isRefreshing,
   onRefresh,
   testId,
 }: {
+  dict: AppDictionary;
   isRefreshing: boolean;
   onRefresh: () => void;
   testId: string;
@@ -860,28 +1238,146 @@ function SectionRefreshButton({
       data-testid={testId}
     >
       <RefreshCw data-icon="inline-start" />
-      Refresh
+      {dict.reports.refresh}
     </Button>
   );
 }
 
-function MoneyCell({
+function ReportHoldingTableCell({
+  column,
+  columnSettings,
+  dict,
+  locale,
+  row,
+  stickyFirstColumn,
+}: {
+  column: ReportHoldingsColumn;
+  columnSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  row: ReportHoldingRowDto;
+  stickyFirstColumn: boolean;
+}) {
+  const style = holdingsColumnCellStyle(columnSettings, column);
+  const className = reportHoldingCellClassName(column, stickyFirstColumn);
+  if (column === "ticker") {
+    return (
+      <TableCell className={className} style={style}>
+        <div className="flex min-w-0 flex-col gap-1">
+          <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
+          {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
+          <span className="text-xs text-muted-foreground">
+            {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
+          </span>
+        </div>
+      </TableCell>
+    );
+  }
+  if (column === "position") {
+    return (
+      <TableCell className={className} style={style}>
+        <div className="flex min-w-0 flex-col gap-1">
+          <Badge variant="outline" className="w-fit">{row.marketCode}</Badge>
+          <span className="text-xs text-muted-foreground">{dict.holdings[row.freshness === "current" ? "freshnessCurrent" : row.freshness === "stale_amber" ? "freshnessStale" : "freshnessDelayed"]}</span>
+        </div>
+      </TableCell>
+    );
+  }
+  if (column === "price") {
+    return (
+      <TableCell className={className} style={style}>
+        <PriceDisclosure dict={dict} row={row} locale={locale} align="end" />
+      </TableCell>
+    );
+  }
+  if (column === "avgCost") {
+    return (
+      <ReportMoneyTableCell
+        className={className}
+        currency={row.reportingCurrency}
+        locale={locale}
+        secondary={row.nativeCurrency === row.reportingCurrency ? undefined : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale)}
+        style={style}
+        value={row.reportingAverageCostPerShare}
+      />
+    );
+  }
+  if (column === "unitPnl") {
+    const unitPnl = getReportUnitPnl(row);
+    const nativeUnitPnl = getNativeUnitPnl(row.nativeCurrentUnitPrice, row.nativeAverageCostPerShare);
+    return (
+      <ReportMoneyTableCell
+        className={className}
+        currency={row.reportingCurrency}
+        locale={locale}
+        percent={unitPnl.percent}
+        secondary={row.nativeCurrency === row.reportingCurrency ? undefined : formatOptionalFinanceMoney(nativeUnitPnl.amount, row.nativeCurrency, locale)}
+        style={style}
+        tone
+        value={unitPnl.amount}
+      />
+    );
+  }
+  if (column === "marketValue") {
+    return (
+      <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} style={style} value={row.reportingMarketValueAmount} compact />
+    );
+  }
+  if (column === "costBasis") {
+    return (
+      <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} style={style} value={row.reportingCostBasisAmount} compact />
+    );
+  }
+  if (column === "unrealized") {
+    return (
+      <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} style={style} value={row.reportingUnrealizedPnlAmount} tone compact />
+    );
+  }
+  if (column === "daily") {
+    return (
+      <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} percent={row.dailyChangePercent} style={style} value={row.dailyChangeAmount} tone compact />
+    );
+  }
+  if (column === "weight") {
+    return (
+      <TableCell className={cn(className, "font-mono tabular-nums")} style={style}>
+        {row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}
+      </TableCell>
+    );
+  }
+  return (
+    <TableCell
+      className={className}
+      style={style}
+    >
+      <HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness />
+    </TableCell>
+  );
+}
+
+function ReportMoneyTableCell({
+  className,
   compact = false,
   currency,
   locale,
   percent,
+  secondary,
+  style,
   tone = false,
   value,
 }: {
+  className?: string;
   compact?: boolean;
-  currency: AccountDefaultCurrency;
+  currency: CurrencyCode;
   locale: LocaleCode;
   percent?: number | null;
+  secondary?: string;
+  style?: CSSProperties;
   tone?: boolean;
   value: number | null;
 }) {
   return (
-    <TableCell className={cn("text-right font-mono tabular-nums", tone ? financeToneClass(value, "text-foreground") : null)}>
+    <TableCell className={cn(className, "font-mono tabular-nums", tone ? financeToneClass(value, "text-foreground") : null)} style={style}>
       <div className="flex flex-col items-end gap-1">
         <span>
           {value === null
@@ -892,20 +1388,111 @@ function MoneyCell({
                 ? formatCompactCurrencyAmount(value, currency, locale)
                 : formatCurrencyAmount(value, currency, locale)}
         </span>
+        {compact && value !== null ? (
+          <span className={cn("text-xs", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+            {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
+          </span>
+        ) : null}
         {percent !== undefined ? (
           <span className={cn("text-xs", financeToneClass(percent, "text-muted-foreground"))}>
             {percent === null ? "-" : formatSignedPercent(percent, locale)}
           </span>
         ) : null}
+        {secondary ? <span className="text-xs text-muted-foreground">{secondary}</span> : null}
       </div>
     </TableCell>
   );
 }
 
-function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: ReportHoldingRowDto[] }) {
+function reportHoldingCellClassName(column: ReportHoldingsColumn, stickyFirstColumn: boolean) {
+  return cn(
+    "whitespace-normal break-words align-top",
+    column === "ticker" && "font-medium",
+    stickyFirstColumn && column === "ticker" && "sticky left-0 z-10 bg-card",
+    ["avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"].includes(column) && "text-right",
+  );
+}
+
+function applyReportHoldingPreset(
+  rows: ReportHoldingRowDto[],
+  preset: ReportHoldingFocusPreset,
+): ReportHoldingRowDto[] {
+  if (preset === "stale-quotes") {
+    return rows.filter((row) => row.quoteStatus !== "current" || row.freshness !== "current");
+  }
+  if (preset === "fx-exposure") {
+    return rows.filter((row) => row.nativeCurrency !== row.reportingCurrency);
+  }
+  return rows;
+}
+
+function compareReportHoldingRows(
+  left: ReportHoldingRowDto,
+  right: ReportHoldingRowDto,
+  sortMode: ReportHoldingSort,
+  selectedPreset: ReportHoldingFocusPreset,
+): number {
+  if (selectedPreset === "stale-quotes") {
+    const freshnessRankDiff = reportFreshnessSortRank(right) - reportFreshnessSortRank(left);
+    if (freshnessRankDiff !== 0) return freshnessRankDiff;
+  }
+  if (sortMode === "ticker") {
+    return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
+  }
+  if (sortMode === "daily") {
+    return Math.abs(right.dailyChangePercent ?? 0) - Math.abs(left.dailyChangePercent ?? 0);
+  }
+  if (sortMode === "pnl") {
+    if (selectedPreset === "worst-pnl") {
+      return (left.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY)
+        - (right.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY);
+    }
+    return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
+      - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
+  }
+  if (sortMode === "unitPnl") {
+    return (getReportUnitPnl(right).amount ?? Number.NEGATIVE_INFINITY)
+      - (getReportUnitPnl(left).amount ?? Number.NEGATIVE_INFINITY);
+  }
+  return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
+    - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
+}
+
+function reportFreshnessSortRank(row: ReportHoldingRowDto): number {
+  if (row.quoteStatus === "missing") return 4;
+  if (row.freshness === "stale_red") return 3;
+  if (row.freshness === "stale_amber") return 2;
+  if (row.quoteStatus === "provisional") return 1;
+  return 0;
+}
+
+function isReportHoldingFocusPreset(value: string): value is ReportHoldingFocusPreset {
+  return REPORT_HOLDING_FOCUS_PRESETS.some((preset) => preset.id === value);
+}
+
+function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocusPreset): string {
+  switch (preset) {
+    case "largest":
+      return dict.dashboardHome.topHoldingsPresetLargest;
+    case "worst-pnl":
+      return dict.dashboardHome.topHoldingsPresetWorstPnl;
+    case "best-pnl":
+      return dict.dashboardHome.topHoldingsPresetBestPnl;
+    case "stale-quotes":
+      return dict.dashboardHome.topHoldingsPresetStaleQuotes;
+    case "fx-exposure":
+      return dict.dashboardHome.topHoldingsPresetFxExposure;
+  }
+}
+
+function formatExactAmountInline(dict: AppDictionary, amount: string): string {
+  return dict.dashboardHome.exactAmountInline.replace("{amount}", amount);
+}
+
+function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; locale: LocaleCode; rows: ReportHoldingRowDto[] }) {
   const [selected, setSelected] = useState<ReportHoldingRowDto | null>(null);
   return (
-    <div className="flex flex-col gap-3 md:hidden">
+    <div className="flex flex-col gap-3 lg:hidden">
       {rows.map((row) => (
         <div
           key={`${row.ticker}-${row.marketCode}`}
@@ -915,29 +1502,43 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <TickerLink marketCode={row.marketCode} ticker={row.ticker} className="font-medium" />
+              {row.instrumentName ? <p className="mt-1 text-xs text-muted-foreground">{row.instrumentName}</p> : null}
               <p className="mt-1 text-xs text-muted-foreground">
-                {row.marketCode} · {formatNumber(row.quantity, locale, 2)} units · {formatNumber(row.accountCount, locale)} acct
+                {row.marketCode} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })} · {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })}
               </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <Badge variant={getQuoteStatusBadgeVariant(row.quoteStatus)}>{getQuoteStatusLabel(row.quoteStatus)}</Badge>
-                <Badge variant={row.fxStatus === "complete" ? "secondary" : "outline"}>{getFxStatusLabel(row.fxStatus)}</Badge>
-                <Badge variant={getFreshnessBadgeVariant(row.freshness)}>{getFreshnessLabel(row.freshness)}</Badge>
+              <div className="mt-2 flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
+                <HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness />
               </div>
             </div>
-            <p className="text-right font-mono text-sm font-semibold tabular-nums">
-              {row.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
-            </p>
+            <div className="text-right font-mono tabular-nums">
+              <p className="text-sm font-semibold">
+                {row.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
+              </p>
+              {row.reportingMarketValueAmount !== null ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatCurrencyAmount(row.reportingMarketValueAmount, row.reportingCurrency, locale)}
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <CompactFinanceStat
-              label="Price"
+              label={dict.holdings.avgCostTerm}
+              locale={locale}
+              secondary={row.nativeCurrency === row.reportingCurrency ? undefined : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale)}
+              value={row.reportingAverageCostPerShare}
+              currency={row.reportingCurrency}
+            />
+            <CompactFinanceStat
+              label={dict.reports.price}
               locale={locale}
               value={row.reportingCurrentUnitPrice}
               currency={row.reportingCurrency}
-              valueOverride={<PriceDisclosure row={row} locale={locale} />}
+              valueOverride={<PriceDisclosure dict={dict} row={row} locale={locale} />}
             />
             <CompactFinanceStat
-              label="Daily"
+              label={dict.reports.dailyChange}
               locale={locale}
               percent={row.dailyChangePercent}
               value={row.dailyChangeAmount}
@@ -947,14 +1548,25 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <CompactFinanceStat
-              label="P&L"
+              label={dict.holdings.unitPnlTerm}
+              locale={locale}
+              percent={getReportUnitPnl(row).percent}
+              secondary={row.nativeCurrency === row.reportingCurrency
+                ? undefined
+                : formatOptionalFinanceMoney(getNativeUnitPnl(row.nativeCurrentUnitPrice, row.nativeAverageCostPerShare).amount, row.nativeCurrency, locale)}
+              value={getReportUnitPnl(row).amount}
+              currency={row.reportingCurrency}
+              tone
+            />
+            <CompactFinanceStat
+              label={dict.reports.pnl}
               locale={locale}
               value={row.reportingUnrealizedPnlAmount}
               currency={row.reportingCurrency}
               tone
             />
             <CompactFinanceStat
-              label="Book Cost"
+              label={dict.reports.bookCost}
               locale={locale}
               value={row.reportingCostBasisAmount}
               currency={row.reportingCurrency}
@@ -962,7 +1574,7 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <CompactFinanceStat
-              label="Weight"
+              label={dict.reports.weight}
               locale={locale}
               value={null}
               currency={row.reportingCurrency}
@@ -973,13 +1585,13 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
             <Link
               href={tickerHref(row.ticker, row.marketCode)}
               className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary transition hover:bg-muted hover:text-primary"
-              aria-label={`Open ${row.ticker} ticker page`}
+              aria-label={formatReportMessage(dict.reports.openTickerAria, { ticker: row.ticker })}
             >
               <ExternalLink data-icon="inline-start" aria-hidden="true" />
-              Open ticker
+              {dict.reports.openTicker}
             </Link>
             <Button size="sm" variant="ghost" onClick={() => setSelected(row)}>
-              View details
+              {dict.reports.viewDetails}
             </Button>
           </div>
         </div>
@@ -988,38 +1600,55 @@ function HoldingsMobileList({ locale, rows }: { locale: LocaleCode; rows: Report
         <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>
-              {selected ? <TickerLink marketCode={selected.marketCode} ticker={selected.ticker} className="text-base" /> : "Holding detail"}
+              {selected ? <TickerLink marketCode={selected.marketCode} ticker={selected.ticker} className="text-base" /> : dict.reports.holdingDetailTitle}
             </SheetTitle>
-            <SheetDescription>Exact report values for the selected holding row.</SheetDescription>
+            <SheetDescription>{dict.reports.holdingDetailDescription}</SheetDescription>
           </SheetHeader>
-          {selected ? <HoldingDetail row={selected} locale={locale} /> : null}
+          {selected ? <HoldingDetail dict={dict} row={selected} locale={locale} /> : null}
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-function HoldingDetail({ locale, row }: { locale: LocaleCode; row: ReportHoldingRowDto }) {
+function HoldingDetail({ dict, locale, row }: { dict: AppDictionary; locale: LocaleCode; row: ReportHoldingRowDto }) {
   const values = [
-    ["Reporting price", formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale), null],
-    ["Market value", formatOptionalMoney(row.reportingMarketValueAmount, row.reportingCurrency, locale), null],
-    ["Book Cost", formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale), null],
-    ["Unrealized P&L", formatOptionalFinanceMoney(row.reportingUnrealizedPnlAmount, row.reportingCurrency, locale), row.reportingUnrealizedPnlAmount],
-    ["Daily change", formatOptionalFinanceMoney(row.dailyChangeAmount, row.reportingCurrency, locale), row.dailyChangeAmount],
+    [dict.holdings.avgCostTerm, formatDualReportUnitValue(
+      formatOptionalUnitPrice(row.reportingAverageCostPerShare, row.reportingCurrency, locale),
+      row.nativeCurrency === row.reportingCurrency ? null : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale),
+    ), null],
+    [dict.reports.reportingPrice, formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale), null],
+    [dict.holdings.unitPnlTerm, formatDualReportUnitValue(
+      formatOptionalFinanceMoney(getReportUnitPnl(row).amount, row.reportingCurrency, locale),
+      row.nativeCurrency === row.reportingCurrency
+        ? null
+        : formatOptionalFinanceMoney(getNativeUnitPnl(row.nativeCurrentUnitPrice, row.nativeAverageCostPerShare).amount, row.nativeCurrency, locale),
+    ), getReportUnitPnl(row).amount],
+    [dict.reports.marketValue, formatOptionalMoney(row.reportingMarketValueAmount, row.reportingCurrency, locale), null],
+    [dict.reports.bookCost, formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale), null],
+    [dict.reports.unrealizedPnl, formatOptionalFinanceMoney(row.reportingUnrealizedPnlAmount, row.reportingCurrency, locale), row.reportingUnrealizedPnlAmount],
+    [dict.reports.dailyChange, formatOptionalFinanceMoney(row.dailyChangeAmount, row.reportingCurrency, locale), row.dailyChangeAmount],
     ...(row.nativeCurrency !== row.reportingCurrency ? [
-      ["Native price", formatOptionalNativePrice(row, locale), null],
-      ["Native market value", formatOptionalMoney(row.nativeMarketValueAmount, row.nativeCurrency, locale), null],
-      ["Native book cost", formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
-      ["FX rate", formatOptionalFxRate(row), null],
+      [dict.reports.nativePrice, formatOptionalNativePrice(row, locale), null],
+      [dict.reports.nativeMarketValue, formatOptionalMoney(row.nativeMarketValueAmount, row.nativeCurrency, locale), null],
+      [dict.reports.nativeBookCost, formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
+      [dict.reports.fxRate, formatOptionalFxRate(row), null],
     ] as const : []),
   ] as const;
   return (
     <div className="mt-5 flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="outline">{row.marketCode}</Badge>
-        <Badge variant={getQuoteStatusBadgeVariant(row.quoteStatus)}>{getQuoteStatusLabel(row.quoteStatus)}</Badge>
-        <Badge variant={row.fxStatus === "complete" ? "secondary" : "outline"}>{getFxStatusLabel(row.fxStatus)}</Badge>
-        <Badge variant={getFreshnessBadgeVariant(row.freshness)}>{getFreshnessLabel(row.freshness)}</Badge>
+      <div className="flex flex-col gap-2">
+        {row.instrumentName ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+            <span className="text-sm text-muted-foreground">{dict.reports.ticker}</span>
+            <span className="text-right text-sm font-semibold text-foreground">{row.instrumentName}</span>
+          </div>
+        ) : null}
+        <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{row.marketCode}</Badge>
+          <HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness />
+        </div>
       </div>
       {values.map(([label, value, tone]) => (
         <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
@@ -1028,21 +1657,21 @@ function HoldingDetail({ locale, row }: { locale: LocaleCode; row: ReportHolding
         </div>
       ))}
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-        <span className="text-sm text-muted-foreground">Accounts</span>
+        <span className="text-sm text-muted-foreground">{dict.reports.accounts}</span>
         <span className="font-mono text-sm font-semibold tabular-nums">{formatNumber(row.accountCount, locale)}</span>
       </div>
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-        <span className="text-sm text-muted-foreground">Quantity</span>
+        <span className="text-sm text-muted-foreground">{dict.reports.quantity}</span>
         <span className="font-mono text-sm font-semibold tabular-nums">{formatNumber(row.quantity, locale, 2)}</span>
       </div>
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-        <span className="text-sm text-muted-foreground">Daily change %</span>
+        <span className="text-sm text-muted-foreground">{dict.reports.dailyChangePercent}</span>
         <span className={cn("font-mono text-sm font-semibold tabular-nums", financeToneClass(row.dailyChangePercent, "text-foreground"))}>
           {row.dailyChangePercent === null ? "-" : formatSignedPercent(row.dailyChangePercent, locale)}
         </span>
       </div>
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-        <span className="text-sm text-muted-foreground">Allocation</span>
+        <span className="text-sm text-muted-foreground">{dict.reports.allocation}</span>
         <span className="font-mono text-sm font-semibold tabular-nums">{row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}</span>
       </div>
     </div>
@@ -1051,10 +1680,12 @@ function HoldingDetail({ locale, row }: { locale: LocaleCode; row: ReportHolding
 
 function PriceDisclosure({
   align = "start",
+  dict,
   locale,
   row,
 }: {
   align?: "center" | "end" | "start";
+  dict: AppDictionary;
   locale: LocaleCode;
   row: ReportHoldingRowDto;
 }) {
@@ -1066,14 +1697,14 @@ function PriceDisclosure({
           type="button"
           className="inline-flex max-w-full flex-col items-start rounded-md text-left font-mono tabular-nums text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[align=end]:items-end data-[align=end]:text-right"
           data-align={align}
-          aria-label={`Open ${row.ticker} price translation details`}
+          aria-label={`${dict.reports.priceTranslationTitle}: ${row.ticker}`}
         >
           <span className="font-semibold">
             {formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)}
           </span>
           {hasNativeDisclosure ? (
             <span className="text-xs text-muted-foreground">
-              Native {formatOptionalNativePrice(row, locale)}
+              {dict.reports.nativePrice} {formatOptionalNativePrice(row, locale)}
             </span>
           ) : null}
         </button>
@@ -1081,17 +1712,17 @@ function PriceDisclosure({
       <PopoverContent align={align} className="w-80 p-3">
         <div className="flex flex-col gap-3">
           <div>
-            <p className="text-sm font-semibold text-foreground">Price translation</p>
-            <p className="text-xs text-muted-foreground">Reporting currency is {row.reportingCurrency}.</p>
+            <p className="text-sm font-semibold text-foreground">{dict.reports.priceTranslationTitle}</p>
+            <p className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.reportingCurrencySentence, { currency: row.reportingCurrency })}</p>
           </div>
-          <DetailRow label={`Reporting price (${row.reportingCurrency})`} value={formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)} />
+          <DetailRow label={formatReportMessage(dict.reports.reportingPriceWithCurrency, { currency: row.reportingCurrency })} value={formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)} />
           {hasNativeDisclosure ? (
             <>
-              <DetailRow label={`Native price (${row.nativeCurrency})`} value={formatOptionalNativePrice(row, locale)} />
-              <DetailRow label="FX rate" value={formatOptionalFxRate(row)} />
+              <DetailRow label={formatReportMessage(dict.reports.nativePriceWithCurrency, { currency: row.nativeCurrency })} value={formatOptionalNativePrice(row, locale)} />
+              <DetailRow label={dict.reports.fxRate} value={formatOptionalFxRate(row)} />
             </>
           ) : null}
-          <DetailRow label="Quote status" value={getQuoteStatusLabel(row.quoteStatus)} />
+          <DetailRow label={dict.reports.quoteStatus} value={getQuoteStatusLabel(dict, row.quoteStatus)} />
         </div>
       </PopoverContent>
     </Popover>
@@ -1135,14 +1766,16 @@ function CompactFinanceStat({
   label,
   locale,
   percent,
+  secondary,
   tone = false,
   value,
   valueOverride,
 }: {
-  currency: AccountDefaultCurrency;
+  currency: CurrencyCode;
   label: string;
   locale: LocaleCode;
   percent?: number | null;
+  secondary?: string;
   tone?: boolean;
   value: number | null;
   valueOverride?: ReactNode;
@@ -1153,11 +1786,17 @@ function CompactFinanceStat({
       <div className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", tone ? financeToneClass(value, "text-foreground") : "text-foreground")}>
         {valueOverride ?? (value === null ? "-" : tone ? formatFinanceCurrencyAmount(value, currency, locale, true) : formatCompactCurrencyAmount(value, currency, locale))}
       </div>
+      {valueOverride === undefined && value !== null ? (
+        <p className={cn("mt-1 font-mono text-xs tabular-nums", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+          {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
+        </p>
+      ) : null}
       {percent !== undefined ? (
         <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(percent, "text-muted-foreground"))}>
           {percent === null ? "-" : formatSignedPercent(percent, locale)}
         </p>
       ) : null}
+      {secondary ? <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{secondary}</p> : null}
     </div>
   );
 }
@@ -1206,6 +1845,10 @@ function formatOptionalNativePrice(row: ReportHoldingRowDto, locale: LocaleCode)
   return formatOptionalUnitPrice(row.nativeCurrentUnitPrice, row.nativeCurrency, locale);
 }
 
+function formatDualReportUnitValue(primary: string, secondary: string | null): string {
+  return secondary ? `${primary} (${secondary})` : primary;
+}
+
 function formatOptionalFxRate(row: ReportHoldingRowDto): string {
   if (row.nativeCurrency === row.reportingCurrency) return "1";
   if (row.fxRateToReporting === null) return "-";
@@ -1218,37 +1861,23 @@ function financeToneClass(value: number | null | undefined, neutralClass = "text
   return "text-[hsl(var(--destructive))]";
 }
 
-function getFxStatusLabel(status: ReportHoldingRowDto["fxStatus"]): string {
-  return `FX ${status}`;
-}
-
-function getFreshnessLabel(status: ReportHoldingRowDto["freshness"]): string {
-  if (status === "current") return "Current";
-  if (status === "stale_amber") return "Stale";
-  return "Delayed";
-}
-
-function getFreshnessBadgeVariant(status: ReportHoldingRowDto["freshness"]): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "current") return "secondary";
-  if (status === "stale_red") return "destructive";
-  return "outline";
-}
-
-function getQuoteStatusLabel(status: ReportHoldingRowDto["quoteStatus"]): string {
-  if (status === "missing") return "No quote";
-  if (status === "provisional") return "Provisional";
-  return "Current";
-}
-
-function getQuoteStatusBadgeVariant(status: ReportHoldingRowDto["quoteStatus"]): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "current") return "secondary";
-  return "outline";
+function getQuoteStatusLabel(dict: AppDictionary, status: ReportHoldingRowDto["quoteStatus"]): string {
+  if (status === "missing") return dict.reports.quoteStatusMissing;
+  if (status === "provisional") return dict.reports.quoteStatusProvisional;
+  return dict.reports.quoteStatusCurrent;
 }
 
 function findLastReliablePointDate(points: DashboardPerformanceDto["points"]): string | null {
   return [...points].reverse().find((point) =>
     point.fxAvailable && point.marketValueAmount !== null && point.totalCostAmount !== null,
   )?.date ?? null;
+}
+
+function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: LocaleCode): string {
+  return dict.dashboardHome.performanceSnapshotAsOfTooltip.replace(
+    "{date}",
+    formatDateLabel(date, locale),
+  );
 }
 
 function getOptionalFxRates(
@@ -1288,12 +1917,4 @@ function ReportSkeleton() {
       <Skeleton className="h-96" />
     </div>
   );
-}
-
-function formatShortDate(value: string, locale: LocaleCode): string {
-  return new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(value));
 }

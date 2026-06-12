@@ -401,10 +401,17 @@ export interface FxConversionRateDto {
   asOf: string | null;
 }
 
+export interface DashboardOverviewMarketValueDto {
+  marketCode: MarketCode;
+  value: number;
+  reportingCurrency: AccountDefaultCurrency;
+}
+
 export interface DashboardOverviewHoldingDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -429,6 +436,7 @@ export interface DashboardOverviewHoldingChildDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -451,6 +459,7 @@ export interface DashboardOverviewHoldingChildDto {
   reportingCostBasisAmount: number | null;
   reportingMarketValueAmount: number | null;
   reportingUnrealizedPnlAmount: number | null;
+  reportingDailyChangeAmount?: number | null;
   reportingAllocationPercent: number | null;
   fxStatus: "complete" | "partial" | "missing";
   allocationBasisUsed: HoldingAllocationBasis;
@@ -459,6 +468,7 @@ export interface DashboardOverviewHoldingChildDto {
 
 export interface DashboardOverviewHoldingGroupDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   costBasisAmount: number;
@@ -482,6 +492,7 @@ export interface DashboardOverviewHoldingGroupDto {
   reportingCostBasisAmount: number | null;
   reportingMarketValueAmount: number | null;
   reportingUnrealizedPnlAmount: number | null;
+  reportingDailyChangeAmount?: number | null;
   reportingAllocationPercent: number | null;
   fxStatus: "complete" | "partial" | "missing";
   allocationBasisUsed: HoldingAllocationBasis;
@@ -526,6 +537,7 @@ export interface DashboardOverviewDto {
   settings: UserSettings;
   summary: DashboardOverviewSummaryDto;
   fxRates?: FxConversionRateDto[];
+  marketValues: DashboardOverviewMarketValueDto[];
   holdings: DashboardOverviewHoldingDto[];
   holdingGroups: DashboardOverviewHoldingGroupDto[];
   dividends: {
@@ -632,6 +644,20 @@ export interface DashboardHoldingFocusPreferenceDto {
   selectedPreset: DashboardHoldingFocusPreset;
 }
 
+export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
+
+export interface HoldingsTableContextPreferenceDto {
+  columnOrder?: string[];
+  hiddenColumns?: string[];
+  columnWidths?: Record<string, number>;
+  layoutStyle?: HoldingsTableLayoutStyle;
+}
+
+export interface HoldingsTableSettingsPreferenceDto {
+  version: 1;
+  contexts: Record<string, HoldingsTableContextPreferenceDto>;
+}
+
 const dashboardHoldingFocusPresetSchema = z.enum(DASHBOARD_HOLDING_FOCUS_PRESETS);
 const dashboardHoldingFocusPresetListSchema = z
   .array(dashboardHoldingFocusPresetSchema)
@@ -683,6 +709,47 @@ export const dashboardHoldingFocusPreferenceSchema: z.ZodType<DashboardHoldingFo
       }
     }
   });
+
+const holdingsTableColumnIdSchema = z.string().min(1).max(64);
+const holdingsTableContextKeySchema = z.string().min(1).max(96);
+const holdingsTableColumnListSchema = z
+  .array(holdingsTableColumnIdSchema)
+  .max(40)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "holdings_table_duplicate_column" },
+  );
+
+export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSettingsPreferenceDto> = z
+  .object({
+    version: z.literal(1),
+    contexts: z
+      .record(
+        holdingsTableContextKeySchema,
+        z
+          .object({
+            columnOrder: holdingsTableColumnListSchema.optional(),
+            hiddenColumns: holdingsTableColumnListSchema.optional(),
+            columnWidths: z
+              .record(
+                holdingsTableColumnIdSchema,
+                z.number().int().min(72).max(420),
+              )
+              .optional(),
+            layoutStyle: z.enum(["dashboard", "portfolio"]).optional(),
+          })
+          .strict(),
+      )
+      .superRefine((value, ctx) => {
+        if (Object.keys(value).length > 20) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "holdings_table_too_many_contexts",
+          });
+        }
+      }),
+  })
+  .strict();
 
 export const DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE: DashboardHoldingFocusPreferenceDto = {
   presetOrder: DEFAULT_DASHBOARD_HOLDING_FOCUS_PRESET_ORDER,
@@ -746,9 +813,26 @@ export interface DashboardPerformancePointDto {
   fxAvailable: boolean;
 }
 
+export type DashboardPerformanceGapReason =
+  | "missing_snapshot"
+  | "stale_snapshot"
+  | "missing_fx";
+
+export interface DashboardPerformanceDiagnosticsDto {
+  latestSnapshotDate: string | null;
+  latestReliableValuationDate: string | null;
+  expectedLatestValuationDate: string;
+  staleSinceDate: string | null;
+  knownGapReasons: DashboardPerformanceGapReason[];
+}
+
 export interface DashboardPerformanceDto {
   range: DashboardPerformanceRange;
   points: DashboardPerformancePointDto[];
+  /** Inclusive start date resolved from `range`, used by clients to render the honest selected timeline. */
+  rangeStartDate?: string;
+  /** Inclusive end date resolved from `range`, normally the requested as-of date. */
+  rangeEndDate?: string;
   /** KZO-180: chosen reporting currency for all translated point numerics. */
   reportingCurrency: AccountDefaultCurrency;
   /** KZO-180: rollup of `fxAvailable` across the points list. See
@@ -760,6 +844,8 @@ export interface DashboardPerformanceDto {
   lastReliableDate?: string | null;
   /** Present when the requested valuation date extends beyond available market data. */
   marketDataStaleSince?: string | null;
+  /** Structured snapshot-only diagnostics for Dashboard trend/return cards. */
+  diagnostics?: DashboardPerformanceDiagnosticsDto;
 }
 
 export interface ReportQueryStateDto {
@@ -796,10 +882,24 @@ export interface ReportDiagnosticsDto {
   requestedAsOf: string;
   lastValuationDate: string | null;
   marketDataStaleSince: string | null;
+  latestSnapshotDate: string | null;
+  latestReliableValuationDate: string | null;
+  expectedLatestValuationDate: string;
+  staleSinceDate: string | null;
   missingQuoteCount: number;
   provisionalQuoteCount: number;
   staleQuoteCount: number;
   missingFxCount: number;
+  missingProviderSourceCount: number;
+  knownGapReasons: Array<
+    | "missing_snapshot"
+    | "stale_snapshot"
+    | "missing_quote"
+    | "provisional_quote"
+    | "stale_quote"
+    | "missing_fx"
+    | "missing_provider_source"
+  >;
   rowCounts: {
     holdingsTotal: number;
     holdingsReturned: number;
@@ -825,8 +925,13 @@ export interface ReportSummaryTotalsDto {
 
 export interface ReportHoldingRowDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   accountCount: number;
+  accounts?: Array<{
+    id: string;
+    name: string;
+  }>;
   quantity: number;
   nativeCurrency: CurrencyCode;
   nativeAverageCostPerShare: number;
@@ -1016,6 +1121,31 @@ export interface TickerDetailsChartPointDto {
   source: string;
 }
 
+export const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
+export type TickerChartRange = (typeof TICKER_CHART_RANGES)[number];
+export type TickerChartSelection = TickerChartRange | "CUSTOM";
+
+export interface TickerDetailsChartMetadataDto {
+  requested: {
+    range: TickerChartRange | null;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  resolved: {
+    range: TickerChartSelection;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  available: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  truncated: {
+    startDate: boolean;
+    endDate: boolean;
+  };
+}
+
 export interface TickerDetailsDto {
   identity: {
     ticker: string;
@@ -1029,7 +1159,8 @@ export interface TickerDetailsDto {
   quote: TickerDetailsQuoteDto;
   position: TickerDetailsPositionDto;
   chart: {
-    range: "1Y";
+    range: TickerChartSelection;
+    metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailsChartPointDto[];
   };
   transactions: TransactionHistoryItemDto[];
@@ -2010,20 +2141,24 @@ export interface AnonymousShareTokenDto {
 
 export interface PublicShareHoldingDto {
   ticker: string;
+  instrumentName?: string | null;
   quantity: number;
-  marketValueAmount: number;
+  marketValueAmount: number | null;
   marketValueCurrency: CurrencyCode;
-  allocationPercent: number;
+  allocationPercent: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
 }
 
 export interface PublicShareHoldingGroupDto {
   ticker: string;
+  instrumentName?: string | null;
   marketCode: MarketCode;
   quantity: number;
   accountCount: number;
-  marketValueAmount: number;
+  marketValueAmount: number | null;
   marketValueCurrency: CurrencyCode;
-  allocationPercent: number;
+  allocationPercent: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
 }
 
 export interface PublicShareTotalByCurrencyDto {
@@ -2044,6 +2179,11 @@ export interface PublicShareViewDto {
   summary: {
     totalValueByCurrency: PublicShareTotalByCurrencyDto[];
     returnByCurrency: PublicShareReturnByCurrencyDto[];
+  };
+  dataHealth: {
+    holdingCount: number;
+    missingQuoteCount: number;
+    provisionalQuoteCount: number;
   };
   quoteAsOf: string | null;
 }

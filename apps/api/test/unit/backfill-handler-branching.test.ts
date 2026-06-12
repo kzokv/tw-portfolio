@@ -103,6 +103,7 @@ function createDeps() {
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
     getUsersMonitoringTicker: vi.fn().mockResolvedValue(["user-1", "user-2"]),
     onBarsUpserted: vi.fn(),
+    enqueueSnapshotRepair: vi.fn().mockResolvedValue(undefined),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 }
@@ -130,6 +131,18 @@ describe("backfill handler trigger branching", () => {
     expect(dividendsCall[1]).toBe("2026-03-24");
     expect(deps.getUsersMonitoringTicker).toHaveBeenCalledWith("2330");
     expect(deps.onBarsUpserted).toHaveBeenCalledWith("TW", ["2026-03-30"]);
+    expect(deps.enqueueSnapshotRepair).toHaveBeenCalledWith({
+      ticker: "2330",
+      marketCode: "TW",
+      fromDate: "2026-03-30",
+      trigger: "daily_refresh",
+    });
+    const repairOrder = deps.enqueueSnapshotRepair.mock.invocationCallOrder[0] ?? 0;
+    const dividendFetchOrder = deps.provider.fetchDividends.mock.invocationCallOrder[0] ?? 0;
+    const poolWriteOrders = deps.pool.query.mock.invocationCallOrder;
+    expect(poolWriteOrders).toHaveLength(2);
+    expect(repairOrder).toBeGreaterThan(dividendFetchOrder);
+    expect(repairOrder).toBeGreaterThan(poolWriteOrders[1] ?? 0);
     expect(deps.eventBus.publishEvent).toHaveBeenCalledTimes(2);
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-1", "daily_refresh_complete", {
       ticker: "2330",
@@ -449,6 +462,7 @@ describe("backfill handler trigger branching", () => {
 
     expect(deps.provider.fetchBars).not.toHaveBeenCalled();
     expect(deps.provider.fetchDividends).toHaveBeenCalledTimes(1);
+    expect(deps.enqueueSnapshotRepair).not.toHaveBeenCalled();
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
       ticker: "2330",
       barsCount: 0,
@@ -472,6 +486,12 @@ describe("backfill handler trigger branching", () => {
 
     expect(deps.provider.fetchBars).toHaveBeenCalledTimes(1);
     expect(deps.provider.fetchDividends).not.toHaveBeenCalled();
+    expect(deps.enqueueSnapshotRepair).toHaveBeenCalledWith({
+      ticker: "2330",
+      marketCode: "TW",
+      fromDate: "2026-03-30",
+      trigger: "repair",
+    });
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
       ticker: "2330",
       barsCount: 1,
@@ -743,6 +763,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.eventBus.publishEvent).not.toHaveBeenCalled();
     expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
     expect(deps.boss.send).not.toHaveBeenCalled();
+    expect(deps.enqueueSnapshotRepair).not.toHaveBeenCalled();
     // Provider is only reached after a successful parse; neither fetch ran.
     const twProvider = deps.marketDataRegistry.get("TW")!;
     expect(twProvider.fetchBars).not.toHaveBeenCalled();
@@ -825,6 +846,7 @@ describe("backfill handler trigger branching", () => {
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
+      enqueueSnapshotRepair: vi.fn().mockResolvedValue(undefined),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
   }

@@ -57,3 +57,7 @@ When adding a new primary DTO cache key for authenticated route data:
 3. Include route-specific dimensions such as report tab/scope/currency/range, ticker/market/account, locale, and schema version.
 4. Add a regression test that two session users with the same context owner produce different keys or context scopes.
 5. When a route relies on invalidation instead of keying a mutable preference, add a metadata guard that rejects stale cached DTOs whose embedded effective preference does not match the current one.
+
+## 2026-06-11 Addendum: Chart Range and Custom Date Dimensions
+
+Chart-capable route DTO caches must include the full chart request identity, not only the route identity. For ticker detail/enrichment DTOs, key by ticker, market, account, selected chart range, and custom start/end dates. For reports, key by report tab, scope, range, and resolved reporting currency. Otherwise a cached `1Y` or native-currency DTO can be briefly restored while the UI is requesting `3Y`, custom dates, or another reporting currency, which relabels financial values and chart metadata dishonestly.

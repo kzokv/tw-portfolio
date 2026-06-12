@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type {
   AccountDto,
+  AccountDefaultCurrency,
   FeeProfileBindingDto,
   FeeProfileDto,
   LocaleCode,
@@ -22,6 +23,12 @@ interface BuildAppShellDataValueOptions {
   locale: LocaleCode;
   sessionUserId: string | null;
   isSharedContext: boolean;
+  canUseGlobalQuickActions: boolean;
+  openQuickActions: () => void;
+  reportingCurrency: AccountDefaultCurrency;
+  saveReportingCurrency: (currency: AccountDefaultCurrency) => Promise<void>;
+  isReportingCurrencySaving: boolean;
+  reportingCurrencyError: string;
   transactionSubmission: ReturnType<typeof useTransactionSubmissionType>;
   mutations: ReturnType<typeof useTransactionMutationsType>;
   recomputeAction: ReturnType<typeof useRecomputeActionType>;
@@ -51,6 +58,12 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     locale,
     sessionUserId,
     isSharedContext,
+    canUseGlobalQuickActions,
+    openQuickActions,
+    reportingCurrency,
+    saveReportingCurrency,
+    isReportingCurrencySaving,
+    reportingCurrencyError,
     transactionSubmission,
     mutations,
     recomputeAction,
@@ -75,6 +88,12 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       locale,
       sessionUserId,
       isSharedContext,
+      canUseGlobalQuickActions,
+      openQuickActions,
+      reportingCurrency,
+      saveReportingCurrency,
+      isReportingCurrencySaving,
+      reportingCurrencyError,
       transactionSubmission,
       mutations,
       recomputeAction,
@@ -94,19 +113,25 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     }),
     [
       accounts,
+      canUseGlobalQuickActions,
       contextRefreshSignal,
       feeProfileBindings,
       feeProfiles,
       generateSnapshots,
       integrityIssue,
+      isReportingCurrencySaving,
       isGeneratingSnapshots,
       isPortfolioConfigLoading,
       isSharedContext,
       locale,
       mutations,
+      openQuickActions,
       openRecomputeConfirm,
       recomputeAction,
+      reportingCurrency,
+      reportingCurrencyError,
       refreshPortfolioConfig,
+      saveReportingCurrency,
       sessionUserId,
       setShowIntegrityDialog,
       showIntegrityDialog,

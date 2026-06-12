@@ -68,6 +68,7 @@ const initialPrimaryData: DashboardSnapshot = {
     upcomingDividendAmount: null,
     openIssueCount: 0,
   },
+  marketValues: [],
   holdings: [],
   holdingGroups: [],
   dividends: { upcoming: [], recent: [] },

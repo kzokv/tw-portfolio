@@ -1,14 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MarketCode } from "@vakwen/domain";
+import { signSessionCookie } from "../../src/auth/googleOAuth.js";
 import { buildApp } from "../../src/app.js";
 import { createEmptyTickerFundamentals, type FundamentalsProvider } from "../../src/services/fundamentals/types.js";
 import { transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
+let cookieHeader: string;
+let userId: string;
+
+const testOAuthConfig = {
+  clientId: "test-client",
+  clientSecret: "test-secret",
+  redirectUri: "http://localhost:4000/auth/google/callback",
+  sessionSecret: "test-session-secret-that-is-long-enough-32chars!!",
+};
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { cookie: cookieHeader, ...extra };
+}
 
 describe("GET /tickers/:ticker/details", () => {
   beforeEach(async () => {
-    app = await buildApp({ persistenceBackend: "memory" });
+    app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
+    const authUser = await app.persistence.resolveOrCreateUser("google", "ticker-details-test-user", {
+      email: "ticker-details-test-user@example.com",
+      name: "Ticker Details Test User",
+    });
+    userId = authUser.userId;
+    const user = await app.persistence.getAuthUserById(userId);
+    if (!user) throw new Error("expected seeded auth user");
+    cookieHeader = `g_auth_session=${signSessionCookie(userId, testOAuthConfig.sessionSecret, user.sessionVersion)}`;
   });
 
   afterEach(async () => {
@@ -19,7 +41,7 @@ describe("GET /tickers/:ticker/details", () => {
     const createTrade = await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
-      headers: { "idempotency-key": "ticker-details-trade" },
+      headers: authHeaders({ "idempotency-key": "ticker-details-trade" }),
       payload: transactionPayload({
         ticker: "2330",
         quantity: 20,
@@ -92,7 +114,7 @@ describe("GET /tickers/:ticker/details", () => {
       nextRefreshAt: "2026-12-01T09:00:00.000Z",
     });
 
-    const store = await app.persistence.loadStore("user-1");
+    const store = await app.persistence.loadStore(userId);
     store.marketData.dividendEvents.push({
       id: "dividend-2330",
       ticker: "2330",
@@ -109,6 +131,7 @@ describe("GET /tickers/:ticker/details", () => {
     const response = await app.inject({
       method: "GET",
       url: "/tickers/2330/details?accountId=acc-1",
+      headers: authHeaders(),
     });
 
     expect(response.statusCode).toBe(200);
@@ -171,6 +194,7 @@ describe("GET /tickers/:ticker/details", () => {
     const createSecondAccount = await app.inject({
       method: "POST",
       url: "/accounts",
+      headers: authHeaders(),
       payload: {
         name: "Second TWD Brokerage",
         defaultCurrency: "TWD",
@@ -183,7 +207,7 @@ describe("GET /tickers/:ticker/details", () => {
     const createMainTrade = await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
-      headers: { "idempotency-key": "ticker-details-multi-main" },
+      headers: authHeaders({ "idempotency-key": "ticker-details-multi-main" }),
       payload: transactionPayload({
         ticker: "2330",
         accountId: "acc-1",
@@ -197,7 +221,7 @@ describe("GET /tickers/:ticker/details", () => {
     const createSecondTrade = await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
-      headers: { "idempotency-key": "ticker-details-multi-second" },
+      headers: authHeaders({ "idempotency-key": "ticker-details-multi-second" }),
       payload: transactionPayload({
         ticker: "2330",
         accountId: secondAccount.id,
@@ -211,6 +235,7 @@ describe("GET /tickers/:ticker/details", () => {
     const response = await app.inject({
       method: "GET",
       url: "/tickers/2330/details",
+      headers: authHeaders(),
     });
 
     expect(response.statusCode).toBe(200);
@@ -239,12 +264,274 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: computes market value and P&L for non-TW tickers by market", async () => {
+    const createUsAccount = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      headers: authHeaders(),
+      payload: {
+        name: "US Ticker Broker",
+        defaultCurrency: "USD",
+        accountType: "broker",
+      },
+    });
+    expect(createUsAccount.statusCode).toBe(200);
+    const usAccount = createUsAccount.json() as { id: string; name: string; feeProfileId: string };
+
+    const store = await app.persistence.loadStore(userId);
+    const usdFeeProfile = store.feeProfiles.find((profile) => profile.id === usAccount.feeProfileId);
+    if (!usdFeeProfile) throw new Error("expected US account fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: usAccount.id,
+      ticker: "AAPL",
+      quantity: 3,
+      costBasisAmount: 300,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "ticker-details-aapl-buy",
+      userId,
+      accountId: usAccount.id,
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 3,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-04-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: usdFeeProfile,
+      tradeTimestamp: "2026-04-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-04-01T14:30:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.upsertInstruments(userId, [
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    ]);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-04-02",
+        open: 120,
+        high: 121,
+        low: 119,
+        close: 120,
+        volume: 10_000,
+        source: "test-bars",
+        ingestedAt: "2026-04-02T20:00:00.000Z",
+      },
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        barDate: "2026-04-03",
+        open: 124,
+        high: 126,
+        low: 123,
+        close: 125,
+        volume: 12_000,
+        source: "test-bars",
+        ingestedAt: "2026-04-03T20:00:00.000Z",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/tickers/AAPL/details?accountId=${usAccount.id}`,
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      identity: expect.objectContaining({
+        ticker: "AAPL",
+        marketCode: "US",
+        accountId: usAccount.id,
+        priceCurrency: "USD",
+      }),
+      quote: expect.objectContaining({
+        currentUnitPrice: 125,
+        previousClose: 120,
+        change: 5,
+        changePercent: 4.1667,
+      }),
+      position: expect.objectContaining({
+        quantity: 3,
+        costBasisAmount: 300,
+        marketValueAmount: 375,
+        unrealizedPnlAmount: 75,
+        currency: "USD",
+      }),
+      holdingGroup: expect.objectContaining({
+        ticker: "AAPL",
+        marketCode: "US",
+        reportingCurrency: "USD",
+        reportingMarketValueAmount: 375,
+        reportingUnrealizedPnlAmount: 75,
+        reportingDailyChangeAmount: 15,
+      }),
+      accountBreakdown: [
+        expect.objectContaining({
+          accountId: usAccount.id,
+          reportingCurrency: "USD",
+          reportingMarketValueAmount: 375,
+          reportingUnrealizedPnlAmount: 75,
+          reportingDailyChangeAmount: 15,
+        }),
+      ],
+    }));
+  });
+
+  it("[ticker details]: validates range query shape on details and enrichment endpoints", async () => {
+    const detailsResponse = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?range=1Y&startDate=2026-01-01&endDate=2026-06-01",
+      headers: authHeaders(),
+    });
+    expect(detailsResponse.statusCode).toBe(400);
+
+    const enrichmentResponse = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/enrichment?startDate=2026-01-01",
+      headers: authHeaders(),
+    });
+    expect(enrichmentResponse.statusCode).toBe(400);
+  });
+
+  it("[ticker details]: returns requested and available chart metadata without backfilling provider data", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-details-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 5,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2025-01-15",
+        open: 100,
+        high: 102,
+        low: 99,
+        close: 101,
+        volume: 1_000,
+        source: "test-bars",
+        ingestedAt: "2025-01-15T08:00:00.000Z",
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-06-10",
+        open: 120,
+        high: 122,
+        low: 119,
+        close: 121,
+        volume: 1_000,
+        source: "test-bars",
+        ingestedAt: "2026-06-10T08:00:00.000Z",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?startDate=2024-01-01&endDate=2026-12-31",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      quote: expect.objectContaining({
+        currentUnitPrice: 121,
+      }),
+      chart: expect.objectContaining({
+        range: "CUSTOM",
+        metadata: {
+          requested: { range: null, startDate: "2024-01-01", endDate: "2026-12-31" },
+          resolved: { range: "CUSTOM", startDate: "2024-01-01", endDate: "2026-12-31" },
+          available: { startDate: "2025-01-15", endDate: "2026-06-10" },
+          truncated: { startDate: true, endDate: true },
+        },
+      }),
+    }));
+  });
+
+  it("[ticker details]: rejects custom ranges beyond 10 years", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-details-invalid-custom-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 1,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?startDate=2010-01-01&endDate=2021-01-02",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(expect.objectContaining({
+      error: "ticker_chart_custom_range_too_large",
+    }));
+  });
+
   it("[ticker details]: hanging fundamentals refresh does not block the response", async () => {
     const ticker = "QAASYNC";
     const createTrade = await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
-      headers: { "idempotency-key": "ticker-details-async-trade" },
+      headers: authHeaders({ "idempotency-key": "ticker-details-async-trade" }),
       payload: transactionPayload({
         ticker,
         marketCode: "TW",
@@ -266,6 +553,7 @@ describe("GET /tickers/:ticker/details", () => {
     const injectPromise = app.inject({
       method: "GET",
       url: `/tickers/${ticker}/details?accountId=acc-1&marketCode=TW`,
+      headers: authHeaders(),
     });
 
     const result = await Promise.race([

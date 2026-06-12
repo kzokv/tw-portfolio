@@ -13,13 +13,13 @@ This note records the current dashboard reporting UI contracts and known limits.
   - `GET /reports/market`
 - Shared query params:
   - `scope`: `all | TW | US | AU | KR`
-  - `currencyMode`: `auto | specified`
-  - `currency`: `TWD | USD | AUD | KRW` when `currencyMode=specified`
   - `range`: freeform validated string, max length 20
   - `limit`: `1..100`
   - `offset`: `>= 0`
 
-Route state is URL-backed on the web side. Invalid `tab`, `scope`, `currencyMode`, or `currency` values fall back predictably in the client parser instead of throwing.
+Route state is URL-backed on the web side and currently carries only `tab`, `scope`, and `range`. Invalid `tab`, `scope`, or `range` values fall back predictably in the client parser instead of throwing.
+
+The reports web UI no longer exposes a page-local reporting-currency override. It always calls the API with `currencyMode=auto`, and reporting currency changes are owned by global Quick Actions. Compatibility callers may still send `currencyMode` or `currency`, but the current resolver normalizes report requests to the locked redesign behavior described below.
 
 The `/reports` page does not server-seed the active report. It renders the report shell first and lets the client cache/silent-refresh path populate the data. This avoids starting duplicate expensive report builds from the Next.js server and the browser on scoped report pages. Single-market performance refreshes now use one scoped aggregate snapshot query rather than per-holding snapshot fanout, so TW-scoped reports do not initially paint and then fail on the later refresh path for that reason. The report controls read the effective range list from user/admin preferences and snap unsupported URL ranges to the first effective range.
 
@@ -27,13 +27,13 @@ The `/reports` page does not server-seed the active report. It renders the repor
 
 - `scope=all` means the full visible portfolio context.
 - Single-market scopes (`TW`, `US`, `AU`, `KR`) filter by holding/trade/instrument market first, with account/default-currency market only as a fallback.
-- `currencyMode=auto` resolves reporting currency as:
+- Reporting currency resolves as:
   - full portfolio: user reporting currency preference
   - single-market scope: native market currency from `currencyFor(scope)`
-- `currencyMode=specified` requires `currency` and forces all report totals into that currency.
+- `resolveReportContext()` currently normalizes all report requests to `currencyMode: "auto"` and `currency: null`, even if a compatibility caller passes `currencyMode=specified` or `currency`.
 - `query.nativeCurrency` is `null` for `scope=all` and the market-native currency for single-market scopes.
 
-These semantics are implemented centrally in `apps/api/src/services/reportContext.ts`.
+These semantics are implemented centrally in `apps/api/src/services/reportContext.ts` and mirrored by the URL-backed report state in `apps/web/features/reports/reportState.ts`.
 
 ## DTO semantics
 
@@ -104,7 +104,8 @@ Invalidation is prefix-wide today. Reporting-currency changes, shared-context sw
 Dashboard is the primary daily command surface.
 
 - The command modules rendered above the card grid are `Today`, `Market Pulse`, and `Portfolio Health`.
-- The hero exposes the active reporting currency and writes changes through `PATCH /user-preferences`.
+- The hero exposes the active reporting currency and points users to global Quick Actions when they need to change it.
+- Global Quick Actions writes reporting-currency changes through `PATCH /user-preferences` and is the only primary reporting-currency switcher on authenticated editable surfaces.
 - The hero lists resolved FX conversion rows when the active reporting currency differs from one or more native holding currencies.
 - The hero market strip deep-links into `/reports?tab=market...` using the active reporting currency.
 - The dashboard holdings module is a top-holdings preview, not the full portfolio holdings table. It prioritizes server-provided reporting-currency value/price, search, sorting, market filtering, ticker links, an always-visible FX strip for visible cross-currency holdings, and tap/click detail disclosure for native price and FX rate.
@@ -114,13 +115,20 @@ Dashboard is the primary daily command surface.
 - `PATCH /user-preferences` keeps the existing top-level merge semantics for preferences: `dashboardHoldingFocus` is patched as a full object, `dashboardHoldingFocus: null` clears the key, and there is no sub-object merge path for this preference. `cardOrder` remains the only special-cased nested merge key.
 - The command palette registry includes `/reports` as a first-class route command with `reports`, `analysis`, `daily`, and `market` keywords.
 
+Operational note:
+
+- Global Quick Actions is mounted at the authenticated app-shell level, not as a page-local dashboard/reports control. It is intentionally hidden in shared/read-only contexts.
+- The global action set is currently `Add transaction`, `Recompute portfolio`, `Generate snapshots`, and `Change reporting currency`.
+- Reporting-currency writes from Quick Actions invalidate the route DTO cache prefix so restored dashboard/report/portfolio/ticker payloads cannot be relabeled after a preference change.
+- User-triggered snapshot generation is limited to the current editable portfolio/context. Broader stale/missing snapshot repair remains a backend/admin/system concern.
+
 Current follow-up validation:
 
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` currently has UX refinements for the preview root wrapper, search/sort/filter controls, visible FX-rate strip, desktop table layout, daily-change label/cell selectors, visible native-price cues, click/tap price translation details, and quote-status wording (`Current`, `Provisional`, `No market data`).
 - `apps/web/components/dashboard/DashboardHoldingsPreview.tsx` also hydrates/persists `dashboardHoldingFocus` preferences by writing the full `{ presetOrder, hiddenPresets, selectedPreset }` object through `PATCH /user-preferences`.
 - `apps/api/src/services/dashboardReportingCurrency.ts` now adds performance freshness metadata (`requestedAsOf`, `lastReliableDate`, `marketDataStaleSince`) from the last reliable point, so dashboard/report charts can explain when a selected range extends beyond available market data.
 - `apps/api/src/services/dashboardReportingCurrency.ts` also overlays snapshot-backed performance points with transaction-date-FX finance data when store data is available, so snapshot Market Value can remain intact while Book Cost, realized P&L, dividends, Total Return, and Return % come from the newer read-time calculation path.
-- `apps/web/components/dashboard/PortfolioTrendCard.tsx`, `apps/web/components/dashboard/ReturnPercentCard.tsx`, and `apps/web/components/reports/ReportsClient.tsx` display `As of {date}` and `Market data stale since {date}` from that server metadata. Report performance charts do not bridge null-valued gaps, and dashboard/report performance labels now call the stable cost line `Book Cost`.
+- `apps/web/components/dashboard/PortfolioTrendCard.tsx`, `apps/web/components/dashboard/ReturnPercentCard.tsx`, and `apps/web/components/reports/ReportsClient.tsx` display `As of {date}` and `Market data stale since {date}` from that server metadata. Report performance charts do not bridge null-valued gaps or synthesize current-holdings points when snapshots are absent, and dashboard/report performance labels now call the stable cost line `Book Cost`.
 - `apps/web/components/reports/ReportsClient.tsx` currently has signed finance-tone formatting, FX/reporting badges, native/reporting price disclosure, mobile card detail sheets, sticky desktop table headers/first columns, and explicit mobile `Open ticker` actions for report holding cards.
 - `apps/web/features/reports/hooks/useReportData.ts` still accepts a matching initial report DTO for compatibility, but `/reports` currently passes `initialReport={null}` so the server route does not start report builds before hydration.
 - `apps/web/features/reports/hooks/useReportData.ts` now bounds client-side report refreshes with a 90s abort timeout. This prevents scoped reports whose client refresh stalls from leaving users in an indefinitely disabled refresh/loading state; the UI now surfaces a retryable report-unavailable message.
@@ -178,24 +186,36 @@ Tool descriptions explicitly stay on the descriptive side of the advice boundary
 
 The AI Connector settings page also renders the server-provided tool catalog so users can discover the MCP report tools even when no connector-level tool override has been saved yet. Per-connector tool rows show whether each tool is inherited, overridden, policy-disabled, or blocked by missing consent scope.
 
-MCP report input parsing accepts both `currency` and `reportingCurrency`. When `reportingCurrency` is provided without an explicit `currencyMode`, the server treats it as `currencyMode=specified` so ChatGPT/tool callers receive the requested reporting currency instead of falling back to auto currency resolution.
+MCP report input parsing still accepts both `currency` and `reportingCurrency` for compatibility. The current report resolver normalizes those requests to the same auto/native currency semantics as the web UI, so callers should not expect a separate manual report-specific currency override path today.
 
 ## Current read-path and performance limitations
 
 - Report builders still start from `persistence.loadStore(userId)` and then scope/translate in memory. There is no narrow Postgres report projection yet.
 - `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still rely on `loadStore()` for consistency with existing grouped-holdings and fee-profile behavior.
 - The ticker web route still depends on dashboard primary data plus filtered transaction history instead of a route-owned primary endpoint.
-- Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the same translator falls back to synthetic trade replay against the scoped store instead of returning an empty chart. Scoped store filtering builds ticker/holding market indexes once per report so irrelevant dividend-event and instrument rows do not trigger repeated full-store scans before the report reaches the performance query. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
-- Synthetic performance fallback loads repaired historical bars by `(ticker, marketCode)`, not by bare ticker, so cross-listed symbols do not leak another market's close into scoped report/dashboard market-value points.
+- Report performance for single-market scopes now scopes the aggregate snapshot read through `getAggregatedSnapshotsInReportingCurrencyForScope()` and reuses the dashboard performance translator. When scoped snapshots are absent, the report returns an empty performance series plus freshness metadata instead of synthesizing trade-replay points. Scoped store filtering still builds ticker/holding market indexes once per report so irrelevant dividend-event and instrument rows do not trigger repeated full-store scans before the report reaches the performance query. A broader report-specific projection remains a follow-up because report builders still begin from `loadStore(userId)`.
+- Strict snapshot-only charts are intentional on dashboard/reporting surfaces. Missing or stale snapshots should surface as incomplete-state messaging, not as reconstructed trend data.
+- Dashboard performance DTOs expose the resolved inclusive `rangeStartDate` and `rangeEndDate`. Portfolio Trend and Return % clients should use those bounds for the time-axis domain so ranges such as 3M and YTD show the selected timeline even when the strict snapshot series starts later.
+- Report diagnostics intentionally stay truthful when snapshot-backed valuation is unavailable. The server leaves last/latest reliable valuation dates unset and surfaces `missing_snapshot` rather than echoing the requested `asOf` date as if a valuation existed.
+- Scoped snapshot aggregation is market-qualified by `(accountId, ticker, marketCode)` so same-account cross-listed holdings do not suppress valid single-market report trend points.
 - Cache invalidation is deliberately coarse. Currency/context changes clear the whole route DTO cache prefix.
 
 These are known transitional costs, not accidental behavior.
+
+## Data health and report row semantics
+
+- Holdings/report/public-share Data health surfaces the same user-facing axes: quote status, FX status, and snapshot/freshness reliability.
+- Detailed holdings/report styles show Data health directly; compact surfaces may summarize it, but they still use the same underlying semantics.
+- Missing reporting values stay unavailable when quote or FX inputs are incomplete. The UI does not relabel native values as reporting-currency values on dashboard, reports, portfolio, ticker, or public share surfaces.
+- Public share pages keep active holdings with missing quotes visible. Quote-missing rows show unavailable market value/allocation plus warning/Data health state, and aggregate totals/allocation percentages exclude those rows rather than implying a precise denominator.
+- Reports holdings now use the shared grid behaviors already shipped on this branch: persisted per-context settings, drag reorder, resize handles, wrapped headers/cells, search, market/account filters, focus chips, sorting, detailed mobile sheets, and English/zh-TW shell/control/meta copy through the `reports` i18n namespace. Deeper body-copy/i18n follow-up remains open.
+- Portfolio Holdings owns a page-level style chooser with concrete choices, not generic compact/detailed presets. `Dashboard Top Holdings` renders the Dashboard holdings preview style against Portfolio page data; `Portfolio Holdings` renders the detailed Portfolio table and remains the default.
 
 ## Evidence
 
 - API integration coverage for report routes, scoped performance aggregation, and ticker split:
   - `apps/api/test/integration/reports.integration.test.ts`
-  - Scoped portfolio/market report tests assert `getAggregatedSnapshotsInReportingCurrencyForScope()` is used, `getHoldingSnapshotsForTicker()` is not used for scoped performance aggregation, and scoped reports synthesize performance points when scoped snapshots are absent but daily bars/trades exist.
+  - Scoped portfolio/market report tests assert `getAggregatedSnapshotsInReportingCurrencyForScope()` is used, `getHoldingSnapshotsForTicker()` is not used for scoped performance aggregation, market-qualified snapshot contributors are respected, and missing scoped snapshots return an empty performance series plus truthful diagnostics instead of synthetic points.
 - MCP tool registration and advice-boundary coverage:
   - `apps/api/test/unit/mcpReportTools.test.ts`
 - Web route and client coverage for `/reports` fallback and URL-backed state sync:
@@ -225,8 +245,8 @@ These are known transitional costs, not accidental behavior.
   - `apps/api/test/integration/dashboard.integration.test.ts`
   - `apps/api/test/integration/reports.integration.test.ts`
   - The unit suite covers canonical lot-allocation and realized-P&L replay under dated FX when allocated cost differs from running average cost.
-  - The unit suite covers same-ticker cross-market synthetic market values so the fallback uses the selected market's historical close.
-  - The reports integration suite now asserts synthetic performance uses `getDailyBarsForTickerMarket()` for repaired historical bars, not the legacy ticker-only bar lookup.
+  - The unit suite asserts dashboard/report trend performance stays strict snapshot-only when snapshots are absent instead of synthesizing same-ticker cross-market market values.
+  - The reports integration suite now asserts scoped performance reads market-qualified snapshot contributors and returns empty truthful diagnostics when snapshots are absent, not synthetic repaired-bar history.
 - Focused report refresh-timeout coverage:
   - `apps/web/test/features/reports/hooks/useReportData.test.tsx`
 - Dashboard reporting-currency cache-restore coverage:

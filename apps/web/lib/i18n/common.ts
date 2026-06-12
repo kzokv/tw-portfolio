@@ -1,7 +1,11 @@
 import type { AppDictionary } from "./types";
 
-export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" | "actions">> = {
+export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" | "actions" | "appError">> = {
   en: {
+    appError: {
+      title: "Something went wrong",
+      retry: "Try again",
+    },
     feedback: {
       requestFailedPrefix: "Request failed",
       loadingDashboard: "Loading dashboard...",
@@ -30,6 +34,10 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
     },
   },
   "zh-TW": {
+    appError: {
+      title: "發生錯誤",
+      retry: "再試一次",
+    },
     feedback: {
       requestFailedPrefix: "請求失敗",
       loadingDashboard: "儀表板載入中...",

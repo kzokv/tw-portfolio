@@ -35,7 +35,11 @@ import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferen
 import { resolveReportContext } from "./reportContext.js";
 import { buildFxConversionRateRows } from "./fxConversionRates.js";
 import { routeError } from "../lib/routeError.js";
+import type { HoldingSnapshotScopePair, Persistence } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
+
+export const REPORT_HOLDINGS_MAX_LIMIT = 1000;
+const CATALOG_NAME_LOOKUP_BATCH_SIZE = 25;
 
 export interface BuildReportInput {
   scope?: string;
@@ -59,6 +63,10 @@ interface PreparedReportData {
   store: Store;
   scopedStore: Store;
   asOf: string;
+  snapshotDiagnostics: {
+    latestSnapshotDate: string | null;
+    missingProviderSourceCount: number;
+  };
 }
 
 type MissingFxRatePair = ReportFxStatusDto["missingRatePairs"][number];
@@ -67,6 +75,15 @@ interface HistoricalFxAmountResult {
   amount: number;
   missingRatePairs: MissingFxRatePair[];
 }
+
+type ReportKnownGapReason =
+  | "missing_snapshot"
+  | "stale_snapshot"
+  | "missing_quote"
+  | "provisional_quote"
+  | "stale_quote"
+  | "missing_fx"
+  | "missing_provider_source";
 
 export async function buildDailyReviewReport(
   app: FastifyInstance,
@@ -103,7 +120,7 @@ export async function buildPortfolioReport(
   input: BuildReportInput,
 ): Promise<PortfolioReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.store, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
     .sort((left, right) => (right.reportingAllocationPercent ?? 0) - (left.reportingAllocationPercent ?? 0))
@@ -146,7 +163,7 @@ export async function buildMarketReport(
   input: BuildReportInput,
 ): Promise<MarketReportDto> {
   const prepared = await prepareReportData(app, userId, input);
-  const performance = await buildReportPerformance(app, userId, prepared.store, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const marketSummary = buildMarketAllocations(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
@@ -219,13 +236,13 @@ async function prepareReportData(
     asOf,
     app.persistence,
   );
-  const translatedHoldingGroups = await translateOverviewHoldingGroups(
+  const translatedHoldingGroups = await attachInstrumentNames(await translateOverviewHoldingGroups(
     buildOverviewHoldingGroups(scopedStore, overview.holdings),
     context.reportingCurrency,
     "market_value",
     asOf,
     app.persistence,
-  );
+  ), scopedStore, app.persistence);
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
     translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
@@ -236,6 +253,10 @@ async function prepareReportData(
     ...trailingDividendIncome.missingRatePairs,
   ]);
   const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
+  const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
+  const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
+    ? { latestSnapshotDate: null, missingProviderSourceCount: 0 }
+    : await app.persistence.getLatestSnapshotDiagnostics(userId, snapshotScopePairs);
   return {
     reportQuery: {
       scope: context.scope,
@@ -262,6 +283,7 @@ async function prepareReportData(
     store,
     scopedStore,
     asOf,
+    snapshotDiagnostics,
   };
 }
 
@@ -286,7 +308,7 @@ function scopeStore(store: Store, scope: ReportScope): Store {
     trade.marketCode === scope);
   const marketDividendEventIds = new Set(
     store.marketData.dividendEvents
-      .filter((event) => resolveTickerMarketCode(event.ticker, event.cashDividendCurrency, instrumentMarketsByTicker) === scope)
+      .filter((event) => (event.marketCode ?? resolveTickerMarketCode(event.ticker, event.cashDividendCurrency, instrumentMarketsByTicker)) === scope)
       .map((event) => event.id),
   );
   const scopedDividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) =>
@@ -406,8 +428,15 @@ function mapHoldingRows(groups: Awaited<ReturnType<typeof translateOverviewHoldi
     const fxRateToReporting = deriveFxRateToReporting(group);
     return {
       ticker: group.ticker,
+      instrumentName: group.instrumentName ?? null,
       marketCode: group.marketCode,
       accountCount: group.accountCount,
+      accounts: group.children
+        .map((child) => ({
+          id: child.accountId,
+          name: child.accountName?.trim() || child.accountId,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
       quantity: group.quantity,
       nativeCurrency: group.currency,
       nativeAverageCostPerShare: group.averageCostPerShare,
@@ -444,21 +473,93 @@ function deriveFxRateToReporting(
   return null;
 }
 
+function buildInstrumentNameLookup(
+  store: Pick<Store, "marketData" | "instruments">,
+): ReadonlyMap<string, string> {
+  const lookup = new Map<string, string>();
+  const addInstrument = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
+    const name = instrument.name?.trim();
+    if (!name) return;
+    if (!MARKET_CODES.includes(instrument.marketCode as MarketCode)) return;
+    lookup.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!lookup.has(instrument.ticker)) {
+      lookup.set(instrument.ticker, name);
+    }
+  };
+  for (const instrument of store.marketData.instruments) {
+    addInstrument(instrument);
+  }
+  for (const instrument of store.instruments) {
+    addInstrument(instrument);
+  }
+  return lookup;
+}
+
+async function resolveMissingCatalogInstrumentNames(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  existingNames: ReadonlyMap<string, string>,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<ReadonlyMap<string, string>> {
+  const missingPairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const group of groups) {
+    if (group.instrumentName) continue;
+    if (existingNames.has(`${group.marketCode}:${group.ticker}`) || existingNames.has(group.ticker)) continue;
+    missingPairs.set(`${group.marketCode}:${group.ticker}`, {
+      ticker: group.ticker,
+      marketCode: group.marketCode,
+    });
+  }
+  const resolvedNames = new Map<string, string>();
+  const pairs = [...missingPairs.values()];
+  for (let index = 0; index < pairs.length; index += CATALOG_NAME_LOOKUP_BATCH_SIZE) {
+    const chunk = pairs.slice(index, index + CATALOG_NAME_LOOKUP_BATCH_SIZE);
+    const instruments = await Promise.all(chunk.map(async (pair) => ({
+      ...pair,
+      instrument: await persistence.getInstrument(pair.ticker, pair.marketCode),
+    })));
+    for (const { ticker, marketCode, instrument } of instruments) {
+      const name = instrument?.name?.trim();
+      if (!name) continue;
+      resolvedNames.set(`${marketCode}:${ticker}`, name);
+      if (!resolvedNames.has(ticker)) {
+        resolvedNames.set(ticker, name);
+      }
+    }
+  }
+  return resolvedNames;
+}
+
+async function attachInstrumentNames(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<Awaited<ReturnType<typeof translateOverviewHoldingGroups>>> {
+  const storeInstrumentNames = buildInstrumentNameLookup(store);
+  const catalogInstrumentNames = await resolveMissingCatalogInstrumentNames(groups, storeInstrumentNames, persistence);
+  const instrumentNames = new Map([...storeInstrumentNames, ...catalogInstrumentNames]);
+  return groups.map((group) => {
+    const instrumentName = instrumentNames.get(`${group.marketCode}:${group.ticker}`)
+      ?? instrumentNames.get(group.ticker)
+      ?? group.instrumentName
+      ?? null;
+    return {
+      ...group,
+      instrumentName,
+      children: group.children.map((child) => ({
+        ...child,
+        instrumentName: child.instrumentName ?? instrumentName,
+      })),
+    };
+  });
+}
+
 function translateUnitAmount(value: number | null, fxRateToReporting: number | null): number | null {
   if (value === null || fxRateToReporting === null) return null;
   return roundToDecimal(value * fxRateToReporting, 4);
 }
 
 function translateDailyChange(row: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number]): number | null {
-  if (row.change === null) return null;
-  const nativeAmount = row.quantity * row.change;
-  if (row.costBasisAmount > 0 && row.reportingCostBasisAmount !== null) {
-    return roundToDecimal(nativeAmount * (row.reportingCostBasisAmount / row.costBasisAmount), 2);
-  }
-  if (row.marketValueAmount && row.reportingMarketValueAmount !== null) {
-    return roundToDecimal(nativeAmount * (row.reportingMarketValueAmount / row.marketValueAmount), 2);
-  }
-  return null;
+  return row.reportingDailyChangeAmount ?? null;
 }
 
 function buildDataHealth(
@@ -487,16 +588,38 @@ function buildReportDiagnostics(
   } = {},
 ): ReportDiagnosticsDto {
   const performanceLastDate = options.performance?.lastReliableDate ?? findLastPerformancePointDate(options.performance);
+  const latestReliableValuationDate = performanceLastDate ?? prepared.snapshotDiagnostics.latestSnapshotDate ?? null;
+  const requestedAsOfDate = prepared.reportQuery.asOf.slice(0, 10);
+  const staleSinceDate = options.performance?.marketDataStaleSince
+    ?? (
+      latestReliableValuationDate !== null && latestReliableValuationDate < requestedAsOfDate
+        ? latestReliableValuationDate
+        : null
+    );
+  const knownGapReasons: ReportKnownGapReason[] = [];
+  if (prepared.snapshotDiagnostics.latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
+  if (staleSinceDate !== null) knownGapReasons.push("stale_snapshot");
+  if (prepared.dataHealth.missingQuoteCount > 0) knownGapReasons.push("missing_quote");
+  if (prepared.dataHealth.provisionalQuoteCount > 0) knownGapReasons.push("provisional_quote");
+  if (prepared.dataHealth.staleQuoteCount > 0) knownGapReasons.push("stale_quote");
+  if (prepared.dataHealth.missingFxCount > 0) knownGapReasons.push("missing_fx");
+  if (prepared.snapshotDiagnostics.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
   return {
     scope: prepared.reportQuery.scope,
     reportingCurrency: prepared.reportQuery.reportingCurrency,
     requestedAsOf: prepared.reportQuery.asOf,
-    lastValuationDate: performanceLastDate ?? prepared.reportQuery.asOf,
-    marketDataStaleSince: options.performance?.marketDataStaleSince ?? null,
+    lastValuationDate: latestReliableValuationDate,
+    marketDataStaleSince: staleSinceDate,
+    latestSnapshotDate: prepared.snapshotDiagnostics.latestSnapshotDate,
+    latestReliableValuationDate,
+    expectedLatestValuationDate: requestedAsOfDate,
+    staleSinceDate,
     missingQuoteCount: prepared.dataHealth.missingQuoteCount,
     provisionalQuoteCount: prepared.dataHealth.provisionalQuoteCount,
     staleQuoteCount: prepared.dataHealth.staleQuoteCount,
     missingFxCount: prepared.dataHealth.missingFxCount,
+    missingProviderSourceCount: prepared.snapshotDiagnostics.missingProviderSourceCount,
+    knownGapReasons,
     rowCounts: {
       holdingsTotal: rowsPage.total,
       holdingsReturned: rowsPage.rows.length,
@@ -506,7 +629,25 @@ function buildReportDiagnostics(
       ...(options.accountBuckets !== undefined ? { accountBuckets: options.accountBuckets } : {}),
       ...(options.suggestions !== undefined ? { suggestions: options.suggestions } : {}),
     },
-  };
+  } as ReportDiagnosticsDto;
+}
+
+function buildSnapshotScopePairs(
+  scope: ReportScope,
+  store: Store,
+): HoldingSnapshotScopePair[] | undefined {
+  if (scope === "all") return undefined;
+  const pairs = new Map<string, HoldingSnapshotScopePair>();
+  for (const trade of store.accounting.facts.tradeEvents) {
+    if (trade.marketCode !== scope) continue;
+    const key = `${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
+    pairs.set(key, {
+      accountId: trade.accountId,
+      ticker: trade.ticker,
+      marketCode: trade.marketCode,
+    });
+  }
+  return [...pairs.values()];
 }
 
 function findLastPerformancePointDate(performance: DashboardPerformanceDto | undefined): string | null {
@@ -694,7 +835,6 @@ function isActivePostedDividend(
 async function buildReportPerformance(
   app: FastifyInstance,
   userId: string,
-  store: Store,
   scopedStore: Store,
   query: ReportQueryStateDto,
   quotes: ReadonlyArray<QuoteSnapshot>,
@@ -710,18 +850,18 @@ async function buildReportPerformance(
   if (!earliestTradeDate) {
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
-  const scopedPairs = new Map<string, { accountId: string; ticker: string }>();
+  const scopedPairs = new Map<string, HoldingSnapshotScopePair>();
   for (const trade of scopedStore.accounting.facts.tradeEvents) {
-    scopedPairs.set(`${trade.accountId}\0${trade.ticker}`, {
+    scopedPairs.set(`${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`, {
       accountId: trade.accountId,
       ticker: trade.ticker,
+      marketCode: trade.marketCode,
     });
   }
   const pairs = [...scopedPairs.values()];
   if (pairs.length === 0) {
     return emptyScopedPerformance(range, query.reportingCurrency);
   }
-  const canUseScopedSnapshots = !hasMarketAmbiguousSnapshotScope(store, pairs);
 
   const scopedPersistence = new Proxy(app.persistence, {
     get(target, property, receiver) {
@@ -732,7 +872,6 @@ async function buildReportPerformance(
           scopedEndDate: string,
           reportingCurrency: AccountDefaultCurrency,
         ) => {
-          if (!canUseScopedSnapshots) return Promise.resolve([]);
           return target.getAggregatedSnapshotsInReportingCurrencyForScope(
             scopedUserId,
             scopedStartDate,
@@ -755,24 +894,6 @@ async function buildReportPerformance(
     scopedStore,
     quotes,
   );
-}
-
-function hasMarketAmbiguousSnapshotScope(
-  store: Store,
-  pairs: ReadonlyArray<{ accountId: string; ticker: string }>,
-): boolean {
-  const pairKeys = new Set(pairs.map((pair) => `${pair.accountId}\0${pair.ticker}`));
-  const marketsByPair = new Map<string, Set<MarketCode>>();
-  for (const trade of store.accounting.facts.tradeEvents) {
-    const key = `${trade.accountId}\0${trade.ticker}`;
-    if (!pairKeys.has(key)) continue;
-    if (!(MARKET_CODES as readonly string[]).includes(trade.marketCode)) continue;
-    const markets = marketsByPair.get(key) ?? new Set<MarketCode>();
-    markets.add(trade.marketCode as MarketCode);
-    if (markets.size > 1) return true;
-    marketsByPair.set(key, markets);
-  }
-  return false;
 }
 
 function emptyScopedPerformance(
@@ -869,7 +990,7 @@ function buildDailyReviewSuggestions(prepared: PreparedReportData, rows: ReportH
 }
 
 function pageRows(rows: ReportHoldingRowDto[], limit?: number, offset?: number) {
-  const safeLimit = Math.min(Math.max(limit ?? 25, 1), 100);
+  const safeLimit = Math.min(Math.max(limit ?? 25, 1), REPORT_HOLDINGS_MAX_LIMIT);
   const safeOffset = Math.max(offset ?? 0, 0);
   return {
     total: rows.length,

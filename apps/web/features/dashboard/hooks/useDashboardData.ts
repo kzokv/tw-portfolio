@@ -49,6 +49,7 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
     upcomingDividendAmount: null,
     openIssueCount: 0,
   },
+  marketValues: [],
   holdings: [],
   holdingGroups: [],
   dividends: {

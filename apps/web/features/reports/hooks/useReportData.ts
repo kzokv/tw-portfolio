@@ -6,7 +6,7 @@ import { fetchReport } from "../services/reportService";
 import type { ReportRouteState } from "../reportState";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
-import type { LocaleCode } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES, type LocaleCode } from "@vakwen/shared-types";
 
 export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 90_000;
 const REPORT_REFRESH_TIMEOUT_MESSAGE = "Report refresh timed out. Try refreshing again.";
@@ -24,18 +24,22 @@ export function useReportData({
   locale: LocaleCode;
   state: ReportRouteState;
 }) {
-  const cacheKey = useMemo(
-    () => buildRouteDtoCacheKey(
+  const buildReportCacheKey = useCallback(
+    (reportingCurrency: string) => buildRouteDtoCacheKey(
       "reports",
       state.tab,
       cacheScope,
       locale,
       state.scope,
-      state.currencyMode,
-      state.currency,
       state.range,
+      reportingCurrency,
     ),
-    [cacheScope, locale, state.currency, state.currencyMode, state.range, state.scope, state.tab],
+    [cacheScope, locale, state.range, state.scope, state.tab],
+  );
+  const expectedReportingCurrency = initialReport?.query.reportingCurrency ?? null;
+  const cacheKey = useMemo(
+    () => buildReportCacheKey(expectedReportingCurrency ?? "unknown"),
+    [buildReportCacheKey, expectedReportingCurrency],
   );
   const [data, setData] = useState<AnyReportDto | null>(initialReport);
   const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
@@ -56,7 +60,7 @@ export function useReportData({
     setIsRefreshing(true);
     try {
       if (!bypassCache) {
-        const cached = readRouteDtoCache<AnyReportDto>(cacheKey);
+        const cached = readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
         if (cached) {
           setData(cached.payload);
           setRestoredFromCache(true);
@@ -66,7 +70,7 @@ export function useReportData({
       const next = await fetchReport(state.tab, state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
       setData(next);
-      writeRouteDtoCache(cacheKey, next);
+      writeRouteDtoCache(buildReportCacheKey(next.query.reportingCurrency), next);
       setErrorMessage("");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
@@ -77,17 +81,19 @@ export function useReportData({
       clearTimeout(timeoutId);
       if (version === requestVersionRef.current) setIsRefreshing(false);
     }
-  }, [cacheKey, state]);
+  }, [buildReportCacheKey, expectedReportingCurrency, state]);
 
   useEffect(() => {
     const shouldUseInitialReport = initialReport !== null
       && contextRefreshSignal === 0
       && initialCacheScopeRef.current === cacheScope
       && reportMatchesState(initialReport, state);
-    const cached = shouldUseInitialReport ? null : readRouteDtoCache<AnyReportDto>(cacheKey);
+    const cached = shouldUseInitialReport
+      ? null
+      : readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
     if (shouldUseInitialReport) {
       setData(initialReport);
-      writeRouteDtoCache(cacheKey, initialReport);
+      writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport);
       setIsBootstrapping(false);
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
@@ -117,12 +123,27 @@ export function useReportData({
   };
 }
 
+function readMatchingReportCache(
+  buildReportCacheKey: (reportingCurrency: string) => string,
+  expectedReportingCurrency: string | null,
+  state: ReportRouteState,
+): { payload: AnyReportDto; savedAt: number } | null {
+  const currencies = expectedReportingCurrency ? [expectedReportingCurrency] : ACCOUNT_DEFAULT_CURRENCIES;
+  let best: { payload: AnyReportDto; savedAt: number } | null = null;
+  for (const currency of currencies) {
+    const cached = readRouteDtoCache<AnyReportDto>(buildReportCacheKey(currency));
+    if (!cached) continue;
+    if (cached.payload.query.reportingCurrency !== currency) continue;
+    if (!reportMatchesState(cached.payload, state)) continue;
+    if (!best || cached.savedAt > best.savedAt) best = cached;
+  }
+  return best;
+}
+
 function reportMatchesState(report: AnyReportDto, state: ReportRouteState): boolean {
   if (!reportMatchesTab(report, state.tab)) return false;
   if (report.query.scope !== state.scope) return false;
-  if (report.query.currencyMode !== state.currencyMode) return false;
   if (report.query.range !== state.range) return false;
-  if (state.currencyMode === "specified" && report.query.currency !== state.currency) return false;
   return true;
 }
 

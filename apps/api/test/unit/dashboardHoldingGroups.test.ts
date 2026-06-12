@@ -9,6 +9,8 @@ import type { Store } from "../../src/types/store.js";
 function makeStore(input: {
   accounts: Array<{ id: string; name: string; defaultCurrency: "TWD" | "USD" | "AUD" | "KRW" }>;
   holdings: Array<{ accountId: string; ticker: string; quantity: number; costBasisAmount: number; currency: string }>;
+  instruments?: Array<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR"; name: string }>;
+  catalogInstruments?: Array<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR"; name: string }>;
 }): Store {
   return {
     settings: {
@@ -34,8 +36,13 @@ function makeStore(input: {
     },
     marketData: {
       dividendEvents: [],
+      instruments: input.instruments ?? [],
     },
-    instruments: [],
+    instruments: (input.catalogInstruments ?? []).map((instrument) => ({
+      ...instrument,
+      type: "STOCK",
+      isProvisional: false,
+    })),
     feeProfiles: [],
     feeProfileBindings: [],
   } as unknown as Store;
@@ -74,6 +81,10 @@ describe("dashboard holdingGroups", () => {
         { accountId: "acc-us-1", ticker: "BHP", quantity: 10, costBasisAmount: 1_000, currency: "USD" },
         { accountId: "acc-us-2", ticker: "BHP", quantity: 5, costBasisAmount: 600, currency: "USD" },
         { accountId: "acc-au-1", ticker: "BHP", quantity: 8, costBasisAmount: 200, currency: "AUD" },
+      ],
+      catalogInstruments: [
+        { ticker: "BHP", marketCode: "US", name: "BHP Group US" },
+        { ticker: "BHP", marketCode: "AU", name: "BHP Group AU" },
       ],
     });
     const quotes: QuoteSnapshot[] = [
@@ -121,6 +132,8 @@ describe("dashboard holdingGroups", () => {
     expect(holdingGroups).toHaveLength(2);
 
     const usGroup = findGroup(holdingGroups, "BHP", "US");
+    expect(usGroup.instrumentName).toBe("BHP Group US");
+    expect(usGroup.children.every((child) => child.instrumentName === "BHP Group US")).toBe(true);
     expect(usGroup.accountCount).toBe(2);
     expect(usGroup.quantity).toBe(15);
     expect(usGroup.costBasisAmount).toBe(1_600);
@@ -143,6 +156,7 @@ describe("dashboard holdingGroups", () => {
     expect(usGroup.children[0]?.reportingCurrentUnitPrice).toBe(3_840);
 
     const auGroup = findGroup(holdingGroups, "BHP", "AU");
+    expect(auGroup.instrumentName).toBe("BHP Group AU");
     expect(auGroup.accountCount).toBe(1);
     expect(auGroup.quantity).toBe(8);
     expect(auGroup.costBasisAmount).toBe(200);
@@ -239,4 +253,5 @@ describe("dashboard holdingGroups", () => {
     expect(group.children.find((child) => child.accountId === "acc-us-1")?.freshness).toBe("stale_red");
     expect(group.children.find((child) => child.accountId === "acc-us-2")?.freshness).toBe("current");
   });
+
 });
