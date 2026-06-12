@@ -603,6 +603,7 @@ export async function fetchTickerDetailsHydration({
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }): Promise<TickerDetailsModel> {
+  const endpoint = needsFullTickerDetailsHydration(primaryDetails) ? "details" : "enrichment";
   return fetchTickerDetailsFromEndpoint({
     ticker,
     accountId,
@@ -613,7 +614,7 @@ export async function fetchTickerDetailsHydration({
     instrument,
     transactions,
     primaryDetails,
-  }, "enrichment");
+  }, endpoint);
 }
 
 export async function fetchTickerDetailsFullRefresh({
@@ -666,6 +667,10 @@ export async function fetchTickerDetailsEnrichment({
     transactions,
     primaryDetails,
   }, "enrichment");
+}
+
+function needsFullTickerDetailsHydration(primaryDetails: TickerDetailsModel): boolean {
+  return primaryDetails.holdingGroup === null && primaryDetails.accountBreakdown.length === 0;
 }
 
 async function fetchTickerDetailsFromEndpoint({

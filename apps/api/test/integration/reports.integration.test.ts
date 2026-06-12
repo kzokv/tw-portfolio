@@ -453,6 +453,94 @@ describe("report routes", () => {
     ]));
   });
 
+  it("does not report missing snapshots for catalog-only markets", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.instruments.push(
+      {
+        ticker: "2330",
+        type: "STOCK",
+        marketCode: "TW",
+      },
+      {
+        ticker: "AAPL",
+        type: "STOCK",
+        marketCode: "US",
+      },
+    );
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-catalog-market-tw-trade",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "report-catalog-market-tw-snapshot",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-06-03",
+        quantity: 10,
+        closePrice: 105,
+        marketValue: 1050,
+        costBasis: 1000,
+        unrealizedPnl: 50,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1050,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 50,
+        providerSource: "test",
+        generatedAt: "2026-06-03T10:05:00.000Z",
+        generationRunId: "report-catalog-market-gen",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      diagnostics: {
+        markets: Array<{
+          marketCode: string;
+        }>;
+      };
+    };
+    expect(body.diagnostics.markets.map((market) => market.marketCode)).toContain("TW");
+    expect(body.diagnostics.markets.map((market) => market.marketCode)).not.toContain("US");
+  });
+
   it("attributes quote and FX gaps to the affected market diagnostics", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
