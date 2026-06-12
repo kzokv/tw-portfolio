@@ -203,7 +203,7 @@ export function PortfolioClient({
             case "holdings-table":
               return (
                 <div className="grid min-w-0 max-w-full gap-3 overflow-hidden" data-testid="portfolio-holdings-style-shell">
-                  <div className="flex min-w-0 max-w-full flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex w-full min-w-0 max-w-full flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
                     <ToggleGroup
                       type="single"
