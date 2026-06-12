@@ -70,13 +70,7 @@ describe("fetchTickerDetails", () => {
       nextDividendDate: null,
       lastDividendPostedDate: null,
     });
-    expect(details.chart.points).toHaveLength(1);
-    expect(details.chart.points[0]).toMatchObject({
-      label: "Now",
-      quantity: 0,
-      price: null,
-      averageCost: null,
-    });
+    expect(details.chart.points).toEqual([]);
     expect(details.dividends).toMatchObject({
       upcomingCount: 0,
       nextPaymentDate: null,
@@ -351,7 +345,7 @@ describe("fetchTickerDetails", () => {
     );
   });
 
-  it("keeps dashboard-derived ticker values when details payload has missing quote-derived values", async () => {
+  it("does not replace missing details payload valuation with dashboard-derived ticker values", async () => {
     getJsonMock.mockResolvedValue({
       identity: {
         ticker: "NVDA",
@@ -541,20 +535,23 @@ describe("fetchTickerDetails", () => {
     });
 
     expect(details.quote).toMatchObject({
-      currentPrice: 900,
-      quoteStatus: "current",
+      currentPrice: null,
+      previousClose: null,
+      changeAmount: null,
+      changePercent: null,
+      quoteStatus: "missing",
     });
     expect(details.position).toMatchObject({
-      marketValue: 9000,
-      unrealizedPnl: 4000,
+      marketValue: null,
+      unrealizedPnl: null,
     });
     expect(details.holdingGroup).toMatchObject({
-      reportingMarketValueAmount: 9000,
-      reportingUnrealizedPnlAmount: 4000,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
     });
     expect(details.accountBreakdown[0]).toMatchObject({
-      reportingMarketValueAmount: 9000,
-      reportingUnrealizedPnlAmount: 4000,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
     });
     expect(details.chart.points).toEqual([]);
   });
@@ -644,7 +641,7 @@ describe("fetchTickerDetails", () => {
     expect(details.position).toMatchObject({
       quantity: 10,
       averageCost: 500,
-      marketValue: 9000,
+      marketValue: null,
     });
     expect(details.chart.points[0]).toMatchObject({
       date: "2026-05-20",
@@ -664,7 +661,7 @@ describe("fetchTickerDetails", () => {
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?marketCode=US");
   });
 
-  it("derives missing ticker valuation from enrichment chart snapshots", async () => {
+  it("does not derive missing ticker valuation from enrichment chart snapshots", async () => {
     getJsonMock.mockResolvedValue({
       identity: {
         ticker: "2330",
@@ -781,37 +778,24 @@ describe("fetchTickerDetails", () => {
     });
 
     expect(details.quote).toMatchObject({
-      currentPrice: 2255,
-      previousClose: 2250,
-      changeAmount: 5,
-      quoteStatus: "current",
+      currentPrice: null,
+      previousClose: null,
+      changeAmount: null,
+      quoteStatus: "missing",
     });
     expect(details.position).toMatchObject({
       quantity: 5000,
-      marketValue: 11275000,
-      unrealizedPnl: 7087810,
+      marketValue: null,
+      unrealizedPnl: null,
     });
-    expect(details.holdingGroup).toMatchObject({
-      currentUnitPrice: 2255,
-      reportingMarketValueAmount: 11275000,
-      reportingUnrealizedPnlAmount: 7087810,
-      allocationBasisUsed: "market_value",
-      allocationBasisFallbackReason: null,
+    expect(details.holdingGroup).toBeNull();
+    expect(details.accountBreakdown).toEqual([]);
+    expect(details.chart.points.at(-1)).toMatchObject({
+      date: "2026-06-10",
+      price: 2255,
+      averageCost: 837.438,
+      quantity: 5000,
     });
-    expect(details.accountBreakdown).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        accountName: "台股國泰證券",
-        reportingMarketValueAmount: 9020000,
-        reportingUnrealizedPnlAmount: 5724080,
-        reportingAllocationPercent: 80,
-      }),
-      expect.objectContaining({
-        accountName: "Fubon",
-        reportingMarketValueAmount: 2255000,
-        reportingUnrealizedPnlAmount: 1363730,
-        reportingAllocationPercent: 20,
-      }),
-    ]));
 
     const usdReportingPrimaryDetails = {
       ...primaryDetails,
@@ -849,33 +833,11 @@ describe("fetchTickerDetails", () => {
     });
 
     expect(usdReportingDetails.position).toMatchObject({
-      marketValue: 11275000,
-      unrealizedPnl: 7087810,
+      marketValue: null,
+      unrealizedPnl: null,
     });
-    expect(usdReportingDetails.holdingGroup).toMatchObject({
-      reportingCurrency: "USD",
-      reportingMarketValueAmount: null,
-      reportingUnrealizedPnlAmount: null,
-      reportingDailyChangeAmount: null,
-    });
-    expect(usdReportingDetails.accountBreakdown).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        accountName: "台股國泰證券",
-        reportingCurrency: "USD",
-        reportingMarketValueAmount: null,
-        reportingUnrealizedPnlAmount: null,
-        reportingDailyChangeAmount: null,
-        reportingAllocationPercent: 80,
-      }),
-      expect.objectContaining({
-        accountName: "Fubon",
-        reportingCurrency: "USD",
-        reportingMarketValueAmount: null,
-        reportingUnrealizedPnlAmount: null,
-        reportingDailyChangeAmount: null,
-        reportingAllocationPercent: 20,
-      }),
-    ]));
+    expect(usdReportingDetails.holdingGroup).toBeNull();
+    expect(usdReportingDetails.accountBreakdown).toEqual([]);
   });
 
   it("does not derive current valuation from historical custom enrichment ranges", async () => {
@@ -1006,12 +968,7 @@ describe("fetchTickerDetails", () => {
       marketValue: null,
       unrealizedPnl: null,
     });
-    expect(details.holdingGroup).toMatchObject({
-      currentUnitPrice: null,
-      reportingMarketValueAmount: null,
-      reportingUnrealizedPnlAmount: null,
-      allocationBasisUsed: "cost_basis",
-    });
+    expect(details.holdingGroup).toBeNull();
     expect(details.chart.points.at(-1)).toMatchObject({
       date: "2025-06-30",
       price: 1515,

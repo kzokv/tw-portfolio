@@ -53,7 +53,6 @@ import { requestRepair } from "../../../features/settings/services/repairService
 import { getCooldownRemainingMinutes } from "../../../features/settings/utils/cooldown";
 import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
 import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
-import type { DashboardOverviewHoldingGroupDto } from "../../../features/portfolio/holdingGroups";
 import { useBreadcrumb } from "../../../components/layout/BreadcrumbProvider";
 import { useAppShellData } from "../../../components/layout/AppShellDataContext";
 import {
@@ -86,7 +85,6 @@ interface TickerHistoryClientProps {
     chartStart?: string;
   };
   initialTradeDate: string;
-  holdingGroup: DashboardOverviewHoldingGroupDto | null;
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -348,7 +346,6 @@ export function TickerHistoryClient({
   transactionMarketFilter,
   initialChartQuery,
   initialTradeDate,
-  holdingGroup,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -421,7 +418,7 @@ export function TickerHistoryClient({
   const accountScopeDisplayName = transactionAccountFilter
     ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
     : dict.tickerHistory.allAccountsLabel;
-  const effectiveHoldingGroup = detailsState.holdingGroup ?? holdingGroup;
+  const effectiveHoldingGroup = detailsState.holdingGroup;
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children
     : detailsState.accountBreakdown;
