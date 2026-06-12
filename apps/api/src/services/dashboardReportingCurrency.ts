@@ -511,7 +511,7 @@ async function buildExpectedSnapshotContributorKeysByDate(
     expectedByDate.set(currentDate, new Set(activeQuantities.keys()));
   }
 
-  const availableDatesByContributor = await buildSnapshotAvailableDatesByContributor(
+  const tradingDatesByMarket = await buildSnapshotTradingDatesByMarket(
     contributors,
     startDate,
     endDate,
@@ -520,7 +520,8 @@ async function buildExpectedSnapshotContributorKeysByDate(
 
   for (const [date, keys] of expectedByDate) {
     for (const key of [...keys]) {
-      if (!availableDatesByContributor.get(key)?.has(date)) {
+      const contributor = contributors.get(key);
+      if (!contributor || !tradingDatesByMarket.get(contributor.marketCode)?.has(date)) {
         keys.delete(key);
       }
     }
@@ -529,13 +530,13 @@ async function buildExpectedSnapshotContributorKeysByDate(
   return expectedByDate;
 }
 
-async function buildSnapshotAvailableDatesByContributor(
+async function buildSnapshotTradingDatesByMarket(
   contributors: ReadonlyMap<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>,
   startDate: string,
   endDate: string,
   persistence: Persistence,
 ): Promise<Map<string, Set<string>>> {
-  const availableDatesByContributor = new Map<string, Set<string>>();
+  const tradingDatesByMarket = new Map<string, Set<string>>();
   const pairsByTickerMarket = new Map<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>();
   for (const contributor of contributors.values()) {
     pairsByTickerMarket.set(tickerMarketKey(contributor.ticker, contributor.marketCode), contributor);
@@ -547,11 +548,15 @@ async function buildSnapshotAvailableDatesByContributor(
     endDate,
   );
 
-  for (const [key, contributor] of contributors) {
+  for (const contributor of contributors.values()) {
+    const marketDates = tradingDatesByMarket.get(contributor.marketCode) ?? new Set<string>();
     const bars = barsByTickerMarket.get(tickerMarketKey(contributor.ticker, contributor.marketCode)) ?? [];
-    availableDatesByContributor.set(key, new Set(bars.map((bar) => bar.barDate)));
+    for (const bar of bars) {
+      marketDates.add(bar.barDate);
+    }
+    tradingDatesByMarket.set(contributor.marketCode, marketDates);
   }
-  return availableDatesByContributor;
+  return tradingDatesByMarket;
 }
 
 function tickerMarketKey(ticker: string, marketCode: string): string {

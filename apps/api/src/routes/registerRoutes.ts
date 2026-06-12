@@ -184,7 +184,15 @@ const tickerSchema = z
   .toUpperCase()
   .min(1);
 
-const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+const isoDateSchema = z.string().refine(isIsoCalendarDate, {
+  message: "Expected a valid ISO calendar date (YYYY-MM-DD)",
+});
 const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
 const tickerChartRangeSchema = z.enum(TICKER_CHART_RANGES);
 const isoDateTimeSchema = z.string().datetime({ offset: true });

@@ -3353,8 +3353,7 @@ export class MemoryPersistence implements Persistence {
           const incomplete = snapshot !== undefined && (
             snapshot.isProvisional
             || snapshot.closePrice === null
-            || snapshot.marketValue === null
-            || snapshot.valueNative === null
+            || (snapshot.quantity > 0 && (snapshot.marketValue === null || snapshot.valueNative === null))
             || snapshot.providerSource === null
           );
           if (!missing && !incomplete) continue;
