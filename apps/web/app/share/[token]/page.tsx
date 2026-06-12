@@ -6,6 +6,11 @@ import type { PublicShareHoldingGroupDto, PublicShareViewDto } from "@vakwen/sha
 import { Card } from "../../../components/ui/Card";
 import { buttonVariants } from "../../../components/ui/Button";
 import { ThemeToggle } from "../../../components/layout/ThemeToggle";
+import {
+  HoldingsGridDesktopFrame,
+  HoldingsGridEmptyState,
+  HoldingsGridNativeTable,
+} from "../../../components/holdings/HoldingsGrid";
 import { API_BASE } from "../../../lib/api";
 import { resolveAuthLocale } from "../../../lib/authPages";
 import { getDictionary } from "../../../lib/i18n";
@@ -175,15 +180,12 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
           </div>
 
           {holdings.length === 0 ? (
-            <p
-              className="rounded-[20px] border border-dashed border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground"
-              data-testid="public-share-empty"
-            >
+            <HoldingsGridEmptyState className="rounded-[20px] bg-muted/30 py-6" testId="public-share-empty">
               {copy.holdingsEmpty}
-            </p>
+            </HoldingsGridEmptyState>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border bg-card">
-              <table className="w-full min-w-[36rem] text-sm" data-testid="public-share-holdings-table">
+            <HoldingsGridDesktopFrame className="block overflow-x-auto rounded-xl bg-card">
+              <HoldingsGridNativeTable className="min-w-[36rem] table-auto" testId="public-share-holdings-table">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -251,8 +253,8 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </HoldingsGridNativeTable>
+            </HoldingsGridDesktopFrame>
           )}
         </Card>
 

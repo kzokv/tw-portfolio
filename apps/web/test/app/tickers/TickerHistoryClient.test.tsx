@@ -337,7 +337,6 @@ function renderTickerHistoryClient(
       transactionMarketFilter="TW"
       initialChartQuery={initialChartQuery}
       initialTradeDate="2026-06-12"
-      holdingGroup={null}
     />,
   );
 }

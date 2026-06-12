@@ -74,7 +74,7 @@ Before starting this follow-up implementation, check current Codex review feedba
 - [x] Run `/aaa` or equivalent E2E planning for new user-facing flows.
 - [x] Add or update E2E coverage for Dashboard shared timeline controls, Reports Performance Trend timeline controls, holdings table responsiveness/columns, Portfolio table style/details behavior, and Ticker custom range controls.
 - [ ] Validate the remaining surfaces in the existing Chrome session against Vakwen Dev after deployment/branch availability: Portfolio, Reports, Ticker Overview, and a representative public share view. Dashboard post-deploy validation is recorded in the June 11 gap note.
-- [ ] Run the smallest relevant tests first, then broader regression gates. Only claim all tests pass if all eight repo-defined suites pass. Focused checks listed below have run; full eight-suite gate remains pending.
+- [x] Run the smallest relevant tests first, then broader regression gates. Only claim all tests pass if all eight repo-defined suites pass. Focused checks listed below have run, and the final local eight-suite gate passed on 2026-06-12.
 
 ## Status Update — 2026-06-11
 
@@ -94,7 +94,7 @@ Delivered in this pass:
 Still open or partial:
 
 - Full reusable shared holdings grid extraction remains deferred/open, matching the original scope note.
-- Richer admin diagnostics/repair preview, live Vakwen Dev validation after deployment, PR/CI/Codex review loop, and full eight-suite validation remain pending.
+- Richer admin diagnostics/repair preview, live Vakwen Dev validation after deployment, and the PR/CI/Codex review loop remain pending. Full local eight-suite validation passed on 2026-06-12.
 
 Validation so far:
 
@@ -113,6 +113,7 @@ Validation so far:
 - `git diff --check` — passed.
 - Component spec hangs were fixed by stabilizing holdings column-settings defaults and skipping value-equal settings writes.
 - 2026-06-12 post-audit fixes closed concrete delivery gaps found by the frontend/backend review team: Dashboard holdings exact-inline market value and daily-change sublines are visible beside compact values, Dashboard/Reports holdings tables now use card rows below `lg` and desktop tables at `lg+`, Reports holdings tables default to sticky ticker columns, and dashboard snapshot coverage uses the batched daily-bar reader instead of one query per contributor. Focused validation passed: `npx eslint apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/reports/ReportsClient.tsx apps/web/test/features/dashboard/components.test.tsx apps/web/test/components/reports/ReportsClient.test.tsx apps/api/src/services/dashboardReportingCurrency.ts apps/api/test/unit/dashboardReportingCurrency.test.ts`; `npx vitest run apps/api/test/unit/dashboardReportingCurrency.test.ts` (`23` tests); `npx vitest run test/features/dashboard/components.test.tsx test/components/reports/ReportsClient.test.tsx` from `apps/web` (`46` tests); `npx tsc --noEmit -p apps/web/tsconfig.json`; `npx tsc --noEmit -p apps/api/tsconfig.json`; `git diff --check`.
+- 2026-06-12 final local gate pass for the existing PR worktree completed after the ticker backend-authoritative cleanup, shared holdings grid primitive extraction, and new desktop/mobile public-share fit coverage. All eight required suites passed from repo root: `npx eslint .`; `npm run typecheck`; `npm run test --prefix apps/web` (`39` files / `223` tests, then `56` files / `373` tests); `npm run test --prefix apps/api` (`147` files passed, `42` skipped; `1536` tests passed, `419` skipped); `npm run test:integration:full:host` (`82` files, `825` tests passed, `1` skipped); `npm run test:e2e:bypass:mem --prefix apps/web` (`275` passed, `9` skipped); `npm run test:e2e:oauth:mem --prefix apps/web` (`120` passed); `npm run test:http --prefix apps/api` (`287` passed, `2` skipped). Existing non-blocking warnings remain the known React `act(...)`, Radix SSR, Recharts zero-size, `pg@9` deprecation, `NO_COLOR`/`FORCE_COLOR`, and expected test-scenario HTTP error logs.
 
 ## Acceptance Checks
 
