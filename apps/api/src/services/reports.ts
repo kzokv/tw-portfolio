@@ -906,11 +906,6 @@ async function buildExpectedValuationDatesByMarket(
       markets.add(trade.marketCode);
     }
   }
-  for (const instrument of store.instruments) {
-    if (isMarketCode(instrument.marketCode)) {
-      markets.add(instrument.marketCode);
-    }
-  }
   const entries = await Promise.all(
     [...markets].map(async (marketCode) => [
       marketCode,
