@@ -966,6 +966,7 @@ function HoldingGroupCell({
             <Link href={groupLinkHref(group)} className="break-words font-semibold text-foreground hover:text-primary">
               {group.ticker}
             </Link>
+            {group.instrumentName ? <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p> : null}
             <p className="text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
           </div>
         </div>
