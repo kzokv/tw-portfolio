@@ -122,6 +122,30 @@ describe("resolveHoldingGroups", () => {
     expect(resolved[0]?.reportingUnrealizedPnlAmount).toBe(34_528);
   });
 
+  it("fills grouped holding names from raw holdings when grouped payload omits them", () => {
+    const namedHoldings = holdings.map((holding) => ({
+      ...holding,
+      instrumentName: "Taiwan Semiconductor Manufacturing",
+    }));
+    const group = buildHoldingGroupsFromHoldings({ holdings: namedHoldings })[0];
+    if (!group) throw new Error("expected holding group");
+
+    const resolved = resolveHoldingGroups({
+      holdings: namedHoldings,
+      holdingGroups: [{
+        ...group,
+        instrumentName: null,
+        children: group.children.map((child) => ({
+          ...child,
+          instrumentName: null,
+        })),
+      }],
+    });
+
+    expect(resolved[0]?.instrumentName).toBe("Taiwan Semiconductor Manufacturing");
+    expect(resolved[0]?.children[0]?.instrumentName).toBe("Taiwan Semiconductor Manufacturing");
+  });
+
   it("does not use native values for allocation when reporting amounts are explicitly null", () => {
     const group = buildHoldingGroupsFromHoldings({ holdings })[0];
     if (!group) throw new Error("expected holding group");
