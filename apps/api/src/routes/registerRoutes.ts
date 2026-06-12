@@ -154,6 +154,7 @@ import type {
   AiTransactionDraftUnsupportedItemRecord,
   AnonymousShareTokenRecord,
   PendingShareInviteRecord,
+  Persistence,
   ShareGrantRecord,
   UserRole,
 } from "../persistence/types.js";
@@ -1840,11 +1841,50 @@ function buildInstrumentNameLookup(store: Pick<Store, "marketData" | "instrument
   return namesByKey;
 }
 
-function attachInstrumentNamesToHoldingGroups<T extends DashboardOverviewHoldingGroupDto>(
-  store: Pick<Store, "marketData" | "instruments">,
+const CATALOG_NAME_LOOKUP_BATCH_SIZE = 25;
+
+async function resolveMissingCatalogInstrumentNames<T extends { ticker: string; marketCode: SharedMarketCode; instrumentName?: string | null }>(
   groups: T[],
-): T[] {
-  const namesByKey = buildInstrumentNameLookup(store);
+  existingNames: ReadonlyMap<string, string>,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<ReadonlyMap<string, string>> {
+  const missingPairs = new Map<string, { ticker: string; marketCode: SharedMarketCode }>();
+  for (const group of groups) {
+    if (group.instrumentName) continue;
+    if (existingNames.has(`${group.marketCode}:${group.ticker}`) || existingNames.has(group.ticker)) continue;
+    missingPairs.set(`${group.marketCode}:${group.ticker}`, {
+      ticker: group.ticker,
+      marketCode: group.marketCode,
+    });
+  }
+  const resolvedNames = new Map<string, string>();
+  const pairs = [...missingPairs.values()];
+  for (let index = 0; index < pairs.length; index += CATALOG_NAME_LOOKUP_BATCH_SIZE) {
+    const chunk = pairs.slice(index, index + CATALOG_NAME_LOOKUP_BATCH_SIZE);
+    const instruments = await Promise.all(chunk.map(async (pair) => ({
+      ...pair,
+      instrument: await persistence.getInstrument(pair.ticker, pair.marketCode),
+    })));
+    for (const { ticker, marketCode, instrument } of instruments) {
+      const name = instrument?.name?.trim();
+      if (!name) continue;
+      resolvedNames.set(`${marketCode}:${ticker}`, name);
+      if (!resolvedNames.has(ticker)) {
+        resolvedNames.set(ticker, name);
+      }
+    }
+  }
+  return resolvedNames;
+}
+
+async function attachInstrumentNamesToHoldingGroups<T extends DashboardOverviewHoldingGroupDto>(
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+  groups: T[],
+): Promise<T[]> {
+  const storeNamesByKey = buildInstrumentNameLookup(store);
+  const catalogNamesByKey = await resolveMissingCatalogInstrumentNames(groups, storeNamesByKey, persistence);
+  const namesByKey = new Map([...storeNamesByKey, ...catalogNamesByKey]);
   return groups.map((group) => {
     const instrumentName = namesByKey.get(`${group.marketCode}:${group.ticker}`)
       ?? namesByKey.get(group.ticker)
@@ -1900,13 +1940,39 @@ function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
-function buildDashboardPrimaryOverview(
+async function attachInstrumentNamesToPrimaryHoldings<T extends ReturnType<typeof buildPortfolioPrimaryHoldings>[number]>(
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+  holdings: T[],
+): Promise<T[]> {
+  const storeNamesByKey = buildInstrumentNameLookup(store);
+  const catalogNamesByKey = await resolveMissingCatalogInstrumentNames(holdings, storeNamesByKey, persistence);
+  const namesByKey = new Map([...storeNamesByKey, ...catalogNamesByKey]);
+  return holdings.map((holding) => ({
+    ...holding,
+    instrumentName: namesByKey.get(`${holding.marketCode}:${holding.ticker}`)
+      ?? namesByKey.get(holding.ticker)
+      ?? holding.instrumentName
+      ?? null,
+  }));
+}
+
+async function buildDashboardPrimaryOverview(
   store: Store,
   userId: string,
   reportingCurrency: AccountDefaultCurrency,
-): DashboardOverviewDto {
-  const holdings = buildPortfolioPrimaryHoldings(store, userId);
-  const holdingGroups = buildOverviewHoldingGroups(store, holdings);
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<DashboardOverviewDto> {
+  const holdings = await attachInstrumentNamesToPrimaryHoldings(
+    store,
+    persistence,
+    buildPortfolioPrimaryHoldings(store, userId),
+  );
+  const holdingGroups = await attachInstrumentNamesToHoldingGroups(
+    store,
+    persistence,
+    buildOverviewHoldingGroups(store, holdings),
+  );
   const sourceCurrencies = new Set(holdings.map((holding) => holding.currency));
   const isReportingNative = [...sourceCurrencies].every((currency) => currency === reportingCurrency);
   const totalCostAmount = isReportingNative
@@ -4492,22 +4558,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
       const reportingCurrency = resolveReportingCurrency(prefs);
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
-      const holdings = await timing.measure("list_primary_holdings", "app", () =>
+      const primaryHoldings = await timing.measure("list_primary_holdings", "app", () =>
         Promise.resolve(buildPortfolioPrimaryHoldings(store, userId)));
+      const holdings = await timing.measure("attach_primary_holding_names", "db", () =>
+        attachInstrumentNamesToPrimaryHoldings(store, app.persistence, primaryHoldings));
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, holdings)));
       const asOf = new Date().toISOString();
-      const translatedHoldingGroups = attachInstrumentNamesToHoldingGroups(
+      const baseTranslatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          asOf,
+          app.persistence,
+        ));
+      const translatedHoldingGroups = await timing.measure("attach_instrument_names", "db", () => attachInstrumentNamesToHoldingGroups(
         store,
-        await timing.measure("translate_holding_groups", "db", () =>
-          translateOverviewHoldingGroups(
-            holdingGroups,
-            reportingCurrency,
-            holdingAllocationBasis,
-            asOf,
-            app.persistence,
-          )),
-      );
+        app.persistence,
+        baseTranslatedHoldingGroups,
+      ));
       const fxRates = await timing.measure("load_fx_rates", "db", () =>
         buildFxConversionRateRows(
           app.persistence,
@@ -4572,17 +4642,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
-      const translatedHoldingGroups = attachInstrumentNamesToHoldingGroups(
+      const baseTranslatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      const translatedHoldingGroups = await timing.measure("attach_instrument_names", "db", () => attachInstrumentNamesToHoldingGroups(
         store,
-        await timing.measure("translate_holding_groups", "db", () =>
-          translateOverviewHoldingGroups(
-            holdingGroups,
-            reportingCurrency,
-            holdingAllocationBasis,
-            overview.summary.asOf,
-            app.persistence,
-          )),
-      );
+        app.persistence,
+        baseTranslatedHoldingGroups,
+      ));
       const fxRates = await timing.measure("load_fx_rates", "db", () =>
         buildFxConversionRateRows(
           app.persistence,
@@ -4869,7 +4941,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
       const reportingCurrency = resolveReportingCurrency(prefs);
       return timing.measure("build_primary_overview", "app", () =>
-        Promise.resolve(buildDashboardPrimaryOverview(store, userId, reportingCurrency)));
+        buildDashboardPrimaryOverview(store, userId, reportingCurrency, app.persistence));
     });
   });
 

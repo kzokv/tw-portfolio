@@ -71,6 +71,13 @@ describe("report routes", () => {
     await app.persistence.saveStore(store);
 
     const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedInstrument?: (instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK" | "ETF" | "BOND_ETF";
+        marketCode: "TW" | "US" | "AU";
+        barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
+      }) => void;
       _seedDailyBars?: (bars: Array<{
         ticker: string;
         marketCode: "TW" | "US" | "AU";
@@ -84,6 +91,13 @@ describe("report routes", () => {
         ingestedAt: string;
       }>) => void;
     };
+    memoryPersistence._seedInstrument?.({
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+    });
     memoryPersistence._seedDailyBars?.([
       {
         ticker: "2330",
@@ -180,6 +194,7 @@ describe("report routes", () => {
         rows: [
           expect.objectContaining({
             ticker: "2330",
+            instrumentName: "台積電",
             marketCode: "TW",
           }),
         ],
@@ -222,7 +237,7 @@ describe("report routes", () => {
       }),
       concentration: expect.objectContaining({
         topHoldings: expect.arrayContaining([
-          expect.objectContaining({ ticker: "2330" }),
+          expect.objectContaining({ ticker: "2330", instrumentName: "台積電" }),
         ]),
       }),
     }));
@@ -260,6 +275,7 @@ describe("report routes", () => {
         rows: [
           expect.objectContaining({
             ticker: "2330",
+            instrumentName: "台積電",
           }),
         ],
       }),
