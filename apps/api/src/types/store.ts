@@ -97,6 +97,7 @@ export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";
 export interface DividendEvent {
   id: string;
   ticker: string;
+  marketCode?: MarketCode;
   eventType: DividendEventType;
   exDividendDate: string;
   paymentDate: string | null;

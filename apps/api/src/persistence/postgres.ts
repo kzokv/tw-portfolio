@@ -62,7 +62,7 @@ import type {
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
-import { normalizeInstrumentSector } from "@vakwen/shared-types";
+import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@vakwen/domain";
 import type { Lot } from "@vakwen/domain";
@@ -4508,7 +4508,7 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
+        `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
                 source, source_reference, ingested_at AS created_at,
                 fiscal_year_period, announcement_date, total_distribution_shares
@@ -4730,6 +4730,7 @@ export class PostgresPersistence implements Persistence {
     const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
       id: row.id,
       ticker: row.ticker,
+      marketCode: row.market_code,
       eventType: row.event_type,
       exDividendDate: normalizeDate(row.ex_dividend_date),
       paymentDate: normalizeDate(row.payment_date),
@@ -10369,19 +10370,20 @@ export class PostgresPersistence implements Persistence {
   private async saveDividendEventTx(client: PoolClient, dividendEvent: DividendEvent): Promise<void> {
     await client.query(
       `INSERT INTO market_data.dividend_events (
-         id, ticker, event_type, ex_dividend_date, payment_date,
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
          cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
          source, source_reference, ingested_at,
          fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data
        ) VALUES (
-         $1, $2, $3, $4, $5,
-         $6, $7, $8,
-         $9, $10, $11,
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9,
+         $10, $11, $12,
          NULL, NULL, NULL, NULL
        )
        ON CONFLICT (id)
        DO UPDATE SET
          ticker = EXCLUDED.ticker,
+         market_code = EXCLUDED.market_code,
          event_type = EXCLUDED.event_type,
          ex_dividend_date = EXCLUDED.ex_dividend_date,
          payment_date = EXCLUDED.payment_date,
@@ -10397,6 +10399,7 @@ export class PostgresPersistence implements Persistence {
       [
         dividendEvent.id,
         dividendEvent.ticker,
+        dividendEvent.marketCode ?? marketCodeFor(dividendEvent.cashDividendCurrency),
         dividendEvent.eventType,
         dividendEvent.exDividendDate,
         dividendEvent.paymentDate,

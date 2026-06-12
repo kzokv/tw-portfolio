@@ -11,6 +11,7 @@ Cross-listed tickers can share the same `ticker` string across markets. For exam
 - Prefer persistence methods that accept both ticker and market, such as `getDailyBarsForTickerMarket(ticker, marketCode, ...)`, when replaying or repairing performance series.
 - Build map keys with a composite helper such as `quoteSnapshotKey(ticker, marketCode)` instead of `ticker`.
 - When collecting unique securities from trades, holdings, snapshots, monitored tickers, or quote rows, dedupe by `(ticker, marketCode)`, not by ticker alone.
+- Dividend event market identity is `event.marketCode`/stored `market_code` when present. Do not infer the event market from `cashDividendCurrency`; payout currency can differ from the security's market.
 - Tests for synthetic or repaired historical performance should include a same-ticker cross-market case when the code reads bars or quotes.
 
 ## Check

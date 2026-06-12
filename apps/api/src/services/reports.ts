@@ -308,7 +308,7 @@ function scopeStore(store: Store, scope: ReportScope): Store {
     trade.marketCode === scope);
   const marketDividendEventIds = new Set(
     store.marketData.dividendEvents
-      .filter((event) => resolveTickerMarketCode(event.ticker, event.cashDividendCurrency, instrumentMarketsByTicker) === scope)
+      .filter((event) => (event.marketCode ?? resolveTickerMarketCode(event.ticker, event.cashDividendCurrency, instrumentMarketsByTicker)) === scope)
       .map((event) => event.id),
   );
   const scopedDividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) =>
