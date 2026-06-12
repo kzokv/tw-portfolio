@@ -166,8 +166,9 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         });
       })
       .catch(() => {
-        hasHydratedPreferencesRef.current = true;
         // Keep local defaults when preference hydration is unavailable.
+        // Do not persist column edits until a successful hydration can merge
+        // existing contexts; PATCH replaces the top-level table preference.
       });
     return () => {
       cancelled = true;
