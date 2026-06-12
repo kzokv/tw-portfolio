@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import type {
   AccountDto,
+  AccountDefaultCurrency,
   FeeProfileDto,
   InstrumentCatalogItemDto,
   TransactionHistoryItemDto,
@@ -294,8 +295,8 @@ const details: TickerDetailsModel = {
   fundamentals: { panels: [] },
 };
 
-function tickerCacheKey() {
-  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "");
+function tickerCacheKey(reportingCurrency: AccountDefaultCurrency = "TWD") {
+  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "", reportingCurrency);
 }
 
 const tickerInstrument: InstrumentCatalogItemDto = {
@@ -440,6 +441,39 @@ describe("TickerHistoryClient", () => {
 
     const marketValueCard = element.querySelector('[data-testid="ticker-history-market-value"]');
     expect(marketValueCard?.textContent).toContain("NT$2,200");
+  });
+
+  it("ignores cached ticker details with a different reporting currency", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey(), {
+      ...details,
+      holdingGroup: {
+        ...details.holdingGroup!,
+        reportingCurrency: "USD",
+        reportingMarketValueAmount: 2200,
+      },
+      accountBreakdown: [{
+        ...details.accountBreakdown[0]!,
+        reportingCurrency: "USD",
+        reportingMarketValueAmount: 2200,
+      }],
+      position: {
+        ...details.position,
+        marketValue: 2200,
+      },
+    });
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: null,
+      },
+    });
+    await flushEffects();
+
+    const marketValueCard = element.querySelector('[data-testid="ticker-history-market-value"]');
+    expect(marketValueCard?.textContent).not.toContain("NT$2,200");
   });
 
   it("uses cached ticker details as the silent refresh fallback", async () => {
