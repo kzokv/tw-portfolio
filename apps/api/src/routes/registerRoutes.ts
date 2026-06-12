@@ -29,6 +29,7 @@ import type {
   AiConnectorSummaryDto,
   AiConnectorScope,
   DashboardOverviewDto,
+  DashboardOverviewHoldingGroupDto,
   DashboardPerformanceRange,
   IntegrityIssueDto,
   InstrumentOptionDto,
@@ -1818,34 +1819,84 @@ function buildTransactionAccountOptions(store: Store): TransactionAccountOptionD
   }));
 }
 
+function buildInstrumentNameLookup(store: Pick<Store, "marketData" | "instruments">): ReadonlyMap<string, string> {
+  const namesByKey = new Map<string, string>();
+  const addName = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
+    const name = instrument.name?.trim();
+    if (!name) return;
+    if (!MARKET_CODES.includes(instrument.marketCode as SharedMarketCode)) return;
+    namesByKey.set(`${instrument.marketCode}:${instrument.ticker}`, name);
+    if (!namesByKey.has(instrument.ticker)) {
+      namesByKey.set(instrument.ticker, name);
+    }
+  };
+
+  for (const instrument of store.marketData.instruments) {
+    addName(instrument);
+  }
+  for (const instrument of store.instruments as ReadonlyArray<{ ticker: string; marketCode: SharedMarketCode; name?: string | null }>) {
+    addName(instrument);
+  }
+  return namesByKey;
+}
+
+function attachInstrumentNamesToHoldingGroups<T extends DashboardOverviewHoldingGroupDto>(
+  store: Pick<Store, "marketData" | "instruments">,
+  groups: T[],
+): T[] {
+  const namesByKey = buildInstrumentNameLookup(store);
+  return groups.map((group) => {
+    const instrumentName = namesByKey.get(`${group.marketCode}:${group.ticker}`)
+      ?? namesByKey.get(group.ticker)
+      ?? group.instrumentName
+      ?? null;
+    return {
+      ...group,
+      instrumentName,
+      children: group.children.map((child) => ({
+        ...child,
+        instrumentName: child.instrumentName ?? instrumentName,
+      })),
+    };
+  });
+}
+
 function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const instrumentNameByKey = buildInstrumentNameLookup(store);
   const holdings = listHoldings(store, userId);
   const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
 
   return holdings
-    .map((holding) => ({
-      accountId: holding.accountId,
-      accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
-      ticker: holding.ticker,
-      marketCode: marketCodeFor(holding.currency),
-      quantity: holding.quantity,
-      costBasisAmount: holding.costBasisAmount,
-      currency: holding.currency,
-      averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
-      currentUnitPrice: null,
-      marketValueAmount: null,
-      unrealizedPnlAmount: null,
-      allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
-      change: null,
-      changePercent: null,
-      previousClose: null,
-      quoteStatus: "missing" as const,
-      nextDividendDate: null,
-      lastDividendPostedDate: null,
-      freshness: "current" as const,
-      freshnessTooltip: null,
-    }))
+    .map((holding) => {
+      const marketCode = marketCodeFor(holding.currency);
+      const instrumentName = instrumentNameByKey.get(`${marketCode}:${holding.ticker}`)
+        ?? instrumentNameByKey.get(holding.ticker)
+        ?? null;
+      return {
+        accountId: holding.accountId,
+        accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
+        ticker: holding.ticker,
+        instrumentName,
+        marketCode,
+        quantity: holding.quantity,
+        costBasisAmount: holding.costBasisAmount,
+        currency: holding.currency,
+        averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
+        currentUnitPrice: null,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+        allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "missing" as const,
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        freshness: "current" as const,
+        freshnessTooltip: null,
+      };
+    })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
@@ -4446,14 +4497,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, holdings)));
       const asOf = new Date().toISOString();
-      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
-        translateOverviewHoldingGroups(
-          holdingGroups,
-          reportingCurrency,
-          holdingAllocationBasis,
-          asOf,
-          app.persistence,
-        ));
+      const translatedHoldingGroups = attachInstrumentNamesToHoldingGroups(
+        store,
+        await timing.measure("translate_holding_groups", "db", () =>
+          translateOverviewHoldingGroups(
+            holdingGroups,
+            reportingCurrency,
+            holdingAllocationBasis,
+            asOf,
+            app.persistence,
+          )),
+      );
       const fxRates = await timing.measure("load_fx_rates", "db", () =>
         buildFxConversionRateRows(
           app.persistence,
@@ -4518,14 +4572,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
-      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
-        translateOverviewHoldingGroups(
-          holdingGroups,
-          reportingCurrency,
-          holdingAllocationBasis,
-          overview.summary.asOf,
-          app.persistence,
-        ));
+      const translatedHoldingGroups = attachInstrumentNamesToHoldingGroups(
+        store,
+        await timing.measure("translate_holding_groups", "db", () =>
+          translateOverviewHoldingGroups(
+            holdingGroups,
+            reportingCurrency,
+            holdingAllocationBasis,
+            overview.summary.asOf,
+            app.persistence,
+          )),
+      );
       const fxRates = await timing.measure("load_fx_rates", "db", () =>
         buildFxConversionRateRows(
           app.persistence,
