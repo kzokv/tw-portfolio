@@ -32,6 +32,11 @@ import { Badge } from "../../../components/ui/shadcn/badge";
 import { Input } from "../../../components/ui/shadcn/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/toggle-group";
+import {
+  getHoldingsFreshnessLabel,
+  getHoldingsQuoteStatusLabel,
+} from "../../../components/holdings/HoldingsDataHealth";
+import { holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
@@ -74,6 +79,12 @@ interface TickerHistoryClientProps {
   isDemo: boolean;
   transactionAccountFilter?: string;
   transactionMarketFilter?: MarketCode;
+  initialChartQuery?: {
+    chartEnd?: string;
+    chartRange?: string;
+    chartStart?: string;
+  };
+  initialTradeDate: string;
   holdingGroup: DashboardOverviewHoldingGroupDto | null;
 }
 
@@ -81,6 +92,7 @@ const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repa
 const TICKER_DETAILS_CACHE_TTL_MS = 3 * 60 * 1000;
 const TICKER_RANGE_ITEMS = [...TICKER_CHART_RANGES, "CUSTOM"] as const;
 const MAX_TICKER_CHART_POINTS = 900;
+const TICKER_CHART_EMPTY_FALLBACK_DATE = "1970-01-01";
 
 type TickerRangeControl = TickerChartRange | "CUSTOM";
 
@@ -144,6 +156,12 @@ function buildTickerChartRequest(selection: TickerRangeControl, startDate?: stri
     return { range: selection };
   }
   return { range: "1Y" };
+}
+
+function tickerChartRequestsEqual(left: TickerChartRequest, right: TickerChartRequest): boolean {
+  return left.range === right.range
+    && left.startDate === right.startDate
+    && left.endDate === right.endDate;
 }
 
 function getTickerChartMetadata(chart: TickerDetailsModel["chart"]) {
@@ -212,6 +230,19 @@ function resolveInitialTickerChartState(
     customStartDate: fallbackStartDate ?? "",
     request: buildTickerChartRequest(selection, fallbackStartDate, fallbackEndDate),
     selection,
+  };
+}
+
+function buildInitialTickerChartSearchParams(
+  query: TickerHistoryClientProps["initialChartQuery"],
+): Pick<URLSearchParams, "get"> {
+  return {
+    get: (key: string) => {
+      if (key === "chartRange") return query?.chartRange ?? null;
+      if (key === "chartStart") return query?.chartStart ?? null;
+      if (key === "chartEnd") return query?.chartEnd ?? null;
+      return null;
+    },
   };
 }
 
@@ -305,13 +336,21 @@ export function TickerHistoryClient({
   isDemo,
   transactionAccountFilter,
   transactionMarketFilter,
+  initialChartQuery,
+  initialTradeDate,
   holdingGroup,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamKey = searchParams.toString();
   const initialChartMetadata = getTickerChartMetadata(details.chart);
-  const initialTickerChartState = resolveInitialTickerChartState(searchParams, details.chart.range ?? "1Y", initialChartMetadata.resolved.startDate, initialChartMetadata.resolved.endDate);
+  const initialTickerChartState = resolveInitialTickerChartState(
+    buildInitialTickerChartSearchParams(initialChartQuery),
+    details.chart.range ?? "1Y",
+    initialChartMetadata.resolved.startDate,
+    initialChartMetadata.resolved.endDate,
+  );
   // Per-page breadcrumb override (spec amendment #21). Display label uses the
   // instrument name + ticker symbol when available, otherwise the ticker itself.
   // The Portfolio parent segment keeps the breadcrumb actionable.
@@ -382,6 +421,20 @@ export function TickerHistoryClient({
   useEffect(() => {
     setIsClientReady(true);
   }, []);
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(searchParamKey);
+    const next = resolveInitialTickerChartState(
+      queryParams,
+      details.chart.range ?? "1Y",
+      initialChartMetadata.resolved.startDate,
+      initialChartMetadata.resolved.endDate,
+    );
+    setTickerChartSelection((current) => current === next.selection ? current : next.selection);
+    setTickerChartRequest((current) => tickerChartRequestsEqual(current, next.request) ? current : next.request);
+    setCustomStartDate((current) => current === next.customStartDate ? current : next.customStartDate);
+    setCustomEndDate((current) => current === next.customEndDate ? current : next.customEndDate);
+  }, [details.chart.range, initialChartMetadata.resolved.endDate, initialChartMetadata.resolved.startDate, searchParamKey]);
 
   useEffect(() => {
     setInstrumentState(instrument);
@@ -472,8 +525,8 @@ export function TickerHistoryClient({
   });
 
   const initialTransaction = useMemo<TransactionInput>(
-    () =>
-      resolveTransactionDraftAccount(
+    () => {
+      return resolveTransactionDraftAccount(
         {
           accountId,
           ticker,
@@ -489,20 +542,22 @@ export function TickerHistoryClient({
           quantity: 1000,
           unitPrice: 100,
           priceCurrency: transactions[0]?.priceCurrency ?? "TWD",
-          tradeDate: new Date().toISOString().slice(0, 10),
+          tradeDate: initialTradeDate,
           type: "BUY",
           isDayTrade: false,
         },
         accounts,
         feeProfiles,
         feeProfileBindings,
-      ),
+      );
+    },
     [
       accountId,
       accounts,
       detailsState.identity.marketCode,
       feeProfileBindings,
       feeProfiles,
+      initialTradeDate,
       ticker,
       transactionMarketFilter,
       transactions,
@@ -562,7 +617,7 @@ export function TickerHistoryClient({
   }, [instrumentState?.lastRepairAt]);
   const statusText = repairInProgress
     ? dict.tickerHistory.repairStatusRunning
-    : lastRepairAt
+    : lastRepairAt && isClientReady
       ? `${dict.tickerHistory.repairStatusLastRun}: ${formatLastRepairTime(locale, lastRepairAt)}`
       : dict.tickerHistory.repairStatusIdle;
   const repairDisabledReason = isDemo
@@ -582,6 +637,8 @@ export function TickerHistoryClient({
     : quoteDirection === "up"
       ? "border-success/40 bg-success/10 text-success"
       : "border-destructive/40 bg-destructive/10 text-destructive";
+  const quoteStatusBadgeClassName = detailsState.quote.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined;
+  const freshnessBadgeClassName = detailsState.quote.freshness === "stale_amber" ? holdingsWarningBadgeClassName : undefined;
   const summaryCards = [
     {
       key: "quantity",
@@ -637,12 +694,22 @@ export function TickerHistoryClient({
     },
   ];
   const currentChartMetadata = getTickerChartMetadata(detailsState.chart);
+  const chartStartDate = currentChartMetadata.resolved.startDate
+    ?? detailsState.chart.points[0]?.date
+    ?? currentChartMetadata.requested.startDate
+    ?? currentChartMetadata.requested.endDate
+    ?? TICKER_CHART_EMPTY_FALLBACK_DATE;
+  const chartEndDate = currentChartMetadata.resolved.endDate
+    ?? detailsState.chart.points.at(-1)?.date
+    ?? currentChartMetadata.requested.endDate
+    ?? currentChartMetadata.requested.startDate
+    ?? chartStartDate;
   const chartAxis = buildTimelineAxis({
-    endDate: currentChartMetadata.resolved.endDate ?? detailsState.chart.points.at(-1)?.date ?? new Date().toISOString().slice(0, 10),
+    endDate: chartEndDate,
     locale,
     mode: tickerTimelineMode,
     pointDates: detailsState.chart.points.map((point) => point.date),
-    startDate: currentChartMetadata.resolved.startDate ?? detailsState.chart.points[0]?.date ?? new Date().toISOString().slice(0, 10),
+    startDate: chartStartDate,
   });
   const downsampledChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
   const chartData = downsampledChart.points.map((point) => ({
@@ -836,7 +903,7 @@ export function TickerHistoryClient({
                 {dict.tickerHistory.refreshingDetails}
               </span>
             ) : (
-              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
+              <span className="rounded-full border border-border bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {dict.tickerHistory.primaryReady}
               </span>
             )}
@@ -850,13 +917,16 @@ export function TickerHistoryClient({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-primary/80">{dict.tickerHistory.eyebrow}</p>
-                <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", quoteAccent)}>
-                  {detailsState.quote.quoteStatus}
-                </span>
+                <Badge
+                  variant={detailsState.quote.quoteStatus === "current" ? "secondary" : detailsState.quote.quoteStatus === "missing" ? "destructive" : "outline"}
+                  className={quoteStatusBadgeClassName}
+                >
+                  {getHoldingsQuoteStatusLabel(dict, detailsState.quote.quoteStatus)}
+                </Badge>
                 {detailsState.quote.freshness !== "current" ? (
-                  <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
-                    {detailsState.quote.freshness}
-                  </span>
+                  <Badge variant={detailsState.quote.freshness === "stale_red" ? "destructive" : "outline"} className={freshnessBadgeClassName}>
+                    {getHoldingsFreshnessLabel(dict, detailsState.quote.freshness)}
+                  </Badge>
                 ) : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -1222,37 +1292,37 @@ export function TickerHistoryClient({
                       {accountContributionData.map((row) => (
                         <div
                           key={row.accountId}
-                          className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm"
+                          className="min-w-0 rounded-2xl border border-border bg-muted/30 p-4 text-sm"
                           data-testid={`ticker-account-breakdown-row-${row.accountId}`}
                         >
                           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                                 {dict.tickerHistory.accountBreakdownAccountLabel}
                               </p>
-                              <p className="mt-1 break-words font-semibold text-slate-950">{row.label}</p>
+                              <p className="mt-1 break-words font-semibold text-foreground">{row.label}</p>
                             </div>
                             <div className="grid min-w-0 gap-3 sm:min-w-[360px] sm:grid-cols-4">
                               <div className="min-w-0">
-                                <p className="text-xs text-slate-500">{dict.tickerHistory.quantityLabel}</p>
-                                <p className="mt-1 break-words font-medium text-slate-900">{formatNumber(row.quantity, locale)}</p>
+                                <p className="text-xs text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
+                                <p className="mt-1 break-words font-medium text-foreground">{formatNumber(row.quantity, locale)}</p>
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs text-slate-500">{dict.tickerHistory.avgCostLabel}</p>
-                                <p className="mt-1 break-words font-medium text-slate-900">
+                                <p className="text-xs text-muted-foreground">{dict.tickerHistory.avgCostLabel}</p>
+                                <p className="mt-1 break-words font-medium text-foreground">
                                   {formatCurrencyAmount(row.averageCost, row.averageCostCurrency, locale)}
                                 </p>
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs text-slate-500">{dict.holdings.unitPnlTerm}</p>
+                                <p className="text-xs text-muted-foreground">{dict.holdings.unitPnlTerm}</p>
                                 {(() => {
                                   const unitPnl = getNativeUnitPnl(row.currentPrice, row.averageCost);
                                   return (
                                     <>
-                                      <p className="mt-1 break-words font-medium text-slate-900">
+                                      <p className="mt-1 break-words font-medium text-foreground">
                                         {unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, row.averageCostCurrency, locale)}
                                       </p>
-                                      <p className="mt-1 break-words text-xs text-slate-500">
+                                      <p className="mt-1 break-words text-xs text-muted-foreground">
                                         {unitPnl.percent == null ? "-" : `${formatNumber(unitPnl.percent, locale)}%`}
                                       </p>
                                     </>
@@ -1260,8 +1330,8 @@ export function TickerHistoryClient({
                                 })()}
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs text-slate-500">{dict.tickerHistory.accountContributionLabel}</p>
-                                <p className="mt-1 break-words font-semibold text-slate-950">
+                                <p className="text-xs text-muted-foreground">{dict.tickerHistory.accountContributionLabel}</p>
+                                <p className="mt-1 break-words font-semibold text-foreground">
                                   {row.contribution != null && row.contributionCurrency
                                     ? formatCurrencyAmount(row.contribution, row.contributionCurrency, locale)
                                     : dict.tickerHistory.noHoldingData}

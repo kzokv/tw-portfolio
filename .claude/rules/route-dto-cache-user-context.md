@@ -61,3 +61,7 @@ When adding a new primary DTO cache key for authenticated route data:
 ## 2026-06-11 Addendum: Chart Range and Custom Date Dimensions
 
 Chart-capable route DTO caches must include the full chart request identity, not only the route identity. For ticker detail/enrichment DTOs, key by ticker, market, account, selected chart range, and custom start/end dates. For reports, key by report tab, scope, range, and resolved reporting currency. Otherwise a cached `1Y` or native-currency DTO can be briefly restored while the UI is requesting `3Y`, custom dates, or another reporting currency, which relabels financial values and chart metadata dishonestly.
+
+## 2026-06-12 Addendum: First-Render Query State for Chart Routes
+
+Chart-capable App Router pages must pass server-parsed query parameters into the client component as initial state. Do not let the first hydration request depend only on `useSearchParams()` effects when the server already rendered a deep-linked chart range or custom date window. The initial request and visible controls must use the same route query that produced the server HTML; `useSearchParams()` can then synchronize later client-side navigation changes. Add component/page tests for custom deep links so the first client request includes the requested range and date bounds.

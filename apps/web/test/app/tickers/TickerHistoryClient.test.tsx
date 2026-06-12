@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type {
   AccountDto,
   FeeProfileDto,
+  InstrumentCatalogItemDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
@@ -297,7 +298,27 @@ function tickerCacheKey() {
   return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "");
 }
 
-function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details) {
+const tickerInstrument: InstrumentCatalogItemDto = {
+  ticker: "2330",
+  name: "TSMC",
+  instrumentType: "STOCK",
+  sector: null,
+  marketCode: "TW",
+  barsBackfillStatus: "complete",
+  lastRepairAt: null,
+  repairAvailableAt: null,
+  gicsIndustryGroup: null,
+};
+
+function renderTickerHistoryClient(
+  initialDetails: TickerDetailsModel = details,
+  instrument: InstrumentCatalogItemDto | null = tickerInstrument,
+  initialChartQuery?: {
+    chartEnd?: string;
+    chartRange?: string;
+    chartStart?: string;
+  },
+) {
   return mount(
     <TickerHistoryClient
       transactions={transactions}
@@ -308,21 +329,13 @@ function renderTickerHistoryClient(initialDetails: TickerDetailsModel = details)
       accounts={accounts}
       feeProfiles={feeProfiles}
       feeProfileBindings={[]}
-      instrument={{
-        ticker: "2330",
-        name: "TSMC",
-        instrumentType: "STOCK",
-        sector: null,
-        marketCode: "TW",
-        barsBackfillStatus: "complete",
-        lastRepairAt: null,
-        repairAvailableAt: null,
-        gicsIndustryGroup: null,
-      }}
+      instrument={instrument}
       details={initialDetails}
       isDemo={false}
       transactionAccountFilter="acc-2"
       transactionMarketFilter="TW"
+      initialChartQuery={initialChartQuery}
+      initialTradeDate="2026-06-12"
       holdingGroup={null}
     />,
   );
@@ -370,6 +383,40 @@ describe("TickerHistoryClient", () => {
     const repairButton = element.querySelector('[data-testid="repair-button"]');
     expect(repairButton?.textContent).toContain("Repair ticker data");
     expect(repairButton?.getAttribute("title")).toBe("Ticker repair is on cooldown");
+  });
+
+  it("renders repair timestamps with a client-local timezone after mount", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    const element = renderTickerHistoryClient(details, {
+      ...tickerInstrument,
+      lastRepairAt: "2026-06-09T10:10:00.000Z",
+    });
+    await flushEffects();
+
+    const expectedLocalTime = new Intl.DateTimeFormat("en", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date("2026-06-09T10:10:00.000Z"));
+    const repairStatus = element.querySelector('[data-testid="repair-status-badge"]');
+    expect(repairStatus?.textContent).toContain(`Last repaired: ${expectedLocalTime}`);
+  });
+
+  it("renders localized quote status badges instead of raw enum values", () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
+    const element = renderTickerHistoryClient({
+      ...details,
+      quote: {
+        ...details.quote,
+        quoteStatus: "provisional",
+        freshness: "stale_amber",
+      },
+    });
+
+    expect(element.textContent).toContain("Provisional");
+    expect(element.textContent).toContain("Stale");
   });
 
   it("restores cached ticker details before the silent refresh completes", async () => {
@@ -470,6 +517,22 @@ describe("TickerHistoryClient", () => {
     await flushEffects();
 
     expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: undefined,
+      startDate: "2024-01-01",
+      endDate: "2024-06-30",
+    }));
+  });
+
+  it("uses deep-linked ticker chart query params for the first hydration request", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    renderTickerHistoryClient(details, tickerInstrument, {
+      chartEnd: "2024-06-30",
+      chartRange: "CUSTOM",
+      chartStart: "2024-01-01",
+    });
+    await flushEffects();
+
+    expect(fetchTickerDetailsHydration).toHaveBeenCalledWith(expect.objectContaining({
       range: undefined,
       startDate: "2024-01-01",
       endDate: "2024-06-30",

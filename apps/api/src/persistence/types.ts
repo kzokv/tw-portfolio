@@ -1734,6 +1734,12 @@ export interface HoldingSnapshotScopePair {
 export interface SnapshotScopeDiagnostics {
   latestSnapshotDate: string | null;
   missingProviderSourceCount: number;
+  markets: Array<{
+    marketCode: MarketCode;
+    latestSnapshotDate: string | null;
+    missingProviderSourceCount: number;
+    providerSources: string[];
+  }>;
 }
 
 /**

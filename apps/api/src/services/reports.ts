@@ -34,6 +34,11 @@ import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferences.js";
 import { resolveReportContext } from "./reportContext.js";
 import { buildFxConversionRateRows } from "./fxConversionRates.js";
+import {
+  translateHistoricalFxAmounts,
+  type HistoricalFxAmountResult,
+  type HistoricalFxMissingRatePair,
+} from "./historicalFxTranslation.js";
 import { routeError } from "../lib/routeError.js";
 import type { HoldingSnapshotScopePair, Persistence } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
@@ -63,18 +68,11 @@ interface PreparedReportData {
   store: Store;
   scopedStore: Store;
   asOf: string;
-  snapshotDiagnostics: {
-    latestSnapshotDate: string | null;
-    missingProviderSourceCount: number;
-  };
+  snapshotDiagnostics: Awaited<ReturnType<Persistence["getLatestSnapshotDiagnostics"]>>;
+  expectedValuationDatesByMarket: Map<MarketCode, string | null>;
 }
 
-type MissingFxRatePair = ReportFxStatusDto["missingRatePairs"][number];
-
-interface HistoricalFxAmountResult {
-  amount: number;
-  missingRatePairs: MissingFxRatePair[];
-}
+type MissingFxRatePair = HistoricalFxMissingRatePair;
 
 type ReportKnownGapReason =
   | "missing_snapshot"
@@ -84,6 +82,15 @@ type ReportKnownGapReason =
   | "stale_quote"
   | "missing_fx"
   | "missing_provider_source";
+
+type ReportMarketDiagnostics = Array<{
+  marketCode: MarketCode;
+  expectedLatestValuationDate: string | null;
+  latestSnapshotDate: string | null;
+  missingProviderSourceCount: number;
+  providerSources: string[];
+  knownGapReasons: ReportKnownGapReason[];
+}>;
 
 export async function buildDailyReviewReport(
   app: FastifyInstance,
@@ -245,8 +252,8 @@ async function prepareReportData(
   ), scopedStore, app.persistence);
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
-    translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
-    buildTrailingDividendIncome(app, scopedStore, context.reportingCurrency),
+    translateTradeAmounts(scopedStore, context.reportingCurrency, app.persistence, "realized_pnl"),
+    buildTrailingDividendIncome(scopedStore, context.reportingCurrency, app.persistence),
   ]);
   const historicalMissingRatePairs = dedupeMissingRatePairs([
     ...realizedPnl.missingRatePairs,
@@ -255,8 +262,9 @@ async function prepareReportData(
   const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
   const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
   const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
-    ? { latestSnapshotDate: null, missingProviderSourceCount: 0 }
+    ? { latestSnapshotDate: null, missingProviderSourceCount: 0, markets: [] }
     : await app.persistence.getLatestSnapshotDiagnostics(userId, snapshotScopePairs);
+  const expectedValuationDatesByMarket = await buildExpectedValuationDatesByMarket(app, scopedStore, asOf);
   return {
     reportQuery: {
       scope: context.scope,
@@ -284,6 +292,7 @@ async function prepareReportData(
     scopedStore,
     asOf,
     snapshotDiagnostics,
+    expectedValuationDatesByMarket,
   };
 }
 
@@ -480,7 +489,7 @@ function buildInstrumentNameLookup(
   const addInstrument = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
     const name = instrument.name?.trim();
     if (!name) return;
-    if (!MARKET_CODES.includes(instrument.marketCode as MarketCode)) return;
+    if (!isMarketCode(instrument.marketCode)) return;
     lookup.set(`${instrument.marketCode}:${instrument.ticker}`, name);
     if (!lookup.has(instrument.ticker)) {
       lookup.set(instrument.ticker, name);
@@ -604,6 +613,7 @@ function buildReportDiagnostics(
   if (prepared.dataHealth.staleQuoteCount > 0) knownGapReasons.push("stale_quote");
   if (prepared.dataHealth.missingFxCount > 0) knownGapReasons.push("missing_fx");
   if (prepared.snapshotDiagnostics.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
+  const markets = resolveReportMarketDiagnostics(prepared);
   return {
     scope: prepared.reportQuery.scope,
     reportingCurrency: prepared.reportQuery.reportingCurrency,
@@ -620,6 +630,7 @@ function buildReportDiagnostics(
     missingFxCount: prepared.dataHealth.missingFxCount,
     missingProviderSourceCount: prepared.snapshotDiagnostics.missingProviderSourceCount,
     knownGapReasons,
+    markets,
     rowCounts: {
       holdingsTotal: rowsPage.total,
       holdingsReturned: rowsPage.rows.length,
@@ -630,6 +641,58 @@ function buildReportDiagnostics(
       ...(options.suggestions !== undefined ? { suggestions: options.suggestions } : {}),
     },
   } as ReportDiagnosticsDto;
+}
+
+function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMarketDiagnostics {
+  const seededMarketsByCode = new Map<MarketCode, {
+    marketCode: MarketCode;
+    latestSnapshotDate: string | null;
+    missingProviderSourceCount: number;
+    providerSources: string[];
+  }>();
+
+  for (const marketCode of prepared.expectedValuationDatesByMarket.keys()) {
+    seededMarketsByCode.set(marketCode, {
+      marketCode,
+      latestSnapshotDate: null,
+      missingProviderSourceCount: 0,
+      providerSources: [],
+    });
+  }
+
+  for (const market of prepared.snapshotDiagnostics.markets) {
+    if (!isMarketCode(market.marketCode)) continue;
+    seededMarketsByCode.set(market.marketCode, {
+      marketCode: market.marketCode,
+      latestSnapshotDate: market.latestSnapshotDate,
+      missingProviderSourceCount: market.missingProviderSourceCount,
+      providerSources: market.providerSources,
+    });
+  }
+
+  return [...seededMarketsByCode.values()]
+    .map((market) => {
+      const expectedLatestValuationDate = prepared.expectedValuationDatesByMarket.get(market.marketCode) ?? null;
+      const knownGapReasons: ReportKnownGapReason[] = [];
+      if (market.latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
+      if (
+        market.latestSnapshotDate !== null
+        && expectedLatestValuationDate !== null
+        && market.latestSnapshotDate < expectedLatestValuationDate
+      ) {
+        knownGapReasons.push("stale_snapshot");
+      }
+      if (market.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
+      return {
+        marketCode: market.marketCode,
+        expectedLatestValuationDate,
+        latestSnapshotDate: market.latestSnapshotDate,
+        missingProviderSourceCount: market.missingProviderSourceCount,
+        providerSources: market.providerSources,
+        knownGapReasons,
+      };
+    })
+    .sort((left, right) => left.marketCode.localeCompare(right.marketCode));
 }
 
 function buildSnapshotScopePairs(
@@ -759,53 +822,78 @@ function buildSummaryTotals(
 }
 
 async function translateTradeAmounts(
-  app: FastifyInstance,
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
+  rates: Pick<Persistence, "getFxRate">,
   _kind: "realized_pnl",
 ): Promise<HistoricalFxAmountResult> {
-  let total = 0;
-  const missingRatePairs: MissingFxRatePair[] = [];
-  for (const trade of store.accounting.facts.tradeEvents) {
-    if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
-    const currency = (trade.realizedPnlCurrency ?? trade.priceCurrency) as AccountDefaultCurrency;
-    const fx = currency === reportingCurrency ? 1 : await app.persistence.getFxRate(currency, reportingCurrency, trade.tradeDate);
-    if (fx === null) {
-      missingRatePairs.push({ from: currency, to: reportingCurrency });
-      continue;
-    }
-    total += trade.realizedPnlAmount * fx;
-  }
-  return {
-    amount: roundToDecimal(total, 2),
-    missingRatePairs: dedupeMissingRatePairs(missingRatePairs),
-  };
+  return translateHistoricalFxAmounts(
+    store.accounting.facts.tradeEvents
+      .filter((trade) => trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null)
+      .map((trade) => ({
+        amount: trade.realizedPnlAmount as number,
+        currency: (trade.realizedPnlCurrency ?? trade.priceCurrency) as AccountDefaultCurrency,
+        date: trade.tradeDate,
+      })),
+    reportingCurrency,
+    rates,
+  );
 }
 
 async function buildTrailingDividendIncome(
-  app: FastifyInstance,
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
+  rates: Pick<Persistence, "getFxRate">,
 ): Promise<HistoricalFxAmountResult> {
-  let total = 0;
-  const missingRatePairs: MissingFxRatePair[] = [];
   const reversedIds = collectReversedDividendLedgerIds(store);
-  for (const entry of store.accounting.facts.dividendLedgerEntries) {
-    if (!isActivePostedDividend(entry, reversedIds) || entry.receivedCashAmount === 0) continue;
-    const event = store.marketData.dividendEvents.find((candidate) => candidate.id === entry.dividendEventId);
-    const currency = (event?.cashDividendCurrency ?? "TWD") as AccountDefaultCurrency;
-    const date = event?.paymentDate ?? event?.exDividendDate ?? new Date().toISOString().slice(0, 10);
-    const fx = currency === reportingCurrency ? 1 : await app.persistence.getFxRate(currency, reportingCurrency, date);
-    if (fx === null) {
-      missingRatePairs.push({ from: currency, to: reportingCurrency });
-      continue;
-    }
-    total += entry.receivedCashAmount * fx;
+  const dividendEventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  return translateHistoricalFxAmounts(
+    store.accounting.facts.dividendLedgerEntries.flatMap((entry) => {
+      if (!isActivePostedDividend(entry, reversedIds) || entry.receivedCashAmount === 0) return [];
+      const event = dividendEventById.get(entry.dividendEventId);
+      const date = event?.paymentDate ?? event?.exDividendDate ?? entry.bookedAt?.slice(0, 10);
+      if (!date) return [];
+      return [{
+        amount: entry.receivedCashAmount,
+        currency: (event?.cashDividendCurrency ?? "TWD") as AccountDefaultCurrency,
+        date,
+      }];
+    }),
+    reportingCurrency,
+    rates,
+  );
+}
+
+async function buildExpectedValuationDatesByMarket(
+  app: FastifyInstance,
+  store: Store,
+  asOf: string,
+): Promise<Map<MarketCode, string | null>> {
+  const markets = new Set<MarketCode>();
+  for (const holding of store.accounting.projections.holdings) {
+    markets.add(marketCodeFor(holding.currency));
   }
-  return {
-    amount: roundToDecimal(total, 2),
-    missingRatePairs: dedupeMissingRatePairs(missingRatePairs),
-  };
+  for (const trade of store.accounting.facts.tradeEvents) {
+    if (isMarketCode(trade.marketCode)) {
+      markets.add(trade.marketCode);
+    }
+  }
+  for (const instrument of store.instruments) {
+    if (isMarketCode(instrument.marketCode)) {
+      markets.add(instrument.marketCode);
+    }
+  }
+  const entries = await Promise.all(
+    [...markets].map(async (marketCode) => [
+      marketCode,
+      await app.tradingCalendarCache.latestSettledTradingDay(marketCode, new Date(asOf)),
+    ] as const),
+  );
+  return new Map(entries);
+}
+
+function isMarketCode(value: string): value is MarketCode {
+  return (MARKET_CODES as readonly string[]).includes(value);
 }
 
 function countActivePostedDividends(store: Store): number {
