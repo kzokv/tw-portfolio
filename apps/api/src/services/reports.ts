@@ -35,10 +35,11 @@ import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferen
 import { resolveReportContext } from "./reportContext.js";
 import { buildFxConversionRateRows } from "./fxConversionRates.js";
 import { routeError } from "../lib/routeError.js";
-import type { HoldingSnapshotScopePair } from "../persistence/types.js";
+import type { HoldingSnapshotScopePair, Persistence } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
 
 export const REPORT_HOLDINGS_MAX_LIMIT = 1000;
+const CATALOG_NAME_LOOKUP_BATCH_SIZE = 25;
 
 export interface BuildReportInput {
   scope?: string;
@@ -235,13 +236,13 @@ async function prepareReportData(
     asOf,
     app.persistence,
   );
-  const translatedHoldingGroups = attachInstrumentNames(await translateOverviewHoldingGroups(
+  const translatedHoldingGroups = await attachInstrumentNames(await translateOverviewHoldingGroups(
     buildOverviewHoldingGroups(scopedStore, overview.holdings),
     context.reportingCurrency,
     "market_value",
     asOf,
     app.persistence,
-  ), scopedStore);
+  ), scopedStore, app.persistence);
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
     translateTradeAmounts(app, scopedStore, context.reportingCurrency, "realized_pnl"),
@@ -473,25 +474,69 @@ function deriveFxRateToReporting(
 }
 
 function buildInstrumentNameLookup(
-  store: Pick<Store, "marketData">,
+  store: Pick<Store, "marketData" | "instruments">,
 ): ReadonlyMap<string, string> {
   const lookup = new Map<string, string>();
-  for (const instrument of store.marketData.instruments) {
+  const addInstrument = (instrument: { ticker: string; marketCode: string; name?: string | null }) => {
     const name = instrument.name?.trim();
-    if (!name) continue;
+    if (!name) return;
+    if (!MARKET_CODES.includes(instrument.marketCode as MarketCode)) return;
     lookup.set(`${instrument.marketCode}:${instrument.ticker}`, name);
     if (!lookup.has(instrument.ticker)) {
       lookup.set(instrument.ticker, name);
     }
+  };
+  for (const instrument of store.marketData.instruments) {
+    addInstrument(instrument);
+  }
+  for (const instrument of store.instruments) {
+    addInstrument(instrument);
   }
   return lookup;
 }
 
-function attachInstrumentNames(
+async function resolveMissingCatalogInstrumentNames(
   groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
-  store: Pick<Store, "marketData">,
-): Awaited<ReturnType<typeof translateOverviewHoldingGroups>> {
-  const instrumentNames = buildInstrumentNameLookup(store);
+  existingNames: ReadonlyMap<string, string>,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<ReadonlyMap<string, string>> {
+  const missingPairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const group of groups) {
+    if (group.instrumentName) continue;
+    if (existingNames.has(`${group.marketCode}:${group.ticker}`) || existingNames.has(group.ticker)) continue;
+    missingPairs.set(`${group.marketCode}:${group.ticker}`, {
+      ticker: group.ticker,
+      marketCode: group.marketCode,
+    });
+  }
+  const resolvedNames = new Map<string, string>();
+  const pairs = [...missingPairs.values()];
+  for (let index = 0; index < pairs.length; index += CATALOG_NAME_LOOKUP_BATCH_SIZE) {
+    const chunk = pairs.slice(index, index + CATALOG_NAME_LOOKUP_BATCH_SIZE);
+    const instruments = await Promise.all(chunk.map(async (pair) => ({
+      ...pair,
+      instrument: await persistence.getInstrument(pair.ticker, pair.marketCode),
+    })));
+    for (const { ticker, marketCode, instrument } of instruments) {
+      const name = instrument?.name?.trim();
+      if (!name) continue;
+      resolvedNames.set(`${marketCode}:${ticker}`, name);
+      if (!resolvedNames.has(ticker)) {
+        resolvedNames.set(ticker, name);
+      }
+    }
+  }
+  return resolvedNames;
+}
+
+async function attachInstrumentNames(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  store: Pick<Store, "marketData" | "instruments">,
+  persistence: Pick<Persistence, "getInstrument">,
+): Promise<Awaited<ReturnType<typeof translateOverviewHoldingGroups>>> {
+  const storeInstrumentNames = buildInstrumentNameLookup(store);
+  const catalogInstrumentNames = await resolveMissingCatalogInstrumentNames(groups, storeInstrumentNames, persistence);
+  const instrumentNames = new Map([...storeInstrumentNames, ...catalogInstrumentNames]);
   return groups.map((group) => {
     const instrumentName = instrumentNames.get(`${group.marketCode}:${group.ticker}`)
       ?? instrumentNames.get(group.ticker)
@@ -502,7 +547,7 @@ function attachInstrumentNames(
       instrumentName,
       children: group.children.map((child) => ({
         ...child,
-        instrumentName,
+        instrumentName: child.instrumentName ?? instrumentName,
       })),
     };
   });

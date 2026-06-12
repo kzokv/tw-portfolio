@@ -72,6 +72,13 @@ describe("smooth page read paths", () => {
       costBasisAmount: 1000,
       currency: "TWD",
     });
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+    });
 
     const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
 
@@ -87,9 +94,22 @@ describe("smooth page read paths", () => {
     expect(body.holdings).toEqual([
       expect.objectContaining({
         ticker: "2330",
+        instrumentName: "台積電",
         currentUnitPrice: null,
         freshness: "current",
         quoteStatus: "missing",
+      }),
+    ]);
+    expect(body.holdingGroups).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        instrumentName: "台積電",
+        children: [
+          expect.objectContaining({
+            ticker: "2330",
+            instrumentName: "台積電",
+          }),
+        ],
       }),
     ]);
     expect(body.instruments).toEqual(expect.arrayContaining([

@@ -139,6 +139,17 @@ describe("HoldingsTable", () => {
     expect(row?.textContent).not.toContain("NT$1,000");
   });
 
+  it("renders the instrument name beneath the ticker in portfolio rows", () => {
+    const rendered = renderTable([{ ...baseGroup, instrumentName: "Apple Inc." }]);
+    root = rendered.root;
+    container = rendered.container;
+
+    const row = container.querySelector("[data-testid='holding-group-row-AAPL-US']");
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain("AAPL");
+    expect(row?.textContent).toContain("Apple Inc.");
+  });
+
   it("keeps shadcn single-toggle controls selected when the active item is clicked again", () => {
     const rendered = renderTable([baseGroup], { controlledAllocationBasis: false });
     root = rendered.root;
