@@ -3655,7 +3655,35 @@ export class MemoryPersistence implements Persistence {
       return {
         latestSnapshotDate: null,
         missingProviderSourceCount: 0,
+        markets: [],
       };
+    }
+
+    const markets = new Map<MarketCode, {
+      marketCode: MarketCode;
+      latestSnapshotDate: string | null;
+      missingProviderSourceCount: number;
+      providerSources: Set<string>;
+    }>();
+    for (const snapshot of snapshots) {
+      const current = markets.get(snapshot.marketCode) ?? {
+        marketCode: snapshot.marketCode,
+        latestSnapshotDate: null,
+        missingProviderSourceCount: 0,
+        providerSources: new Set<string>(),
+      };
+      if (current.latestSnapshotDate === null || snapshot.snapshotDate > current.latestSnapshotDate) {
+        current.latestSnapshotDate = snapshot.snapshotDate;
+        current.missingProviderSourceCount = snapshot.providerSource === null ? 1 : 0;
+        current.providerSources = new Set(snapshot.providerSource ? [snapshot.providerSource] : []);
+      } else if (snapshot.snapshotDate === current.latestSnapshotDate) {
+        if (snapshot.providerSource === null) {
+          current.missingProviderSourceCount += 1;
+        } else {
+          current.providerSources.add(snapshot.providerSource);
+        }
+      }
+      markets.set(snapshot.marketCode, current);
     }
 
     return {
@@ -3663,6 +3691,14 @@ export class MemoryPersistence implements Persistence {
       missingProviderSourceCount: snapshots.filter((snapshot) =>
         snapshot.snapshotDate === latestSnapshotDate
         && snapshot.providerSource === null).length,
+      markets: [...markets.values()]
+        .map((market) => ({
+          marketCode: market.marketCode,
+          latestSnapshotDate: market.latestSnapshotDate,
+          missingProviderSourceCount: market.missingProviderSourceCount,
+          providerSources: [...market.providerSources].sort(),
+        }))
+        .sort((left, right) => left.marketCode.localeCompare(right.marketCode)),
     };
   }
 

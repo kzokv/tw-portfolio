@@ -1,6 +1,7 @@
 import { resolveRangeBounds, roundToDecimal, type DailyBar } from "@vakwen/domain";
 import {
   MARKET_CODES,
+  type AccountDefaultCurrency,
   currencyFor,
   marketCodeFor,
   type DashboardOverviewHoldingChildDto,
@@ -25,12 +26,13 @@ type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
 type TickerChartSelection = TickerChartRange | "CUSTOM";
 
 interface BuildTickerDetailsInput {
-  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getInstrument">;
+  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getInstrument" | "getFxRate">;
   store: Store;
   userId: string;
   ticker: string;
   accountId?: string;
   marketCode?: MarketCode;
+  reportingCurrency?: AccountDefaultCurrency;
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
@@ -116,6 +118,12 @@ export async function buildTickerDetails(
   const unrealizedPnlAmount = marketValueAmount !== null ? roundToDecimal(marketValueAmount - costBasisAmount, 2) : null;
   const realizedPnlAmount = filteredTransactions.reduce((sum, trade) => sum + (trade.realizedPnlAmount ?? 0), 0);
   const currency = filteredHoldings[0]?.currency ?? filteredTransactions[0]?.priceCurrency ?? currencyFor(resolvedMarketCode);
+  const reportingCurrency = input.reportingCurrency ?? currencyFor(resolvedMarketCode);
+  const fxRateToReporting = currency === reportingCurrency ? 1 : await input.persistence.getFxRate(
+    currency as AccountDefaultCurrency,
+    reportingCurrency,
+    quote.asOf ?? filteredTransactions[0]?.tradeDate ?? new Date().toISOString().slice(0, 10),
+  );
   const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
   const recentDividends = buildRecentDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
   const accountBreakdown = buildAccountBreakdown({
@@ -124,6 +132,8 @@ export async function buildTickerDetails(
     instrumentName: instrument?.name ?? null,
     marketCode: resolvedMarketCode,
     quote,
+    reportingCurrency,
+    fxRateToReporting,
     upcomingDividends,
     recentDividends,
   });
@@ -133,6 +143,8 @@ export async function buildTickerDetails(
     marketCode: resolvedMarketCode,
     currency,
     quote,
+    reportingCurrency,
+    fxRateToReporting,
     accountBreakdown,
   });
 
@@ -186,15 +198,17 @@ function buildAccountBreakdown(input: {
   instrumentName: string | null;
   marketCode: MarketCode;
   quote: TickerDetailsDto["quote"];
+  reportingCurrency: AccountDefaultCurrency;
+  fxRateToReporting: number | null;
   upcomingDividends: DashboardOverviewUpcomingDividendDto[];
   recentDividends: DashboardOverviewRecentDividendDto[];
 }): DashboardOverviewHoldingChildDto[] {
-  const reportingCurrency = currencyFor(input.marketCode);
   const allocationBasisUsed = input.quote.currentUnitPrice === null ? "cost_basis" : "market_value";
   const rows = input.holdings.map((holding) => {
     const marketValueAmount = input.quote.currentUnitPrice !== null
       ? roundToDecimal(holding.quantity * input.quote.currentUnitPrice, 2)
       : null;
+    const unrealizedPnlAmount = marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2);
     return {
       accountId: holding.accountId,
       accountName: input.accountById.get(holding.accountId)?.name ?? holding.accountId,
@@ -207,7 +221,7 @@ function buildAccountBreakdown(input: {
       averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
       currentUnitPrice: input.quote.currentUnitPrice,
       marketValueAmount,
-      unrealizedPnlAmount: marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2),
+      unrealizedPnlAmount,
       allocationPct: null,
       change: input.quote.change,
       changePercent: input.quote.changePercent,
@@ -225,15 +239,19 @@ function buildAccountBreakdown(input: {
       ),
       freshness: "current" as const,
       freshnessTooltip: null,
-      reportingCurrency,
-      reportingCostBasisAmount: holding.costBasisAmount,
-      reportingMarketValueAmount: marketValueAmount,
-      reportingUnrealizedPnlAmount: marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2),
-      reportingDailyChangeAmount: input.quote.change === null || input.quote.previousClose === null
+      reportingCurrency: input.reportingCurrency,
+      reportingCostBasisAmount: input.fxRateToReporting === null ? null : roundToDecimal(holding.costBasisAmount * input.fxRateToReporting, 2),
+      reportingMarketValueAmount: input.fxRateToReporting === null || marketValueAmount === null
         ? null
-        : roundToDecimal(input.quote.change * holding.quantity, 2),
+        : roundToDecimal(marketValueAmount * input.fxRateToReporting, 2),
+      reportingUnrealizedPnlAmount: input.fxRateToReporting === null || unrealizedPnlAmount === null
+        ? null
+        : roundToDecimal(unrealizedPnlAmount * input.fxRateToReporting, 2),
+      reportingDailyChangeAmount: input.fxRateToReporting === null || input.quote.change === null || input.quote.previousClose === null
+        ? null
+        : roundToDecimal(input.quote.change * holding.quantity * input.fxRateToReporting, 2),
       reportingAllocationPercent: null,
-      fxStatus: "complete" as const,
+      fxStatus: input.fxRateToReporting === null ? "missing" as const : "complete" as const,
       allocationBasisUsed,
       allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" as const : null,
     } satisfies DashboardOverviewHoldingChildDto;
@@ -268,6 +286,8 @@ function buildHoldingGroup(input: {
   marketCode: MarketCode;
   currency: string;
   quote: TickerDetailsDto["quote"];
+  reportingCurrency: AccountDefaultCurrency;
+  fxRateToReporting: number | null;
   accountBreakdown: DashboardOverviewHoldingChildDto[];
 }): DashboardOverviewHoldingGroupDto | null {
   if (input.accountBreakdown.length === 0) return null;
@@ -283,7 +303,6 @@ function buildHoldingGroup(input: {
   const unrealizedPnlAmount = marketValueAmount === null
     ? null
     : roundToDecimal(marketValueAmount - costBasisAmount, 2);
-  const reportingCurrency = currencyFor(input.marketCode);
   const allocationBasisUsed = input.quote.currentUnitPrice === null ? "cost_basis" : "market_value";
 
   return {
@@ -307,15 +326,19 @@ function buildHoldingGroup(input: {
     freshness: "current",
     freshnessTooltip: null,
     accountCount: new Set(input.accountBreakdown.map((child) => child.accountId)).size,
-    reportingCurrency,
-    reportingCostBasisAmount: costBasisAmount,
-    reportingMarketValueAmount: marketValueAmount,
-    reportingUnrealizedPnlAmount: unrealizedPnlAmount,
+    reportingCurrency: input.reportingCurrency,
+    reportingCostBasisAmount: input.fxRateToReporting === null ? null : roundToDecimal(costBasisAmount * input.fxRateToReporting, 2),
+    reportingMarketValueAmount: input.fxRateToReporting === null || marketValueAmount === null
+      ? null
+      : roundToDecimal(marketValueAmount * input.fxRateToReporting, 2),
+    reportingUnrealizedPnlAmount: input.fxRateToReporting === null || unrealizedPnlAmount === null
+      ? null
+      : roundToDecimal(unrealizedPnlAmount * input.fxRateToReporting, 2),
     reportingDailyChangeAmount: input.accountBreakdown.some((child) => child.reportingDailyChangeAmount == null)
       ? null
       : roundToDecimal(input.accountBreakdown.reduce((sum, child) => sum + (child.reportingDailyChangeAmount ?? 0), 0), 2),
     reportingAllocationPercent: null,
-    fxStatus: "complete",
+    fxStatus: input.fxRateToReporting === null ? "missing" : "complete",
     allocationBasisUsed,
     allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" : null,
     children: input.accountBreakdown,

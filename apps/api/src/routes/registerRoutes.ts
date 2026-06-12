@@ -4710,6 +4710,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       marketCode: marketCodeSchema.optional(),
     }).parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
+    const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
     const resolvedTicker = params.ticker.trim().toUpperCase();
     const { details } = await buildTickerDetails({
       persistence: app.persistence,
@@ -4718,6 +4719,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      reportingCurrency,
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
@@ -4737,6 +4739,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
+    const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
     const resolvedTicker = params.ticker.trim().toUpperCase();
     const preferredMarketCode = query.marketCode
       ?? (query.accountId
@@ -4755,6 +4758,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      reportingCurrency,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,
@@ -4804,6 +4808,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
+    const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
 
     const resolvedTicker = params.ticker.trim().toUpperCase();
     const preferredMarketCode = query.marketCode
@@ -4824,6 +4829,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ticker: resolvedTicker,
       accountId: query.accountId,
       marketCode: query.marketCode,
+      reportingCurrency,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,

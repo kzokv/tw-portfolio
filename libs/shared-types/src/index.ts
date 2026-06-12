@@ -900,6 +900,22 @@ export interface ReportDiagnosticsDto {
     | "missing_fx"
     | "missing_provider_source"
   >;
+  markets: Array<{
+    marketCode: MarketCode;
+    expectedLatestValuationDate: string | null;
+    latestSnapshotDate: string | null;
+    missingProviderSourceCount: number;
+    providerSources: string[];
+    knownGapReasons: Array<
+      | "missing_snapshot"
+      | "stale_snapshot"
+      | "missing_quote"
+      | "provisional_quote"
+      | "stale_quote"
+      | "missing_fx"
+      | "missing_provider_source"
+    >;
+  }>;
   rowCounts: {
     holdingsTotal: number;
     holdingsReturned: number;

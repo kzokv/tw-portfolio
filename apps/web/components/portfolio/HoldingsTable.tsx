@@ -37,6 +37,7 @@ import {
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
+import { holdingsFreshnessDotClassName, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
 type HoldingsColumn =
@@ -493,7 +494,7 @@ export function HoldingsTable({
                       key={column.id}
                       className={cn(
                         "px-4 py-3 align-top font-medium",
-                        column.id === "ticker" && "sticky left-0 z-20 bg-muted/95",
+                        holdingsStickyFirstColumnClassName(column.id === "ticker", "header", "bg-muted/95"),
                         column.align === "right" ? "text-right" : "text-left",
                       )}
                       style={holdingsColumnCellStyle(columnSettings, column.id)}
@@ -1284,11 +1285,10 @@ function FreshnessBadge({
   tooltip: string | null;
   testId: string;
 }) {
-  const className = freshness === "stale_red" ? "bg-destructive" : "bg-warning";
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
-        <span className={cn("ml-1 inline-flex h-2.5 w-2.5 rounded-full", className)} data-testid={testId} />
+        <span className={cn("ml-1 inline-flex h-2.5 w-2.5 rounded-full", holdingsFreshnessDotClassName(freshness))} data-testid={testId} />
       </Tooltip.Trigger>
       {tooltip ? (
         <Tooltip.Portal>

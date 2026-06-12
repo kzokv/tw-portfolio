@@ -47,13 +47,6 @@ import {
   SelectValue,
 } from "../ui/shadcn/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "../ui/shadcn/sheet";
-import {
   Table,
   TableBody,
   TableCell,
@@ -83,11 +76,16 @@ import {
   HoldingsDataHealthBadges,
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
+import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
 import {
   getDashboardReportingAverageCost,
   getDashboardUnitPnl,
   getNativeUnitPnl,
 } from "../../lib/holdingsMetrics";
+import {
+  holdingsFinanceToneClass,
+  holdingsStickyFirstColumnClassName,
+} from "../holdings/holdingsStyle";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
@@ -555,23 +553,21 @@ export function DashboardHoldingsPreview({
           </CardFooter>
         </Card>
       </div>
-      <Sheet open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>{selected ? `${selected.ticker} · ${selected.marketCode}` : dict.dashboardHome.topHoldingsHoldingDetailsTitle}</SheetTitle>
-            <SheetDescription>{dict.dashboardHome.topHoldingsHoldingDetailsDescription}</SheetDescription>
-          </SheetHeader>
-          {selected ? (
-            <DashboardHoldingDetail
-              dict={dict}
-              fxRate={findFxRate(fxRates, selected.currency, reportingCurrency)}
-              group={selected}
-              locale={locale}
-              reportingCurrency={reportingCurrency}
-            />
-          ) : null}
-        </SheetContent>
-      </Sheet>
+      <HoldingsDetailSheet
+        description={dict.dashboardHome.topHoldingsHoldingDetailsDescription}
+        onOpenChange={(open) => { if (!open) setSelected(null); }}
+        selected={selected}
+        title={(group) => `${group.ticker} · ${group.marketCode}`}
+        renderDetail={(group) => (
+          <DashboardHoldingDetail
+            dict={dict}
+            fxRate={findFxRate(fxRates, group.currency, reportingCurrency)}
+            group={group}
+            locale={locale}
+            reportingCurrency={reportingCurrency}
+          />
+        )}
+      />
     </TooltipProvider>
   );
 }
@@ -726,7 +722,7 @@ function DashboardHoldingsTable({
                 key={column.id}
                 className={cn(
                   "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
-                  column.id === "ticker" && "left-0 z-30",
+                  holdingsStickyFirstColumnClassName(column.id === "ticker", "header"),
                   column.align === "right" && "text-right",
                 )}
                 style={holdingsColumnCellStyle(columnSettings, column.id)}
@@ -821,7 +817,7 @@ function dashboardColumnLabel(dict: ReturnType<typeof getDictionary>, column: Da
 function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string) {
   return cn(
     "whitespace-normal break-words align-top",
-    column === "ticker" && "sticky left-0 z-10 bg-card",
+    holdingsStickyFirstColumnClassName(column === "ticker"),
     ["avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "action"].includes(column) && "text-right",
     extra,
   );
@@ -936,7 +932,7 @@ function renderDashboardGroupCell({
     const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
     const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(unitPnl.amount)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
           <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
@@ -967,7 +963,7 @@ function renderDashboardGroupCell({
   }
   if (column === "daily") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(reportingDailyMove ?? group.changePercent)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(reportingDailyMove ?? group.changePercent)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale, true)}</span>
           {reportingDailyMove === null ? null : (
@@ -982,7 +978,7 @@ function renderDashboardGroupCell({
   }
   if (column === "pnl") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(group.reportingUnrealizedPnlAmount)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(group.reportingUnrealizedPnlAmount)))} style={style}>
         {group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
       </TableCell>
     );
@@ -1068,7 +1064,7 @@ function renderDashboardChildCell({
     const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
     const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(unitPnl.amount)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
           <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
@@ -1100,7 +1096,7 @@ function renderDashboardChildCell({
   if (column === "daily") {
     const dailyMove = getReportingDailyMove(child);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(dailyMove)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(dailyMove)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{dailyMove === null ? "-" : formatFinanceCurrencyAmount(dailyMove, reportingCurrency, locale, true)}</span>
           {dailyMove === null ? null : (
@@ -1115,7 +1111,7 @@ function renderDashboardChildCell({
   }
   if (column === "pnl") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", financeToneClass(child.reportingUnrealizedPnlAmount)))} style={style}>
+      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount)))} style={style}>
         {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
       </TableCell>
     );
@@ -1213,7 +1209,7 @@ function PreviewMetric({
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
       <p className="text-xs text-muted-foreground" data-testid={labelTestId}>{label}</p>
-      <p className={cn("mt-1 truncate font-mono text-sm font-semibold tabular-nums", financeToneClass(toneValue))} data-testid={testId} title={title}>
+      <p className={cn("mt-1 truncate font-mono text-sm font-semibold tabular-nums", holdingsFinanceToneClass(toneValue))} data-testid={testId} title={title}>
         {value}
       </p>
       {subValue ? <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">{subValue}</p> : null}
@@ -1438,7 +1434,7 @@ function DashboardHoldingDetail({
                   <p className="font-mono text-sm font-semibold tabular-nums">
                     {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
                   </p>
-                  <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(child.reportingUnrealizedPnlAmount))}>
+                  <p className={cn("mt-1 font-mono text-xs tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount))}>
                     {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
                   </p>
                 </div>
@@ -1500,7 +1496,7 @@ function DetailMetric({ label, toneValue, value }: { label: string; toneValue?: 
   return (
     <div className="rounded-md border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums text-foreground", financeToneClass(toneValue))}>
+      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums text-foreground", holdingsFinanceToneClass(toneValue))}>
         {value}
       </p>
     </div>
@@ -1892,10 +1888,4 @@ function formatSignedPercent(value: number, locale: LocaleCode): string {
   if (value > 0) return `+${formatted}`;
   if (value < 0) return `-${formatted}`;
   return formatted;
-}
-
-function financeToneClass(value: number | null | undefined): string {
-  if (value === null || value === undefined || value === 0) return "text-foreground";
-  if (value > 0) return "text-[hsl(var(--success))]";
-  return "text-[hsl(var(--destructive))]";
 }

@@ -43,13 +43,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../ui/shadcn/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "../ui/shadcn/sheet";
 import { Skeleton } from "../ui/shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
@@ -69,7 +62,14 @@ import {
   type HoldingsColumnSettingsState,
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
+import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
+import {
+  holdingsFinanceToneClass,
+  holdingsInfoBadgeClassName,
+  holdingsStickyFirstColumnClassName,
+  holdingsWarningBadgeClassName,
+} from "../holdings/holdingsStyle";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
@@ -567,7 +567,7 @@ function SummaryGrid({
               <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">{currency}</span>
             </CardDescription>
             <CardTitle
-              className={cn("font-mono text-2xl tabular-nums", financeToneClass(item.toneValue ?? null, "text-foreground"))}
+              className={cn("font-mono text-2xl tabular-nums", holdingsFinanceToneClass(item.toneValue ?? null, "text-foreground"))}
               title={item.value === null ? undefined : formatCurrencyAmount(item.value, currency, locale)}
             >
               {item.value === null
@@ -577,13 +577,13 @@ function SummaryGrid({
                   : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
             </CardTitle>
             {item.value !== null ? (
-              <CardDescription className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
+              <CardDescription className={cn("mt-1 font-mono text-xs tabular-nums", holdingsFinanceToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
                 {formatExactAmountInline(dict, formatCurrencyAmount(item.value, currency, locale))}
               </CardDescription>
             ) : null}
           </CardHeader>
           {item.detail ? (
-            <CardContent className={cn("px-4 pb-4 pt-0 text-sm", financeToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
+            <CardContent className={cn("px-4 pb-4 pt-0 text-sm", holdingsFinanceToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
               {item.detail}
             </CardContent>
           ) : null}
@@ -706,7 +706,7 @@ function DailyReviewView({
                     className={dailyReviewSeverityBadgeClass(item.severity)}
                     data-testid={`reports-today-severity-${item.code}`}
                   >
-                    {item.severity}
+                    {dailyReviewSeverityLabel(dict, item.severity)}
                   </Badge>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
@@ -734,10 +734,22 @@ function dailyReviewSeverityBadgeClass(severity: DailyReviewReportDto["suggestio
     case "critical":
       return "border-destructive/70 bg-destructive/10 text-destructive";
     case "warning":
-      return "border-warning/60 bg-warning/10 text-warning";
+      return holdingsWarningBadgeClassName;
     case "info":
     default:
-      return "border-primary/40 bg-primary/10 text-primary";
+      return holdingsInfoBadgeClassName;
+  }
+}
+
+function dailyReviewSeverityLabel(dict: AppDictionary, severity: DailyReviewReportDto["suggestions"][number]["severity"]): string {
+  switch (severity) {
+    case "critical":
+      return dict.reports.severityCritical;
+    case "warning":
+      return dict.reports.severityWarning;
+    case "info":
+    default:
+      return dict.reports.severityInfo;
   }
 }
 
@@ -1178,7 +1190,7 @@ function HoldingsCard({
                     key={column.id}
                     className={cn(
                       "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
-                      stickyFirstColumn && column.id === "ticker" && "left-0 z-30",
+                      holdingsStickyFirstColumnClassName(stickyFirstColumn && column.id === "ticker", "header"),
                       column.align === "right" && "text-right",
                     )}
                     style={holdingsColumnCellStyle(columnSettings, column.id)}
@@ -1377,7 +1389,7 @@ function ReportMoneyTableCell({
   value: number | null;
 }) {
   return (
-    <TableCell className={cn(className, "font-mono tabular-nums", tone ? financeToneClass(value, "text-foreground") : null)} style={style}>
+    <TableCell className={cn(className, "font-mono tabular-nums", tone ? holdingsFinanceToneClass(value, "text-foreground") : null)} style={style}>
       <div className="flex flex-col items-end gap-1">
         <span>
           {value === null
@@ -1389,12 +1401,12 @@ function ReportMoneyTableCell({
                 : formatCurrencyAmount(value, currency, locale)}
         </span>
         {compact && value !== null ? (
-          <span className={cn("text-xs", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+          <span className={cn("text-xs", tone ? holdingsFinanceToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
             {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
           </span>
         ) : null}
         {percent !== undefined ? (
-          <span className={cn("text-xs", financeToneClass(percent, "text-muted-foreground"))}>
+          <span className={cn("text-xs", holdingsFinanceToneClass(percent, "text-muted-foreground"))}>
             {percent === null ? "-" : formatSignedPercent(percent, locale)}
           </span>
         ) : null}
@@ -1408,7 +1420,7 @@ function reportHoldingCellClassName(column: ReportHoldingsColumn, stickyFirstCol
   return cn(
     "whitespace-normal break-words align-top",
     column === "ticker" && "font-medium",
-    stickyFirstColumn && column === "ticker" && "sticky left-0 z-10 bg-card",
+    holdingsStickyFirstColumnClassName(stickyFirstColumn && column === "ticker"),
     ["avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"].includes(column) && "text-right",
   );
 }
@@ -1596,17 +1608,13 @@ function HoldingsMobileList({ dict, locale, rows }: { dict: AppDictionary; local
           </div>
         </div>
       ))}
-      <Sheet open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>
-              {selected ? <TickerLink marketCode={selected.marketCode} ticker={selected.ticker} className="text-base" /> : dict.reports.holdingDetailTitle}
-            </SheetTitle>
-            <SheetDescription>{dict.reports.holdingDetailDescription}</SheetDescription>
-          </SheetHeader>
-          {selected ? <HoldingDetail dict={dict} row={selected} locale={locale} /> : null}
-        </SheetContent>
-      </Sheet>
+      <HoldingsDetailSheet
+        description={dict.reports.holdingDetailDescription}
+        onOpenChange={(open) => { if (!open) setSelected(null); }}
+        selected={selected}
+        title={(row) => <TickerLink marketCode={row.marketCode} ticker={row.ticker} className="text-base" />}
+        renderDetail={(row) => <HoldingDetail dict={dict} row={row} locale={locale} />}
+      />
     </div>
   );
 }
@@ -1653,7 +1661,7 @@ function HoldingDetail({ dict, locale, row }: { dict: AppDictionary; locale: Loc
       {values.map(([label, value, tone]) => (
         <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
           <span className="text-sm text-muted-foreground">{label}</span>
-          <span className={cn("text-right font-mono text-sm font-semibold tabular-nums", financeToneClass(tone, "text-foreground"))}>{value}</span>
+          <span className={cn("text-right font-mono text-sm font-semibold tabular-nums", holdingsFinanceToneClass(tone, "text-foreground"))}>{value}</span>
         </div>
       ))}
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
@@ -1666,7 +1674,7 @@ function HoldingDetail({ dict, locale, row }: { dict: AppDictionary; locale: Loc
       </div>
       <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
         <span className="text-sm text-muted-foreground">{dict.reports.dailyChangePercent}</span>
-        <span className={cn("font-mono text-sm font-semibold tabular-nums", financeToneClass(row.dailyChangePercent, "text-foreground"))}>
+        <span className={cn("font-mono text-sm font-semibold tabular-nums", holdingsFinanceToneClass(row.dailyChangePercent, "text-foreground"))}>
           {row.dailyChangePercent === null ? "-" : formatSignedPercent(row.dailyChangePercent, locale)}
         </span>
       </div>
@@ -1783,16 +1791,16 @@ function CompactFinanceStat({
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <div className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", tone ? financeToneClass(value, "text-foreground") : "text-foreground")}>
+      <div className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", tone ? holdingsFinanceToneClass(value, "text-foreground") : "text-foreground")}>
         {valueOverride ?? (value === null ? "-" : tone ? formatFinanceCurrencyAmount(value, currency, locale, true) : formatCompactCurrencyAmount(value, currency, locale))}
       </div>
       {valueOverride === undefined && value !== null ? (
-        <p className={cn("mt-1 font-mono text-xs tabular-nums", tone ? financeToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
+        <p className={cn("mt-1 font-mono text-xs tabular-nums", tone ? holdingsFinanceToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
           {tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale)}
         </p>
       ) : null}
       {percent !== undefined ? (
-        <p className={cn("mt-1 font-mono text-xs tabular-nums", financeToneClass(percent, "text-muted-foreground"))}>
+        <p className={cn("mt-1 font-mono text-xs tabular-nums", holdingsFinanceToneClass(percent, "text-muted-foreground"))}>
           {percent === null ? "-" : formatSignedPercent(percent, locale)}
         </p>
       ) : null}
@@ -1855,11 +1863,6 @@ function formatOptionalFxRate(row: ReportHoldingRowDto): string {
   return formatFxRate(row.fxRateToReporting);
 }
 
-function financeToneClass(value: number | null | undefined, neutralClass = "text-foreground"): string {
-  if (value === null || value === undefined || value === 0) return neutralClass;
-  if (value > 0) return "text-[hsl(var(--success))]";
-  return "text-[hsl(var(--destructive))]";
-}
 
 function getQuoteStatusLabel(dict: AppDictionary, status: ReportHoldingRowDto["quoteStatus"]): string {
   if (status === "missing") return dict.reports.quoteStatusMissing;

@@ -6442,6 +6442,7 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query<{
       latest_snapshot_date: string | null;
       missing_provider_source_count: string;
+      markets: string;
     }>(
       `WITH scoped_pairs AS (
          SELECT DISTINCT "accountId" AS account_id, ticker, "marketCode" AS market_code
@@ -6450,7 +6451,7 @@ export class PostgresPersistence implements Persistence {
             AND ticker IS NOT NULL
        ),
        scoped_snapshots AS (
-         SELECT s.snapshot_date, s.provider_source
+         SELECT s.snapshot_date, s.provider_source, s.market_code
            FROM daily_holding_snapshots s
           WHERE s.user_id = $1
             AND s.account_id IN (
@@ -6470,6 +6471,30 @@ export class PostgresPersistence implements Persistence {
        latest_snapshot AS (
          SELECT MAX(snapshot_date) AS latest_snapshot_date
            FROM scoped_snapshots
+       ),
+       latest_snapshot_per_market AS (
+         SELECT market_code, MAX(snapshot_date) AS latest_snapshot_date
+           FROM scoped_snapshots
+          GROUP BY market_code
+       ),
+       market_rows AS (
+         SELECT
+           latest_snapshot_per_market.market_code,
+           latest_snapshot_per_market.latest_snapshot_date,
+           COALESCE(SUM(CASE
+             WHEN scoped_snapshots.provider_source IS NULL THEN 1
+             ELSE 0
+           END), 0) AS missing_provider_source_count,
+           COALESCE(
+             ARRAY_AGG(DISTINCT scoped_snapshots.provider_source ORDER BY scoped_snapshots.provider_source)
+               FILTER (WHERE scoped_snapshots.provider_source IS NOT NULL),
+             ARRAY[]::text[]
+           ) AS provider_sources
+         FROM latest_snapshot_per_market
+         LEFT JOIN scoped_snapshots
+           ON scoped_snapshots.market_code = latest_snapshot_per_market.market_code
+          AND scoped_snapshots.snapshot_date = latest_snapshot_per_market.latest_snapshot_date
+         GROUP BY latest_snapshot_per_market.market_code, latest_snapshot_per_market.latest_snapshot_date
        )
        SELECT
          latest_snapshot.latest_snapshot_date::text AS latest_snapshot_date,
@@ -6479,6 +6504,16 @@ export class PostgresPersistence implements Persistence {
            THEN 1
            ELSE 0
          END), 0)::text AS missing_provider_source_count
+         ,
+         COALESCE((
+           SELECT jsonb_agg(jsonb_build_object(
+             'marketCode', market_rows.market_code,
+             'latestSnapshotDate', market_rows.latest_snapshot_date::text,
+             'missingProviderSourceCount', market_rows.missing_provider_source_count,
+             'providerSources', market_rows.provider_sources
+           ) ORDER BY market_rows.market_code)
+           FROM market_rows
+         ), '[]'::jsonb)::text AS markets
        FROM latest_snapshot
        LEFT JOIN scoped_snapshots
          ON scoped_snapshots.snapshot_date = latest_snapshot.latest_snapshot_date
@@ -6489,6 +6524,14 @@ export class PostgresPersistence implements Persistence {
     return {
       latestSnapshotDate: row?.latest_snapshot_date ?? null,
       missingProviderSourceCount: Number(row?.missing_provider_source_count ?? 0),
+      markets: row?.markets
+        ? (JSON.parse(row.markets) as Array<{
+          marketCode: MarketCode;
+          latestSnapshotDate: string | null;
+          missingProviderSourceCount: number;
+          providerSources: string[];
+        }>)
+        : [],
     };
   }
 
