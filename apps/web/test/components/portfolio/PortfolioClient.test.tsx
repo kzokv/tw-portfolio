@@ -166,6 +166,7 @@ describe("PortfolioClient", () => {
     expect(container.textContent).toContain("Portfolio Holdings");
     expect(container.textContent).not.toContain("Compact holdings");
     expect(container.textContent).not.toContain("Detailed holdings");
+    expect(container.querySelector('[data-testid="portfolio-holdings-style-shell"]')?.className).toContain("overflow-hidden");
     expect(holdingsTableMock).toHaveBeenCalledTimes(1);
     expect(holdingsTableMock.mock.calls[0]?.[0]).not.toHaveProperty("variant");
     expect(dashboardHoldingsPreviewMock).not.toHaveBeenCalled();
