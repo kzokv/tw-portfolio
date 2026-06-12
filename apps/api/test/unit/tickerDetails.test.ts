@@ -187,9 +187,89 @@ describe("buildTickerDetails", () => {
   });
 
   it("uses the requested marketCode for same ticker across multiple markets", async () => {
+    const store = buildCrossMarketStore();
+    store.marketData.dividendEvents.push(
+      {
+        id: "bhp-us-dividend",
+        ticker: "BHP",
+        eventType: "CASH",
+        exDividendDate: "2026-04-01",
+        paymentDate: null,
+        cashDividendPerShare: 1,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+      {
+        id: "bhp-au-dividend",
+        ticker: "BHP",
+        eventType: "CASH",
+        exDividendDate: "2026-04-01",
+        paymentDate: null,
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "AUD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+      {
+        id: "bhp-us-upcoming-dividend",
+        ticker: "BHP",
+        eventType: "CASH",
+        exDividendDate: "2026-05-01",
+        paymentDate: null,
+        cashDividendPerShare: 1.5,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+      {
+        id: "bhp-au-upcoming-dividend",
+        ticker: "BHP",
+        eventType: "CASH",
+        exDividendDate: "2026-05-01",
+        paymentDate: null,
+        cashDividendPerShare: 2.5,
+        cashDividendCurrency: "AUD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+    );
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "bhp-us-posted-dividend",
+        accountId: "acc-au",
+        dividendEventId: "bhp-us-dividend",
+        eligibleQuantity: 3,
+        expectedCashAmount: 3,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 3,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-10T00:00:00.000Z",
+      },
+      {
+        id: "bhp-au-posted-dividend",
+        accountId: "acc-au",
+        dividendEventId: "bhp-au-dividend",
+        eligibleQuantity: 3,
+        expectedCashAmount: 6,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 6,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-11T00:00:00.000Z",
+      },
+    );
+
     const { details, marketCode } = await buildTickerDetails({
       persistence: createPersistence(),
-      store: buildCrossMarketStore(),
+      store,
       userId: "user-1",
       ticker: "BHP",
       marketCode: "AU",
@@ -232,6 +312,20 @@ describe("buildTickerDetails", () => {
     expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
       instrumentName: "BHP AU",
     }));
+    expect(details.dividends.upcoming).toEqual([
+      expect.objectContaining({
+        accountId: "acc-au",
+        currency: "AUD",
+        expectedAmount: 7.5,
+      }),
+    ]);
+    expect(details.dividends.recent).toEqual([
+      expect.objectContaining({
+        accountId: "acc-au",
+        currency: "AUD",
+        grossAmount: 6,
+      }),
+    ]);
   });
 
   it("uses requested chart ranges while keeping the quote pinned to the latest local bar", async () => {

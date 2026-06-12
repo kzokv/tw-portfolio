@@ -116,8 +116,8 @@ export async function buildTickerDetails(
   const unrealizedPnlAmount = marketValueAmount !== null ? roundToDecimal(marketValueAmount - costBasisAmount, 2) : null;
   const realizedPnlAmount = filteredTransactions.reduce((sum, trade) => sum + (trade.realizedPnlAmount ?? 0), 0);
   const currency = filteredHoldings[0]?.currency ?? filteredTransactions[0]?.priceCurrency ?? currencyFor(resolvedMarketCode);
-  const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, scopedAccountIds);
-  const recentDividends = buildRecentDividends(input.store, normalizedTicker, scopedAccountIds);
+  const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
+  const recentDividends = buildRecentDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
   const accountBreakdown = buildAccountBreakdown({
     holdings: filteredHoldings,
     accountById,
@@ -592,6 +592,7 @@ function assertCustomRangeWithinTenYears(startDate: string, endDate: string): vo
 function buildUpcomingDividends(
   store: Store,
   ticker: string,
+  marketCode: MarketCode,
   scopedAccountIds: ReadonlySet<string>,
 ): DashboardOverviewUpcomingDividendDto[] {
   const activeLedgerByAccountAndEvent = new Map<string, { postingStatus: string }>();
@@ -617,6 +618,7 @@ function buildUpcomingDividends(
     .flatMap((account) =>
       store.marketData.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
         if (event.ticker !== ticker) return [];
+        if (marketCodeFor(event.cashDividendCurrency) !== marketCode) return [];
         const ledgerKey = `${account.id}:${event.id}`;
         if (postedEventKeys.has(ledgerKey)) return [];
         if (event.paymentDate !== null) {
@@ -624,7 +626,7 @@ function buildUpcomingDividends(
           if (event.paymentDate > horizonDate) return [];
         }
 
-        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate);
+        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate, marketCode);
         if (eligibleQuantity <= 0) return [];
 
         return [{
@@ -650,11 +652,13 @@ function buildUpcomingDividends(
 function buildRecentDividends(
   store: Store,
   ticker: string,
+  marketCode: MarketCode,
   scopedAccountIds: ReadonlySet<string>,
 ): DashboardOverviewRecentDividendDto[] {
   const eventById = new Map(
     store.marketData.dividendEvents
       .filter((event) => event.ticker === ticker)
+      .filter((event) => marketCodeFor(event.cashDividendCurrency) === marketCode)
       .map((event) => [event.id, event]),
   );
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
