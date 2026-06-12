@@ -584,6 +584,30 @@ function buildDataHealth(
   };
 }
 
+function buildMarketHealthGapReasons(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+): Map<MarketCode, Set<ReportKnownGapReason>> {
+  const reasonsByMarket = new Map<MarketCode, Set<ReportKnownGapReason>>();
+  const addMarketReason = (marketCode: MarketCode, reason: ReportKnownGapReason) => {
+    const reasons = reasonsByMarket.get(marketCode) ?? new Set<ReportKnownGapReason>();
+    reasons.add(reason);
+    reasonsByMarket.set(marketCode, reasons);
+  };
+
+  for (const group of groups) {
+    if (group.quoteStatus === "missing") addMarketReason(group.marketCode, "missing_quote");
+    if (group.quoteStatus === "provisional") addMarketReason(group.marketCode, "provisional_quote");
+    if (group.freshness !== "current") addMarketReason(group.marketCode, "stale_quote");
+    if (group.fxStatus !== "complete") addMarketReason(group.marketCode, "missing_fx");
+  }
+
+  return reasonsByMarket;
+}
+
+function addKnownGapReason(reasons: ReportKnownGapReason[], reason: ReportKnownGapReason): void {
+  if (!reasons.includes(reason)) reasons.push(reason);
+}
+
 function buildReportDiagnostics(
   prepared: PreparedReportData,
   rowsPage: ReturnType<typeof pageRows>,
@@ -644,6 +668,7 @@ function buildReportDiagnostics(
 }
 
 function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMarketDiagnostics {
+  const healthGapReasonsByMarket = buildMarketHealthGapReasons(prepared.translatedHoldingGroups);
   const seededMarketsByCode = new Map<MarketCode, {
     marketCode: MarketCode;
     latestSnapshotDate: string | null;
@@ -674,15 +699,18 @@ function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMar
     .map((market) => {
       const expectedLatestValuationDate = prepared.expectedValuationDatesByMarket.get(market.marketCode) ?? null;
       const knownGapReasons: ReportKnownGapReason[] = [];
-      if (market.latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
+      if (market.latestSnapshotDate === null) addKnownGapReason(knownGapReasons, "missing_snapshot");
       if (
         market.latestSnapshotDate !== null
         && expectedLatestValuationDate !== null
         && market.latestSnapshotDate < expectedLatestValuationDate
       ) {
-        knownGapReasons.push("stale_snapshot");
+        addKnownGapReason(knownGapReasons, "stale_snapshot");
       }
-      if (market.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
+      if (market.missingProviderSourceCount > 0) addKnownGapReason(knownGapReasons, "missing_provider_source");
+      for (const reason of healthGapReasonsByMarket.get(market.marketCode) ?? []) {
+        addKnownGapReason(knownGapReasons, reason);
+      }
       return {
         marketCode: market.marketCode,
         expectedLatestValuationDate,
