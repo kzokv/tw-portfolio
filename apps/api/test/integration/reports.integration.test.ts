@@ -453,6 +453,114 @@ describe("report routes", () => {
     ]));
   });
 
+  it("attributes quote and FX gaps to the affected market diagnostics", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const usFeeProfile = {
+      ...feeProfile,
+      id: "fp-us-market-health-diagnostics",
+      accountId: "acc-us-market-health-diagnostics",
+      name: "US Market Health Fee",
+    };
+    store.feeProfiles.push(usFeeProfile);
+    store.accounts.push({
+      id: "acc-us-market-health-diagnostics",
+      userId,
+      name: "US Market Health",
+      feeProfileId: usFeeProfile.id,
+      defaultCurrency: "USD",
+      accountType: "broker",
+    });
+    store.instruments.push({
+      ticker: "AAPL",
+      type: "STOCK",
+      marketCode: "US",
+      isProvisional: false,
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-us-market-health-diagnostics",
+      ticker: "AAPL",
+      quantity: 2,
+      costBasisAmount: 300,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "report-market-health-us-trade",
+      userId,
+      accountId: "acc-us-market-health-diagnostics",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 2,
+      unitPrice: 150,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: usFeeProfile,
+      tradeTimestamp: "2026-06-01T14:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T14:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const snapshotDate = relativeIsoDate(0);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "report-market-health-us-snapshot",
+        userId,
+        accountId: "acc-us-market-health-diagnostics",
+        ticker: "AAPL",
+        marketCode: "US",
+        snapshotDate,
+        quantity: 2,
+        closePrice: 150,
+        marketValue: 300,
+        costBasis: 300,
+        unrealizedPnl: 0,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "USD",
+        valueNative: 300,
+        costBasisNative: 300,
+        unrealizedPnlNative: 0,
+        providerSource: "test",
+        generatedAt: `${snapshotDate}T10:05:00.000Z`,
+        generationRunId: "report-market-health-gen",
+      },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      diagnostics: {
+        knownGapReasons: string[];
+        markets: Array<{
+          knownGapReasons: string[];
+          latestSnapshotDate: string | null;
+          marketCode: string;
+        }>;
+      };
+    };
+    expect(body.diagnostics.knownGapReasons).toEqual(expect.arrayContaining(["missing_quote", "missing_fx"]));
+    expect(body.diagnostics.markets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        marketCode: "US",
+        latestSnapshotDate: snapshotDate,
+        knownGapReasons: expect.arrayContaining(["missing_quote", "missing_fx"]),
+      }),
+    ]));
+  });
+
   it("normalizes legacy report currency overrides to backend-authoritative scope rules", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];

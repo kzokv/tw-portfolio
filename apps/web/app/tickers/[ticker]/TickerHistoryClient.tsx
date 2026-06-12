@@ -7,6 +7,7 @@ import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, W
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
 import type {
+  AccountDefaultCurrency,
   LocaleCode,
   MarketCode,
   TransactionHistoryItemDto,
@@ -106,9 +107,18 @@ function isMatchingTickerDetailsCache(
   cached: { payload: TickerDetailsModel } | null,
   ticker: string,
   marketCode: string | null | undefined,
+  reportingCurrency: AccountDefaultCurrency,
 ): cached is { payload: TickerDetailsModel } {
+  const cachedReportingCurrency = cached ? resolveTickerDetailsReportingCurrency(cached.payload) : null;
   return cached?.payload.identity.ticker === ticker
-    && (!marketCode || cached.payload.identity.marketCode === marketCode);
+    && (!marketCode || cached.payload.identity.marketCode === marketCode)
+    && (cachedReportingCurrency === null || cachedReportingCurrency === reportingCurrency);
+}
+
+function resolveTickerDetailsReportingCurrency(details: TickerDetailsModel): AccountDefaultCurrency | null {
+  return details.holdingGroup?.reportingCurrency
+    ?? details.accountBreakdown.find((row) => row.reportingCurrency !== undefined)?.reportingCurrency
+    ?? null;
 }
 
 function formatLastRepairTime(locale: LocaleCode, value: Date): string {
@@ -400,8 +410,9 @@ export function TickerHistoryClient({
       tickerChartRequest.range ?? "CUSTOM",
       tickerChartRequest.startDate ?? "",
       tickerChartRequest.endDate ?? "",
+      reportingCurrency,
     ),
-    [details.identity.marketCode, locale, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
+    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
@@ -454,17 +465,17 @@ export function TickerHistoryClient({
 
   useEffect(() => {
     const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
-    if (isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter)) {
+    if (isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)) {
       detailsStateRef.current = cached.payload;
       setDetailsState(cached.payload);
     }
-  }, [ticker, tickerDetailsCacheKey, transactionMarketFilter]);
+  }, [reportingCurrency, ticker, tickerDetailsCacheKey, transactionMarketFilter]);
 
   const refreshDetails = useCallback(async () => {
     setIsDetailsLoading(true);
     try {
       const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
-      const primaryDetails = isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter)
+      const primaryDetails = isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)
         ? cached.payload
         : detailsStateRef.current;
       const next = await fetchTickerDetailsHydration({
@@ -483,7 +494,7 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
