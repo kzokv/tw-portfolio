@@ -854,6 +854,79 @@ describe("dashboard components", () => {
     expect(dialog?.textContent).not.toContain("Reporting price");
   });
 
+  it("keeps native and FX context when dashboard columns move into mobile details", async () => {
+    mockUserPreferencesFetch({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["position", "price", "marketValue", "daily", "ticker", "avgCost", "unitPnl", "pnl", "health", "action"],
+            hiddenColumns: [],
+            columnWidths: {},
+            layoutStyle: "dashboard",
+            mobileSummaryCount: 1,
+          },
+        },
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingCurrentUnitPrice: 30.5,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingCurrentUnitPrice: 30.5,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+        reportingAllocationPercent: 12,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          fxRates={[{
+            fromCurrency: "TWD",
+            toCurrency: "AUD",
+            rate: 0.049,
+            asOf: "2026-06-08",
+          }]}
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const mobileRow = container.querySelector("[data-testid='dashboard-holding-preview-2330-TW']");
+    const detailsButton = Array.from(mobileRow?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent === "Details");
+    expect(detailsButton).toBeDefined();
+    click(detailsButton!);
+    await flushPromises();
+
+    const dialog = document.body.querySelector("[role='dialog']");
+    expect(dialog?.textContent).toContain("Reporting price");
+    expect(dialog?.textContent).toContain("Native price");
+    expect(dialog?.textContent).toContain("FX rate");
+    expect(dialog?.textContent).toContain("0.049");
+    expect(dialog?.textContent).toContain("Native market value");
+    expect(dialog?.textContent).toContain("Daily change %");
+  });
+
   it("preserves other holdings table contexts when editing before preferences hydrate", async () => {
     const resolvePreferences: Array<(response: Response) => void> = [];
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
