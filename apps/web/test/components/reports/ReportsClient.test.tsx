@@ -536,6 +536,76 @@ describe("ReportsClient", () => {
     expect(dialog?.textContent?.match(/Reporting price/g) ?? []).toHaveLength(1);
   });
 
+  it("keeps native and FX context when report columns move into mobile details", async () => {
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": {
+            columnOrder: ["position", "price", "marketValue", "costBasis", "daily", "ticker", "avgCost", "unitPnl", "unrealized", "weight", "health"],
+            hiddenColumns: [],
+            columnWidths: {},
+            layoutStyle: "portfolio",
+            mobileSummaryCount: 1,
+          },
+        },
+      },
+    };
+    const rateFixture = {
+      ...fixture,
+      fxRates: [
+        {
+          fromCurrency: "USD",
+          toCurrency: "AUD",
+          rate: 1.52,
+          asOf: "2026-06-08",
+        },
+      ],
+      holdings: {
+        ...fixture.holdings,
+        rows: [{
+          ...fixture.holdings.rows[0]!,
+          nativeCurrency: "USD",
+          nativeAverageCostPerShare: 100,
+          nativeCurrentUnitPrice: 150,
+          nativeCostBasisAmount: 500,
+          nativeMarketValueAmount: 750,
+          reportingAverageCostPerShare: 152,
+          reportingCurrentUnitPrice: 228,
+          reportingCostBasisAmount: 760,
+          reportingMarketValueAmount: 1140,
+          fxRateToReporting: 1.52,
+          dailyChangeAmount: -10,
+          dailyChangePercent: -0.8,
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={rateFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const mobileRow = document.querySelector("[data-testid='reports-mobile-row-BHP-AU']");
+    const viewDetailsButton = Array.from(mobileRow?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent?.includes("View details"));
+    expect(viewDetailsButton).not.toBeUndefined();
+    act(() => {
+      viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const dialog = document.body.querySelector("[role='dialog']");
+    expect(dialog?.textContent).toContain("Reporting price");
+    expect(dialog?.textContent).toContain("Native price");
+    expect(dialog?.textContent).toContain("FX rate");
+    expect(dialog?.textContent).toContain("1.52");
+    expect(dialog?.textContent).toContain("Native market value");
+    expect(dialog?.textContent).toContain("Native book cost");
+    expect(dialog?.textContent).toContain("Daily change %");
+    expect(dialog?.textContent).toContain("-0.8%");
+  });
+
   it("links tickers, colors finance values, and renders optional fx rates", async () => {
     const rateFixture = {
       ...fixture,

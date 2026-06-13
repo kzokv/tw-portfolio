@@ -1405,6 +1405,7 @@ function DashboardHoldingDetail({
   const visibleColumnSet = new Set(visibleColumns);
   const detailColumnSet = new Set(detailColumns);
   const showLegacyColumn = (column: DashboardHoldingsColumn) => visibleColumnSet.has(column) && !detailColumnSet.has(column);
+  const showSupplementalColumn = (column: DashboardHoldingsColumn) => visibleColumnSet.has(column);
 
   return (
     <div className="mt-5 flex flex-col gap-4">
@@ -1482,7 +1483,7 @@ function DashboardHoldingDetail({
                 {showLegacyColumn("avgCost") ? (
                   <DetailMetric label={dict.dashboardHome.topHoldingsAverageCost} value={formatUnitPrice(child.averageCostPerShare, child.currency, locale)} />
                 ) : null}
-                {showLegacyColumn("price") ? (
+                {showSupplementalColumn("price") ? (
                   <>
                     <DetailMetric label={dict.dashboardHome.topHoldingsLatestPrice} value={child.currentUnitPrice === null ? "-" : formatUnitPrice(child.currentUnitPrice, child.currency, locale)} />
                     <DetailMetric label={dict.reports.fxRate} value={child.currency === reportingCurrency ? "1" : fxRate === null ? "-" : formatFxRate(fxRate)} />
@@ -1508,24 +1509,26 @@ function DashboardHoldingDetail({
 
       <DetailSection title={dict.dashboardHome.topHoldingsFxPriceTitle}>
         <DetailGrid>
-          {showLegacyColumn("price") ? (
+          {showSupplementalColumn("price") ? (
             <>
-              <DetailMetric label={dict.reports.reportingPrice} value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)} />
+              {showLegacyColumn("price") ? (
+                <DetailMetric label={dict.reports.reportingPrice} value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)} />
+              ) : null}
               <DetailMetric label={dict.reports.nativePrice} value={group.currentUnitPrice === null ? "-" : formatUnitPrice(group.currentUnitPrice, group.currency, locale)} />
               <DetailMetric label={dict.dashboardHome.topHoldingsLatestPrice} value={group.currentUnitPrice === null ? "-" : formatUnitPrice(group.currentUnitPrice, group.currency, locale)} />
               <DetailMetric label={dict.reports.fxRate} value={group.currency === reportingCurrency ? "1" : fxRate === null ? "-" : formatFxRate(fxRate)} />
             </>
           ) : null}
-          {showLegacyColumn("marketValue") ? (
+          {showSupplementalColumn("marketValue") ? (
             <DetailMetric label={dict.reports.nativeMarketValue} value={group.marketValueAmount === null ? "-" : formatCurrencyAmount(group.marketValueAmount, group.currency, locale)} />
           ) : null}
-          {showLegacyColumn("avgCost") ? (
+          {showSupplementalColumn("avgCost") ? (
             <>
               <DetailMetric label={dict.dashboardHome.topHoldingsAverageCost} value={formatUnitPrice(group.averageCostPerShare, group.currency, locale)} />
               <DetailMetric label={dict.dashboardHome.topHoldingsReportingAverageCost} value={reportingAverageCost === null ? "-" : formatUnitPrice(reportingAverageCost, reportingCurrency, locale)} />
             </>
           ) : null}
-          {showLegacyColumn("daily") ? (
+          {showSupplementalColumn("daily") ? (
             <>
               <DetailMetric label={dict.dashboardHome.topHoldingsNativeDailyMove} toneValue={nativeDailyMove} value={nativeDailyMove === null ? "-" : formatCurrencyAmount(nativeDailyMove, group.currency, locale)} />
               <DetailMetric label={dict.reports.dailyChangePercent} toneValue={group.changePercent} value={group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)} />

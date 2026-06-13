@@ -1735,8 +1735,7 @@ function HoldingDetail({
   visibleColumns: ReportHoldingsColumn[];
 }) {
   const visibleColumnSet = new Set(visibleColumns);
-  const detailColumnSet = new Set(detailColumns);
-  const showSupplementalColumn = (column: ReportHoldingsColumn) => visibleColumnSet.has(column) && !detailColumnSet.has(column);
+  const showSupplementalColumn = (column: ReportHoldingsColumn) => visibleColumnSet.has(column);
   const supplementalRows = [
     ...(row.nativeCurrency !== row.reportingCurrency && showSupplementalColumn("price") ? [
       [dict.reports.nativePrice, formatOptionalNativePrice(row, locale), null],
