@@ -31,6 +31,14 @@ import { StatusToast } from "../../../components/ui/StatusToast";
 import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
 import { Badge } from "../../../components/ui/shadcn/badge";
 import { Input } from "../../../components/ui/shadcn/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../../components/ui/shadcn/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/toggle-group";
 import {
@@ -277,6 +285,11 @@ function formatTickerChartMessage(template: string, values: Record<string, strin
     (message, [key, value]) => message.replace(new RegExp(`\\{${key}\\}`, "g"), value),
     template,
   );
+}
+
+function truncateChartLabel(value: string, maxLength = 9): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(1, maxLength - 3))}...`;
 }
 
 function downsampleTickerChartPoints(
@@ -1092,7 +1105,21 @@ export function TickerHistoryClient({
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-6">
-          <TabsList className="w-full justify-start overflow-x-auto rounded-2xl bg-slate-100/90 p-1.5">
+          <div className="sm:hidden">
+            <Select value={activeTab} onValueChange={setActiveTab}>
+              <SelectTrigger aria-label={dict.tickerHistory.tabsAriaLabel} className="w-full" data-testid="ticker-tab-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="overview">{dict.tickerHistory.overviewTabLabel}</SelectItem>
+                  <SelectItem value="fundamentals">{dict.tickerHistory.fundamentalsTabLabel}</SelectItem>
+                  <SelectItem value="transactions">{dict.tickerHistory.transactionsTabLabel}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <TabsList className="hidden w-full justify-start overflow-x-auto rounded-2xl bg-slate-100/90 p-1.5 sm:flex">
             <TabsTrigger value="overview" data-testid="ticker-tab-overview" className="rounded-xl px-4 py-2">
               <BarChart3 className="mr-2 h-4 w-4" />
               {dict.tickerHistory.overviewTabLabel}
@@ -1119,8 +1146,31 @@ export function TickerHistoryClient({
                 </div>
               </div>
               <div className="mt-5 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartRangeLabel}</span>
+                  <Select
+                    value={tickerChartSelection}
+                    onValueChange={(value) => {
+                      if (isTickerRangeControl(value)) selectTickerChartRange(value);
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-label={dict.tickerHistory.chartRangeLabel}
+                      className="w-full sm:hidden"
+                      data-testid="ticker-chart-range-select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {TICKER_RANGE_ITEMS.map((rangeItem) => (
+                          <SelectItem key={rangeItem} value={rangeItem}>
+                            {formatTickerChartRangeLabel(dict, rangeItem)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                   <ToggleGroup
                     type="single"
                     aria-label={dict.tickerHistory.chartRangeLabel}
@@ -1128,7 +1178,7 @@ export function TickerHistoryClient({
                     onValueChange={(value) => {
                       if (isTickerRangeControl(value)) selectTickerChartRange(value);
                     }}
-                    className="flex-wrap justify-start"
+                    className="hidden flex-wrap justify-start sm:flex"
                     data-testid="ticker-chart-range-controls"
                   >
                     {TICKER_RANGE_ITEMS.map((rangeItem) => (
@@ -1154,8 +1204,33 @@ export function TickerHistoryClient({
                   </div>
                 ) : null}
                 {tickerChartError ? <p className="text-sm text-destructive">{tickerChartError}</p> : null}
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartTimelineLabel}</span>
+                  <Select
+                    value={tickerTimelineMode}
+                    onValueChange={(value) => {
+                      if (value === "auto" || value === "day" || value === "week" || value === "month" || value === "year") {
+                        setTickerTimelineMode(value);
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-label={dict.tickerHistory.chartTimelineLabel}
+                      className="w-full sm:hidden"
+                      data-testid="ticker-chart-timeline-select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="auto">{dict.reports.timelineAuto}</SelectItem>
+                        <SelectItem value="day">{dict.reports.timelineDay}</SelectItem>
+                        <SelectItem value="week">{dict.reports.timelineWeek}</SelectItem>
+                        <SelectItem value="month">{dict.reports.timelineMonth}</SelectItem>
+                        <SelectItem value="year">{dict.reports.timelineYear}</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                   <ToggleGroup
                     type="single"
                     aria-label={dict.tickerHistory.chartTimelineLabel}
@@ -1165,7 +1240,7 @@ export function TickerHistoryClient({
                         setTickerTimelineMode(value);
                       }
                     }}
-                    className="flex-wrap justify-start"
+                    className="hidden flex-wrap justify-start sm:flex"
                     data-testid="ticker-chart-timeline-controls"
                   >
                     <ToggleGroupItem value="auto">{dict.reports.timelineAuto}</ToggleGroupItem>
@@ -1281,9 +1356,16 @@ export function TickerHistoryClient({
                   <>
                     <div className="mt-4 w-full min-w-0" style={{ height: accountBreakdownChartHeight }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={accountContributionData} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                        <BarChart data={accountContributionData} layout="vertical" margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                           <XAxis type="number" hide />
-                          <YAxis type="category" dataKey="label" width={88} tickLine={false} axisLine={false} />
+                          <YAxis
+                            type="category"
+                            dataKey="label"
+                            width={72}
+                            tickFormatter={(value: string) => truncateChartLabel(value)}
+                            tickLine={false}
+                            axisLine={false}
+                          />
                           <Tooltip
                             formatter={(value, _name, item) => {
                               const payload = (item as { payload?: { contributionCurrency?: string } }).payload;

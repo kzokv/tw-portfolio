@@ -80,7 +80,9 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       ),
       holdingRow: (ticker: string) =>
         this.withDescription(
-          this.locate("dashboard-holdings-preview").locator(`[data-testid^="dashboard-holding-preview-${ticker}-"]`).first(),
+          this.locate("dashboard-holdings-preview")
+            .locator(`[data-testid^="dashboard-holding-table-row-${ticker}-"]`)
+            .first(),
           `Holding Row ${ticker}`,
         ),
       holdingDailyChangeCell: (ticker: string) =>

@@ -251,4 +251,49 @@ describe("HoldingsTable", () => {
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "expanded")).toBe(true);
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "accounts")).toBe(true);
   });
+
+  it("keeps hidden portfolio mobile columns out of card and details content", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "portfolio.holdings": {
+              columnOrder: ["quantity", "avgCost", "unitPnl", "price", "dailyChange", "costBasis", "allocation", "ticker", "accounts", "marketValue", "pnl", "health", "nextDividend", "lastDividend"],
+              hiddenColumns: ["accounts", "marketValue", "pnl", "health"],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 2,
+            },
+          },
+        },
+      },
+    });
+    const rendered = renderTable([baseGroup]);
+    root = rendered.root;
+    container = rendered.container;
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const mobileRow = container.querySelector("[data-testid='holding-group-mobile-row-AAPL-US']");
+    expect(mobileRow).not.toBeNull();
+    expect(mobileRow?.textContent).not.toContain(dict.holdings.marketValueTerm);
+    expect(Array.from(mobileRow?.querySelectorAll("p") ?? []).some((node) => node.textContent === dict.holdings.pnlTerm)).toBe(false);
+    expect(mobileRow?.textContent).not.toContain(dict.holdings.dataHealthTerm);
+    expect(mobileRow?.textContent).not.toContain(dict.holdings.parentAccountCountLabel);
+
+    const detailsButton = Array.from(mobileRow?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent?.includes(dict.reports.viewDetails));
+    expect(detailsButton).toBeDefined();
+    act(() => {
+      detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mobileRow?.textContent).not.toContain(dict.holdings.marketValueTerm);
+    expect(Array.from(mobileRow?.querySelectorAll("p") ?? []).some((node) => node.textContent === dict.holdings.pnlTerm)).toBe(false);
+    expect(mobileRow?.textContent).not.toContain(dict.holdings.dataHealthTerm);
+  });
 });
