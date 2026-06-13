@@ -651,6 +651,7 @@ export interface HoldingsTableContextPreferenceDto {
   hiddenColumns?: string[];
   columnWidths?: Record<string, number>;
   layoutStyle?: HoldingsTableLayoutStyle;
+  mobileSummaryCount?: number;
 }
 
 export interface HoldingsTableSettingsPreferenceDto {
@@ -737,6 +738,7 @@ export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSetti
               )
               .optional(),
             layoutStyle: z.enum(["dashboard", "portfolio"]).optional(),
+            mobileSummaryCount: z.number().int().min(1).max(40).optional(),
           })
           .strict(),
       )

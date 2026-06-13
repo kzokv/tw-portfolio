@@ -7,7 +7,7 @@ import type {
   HoldingsTableSettingsPreferenceDto,
 } from "@vakwen/shared-types";
 import { holdingsTableSettingsPreferenceSchema } from "@vakwen/shared-types";
-import { ArrowLeft, ArrowRight, GripVertical, RotateCcw, Rows3, Settings2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, GripVertical, Minus, Plus, RotateCcw, Rows3, Settings2 } from "lucide-react";
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { cn } from "../../lib/utils";
@@ -43,6 +43,8 @@ interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   contextKey: string;
   defaultLayoutStyle?: HoldingsTableLayoutStyle;
   defaultHiddenColumns?: ColumnId[];
+  defaultMobileSummaryCount?: number;
+  mobileSummaryColumnIds?: ColumnId[];
 }
 
 interface ColumnRuntimeSettings<ColumnId extends string> {
@@ -50,6 +52,7 @@ interface ColumnRuntimeSettings<ColumnId extends string> {
   hiddenColumns: ColumnId[];
   columnWidths: Record<ColumnId, number>;
   layoutStyle: HoldingsTableLayoutStyle;
+  mobileSummaryCount: number;
 }
 
 export interface HoldingsColumnSettingsState<ColumnId extends string> {
@@ -57,6 +60,8 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   orderedColumns: Array<HoldingsGridColumnDefinition<ColumnId>>;
   visibleColumns: ColumnId[];
   layoutStyle: HoldingsTableLayoutStyle;
+  mobileSummaryCount: number;
+  mobileSummaryCountMax: number;
   settingsError: string;
   getColumnWidth: (column: ColumnId) => number;
   headerProps: (column: ColumnId) => {
@@ -71,6 +76,7 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   };
   resetColumns: () => void;
   setLayoutStyle: (style: HoldingsTableLayoutStyle) => void;
+  setMobileSummaryCount: (count: number) => void;
   toggleColumn: (column: ColumnId) => void;
 }
 
@@ -84,6 +90,10 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   layoutStyleLabel: "Table style",
   layoutStyleCompact: "Dashboard Top Holdings",
   layoutStyleDetailed: "Portfolio Holdings",
+  mobileSummaryCountLabel: "Mobile summary fields",
+  mobileSummaryCountHelp: "Choose how many ordered columns appear before Details.",
+  mobileSummaryCountDecreaseAria: "Show fewer mobile summary fields",
+  mobileSummaryCountIncreaseAria: "Show more mobile summary fields",
   moveColumnLeftAria: "Move {column} column left",
   moveColumnRightAria: "Move {column} column right",
   resizeColumnAria: "Resize {column} column",
@@ -97,6 +107,10 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   | "layoutStyleLabel"
   | "layoutStyleCompact"
   | "layoutStyleDetailed"
+  | "mobileSummaryCountLabel"
+  | "mobileSummaryCountHelp"
+  | "mobileSummaryCountDecreaseAria"
+  | "mobileSummaryCountIncreaseAria"
   | "moveColumnLeftAria"
   | "moveColumnRightAria"
   | "resizeColumnAria"
@@ -109,11 +123,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   contextKey,
   defaultLayoutStyle = "portfolio",
   defaultHiddenColumns = EMPTY_DEFAULT_HIDDEN_COLUMNS,
+  defaultMobileSummaryCount = 5,
+  mobileSummaryColumnIds,
 }: UseHoldingsColumnSettingsOptions<ColumnId>): HoldingsColumnSettingsState<ColumnId> {
   const columnIds = useMemo(() => columns.map((column) => column.id), [columns]);
+  const mobileSummaryCountMax = Math.max(1, mobileSummaryColumnIds?.length ?? columns.length);
   const defaultSettings = useMemo(
-    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns),
-    [columns, defaultLayoutStyle, defaultHiddenColumns],
+    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax),
+    [columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax],
   );
   const [contexts, setContexts] = useState<Record<string, HoldingsTableContextPreferenceDto>>({});
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
@@ -134,10 +151,10 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     setSettings((current) => {
-      const next = normalizeContextSettings(current, columns, defaultLayoutStyle, defaultHiddenColumns);
+      const next = normalizeContextSettings(current, columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
       return columnSettingsEqual(current, next) ? current : next;
     });
-  }, [columns, defaultHiddenColumns, defaultLayoutStyle]);
+  }, [columns, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax]);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +178,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         contextsRef.current = nextContexts;
         setContexts(nextContexts);
         setSettings((current) => {
-          const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns);
+          const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
           return columnSettingsEqual(current, next) ? current : next;
         });
       })
@@ -173,7 +190,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     return () => {
       cancelled = true;
     };
-  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax]);
 
   const orderedColumns = useMemo(
     () => settings.columnOrder
@@ -240,6 +257,10 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     persist({ ...settings, layoutStyle: style });
   }
 
+  function setMobileSummaryCount(count: number) {
+    persist({ ...settings, mobileSummaryCount: clampMobileSummaryCount(count, mobileSummaryCountMax) });
+  }
+
   function getColumnWidth(column: ColumnId) {
     return clampWidth(settings.columnWidths[column] ?? defaultSettings.columnWidths[column] ?? 128);
   }
@@ -301,6 +322,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     orderedColumns,
     visibleColumns: settings.columnOrder.filter((column) => !settings.hiddenColumns.includes(column)),
     layoutStyle: settings.layoutStyle,
+    mobileSummaryCount: clampMobileSummaryCount(settings.mobileSummaryCount, mobileSummaryCountMax),
+    mobileSummaryCountMax,
     settingsError,
     getColumnWidth,
     headerProps,
@@ -308,6 +331,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     resizeProps,
     resetColumns,
     setLayoutStyle,
+    setMobileSummaryCount,
     toggleColumn,
   };
 }
@@ -379,12 +403,50 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
             );
           })}
         </div>
+        <DropdownMenuSeparator />
+        <div className="flex flex-col gap-2 px-2 py-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{copy.mobileSummaryCountLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{copy.mobileSummaryCountHelp}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                disabled={settings.mobileSummaryCount <= 1}
+                onClick={() => settings.setMobileSummaryCount(settings.mobileSummaryCount - 1)}
+                aria-label={copy.mobileSummaryCountDecreaseAria}
+                data-testid="holdings-mobile-summary-count-decrease"
+              >
+                <Minus className="size-3.5" aria-hidden="true" />
+              </Button>
+              <span className="min-w-8 text-center font-mono text-sm tabular-nums" data-testid="holdings-mobile-summary-count">
+                {settings.mobileSummaryCount}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                disabled={settings.mobileSummaryCount >= settings.mobileSummaryCountMax}
+                onClick={() => settings.setMobileSummaryCount(settings.mobileSummaryCount + 1)}
+                aria-label={copy.mobileSummaryCountIncreaseAria}
+                data-testid="holdings-mobile-summary-count-increase"
+              >
+                <Plus className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        </div>
         {enableLayoutStyle ? (
           <>
             <DropdownMenuSeparator />
             <div className="flex flex-col gap-2 px-2 py-1.5">
               <div className="flex items-center gap-2 text-sm font-medium">
-                <Rows3 data-icon="inline-start" aria-hidden="true" />
+                <Rows3 className="size-4 shrink-0" aria-hidden="true" />
                 {copy.layoutStyleLabel}
               </div>
               <ToggleGroup
@@ -479,12 +541,15 @@ function buildDefaultSettings<ColumnId extends string>(
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>,
   layoutStyle: HoldingsTableLayoutStyle,
   defaultHiddenColumns: ColumnId[],
+  defaultMobileSummaryCount: number,
+  mobileSummaryCountMax: number,
 ): ColumnRuntimeSettings<ColumnId> {
   return {
     columnOrder: columns.map((column) => column.id),
     hiddenColumns: defaultHiddenColumns,
     columnWidths: Object.fromEntries(columns.map((column) => [column.id, clampWidth(column.defaultWidth)])) as Record<ColumnId, number>,
     layoutStyle,
+    mobileSummaryCount: clampMobileSummaryCount(defaultMobileSummaryCount, mobileSummaryCountMax),
   };
 }
 
@@ -493,8 +558,10 @@ function normalizeContextSettings<ColumnId extends string>(
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>,
   defaultLayoutStyle: HoldingsTableLayoutStyle,
   defaultHiddenColumns: ColumnId[],
+  defaultMobileSummaryCount: number,
+  mobileSummaryCountMax: number,
 ): ColumnRuntimeSettings<ColumnId> {
-  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns);
+  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
   const validIds = new Set(columns.map((column) => column.id));
   const rawOrder = Array.isArray(rawSettings?.columnOrder) ? rawSettings.columnOrder : [];
   const columnOrder = [
@@ -518,7 +585,10 @@ function normalizeContextSettings<ColumnId extends string>(
   const layoutStyle = rawSettings?.layoutStyle === "dashboard" || rawSettings?.layoutStyle === "portfolio"
     ? rawSettings.layoutStyle
     : defaultLayoutStyle;
-  return { columnOrder, hiddenColumns, columnWidths, layoutStyle };
+  const mobileSummaryCount = typeof rawSettings?.mobileSummaryCount === "number"
+    ? clampMobileSummaryCount(rawSettings.mobileSummaryCount, mobileSummaryCountMax)
+    : defaults.mobileSummaryCount;
+  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount };
 }
 
 function serializeSettings<ColumnId extends string>(
@@ -529,6 +599,7 @@ function serializeSettings<ColumnId extends string>(
     hiddenColumns: settings.hiddenColumns,
     columnWidths: settings.columnWidths,
     layoutStyle: settings.layoutStyle,
+    mobileSummaryCount: settings.mobileSummaryCount,
   };
 }
 
@@ -537,6 +608,7 @@ function columnSettingsEqual<ColumnId extends string>(
   right: ColumnRuntimeSettings<ColumnId>,
 ): boolean {
   return left.layoutStyle === right.layoutStyle
+    && left.mobileSummaryCount === right.mobileSummaryCount
     && arraysEqual(left.columnOrder, right.columnOrder)
     && arraysEqual(left.hiddenColumns, right.hiddenColumns)
     && recordEqual(left.columnWidths, right.columnWidths);
@@ -555,4 +627,8 @@ function recordEqual<ColumnId extends string>(left: Record<ColumnId, number>, ri
 
 function clampWidth(width: number) {
   return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Math.round(width)));
+}
+
+function clampMobileSummaryCount(count: number, max: number) {
+  return Math.max(1, Math.min(Math.max(1, max), Math.round(count)));
 }

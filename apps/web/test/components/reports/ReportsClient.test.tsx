@@ -422,9 +422,10 @@ describe("ReportsClient", () => {
     act(() => {
       viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(document.body.textContent).toContain("Reporting price");
-    expect(document.body.textContent).toContain("Daily change %");
-    expect(document.body.textContent).toContain("Allocation");
+    const dialog = document.body.querySelector("[role='dialog']");
+    expect(dialog?.textContent).toContain("Book Cost");
+    expect(dialog?.textContent).toContain("Daily change");
+    expect(dialog?.textContent).toContain("Weight");
 
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
     expect(sectionRefresh).not.toBeNull();
@@ -495,6 +496,46 @@ describe("ReportsClient", () => {
     expect(holdingsTable?.querySelector("[data-testid='holdings-column-resize-health']")).not.toBeNull();
   });
 
+  it("keeps hidden report mobile columns out of card/details and avoids duplicate detail rows", async () => {
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": {
+            columnOrder: ["position", "avgCost", "price", "unitPnl", "costBasis", "unrealized", "daily", "weight", "ticker", "marketValue", "health"],
+            hiddenColumns: ["marketValue", "health"],
+            columnWidths: {},
+            layoutStyle: "portfolio",
+            mobileSummaryCount: 1,
+          },
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const mobileRow = document.querySelector("[data-testid='reports-mobile-row-BHP-AU']");
+    expect(mobileRow).not.toBeNull();
+    expect(mobileRow?.textContent).not.toContain("Market value");
+    expect(mobileRow?.textContent).not.toContain("Data health");
+
+    const viewDetailsButton = Array.from(mobileRow?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent?.includes("View details"));
+    expect(viewDetailsButton).not.toBeUndefined();
+    act(() => {
+      viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const dialog = document.body.querySelector("[role='dialog']");
+    expect(dialog?.textContent).not.toContain("Market value");
+    expect(dialog?.textContent).not.toContain("Data health");
+    expect(dialog?.textContent?.match(/Reporting price/g) ?? []).toHaveLength(1);
+  });
+
   it("links tickers, colors finance values, and renders optional fx rates", async () => {
     const rateFixture = {
       ...fixture,
@@ -560,8 +601,6 @@ describe("ReportsClient", () => {
       viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain("Daily change %");
-    expect(document.body.textContent).toContain("Reporting price");
     expect(document.body.textContent).toContain("Native price");
     expect(document.body.textContent).toContain("FX rate");
     expect(document.body.textContent).toContain("1.52");
