@@ -426,6 +426,8 @@ describe("ReportsClient", () => {
     expect(dialog?.textContent).toContain("Book Cost");
     expect(dialog?.textContent).toContain("Daily change");
     expect(dialog?.textContent).toContain("Weight");
+    expect(dialog?.textContent).toContain("Daily change %");
+    expect(dialog?.textContent).toContain("Allocation");
 
     const sectionRefresh = document.querySelector("[data-testid='reports-today-refresh']");
     expect(sectionRefresh).not.toBeNull();
