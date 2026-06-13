@@ -16,6 +16,7 @@ import { getDashboardReportingAverageCost, getDashboardUnitPnl, getNativeUnitPnl
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { buildAllocationPercentages, getAmountForAllocationBasis, resolveHoldingGroups, type DashboardOverviewHoldingChildDto, type DashboardOverviewHoldingGroupDto, type HoldingAllocationBasis } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
+import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { fieldClassName } from "../ui/fieldStyles";
 import { Checkbox } from "../ui/shadcn/checkbox";
@@ -27,6 +28,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/shadcn/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/shadcn/select";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
   HoldingsColumnHeaderContent,
@@ -91,6 +100,21 @@ const PORTFOLIO_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<HoldingsCol
   { id: "allocation", label: "Allocation", defaultWidth: 148, align: "right" },
   { id: "nextDividend", label: "Next dividend", defaultWidth: 152, align: "right" },
   { id: "lastDividend", label: "Last dividend", defaultWidth: 152, align: "right" },
+];
+const PORTFOLIO_MOBILE_FIELD_COLUMNS: HoldingsColumn[] = [
+  "accounts",
+  "quantity",
+  "avgCost",
+  "unitPnl",
+  "price",
+  "dailyChange",
+  "marketValue",
+  "pnl",
+  "health",
+  "costBasis",
+  "allocation",
+  "nextDividend",
+  "lastDividend",
 ];
 
 const PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = [];
@@ -176,9 +200,11 @@ export function HoldingsTable({
     contextKey: "portfolio.holdings",
     defaultLayoutStyle: variant === "compact" ? "dashboard" : "portfolio",
     defaultHiddenColumns: variant === "compact" ? PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS : PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS,
+    mobileSummaryColumnIds: PORTFOLIO_MOBILE_FIELD_COLUMNS,
   });
   const visibleColumnDefs = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const visibleColumns = visibleColumnDefs.map((column) => column.id);
+  const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, PORTFOLIO_MOBILE_FIELD_COLUMNS);
 
   const groups = useMemo(
     () => resolveHoldingGroups({ holdings, holdingGroups, instruments, accounts }),
@@ -297,12 +323,33 @@ export function HoldingsTable({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={dict.dashboardHome.holdingsSearchPlaceholder}
-                className={cn(fieldClassName, "pl-10")}
+                className={cn(fieldClassName, "!pl-10")}
                 data-testid="holdings-filter-input"
               />
             </label>
 
-            <div className="min-w-0 overflow-x-auto pb-1">
+            <div className="md:hidden">
+              <span className="sr-only">{dict.holdings.displayModeLabel}</span>
+              <Select
+                value={displayMode}
+                onValueChange={(value) => {
+                  if (isHoldingsDisplayMode(value)) setDisplayMode(value);
+                }}
+              >
+                <SelectTrigger aria-label={dict.holdings.displayModeLabel} className="w-full" data-testid="holdings-display-mode-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="aggregated">{dict.holdings.displayModeAggregated}</SelectItem>
+                    <SelectItem value="expanded">{dict.holdings.displayModeExpanded}</SelectItem>
+                    <SelectItem value="accounts">{dict.holdings.displayModeAccounts}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden min-w-0 overflow-x-auto pb-1 md:block">
               <span className="sr-only">{dict.holdings.displayModeLabel}</span>
               <ToggleGroup
                 type="single"
@@ -416,7 +463,27 @@ export function HoldingsTable({
                 />
               </div>
 
-              <div className="min-w-0 overflow-x-auto pb-1">
+              <div className="min-w-0 md:hidden">
+                <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
+                <Select
+                  value={effectiveAllocationBasis}
+                  onValueChange={(value) => {
+                    if (isHoldingAllocationBasis(value)) setEffectiveAllocationBasis(value);
+                  }}
+                >
+                  <SelectTrigger aria-label={dict.dashboardHome.allocationBasisLabel} className="mt-2 w-full" data-testid="holdings-allocation-basis-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="market_value">{dict.dashboardHome.allocationBasisMarketValue}</SelectItem>
+                      <SelectItem value="cost_basis">{dict.dashboardHome.allocationBasisCostBasis}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="hidden min-w-0 overflow-x-auto pb-1 md:block">
                 <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
                 <ToggleGroup
                   type="single"
@@ -451,7 +518,9 @@ export function HoldingsTable({
                     locale={locale}
                     allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                     allocationBasis={effectiveAllocationBasis}
+                    detailColumns={mobileColumnSplit.detailColumns}
                     nested={false}
+                    summaryColumns={mobileColumnSplit.summaryColumns}
                   />
                 ))
                 : filteredGroups.map((group) => {
@@ -470,7 +539,9 @@ export function HoldingsTable({
                         locale={locale}
                         allocationPercent={groupAllocationMap.get(groupKey) ?? null}
                         allocationBasis={effectiveAllocationBasis}
+                        detailColumns={mobileColumnSplit.detailColumns}
                         expanded={showChildren}
+                        summaryColumns={mobileColumnSplit.summaryColumns}
                         onToggle={() => toggleGroup(groupKey)}
                       />
                       {showChildren
@@ -482,7 +553,9 @@ export function HoldingsTable({
                             locale={locale}
                             allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                             allocationBasis={effectiveAllocationBasis}
+                            detailColumns={mobileColumnSplit.detailColumns}
                             nested
+                            summaryColumns={mobileColumnSplit.summaryColumns}
                           />
                         ))
                         : null}
@@ -591,7 +664,9 @@ function HoldingGroupMobileCard({
   locale,
   allocationPercent,
   allocationBasis,
+  detailColumns,
   expanded,
+  summaryColumns,
   onToggle,
 }: {
   group: DashboardOverviewHoldingGroupDto;
@@ -599,14 +674,14 @@ function HoldingGroupMobileCard({
   locale: LocaleCode;
   allocationPercent: number | null;
   allocationBasis: HoldingAllocationBasis;
+  detailColumns: HoldingsColumn[];
   expanded: boolean;
+  summaryColumns: HoldingsColumn[];
   onToggle: () => void;
 }) {
   const reportingCurrency = group.reportingCurrency;
-  const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
-  const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
-  const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
   const allocation = getAmountForAllocationBasis(group, allocationBasis);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -629,43 +704,48 @@ function HoldingGroupMobileCard({
             </Link>
             {group.instrumentName ? <p className="mt-1 text-sm text-foreground">{group.instrumentName}</p> : null}
             <p className="mt-1 text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {dict.holdings.parentAccountCountLabel}: {formatNumber(group.accountCount, locale)}
-            </p>
           </div>
-        </div>
-        <div className="min-w-0 text-right">
-          <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-            {group.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
-          </p>
-          <p className={cn("mt-1 font-mono text-xs tabular-nums", getUnrealizedPnlTone(group.reportingUnrealizedPnlAmount))}>
-            {group.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
-          </p>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <MobileHoldingMetric label={dict.holdings.marketValueTerm} value={group.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />
-        <MobileHoldingMetric
-          label={dict.holdings.pnlTerm}
-          tone={group.reportingUnrealizedPnlAmount}
-          value={group.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
-        />
-        <MobileHoldingMetric label={dict.holdings.avgCostTerm} value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)} secondary={group.currency !== reportingCurrency ? formatCurrencyAmount(group.averageCostPerShare, group.currency, locale) : undefined} />
-        <MobileHoldingMetric
-          label={dict.holdings.unitPnlTerm}
-          tone={unitPnl.amount}
-          value={unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
-          secondary={group.currency !== reportingCurrency ? (nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, group.currency, locale)) : undefined}
-          detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
-        />
-        <MobileHoldingMetric
-          label={dict.holdings.priceTerm}
-          tone={group.currentUnitPrice == null ? null : group.currentUnitPrice - group.averageCostPerShare}
-          value={group.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(group.currentUnitPrice, group.currency, locale)}
-        />
-        <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(group.quantity, locale)} detail={allocationPercent == null ? "-" : `${dict.holdings.allocationTerm}: ${formatPercent(allocationPercent, locale)}`} />
+        {summaryColumns.map((column) => (
+          <PortfolioMobileColumnMetric
+            key={column}
+            allocation={allocation}
+            allocationBasis={allocationBasis}
+            allocationPercent={allocationPercent}
+            column={column}
+            dict={dict}
+            locale={locale}
+            row={group}
+          />
+        ))}
       </div>
+
+      {detailColumns.length > 0 ? (
+        <div className="mt-3 border-t border-border/70 pt-3">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen((open) => !open)}>
+            {dict.reports.viewDetails}
+          </Button>
+          {detailsOpen ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {detailColumns.map((column) => (
+                <PortfolioMobileColumnMetric
+                  key={column}
+                  allocation={allocation}
+                  allocationBasis={allocationBasis}
+                  allocationPercent={allocationPercent}
+                  column={column}
+                  dict={dict}
+                  locale={locale}
+                  row={group}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {allocation.usedFallback ? (
         <p className="mt-3 text-xs text-warning">
@@ -673,10 +753,6 @@ function HoldingGroupMobileCard({
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
-        <HoldingsDataHealthBadges dict={dict} row={group} showAllocationFallback />
-      </div>
     </div>
   );
 }
@@ -687,20 +763,22 @@ function HoldingChildMobileCard({
   locale,
   allocationPercent,
   allocationBasis,
+  detailColumns,
   nested,
+  summaryColumns,
 }: {
   child: DashboardOverviewHoldingChildDto;
   dict: AppDictionary;
   locale: LocaleCode;
   allocationPercent: number | null;
   allocationBasis: HoldingAllocationBasis;
+  detailColumns: HoldingsColumn[];
   nested: boolean;
+  summaryColumns: HoldingsColumn[];
 }) {
   const reportingCurrency = child.reportingCurrency;
-  const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
-  const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
-  const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
   const allocation = getAmountForAllocationBasis(child, allocationBasis);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -719,49 +797,52 @@ function HoldingChildMobileCard({
           <p className="mt-1 text-xs text-muted-foreground">{child.marketCode} · {child.currency}</p>
           <p className="mt-1 text-xs text-muted-foreground">{child.accountName?.trim() || child.accountId}</p>
         </div>
-        <div className="min-w-0 text-right">
-          <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-            {child.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
-          </p>
-          <p className={cn("mt-1 font-mono text-xs tabular-nums", getUnrealizedPnlTone(child.reportingUnrealizedPnlAmount))}>
-            {child.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
-          </p>
-        </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <MobileHoldingMetric label={dict.holdings.marketValueTerm} value={child.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)} />
-        <MobileHoldingMetric
-          label={dict.holdings.pnlTerm}
-          tone={child.reportingUnrealizedPnlAmount}
-          value={child.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
-        />
-        <MobileHoldingMetric label={dict.holdings.avgCostTerm} value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)} secondary={child.currency !== reportingCurrency ? formatCurrencyAmount(child.averageCostPerShare, child.currency, locale) : undefined} />
-        <MobileHoldingMetric
-          label={dict.holdings.unitPnlTerm}
-          tone={unitPnl.amount}
-          value={unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
-          secondary={child.currency !== reportingCurrency ? (nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, child.currency, locale)) : undefined}
-          detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
-        />
-        <MobileHoldingMetric
-          label={dict.holdings.priceTerm}
-          tone={child.currentUnitPrice == null ? null : child.currentUnitPrice - child.averageCostPerShare}
-          value={child.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(child.currentUnitPrice, child.currency, locale)}
-        />
-        <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(child.quantity, locale)} detail={allocationPercent == null ? "-" : `${dict.holdings.allocationTerm}: ${formatPercent(allocationPercent, locale)}`} />
+        {summaryColumns.map((column) => (
+          <PortfolioMobileColumnMetric
+            key={column}
+            allocation={allocation}
+            allocationBasis={allocationBasis}
+            allocationPercent={allocationPercent}
+            column={column}
+            dict={dict}
+            locale={locale}
+            row={child}
+          />
+        ))}
       </div>
+
+      {detailColumns.length > 0 ? (
+        <div className="mt-3 border-t border-border/70 pt-3">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen((open) => !open)}>
+            {dict.reports.viewDetails}
+          </Button>
+          {detailsOpen ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {detailColumns.map((column) => (
+                <PortfolioMobileColumnMetric
+                  key={column}
+                  allocation={allocation}
+                  allocationBasis={allocationBasis}
+                  allocationPercent={allocationPercent}
+                  column={column}
+                  dict={dict}
+                  locale={locale}
+                  row={child}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {allocation.usedFallback ? (
         <p className="mt-3 text-xs text-warning">
           {dict.dashboardHome.allocationFallbackLabel}: {formatCurrencyAmount(allocation.amount, reportingCurrency, locale)}
         </p>
       ) : null}
-
-      <div className="mt-3 flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">{dict.holdings.dataHealthTerm}</span>
-        <HoldingsDataHealthBadges dict={dict} row={child} showAllocationFallback />
-      </div>
     </div>
   );
 }
@@ -772,21 +853,128 @@ function MobileHoldingMetric({
   tone = null,
   secondary,
   detail,
+  valueClassName,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   tone?: number | null;
   secondary?: string;
   detail?: string;
+  valueClassName?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-mono text-sm font-semibold tabular-nums", getUnrealizedPnlTone(tone))}>{value}</p>
+      <div className={cn("mt-1 min-w-0 break-words font-mono text-sm font-semibold tabular-nums", getUnrealizedPnlTone(tone), valueClassName)}>{value}</div>
       {secondary ? <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{secondary}</p> : null}
       {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
     </div>
   );
+}
+
+function PortfolioMobileColumnMetric({
+  allocation,
+  allocationPercent,
+  column,
+  dict,
+  locale,
+  row,
+}: {
+  allocation: ReturnType<typeof getAmountForAllocationBasis>;
+  allocationBasis: HoldingAllocationBasis;
+  allocationPercent: number | null;
+  column: HoldingsColumn;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
+}) {
+  const reportingCurrency = row.reportingCurrency;
+  const avgCost = getDashboardReportingAverageCost(row, reportingCurrency);
+  const unitPnl = getDashboardUnitPnl(row, reportingCurrency);
+  const nativeUnitPnl = getNativeUnitPnl(row.currentUnitPrice, row.averageCostPerShare);
+  const accountCount = "accountCount" in row ? row.accountCount : null;
+
+  switch (column) {
+    case "accounts":
+      return <MobileHoldingMetric label={dict.holdings.columnAccounts} value={accountCount === null ? "-" : formatNumber(accountCount, locale)} />;
+    case "quantity":
+      return <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(row.quantity, locale)} />;
+    case "avgCost":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.avgCostTerm}
+          value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}
+          secondary={row.currency !== reportingCurrency ? formatCurrencyAmount(row.averageCostPerShare, row.currency, locale) : undefined}
+        />
+      );
+    case "unitPnl":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.unitPnlTerm}
+          tone={unitPnl.amount}
+          value={unitPnl.amount == null ? "-" : formatCurrencyAmount(unitPnl.amount, reportingCurrency, locale)}
+          secondary={row.currency !== reportingCurrency ? (nativeUnitPnl.amount == null ? "-" : formatCurrencyAmount(nativeUnitPnl.amount, row.currency, locale)) : undefined}
+          detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
+        />
+      );
+    case "price":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.priceTerm}
+          tone={row.currentUnitPrice == null ? null : row.currentUnitPrice - row.averageCostPerShare}
+          value={row.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(row.currentUnitPrice, row.currency, locale)}
+        />
+      );
+    case "dailyChange":
+      return (
+        <MobileHoldingMetric
+          label={dict.dashboardHome.dailyChangeLabel}
+          tone={row.change}
+          value={row.quoteStatus === "missing" ? dict.dashboardHome.quoteStatusMissing : row.change === null ? "-" : formatCurrencyAmount(row.change, row.currency, locale)}
+          detail={row.changePercent == null ? "-" : formatPercent(row.changePercent, locale)}
+        />
+      );
+    case "marketValue":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.marketValueTerm}
+          value={row.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(row.reportingMarketValueAmount, reportingCurrency, locale)}
+          valueClassName="break-all"
+        />
+      );
+    case "pnl":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.pnlTerm}
+          tone={row.reportingUnrealizedPnlAmount}
+          value={row.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(row.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
+        />
+      );
+    case "health":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.dataHealthTerm}
+          value={<HoldingsDataHealthBadges dict={dict} row={row} showAllocationFallback />}
+          valueClassName="flex flex-wrap gap-1.5 font-sans"
+        />
+      );
+    case "costBasis":
+      return <MobileHoldingMetric label={dict.holdings.totalCostTerm} value={row.reportingCostBasisAmount == null ? "-" : formatCurrencyAmount(row.reportingCostBasisAmount, reportingCurrency, locale)} />;
+    case "allocation":
+      return (
+        <MobileHoldingMetric
+          label={dict.holdings.allocationTerm}
+          value={allocationPercent == null ? "-" : formatPercent(allocationPercent, locale)}
+          detail={allocation.usedFallback ? `${dict.dashboardHome.allocationFallbackLabel}: ${formatCurrencyAmount(allocation.amount, reportingCurrency, locale)}` : undefined}
+        />
+      );
+    case "nextDividend":
+      return <MobileHoldingMetric label={dict.dashboardHome.nextDividendLabel} value={row.nextDividendDate ? formatDateLabel(row.nextDividendDate, locale) : "-"} />;
+    case "lastDividend":
+      return <MobileHoldingMetric label={dict.dashboardHome.lastDividendLabel} value={row.lastDividendPostedDate ? formatDateLabel(row.lastDividendPostedDate, locale) : "-"} />;
+    case "ticker":
+      return null;
+  }
 }
 
 function HoldingGroupRow({
@@ -1280,6 +1468,20 @@ function getUnrealizedPnlTone(value: number | null): string {
   if (value > 0) return "text-success";
   if (value < 0) return "text-destructive";
   return "text-foreground";
+}
+
+function splitMobileHoldingColumns<ColumnId extends string>(
+  settings: HoldingsColumnSettingsState<ColumnId>,
+  supportedColumns: ColumnId[],
+) {
+  const supported = new Set(supportedColumns);
+  const visibleColumns = settings.orderedColumns
+    .map((column) => column.id)
+    .filter((column) => supported.has(column) && settings.visibleColumns.includes(column));
+  return {
+    summaryColumns: visibleColumns.slice(0, settings.mobileSummaryCount),
+    detailColumns: visibleColumns.slice(settings.mobileSummaryCount),
+  };
 }
 
 function FreshnessBadge({

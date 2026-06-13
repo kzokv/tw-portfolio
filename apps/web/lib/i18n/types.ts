@@ -580,6 +580,7 @@ export interface AppDictionary {
       totalCostLabel: string;
       previousCloseLabel: string;
       currentPriceLabel: string;
+      tabsAriaLabel: string;
       overviewTabLabel: string;
       fundamentalsTabLabel: string;
       transactionsTabLabel: string;
@@ -1343,6 +1344,10 @@ export interface AppDictionary {
     layoutStyleLabel: string;
     layoutStyleCompact: string;
     layoutStyleDetailed: string;
+    mobileSummaryCountLabel: string;
+    mobileSummaryCountHelp: string;
+    mobileSummaryCountDecreaseAria: string;
+    mobileSummaryCountIncreaseAria: string;
     moveColumnLeftAria: string;
     moveColumnRightAria: string;
     resizeColumnAria: string;
