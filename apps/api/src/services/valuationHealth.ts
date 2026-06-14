@@ -199,6 +199,17 @@ export async function buildAllRangePerformance(
   return translatePerformancePoints(userId, "ALL", asOf, reportingCurrency, app.persistence, store);
 }
 
+export async function buildRecentValuationPerformance(
+  app: FastifyInstance,
+  userId: string,
+  store: Store,
+  reportingCurrency: AccountDefaultCurrency,
+  asOf: string,
+): Promise<DashboardPerformanceDto> {
+  const { translatePerformancePoints } = await import("./dashboardReportingCurrency.js");
+  return translatePerformancePoints(userId, "1M", asOf, reportingCurrency, app.persistence, store);
+}
+
 export function isMarketCode(value: string): value is MarketCode {
   return (MARKET_CODES as readonly string[]).includes(value);
 }
