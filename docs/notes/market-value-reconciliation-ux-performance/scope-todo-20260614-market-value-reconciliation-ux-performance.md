@@ -145,6 +145,10 @@ Design requirements:
   Evidence: `apps/api/src/routes/registerRoutes.ts` keeps `/dashboard/performance` limited to prefs, store, `asOf`, and `translatePerformancePoints(...)` only, while `/dashboard/overview` and `/dashboard/enrichment` now build `valuationHealth` from `buildRecentValuationPerformance(...)`; `apps/api/src/services/valuationHealth.ts` fixes that helper to the recent `"1M"` window instead of reusing the full performance route payload.
 - [x] Optimize latest-bar lookup for reconciliation diagnostics.
   Evidence: `apps/api/src/persistence/postgres.ts#getLatestBarDatesForReconciliation` uses `LEFT JOIN LATERAL ... ORDER BY bar_date DESC LIMIT 1` rather than the broader latest-bars window query.
+- [x] Reduce remaining page-read database pressure found during live validation.
+  Evidence:
+  - `/portfolio/instrument-index` now uses `Persistence.listTransactionInstrumentOptions(...)` instead of hydrating the full store; focused coverage in `apps/api/test/unit/smooth-page-read-paths.test.ts` asserts the route emits `list_transaction_instruments` timing and no `load_store` timing.
+  - Portfolio/report FX display-rate helpers now fetch independent source-currency FX rates concurrently while preserving duplicate-source de-duping and row ordering; focused coverage in `apps/api/test/unit/dashboardReportingCurrency.test.ts`.
 - [x] Add shared valuation-health frontend component and wire it into Dashboard hero, Portfolio Trend, Reports Portfolio, and Reports Market charts.
   Evidence: shared `apps/web/components/valuation/ValuationHealthPanel.tsx` is rendered from `DashboardHero`, `PortfolioTrendCard`, and `components/reports/ReportsClient.tsx`; non-admin rendering shows explanation-only copy with no repair actions, while admin repair CTA routing now targets the market-data repair/backfill workspace via `apps/web/components/valuation/valuationHealthAdminLink.ts`.
 - [x] Add API, web unit, E2E, and HTTP coverage for reconciliation, cache policy, invalidation, and UX states.
@@ -162,18 +166,24 @@ Design requirements:
   - `npx eslint .` passed on 2026-06-14.
   - `npm run typecheck` passed on 2026-06-14.
   - `npm run test --prefix apps/web` passed on 2026-06-14: 98 files, 622 tests passed.
-  - `npm run test --prefix apps/api` passed on 2026-06-14: 149 files passed, 42 skipped; 1554 tests passed, 419 skipped.
+  - `npm run test --prefix apps/api` passed on 2026-06-14 after the latest performance patches: 149 files passed, 42 skipped; 1558 tests passed, 419 skipped.
   - `npm run test:integration:full:host` passed on 2026-06-14 after a clean rerun against an isolated Postgres/Redis stack: 82 files, 829 passed, 1 skipped.
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed on 2026-06-14: 271 passed, 13 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed on 2026-06-14: 120 passed.
   - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
   - CI, deploy, and live Chrome validation remain pending for the latest branch state.
 - [x] Capture Chrome performance evidence against dev/prod after deployment.
-  Evidence: prior dev validation found the manual-refresh cache gap and then the temporary `/dashboard/performance` valuation-health regression. Fresh Chrome validation is required after this latest route-contract correction is pushed and deployed.
+  Evidence: prior dev validation for commit `dfcc2424` confirmed the healthy valuation state and material-gap incident UX. Fresh Chrome validation is required after the latest performance commits are pushed and deployed.
 
 ## Post-Deploy Live Validation
 
-Not rerun for this correction. Keep this section open until a fresh dev/prod validation pass is executed for the final branch state.
+Latest deployed validation before the two newest performance commits:
+
+- Commit `dfcc2424` deployed successfully to dev.
+- Healthy live UI after deploy showed hero/current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, valuation health `Healthy`, and latest snapshot `Jun 12, 2026`.
+- Incident simulation deleted the latest `AVGO` snapshot row for `2026-06-12`, producing a live `Material gap` warning with current valuation `$663,017.84`, chart valuation `$652,285.72`, delta `$10,732.12`, and latest snapshot `Jun 11, 2026`.
+- Restoring the deleted row returned the UI to `Healthy` with current/chart `$663,017.84` and latest snapshot `Jun 12, 2026`.
+- Fresh dev deploy and Chrome validation are still required for the latest branch head after commits `00074d7a` and `e64516b7`.
 
 ## Acceptance Criteria
 
@@ -213,13 +223,18 @@ Focused verification completed for this correction:
 - `npm run test:http --prefix apps/api -- test/http/specs/dashboard-reporting-currency-aaa.http.spec.ts` → 6 passed, 2 skipped
 - `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/services/valuationHealth.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` → passed
 - `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
+- `npx vitest run test/unit/smooth-page-read-paths.test.ts -t "instrument options|portfolio primary|dashboard primary"` from `apps/api` → 6 passed, 5 skipped
+- `npx vitest run test/unit/smooth-page-read-paths.test.ts` from `apps/api` → 11 passed
+- `npx vitest run test/unit/dashboardReportingCurrency.test.ts test/unit/dashboardHoldingGroups.test.ts` from `apps/api` → 2 files, 30 tests passed
+- `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/src/services/fxConversionRates.ts apps/api/test/unit/dashboardReportingCurrency.test.ts --max-warnings=0` → passed
+- `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
 
 Full local gate verification completed for the current branch head:
 
 - `npx eslint .` → passed
 - `npm run typecheck` → passed
 - `npm run test --prefix apps/web` → 98 files, 622 tests passed
-- `npm run test --prefix apps/api` → 149 files passed, 42 skipped; 1554 tests passed, 419 skipped
+- `npm run test --prefix apps/api` → 149 files passed, 42 skipped; 1558 tests passed, 419 skipped
 - `npm run test:integration:full:host` → 82 files, 829 passed, 1 skipped
 - `npm run test:e2e:bypass:mem --prefix apps/web` → 271 passed, 13 skipped
 - `npm run test:e2e:oauth:mem --prefix apps/web` → 120 passed
