@@ -71,6 +71,13 @@ export interface SettingsFieldPatch {
   costBasisMethod?: UserSettings["costBasisMethod"];
 }
 
-export async function patchSettings(patch: SettingsFieldPatch): Promise<UserSettings> {
-  return patchJson<UserSettings>("/settings", patch);
+interface PatchSettingsOptions {
+  keepalive?: boolean;
+}
+
+export async function patchSettings(
+  patch: SettingsFieldPatch,
+  options: PatchSettingsOptions = {},
+): Promise<UserSettings> {
+  return patchJson<UserSettings>("/settings", patch, options);
 }
