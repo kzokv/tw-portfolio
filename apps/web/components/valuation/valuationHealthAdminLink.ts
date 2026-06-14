@@ -21,7 +21,9 @@ export function getValuationHealthAdminRepairHref(
   const hasBackfillAction = actionableHoldings.some((holding) => holding.recommendedAction === "run_backfill");
   const tickers = [...new Set(actionableHoldings.map((holding) => holding.ticker))];
   const params = new URLSearchParams();
-  if (tickers.length === 1) {
+  if (!hasBackfillAction && tickers.length > 1) {
+    params.set("tickers", tickers.join(","));
+  } else if (tickers.length === 1) {
     params.set("search", tickers[0]);
   }
   if (!hasBackfillAction) {
