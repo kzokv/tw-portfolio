@@ -302,4 +302,88 @@ describe("buildValuationHealth", () => {
     ]);
     expect(dto.recommendedActions).toEqual([]);
   });
+
+  it("replays same-day closes and reopens by booking sequence before timestamp", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([["VRT:US", "2026-06-13"]])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([[scopeKey("acc-1", "VRT", "US"), null]])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {
+        accounting: {
+          facts: {
+            tradeEvents: [
+              {
+                id: "trade-1",
+                accountId: "acc-1",
+                ticker: "VRT",
+                marketCode: "US",
+                type: "BUY",
+                quantity: 10,
+                tradeDate: "2026-06-01",
+                tradeTimestamp: "2026-06-01T09:00:00.000Z",
+                bookingSequence: 1,
+              },
+              {
+                id: "trade-2",
+                accountId: "acc-1",
+                ticker: "VRT",
+                marketCode: "US",
+                type: "SELL",
+                quantity: 10,
+                tradeDate: "2026-06-14",
+                tradeTimestamp: "2026-06-14T10:00:00.000Z",
+                bookingSequence: 2,
+              },
+              {
+                id: "trade-3",
+                accountId: "acc-1",
+                ticker: "VRT",
+                marketCode: "US",
+                type: "BUY",
+                quantity: 5,
+                tradeDate: "2026-06-14",
+                tradeTimestamp: "2026-06-14T08:00:00.000Z",
+                bookingSequence: 3,
+              },
+            ],
+          },
+        },
+      } as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 500,
+      asOf: "2026-06-14T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "VRT",
+          marketCode: "US",
+          reportingMarketValueAmount: 500,
+          children: [{ accountId: "acc-1", ticker: "VRT", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 0 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-13",
+          latestSnapshotDate: "2026-06-13",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "VRT",
+        latestBarDate: "2026-06-13",
+        latestSnapshotDate: null,
+        status: "awaiting_latest_bar",
+        recommendedAction: "none",
+      }),
+    ]);
+    expect(dto.recommendedActions).toEqual([]);
+  });
 });

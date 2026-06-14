@@ -211,8 +211,8 @@ function buildCurrentOpenStartDateByScope(
     const trades = [...(tradesByScope.get(key) ?? [])].sort(
       (left, right) =>
         left.tradeDate.localeCompare(right.tradeDate)
-        || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
         || (left.bookingSequence ?? 0) - (right.bookingSequence ?? 0)
+        || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
         || left.id.localeCompare(right.id),
     );
     let quantity = 0;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { DashboardHoldingsPreview } from "../dashboard/DashboardHoldingsPreview";
@@ -35,8 +36,10 @@ export function PortfolioClient({
     openQuickActions,
     reportingCurrency,
   } = useAppShellData();
-  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, reportingCurrency);
+  const seedReportingCurrency = resolvePortfolioReportingCurrency(initialPrimaryData, reportingCurrency);
+  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, seedReportingCurrency);
   const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy);
+  const effectiveReportingCurrency = resolvePortfolioReportingCurrency(portfolio.data, seedReportingCurrency);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const [holdingsTableStyle, setHoldingsTableStyle] = useState<"dashboard" | "portfolio">("portfolio");
@@ -83,7 +86,7 @@ export function PortfolioClient({
           : null
       )
     : null;
-  const largestHoldingCurrency = largestHolding?.reportingCurrency ?? reportingCurrency;
+  const largestHoldingCurrency = largestHolding?.reportingCurrency ?? effectiveReportingCurrency;
   const restoredLabel = portfolio.restoredAt
     ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
         hour: "2-digit",
@@ -115,7 +118,7 @@ export function PortfolioClient({
             <p>{dict.navigation.portfolioDescription}</p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground">
-                {dict.commandPalette.actionChangeReportingCurrency}: {reportingCurrency}
+                {dict.commandPalette.actionChangeReportingCurrency}: {effectiveReportingCurrency}
               </span>
               {canUseGlobalQuickActions ? (
                 <Button type="button" size="sm" variant="secondary" onClick={openQuickActions}>
@@ -229,7 +232,7 @@ export function PortfolioClient({
                       fxRates={portfolio.data.fxRates ?? []}
                       groups={holdingGroups}
                       locale={locale}
-                      reportingCurrency={reportingCurrency}
+                      reportingCurrency={effectiveReportingCurrency}
                       settingsContextKey="portfolio.topHoldings"
                     />
                   ) : (
@@ -268,6 +271,16 @@ export function PortfolioClient({
 
 function formatPortfolioMessage(template: string, values: Record<string, string>): string {
   return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
+}
+
+function resolvePortfolioReportingCurrency(
+  data: PortfolioPageData | null,
+  fallback: AccountDefaultCurrency,
+): AccountDefaultCurrency {
+  return data?.holdingGroups[0]?.reportingCurrency
+    ?? data?.holdingGroups.find((group) => group.children[0]?.reportingCurrency)?.children[0]?.reportingCurrency
+    ?? data?.fxRates?.[0]?.toCurrency
+    ?? fallback;
 }
 
 function CompactMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
