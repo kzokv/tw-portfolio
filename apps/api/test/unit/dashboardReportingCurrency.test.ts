@@ -733,6 +733,62 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     });
   });
 
+  it("uses transaction-date Book Cost from lightweight finance inputs without loading store data", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-02",
+          totalCostBasis: 1000,
+          totalMarketValue: 1000,
+          totalUnrealizedPnl: 0,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 0,
+          totalReturnPercent: 0,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+        {
+          date: "2026-01-03",
+          totalCostBasis: 1200,
+          totalMarketValue: 1300,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 8.3333,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      undefined,
+      undefined,
+      {
+        earliestTradeDate: "2026-01-02",
+        financeTrades: [makeTrade({ tradeDate: "2026-01-02", quantity: 10, unitPrice: 100 })],
+        financeDividends: [],
+        financeLotAllocations: [],
+      },
+    );
+
+    expect(out.points).toHaveLength(2);
+    expect(out.points.map((point) => point.totalCostAmount)).toEqual([1000, 1000]);
+    expect(out.points[1]).toMatchObject({
+      marketValueAmount: 1300,
+      unrealizedPnlAmount: 300,
+      totalReturnAmount: 300,
+      totalReturnPercent: 30,
+    });
+  });
+
   it("falls back to snapshot-backed return metrics when dated finance FX is missing but snapshot FX exists", async () => {
     const persistence = makeFakePersistence({
       fxRates: [

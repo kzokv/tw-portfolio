@@ -539,6 +539,9 @@ describe("dashboard overview", () => {
     const response = await app.inject({ method: "GET", url: "/dashboard/performance?range=YTD" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_performance_inputs;dur=");
+    expect(response.headers["server-timing"]).toContain("coverage_inputs;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.json()).toEqual(
       expect.objectContaining({
         range: "YTD",

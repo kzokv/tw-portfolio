@@ -1954,6 +1954,10 @@ export class MemoryPersistence implements Persistence {
     return store;
   }
 
+  async loadPrimaryReadStore(userId: string): Promise<Store> {
+    return this.loadStore(userId);
+  }
+
   async getUserSettings(userId: string) {
     const store = await this.loadStore(userId);
     return store.settings;
@@ -3214,7 +3218,7 @@ export class MemoryPersistence implements Persistence {
   ): Promise<import("./types.js").SnapshotGenerationInputs> {
     const store = await this.loadStore(userId);
 
-    // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → id.
+    // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → timestamp → id.
     const trades = store.accounting.facts.tradeEvents
       .filter(t => (
         !scope
@@ -3228,6 +3232,7 @@ export class MemoryPersistence implements Persistence {
       .sort((a, b) =>
         a.tradeDate.localeCompare(b.tradeDate)
         || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0)
+        || (a.tradeTimestamp ?? "").localeCompare(b.tradeTimestamp ?? "")
         || a.id.localeCompare(b.id),
       )
       .map(t => ({
@@ -3238,9 +3243,12 @@ export class MemoryPersistence implements Persistence {
         quantity: t.quantity,
         unitPrice: t.unitPrice,
         tradeDate: t.tradeDate,
+        tradeTimestamp: t.tradeTimestamp,
         bookingSequence: t.bookingSequence,
         commissionAmount: t.commissionAmount,
         taxAmount: t.taxAmount,
+        realizedPnlAmount: t.realizedPnlAmount ?? null,
+        realizedPnlCurrency: t.realizedPnlCurrency ?? null,
         // KZO-165: project the trade's native currency. BookedTradeEvent always
         // carries a non-null priceCurrency (DB CHECK + TS required field).
         priceCurrency: t.priceCurrency,
@@ -3272,12 +3280,23 @@ export class MemoryPersistence implements Persistence {
           marketCode: eventMarketCode,
           paymentDate: event.paymentDate,
           amount: entry.receivedCashAmount,
+          currency: event.cashDividendCurrency,
         };
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)
       .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
 
-    return { trades, postedDividends };
+    const tradeIds = new Set(trades.map((trade) => trade.id));
+    const lotAllocations = store.accounting.projections.lotAllocations
+      .filter((allocation) => tradeIds.has(allocation.tradeEventId))
+      .map((allocation) => ({
+        tradeEventId: allocation.tradeEventId,
+        allocatedCostAmount: allocation.allocatedCostAmount,
+        costCurrency: allocation.costCurrency,
+        lotOpenedAt: allocation.lotOpenedAt,
+      }));
+
+    return { trades, postedDividends, lotAllocations };
   }
 
   async listHoldingSnapshotRepairScopesForTickerMarket(

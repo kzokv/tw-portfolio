@@ -83,6 +83,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_primary_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.headers["server-timing"]).toContain("list_primary_holdings;dur=");
     expect(response.headers["server-timing"]).toContain("map_instruments;dur=");
     expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
@@ -251,6 +253,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/dashboard/primary" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_primary_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.headers["server-timing"]).toContain("build_primary_overview;dur=");
     expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
     expect(response.headers["server-timing"]).not.toContain("translate_summary;dur=");
