@@ -4,14 +4,17 @@ import {
   CONTEXT_USER_ID_COOKIE,
 } from "../../lib/context";
 import { getJson, patchJson, postJson } from "../../lib/api";
+import { LOCALE_OVERRIDE_COOKIE } from "../../lib/i18n/localeOverrideCookie";
 
 describe("apps/web/lib/api — context header injection + fallback intercept", () => {
   beforeEach(() => {
     document.cookie = `${CONTEXT_USER_ID_COOKIE}=; Path=/; Max-Age=0`;
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=; Path=/; Max-Age=0`;
   });
 
   afterEach(() => {
     document.cookie = `${CONTEXT_USER_ID_COOKIE}=; Path=/; Max-Age=0`;
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=; Path=/; Max-Age=0`;
     vi.restoreAllMocks();
   });
 
@@ -172,6 +175,42 @@ describe("apps/web/lib/api — context header injection + fallback intercept", (
     );
 
     await expect(request).resolves.toEqual({ locale: "en" });
+  });
+
+  it("applies the temporary locale override cookie to settings reads", async () => {
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=${encodeURIComponent("zh-TW")}; Path=/`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        userId: "user-1",
+        displayName: null,
+        locale: "en",
+        costBasisMethod: "WEIGHTED_AVERAGE",
+        quotePollIntervalSeconds: 10,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getJson<{ locale: string }>("/settings");
+
+    expect(result.locale).toBe("zh-TW");
+  });
+
+  it("ignores the locale override cookie for non-settings reads", async () => {
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=${encodeURIComponent("zh-TW")}; Path=/`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ locale: "en" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getJson<{ locale: string }>("/profile");
+
+    expect(result.locale).toBe("en");
   });
 
   it("clears context cookie when 401 triggers logout redirect (getJson)", async () => {

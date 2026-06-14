@@ -62,6 +62,7 @@ import {
   SettingsRouteProvider,
   useSettingsRouteContext,
 } from "../../../components/settings/SettingsRouteProvider";
+import { LOCALE_OVERRIDE_COOKIE } from "../../../lib/i18n/localeOverrideCookie";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -90,6 +91,7 @@ describe("GeneralSettingsClient", () => {
     vi.useFakeTimers();
     mockPatchSettings.mockReset();
     mockPatchSettings.mockResolvedValue(buildSettings("en"));
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=; Path=/; Max-Age=0`;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -98,6 +100,7 @@ describe("GeneralSettingsClient", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.cookie = `${LOCALE_OVERRIDE_COOKIE}=; Path=/; Max-Age=0`;
     vi.useRealTimers();
   });
 
@@ -143,6 +146,7 @@ describe("GeneralSettingsClient", () => {
 
     expect(mockPatchSettings).toHaveBeenCalledTimes(1);
     expect(mockPatchSettings).toHaveBeenCalledWith({ locale: "en" }, { keepalive: true });
+    expect(document.cookie).toContain(`${LOCALE_OVERRIDE_COOKIE}=en`);
     expect(
       container.querySelector('[data-testid="route-locale"]')?.textContent,
     ).toBe("en");
