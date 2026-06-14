@@ -1,9 +1,11 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { PortfolioClient } from "../../../components/portfolio/PortfolioClient";
 import { getDictionary } from "../../../lib/i18n";
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../../lib/routeDtoCache";
+import type { PortfolioPageData } from "../../../features/portfolio/services/portfolioService";
 
 const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-holdings-table" />));
 const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
@@ -94,6 +96,20 @@ const portfolioData = {
   actions: { integrityIssue: null },
 };
 
+function portfolioDataWithReportingCurrency(reportingCurrency: AccountDefaultCurrency): PortfolioPageData {
+  return {
+    ...portfolioData,
+    holdingGroups: portfolioData.holdingGroups.map((group) => ({
+      ...group,
+      reportingCurrency,
+      reportingCostBasisAmount: reportingCurrency === "AUD" ? 1_500 : group.reportingCostBasisAmount,
+      reportingMarketValueAmount: reportingCurrency === "AUD" ? 1_650 : group.reportingMarketValueAmount,
+      reportingUnrealizedPnlAmount: reportingCurrency === "AUD" ? 150 : group.reportingUnrealizedPnlAmount,
+    })),
+    integrityIssue: null,
+  } as PortfolioPageData;
+}
+
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -158,6 +174,65 @@ describe("PortfolioClient", () => {
       button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(openQuickActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("keys the initial portfolio cache by the server seed reporting currency", () => {
+    const audPortfolioData = portfolioDataWithReportingCurrency("AUD");
+    vi.mocked(usePortfolioPrimaryData).mockReturnValue({
+      data: audPortfolioData,
+      isBootstrapping: false,
+      isRefreshing: false,
+      restoredFromCache: false,
+      restoredAt: null,
+      refresh: vi.fn(),
+    } as never);
+
+    act(() => {
+      root!.render(<PortfolioClient initialPrimaryData={audPortfolioData} />);
+    });
+
+    expect(vi.mocked(usePortfolioPrimaryData).mock.calls[0]?.[1]).toBe(
+      buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope("user-1"), "en", "AUD"),
+    );
+    expect(container.textContent).toContain("Change reporting currency: AUD");
+    expect(container.textContent).toContain("A$1,500");
+  });
+
+  it("falls back to the shell reporting currency when portfolio data has no currency-bearing rows", () => {
+    const emptyPortfolioData = {
+      ...portfolioData,
+      holdingGroups: [],
+      fxRates: [],
+      integrityIssue: null,
+    } as PortfolioPageData;
+    vi.mocked(useAppShellData).mockReturnValue({
+      uiDict: dict,
+      locale: "en",
+      sessionUserId: "user-1",
+      isSharedContext: false,
+      mutations: { recomputingSymbols: new Set() },
+      contextRefreshSignal: 0,
+      canUseGlobalQuickActions: true,
+      openQuickActions,
+      reportingCurrency: "USD",
+    } as never);
+    vi.mocked(usePortfolioPrimaryData).mockReturnValue({
+      data: emptyPortfolioData,
+      isBootstrapping: false,
+      isRefreshing: false,
+      restoredFromCache: false,
+      restoredAt: null,
+      refresh: vi.fn(),
+    } as never);
+
+    act(() => {
+      root!.render(<PortfolioClient initialPrimaryData={emptyPortfolioData} />);
+    });
+
+    expect(vi.mocked(usePortfolioPrimaryData).mock.calls[0]?.[1]).toBe(
+      buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope("user-1"), "en", "USD"),
+    );
+    expect(container.textContent).toContain("Change reporting currency: USD");
   });
 
   it("uses portfolio holdings by default and can switch to dashboard top holdings", () => {
