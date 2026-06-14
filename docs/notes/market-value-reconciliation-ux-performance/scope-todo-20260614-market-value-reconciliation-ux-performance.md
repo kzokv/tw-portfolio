@@ -142,75 +142,30 @@ Design requirements:
 - [x] Apply route cache to Dashboard, Dashboard Performance, Portfolio, and all Reports tabs.
   Evidence: cached restore + refresh wiring lands in `apps/web/features/dashboard/hooks/useDashboardData.ts`, `apps/web/features/dashboard/hooks/useDashboardPerformance.ts`, `apps/web/features/portfolio/hooks/usePortfolioPageData.ts`, `apps/web/features/portfolio/hooks/useTransactionsPrimaryData.ts`, and `apps/web/features/reports/hooks/useReportData.ts`; runtime TTLs now consume `effectiveRouteCachePolicy` from the authenticated settings/AppShell payload; fresh `sessionStorage` restores skip automatic client fetch, stale-usable entries render first and refresh in the background, and expired handling is enforced at the cache utility layer. Live validation found the Dashboard refresh button only refreshed primary/enrichment data; `apps/web/components/dashboard/DashboardClient.tsx` now refreshes both dashboard primary data and Dashboard Performance, with regression coverage in `apps/web/test/components/dashboard/DashboardClient.test.tsx`.
 - [x] Remove unnecessary quote loading from `/dashboard/performance`.
-  Evidence: `apps/api/src/routes/registerRoutes.ts` no longer loads quotes for the performance route.
+  Evidence: `apps/api/src/routes/registerRoutes.ts` keeps `/dashboard/performance` limited to prefs, store, `asOf`, and `translatePerformancePoints(...)` only, while `/dashboard/overview` and `/dashboard/enrichment` now build `valuationHealth` from `buildRecentValuationPerformance(...)`; `apps/api/src/services/valuationHealth.ts` fixes that helper to the recent `"1M"` window instead of reusing the full performance route payload.
 - [x] Optimize latest-bar lookup for reconciliation diagnostics.
   Evidence: `apps/api/src/persistence/postgres.ts#getLatestBarDatesForReconciliation` uses `LEFT JOIN LATERAL ... ORDER BY bar_date DESC LIMIT 1` rather than the broader latest-bars window query.
 - [x] Add shared valuation-health frontend component and wire it into Dashboard hero, Portfolio Trend, Reports Portfolio, and Reports Market charts.
   Evidence: shared `apps/web/components/valuation/ValuationHealthPanel.tsx` is rendered from `DashboardHero`, `PortfolioTrendCard`, and `components/reports/ReportsClient.tsx`; non-admin rendering shows explanation-only copy with no repair actions, while admin repair CTA routing now targets the market-data repair/backfill workspace via `apps/web/components/valuation/valuationHealthAdminLink.ts`.
 - [x] Add API, web unit, E2E, and HTTP coverage for reconciliation, cache policy, invalidation, and UX states.
   Frontend evidence so far:
-  - `npx vitest run test/components/valuation/ValuationHealthPanel.test.tsx test/components/admin/AdminSettingsClient-timeframes.test.tsx test/lib/routeDtoCache.test.ts test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/features/portfolio/hooks/usePortfolioPrimaryData.test.tsx test/features/portfolio/hooks/useTransactionsPrimaryData.test.tsx test/features/reports/hooks/useReportData.test.tsx` from `apps/web` passed on 2026-06-14 with 7 files and 47 tests passed.
-  - Coverage now includes fresh-cache fetch suppression, stale-usable background refresh, non-admin repair-action hiding, and admin CTA routing to the targeted market-data repair workspace.
+  - `npx vitest run test/components/valuation/ValuationHealthPanel.test.tsx test/components/admin/AdminSettingsClient-timeframes.test.tsx test/lib/routeDtoCache.test.ts test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/features/portfolio/hooks/usePortfolioPrimaryData.test.tsx test/features/portfolio/hooks/useTransactionsPrimaryData.test.tsx test/features/reports/hooks/useReportData.test.tsx` from `apps/web` passed on 2026-06-14 with 7 files and 47 tests passed before the current route-contract correction.
+  - Coverage includes fresh-cache fetch suppression, stale-usable background refresh, non-admin repair-action hiding, and admin CTA routing to the targeted market-data repair workspace.
   Backend evidence so far:
-  - `npm run test --prefix apps/api -- --run test/unit/snapshotRepair.test.ts test/unit/admin-settings-schema.test.ts test/unit/appConfig/bounds.test.ts test/unit/appConfig/valuationHealth.test.ts test/unit/valuationHealth.test.ts` passed on 2026-06-14 with 5 files and 43 tests passed.
-  - Snapshot repair coverage now includes active-held gating that excludes demo, disabled, and deleted users and still repairs scopes with active holdings when snapshot rows are missing.
-  - Review-fix regression check passed on 2026-06-14: `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false && npm run test:http --prefix apps/api -- admin-settings-aaa.http.spec.ts`, including the route-cache TTL null-reset validation.
+  - `npm run test --prefix apps/api -- test/unit/valuationHealth.test.ts test/integration/dashboard.integration.test.ts` passed on 2026-06-14 with 2 files and 18 tests passed.
+  - `apps/api/test/integration/dashboard.integration.test.ts` now asserts that `/dashboard/overview` and `/dashboard/enrichment` derive `valuationHealth` from the recent 1M aggregation window by spying on `getAggregatedSnapshotsInReportingCurrency("user-1", "2026-05-14", "2026-06-14", "TWD")`.
+  - The same integration file also asserts that `/dashboard/performance?range=YTD` does not return `valuationHealth`, preserving the lean route contract after the temporary regression.
+  - `npm run test:http --prefix apps/api -- test/http/specs/dashboard-reporting-currency-aaa.http.spec.ts` passed on 2026-06-14 with 6 passed and 2 skipped.
+  - `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/services/valuationHealth.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` passed on 2026-06-14.
+  - `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` passed on 2026-06-14.
   Full-gate evidence:
-  - `npx eslint . --max-warnings=0 && npm run typecheck && npm run test:all:full` passed on 2026-06-14 after rebasing onto `origin/dev` and after the review-fix regression.
-  - Full-gate breakdown captured in terminal output: web units passed, API package tests passed, managed Postgres integration passed with 82 files / 826 tests passed / 1 skipped, bypass E2E passed with 271 tests passed / 13 skipped, OAuth E2E passed with 120 tests passed, and API HTTP tests passed with 288 tests passed / 2 skipped.
-  - Post-gate port sweep found no listeners on `4000`, `3333`, `4445`, or `4099`; only Codex/Playwright MCP helper processes remained. `git diff --check` passed.
-  - Post-live-validation regression check passed on 2026-06-14: `npm run test --prefix apps/web -- --run test/components/dashboard/DashboardClient.test.tsx test/features/dashboard/hooks/useDashboardPerformance.test.tsx` completed the configured web batches with 42 files / 238 tests and 57 files / 386 tests passed; `npx eslint apps/web/components/dashboard/DashboardClient.tsx apps/web/test/components/dashboard/DashboardClient.test.tsx --max-warnings=0` passed; `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false` passed.
+  - Prior full-gate pass on 2026-06-14 is superseded by the current unpushed route-contract correction. Final full gates, CI, deploy, and live validation remain pending for the latest branch state.
 - [x] Capture Chrome performance evidence against dev/prod after deployment.
-  Evidence: deployed dev branch was validated in the existing Chrome Vakwen Dev tab after GitHub Actions dev deploy run `27495381190` completed. Details are recorded below.
+  Evidence: prior dev validation found the manual-refresh cache gap and then the temporary `/dashboard/performance` valuation-health regression. Fresh Chrome validation is required after this latest route-contract correction is pushed and deployed.
 
 ## Post-Deploy Live Validation
 
-Environment:
-
-- Branch: `codex/market-value-reconciliation-ux-performance`.
-- PR: <https://github.com/kzokv/tw-portfolio/pull/218>.
-- Dev deploy: GitHub Actions run `27495381190`, workflow `Deploy Dev via Cloudflare WARP`, succeeded before live validation.
-- Target: `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard`.
-
-Healthy baseline before simulation:
-
-- Dashboard hero: `Exact $663,017.84`, compact `USD 663K`.
-- Market strip: TW `Exact $375,273.92`, US `Exact $174,223.92`, KR `Exact $113,520`; sum = `$663,017.84`.
-- Portfolio Trend was present and the page exposed no valuation-health warning before the snapshot row was removed.
-
-Incident simulation:
-
-- Backed up and deleted one latest snapshot row in dev Postgres:
-  - table: `public.daily_holding_snapshots`
-  - user: `d5141bff-4d95-4572-9be0-71ff82848f82`
-  - row: `AVGO` / `US`, account `b9696f25-1d52-4084-9e5b-10386d5b689f`, snapshot date `2026-06-12`.
-- Verified the live Dashboard after enrichment completed:
-  - Hero/current valuation stayed `Exact $663,017.84`.
-  - Market strip stayed TW `$375,273.92`, US `$174,223.92`, KR `$113,520`.
-  - Portfolio Trend fell back to `Latest available snapshot $652,285.72`, `As of Jun 11 · Requested Jun 12`.
-  - `dashboard-performance-stale-warning` showed `Market data stale since Jun 11`.
-  - `valuation-health-panel` showed `Material gap`, current valuation `$663,017.84`, chart valuation `$652,285.72`, delta `$10,732.12`, latest snapshot date `Jun 11, 2026`, and admin repair guidance.
-- Restored the exact backed-up snapshot row and dropped the temporary backup table. DB check after restore: `2026-06-12` aggregate = `$663,017.84` across 6 rows.
-- After restore, the hero valuation-health panel returned to `Healthy`, current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, latest snapshot date `Jun 12, 2026`.
-
-Manual-refresh cache finding and fix:
-
-- Live validation found that after DB restore, the Dashboard hero/enrichment data refreshed but the Portfolio Trend card could continue showing the simulated stale performance payload from the fresh `sessionStorage` route cache.
-- Root cause: the Dashboard refresh button called `dashboard.refresh()` only; it did not call `performance.refresh()`.
-- Fix: Dashboard manual refresh now calls both refresh functions and disables while either primary/enrichment or performance refresh is running.
-
-Performance evidence from dev API logs:
-
-| Route | Observed total | Dominant segments |
-|---|---:|---|
-| `/dashboard/primary` | 3.67-4.77s | `load_store` 2.50-3.54s, `build_primary_overview` 0.95-1.18s |
-| `/dashboard/performance` | 9.41s | `load_store` 7.64s, `translate_performance` 1.09s |
-| `/dashboard/enrichment` | 9.85-15.89s | `load_store` 2.28-6.71s, `valuation_health_performance` 6.23-6.70s |
-
-Interpretation:
-
-- The session cache behavior gives immediate revisit rendering while fresh, and the manual refresh gap found during validation is fixed.
-- Cold dev timings still show backend load concentrated in repeated `load_store` and duplicated performance aggregation. The `/dashboard/primary` path is close to the 5s cap on dev; `/dashboard/performance` and `/dashboard/enrichment` exceed the target in this environment and should be treated as residual performance risk rather than a proven 2-3s cold-load result.
+Not rerun for this correction. Keep this section open until a fresh dev/prod validation pass is executed for the final branch state.
 
 ## Acceptance Criteria
 
@@ -244,14 +199,12 @@ Use focused checks while implementing, then run the full required repo gate befo
    - `npm run test:e2e:oauth:mem --prefix apps/web`
    - `npm run test:http --prefix apps/api`
 
-Focused verification already completed after reviewer fixes:
+Focused verification completed for this correction:
 
-- `npm run build --prefix libs/shared-types`
-- `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false`
-- `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false`
-- `npm run test --prefix apps/api -- --run test/unit/snapshotRepair.test.ts test/unit/admin-settings-schema.test.ts test/unit/appConfig/bounds.test.ts test/unit/appConfig/valuationHealth.test.ts test/unit/valuationHealth.test.ts` → 5 files, 43 tests passed
-- `npx vitest run test/components/valuation/ValuationHealthPanel.test.tsx test/components/admin/AdminSettingsClient-timeframes.test.tsx test/lib/routeDtoCache.test.ts test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/features/portfolio/hooks/usePortfolioPrimaryData.test.tsx test/features/portfolio/hooks/useTransactionsPrimaryData.test.tsx test/features/reports/hooks/useReportData.test.tsx` from `apps/web` → 7 files, 47 tests passed
-- `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false && npm run test:http --prefix apps/api -- admin-settings-aaa.http.spec.ts` → passed after the route-cache TTL null-reset review fix
+- `npm run test --prefix apps/api -- test/unit/valuationHealth.test.ts test/integration/dashboard.integration.test.ts` → 2 files, 18 tests passed
+- `npm run test:http --prefix apps/api -- test/http/specs/dashboard-reporting-currency-aaa.http.spec.ts` → 6 passed, 2 skipped
+- `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/services/valuationHealth.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` → passed
+- `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
 
 ## Out Of Scope
 
