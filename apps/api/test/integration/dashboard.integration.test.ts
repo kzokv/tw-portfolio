@@ -92,7 +92,7 @@ describe("dashboard overview", () => {
   it.each([
     "/dashboard/overview",
     "/dashboard/enrichment",
-  ])("uses recent performance for valuation health on %s", async (url) => {
+  ])("does not use a fixed recent window for valuation health on %s", async (url) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
     const store = await app.persistence.loadStore("user-1");
@@ -117,7 +117,58 @@ describe("dashboard overview", () => {
         status: "unavailable",
       }),
     );
-    expect(snapshotSpy).toHaveBeenCalledWith("user-1", "2026-05-14", "2026-06-14", "TWD");
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", "2026-06-14", "2026-06-14", "TWD");
+    expect(snapshotSpy).not.toHaveBeenCalledWith("user-1", "2026-05-14", "2026-06-14", "TWD");
+  });
+
+  it.each([
+    "/dashboard/overview",
+    "/dashboard/enrichment",
+  ])("uses older usable snapshots for valuation health on %s", async (url) => {
+    const routeName = url.endsWith("overview") ? "overview" : "enrichment";
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-04-01", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-04-01T18:00:00Z" },
+      { ticker: "2330", barDate: "2026-06-14", open: 299, high: 301, low: 298, close: 300, volume: 50000, source: "test", ingestedAt: "2026-06-14T18:00:00Z" },
+    ]);
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": `k-valuation-health-older-snapshot-${routeName}` },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-04-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    await generateHoldingSnapshots("user-1", app.persistence);
+    await app.persistence.deleteHoldingSnapshotsForTicker("user-1", "acc-1", "2330", "2026-05-14", "TW");
+
+    const response = await app.inject({ method: "GET", url });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.valuationHealth).toEqual(
+      expect.objectContaining({
+        currentValueAmount: 3000,
+        snapshotValueAmount: 1000,
+        deltaAmount: 2000,
+        latestSnapshotDate: "2026-04-01",
+        latestUsableSnapshotDate: "2026-04-01",
+        status: "material",
+      }),
+    );
+    expect(body.valuationHealth.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        latestBarDate: "2026-06-14",
+        latestSnapshotDate: "2026-04-01",
+        status: "stale_snapshot",
+        recommendedAction: "run_snapshot_repair",
+      }),
+    ]);
   });
 
   it("adds overview FX conversion rows for mixed-currency holdings", async () => {

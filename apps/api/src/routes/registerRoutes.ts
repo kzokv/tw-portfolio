@@ -82,7 +82,7 @@ import {
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "../services/dashboard.js";
 import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
-import { buildRecentValuationPerformance, buildValuationHealth } from "../services/valuationHealth.js";
+import { buildAllRangePerformance, buildValuationHealth } from "../services/valuationHealth.js";
 import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
   buildDividendEventListItems,
@@ -5007,7 +5007,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ));
       const valuationPerformance = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health_performance", "db", () =>
-            buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
+            buildAllRangePerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
         : null;
       const valuationHealth = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health", "app", () =>
@@ -5108,7 +5108,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ));
       const valuationPerformance = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health_performance", "db", () =>
-            buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
+            buildAllRangePerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
         : null;
       const valuationHealth = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health", "app", () =>

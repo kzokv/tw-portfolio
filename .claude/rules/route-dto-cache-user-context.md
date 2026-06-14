@@ -65,3 +65,9 @@ Chart-capable route DTO caches must include the full chart request identity, not
 ## 2026-06-12 Addendum: First-Render Query State for Chart Routes
 
 Chart-capable App Router pages must pass server-parsed query parameters into the client component as initial state. Do not let the first hydration request depend only on `useSearchParams()` effects when the server already rendered a deep-linked chart range or custom date window. The initial request and visible controls must use the same route query that produced the server HTML; `useSearchParams()` can then synchronize later client-side navigation changes. Add component/page tests for custom deep links so the first client request includes the requested range and date bounds.
+
+## 2026-06-15 Addendum: Fresh Cache Restores Still Need Request and Enrichment Guards
+
+When a route hook restores a fresh DTO cache entry, bump or cancel the hook's request generation before applying the cached data. A previous in-flight request from another context, range, currency, or route slot must not be able to resolve later and overwrite the restored cache payload.
+
+Fresh cache is only terminal for the route layer it proves complete. If a cached payload is a primary-only seed and the page depends on a secondary enrichment route for market values, valuation health, dividends, freshness, or quote details, render the cached primary data immediately but still start the enrichment refresh. Add hook coverage for both cases: fresh enriched cache skips automatic refetch, while fresh primary-only cache restores immediately and then refreshes enrichment.
