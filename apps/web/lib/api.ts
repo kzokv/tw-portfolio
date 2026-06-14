@@ -102,6 +102,8 @@ export interface ApiClientErrorDetail {
  * - OAuth/demo: forward the session cookie so server-side fetches authenticate.
  */
 async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (typeof document !== "undefined") return getClientAuthHeadersSync();
+
   const headers: Record<string, string> = {};
 
   const runtimeDevUserId = await getRuntimeDevUserId();
@@ -138,6 +140,33 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   }
 
   const contextUserId = await getContextUserId();
+  if (contextUserId) headers["x-context-user-id"] = contextUserId;
+
+  return headers;
+}
+
+function readClientCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const cookie = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${name}=`));
+  return cookie ? decodeURIComponent(cookie.slice(name.length + 1)).trim() : "";
+}
+
+function getClientAuthHeadersSync(): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  const runtimeDevUserId = readClientCookie(E2E_USER_COOKIE);
+  if (runtimeDevUserId) {
+    headers["x-user-id"] = runtimeDevUserId;
+    const runtimeDevUserRole = readClientCookie(E2E_USER_ROLE_COOKIE);
+    if (runtimeDevUserRole) {
+      headers["x-user-role"] = runtimeDevUserRole;
+    }
+  }
+
+  const contextUserId = readContextCookie();
   if (contextUserId) headers["x-context-user-id"] = contextUserId;
 
   return headers;
@@ -352,12 +381,15 @@ export async function postJson<T>(
 }
 
 export async function patchJson<T>(path: string, body: unknown, options: JsonRequestOptions = {}): Promise<T> {
+  const authHeaders = options.keepalive && typeof document !== "undefined"
+    ? getClientAuthHeadersSync()
+    : await getAuthHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
     credentials: "include",
     signal: options.signal,
     keepalive: options.keepalive,
-    headers: { "content-type": "application/json", ...(options.headers ?? {}), ...(await getAuthHeaders()) },
+    headers: { "content-type": "application/json", ...(options.headers ?? {}), ...authHeaders },
     body: JSON.stringify(body),
   });
   handleContextFallback(res);

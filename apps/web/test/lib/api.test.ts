@@ -3,7 +3,7 @@ import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
   CONTEXT_USER_ID_COOKIE,
 } from "../../lib/context";
-import { getJson, postJson } from "../../lib/api";
+import { getJson, patchJson, postJson } from "../../lib/api";
 
 describe("apps/web/lib/api — context header injection + fallback intercept", () => {
   beforeEach(() => {
@@ -149,6 +149,29 @@ describe("apps/web/lib/api — context header injection + fallback intercept", (
     expect(document.cookie).not.toContain(`${CONTEXT_USER_ID_COOKIE}=owner-42`);
 
     window.removeEventListener(CONTEXT_FALLBACK_REVOKED_EVENT, listener as EventListener);
+  });
+
+  it("starts keepalive patch fetch synchronously with client auth headers", async () => {
+    document.cookie = `${CONTEXT_USER_ID_COOKIE}=${encodeURIComponent("owner-fast-reload")}; Path=/`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ locale: "en" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = patchJson("/settings", { locale: "en" }, { keepalive: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.keepalive).toBe(true);
+    expect(init.body).toBe(JSON.stringify({ locale: "en" }));
+    expect((init.headers as Record<string, string>)["x-context-user-id"]).toBe(
+      "owner-fast-reload",
+    );
+
+    await expect(request).resolves.toEqual({ locale: "en" });
   });
 
   it("clears context cookie when 401 triggers logout redirect (getJson)", async () => {
