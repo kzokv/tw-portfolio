@@ -171,19 +171,34 @@ Design requirements:
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed on 2026-06-14: 271 passed, 13 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed on 2026-06-14: 120 passed.
   - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
-  - CI, deploy, and live Chrome validation remain pending for the latest branch state.
-- [x] Capture Chrome performance evidence against dev/prod after deployment.
-  Evidence: prior dev validation for commit `dfcc2424` confirmed the healthy valuation state and material-gap incident UX. Fresh Chrome validation is required after the latest performance commits are pushed and deployed.
+  - GitHub Actions run `27506582429` passed on commit `d47d73f2`, and dev deploy run `27506822424` completed successfully before live Chrome validation.
+- [x] Capture Chrome performance evidence against deployed dev after deployment.
+  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
 
 ## Post-Deploy Live Validation
 
-Latest deployed validation before the two newest performance commits:
+Latest deployed validation for branch head `d47d73f2`:
 
-- Commit `dfcc2424` deployed successfully to dev.
-- Healthy live UI after deploy showed hero/current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, valuation health `Healthy`, and latest snapshot `Jun 12, 2026`.
-- Incident simulation deleted the latest `AVGO` snapshot row for `2026-06-12`, producing a live `Material gap` warning with current valuation `$663,017.84`, chart valuation `$652,285.72`, delta `$10,732.12`, and latest snapshot `Jun 11, 2026`.
-- Restoring the deleted row returned the UI to `Healthy` with current/chart `$663,017.84` and latest snapshot `Jun 12, 2026`.
-- Fresh dev deploy and Chrome validation are still required for the latest branch head after commits `00074d7a` and `e64516b7`.
+- GitHub Actions run `27506582429` was green on `d47d73f2` before deployment: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
+- Dev deploy run `27506822424` completed successfully on `d47d73f2`; `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` were running, with web/API health checks passing.
+- Chrome validation used the existing authenticated Vakwen Dev tab at `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard`.
+- Healthy baseline showed current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, relative delta `0%`, valuation health `Healthy`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`. Portfolio Trend showed the same market value.
+- Incident simulation changed the latest `000660` KR snapshot row for `2026-06-12` from `172,000,000` to `100,000,000` native value, reducing the latest snapshot total from `184,046,223.92` to `112,046,223.92`.
+- A fresh authenticated tab after the simulation settled in `3.881s` and showed `Material gap`: current valuation `$663,017.84`, chart valuation `$615,497.84`, delta `$47,520`, relative delta `7.2%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`. Dashboard hero and Portfolio Trend both exposed the same warning and admin repair guidance.
+- Existing-tab manual refresh during the simulation kept showing the cached healthy DTO because the route DTO was still fresh in tab-scoped `sessionStorage`; the API did receive fresh dashboard route requests. This confirms the agreed cache behavior: fresh TTL favors immediate render until TTL expiry, manual route fetches do not force every already-fresh child cache entry to be discarded.
+- Restoring the snapshot row returned a fresh authenticated tab to `Healthy` in `3.296s` with current/chart `$663,017.84`, delta `$0`, relative delta `0%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`.
+- Evidence screenshots:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-material-gap-20260615.jpg`
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-restored-healthy-20260615.jpg`
+
+Live page-performance matrix after deploy:
+
+| Surface | Settled UI time | UI evidence | API timing evidence |
+|---|---:|---|---|
+| Dashboard | `2.516s` | no progressbar, no waiting placeholder; Market Value `USD 663K`, exact `$663,017.84`; health `Healthy` | `/dashboard/primary` `14.91-105.18ms`; `/dashboard/performance` `257.25-428.68ms`; `/dashboard/enrichment` usually `324.05-719.13ms`, with one concurrent-load sample at `1203.55ms` |
+| Portfolio | `2.020s` | no progressbar, no waiting placeholder; 4 positions and 3 markets rendered | `/portfolio/primary` `70.92-204.64ms`; `/portfolio/enrichment` `303.63-391.82ms`; `/portfolio/instrument-index` API `30.21-66.79ms` via `list_transaction_instruments` |
+| Reports | `1.666s` | no progressbar, no waiting placeholder; Daily Review, Portfolio Report, and Market Report rendered | `/reports/daily-review` `248.92-594.38ms` |
+| Dashboard revisit | `2.350s` | no progressbar, no waiting placeholder; current/chart valuation remained `$663,017.84` | Dashboard route cache reused fresh `sessionStorage` entries where applicable and refreshed stale route data in the background |
 
 ## Acceptance Criteria
 
