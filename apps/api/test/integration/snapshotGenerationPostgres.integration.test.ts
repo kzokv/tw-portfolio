@@ -111,7 +111,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
   async function seedDividendEvent(params: {
     ticker: string;
     exDividendDate: string;
-    paymentDate: string;
+    paymentDate: string | null;
     cashDividendPerShare?: number;
   }): Promise<string> {
     const id = randomUUID();
@@ -134,6 +134,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     targetUserId?: string;
     supersededAt?: string | null;
     reversalOf?: string | null;
+    bookedAt?: string;
   }): Promise<string> {
     const ledgerId = randomUUID();
     await pool.query(
@@ -145,7 +146,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
        ) VALUES ($1, $2, $3, 10,
                  $4, 0, 0,
                  'posted', 'open', 1, 'provided',
-                 NOW(), $5, $6)`,
+                 COALESCE($7::timestamptz, NOW()), $5, $6)`,
       [
         ledgerId,
         params.targetAccountId ?? accountId,
@@ -153,6 +154,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
         params.receivedCashAmount,
         params.supersededAt ?? null,
         params.reversalOf ?? null,
+        params.bookedAt ?? null,
       ],
     );
     if (params.receivedCashAmount > 0) {
@@ -320,6 +322,29 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     expect(posted.currency).toBe("TWD");
     // The received_cash_amount column was dropped; the authoritative value is
     // the DIVIDEND_RECEIPT cash ledger sum for the ledger entry.
+    expect(posted.amount).toBe(96);
+  });
+
+  it("falls back to dividend ledger booked_at when event payment_date is missing", async () => {
+    const eventId = await seedDividendEvent({
+      ticker: "2330",
+      exDividendDate: "2026-02-01",
+      paymentDate: null,
+    });
+    await seedPostedDividend({
+      eventId,
+      receivedCashAmount: 96,
+      bookedAt: "2026-02-21T10:30:00.000Z",
+    });
+
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
+
+    expect(inputs.postedDividends).toHaveLength(1);
+    const posted = inputs.postedDividends[0]!;
+    expect(posted.accountId).toBe(accountId);
+    expect(posted.ticker).toBe("2330");
+    expect(posted.paymentDate).toBe("2026-02-21");
+    expect(posted.currency).toBe("TWD");
     expect(posted.amount).toBe(96);
   });
 
