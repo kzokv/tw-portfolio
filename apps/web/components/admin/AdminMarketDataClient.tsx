@@ -56,7 +56,7 @@ interface AdminMarketDataWorkspaceClientProps {
   providerFilterId?: string;
   krMappings: KrMappingsData | null;
   krOperations?: KrOperationsData | null;
-  snapshotRepairRequest?: { tickers: string[] } | null;
+  snapshotRepairRequest?: { tickers: string[]; fromDate: string | null } | null;
 }
 
 interface InstrumentQuery {
@@ -603,7 +603,7 @@ function BackfillPanel({
   actions: AdminMarketDataActionDto[];
   instruments: AdminMarketDataInstrumentsResponse;
   initialQuery: InstrumentQuery;
-  snapshotRepairRequest: { tickers: string[] } | null;
+  snapshotRepairRequest: { tickers: string[]; fromDate: string | null } | null;
 }) {
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
@@ -720,7 +720,10 @@ function BackfillPanel({
     setSnapshotRepairError(null);
     setSnapshotRepairResult(null);
     try {
-      const result = await executeMarketSnapshotRepair(marketCode, { tickers: snapshotRepairRequest.tickers });
+      const result = await executeMarketSnapshotRepair(marketCode, {
+        tickers: snapshotRepairRequest.tickers,
+        ...(snapshotRepairRequest.fromDate ? { fromDate: snapshotRepairRequest.fromDate } : {}),
+      });
       setSnapshotRepairResult(result);
     } catch (err) {
       setSnapshotRepairError(err instanceof Error ? err.message : "Snapshot repair failed");
@@ -740,6 +743,7 @@ function BackfillPanel({
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
             Target {snapshotRepairRequest.tickers.length > 0 ? snapshotRepairRequest.tickers.join(", ") : "the filtered market scope"} in {marketCode}.
+            {snapshotRepairRequest.fromDate ? ` Recompute from ${snapshotRepairRequest.fromDate}.` : ""}
           </p>
           <button
             type="button"
