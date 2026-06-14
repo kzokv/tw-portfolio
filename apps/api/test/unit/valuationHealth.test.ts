@@ -242,7 +242,7 @@ describe("buildValuationHealth", () => {
     expect(dto.recommendedActions).toEqual(["run_snapshot_repair"]);
   });
 
-  it("does not recommend snapshot repair when a holding opens after the latest available bar", async () => {
+  it("surfaces a no-repair cause when a holding opens after the latest available bar", async () => {
     const dto = await buildValuationHealth({
       app: {
         persistence: {
@@ -291,7 +291,15 @@ describe("buildValuationHealth", () => {
     });
 
     expect(dto.status).toBe("material");
-    expect(dto.affectedHoldings).toEqual([]);
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "VRT",
+        latestBarDate: "2026-06-13",
+        latestSnapshotDate: null,
+        status: "awaiting_latest_bar",
+        recommendedAction: "none",
+      }),
+    ]);
     expect(dto.recommendedActions).toEqual([]);
   });
 });

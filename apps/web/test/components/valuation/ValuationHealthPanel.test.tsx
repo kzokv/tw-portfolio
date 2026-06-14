@@ -122,6 +122,44 @@ describe("ValuationHealthPanel", () => {
     expect(document.querySelector("[data-testid='valuation-health-admin-repair']")).toBeNull();
   });
 
+  it("explains material gaps that are waiting for the next market bar", async () => {
+    const valuationHealth = buildValuationHealth({
+      affectedHoldings: [
+        {
+          ticker: "VRT",
+          marketCode: "US",
+          currentReportingValueAmount: 1200,
+          latestBarDate: "2026-06-13",
+          latestSnapshotDate: null,
+          backfillStatus: "ready",
+          status: "awaiting_latest_bar",
+          recommendedAction: "none",
+        },
+      ],
+      recommendedActions: [],
+    });
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='valuation-health-user-tip']")?.textContent).toContain("Waiting for market data");
+    expect(document.body.textContent).toContain("Awaiting latest bar");
+    expect(document.body.textContent).toContain("No repair action is available yet.");
+    expect(document.body.textContent).not.toContain("Admin repair required");
+    expect(document.querySelector("[data-testid='valuation-health-admin-repair']")).toBeNull();
+  });
+
   it("renders an admin repair CTA with the targeted label instead of generic snapshot generation", async () => {
     const valuationHealth = buildValuationHealth();
 
