@@ -314,6 +314,7 @@ async function throwApiError<T>(res: Response, path: string): Promise<T> {
 interface JsonRequestOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  keepalive?: boolean;
 }
 
 export async function getJson<T>(path: string, options: JsonRequestOptions = {}): Promise<T> {
@@ -355,6 +356,7 @@ export async function patchJson<T>(path: string, body: unknown, options: JsonReq
     method: "PATCH",
     credentials: "include",
     signal: options.signal,
+    keepalive: options.keepalive,
     headers: { "content-type": "application/json", ...(options.headers ?? {}), ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });

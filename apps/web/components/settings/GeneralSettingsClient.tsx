@@ -41,7 +41,7 @@ export function GeneralSettingsClient() {
 
   const localeSave = useAutoSave<LocaleCode>({
     save: async (value) => {
-      await patchSettings({ locale: value });
+      await patchSettings({ locale: value }, { keepalive: true });
     },
   });
 
@@ -96,6 +96,7 @@ export function GeneralSettingsClient() {
             const nextLocale = (next === "zh-TW" ? "zh-TW" : "en") as LocaleCode;
             setLocale(nextLocale);
             localeSave.commit(nextLocale);
+            void localeSave.flush();
           }}
         >
           <SelectTrigger data-testid="settings-locale-select" className="w-full max-w-xs">
