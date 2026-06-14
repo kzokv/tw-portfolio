@@ -172,8 +172,9 @@ Design requirements:
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed on 2026-06-14: 120 passed.
   - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
   - GitHub Actions run `27506582429` passed on commit `d47d73f2`, and dev deploy run `27506822424` completed successfully before live Chrome validation.
+  - GitHub Actions run `27510245695` passed on commit `a5e35293` after the final review fixes: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
 - [x] Capture Chrome performance evidence against deployed dev after deployment.
-  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
+  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Final validation for deployed commit `a5e35293` confirmed the same valuation-health flow in the existing Chrome profile after deploy run `27510584804`; screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
 
 ## Post-Deploy Live Validation
 
@@ -199,6 +200,18 @@ Live page-performance matrix after deploy:
 | Portfolio | `2.020s` | no progressbar, no waiting placeholder; 4 positions and 3 markets rendered | `/portfolio/primary` `70.92-204.64ms`; `/portfolio/enrichment` `303.63-391.82ms`; `/portfolio/instrument-index` API `30.21-66.79ms` via `list_transaction_instruments` |
 | Reports | `1.666s` | no progressbar, no waiting placeholder; Daily Review, Portfolio Report, and Market Report rendered | `/reports/daily-review` `248.92-594.38ms` |
 | Dashboard revisit | `2.350s` | no progressbar, no waiting placeholder; current/chart valuation remained `$663,017.84` | Dashboard route cache reused fresh `sessionStorage` entries where applicable and refreshed stale route data in the background |
+
+Final validation for deployed branch head `a5e35293`:
+
+- GitHub Actions run `27510245695` and PR Gate run `27510245297` were green on `a5e35293`; Codex review on `a5e35293` reported no major issues and there were no unresolved review threads.
+- Dev deploy run `27510584804` completed successfully on `a5e35293` in `19m29s`; `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` were running, with API `/health/live` and `/health/ready` passing through the public dev API domain.
+- Chrome validation connected to the existing authenticated Vakwen Dev tab at `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard`. The original tab kept its tab-scoped cached material-gap DTO until a fresh tab was opened, confirming the agreed `sessionStorage` behavior for already-fresh route data.
+- Incident simulation on the dev DB changed `daily_holding_snapshots` rows for `000660` / `KR` on `2026-06-10`, `2026-06-11`, and `2026-06-12` to `close_price=1,250,000`, `value_native=100,000,000`, and `market_value=100,000,000`, while leaving latest bars and transactions unchanged.
+- A fresh authenticated Chrome tab settled in `3.903s` and showed `Material gap`: current valuation `$663,017.84`, chart valuation `$615,497.84`, delta `$47,520`, relative delta `7.2%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`. Dashboard hero and Portfolio Trend both showed the valuation-health panel.
+- Restoring the three `000660` / `KR` rows to their original values returned a fresh authenticated Chrome tab to `Healthy` in `4.819s`: current/chart `$663,017.84`, delta `$0`, relative delta `0%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`.
+- Final evidence screenshots:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-widened-gap-20260615.jpg`
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-restored-20260615.jpg`
 
 ## Acceptance Criteria
 
