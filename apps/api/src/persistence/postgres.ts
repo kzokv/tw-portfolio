@@ -5285,6 +5285,35 @@ export class PostgresPersistence implements Persistence {
     return result;
   }
 
+  async getLatestBarDatesForReconciliation(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (pairs.length === 0) return result;
+    for (const pair of pairs) {
+      result.set(`${pair.ticker}:${pair.marketCode}`, null);
+    }
+    const tickers = pairs.map((pair) => pair.ticker);
+    const markets = pairs.map((pair) => pair.marketCode);
+    const rows = await this.pool.query<{ ticker: string; market_code: string; latest_bar_date: string | null }>(
+      `SELECT input.ticker, input.market_code, latest.bar_date::text AS latest_bar_date
+         FROM unnest($1::text[], $2::text[]) AS input(ticker, market_code)
+         LEFT JOIN LATERAL (
+           SELECT b.bar_date
+             FROM market_data.daily_bars b
+            WHERE b.ticker = input.ticker
+              AND b.market_code = input.market_code
+            ORDER BY b.bar_date DESC
+            LIMIT 1
+         ) latest ON true`,
+      [tickers, markets],
+    );
+    for (const row of rows.rows) {
+      result.set(`${row.ticker}:${row.market_code}`, row.latest_bar_date);
+    }
+    return result;
+  }
+
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
     const result = await this.pool.query<{ bar_date: string }>(
       `SELECT DISTINCT bar_date::text AS bar_date
@@ -5444,18 +5473,30 @@ export class PostgresPersistence implements Persistence {
       ticker: string;
       market_code: MarketCode;
     }>(
-      `SELECT DISTINCT te.user_id, te.account_id, te.ticker, te.market_code
-         FROM trade_events te
-         JOIN accounts a
-           ON a.id = te.account_id
-          AND a.user_id = te.user_id
-          AND a.deleted_at IS NULL
-         JOIN users u
-           ON u.id = te.user_id
-        WHERE te.ticker = $1
-          AND te.market_code = $2
-          AND u.is_demo = FALSE
-        ORDER BY te.user_id, te.account_id, te.ticker, te.market_code`,
+       `SELECT DISTINCT
+          a.user_id,
+          l.account_id,
+          l.ticker,
+          $2::text AS market_code
+       FROM lots l
+       JOIN accounts a
+         ON a.id = l.account_id
+        AND a.deleted_at IS NULL
+       JOIN users u
+         ON u.id = a.user_id
+       WHERE l.ticker = $1
+         AND l.open_quantity > 0
+         AND u.is_demo = FALSE
+         AND u.deactivated_at IS NULL
+         AND u.deleted_at IS NULL
+         AND EXISTS (
+           SELECT 1
+             FROM trade_events te
+            WHERE te.account_id = l.account_id
+              AND te.ticker = l.ticker
+              AND te.market_code = $2
+         )
+       ORDER BY a.user_id, l.account_id, l.ticker, market_code`,
       [ticker, marketCode],
     );
     return result.rows.map((row) => ({
@@ -6533,6 +6574,44 @@ export class PostgresPersistence implements Persistence {
         }>)
         : [],
     };
+  }
+
+  async getLatestHoldingSnapshotDatesByScope(
+    userId: string,
+    pairs: readonly import("./types.js").HoldingSnapshotLatestDateScopePair[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (pairs.length === 0) return result;
+    for (const pair of pairs) {
+      result.set(`${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`, null);
+    }
+    const rows = await this.pool.query<{
+      account_id: string;
+      ticker: string;
+      market_code: MarketCode;
+      latest_snapshot_date: string | null;
+    }>(
+      `SELECT input.account_id, input.ticker, input.market_code, MAX(s.snapshot_date)::text AS latest_snapshot_date
+         FROM jsonb_to_recordset($2::jsonb) AS input(account_id text, ticker text, market_code text)
+         LEFT JOIN daily_holding_snapshots s
+           ON s.user_id = $1
+          AND s.account_id = input.account_id
+          AND s.ticker = input.ticker
+          AND s.market_code = input.market_code
+         GROUP BY input.account_id, input.ticker, input.market_code`,
+      [
+        userId,
+        JSON.stringify(pairs.map((pair) => ({
+          account_id: pair.accountId,
+          ticker: pair.ticker,
+          market_code: pair.marketCode,
+        }))),
+      ],
+    );
+    for (const row of rows.rows) {
+      result.set(`${row.account_id}\0${row.ticker}\0${row.market_code}`, row.latest_snapshot_date);
+    }
+    return result;
   }
 
   async getHoldingSnapshotsForTicker(
@@ -10693,6 +10772,18 @@ export class PostgresPersistence implements Persistence {
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
     accountHardPurgeDays: number | null;
+    valuationHealthRelativeBps: number | null;
+    valuationHealthAbsoluteAud: number | null;
+    valuationHealthAbsoluteUsd: number | null;
+    valuationHealthAbsoluteTwd: number | null;
+    valuationHealthAbsoluteKrw: number | null;
+    routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
+    routeCacheDashboardPrimaryTtlMs: number | null;
+    routeCacheDashboardEnrichmentTtlMs: number | null;
+    routeCacheDashboardPerformanceTtlMs: number | null;
+    routeCachePortfolioTtlMs: number | null;
+    routeCacheReportsTtlMs: number | null;
+    routeCacheStaleUsableTtlMs: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -10750,6 +10841,18 @@ export class PostgresPersistence implements Persistence {
       anonymous_share_token_retention_ms: number | string | null;
       user_preferences_max_bytes: number | null;
       account_hard_purge_days: number | null;
+      valuation_health_relative_bps: number | null;
+      valuation_health_absolute_aud: number | string | null;
+      valuation_health_absolute_usd: number | string | null;
+      valuation_health_absolute_twd: number | string | null;
+      valuation_health_absolute_krw: number | string | null;
+      route_cache_policy_mode: import("./types.js").RouteCachePolicyMode | null;
+      route_cache_dashboard_primary_ttl_ms: number | string | null;
+      route_cache_dashboard_enrichment_ttl_ms: number | string | null;
+      route_cache_dashboard_performance_ttl_ms: number | string | null;
+      route_cache_portfolio_ttl_ms: number | string | null;
+      route_cache_reports_ttl_ms: number | string | null;
+      route_cache_stale_usable_ttl_ms: number | string | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -10779,6 +10882,12 @@ export class PostgresPersistence implements Persistence {
          anonymous_share_token_cap, anonymous_share_rate_limit_max, anonymous_share_rate_limit_window_ms,
          anonymous_share_token_retention_ms, user_preferences_max_bytes,
          account_hard_purge_days,
+         valuation_health_relative_bps, valuation_health_absolute_aud, valuation_health_absolute_usd,
+         valuation_health_absolute_twd, valuation_health_absolute_krw,
+         route_cache_policy_mode,
+         route_cache_dashboard_primary_ttl_ms, route_cache_dashboard_enrichment_ttl_ms,
+         route_cache_dashboard_performance_ttl_ms, route_cache_portfolio_ttl_ms,
+         route_cache_reports_ttl_ms, route_cache_stale_usable_ttl_ms,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -10839,6 +10948,18 @@ export class PostgresPersistence implements Persistence {
         anonymousShareTokenRetentionMs: null,
         userPreferencesMaxBytes: null,
         accountHardPurgeDays: null,
+        valuationHealthRelativeBps: null,
+        valuationHealthAbsoluteAud: null,
+        valuationHealthAbsoluteUsd: null,
+        valuationHealthAbsoluteTwd: null,
+        valuationHealthAbsoluteKrw: null,
+        routeCachePolicyMode: null,
+        routeCacheDashboardPrimaryTtlMs: null,
+        routeCacheDashboardEnrichmentTtlMs: null,
+        routeCacheDashboardPerformanceTtlMs: null,
+        routeCachePortfolioTtlMs: null,
+        routeCacheReportsTtlMs: null,
+        routeCacheStaleUsableTtlMs: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -10904,6 +11025,18 @@ export class PostgresPersistence implements Persistence {
       anonymousShareTokenRetentionMs: num(row.anonymous_share_token_retention_ms),
       userPreferencesMaxBytes: row.user_preferences_max_bytes,
       accountHardPurgeDays: row.account_hard_purge_days,
+      valuationHealthRelativeBps: row.valuation_health_relative_bps,
+      valuationHealthAbsoluteAud: num(row.valuation_health_absolute_aud),
+      valuationHealthAbsoluteUsd: num(row.valuation_health_absolute_usd),
+      valuationHealthAbsoluteTwd: num(row.valuation_health_absolute_twd),
+      valuationHealthAbsoluteKrw: num(row.valuation_health_absolute_krw),
+      routeCachePolicyMode: row.route_cache_policy_mode,
+      routeCacheDashboardPrimaryTtlMs: num(row.route_cache_dashboard_primary_ttl_ms),
+      routeCacheDashboardEnrichmentTtlMs: num(row.route_cache_dashboard_enrichment_ttl_ms),
+      routeCacheDashboardPerformanceTtlMs: num(row.route_cache_dashboard_performance_ttl_ms),
+      routeCachePortfolioTtlMs: num(row.route_cache_portfolio_ttl_ms),
+      routeCacheReportsTtlMs: num(row.route_cache_reports_ttl_ms),
+      routeCacheStaleUsableTtlMs: num(row.route_cache_stale_usable_ttl_ms),
       updatedAt,
     };
   }
@@ -11032,6 +11165,15 @@ export class PostgresPersistence implements Persistence {
       `INSERT INTO public.app_config (id, metadata_enrichment_mode, updated_at)
        VALUES (1, $1, NOW())
        ON CONFLICT (id) DO UPDATE SET metadata_enrichment_mode = $1, updated_at = NOW()`,
+      [value],
+    );
+  }
+
+  async setRouteCachePolicyMode(value: import("./types.js").RouteCachePolicyMode | null): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, route_cache_policy_mode, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET route_cache_policy_mode = $1, updated_at = NOW()`,
       [value],
     );
   }

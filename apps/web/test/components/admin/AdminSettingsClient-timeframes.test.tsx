@@ -97,6 +97,15 @@ describe("AdminSettingsClient — Dashboard Timeframe Defaults", () => {
     );
   });
 
+  it("renders valuation-health and route-cache controls in the display defaults panel", () => {
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    expect(document.querySelector("[data-testid='valuation-health-thresholds-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='route-cache-policy-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-valuationHealthRelativeBps-toggle']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-route-cache-policy-select']")).not.toBeNull();
+  });
+
   it("uses DEFAULT_DASHBOARD_PERFORMANCE_RANGES as initial active list when admin config is null", () => {
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
     expect(activeChipOrder()).toEqual(["1M", "3M", "YTD", "1Y"]);
@@ -231,6 +240,56 @@ describe("AdminSettingsClient — Dashboard Timeframe Defaults", () => {
 
     const errorEl = document.querySelector("[data-testid='timeframe-validation-error']");
     expect(errorEl?.textContent).toContain("invalid_range_list");
+  });
+
+  it("saves valuation health threshold overrides through the shared numeric row", async () => {
+    const updated = buildConfig({
+      valuationHealthRelativeBps: 35,
+      effectiveValuationHealthRelativeBps: 35,
+    });
+    mockPatchJson.mockResolvedValueOnce(updated);
+
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+    click("admin-settings-valuationHealthRelativeBps-toggle");
+    input("admin-settings-input-valuationHealthRelativeBps", "35");
+    click("admin-settings-valuationHealthRelativeBps-save-button");
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPatchJson).toHaveBeenCalledWith("/admin/settings", {
+      valuationHealthRelativeBps: 35,
+    });
+  });
+
+  it("saves the route cache policy mode", async () => {
+    const updated = buildConfig({
+      routeCachePolicyMode: "low_load",
+      effectiveRouteCachePolicy: {
+        mode: "low_load",
+        dashboardPrimaryTtlMs: 300_000,
+        dashboardEnrichmentTtlMs: 300_000,
+        dashboardPerformanceTtlMs: 300_000,
+        portfolioTtlMs: 300_000,
+        reportsTtlMs: 600_000,
+        staleUsableTtlMs: 1_200_000,
+      },
+    });
+    mockPatchJson.mockResolvedValueOnce(updated);
+
+    act(() => root.render(<AdminSettingsClient initial={buildConfig({ routeCachePolicyMode: "low_load" })} />));
+    click("admin-settings-route-cache-policy-save");
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPatchJson).toHaveBeenCalledWith("/admin/settings", {
+      routeCachePolicyMode: "low_load",
+    });
   });
 
   it("Save button is disabled when the active list is empty", () => {

@@ -4,12 +4,21 @@ import { useCallback, useState } from "react";
 import type { SnapshotsGeneratedEvent } from "@vakwen/shared-types";
 import { postJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
+import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../lib/routeDtoCache";
 
 interface UseSnapshotGenerationOptions {
   dict: AppDictionary;
   /** Called after a successful snapshot generation to bump context refresh. */
   onSuccess: () => void;
 }
+
+const SNAPSHOT_ROUTE_CACHE_TAGS = [
+  buildRouteDtoCacheTag("route", "dashboard-primary"),
+  buildRouteDtoCacheTag("route", "dashboard-performance"),
+  buildRouteDtoCacheTag("route", "portfolio-primary"),
+  buildRouteDtoCacheTag("route", "reports"),
+  buildRouteDtoCacheTag("route", "transactions-primary"),
+];
 
 /**
  * Owns the snapshot-generation state previously inlined in `AppShell.tsx`:
@@ -30,6 +39,7 @@ export function useSnapshotGeneration({ dict, onSuccess }: UseSnapshotGeneration
         );
         return;
       }
+      clearRouteDtoCacheByTags(SNAPSHOT_ROUTE_CACHE_TAGS);
       setSnapshotMessage(
         dict.dashboardHome.snapshotsGeneratedMessage
           .replace("{totalRows}", String(event.totalRows))

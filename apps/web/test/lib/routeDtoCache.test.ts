@@ -9,27 +9,31 @@ import {
 } from "../../lib/routeDtoCache";
 import { clearContextCookie, writeContextCookie } from "../../lib/context";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, {
+      configurable: true,
+      value: storage,
+    });
+  }
 }
 
 describe("routeDtoCache", () => {
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     window.localStorage.clear();
+    window.sessionStorage.clear();
     clearContextCookie();
     vi.useRealTimers();
   });
@@ -43,7 +47,7 @@ describe("routeDtoCache", () => {
     );
   });
 
-  it("expires cached payloads after the ttl elapses", () => {
+  it("serves stale cache entries until the stale window elapses", () => {
     vi.useFakeTimers();
     const now = new Date("2026-06-08T12:00:00.000Z");
     vi.setSystemTime(now);
@@ -51,6 +55,17 @@ describe("routeDtoCache", () => {
     writeRouteDtoCache(key, { value: 7 }, 1000);
 
     vi.setSystemTime(new Date(now.getTime() + 1500));
+
+    expect(readRouteDtoCache<{ value: number }>(key)).toEqual(
+      expect.objectContaining({
+        payload: { value: 7 },
+        status: "stale",
+        ttlMs: 1000,
+      }),
+    );
+    expect(readRouteDtoCache(key, { allowStale: false })).toBeNull();
+
+    vi.setSystemTime(new Date(now.getTime() + 10 * 60 * 1000 + 1));
 
     expect(readRouteDtoCache(key)).toBeNull();
   });

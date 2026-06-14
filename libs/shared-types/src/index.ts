@@ -267,6 +267,74 @@ export interface UserSettings {
    * `Env.ACCOUNT_HARD_PURGE_DAYS` (30) when absent.
    */
   effectiveAccountHardPurgeDays?: number;
+  effectiveRouteCachePolicy?: RouteCachePolicyDto;
+}
+
+export const ROUTE_CACHE_POLICY_MODES = ["fresh", "balanced", "low_load", "custom"] as const;
+export type RouteCachePolicyMode = (typeof ROUTE_CACHE_POLICY_MODES)[number];
+
+export interface RouteCachePolicyDto {
+  mode: RouteCachePolicyMode;
+  dashboardPrimaryTtlMs: number;
+  dashboardEnrichmentTtlMs: number;
+  dashboardPerformanceTtlMs: number;
+  portfolioTtlMs: number;
+  reportsTtlMs: number;
+  staleUsableTtlMs: number;
+}
+
+export interface ValuationHealthThresholdsDto {
+  relativeBps: number;
+  absoluteAud: number;
+  absoluteUsd: number;
+  absoluteTwd: number;
+  absoluteKrw: number;
+}
+
+export type ValuationHealthStatus = "healthy" | "material" | "unavailable";
+export type ValuationHealthReason =
+  | "within_minor_unit_tolerance"
+  | "within_threshold"
+  | "absolute_threshold_exceeded"
+  | "relative_threshold_exceeded"
+  | "missing_current_value"
+  | "missing_snapshot_value";
+export type ValuationHealthHoldingStatus =
+  | "healthy"
+  | "missing_latest_bar"
+  | "backfill_pending"
+  | "backfill_failed"
+  | "missing_snapshot"
+  | "stale_snapshot";
+export type ValuationHealthHoldingAction = "none" | "wait_for_backfill" | "run_backfill" | "run_snapshot_repair";
+
+export interface ValuationHealthHoldingDto {
+  ticker: string;
+  marketCode: MarketCode;
+  currentReportingValueAmount: number | null;
+  latestBarDate: string | null;
+  latestSnapshotDate: string | null;
+  backfillStatus: "pending" | "backfilling" | "ready" | "failed" | "unknown";
+  status: ValuationHealthHoldingStatus;
+  recommendedAction: ValuationHealthHoldingAction;
+}
+
+export interface ValuationHealthDto {
+  status: ValuationHealthStatus;
+  reason: ValuationHealthReason;
+  reportingCurrency: AccountDefaultCurrency;
+  currentValueAmount: number | null;
+  snapshotValueAmount: number | null;
+  deltaAmount: number | null;
+  relativeDeltaBps: number | null;
+  minorUnitTolerance: number;
+  thresholds: ValuationHealthThresholdsDto;
+  latestBarAsOf: string | null;
+  latestSnapshotDate: string | null;
+  latestUsableSnapshotDate: string | null;
+  expectedLatestValuationDate: string | null;
+  affectedHoldings: ValuationHealthHoldingDto[];
+  recommendedActions: ValuationHealthHoldingAction[];
 }
 
 // KZO-183: account-scoped fee profiles. `accountId` replaces the previous
@@ -552,6 +620,7 @@ export interface DashboardOverviewDto {
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
+  valuationHealth?: ValuationHealthDto;
 }
 
 export interface ShellPortfolioConfigDto {
@@ -848,6 +917,7 @@ export interface DashboardPerformanceDto {
   marketDataStaleSince?: string | null;
   /** Structured snapshot-only diagnostics for Dashboard trend/return cards. */
   diagnostics?: DashboardPerformanceDiagnosticsDto;
+  valuationHealth?: ValuationHealthDto;
 }
 
 export interface ReportQueryStateDto {
@@ -1013,6 +1083,7 @@ export interface PortfolioReportDto {
   dataHealth: ReportDataHealthDto;
   diagnostics: ReportDiagnosticsDto;
   performance: DashboardPerformanceDto;
+  valuationHealth?: ValuationHealthDto;
   allocation: {
     byMarket: AllocationBucketDto[];
     byAccount: AllocationBucketDto[];
@@ -1035,6 +1106,7 @@ export interface MarketReportDto {
   dataHealth: ReportDataHealthDto;
   diagnostics: ReportDiagnosticsDto;
   performance: DashboardPerformanceDto;
+  valuationHealth?: ValuationHealthDto;
   marketSummary: AllocationBucketDto[];
   topHoldings: ReportHoldingRowDto[];
   detail: ReportHoldingRowsPageDto;
@@ -1488,6 +1560,27 @@ export interface AppConfigDto {
   /** Grace period (days) between soft-delete and hard-purge cron. NULL = use Env.ACCOUNT_HARD_PURGE_DAYS. */
   accountHardPurgeDays: number | null;
   effectiveAccountHardPurgeDays: number;
+
+  valuationHealthRelativeBps: number | null;
+  effectiveValuationHealthRelativeBps: number;
+  valuationHealthAbsoluteAud: number | null;
+  effectiveValuationHealthAbsoluteAud: number;
+  valuationHealthAbsoluteUsd: number | null;
+  effectiveValuationHealthAbsoluteUsd: number;
+  valuationHealthAbsoluteTwd: number | null;
+  effectiveValuationHealthAbsoluteTwd: number;
+  valuationHealthAbsoluteKrw: number | null;
+  effectiveValuationHealthAbsoluteKrw: number;
+  effectiveValuationHealthThresholds: ValuationHealthThresholdsDto;
+
+  routeCachePolicyMode: RouteCachePolicyMode | null;
+  effectiveRouteCachePolicy: RouteCachePolicyDto;
+  routeCacheDashboardPrimaryTtlMs: number | null;
+  routeCacheDashboardEnrichmentTtlMs: number | null;
+  routeCacheDashboardPerformanceTtlMs: number | null;
+  routeCachePortfolioTtlMs: number | null;
+  routeCacheReportsTtlMs: number | null;
+  routeCacheStaleUsableTtlMs: number | null;
 
   // KZO-198 Tier 2 fields (dailyRefreshLookbackDays, dailyRefreshPriority,
   // sse{Heartbeat,MaxConn,BufferTtl}) are intentionally NOT in this DTO.

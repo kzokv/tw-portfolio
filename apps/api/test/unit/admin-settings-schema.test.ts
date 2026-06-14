@@ -37,6 +37,24 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("valuation health and route cache settings accept valid overrides", () => {
+      const result = patchAdminSettingsSchema.safeParse({
+        valuationHealthRelativeBps: 50,
+        valuationHealthAbsoluteAud: 100,
+        valuationHealthAbsoluteUsd: 100,
+        valuationHealthAbsoluteTwd: 3000,
+        valuationHealthAbsoluteKrw: 90000,
+        routeCachePolicyMode: "custom",
+        routeCacheDashboardPrimaryTtlMs: 15_000,
+        routeCacheDashboardEnrichmentTtlMs: 20_000,
+        routeCacheDashboardPerformanceTtlMs: 25_000,
+        routeCachePortfolioTtlMs: 30_000,
+        routeCacheReportsTtlMs: 35_000,
+        routeCacheStaleUsableTtlMs: 40_000,
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("rejects", () => {
@@ -67,6 +85,16 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
 
     it("providerOperationStaleHeartbeatMinutes rejects values above max", () => {
       const result = patchAdminSettingsSchema.safeParse({ providerOperationStaleHeartbeatMinutes: 241 });
+      expect(result.success).toBe(false);
+    });
+
+    it("routeCacheStaleUsableTtlMs rejects values below the minimum bound", () => {
+      const result = patchAdminSettingsSchema.safeParse({ routeCacheStaleUsableTtlMs: 29_999 });
+      expect(result.success).toBe(false);
+    });
+
+    it("valuationHealthRelativeBps rejects values above max", () => {
+      const result = patchAdminSettingsSchema.safeParse({ valuationHealthRelativeBps: 10_001 });
       expect(result.success).toBe(false);
     });
 

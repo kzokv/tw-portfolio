@@ -30,6 +30,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         isDemo={session.isDemo}
         localeOverride={settings?.locale ?? "en"}
         initialProfile={profile}
+        initialSettings={settings}
         initialSidebarOpen={sidebarOpen}
         portfolioConfigMode="lazy"
       >

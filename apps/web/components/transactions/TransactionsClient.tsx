@@ -35,6 +35,7 @@ export function TransactionsClient({
   const {
     uiDict: dict,
     locale,
+    routeCachePolicy,
     sessionUserId,
     isSharedContext,
     transactionSubmission,
@@ -44,7 +45,7 @@ export function TransactionsClient({
   const resetCount = useCardLayoutResetCount("transactions");
   const cacheKey = buildRouteDtoCacheKey("transactions-primary", getRouteDtoContextScope(sessionUserId), locale);
   const seededPrimaryData = contextRefreshSignal === 0 ? initialPrimaryData : null;
-  const primary = useTransactionsPrimaryData(seededPrimaryData, cacheKey);
+  const primary = useTransactionsPrimaryData(seededPrimaryData, cacheKey, routeCachePolicy);
   const addPanelRef = useRef<HTMLDivElement | null>(null);
   const effectiveTransactionAccountOptions = transactionAccountOptions.length > 0
     ? transactionAccountOptions
