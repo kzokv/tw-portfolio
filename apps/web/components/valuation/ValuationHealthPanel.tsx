@@ -32,10 +32,26 @@ export function ValuationHealthPanel({
   const hasBackfillAction = valuationHealth.recommendedActions.includes("run_backfill");
   const hasSnapshotRepairAction = valuationHealth.recommendedActions.includes("run_snapshot_repair");
   const hasRepairRecommendation = hasBackfillAction || hasSnapshotRepairAction;
+  const hasMaterialNoRepair = valuationHealth.status === "material" && !hasRepairRecommendation;
   const hasAdminRepairAction = showAdminActions && adminRepairHref && hasRepairRecommendation;
   const deltaPercent = valuationHealth.relativeDeltaBps === null
     ? null
     : valuationHealth.relativeDeltaBps / 100;
+  const userTipTitle = hasRepairRecommendation
+    ? copy.userRepairTipTitle
+    : hasMaterialNoRepair
+      ? copy.userNoRepairTipTitle
+      : copy.userInfoTipTitle;
+  const userTipDescription = hasRepairRecommendation
+    ? copy.userRepairHelp
+    : hasMaterialNoRepair
+      ? copy.userNoRepairHelp
+      : copy.userInfoHelp;
+  const adminHelp = hasRepairRecommendation
+    ? copy.adminHelp
+    : hasMaterialNoRepair
+      ? copy.userNoRepairHelp
+      : copy.userInfoHelp;
 
   return (
     <section
@@ -126,12 +142,12 @@ export function ValuationHealthPanel({
       <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
         {showAdminActions ? (
           <p className="text-sm text-muted-foreground">
-            {copy.adminHelp}
+            {adminHelp}
           </p>
         ) : (
           <Alert data-testid="valuation-health-user-tip">
-            <AlertTitle>{hasRepairRecommendation ? copy.userRepairTipTitle : copy.userInfoTipTitle}</AlertTitle>
-            <AlertDescription>{hasRepairRecommendation ? copy.userRepairHelp : copy.userInfoHelp}</AlertDescription>
+            <AlertTitle>{userTipTitle}</AlertTitle>
+            <AlertDescription>{userTipDescription}</AlertDescription>
           </Alert>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -212,6 +228,8 @@ function holdingStatusLabel(
       return copy.healthy;
     case "missing_latest_bar":
       return copy.missingLatestBar;
+    case "awaiting_latest_bar":
+      return copy.awaitingLatestBar;
     case "backfill_pending":
       return copy.backfillPending;
     case "backfill_failed":

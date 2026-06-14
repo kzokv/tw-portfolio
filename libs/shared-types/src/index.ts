@@ -302,6 +302,7 @@ export type ValuationHealthReason =
 export type ValuationHealthHoldingStatus =
   | "healthy"
   | "missing_latest_bar"
+  | "awaiting_latest_bar"
   | "backfill_pending"
   | "backfill_failed"
   | "missing_snapshot"

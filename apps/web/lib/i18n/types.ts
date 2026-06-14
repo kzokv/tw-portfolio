@@ -474,6 +474,7 @@ export interface AppDictionary {
     adminHelp: string;
     adminRepairAction: string;
     affectedHoldings: string;
+    awaitingLatestBar: string;
     backfillAction: string;
     backfillFailed: string;
     backfillPending: string;
@@ -500,6 +501,8 @@ export interface AppDictionary {
     unavailable: string;
     userInfoHelp: string;
     userInfoTipTitle: string;
+    userNoRepairHelp: string;
+    userNoRepairTipTitle: string;
     userRepairHelp: string;
     userRepairTipTitle: string;
     waitForBackfill: string;
