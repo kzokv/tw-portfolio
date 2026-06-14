@@ -3328,29 +3328,15 @@ export class MemoryPersistence implements Persistence {
       const user = this.getUserById(userId);
       if (user && (user.isDemo === true || user.deactivatedAt || user.deletedAt)) continue;
       const activeAccountIds = new Set(store.accounts.map((account) => account.id));
-      const activePositions = new Map<string, { accountId: string; ticker: string }>();
 
-      for (const lot of store.accounting.projections.lots) {
-        if (!activeAccountIds.has(lot.accountId) || lot.openQuantity <= 0 || lot.ticker !== ticker) continue;
-        activePositions.set(`${lot.accountId}\0${lot.ticker}`, {
-          accountId: lot.accountId,
-          ticker: lot.ticker,
-        });
-      }
-
-      for (const position of activePositions.values()) {
-        const trade = store.accounting.facts.tradeEvents.find((candidate) =>
-          candidate.accountId === position.accountId
-          && candidate.ticker === position.ticker
-          && candidate.marketCode === marketCode,
-        );
-        if (!trade) continue;
-        const key = `${userId}\0${position.accountId}\0${position.ticker}\0${marketCode}`;
+      for (const trade of store.accounting.facts.tradeEvents) {
+        if (!activeAccountIds.has(trade.accountId) || trade.ticker !== ticker || trade.marketCode !== marketCode) continue;
+        const key = `${userId}\0${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
         scopes.set(key, {
           userId,
-          accountId: position.accountId,
-          ticker: position.ticker,
-          marketCode,
+          accountId: trade.accountId,
+          ticker: trade.ticker,
+          marketCode: trade.marketCode,
         });
       }
     }
