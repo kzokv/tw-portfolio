@@ -12,6 +12,7 @@ vi.mock("@vakwen/config", async (importOriginal) => {
 import { buildApp } from "../../src/app.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
+import { generateHoldingSnapshots } from "../../src/services/snapshotGeneration.js";
 import { dividendEventPayload, dividendPostingPayload, transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -22,6 +23,7 @@ describe("dashboard overview", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (app) await app.close();
   });
 
@@ -522,6 +524,43 @@ describe("dashboard overview", () => {
         marketDataStaleSince: null,
       }),
     );
+  });
+
+  it("uses latest available market data date as performance as-of instead of wall-clock today", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-06-10", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-06-10T18:00:00Z" },
+      { ticker: "2330", barDate: "2026-06-12", open: 103, high: 106, low: 102, close: 105, volume: 50000, source: "test", ingestedAt: "2026-06-12T18:00:00Z" },
+    ]);
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-performance-latest-bar-as-of" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-06-10",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    await generateHoldingSnapshots("user-1", app.persistence);
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/performance?range=YTD" });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.requestedAsOf).toBe("2026-06-12");
+    expect(body.marketDataStaleSince).toBeNull();
+    expect(body.diagnostics).toEqual(
+      expect.objectContaining({
+        expectedLatestValuationDate: "2026-06-12",
+        latestReliableValuationDate: "2026-06-12",
+        staleSinceDate: null,
+      }),
+    );
+    expect(body.points.at(-1)).toEqual(expect.objectContaining({ date: "2026-06-12" }));
   });
 
   it("does not synthesize provisional performance points when snapshots are absent", async () => {
