@@ -1774,6 +1774,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   override={config.valuationHealthAbsoluteAud}
                   effective={config.effectiveValuationHealthAbsoluteAud}
                   bounds={config.bounds.valuationHealthAbsoluteAud}
+                  step="any"
                   unit="AUD"
                   inputTestId="admin-settings-input-valuationHealthAbsoluteAud"
                   onSave={(v) => patchAppConfigField("valuationHealthAbsoluteAud", v)}
@@ -1785,6 +1786,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   override={config.valuationHealthAbsoluteUsd}
                   effective={config.effectiveValuationHealthAbsoluteUsd}
                   bounds={config.bounds.valuationHealthAbsoluteUsd}
+                  step="any"
                   unit="USD"
                   inputTestId="admin-settings-input-valuationHealthAbsoluteUsd"
                   onSave={(v) => patchAppConfigField("valuationHealthAbsoluteUsd", v)}
@@ -1796,6 +1798,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   override={config.valuationHealthAbsoluteTwd}
                   effective={config.effectiveValuationHealthAbsoluteTwd}
                   bounds={config.bounds.valuationHealthAbsoluteTwd}
+                  step="any"
                   unit="TWD"
                   inputTestId="admin-settings-input-valuationHealthAbsoluteTwd"
                   onSave={(v) => patchAppConfigField("valuationHealthAbsoluteTwd", v)}
@@ -1807,6 +1810,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   override={config.valuationHealthAbsoluteKrw}
                   effective={config.effectiveValuationHealthAbsoluteKrw}
                   bounds={config.bounds.valuationHealthAbsoluteKrw}
+                  step="any"
                   unit="KRW"
                   inputTestId="admin-settings-input-valuationHealthAbsoluteKrw"
                   onSave={(v) => patchAppConfigField("valuationHealthAbsoluteKrw", v)}

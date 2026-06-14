@@ -5,6 +5,8 @@ import type {
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataSnapshotRepairExecuteRequest,
+  AdminMarketDataSnapshotRepairExecuteResponse,
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
@@ -42,6 +44,13 @@ export function executeMarketBackfill(
   input: AdminMarketDataBackfillExecuteRequest,
 ): Promise<AdminMarketDataBackfillExecuteResponse> {
   return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/backfill/execute`, input);
+}
+
+export function executeMarketSnapshotRepair(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: AdminMarketDataSnapshotRepairExecuteRequest,
+): Promise<AdminMarketDataSnapshotRepairExecuteResponse> {
+  return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/snapshot-repair/execute`, input);
 }
 
 export function previewMarketPurge(

@@ -3035,6 +3035,17 @@ export interface AdminMarketDataBackfillExecuteResponse {
   batchId: string | null;
 }
 
+export interface AdminMarketDataSnapshotRepairExecuteRequest {
+  tickers: string[];
+  fromDate?: string;
+}
+
+export interface AdminMarketDataSnapshotRepairExecuteResponse {
+  marketCode: MarketCode;
+  queued: string[];
+  rejected: Array<{ ticker: string; reason: string }>;
+}
+
 export interface AdminMarketDataPurgePreviewRequest {
   providerId?: string;
   categories: AdminMarketDataPurgeCategory[];
