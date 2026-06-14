@@ -7,6 +7,7 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   LocaleCode,
+  RouteCachePolicyDto,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type {
@@ -22,6 +23,8 @@ interface BuildAppShellDataValueOptions {
   uiDict: AppDictionary;
   locale: LocaleCode;
   sessionUserId: string | null;
+  sessionUserRole?: string | null;
+  routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
   canUseGlobalQuickActions: boolean;
   openQuickActions: () => void;
@@ -57,6 +60,8 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     uiDict,
     locale,
     sessionUserId,
+    sessionUserRole,
+    routeCachePolicy,
     isSharedContext,
     canUseGlobalQuickActions,
     openQuickActions,
@@ -87,6 +92,8 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       uiDict,
       locale,
       sessionUserId,
+      sessionUserRole,
+      routeCachePolicy,
       isSharedContext,
       canUseGlobalQuickActions,
       openQuickActions,
@@ -131,8 +138,11 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       reportingCurrency,
       reportingCurrencyError,
       refreshPortfolioConfig,
+      routeCachePolicy,
       saveReportingCurrency,
       sessionUserId,
+      sessionUserRole,
+      routeCachePolicy,
       setShowIntegrityDialog,
       showIntegrityDialog,
       transactionAccountOptions,

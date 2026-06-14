@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RouteCachePolicyDto } from "@vakwen/shared-types";
 import {
+  buildRouteDtoCacheTag,
   readRouteDtoCache,
+  resolveRouteDtoCacheDurations,
+  type RouteDtoCacheStatus,
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
@@ -27,11 +31,15 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
   integrityIssue: null,
 };
 
+const PORTFOLIO_PRIMARY_CACHE_TAGS = [buildRouteDtoCacheTag("route", "portfolio-primary")];
+
 export function usePortfolioPrimaryData(
   initialPrimaryData: PortfolioPageData | null = null,
   cacheKey?: string,
+  cachePolicy?: RouteCachePolicyDto | null,
 ) {
-  const initialCachedRef = useRef<{ payload: PortfolioPageData; savedAt: number } | null | undefined>(undefined);
+  const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "portfolio-primary");
+  const initialCachedRef = useRef<ReturnType<typeof readRouteDtoCache<PortfolioPageData>> | undefined>(undefined);
   if (initialCachedRef.current === undefined) {
     initialCachedRef.current = initialPrimaryData === null && cacheKey
       ? readRouteDtoCache<PortfolioPageData>(cacheKey)
@@ -42,6 +50,7 @@ export function usePortfolioPrimaryData(
   const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null && initialCached === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(initialCached?.status ?? null);
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
   const initialCacheKeyRef = useRef(cacheKey);
@@ -59,12 +68,19 @@ export function usePortfolioPrimaryData(
       const next = await fetchPortfolioEnrichmentData();
       if (!isCurrentRequest(version)) return;
       setData(next);
-      if (cacheKey) writeRouteDtoCache(cacheKey, next);
+      if (cacheKey) {
+        writeRouteDtoCache(cacheKey, next, {
+          staleTtlMs: cacheDurations.staleTtlMs,
+          tags: PORTFOLIO_PRIMARY_CACHE_TAGS,
+          ttlMs: cacheDurations.ttlMs,
+        });
+      }
+      setCacheStatus("fresh");
       setErrorMessage("");
     } catch {
       // Secondary quote/freshness/dividend enrichment must not blank primary content.
     }
-  }, [cacheKey, isCurrentRequest]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest]);
 
   const refresh = useCallback(async () => {
     const version = startRequest();
@@ -73,7 +89,14 @@ export function usePortfolioPrimaryData(
       const next = await fetchPortfolioPrimaryData();
       if (!isCurrentRequest(version)) return;
       setData(next);
-      if (cacheKey) writeRouteDtoCache(cacheKey, next);
+      if (cacheKey) {
+        writeRouteDtoCache(cacheKey, next, {
+          staleTtlMs: cacheDurations.staleTtlMs,
+          tags: PORTFOLIO_PRIMARY_CACHE_TAGS,
+          ttlMs: cacheDurations.ttlMs,
+        });
+      }
+      setCacheStatus("fresh");
       setErrorMessage("");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
@@ -84,14 +107,21 @@ export function usePortfolioPrimaryData(
     } finally {
       if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
     const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
     if (shouldUseInitialData) {
       const version = startRequest();
       setData(initialPrimaryData);
-      if (cacheKey) writeRouteDtoCache(cacheKey, initialPrimaryData);
+      if (cacheKey) {
+        writeRouteDtoCache(cacheKey, initialPrimaryData, {
+          staleTtlMs: cacheDurations.staleTtlMs,
+          tags: PORTFOLIO_PRIMARY_CACHE_TAGS,
+          ttlMs: cacheDurations.ttlMs,
+        });
+      }
+      setCacheStatus("fresh");
       setIsBootstrapping(false);
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
@@ -103,9 +133,12 @@ export function usePortfolioPrimaryData(
     if (cached !== null) {
       setData(cached.payload);
       setIsBootstrapping(false);
+      setCacheStatus(cached.status);
       setRestoredFromCache(true);
       setRestoredAt(cached.savedAt);
-      void refresh();
+      if (cached.status === "stale") {
+        void refresh();
+      }
       return;
     }
 
@@ -121,7 +154,7 @@ export function usePortfolioPrimaryData(
     return () => {
       mounted = false;
     };
-  }, [cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   return {
     data,
@@ -129,6 +162,7 @@ export function usePortfolioPrimaryData(
     isRefreshing,
     errorMessage,
     refresh,
+    cacheStatus,
     restoredFromCache,
     restoredAt,
   };

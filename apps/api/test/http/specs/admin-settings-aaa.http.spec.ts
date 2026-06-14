@@ -92,6 +92,47 @@ test.describe("admin settings API (KZO-142)", () => {
     );
   });
 
+  test("[admin settings]: PATCH route cache TTL null reset validates against default, not previous value", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-route-cache-null-reset-sub",
+      email: "admin-settings-route-cache-null-reset@example.com",
+      name: "Admin Route Cache Null Reset",
+      role: "admin",
+    });
+
+    const seedResponse = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      {
+        routeCachePolicyMode: "custom",
+        routeCacheDashboardPerformanceTtlMs: 900_000,
+        routeCacheStaleUsableTtlMs: 900_000,
+      },
+    );
+    await adminApi.assert.statusIs(seedResponse, 200);
+
+    const response = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      {
+        routeCacheDashboardPerformanceTtlMs: null,
+        routeCacheStaleUsableTtlMs: 600_000,
+      },
+    );
+    await adminApi.assert.statusIs(response, 200);
+    const body = await adminApi.arrange.appConfigBody(response);
+    await adminApi.assert.mxAssertNull(
+      body.routeCacheDashboardPerformanceTtlMs,
+      "routeCacheDashboardPerformanceTtlMs",
+    );
+    await adminApi.assert.mxAssertEqual(
+      body.effectiveRouteCachePolicy.dashboardPerformanceTtlMs,
+      300_000,
+      "effectiveRouteCachePolicy.dashboardPerformanceTtlMs",
+    );
+  });
+
   test("[admin settings]: PATCH { 60 } twice in a row → second is no-op; exactly one audit delta", async ({
     request,
     adminApi,

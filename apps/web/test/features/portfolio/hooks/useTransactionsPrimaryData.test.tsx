@@ -11,21 +11,21 @@ vi.mock("../../../../features/portfolio/services/portfolioService", () => ({
 
 import { fetchTransactionsPrimaryData } from "../../../../features/portfolio/services/portfolioService";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 beforeAll(() => {
@@ -101,16 +101,18 @@ describe("useTransactionsPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.mocked(fetchTransactionsPrimaryData).mockReset();
   });
 
@@ -126,8 +128,28 @@ describe("useTransactionsPrimaryData", () => {
     expect(vi.mocked(fetchTransactionsPrimaryData)).not.toHaveBeenCalled();
   });
 
-  it("restores cached transactions data before refreshing", async () => {
+  it("restores fresh cached transactions data without fetching again", async () => {
     writeRouteDtoCache(buildRouteDtoCacheKey("transactions-primary", "self"), withTransaction("cached"));
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.recentTransactions[0]?.id).toBe("cached");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchTransactionsPrimaryData).not.toHaveBeenCalled();
+    expect(result.data.recentTransactions[0]?.id).toBe("cached");
+  });
+
+  it("restores stale cached transactions data before refreshing", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
+    vi.setSystemTime(now);
+    writeRouteDtoCache(buildRouteDtoCacheKey("transactions-primary", "self"), withTransaction("cached"), 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
     vi.mocked(fetchTransactionsPrimaryData).mockResolvedValue(withTransaction("fresh"));
 
     act(() => {
@@ -139,6 +161,7 @@ describe("useTransactionsPrimaryData", () => {
 
     await act(async () => {});
 
+    expect(fetchTransactionsPrimaryData).toHaveBeenCalledTimes(1);
     expect(result.data.recentTransactions[0]?.id).toBe("fresh");
   });
 

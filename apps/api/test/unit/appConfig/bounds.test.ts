@@ -35,6 +35,17 @@ const TIER_1_NUMERIC_FIELDS = [
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
+  "valuationHealthRelativeBps",
+  "valuationHealthAbsoluteAud",
+  "valuationHealthAbsoluteUsd",
+  "valuationHealthAbsoluteTwd",
+  "valuationHealthAbsoluteKrw",
+  "routeCacheDashboardPrimaryTtlMs",
+  "routeCacheDashboardEnrichmentTtlMs",
+  "routeCacheDashboardPerformanceTtlMs",
+  "routeCachePortfolioTtlMs",
+  "routeCacheReportsTtlMs",
+  "routeCacheStaleUsableTtlMs",
 ] as const;
 
 describe("APP_CONFIG_BOUNDS — schema invariants", () => {

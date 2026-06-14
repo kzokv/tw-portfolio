@@ -91,6 +91,17 @@ export const APP_CONFIG_BOUNDS = {
   // testing); upper bound 365 (1 year — matches the upstream Anonymous share
   // token retention bound).
   accountHardPurgeDays: { min: 1, max: 365 },
+  valuationHealthRelativeBps: { min: 0, max: 10_000 },
+  valuationHealthAbsoluteAud: { min: 0, max: 1_000_000 },
+  valuationHealthAbsoluteUsd: { min: 0, max: 1_000_000 },
+  valuationHealthAbsoluteTwd: { min: 0, max: 100_000_000 },
+  valuationHealthAbsoluteKrw: { min: 0, max: 1_000_000_000 },
+  routeCacheDashboardPrimaryTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheDashboardEnrichmentTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheDashboardPerformanceTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCachePortfolioTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheReportsTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheStaleUsableTtlMs: { min: 30_000, max: 60 * 60 * 1000 },
 } as const;
 
 export type AppConfigBoundsKey = keyof typeof APP_CONFIG_BOUNDS;

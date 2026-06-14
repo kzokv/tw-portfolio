@@ -26,6 +26,7 @@ export function PortfolioClient({
   const {
     uiDict: dict,
     locale,
+    routeCachePolicy,
     sessionUserId,
     isSharedContext,
     mutations,
@@ -35,7 +36,7 @@ export function PortfolioClient({
     reportingCurrency,
   } = useAppShellData();
   const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale);
-  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey);
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const [holdingsTableStyle, setHoldingsTableStyle] = useState<"dashboard" | "portfolio">("portfolio");

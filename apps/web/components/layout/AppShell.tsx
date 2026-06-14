@@ -7,10 +7,16 @@ import {
   type AccountDefaultCurrency,
   type LocaleCode,
   type ShellPortfolioConfigDto,
+  type UserSettings,
 } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { getJson, patchJson } from "../../lib/api";
-import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "../../lib/routeDtoCache";
+import {
+  buildRouteDtoCacheTag,
+  clearRouteDtoCacheByPrefix,
+  clearRouteDtoCacheByTags,
+  getRouteDtoCachePrefix,
+} from "../../lib/routeDtoCache";
 import { useNotifications } from "../../hooks/useNotifications";
 import { useCommandPalette } from "../../hooks/useCommandPalette";
 import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
@@ -46,6 +52,7 @@ interface AppShellProps {
   descriptionOverride?: string;
   activeSectionOverride?: AppSection | null;
   initialProfile?: ProfileWithImpersonationDto | null;
+  initialSettings?: UserSettings | null;
   initialPortfolioConfig?: ShellPortfolioConfigDto | null;
   portfolioConfigMode?: "eager" | "lazy";
   initialSidebarOpen?: boolean;
@@ -69,6 +76,14 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   type: "BUY",
   isDayTrade: false,
 };
+
+const REPORTING_SURFACE_CACHE_TAGS = [
+  buildRouteDtoCacheTag("route", "dashboard-primary"),
+  buildRouteDtoCacheTag("route", "dashboard-performance"),
+  buildRouteDtoCacheTag("route", "portfolio-primary"),
+  buildRouteDtoCacheTag("route", "reports"),
+  buildRouteDtoCacheTag("route", "transactions-primary"),
+];
 
 function isEditableQuickActionsPath(pathname: string): boolean {
   return [
@@ -96,6 +111,7 @@ export function AppShell({
   descriptionOverride: _descriptionOverride,
   activeSectionOverride: _activeSectionOverride,
   initialProfile = null,
+  initialSettings = null,
   initialPortfolioConfig = null,
   portfolioConfigMode = "eager",
   initialSidebarOpen = true,
@@ -247,7 +263,7 @@ export function AppShell({
   }, [bumpContextRefreshSignal, portfolioConfig, recomputeAction, transactionSubmission]);
 
   const handleReportingCurrencySaved = useCallback(() => {
-    clearRouteDtoCacheByPrefix(getRouteDtoCachePrefix());
+    clearRouteDtoCacheByTags(REPORTING_SURFACE_CACHE_TAGS);
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal]);
 
@@ -308,6 +324,8 @@ export function AppShell({
     uiDict,
     locale,
     sessionUserId,
+    sessionUserRole: profileData.profile?.role ?? null,
+    routeCachePolicy: initialSettings?.effectiveRouteCachePolicy ?? null,
     isSharedContext,
     canUseGlobalQuickActions,
     openQuickActions: () => setQuickActionsOpen(true),

@@ -10,6 +10,7 @@ import type {
   SnapshotsGeneratedEvent,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
+import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../../lib/routeDtoCache";
 import { useEventStream } from "../../../hooks/useEventStream";
 import {
   previewImpact,
@@ -76,6 +77,13 @@ export interface UseTransactionMutationsResult {
 }
 
 const SAFETY_NET_MS = 10_000;
+const MUTATION_ROUTE_CACHE_TAGS = [
+  buildRouteDtoCacheTag("route", "dashboard-primary"),
+  buildRouteDtoCacheTag("route", "dashboard-performance"),
+  buildRouteDtoCacheTag("route", "portfolio-primary"),
+  buildRouteDtoCacheTag("route", "reports"),
+  buildRouteDtoCacheTag("route", "transactions-primary"),
+];
 
 export function useTransactionMutations({
   dict,
@@ -128,6 +136,7 @@ export function useTransactionMutations({
 
   // Helper: add recomputing state
   const addRecomputing = useCallback((transactionId: string, accountId: string, ticker: string) => {
+    clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
     setRecomputingIds((prev) => new Set([...prev, transactionId]));
     setRecomputingSymbols((prev) => new Set([...prev, `${accountId}:${ticker}`]));
   }, []);
@@ -343,6 +352,7 @@ export function useTransactionMutations({
       const event = data as RecomputeCompleteEvent | RecomputeFailedEvent | SnapshotsGeneratedEvent;
 
       if (event.type === "snapshots_generated") {
+        clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
         onSnapshotsGeneratedRef.current?.(event);
         return;
       }

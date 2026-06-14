@@ -38,6 +38,7 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
         isDemo={session.isDemo}
         localeOverride={settings?.locale ?? "en"}
         initialProfile={profile}
+        initialSettings={settings}
         initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >

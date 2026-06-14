@@ -98,6 +98,18 @@ export interface AppConfigCacheEntry {
 
   // ui-enhancement — account soft-delete grace period (Tier B; in PATCH + UI).
   accountHardPurgeDays: number | null;
+  valuationHealthRelativeBps: number | null;
+  valuationHealthAbsoluteAud: number | null;
+  valuationHealthAbsoluteUsd: number | null;
+  valuationHealthAbsoluteTwd: number | null;
+  valuationHealthAbsoluteKrw: number | null;
+  routeCachePolicyMode: import("../../persistence/types.js").RouteCachePolicyMode | null;
+  routeCacheDashboardPrimaryTtlMs: number | null;
+  routeCacheDashboardEnrichmentTtlMs: number | null;
+  routeCacheDashboardPerformanceTtlMs: number | null;
+  routeCachePortfolioTtlMs: number | null;
+  routeCacheReportsTtlMs: number | null;
+  routeCacheStaleUsableTtlMs: number | null;
 
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;

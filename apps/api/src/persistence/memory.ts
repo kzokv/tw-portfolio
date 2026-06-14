@@ -527,6 +527,8 @@ export class MemoryPersistence implements Persistence {
   /** App config: AU metadata enrichment mode override (KZO-189).
    *  null = unset, callers fall back to Env.METADATA_ENRICHMENT_MODE. */
   private _metadataEnrichmentMode: "unconditional" | "conditional" | null = null;
+  /** App config: route DTO cache policy preset override. */
+  private _routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null = null;
   /** KZO-198: Tier 0 encrypted secrets — stored as `nonce_b64:ct+tag_b64`.
    *  null = unset, callers (resolvers) fall back to env. */
   private _finmindApiTokenEncrypted: string | null = null;
@@ -2942,12 +2944,18 @@ export class MemoryPersistence implements Persistence {
     for (const bar of this.dailyBars) {
       const key = `${bar.ticker}:${bar.marketCode}`;
       if (!result.has(key)) continue;
-      const current = result.get(key);
+      const current = result.get(key) ?? null;
       if (!current || bar.barDate > current) {
         result.set(key, bar.barDate);
       }
     }
     return result;
+  }
+
+  async getLatestBarDatesForReconciliation(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    return this.getLatestBarDatesByTickerMarket(pairs);
   }
 
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
@@ -3278,16 +3286,32 @@ export class MemoryPersistence implements Persistence {
   ): Promise<import("./types.js").HoldingSnapshotRepairScope[]> {
     const scopes = new Map<string, import("./types.js").HoldingSnapshotRepairScope>();
     for (const [userId, store] of this.stores) {
+      const user = this.getUserById(userId);
+      if (user && (user.isDemo === true || user.deactivatedAt || user.deletedAt)) continue;
       const activeAccountIds = new Set(store.accounts.map((account) => account.id));
-      for (const trade of store.accounting.facts.tradeEvents) {
-        if (trade.ticker !== ticker || trade.marketCode !== marketCode) continue;
-        if (!activeAccountIds.has(trade.accountId)) continue;
-        const key = `${userId}\0${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
+      const activePositions = new Map<string, { accountId: string; ticker: string }>();
+
+      for (const lot of store.accounting.projections.lots) {
+        if (!activeAccountIds.has(lot.accountId) || lot.openQuantity <= 0 || lot.ticker !== ticker) continue;
+        activePositions.set(`${lot.accountId}\0${lot.ticker}`, {
+          accountId: lot.accountId,
+          ticker: lot.ticker,
+        });
+      }
+
+      for (const position of activePositions.values()) {
+        const trade = store.accounting.facts.tradeEvents.find((candidate) =>
+          candidate.accountId === position.accountId
+          && candidate.ticker === position.ticker
+          && candidate.marketCode === marketCode,
+        );
+        if (!trade) continue;
+        const key = `${userId}\0${position.accountId}\0${position.ticker}\0${marketCode}`;
         scopes.set(key, {
           userId,
-          accountId: trade.accountId,
-          ticker: trade.ticker,
-          marketCode: trade.marketCode,
+          accountId: position.accountId,
+          ticker: position.ticker,
+          marketCode,
         });
       }
     }
@@ -3733,6 +3757,26 @@ export class MemoryPersistence implements Persistence {
     }
   }
 
+  async getLatestHoldingSnapshotDatesByScope(
+    userId: string,
+    pairs: readonly import("./types.js").HoldingSnapshotLatestDateScopePair[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    for (const pair of pairs) {
+      result.set(`${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`, null);
+    }
+    for (const snapshot of this.holdingSnapshots) {
+      if (snapshot.userId !== userId) continue;
+      const key = `${snapshot.accountId}\0${snapshot.ticker}\0${snapshot.marketCode}`;
+      if (!result.has(key)) continue;
+      const current = result.get(key) ?? null;
+      if (current === null || snapshot.snapshotDate > current) {
+        result.set(key, snapshot.snapshotDate);
+      }
+    }
+    return result;
+  }
+
   async deleteAllCurrencyWalletSnapshots(userId: string): Promise<void> {
     for (let i = this.currencyWalletSnapshots.length - 1; i >= 0; i--) {
       if (this.currencyWalletSnapshots[i].userId === userId) {
@@ -4137,6 +4181,18 @@ export class MemoryPersistence implements Persistence {
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
     accountHardPurgeDays: number | null;
+    valuationHealthRelativeBps: number | null;
+    valuationHealthAbsoluteAud: number | null;
+    valuationHealthAbsoluteUsd: number | null;
+    valuationHealthAbsoluteTwd: number | null;
+    valuationHealthAbsoluteKrw: number | null;
+    routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
+    routeCacheDashboardPrimaryTtlMs: number | null;
+    routeCacheDashboardEnrichmentTtlMs: number | null;
+    routeCacheDashboardPerformanceTtlMs: number | null;
+    routeCachePortfolioTtlMs: number | null;
+    routeCacheReportsTtlMs: number | null;
+    routeCacheStaleUsableTtlMs: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -4205,6 +4261,18 @@ export class MemoryPersistence implements Persistence {
       // ui-enhancement — Tier B account-soft-delete grace period (uses the
       // plain-fields map; setAppConfigField/Patch route through it).
       accountHardPurgeDays: p.accountHardPurgeDays ?? null,
+      valuationHealthRelativeBps: p.valuationHealthRelativeBps ?? null,
+      valuationHealthAbsoluteAud: p.valuationHealthAbsoluteAud ?? null,
+      valuationHealthAbsoluteUsd: p.valuationHealthAbsoluteUsd ?? null,
+      valuationHealthAbsoluteTwd: p.valuationHealthAbsoluteTwd ?? null,
+      valuationHealthAbsoluteKrw: p.valuationHealthAbsoluteKrw ?? null,
+      routeCachePolicyMode: this._routeCachePolicyMode,
+      routeCacheDashboardPrimaryTtlMs: p.routeCacheDashboardPrimaryTtlMs ?? null,
+      routeCacheDashboardEnrichmentTtlMs: p.routeCacheDashboardEnrichmentTtlMs ?? null,
+      routeCacheDashboardPerformanceTtlMs: p.routeCacheDashboardPerformanceTtlMs ?? null,
+      routeCachePortfolioTtlMs: p.routeCachePortfolioTtlMs ?? null,
+      routeCacheReportsTtlMs: p.routeCacheReportsTtlMs ?? null,
+      routeCacheStaleUsableTtlMs: p.routeCacheStaleUsableTtlMs ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -4307,6 +4375,11 @@ export class MemoryPersistence implements Persistence {
 
   async setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void> {
     this._metadataEnrichmentMode = value;
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  async setRouteCachePolicyMode(value: import("./types.js").RouteCachePolicyMode | null): Promise<void> {
+    this._routeCachePolicyMode = value;
     this._bumpAppConfigUpdatedAt();
   }
 

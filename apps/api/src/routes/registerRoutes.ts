@@ -63,6 +63,7 @@ import {
   marketCodeFor,
 } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveHoldingAllocationBasis, resolveReportingCurrency } from "../services/userPreferences.js";
+import { getEffectiveRouteCachePolicy } from "../services/appConfig/valuationHealth.js";
 import {
   buildOverviewMarketValues,
   translateOverviewHoldingGroups,
@@ -80,6 +81,7 @@ import {
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "../services/dashboard.js";
 import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
+import { buildAllRangePerformance, buildValuationHealth } from "../services/valuationHealth.js";
 import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
   buildDividendEventListItems,
@@ -2913,6 +2915,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         ...settings,
         effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
+        effectiveRouteCachePolicy: getEffectiveRouteCachePolicy(),
       };
     });
   });
@@ -2934,6 +2937,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       ...store.settings,
       effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
+      effectiveRouteCachePolicy: getEffectiveRouteCachePolicy(),
     };
   });
 
@@ -4937,12 +4941,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
+      const valuationPerformance = await timing.measure("valuation_health_performance", "db", () =>
+        buildAllRangePerformance(app, userId, store, reportingCurrency, overview.summary.asOf));
+      const valuationHealth = await timing.measure("valuation_health", "app", () =>
+        buildValuationHealth({
+          app,
+          userId,
+          store,
+          reportingCurrency,
+          currentValueAmount: translatedSummary.marketValueAmount,
+          holdingGroups: translatedHoldingGroups,
+          performance: valuationPerformance,
+          asOf: overview.summary.asOf,
+        }));
       return {
         ...overview,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         holdingGroups: translatedHoldingGroups,
+        valuationHealth,
       };
     });
   });
@@ -5019,12 +5037,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
+      const valuationPerformance = await timing.measure("valuation_health_performance", "db", () =>
+        buildAllRangePerformance(app, userId, store, reportingCurrency, overview.summary.asOf));
+      const valuationHealth = await timing.measure("valuation_health", "app", () =>
+        buildValuationHealth({
+          app,
+          userId,
+          store,
+          reportingCurrency,
+          currentValueAmount: translatedSummary.marketValueAmount,
+          holdingGroups: translatedHoldingGroups,
+          performance: valuationPerformance,
+          asOf: overview.summary.asOf,
+        }));
       return {
         ...overview,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         holdingGroups: translatedHoldingGroups,
+        valuationHealth,
       };
     });
   });
@@ -5044,17 +5076,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
       }).parse(req.query);
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      const symbols = [...new Set(
-        store.accounting.facts.tradeEvents
-          .map((trade) => trade.ticker)
-          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
-      )];
-      const { pairs, settledByMarket } = await timing.measure("build_quote_inputs", "app", () =>
-        buildQuoteSnapshotInputs(app, store, symbols));
-      const snapshotMap = await timing.measure("load_quotes", "db", () =>
-        resolveQuoteSnapshots(pairs, app.persistence, settledByMarket));
-      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
-      const asOf = quotes[0]?.asOf ?? new Date().toISOString();
+      const asOf = new Date().toISOString();
       return timing.measure("translate_performance", "db", () => translatePerformancePoints(
         userId,
         query.range as DashboardPerformanceRange,
@@ -5062,7 +5084,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         reportingCurrency,
         app.persistence,
         store,
-        quotes,
       ));
     });
   });
