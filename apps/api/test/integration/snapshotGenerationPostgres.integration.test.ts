@@ -74,6 +74,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     quantity: number;
     unitPrice: number;
     bookingSequence?: number;
+    tradeTimestamp?: string;
     accountId?: string;
   }): Promise<string> {
     const snapshotId = await seedFeePolicySnapshot();
@@ -88,8 +89,8 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
        ) VALUES ($1, $2, $3, $4,
                  'STOCK', $5, $6, $7,
                  $8::date, 0, 0, false,
-                 'manual_trade', NOW(), $9,
-                 'TWD', $10, 'TW')`,
+                 'manual_trade', $9::timestamptz, $10,
+                 'TWD', $11, 'TW')`,
       [
         id,
         userId,
@@ -99,6 +100,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
         overrides.quantity,
         overrides.unitPrice,
         overrides.tradeDate,
+        overrides.tradeTimestamp ?? `${overrides.tradeDate}T09:00:00.000Z`,
         overrides.bookingSequence ?? 1,
         snapshotId,
       ],
@@ -191,12 +193,40 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
   });
 
   it("returns trades with BUY/SELL types sourced from trade_events.trade_type", async () => {
-    await seedTrade({ ticker: "2330", tradeDate: "2026-01-02", tradeType: "BUY", quantity: 10, unitPrice: 600, bookingSequence: 1 });
-    await seedTrade({ ticker: "2330", tradeDate: "2026-01-05", tradeType: "SELL", quantity: 4, unitPrice: 610, bookingSequence: 2 });
+    const buyId = await seedTrade({
+      ticker: "2330",
+      tradeDate: "2026-01-02",
+      tradeType: "BUY",
+      quantity: 10,
+      unitPrice: 600,
+      bookingSequence: 1,
+      tradeTimestamp: "2026-01-02T09:00:00.000Z",
+    });
+    const sellId = await seedTrade({
+      ticker: "2330",
+      tradeDate: "2026-01-05",
+      tradeType: "SELL",
+      quantity: 4,
+      unitPrice: 610,
+      bookingSequence: 2,
+      tradeTimestamp: "2026-01-05T09:30:00.000Z",
+    });
+    await pool.query(
+      `INSERT INTO lot_allocations (
+         id, user_id, account_id, trade_event_id, ticker, lot_id,
+         lot_opened_at, lot_opened_sequence, allocated_quantity,
+         allocated_cost_amount, cost_currency
+       ) VALUES ($1, $2, $3, $4, '2330', $5,
+                 '2026-01-02'::date, 1, 4,
+                 2400, 'TWD')`,
+      [randomUUID(), userId, accountId, sellId, `lot-${buyId}`],
+    );
 
     const inputs = await persistence.getSnapshotGenerationInputs(userId);
 
     expect(inputs.trades).toHaveLength(2);
+    expect(inputs.trades.map((trade) => trade.id)).toEqual([buyId, sellId]);
+    expect(inputs.trades[0]!.tradeTimestamp).toContain("2026-01-02T09:00:00");
     const types = inputs.trades.map((t) => t.type).sort();
     expect(types).toEqual(["BUY", "SELL"]);
     for (const trade of inputs.trades) {
@@ -210,6 +240,14 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
       // inserts `'TW'` so this assertion validates end-to-end projection.
       expect(trade.marketCode).toBe("TW");
     }
+    expect(inputs.lotAllocations).toEqual([
+      expect.objectContaining({
+        tradeEventId: sellId,
+        allocatedCostAmount: 2400,
+        costCurrency: "TWD",
+        lotOpenedAt: "2026-01-02",
+      }),
+    ]);
   });
 
   it("scopes tenant via accounts.user_id (dividend_ledger_entries has no user_id column)", async () => {
@@ -264,6 +302,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     expect(inputs.postedDividends).toHaveLength(1);
     expect(inputs.postedDividends[0]!.ticker).toBe("2330");
     expect(inputs.postedDividends[0]!.amount).toBe(100);
+    expect(inputs.postedDividends[0]!.currency).toBe("TWD");
   });
 
   it("sources postedDividends.amount from cash_ledger_entries DIVIDEND_RECEIPT (migration 010)", async () => {
@@ -277,6 +316,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     expect(posted.accountId).toBe(accountId);
     expect(posted.ticker).toBe("2330");
     expect(posted.paymentDate).toBe("2026-02-20");
+    expect(posted.currency).toBe("TWD");
     // The received_cash_amount column was dropped; the authoritative value is
     // the DIVIDEND_RECEIPT cash ledger sum for the ledger entry.
     expect(posted.amount).toBe(96);
