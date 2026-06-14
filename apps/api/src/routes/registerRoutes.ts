@@ -5005,26 +5005,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      const valuationPerformance = await timing.measure("valuation_health_performance", "db", () =>
-        buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf));
-      const valuationHealth = await timing.measure("valuation_health", "app", () =>
-        buildValuationHealth({
-          app,
-          userId,
-          store,
-          reportingCurrency,
-          currentValueAmount: translatedSummary.marketValueAmount,
-          holdingGroups: translatedHoldingGroups,
-          performance: valuationPerformance,
-          asOf: overview.summary.asOf,
-        }));
+      const valuationPerformance = translatedHoldingGroups.length > 0
+        ? await timing.measure("valuation_health_performance", "db", () =>
+            buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
+        : null;
+      const valuationHealth = translatedHoldingGroups.length > 0
+        ? await timing.measure("valuation_health", "app", () =>
+            buildValuationHealth({
+              app,
+              userId,
+              store,
+              reportingCurrency,
+              currentValueAmount: translatedSummary.marketValueAmount,
+              holdingGroups: translatedHoldingGroups,
+              performance: valuationPerformance!,
+              asOf: overview.summary.asOf,
+            }))
+        : undefined;
       return {
         ...overview,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         holdingGroups: translatedHoldingGroups,
-        valuationHealth,
+        ...(valuationHealth ? { valuationHealth } : {}),
       };
     });
   });
@@ -5102,26 +5106,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
-      const valuationPerformance = await timing.measure("valuation_health_performance", "db", () =>
-        buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf));
-      const valuationHealth = await timing.measure("valuation_health", "app", () =>
-        buildValuationHealth({
-          app,
-          userId,
-          store,
-          reportingCurrency,
-          currentValueAmount: translatedSummary.marketValueAmount,
-          holdingGroups: translatedHoldingGroups,
-          performance: valuationPerformance,
-          asOf: overview.summary.asOf,
-        }));
+      const valuationPerformance = translatedHoldingGroups.length > 0
+        ? await timing.measure("valuation_health_performance", "db", () =>
+            buildRecentValuationPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
+        : null;
+      const valuationHealth = translatedHoldingGroups.length > 0
+        ? await timing.measure("valuation_health", "app", () =>
+            buildValuationHealth({
+              app,
+              userId,
+              store,
+              reportingCurrency,
+              currentValueAmount: translatedSummary.marketValueAmount,
+              holdingGroups: translatedHoldingGroups,
+              performance: valuationPerformance!,
+              asOf: overview.summary.asOf,
+            }))
+        : undefined;
       return {
         ...overview,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         holdingGroups: translatedHoldingGroups,
-        valuationHealth,
+        ...(valuationHealth ? { valuationHealth } : {}),
       };
     });
   });
