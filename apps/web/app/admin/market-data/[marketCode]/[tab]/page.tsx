@@ -196,7 +196,10 @@ export default async function AdminMarketDataWorkspacePage({
   const providerId = firstOptionalQueryValue(query.providerId);
   const operationId = firstOptionalQueryValue(query.operationId);
   const snapshotRepairRequest = tab === "backfill" && firstOptionalQueryValue(query.repair) === "snapshots"
-    ? { tickers: snapshotRepairTickersFromSearchParams(query, instrumentQuery.search) }
+    ? {
+        tickers: snapshotRepairTickersFromSearchParams(query, instrumentQuery.search),
+        fromDate: firstOptionalQueryValue(query.fromDate) ?? null,
+      }
     : null;
 
   const [overview, actions] = await Promise.all([

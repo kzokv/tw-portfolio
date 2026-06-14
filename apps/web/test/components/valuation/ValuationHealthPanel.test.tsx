@@ -142,14 +142,14 @@ describe("ValuationHealthPanel", () => {
     const repairButton = document.querySelector("[data-testid='valuation-health-admin-repair']");
     expect(repairButton?.textContent).toContain("Repair snapshots");
     expect(repairButton?.textContent).not.toContain("Generate snapshots");
-    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?search=VRT&repair=snapshots");
+    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?search=VRT&repair=snapshots&fromDate=2026-06-12");
   });
 });
 
 describe("getValuationHealthAdminRepairHref", () => {
   it("returns a market-scoped backfill route for a single actionable holding", () => {
     expect(getValuationHealthAdminRepairHref(buildValuationHealth())).toBe(
-      "/admin/market-data/US/backfill?search=VRT&repair=snapshots",
+      "/admin/market-data/US/backfill?search=VRT&repair=snapshots&fromDate=2026-06-12",
     );
   });
 
@@ -214,7 +214,7 @@ describe("getValuationHealthAdminRepairHref", () => {
           recommendedActions: ["run_snapshot_repair"],
         }),
       ),
-    ).toBe("/admin/market-data/US/backfill?tickers=VRT%2CV&repair=snapshots");
+    ).toBe("/admin/market-data/US/backfill?tickers=VRT%2CV&repair=snapshots&fromDate=2026-06-12");
   });
 
   it("caps snapshot repair deep links at the admin API ticker limit", () => {
@@ -237,6 +237,7 @@ describe("getValuationHealthAdminRepairHref", () => {
     );
 
     expect(href).toContain("repair=snapshots");
+    expect(href).toContain("fromDate=2026-06-12");
     expect(href).toContain("truncated=true");
     expect(new URLSearchParams(href?.split("?")[1]).get("tickers")?.split(",")).toHaveLength(20);
   });
