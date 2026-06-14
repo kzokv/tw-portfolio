@@ -217,6 +217,30 @@ describe("getValuationHealthAdminRepairHref", () => {
     ).toBe("/admin/market-data/US/backfill?tickers=VRT%2CV&repair=snapshots");
   });
 
+  it("caps snapshot repair deep links at the admin API ticker limit", () => {
+    const affectedHoldings = Array.from({ length: 21 }, (_, index) => ({
+      ticker: `T${index + 1}`,
+      marketCode: "US" as const,
+      currentReportingValueAmount: 100,
+      latestBarDate: "2026-06-13",
+      latestSnapshotDate: "2026-06-12",
+      backfillStatus: "ready" as const,
+      status: "stale_snapshot" as const,
+      recommendedAction: "run_snapshot_repair" as const,
+    }));
+
+    const href = getValuationHealthAdminRepairHref(
+      buildValuationHealth({
+        affectedHoldings,
+        recommendedActions: ["run_snapshot_repair"],
+      }),
+    );
+
+    expect(href).toContain("repair=snapshots");
+    expect(href).toContain("truncated=true");
+    expect(new URLSearchParams(href?.split("?")[1]).get("tickers")?.split(",")).toHaveLength(20);
+  });
+
   it("falls back to the landing page when remediation spans multiple markets", () => {
     expect(
       getValuationHealthAdminRepairHref(
