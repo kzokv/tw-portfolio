@@ -4,8 +4,8 @@ import { test } from "@vakwen/test-e2e/fixtures/appPages";
 // It is never cleared between tests. Tests that seed bars for the same ticker
 // accumulate entries; getLatestBars(ticker, 2) always returns the 2 most-recent dates.
 // Test 3 seeds 2330 bars from 2026-04-04/05. Test 4 uses "0050" (a catalog-backed
-// fresh ticker) to avoid duplicate-date accumulation with test 3's 2330 bars. Test 5 uses "020000"
-// (another fresh ticker) to guarantee its stale bars are the latest.
+// fresh ticker) to avoid duplicate-date accumulation with test 3's 2330 bars. Test 5 uses "00919"
+// (another default catalog-backed ticker) to guarantee its stale bars are the latest while staying quoteable.
 //
 // Provisional note: computeIsProvisional() returns false on weekends (Sat/Sun TST).
 // Test 5 is skipped on weekends. Tests 3 and 4 still pass on weekends because the
@@ -82,7 +82,7 @@ test("dashboard: mixed quote coverage → summary daily change shows fallback", 
   await dashboard.assert.heroPanelContains(/Waiting for market value data/i);
 });
 
-test("dashboard: provisional quote shows clock indicator", async ({
+test("dashboard: provisional quote shows status badge", async ({
   dashboard,
   appShell,
 }) => {
@@ -90,20 +90,20 @@ test("dashboard: provisional quote shows clock indicator", async ({
   // Skip this test on weekends to avoid false failures.
   const tstDayOfWeek = new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCDay();
   // eslint-disable-next-line playwright/no-skipped-test
-  test.skip(tstDayOfWeek === 0 || tstDayOfWeek === 6, "computeIsProvisional returns false on weekends — provisional ⏱ badge not rendered");
+  test.skip(tstDayOfWeek === 0 || tstDayOfWeek === 6, "computeIsProvisional returns false on weekends — provisional status not rendered");
 
   await appShell.actions.setViewport(1440, 960);
-  // Use "020000" (not "2330" or "0050") — tests 3 and 4 seed current-date (2026-04-05)
+  // Use "00919" (not "2330" or "0050") — tests 3 and 4 seed current-date (2026-04-05)
   // bars for those tickers. If we reused either ticker here, getLatestBars would return the 2026-04-05 bar (= today),
   // and computeIsProvisional would return false, masking the provisional indicator.
-  await dashboard.arrange.seedTrade({ ticker: "020000", quantity: 100, unitPrice: 100 });
+  await dashboard.arrange.seedTrade({ ticker: "00919", quantity: 100, unitPrice: 100 });
   await dashboard.arrange.seedDailyBars([
-    { ticker: "020000", barDate: "2026-03-20", open: 98, high: 100, low: 97, close: 99, volume: 1000 },
-    { ticker: "020000", barDate: "2026-03-21", open: 99, high: 101, low: 98, close: 100, volume: 1200 },
+    { ticker: "00919", barDate: "2026-03-20", open: 98, high: 100, low: 97, close: 99, volume: 1000 },
+    { ticker: "00919", barDate: "2026-03-21", open: 99, high: 101, low: 98, close: 100, volume: 1200 },
   ]);
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
 
-  // Stale bars (2026-03-21 < today on weekdays) → isProvisional = true → ⏱ renders
-  await dashboard.assert.holdingRowContainsText("020000", /⏱/);
+  // Stale bars (2026-03-21 < today on weekdays) → isProvisional = true → Provisional status renders
+  await dashboard.assert.holdingRowContainsText("00919", /Provisional/i);
 });
