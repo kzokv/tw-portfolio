@@ -148,6 +148,7 @@ function buildHoldingHealthRow(
       const currentOpenStartDate = currentOpenStartDateByScope.get(key) ?? null;
       return currentOpenStartDate === null || currentOpenStartDate <= latestBarDate;
     });
+  const hasIneligibleCurrentScope = latestBarDate !== null && snapshotEligibleScopeKeys.length < scopeKeys.length;
   const scopeSnapshotDates = snapshotEligibleScopeKeys.map((key) => latestSnapshotByScope.get(key) ?? null);
   const latestSnapshotDate = scopeSnapshotDates.some((date) => date === null)
     ? null
@@ -172,6 +173,9 @@ function buildHoldingHealthRow(
   } else if (latestSnapshotDate !== null && latestSnapshotDate < latestBarDate) {
     status = "stale_snapshot";
     recommendedAction = "run_snapshot_repair";
+  } else if (hasIneligibleCurrentScope) {
+    status = "awaiting_latest_bar";
+    recommendedAction = "none";
   }
 
   return {
