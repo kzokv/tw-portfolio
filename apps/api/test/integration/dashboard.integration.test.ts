@@ -85,6 +85,8 @@ describe("dashboard overview", () => {
         feeProfileBindings: expect.any(Array),
       }),
     );
+    expect(response.json()).not.toHaveProperty("valuationHealth");
+    expect(response.headers["server-timing"]).not.toContain("valuation_health");
   });
 
   it.each([
@@ -93,6 +95,14 @@ describe("dashboard overview", () => {
   ])("uses recent performance for valuation health on %s", async (url) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
     const snapshotSpy = vi.spyOn(app.persistence, "getAggregatedSnapshotsInReportingCurrency");
 
     const response = await app.inject({ method: "GET", url });

@@ -10,7 +10,7 @@ import type {
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
-import { listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
 import type {
   AccountingStore,
@@ -1964,8 +1964,19 @@ export class MemoryPersistence implements Persistence {
   }
 
   async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
-    const store = await this.loadStore(userId);
-    return listTransactionInstruments(store.instruments)
+    const instruments = [...this._catalogForUser(userId).values()]
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .map((row): Store["instruments"][number] => ({
+        ticker: row.ticker,
+        type: row.instrumentType as InstrumentType | null,
+        marketCode: row.marketCode as MarketCode,
+        isProvisional: false,
+        lastSyncedAt: null,
+        typeRaw: row.typeRaw ?? null,
+        industryCategoryRaw: row.industryCategoryRaw ?? null,
+        finmindDate: null,
+      }));
+    return upsertInstrumentDefinitions(instruments, createDefaultInstruments())
       .map((instrument): InstrumentOptionDto | null => {
         if (instrument.type === null) return null;
         return {
