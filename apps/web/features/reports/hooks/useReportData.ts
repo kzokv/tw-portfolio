@@ -127,7 +127,7 @@ export function useReportData({
       setCacheStatus(cached.status);
       setRestoredFromCache(true);
       setRestoredAt(cached.savedAt);
-      if (cached.status === "stale") {
+      if (cached.status === "stale" || expectedReportingCurrency === null) {
         void refresh({ bypassCache: true });
       }
       return;
