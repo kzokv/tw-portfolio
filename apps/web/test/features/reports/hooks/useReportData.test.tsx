@@ -221,8 +221,14 @@ describe("useReportData", () => {
     expect(readRouteDtoCache<DailyReviewReportDto>(reportCacheKey(ownerCacheScope))?.payload.suggestions[0]?.title).toBe("Owner refresh");
   });
 
-  it("restores a fresh matching cached report without fetching when SSR data is absent", async () => {
+  it("restores a fresh matching cached report and revalidates when SSR data is absent", async () => {
     const cached = buildReport("Cached report", "2026-06-08");
+    const refreshed = buildReport("Fresh report", "2026-06-09");
+    let resolveRefresh: (report: DailyReviewReportDto) => void = () => {};
+    const refreshPromise = new Promise<DailyReviewReportDto>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    vi.mocked(fetchReport).mockReturnValue(refreshPromise);
     writeRouteDtoCache(reportCacheKey(), cached);
 
     act(() => {
@@ -236,7 +242,17 @@ describe("useReportData", () => {
     expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Cached report");
     expect(result.isBootstrapping).toBe(false);
     expect(result.restoredFromCache).toBe(true);
-    expect(fetchReport).not.toHaveBeenCalled();
+    expect(result.isRefreshing).toBe(true);
+    expect(fetchReport).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRefresh(refreshed);
+      await refreshPromise;
+    });
+
+    expect((result.data as DailyReviewReportDto | null)?.suggestions[0]?.title).toBe("Fresh report");
+    expect(result.isRefreshing).toBe(false);
+    expect(result.restoredFromCache).toBe(false);
   });
 
   it("restores a stale matching cached report while refreshing when SSR data is absent", async () => {

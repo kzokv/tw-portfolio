@@ -93,6 +93,8 @@ export function useDashboardPerformance({
       setRestoredAt(cached.savedAt);
       setRestoredFromCache(true);
       if (cached.status === "fresh") {
+        setErrorMessage("");
+        setIsLoading(false);
         return () => {
           activeControllerRef.current?.abort();
           activeControllerRef.current = null;
