@@ -422,6 +422,70 @@ describe("enqueueSnapshotRepairIfActiveHeld", () => {
     await persistence.close();
   });
 
+  it("enqueues repair for sold-out historical holdings that still need performance snapshots", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+    const store = createStore();
+    addOpenTradeAndLot(store);
+    store.accounting.projections.lots = store.accounting.projections.lots.map((lot) => ({
+      ...lot,
+      openQuantity: 0,
+    }));
+    rebuildHoldingProjection(store);
+    await persistence.saveStore(store);
+
+    const boss = { send: vi.fn().mockResolvedValue("job-1") };
+
+    await expect(enqueueSnapshotRepairIfActiveHeld({
+      boss,
+      persistence,
+      ticker: "2330",
+      marketCode: "TW",
+      fromDate: "2026-06-01",
+      trigger: "repair",
+    })).resolves.toBe(true);
+
+    expect(await persistence.listHoldingSnapshotRepairScopesForTickerMarket("2330", "TW")).toEqual([
+      { userId: "user-1", accountId: "acc-1", ticker: "2330", marketCode: "TW" },
+    ]);
+    expect(boss.send).toHaveBeenCalledWith(
+      SNAPSHOT_REPAIR_QUEUE,
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        fromDate: "2026-06-01",
+        trigger: "repair",
+      },
+      { singletonKey: "2330:TW:2026-06-01" },
+    );
+
+    await persistence.close();
+  });
+
+  it("lists Postgres repair scopes from trade history instead of open lots", async () => {
+    const persistence = new PostgresPersistence({
+      databaseUrl: "postgres://localhost/test",
+      redisUrl: "redis://localhost:6379",
+    });
+    const query = vi.fn().mockResolvedValue({
+      rows: [{ user_id: "user-1", account_id: "acc-1", ticker: "2330", market_code: "TW" }],
+    });
+    Object.defineProperty(persistence, "pool", {
+      configurable: true,
+      value: { query },
+    });
+
+    await expect(persistence.listHoldingSnapshotRepairScopesForTickerMarket("2330", "TW")).resolves.toEqual([
+      { userId: "user-1", accountId: "acc-1", ticker: "2330", marketCode: "TW" },
+    ]);
+
+    const sql = String(query.mock.calls[0]?.[0] ?? "");
+    expect(sql).toContain("FROM trade_events te");
+    expect(sql).not.toContain("open_quantity");
+    expect(sql).not.toContain("FROM lots");
+    expect(query).toHaveBeenCalledWith(expect.any(String), ["2330", "TW"]);
+  });
+
   it("does not enqueue repair for disabled or deleted users even when they still have open lots", async () => {
     const persistence = new MemoryPersistence();
     await persistence.init();

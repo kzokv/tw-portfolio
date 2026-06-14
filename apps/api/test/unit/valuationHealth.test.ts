@@ -146,4 +146,48 @@ describe("buildValuationHealth", () => {
     ]);
     expect(dto.recommendedActions).toEqual(["run_backfill", "run_snapshot_repair"]);
   });
+
+  it("marks holdings stale against the expected valuation date when all snapshots are globally old", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([["BHP:AU", "2026-06-13"]])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([[scopeKey("acc-1", "BHP", "AU"), "2026-06-12"]])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "AUD",
+      currentValueAmount: 10_500,
+      asOf: "2026-06-14T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "BHP",
+          marketCode: "AU",
+          reportingMarketValueAmount: 10_500,
+          children: [{ accountId: "acc-1", ticker: "BHP", marketCode: "AU" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 10_000 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-12",
+          latestSnapshotDate: "2026-06-12",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("material");
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "BHP",
+        latestSnapshotDate: "2026-06-12",
+        status: "stale_snapshot",
+        recommendedAction: "run_snapshot_repair",
+      }),
+    ]);
+    expect(dto.recommendedActions).toEqual(["run_snapshot_repair"]);
+  });
 });

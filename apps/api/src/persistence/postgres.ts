@@ -6129,29 +6129,23 @@ export class PostgresPersistence implements Persistence {
       market_code: MarketCode;
     }>(
        `SELECT DISTINCT
-          a.user_id,
-          l.account_id,
-          l.ticker,
-          $2::text AS market_code
-       FROM lots l
+          te.user_id,
+          te.account_id,
+          te.ticker,
+          te.market_code
+       FROM trade_events te
        JOIN accounts a
-         ON a.id = l.account_id
+         ON a.id = te.account_id
+        AND a.user_id = te.user_id
         AND a.deleted_at IS NULL
        JOIN users u
-         ON u.id = a.user_id
-       WHERE l.ticker = $1
-         AND l.open_quantity > 0
+         ON u.id = te.user_id
+       WHERE te.ticker = $1
+         AND te.market_code = $2
          AND u.is_demo = FALSE
          AND u.deactivated_at IS NULL
          AND u.deleted_at IS NULL
-         AND EXISTS (
-           SELECT 1
-             FROM trade_events te
-            WHERE te.account_id = l.account_id
-              AND te.ticker = l.ticker
-              AND te.market_code = $2
-         )
-       ORDER BY a.user_id, l.account_id, l.ticker, market_code`,
+       ORDER BY te.user_id, te.account_id, te.ticker, te.market_code`,
       [ticker, marketCode],
     );
     return result.rows.map((row) => ({
