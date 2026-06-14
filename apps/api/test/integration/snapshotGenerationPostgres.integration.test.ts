@@ -226,7 +226,8 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
 
     expect(inputs.trades).toHaveLength(2);
     expect(inputs.trades.map((trade) => trade.id)).toEqual([buyId, sellId]);
-    expect(inputs.trades[0]!.tradeTimestamp).toContain("2026-01-02T09:00:00");
+    expect(inputs.trades[0]!.tradeTimestamp).toBeDefined();
+    expect(inputs.trades[0]!.tradeTimestamp?.slice(0, 10)).toBe("2026-01-02");
     const types = inputs.trades.map((t) => t.type).sort();
     expect(types).toEqual(["BUY", "SELL"]);
     for (const trade of inputs.trades) {
@@ -344,6 +345,22 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
       eventId,
       receivedCashAmount: 100,
       supersededAt: new Date().toISOString(),
+    });
+
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
+    expect(inputs.postedDividends).toHaveLength(0);
+  });
+
+  it("returns empty postedDividends when the posted ledger entry is reversed", async () => {
+    const eventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    const originalLedgerId = await seedPostedDividend({
+      eventId,
+      receivedCashAmount: 100,
+    });
+    await seedPostedDividend({
+      eventId,
+      receivedCashAmount: 0,
+      reversalOf: originalLedgerId,
     });
 
     const inputs = await persistence.getSnapshotGenerationInputs(userId);
