@@ -241,4 +241,57 @@ describe("buildValuationHealth", () => {
     ]);
     expect(dto.recommendedActions).toEqual(["run_snapshot_repair"]);
   });
+
+  it("does not recommend snapshot repair when a holding opens after the latest available bar", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([["VRT:US", "2026-06-13"]])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([[scopeKey("acc-1", "VRT", "US"), null]])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {
+        accounting: {
+          facts: {
+            tradeEvents: [
+              {
+                id: "trade-1",
+                accountId: "acc-1",
+                ticker: "VRT",
+                marketCode: "US",
+                type: "BUY",
+                quantity: 10,
+                tradeDate: "2026-06-14",
+              },
+            ],
+          },
+        },
+      } as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 1_000,
+      asOf: "2026-06-14T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "VRT",
+          marketCode: "US",
+          reportingMarketValueAmount: 1_000,
+          children: [{ accountId: "acc-1", ticker: "VRT", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 0 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-13",
+          latestSnapshotDate: "2026-06-13",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("material");
+    expect(dto.affectedHoldings).toEqual([]);
+    expect(dto.recommendedActions).toEqual([]);
+  });
 });
