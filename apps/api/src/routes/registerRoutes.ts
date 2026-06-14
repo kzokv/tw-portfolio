@@ -22,7 +22,7 @@ import {
   type ImpersonationCookieIdentity,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
+import { calculateBuyFees, calculateSellFees, classifyInstrument, resolveRangeBounds, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
   AiConnectorPolicySettingsDto,
@@ -65,6 +65,7 @@ import {
 import { resolveEffectiveRanges, resolveHoldingAllocationBasis, resolveReportingCurrency } from "../services/userPreferences.js";
 import { getEffectiveRouteCachePolicy } from "../services/appConfig/valuationHealth.js";
 import {
+  buildExpectedSnapshotContributorKeysForTrades,
   buildOverviewMarketValues,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
@@ -157,6 +158,7 @@ import type {
   AnonymousShareTokenRecord,
   PendingShareInviteRecord,
   Persistence,
+  SnapshotTradeInput,
   ShareGrantRecord,
   UserRole,
 } from "../persistence/types.js";
@@ -2121,19 +2123,35 @@ export function _resetDemoRateBuckets(): void {
   demoRateBuckets.clear();
 }
 
-async function resolveDashboardPerformanceAsOf(persistence: Persistence, store: Store): Promise<string> {
+async function resolveDashboardPerformanceAsOfFromTrades(
+  persistence: Persistence,
+  trades: ReadonlyArray<SnapshotTradeInput>,
+): Promise<string> {
   const fallbackAsOf = new Date().toISOString();
-  const pairs = new Map<string, { ticker: string; marketCode: SharedMarketCode }>();
+  const activeQuantities = new Map<string, { ticker: string; marketCode: SharedMarketCode; quantity: number }>();
 
-  for (const holding of store.accounting.projections.holdings) {
-    if (holding.quantity <= 0) continue;
-    const marketCode = marketCodeFor(holding.currency);
-    pairs.set(`${holding.ticker}:${marketCode}`, { ticker: holding.ticker, marketCode });
+  for (const trade of sortSnapshotTradesForPerformance(trades)) {
+    const key = `${trade.accountId}:${trade.marketCode}:${trade.ticker}`;
+    const current = activeQuantities.get(key)?.quantity ?? 0;
+    const next = trade.type === "BUY"
+      ? current + trade.quantity
+      : Math.max(0, current - trade.quantity);
+    if (next === 0) activeQuantities.delete(key);
+    else activeQuantities.set(key, { ticker: trade.ticker, marketCode: trade.marketCode as SharedMarketCode, quantity: next });
   }
 
-  if (pairs.size === 0) return fallbackAsOf;
+  const pairsByKey = new Map<string, { ticker: string; marketCode: SharedMarketCode }>();
+  for (const holding of activeQuantities.values()) {
+    if (holding.quantity <= 0) continue;
+    pairsByKey.set(`${holding.ticker}:${holding.marketCode}`, {
+      ticker: holding.ticker,
+      marketCode: holding.marketCode,
+    });
+  }
 
-  const latestBarDates = await persistence.getLatestBarDatesForReconciliation([...pairs.values()]);
+  if (pairsByKey.size === 0) return fallbackAsOf;
+
+  const latestBarDates = await persistence.getLatestBarDatesForReconciliation([...pairsByKey.values()]);
   let latestDate: string | null = null;
   for (const date of latestBarDates.values()) {
     if (date !== null && (latestDate === null || date > latestDate)) {
@@ -2142,6 +2160,16 @@ async function resolveDashboardPerformanceAsOf(persistence: Persistence, store: 
   }
 
   return latestDate === null ? fallbackAsOf : `${latestDate}T00:00:00.000Z`;
+}
+
+function sortSnapshotTradesForPerformance<T extends SnapshotTradeInput>(trades: ReadonlyArray<T>): T[] {
+  return [...trades].sort(
+    (a, b) =>
+      a.tradeDate.localeCompare(b.tradeDate) ||
+      (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0) ||
+      (a.tradeTimestamp ?? "").localeCompare(b.tradeTimestamp ?? "") ||
+      a.id.localeCompare(b.id),
+  );
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
@@ -4587,7 +4615,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/primary", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/primary", async (timing) => {
-      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const store = await timing.measure("load_primary_read_store", "db", () => app.persistence.loadPrimaryReadStore(userId));
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
       const reportingCurrency = resolveReportingCurrency(prefs);
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
@@ -4990,7 +5019,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/dashboard/primary", async (req, reply) => {
     return withReadPathTiming(req, reply, "/dashboard/primary", async (timing) => {
-      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const store = await timing.measure("load_primary_read_store", "db", () => app.persistence.loadPrimaryReadStore(userId));
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
       const reportingCurrency = resolveReportingCurrency(prefs);
       return timing.measure("build_primary_overview", "app", () =>
@@ -5098,16 +5128,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const query = z.object({
         range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
       }).parse(req.query);
-      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const performanceInputs = await timing.measure("load_performance_inputs", "db", () =>
+        app.persistence.getSnapshotGenerationInputs(userId));
+      const earliestTradeDate = performanceInputs.trades.map((trade) => trade.tradeDate).sort()[0];
       const asOf = await timing.measure("resolve_as_of", "db", () =>
-        resolveDashboardPerformanceAsOf(app.persistence, store));
+        resolveDashboardPerformanceAsOfFromTrades(app.persistence, performanceInputs.trades));
+      const { startDate, endDate } = resolveRangeBounds(query.range, asOf, earliestTradeDate);
+      const expectedContributorKeysByDate = await timing.measure("coverage_inputs", "db", () =>
+        buildExpectedSnapshotContributorKeysForTrades(performanceInputs.trades, startDate, endDate, app.persistence));
       return timing.measure("translate_performance", "db", () => translatePerformancePoints(
         userId,
         query.range as DashboardPerformanceRange,
         asOf,
         reportingCurrency,
         app.persistence,
-        store,
+        undefined,
+        undefined,
+        {
+          earliestTradeDate,
+          expectedContributorKeysByDate,
+          financeTrades: performanceInputs.trades,
+          financeDividends: performanceInputs.postedDividends,
+          financeLotAllocations: performanceInputs.lotAllocations,
+        },
       ));
     });
   });

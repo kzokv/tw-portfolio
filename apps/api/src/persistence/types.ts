@@ -1783,6 +1783,7 @@ export interface SnapshotDividendInput {
   marketCode: MarketCode;
   paymentDate: string;
   amount: number;
+  currency: CurrencyCode;
 }
 
 /**
@@ -1798,9 +1799,12 @@ export interface SnapshotTradeInput {
   quantity: number;
   unitPrice: number;
   tradeDate: string;
+  tradeTimestamp?: string;
   bookingSequence?: number;
   commissionAmount: number;
   taxAmount: number;
+  realizedPnlAmount?: number | null;
+  realizedPnlCurrency?: string | null;
   /** KZO-165: native currency of the trade. Walker uses trades[0].priceCurrency
    *  as the holding's native currency and fails fast on mixed values for the
    *  same (account, ticker). */
@@ -1812,9 +1816,17 @@ export interface SnapshotTradeInput {
   marketCode: MarketCode;
 }
 
+export interface SnapshotLotAllocationInput {
+  tradeEventId: string;
+  allocatedCostAmount: number;
+  costCurrency: string;
+  lotOpenedAt: string;
+}
+
 export interface SnapshotGenerationInputs {
   trades: SnapshotTradeInput[];
   postedDividends: SnapshotDividendInput[];
+  lotAllocations: SnapshotLotAllocationInput[];
 }
 
 export interface SnapshotGenerationScope {
@@ -2032,6 +2044,14 @@ export interface Persistence {
    */
   purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number>;
   loadStore(userId: string): Promise<Store>;
+  /**
+   * Load the narrow store shape required by first-paint portfolio/dashboard
+   * primary routes. Implementations should include user settings, active
+   * accounts, fee config, open lots-derived holdings, and instrument metadata,
+   * while skipping broad facts such as trades, cash ledger, dividend events,
+   * recompute jobs, and lot allocations.
+   */
+  loadPrimaryReadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;

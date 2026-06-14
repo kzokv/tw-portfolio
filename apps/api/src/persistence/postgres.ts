@@ -4424,6 +4424,156 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
+  async loadPrimaryReadStore(userId: string): Promise<Store> {
+    await this.ensureDefaultPortfolioData(userId);
+    const [
+      userResult,
+      accountsResult,
+      feeProfilesResult,
+      symbolsResult,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
+         FROM users
+         WHERE id = $1`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+                fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+                fp.commission_currency,
+                fp.commission_rounding_mode, fp.tax_rounding_mode,
+                fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+                fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+         FROM fee_profiles fp
+         JOIN accounts a ON a.id = fp.account_id
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL
+         ORDER BY fp.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
+         FROM market_data.instruments
+         ORDER BY market_code, ticker`,
+      ),
+    ]);
+
+    const accountIds = accountsResult.rows.map((row) => row.id);
+    const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
+    const [feeProfileTaxRulesResult, bindingsResult, lotsResult] = await Promise.all([
+      feeProfileIds.length
+        ? this.pool.query(
+            `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+             FROM fee_profile_tax_rules
+             WHERE fee_profile_id = ANY($1)
+             ORDER BY fee_profile_id, sort_order, id`,
+            [feeProfileIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT account_id, ticker, fee_profile_id
+             FROM account_fee_profile_overrides
+             WHERE account_id = ANY($1)
+             ORDER BY account_id, ticker`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+             FROM lots
+             WHERE account_id = ANY($1)
+             ORDER BY opened_at, opened_sequence, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
+    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
+      hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
+    );
+    const instruments = symbolsResult.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .map((row) => ({
+        ticker: row.ticker,
+        name: row.name ?? undefined,
+        instrumentType: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+      }));
+    const user = userResult.rows[0];
+    const store: Store = {
+      userId,
+      settings: {
+        userId,
+        displayName: user.display_name ?? null,
+        locale: user.locale,
+        costBasisMethod: user.cost_basis_method,
+        quotePollIntervalSeconds: user.quote_poll_interval_seconds,
+      },
+      accounts: accountsResult.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
+      })),
+      feeProfileBindings: bindingsResult.rows.map((row) => ({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        feeProfileId: row.fee_profile_id,
+      })),
+      feeProfiles,
+      accounting: {
+        facts: {
+          tradeEvents: [],
+          cashLedgerEntries: [],
+          dividendLedgerEntries: [],
+          dividendDeductionEntries: [],
+          dividendSourceLines: [],
+          corporateActions: [],
+        },
+        projections: {
+          lots: lotsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            openQuantity: row.open_quantity,
+            totalCostAmount: Number(row.total_cost_amount),
+            costCurrency: row.cost_currency,
+            openedAt: normalizeDate(row.opened_at),
+            openedSequence: row.opened_sequence,
+          })),
+          lotAllocations: [],
+          holdings: [],
+          dailyPortfolioSnapshots: [],
+        },
+        policy: buildAccountingPolicy(),
+      },
+      marketData: {
+        dividendEvents: [],
+        instruments,
+      },
+      instruments: instruments.map(instrumentRefToDef),
+      recomputeJobs: [],
+      idempotencyKeys: new Set<string>(),
+    };
+    rebuildHoldingProjection(store);
+    return store;
+  }
+
   async loadStore(userId: string): Promise<Store> {
     await this.ensureDefaultPortfolioData(userId);
     // Batch 1: all queries with no inter-query dependencies
@@ -5878,16 +6028,31 @@ export class PostgresPersistence implements Persistence {
     const tradesResult = await this.pool.query<{
       id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
-      booking_sequence: number | null; commission_amount: string; tax_amount: string;
+      trade_timestamp: string | null; booking_sequence: number | null;
+      commission_amount: string; tax_amount: string;
       price_currency: string; market_code: string;
     }>(
       `SELECT id, account_id, ticker, trade_type, quantity, unit_price, trade_date::text,
-              booking_sequence, commission_amount, tax_amount, price_currency, market_code
+              trade_timestamp::text, booking_sequence, commission_amount, tax_amount,
+              price_currency, market_code
        FROM trade_events
        WHERE ${tradeFilter}
-       ORDER BY trade_date ASC, booking_sequence ASC, id ASC`,
+       ORDER BY trade_date ASC, booking_sequence ASC, trade_timestamp ASC, id ASC`,
       tradeParams,
     );
+    const tradeIds = tradesResult.rows.map((row) => row.id);
+    const lotAllocationsResult = tradeIds.length
+      ? await this.pool.query<{
+          trade_event_id: string; allocated_cost_amount: string; cost_currency: string; lot_opened_at: string;
+        }>(
+          `SELECT trade_event_id, allocated_cost_amount::text, cost_currency, lot_opened_at::text
+           FROM lot_allocations
+           WHERE user_id = $1
+             AND trade_event_id = ANY($2)
+           ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+          [userId, tradeIds],
+        )
+      : { rows: [] };
 
     // Dividends: join ledger entries to events so we can scope by ticker.
     // - tenant scoping via accounts.user_id (dividend_ledger_entries has no user_id column)
@@ -5902,12 +6067,13 @@ export class PostgresPersistence implements Persistence {
       : "account.user_id = $1 AND account.deleted_at IS NULL";
     const divParams = scope ? [userId, scope.accountId, scope.ticker, scope.marketCode ?? null] : [userId];
     const divResult = await this.pool.query<{
-      account_id: string; ticker: string; market_code: MarketCode; payment_date: string; amount: string;
+      account_id: string; ticker: string; market_code: MarketCode; payment_date: string; amount: string; currency: string;
     }>(
        `SELECT dle.account_id,
                de.ticker,
                de.market_code,
                de.payment_date::text,
+               de.cash_dividend_currency AS currency,
                COALESCE(receipts.received_cash_amount, 0)::text AS amount
        FROM dividend_ledger_entries dle
        JOIN accounts AS account ON account.id = dle.account_id
@@ -5937,6 +6103,7 @@ export class PostgresPersistence implements Persistence {
         quantity: Number(row.quantity),
         unitPrice: Number(row.unit_price),
         tradeDate: row.trade_date,
+        tradeTimestamp: row.trade_timestamp ? normalizeDateTime(row.trade_timestamp) : undefined,
         bookingSequence: row.booking_sequence ?? undefined,
         commissionAmount: Number(row.commission_amount),
         taxAmount: Number(row.tax_amount),
@@ -5951,6 +6118,13 @@ export class PostgresPersistence implements Persistence {
         marketCode: r.market_code,
         paymentDate: r.payment_date,
         amount: Number(r.amount),
+        currency: r.currency,
+      })),
+      lotAllocations: lotAllocationsResult.rows.map((row) => ({
+        tradeEventId: row.trade_event_id,
+        allocatedCostAmount: Number(row.allocated_cost_amount),
+        costCurrency: row.cost_currency,
+        lotOpenedAt: normalizeDate(row.lot_opened_at),
       })),
     };
   }

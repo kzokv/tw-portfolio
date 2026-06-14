@@ -43,7 +43,13 @@ import type {
   DashboardPerformancePointDto,
   DashboardPerformanceRange,
 } from "@vakwen/shared-types";
-import type { AggregatedSnapshotPoint, Persistence } from "../persistence/types.js";
+import type {
+  AggregatedSnapshotPoint,
+  Persistence,
+  SnapshotDividendInput,
+  SnapshotLotAllocationInput,
+  SnapshotTradeInput,
+} from "../persistence/types.js";
 import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
 
 interface PreTranslationOverviewSummary {
@@ -63,6 +69,35 @@ interface PreTranslationOverviewSummary {
 interface OverviewDividends {
   upcoming: DashboardOverviewUpcomingDividendDto[];
   recent: DashboardOverviewRecentDividendDto[];
+}
+
+type PerformanceCoverageTrade = Pick<
+  BookedTradeEvent | SnapshotTradeInput,
+  "accountId" | "ticker" | "marketCode" | "type" | "quantity" | "tradeDate" | "id"
+> & {
+  bookingSequence?: number;
+  tradeTimestamp?: string;
+};
+
+type PerformanceFinanceTrade = PerformanceCoverageTrade & Pick<
+  BookedTradeEvent | SnapshotTradeInput,
+  "unitPrice" | "commissionAmount" | "taxAmount" | "priceCurrency"
+> & {
+  realizedPnlAmount?: number | null;
+  realizedPnlCurrency?: string | null;
+};
+
+type PerformanceFinanceAllocation = Pick<
+  LotAllocationProjection | SnapshotLotAllocationInput,
+  "tradeEventId" | "allocatedCostAmount" | "costCurrency" | "lotOpenedAt"
+>;
+
+export interface TranslatePerformanceOptions {
+  earliestTradeDate?: string;
+  expectedContributorKeysByDate?: ReadonlyMap<string, ReadonlySet<string>>;
+  financeTrades?: ReadonlyArray<PerformanceFinanceTrade>;
+  financeDividends?: ReadonlyArray<SnapshotDividendInput>;
+  financeLotAllocations?: ReadonlyArray<PerformanceFinanceAllocation>;
 }
 
 /**
@@ -351,8 +386,9 @@ export async function translatePerformancePoints(
   persistence: Persistence,
   store?: Store,
   _quotes?: SyntheticQuoteInput,
+  options: TranslatePerformanceOptions = {},
 ): Promise<DashboardPerformanceDto> {
-  const earliestTradeDate = store?.accounting.facts.tradeEvents
+  const earliestTradeDate = options.earliestTradeDate ?? store?.accounting.facts.tradeEvents
     .map((trade) => trade.tradeDate)
     .sort()[0];
   const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
@@ -371,7 +407,9 @@ export async function translatePerformancePoints(
     );
   }
 
-  const coverage = store
+  const coverage = options.expectedContributorKeysByDate
+    ? filterAggregatedSnapshotsByActiveCoverage(aggregated, options.expectedContributorKeysByDate)
+    : store
     ? filterAggregatedSnapshotsByActiveCoverage(
         aggregated,
         await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence),
@@ -381,7 +419,17 @@ export async function translatePerformancePoints(
   if (coverage.points.length > 0) {
     const datedFinance = store
       ? await buildDatedPerformanceFinance(store, startDate, endDate, reportingCurrency, persistence)
-      : null;
+      : options.financeTrades
+        ? await buildDatedPerformanceFinanceFromInputs(
+            options.financeTrades,
+            options.financeDividends ?? [],
+            options.financeLotAllocations ?? [],
+            startDate,
+            endDate,
+            reportingCurrency,
+            persistence,
+          )
+        : null;
     let usedSnapshotFinanceFallback = false;
     const points: DashboardPerformancePointDto[] = coverage.points.map((p) => {
       const finance = datedFinance?.get(p.date) ?? null;
@@ -475,13 +523,27 @@ async function buildExpectedSnapshotContributorKeysByDate(
   endDate: string,
   persistence: Persistence,
 ): Promise<Map<string, Set<string>>> {
-  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
+  return buildExpectedSnapshotContributorKeysForTrades(
+    store.accounting.facts.tradeEvents,
+    startDate,
+    endDate,
+    persistence,
+  );
+}
+
+export async function buildExpectedSnapshotContributorKeysForTrades(
+  inputTrades: ReadonlyArray<PerformanceCoverageTrade>,
+  startDate: string,
+  endDate: string,
+  persistence: Persistence,
+): Promise<Map<string, Set<string>>> {
+  const trades = sortPerformanceCoverageTrades(inputTrades);
   const activeQuantities = new Map<string, number>();
   const expectedByDate = new Map<string, Set<string>>();
-  const contributors = new Map<string, Pick<BookedTradeEvent, "ticker" | "marketCode">>();
+  const contributors = new Map<string, Pick<PerformanceCoverageTrade, "ticker" | "marketCode">>();
   let tradeIndex = 0;
 
-  function applyTradeQuantity(trade: BookedTradeEvent): void {
+  function applyTradeQuantity(trade: PerformanceCoverageTrade): void {
     const key = performancePositionKey(trade);
     contributors.set(key, { ticker: trade.ticker, marketCode: trade.marketCode });
     const current = activeQuantities.get(key) ?? 0;
@@ -693,10 +755,30 @@ async function buildDatedPerformanceFinance(
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
 ): Promise<Map<string, DatedPerformanceFinancePoint>> {
-  const trades = sortTradeEvents(store.accounting.facts.tradeEvents);
-  const dividendEntries = sortDividendEntries(store);
+  return buildDatedPerformanceFinanceFromInputs(
+    store.accounting.facts.tradeEvents,
+    sortDividendEntries(store),
+    store.accounting.projections?.lotAllocations ?? [],
+    startDate,
+    endDate,
+    reportingCurrency,
+    persistence,
+  );
+}
+
+async function buildDatedPerformanceFinanceFromInputs(
+  tradesInput: ReadonlyArray<PerformanceFinanceTrade>,
+  dividendsInput: ReadonlyArray<DatedDividendEntry | SnapshotDividendInput>,
+  allocationsInput: ReadonlyArray<PerformanceFinanceAllocation>,
+  startDate: string,
+  endDate: string,
+  reportingCurrency: AccountDefaultCurrency,
+  persistence: Persistence,
+): Promise<Map<string, DatedPerformanceFinancePoint>> {
+  const trades = sortPerformanceCoverageTrades(tradesInput);
+  const dividendEntries = sortPerformanceFinanceDividends(dividendsInput);
   const fxCache = new Map<string, number | null>();
-  const allocationsByTradeId = groupLotAllocationsByTradeId(store.accounting.projections?.lotAllocations ?? []);
+  const allocationsByTradeId = groupLotAllocationsByTradeId(allocationsInput);
   const positions = new Map<string, PerformancePositionFinance>();
   const points = new Map<string, DatedPerformanceFinancePoint>();
   let tradeIndex = 0;
@@ -715,7 +797,7 @@ async function buildDatedPerformanceFinance(
     return rate;
   }
 
-  async function applyTrade(trade: BookedTradeEvent): Promise<void> {
+  async function applyTrade(trade: PerformanceFinanceTrade): Promise<void> {
     const key = performancePositionKey(trade);
     const previous = positions.get(key) ?? {
       quantity: 0,
@@ -815,9 +897,9 @@ async function buildDatedPerformanceFinance(
 }
 
 function groupLotAllocationsByTradeId(
-  allocations: ReadonlyArray<LotAllocationProjection>,
-): Map<string, LotAllocationProjection[]> {
-  const byTradeId = new Map<string, LotAllocationProjection[]>();
+  allocations: ReadonlyArray<PerformanceFinanceAllocation>,
+): Map<string, PerformanceFinanceAllocation[]> {
+  const byTradeId = new Map<string, PerformanceFinanceAllocation[]>();
   for (const allocation of allocations) {
     const group = byTradeId.get(allocation.tradeEventId) ?? [];
     group.push(allocation);
@@ -827,9 +909,9 @@ function groupLotAllocationsByTradeId(
 }
 
 async function resolveAllocatedBookCostAmount(
-  trade: BookedTradeEvent,
+  trade: PerformanceFinanceTrade,
   previous: PerformancePositionFinance,
-  allocationsByTradeId: ReadonlyMap<string, ReadonlyArray<LotAllocationProjection>>,
+  allocationsByTradeId: ReadonlyMap<string, ReadonlyArray<PerformanceFinanceAllocation>>,
   fxFor: (src: string, date: string) => Promise<number | null>,
 ): Promise<{ amount: number; complete: boolean }> {
   const allocations = allocationsByTradeId.get(trade.id) ?? [];
@@ -855,7 +937,7 @@ async function resolveAllocatedBookCostAmount(
 }
 
 async function resolveRealizedPnlAmount(
-  trade: BookedTradeEvent,
+  trade: PerformanceFinanceTrade,
   proceedsNative: number,
   tradeFx: number | null,
   allocatedBookCostResult: { amount: number; complete: boolean },
@@ -877,7 +959,7 @@ async function resolveRealizedPnlAmount(
     : { amount: roundToDecimal(proceedsNative * tradeFx - allocatedBookCostResult.amount, 2), complete: true };
 }
 
-function sortTradeEvents(trades: ReadonlyArray<BookedTradeEvent>): BookedTradeEvent[] {
+function sortPerformanceCoverageTrades<T extends PerformanceCoverageTrade>(trades: ReadonlyArray<T>): T[] {
   return [...trades].sort(
     (a, b) =>
       a.tradeDate.localeCompare(b.tradeDate) ||
@@ -891,6 +973,20 @@ interface DatedDividendEntry {
   date: string;
   amount: number;
   currency: string;
+}
+
+function sortPerformanceFinanceDividends(
+  dividends: ReadonlyArray<DatedDividendEntry | SnapshotDividendInput>,
+): DatedDividendEntry[] {
+  return dividends
+    .map((entry) => "paymentDate" in entry
+      ? {
+          date: entry.paymentDate,
+          amount: entry.amount,
+          currency: entry.currency,
+        }
+      : entry)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function sortDividendEntries(store: Store): DatedDividendEntry[] {
@@ -923,7 +1019,7 @@ function sortDividendEntries(store: Store): DatedDividendEntry[] {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function performancePositionKey(trade: BookedTradeEvent): string {
+function performancePositionKey(trade: Pick<BookedTradeEvent, "accountId" | "marketCode" | "ticker">): string {
   return `${trade.accountId}:${trade.marketCode}:${trade.ticker}`;
 }
 
