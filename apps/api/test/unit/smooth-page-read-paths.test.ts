@@ -240,6 +240,26 @@ describe("smooth page read paths", () => {
     ]);
   });
 
+  it("serves portfolio instrument options without hydrating the full store route path", async () => {
+    const response = await app.inject({ method: "GET", url: "/portfolio/instrument-index" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("list_transaction_instruments;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
+    expect(response.json().instruments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+      }),
+      expect.objectContaining({
+        ticker: "0050",
+        marketCode: "TW",
+        instrumentType: "ETF",
+      }),
+    ]));
+  });
+
   it("serves dashboard primary data from an explicit primary route without quote or FX enrichment", async () => {
     const store = await app.persistence.loadStore("user-1");
     store.accounting.projections.holdings.push({
