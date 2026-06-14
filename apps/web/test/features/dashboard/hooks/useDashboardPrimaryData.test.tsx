@@ -79,7 +79,7 @@ const initialPrimaryData: DashboardSnapshot = {
   feeProfileBindings: [],
 };
 
-function snapshotWithMarketValue(marketValueAmount: number): DashboardSnapshot {
+function snapshotWithMarketValue(marketValueAmount: number | null): DashboardSnapshot {
   return {
     ...initialPrimaryData,
     summary: {
@@ -195,6 +195,26 @@ describe("useDashboardPrimaryData", () => {
     expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
     expect(fetchDashboardEnrichmentData).not.toHaveBeenCalled();
     expect(result.summary.marketValueAmount).toBe(1750);
+  });
+
+  it("refreshes enrichment when a fresh cached primary-only snapshot is restored", async () => {
+    const cached = snapshotWithMarketValue(null);
+    const enriched = snapshotWithMarketValue(2200);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.summary.marketValueAmount).toBeNull();
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
+    expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2200);
   });
 
   it("does not let an older primary request overwrite a fresh cache restore after cache key changes", async () => {
