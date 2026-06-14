@@ -180,7 +180,7 @@ export function useDashboardPrimaryData({
 
     const cached = cacheKey ? readDashboardCache(cacheKey, expectedReportingCurrency) : null;
     if (cached !== null) {
-      startRequest();
+      const version = startRequest();
       setSnapshot(cached.payload);
       setShowIntegrityDialog(Boolean(cached.payload.actions.integrityIssue));
       setIsBootstrapping(false);
@@ -189,6 +189,8 @@ export function useDashboardPrimaryData({
       setRestoredAt(cached.savedAt);
       if (cached.status === "stale") {
         void refresh();
+      } else if (needsDashboardEnrichment(cached.payload)) {
+        void refreshEnrichment(version);
       }
       return;
     }
@@ -243,6 +245,10 @@ export function useDashboardPrimaryData({
       ? synchronizeTransactionDraft
       : synchronizeInitialTransactionDraft,
   };
+}
+
+function needsDashboardEnrichment(snapshot: DashboardSnapshot): boolean {
+  return snapshot.summary.holdingCount > 0 && snapshot.summary.marketValueAmount === null;
 }
 
 function readDashboardCache(
