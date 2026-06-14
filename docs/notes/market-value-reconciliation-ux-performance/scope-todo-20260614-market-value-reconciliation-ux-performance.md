@@ -140,7 +140,7 @@ Design requirements:
 - [x] Add targeted invalidation after mutation/recompute/snapshot/reporting-currency/context/session events.
   Evidence: targeted tag clears are wired through `apps/web/components/layout/useSharedContext.ts`, `apps/web/components/layout/useSnapshotGeneration.ts`, `apps/web/features/portfolio/hooks/useTransactionMutations.ts`, and reporting-currency/session transitions in `apps/web/components/layout/AppShell.tsx`.
 - [x] Apply route cache to Dashboard, Dashboard Performance, Portfolio, and all Reports tabs.
-  Evidence: cached restore + refresh wiring lands in `apps/web/features/dashboard/hooks/useDashboardData.ts`, `apps/web/features/dashboard/hooks/useDashboardPerformance.ts`, `apps/web/features/portfolio/hooks/usePortfolioPageData.ts`, `apps/web/features/portfolio/hooks/useTransactionsPrimaryData.ts`, and `apps/web/features/reports/hooks/useReportData.ts`; runtime TTLs now consume `effectiveRouteCachePolicy` from the authenticated settings/AppShell payload; fresh `sessionStorage` restores skip automatic client fetch, stale-usable entries render first and refresh in the background, and expired handling is enforced at the cache utility layer.
+  Evidence: cached restore + refresh wiring lands in `apps/web/features/dashboard/hooks/useDashboardData.ts`, `apps/web/features/dashboard/hooks/useDashboardPerformance.ts`, `apps/web/features/portfolio/hooks/usePortfolioPageData.ts`, `apps/web/features/portfolio/hooks/useTransactionsPrimaryData.ts`, and `apps/web/features/reports/hooks/useReportData.ts`; runtime TTLs now consume `effectiveRouteCachePolicy` from the authenticated settings/AppShell payload; fresh `sessionStorage` restores skip automatic client fetch, stale-usable entries render first and refresh in the background, and expired handling is enforced at the cache utility layer. Live validation found the Dashboard refresh button only refreshed primary/enrichment data; `apps/web/components/dashboard/DashboardClient.tsx` now refreshes both dashboard primary data and Dashboard Performance, with regression coverage in `apps/web/test/components/dashboard/DashboardClient.test.tsx`.
 - [x] Remove unnecessary quote loading from `/dashboard/performance`.
   Evidence: `apps/api/src/routes/registerRoutes.ts` no longer loads quotes for the performance route.
 - [x] Optimize latest-bar lookup for reconciliation diagnostics.
@@ -159,7 +159,58 @@ Design requirements:
   - `npx eslint . --max-warnings=0 && npm run typecheck && npm run test:all:full` passed on 2026-06-14 after rebasing onto `origin/dev` and after the review-fix regression.
   - Full-gate breakdown captured in terminal output: web units passed, API package tests passed, managed Postgres integration passed with 82 files / 826 tests passed / 1 skipped, bypass E2E passed with 271 tests passed / 13 skipped, OAuth E2E passed with 120 tests passed, and API HTTP tests passed with 288 tests passed / 2 skipped.
   - Post-gate port sweep found no listeners on `4000`, `3333`, `4445`, or `4099`; only Codex/Playwright MCP helper processes remained. `git diff --check` passed.
-- [ ] Capture Chrome performance evidence against dev/prod after deployment.
+  - Post-live-validation regression check passed on 2026-06-14: `npm run test --prefix apps/web -- --run test/components/dashboard/DashboardClient.test.tsx test/features/dashboard/hooks/useDashboardPerformance.test.tsx` completed the configured web batches with 42 files / 238 tests and 57 files / 386 tests passed; `npx eslint apps/web/components/dashboard/DashboardClient.tsx apps/web/test/components/dashboard/DashboardClient.test.tsx --max-warnings=0` passed; `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false` passed.
+- [x] Capture Chrome performance evidence against dev/prod after deployment.
+  Evidence: deployed dev branch was validated in the existing Chrome Vakwen Dev tab after GitHub Actions dev deploy run `27495381190` completed. Details are recorded below.
+
+## Post-Deploy Live Validation
+
+Environment:
+
+- Branch: `codex/market-value-reconciliation-ux-performance`.
+- PR: <https://github.com/kzokv/tw-portfolio/pull/218>.
+- Dev deploy: GitHub Actions run `27495381190`, workflow `Deploy Dev via Cloudflare WARP`, succeeded before live validation.
+- Target: `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard`.
+
+Healthy baseline before simulation:
+
+- Dashboard hero: `Exact $663,017.84`, compact `USD 663K`.
+- Market strip: TW `Exact $375,273.92`, US `Exact $174,223.92`, KR `Exact $113,520`; sum = `$663,017.84`.
+- Portfolio Trend was present and the page exposed no valuation-health warning before the snapshot row was removed.
+
+Incident simulation:
+
+- Backed up and deleted one latest snapshot row in dev Postgres:
+  - table: `public.daily_holding_snapshots`
+  - user: `d5141bff-4d95-4572-9be0-71ff82848f82`
+  - row: `AVGO` / `US`, account `b9696f25-1d52-4084-9e5b-10386d5b689f`, snapshot date `2026-06-12`.
+- Verified the live Dashboard after enrichment completed:
+  - Hero/current valuation stayed `Exact $663,017.84`.
+  - Market strip stayed TW `$375,273.92`, US `$174,223.92`, KR `$113,520`.
+  - Portfolio Trend fell back to `Latest available snapshot $652,285.72`, `As of Jun 11 · Requested Jun 12`.
+  - `dashboard-performance-stale-warning` showed `Market data stale since Jun 11`.
+  - `valuation-health-panel` showed `Material gap`, current valuation `$663,017.84`, chart valuation `$652,285.72`, delta `$10,732.12`, latest snapshot date `Jun 11, 2026`, and admin repair guidance.
+- Restored the exact backed-up snapshot row and dropped the temporary backup table. DB check after restore: `2026-06-12` aggregate = `$663,017.84` across 6 rows.
+- After restore, the hero valuation-health panel returned to `Healthy`, current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, latest snapshot date `Jun 12, 2026`.
+
+Manual-refresh cache finding and fix:
+
+- Live validation found that after DB restore, the Dashboard hero/enrichment data refreshed but the Portfolio Trend card could continue showing the simulated stale performance payload from the fresh `sessionStorage` route cache.
+- Root cause: the Dashboard refresh button called `dashboard.refresh()` only; it did not call `performance.refresh()`.
+- Fix: Dashboard manual refresh now calls both refresh functions and disables while either primary/enrichment or performance refresh is running.
+
+Performance evidence from dev API logs:
+
+| Route | Observed total | Dominant segments |
+|---|---:|---|
+| `/dashboard/primary` | 3.67-4.77s | `load_store` 2.50-3.54s, `build_primary_overview` 0.95-1.18s |
+| `/dashboard/performance` | 9.41s | `load_store` 7.64s, `translate_performance` 1.09s |
+| `/dashboard/enrichment` | 9.85-15.89s | `load_store` 2.28-6.71s, `valuation_health_performance` 6.23-6.70s |
+
+Interpretation:
+
+- The session cache behavior gives immediate revisit rendering while fresh, and the manual refresh gap found during validation is fixed.
+- Cold dev timings still show backend load concentrated in repeated `load_store` and duplicated performance aggregation. The `/dashboard/primary` path is close to the 5s cap on dev; `/dashboard/performance` and `/dashboard/enrichment` exceed the target in this environment and should be treated as residual performance risk rather than a proven 2-3s cold-load result.
 
 ## Acceptance Criteria
 

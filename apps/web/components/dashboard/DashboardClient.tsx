@@ -116,6 +116,10 @@ export function DashboardClient({
   refreshDashboardRef.current = dashboard.refresh;
   const refreshPerformanceRef = useRef(performance.refresh);
   refreshPerformanceRef.current = performance.refresh;
+  const refreshDashboardAndPerformance = () => {
+    void dashboard.refresh();
+    void performance.refresh();
+  };
   useEffect(() => {
     if (firstSignalRef.current) {
       firstSignalRef.current = false;
@@ -221,8 +225,8 @@ export function DashboardClient({
           type="button"
           size="sm"
           variant="secondary"
-          onClick={() => { void dashboard.refresh(); }}
-          disabled={dashboard.isRefreshing}
+          onClick={refreshDashboardAndPerformance}
+          disabled={dashboard.isRefreshing || performance.isLoading}
           data-testid="dashboard-refresh-button"
         >
           {dict.reports.refresh}
