@@ -39,9 +39,10 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
   );
   const scopePairs = buildScopePairs(input.holdingGroups);
   const latestSnapshotByScope = await input.app.persistence.getLatestHoldingSnapshotDatesByScope(input.userId, scopePairs);
+  const currentOpenStartDateByScope = buildCurrentOpenStartDateByScope(input.store, scopePairs);
 
   const affectedHoldings = input.holdingGroups
-    .map((group) => buildHoldingHealthRow(group, latestBarByKey, latestSnapshotByScope, backfillStatusByKey))
+    .map((group) => buildHoldingHealthRow(group, latestBarByKey, latestSnapshotByScope, backfillStatusByKey, currentOpenStartDateByScope))
     .filter((row): row is ValuationHealthHoldingDto => row !== null)
     .filter((row) => row.status !== "healthy");
 
@@ -137,14 +138,22 @@ function buildHoldingHealthRow(
   latestBarByKey: ReadonlyMap<string, string | null>,
   latestSnapshotByScope: ReadonlyMap<string, string | null>,
   backfillStatusByKey: ReadonlyMap<string, ValuationHealthHoldingDto["backfillStatus"]>,
+  currentOpenStartDateByScope: ReadonlyMap<string, string | null>,
 ): ValuationHealthHoldingDto | null {
   const latestBarDate = latestBarByKey.get(`${group.ticker}:${group.marketCode}`) ?? null;
-  const scopeSnapshotDates = group.children.map((child) =>
-    latestSnapshotByScope.get(`${child.accountId}\0${child.ticker}\0${child.marketCode}`) ?? null);
+  const scopeKeys = group.children.map((child) => `${child.accountId}\0${child.ticker}\0${child.marketCode}`);
+  const snapshotEligibleScopeKeys = latestBarDate === null
+    ? scopeKeys
+    : scopeKeys.filter((key) => {
+      const currentOpenStartDate = currentOpenStartDateByScope.get(key) ?? null;
+      return currentOpenStartDate === null || currentOpenStartDate <= latestBarDate;
+    });
+  const scopeSnapshotDates = snapshotEligibleScopeKeys.map((key) => latestSnapshotByScope.get(key) ?? null);
   const latestSnapshotDate = scopeSnapshotDates.some((date) => date === null)
     ? null
     : scopeSnapshotDates.reduce<string | null>((min, date) => (min === null || (date !== null && date < min) ? date : min), null);
   const backfillStatus = backfillStatusByKey.get(`${group.ticker}:${group.marketCode}`) ?? "unknown";
+  const hasSnapshotEligibleScope = latestBarDate === null || snapshotEligibleScopeKeys.length > 0;
 
   let status: ValuationHealthHoldingDto["status"] = "healthy";
   let recommendedAction: ValuationHealthHoldingDto["recommendedAction"] = "none";
@@ -157,10 +166,10 @@ function buildHoldingHealthRow(
   } else if (latestBarDate === null) {
     status = "missing_latest_bar";
     recommendedAction = "run_backfill";
-  } else if (latestSnapshotDate === null) {
+  } else if (latestSnapshotDate === null && hasSnapshotEligibleScope) {
     status = "missing_snapshot";
     recommendedAction = "run_snapshot_repair";
-  } else if (latestSnapshotDate < latestBarDate) {
+  } else if (latestSnapshotDate !== null && latestSnapshotDate < latestBarDate) {
     status = "stale_snapshot";
     recommendedAction = "run_snapshot_repair";
   }
@@ -175,6 +184,50 @@ function buildHoldingHealthRow(
     status,
     recommendedAction,
   };
+}
+
+function buildCurrentOpenStartDateByScope(
+  store: Store,
+  scopePairs: readonly HoldingSnapshotLatestDateScopePair[],
+): Map<string, string | null> {
+  const scopeKeys = new Set(scopePairs.map((pair) => `${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`));
+  const tradesByScope = new Map<string, Store["accounting"]["facts"]["tradeEvents"]>();
+  const tradeEvents = (store as { accounting?: { facts?: Partial<Store["accounting"]["facts"]> } }).accounting?.facts?.tradeEvents ?? [];
+
+  for (const trade of tradeEvents) {
+    const key = `${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
+    if (!scopeKeys.has(key)) continue;
+    const trades = tradesByScope.get(key) ?? [];
+    trades.push(trade);
+    tradesByScope.set(key, trades);
+  }
+
+  const result = new Map<string, string | null>();
+  for (const key of scopeKeys) {
+    const trades = [...(tradesByScope.get(key) ?? [])].sort(
+      (left, right) =>
+        left.tradeDate.localeCompare(right.tradeDate)
+        || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
+        || (left.bookingSequence ?? 0) - (right.bookingSequence ?? 0)
+        || left.id.localeCompare(right.id),
+    );
+    let quantity = 0;
+    let currentOpenStartDate: string | null = null;
+    for (const trade of trades) {
+      const previousQuantity = quantity;
+      quantity = trade.type === "BUY"
+        ? quantity + trade.quantity
+        : Math.max(0, quantity - trade.quantity);
+      if (previousQuantity <= 0 && quantity > 0) {
+        currentOpenStartDate = trade.tradeDate;
+      } else if (quantity <= 0) {
+        currentOpenStartDate = null;
+      }
+    }
+    result.set(key, currentOpenStartDate);
+  }
+
+  return result;
 }
 
 function latestBarDateForPairs(
