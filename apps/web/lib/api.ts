@@ -61,6 +61,7 @@ const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
 export const API_CLIENT_ERROR_EVENT = "tw:api-client-error";
 
+import type { UserSettings } from "@vakwen/shared-types";
 import { redirect } from "next/navigation";
 import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
@@ -68,6 +69,10 @@ import {
   clearContextCookie,
   readContextCookie,
 } from "./context";
+import {
+  LOCALE_OVERRIDE_COOKIE,
+  normalizeLocaleOverride,
+} from "./i18n/localeOverrideCookie";
 import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "./routeDtoCache";
 
 export class ApiError extends Error {
@@ -333,6 +338,32 @@ async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T>
   throw await parseError(res, path);
 }
 
+async function readLocaleOverrideCookie(): Promise<UserSettings["locale"] | null> {
+  if (typeof document !== "undefined") {
+    return normalizeLocaleOverride(readClientCookie(LOCALE_OVERRIDE_COOKIE));
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { cookies } = require("next/headers") as typeof import("next/headers");
+    const cookieStore = await cookies();
+    return normalizeLocaleOverride(cookieStore.get(LOCALE_OVERRIDE_COOKIE)?.value);
+  } catch {
+    return null;
+  }
+}
+
+async function applySettingsLocaleOverride<T>(path: string, payload: T): Promise<T> {
+  if (path !== "/settings" || payload === null || typeof payload !== "object") {
+    return payload;
+  }
+
+  const locale = await readLocaleOverrideCookie();
+  if (!locale) return payload;
+
+  return { ...(payload as unknown as UserSettings), locale } as T;
+}
+
 async function throwApiError<T>(res: Response, path: string): Promise<T> {
   if (res.status === 401) return redirectToLogoutOn401<T>(res, path);
   const error = await parseError(res, path);
@@ -355,7 +386,8 @@ export async function getJson<T>(path: string, options: JsonRequestOptions = {})
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
-  return res.json() as Promise<T>;
+  const payload = await res.json() as T;
+  return applySettingsLocaleOverride(path, payload);
 }
 
 export async function postJson<T>(

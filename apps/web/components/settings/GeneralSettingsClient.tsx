@@ -13,6 +13,7 @@ import {
 } from "../ui/shadcn/select";
 import { useAutoSave } from "../../features/settings/hooks/useAutoSave";
 import { patchSettings } from "../../features/settings/services/settingsService";
+import { writeLocaleOverrideCookie } from "../../lib/i18n/localeOverrideCookie";
 import { TooltipInfo } from "../ui/TooltipInfo";
 
 /**
@@ -100,6 +101,7 @@ export function GeneralSettingsClient() {
           value={locale}
           onValueChange={(next) => {
             const nextLocale = (next === "zh-TW" ? "zh-TW" : "en") as LocaleCode;
+            writeLocaleOverrideCookie(nextLocale);
             setLocalLocale(nextLocale);
             setRouteLocale(nextLocale);
             localeSave.commit(nextLocale);
