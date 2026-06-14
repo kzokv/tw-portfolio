@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
     },
   } satisfies DashboardSnapshot,
   dashboardRefresh: vi.fn(async () => undefined),
+  dashboardPerformanceCalls: [] as Array<{ cacheKey?: string }>,
   performanceRefresh: vi.fn(async () => undefined),
   performanceIsLoading: false,
 }));
@@ -114,7 +115,9 @@ vi.mock("../../../features/dashboard/hooks/useDashboardData", () => ({
 }));
 
 vi.mock("../../../features/dashboard/hooks/useDashboardPerformance", () => ({
-  useDashboardPerformance: () => ({
+  useDashboardPerformance: (options: { cacheKey?: string }) => {
+    mocks.dashboardPerformanceCalls.push({ cacheKey: options.cacheKey });
+    return {
     cacheStatus: null,
     data: null,
     errorMessage: "",
@@ -122,7 +125,8 @@ vi.mock("../../../features/dashboard/hooks/useDashboardPerformance", () => ({
     refresh: mocks.performanceRefresh,
     restoredAt: null,
     restoredFromCache: false,
-  }),
+    };
+  },
 }));
 
 vi.mock("../../../features/portfolio/hooks/useHoldingAllocationBasis", () => ({
@@ -158,6 +162,7 @@ describe("DashboardClient", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.dashboardRefresh.mockClear();
+    mocks.dashboardPerformanceCalls.length = 0;
     mocks.performanceRefresh.mockClear();
     mocks.performanceIsLoading = false;
   });
@@ -181,6 +186,14 @@ describe("DashboardClient", () => {
 
     expect(mocks.dashboardRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.performanceRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes reporting currency in the dashboard performance cache key", () => {
+    act(() => {
+      root.render(<DashboardClient expectedReportingCurrency="AUD" />);
+    });
+
+    expect(mocks.dashboardPerformanceCalls.at(-1)?.cacheKey).toContain(":AUD:");
   });
 
   it("disables manual refresh while performance is already loading", () => {

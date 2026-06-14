@@ -75,7 +75,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     reason = deltaAmount >= absoluteThreshold ? "absolute_threshold_exceeded" : "relative_threshold_exceeded";
   }
 
-  const latestBarAsOf = latestBarDateForRows(affectedHoldings);
+  const latestBarAsOf = latestBarDateForPairs(tickerMarketPairs, latestBarByKey);
   const recommendedActions = [...new Set(affectedHoldings
     .map((row) => row.recommendedAction)
     .filter((action) => action !== "none"))];
@@ -178,11 +178,15 @@ function buildHoldingHealthRow(
   };
 }
 
-function latestBarDateForRows(rows: ReadonlyArray<ValuationHealthHoldingDto>): string | null {
+function latestBarDateForPairs(
+  pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  latestBarByKey: ReadonlyMap<string, string | null>,
+): string | null {
   let latest: string | null = null;
-  for (const row of rows) {
-    if (row.latestBarDate && (latest === null || row.latestBarDate > latest)) {
-      latest = row.latestBarDate;
+  for (const pair of pairs) {
+    const latestBarDate = latestBarByKey.get(`${pair.ticker}:${pair.marketCode}`) ?? null;
+    if (latestBarDate && (latest === null || latestBarDate > latest)) {
+      latest = latestBarDate;
     }
   }
   return latest;
