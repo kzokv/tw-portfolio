@@ -27,9 +27,15 @@ import { TooltipInfo } from "../ui/TooltipInfo";
  * visible so operators can see the active rule.
  */
 export function GeneralSettingsClient() {
-  const { locale: routeLocale, initialSettings } = useSettingsRouteContext();
+  const {
+    locale: routeLocale,
+    initialSettings,
+    setLocale: setRouteLocale,
+  } = useSettingsRouteContext();
 
-  const [locale, setLocale] = useState<LocaleCode>(initialSettings?.locale ?? routeLocale);
+  const [locale, setLocalLocale] = useState<LocaleCode>(
+    initialSettings?.locale ?? routeLocale,
+  );
   const [costBasisMethod, setCostBasisMethod] = useState<UserSettings["costBasisMethod"]>(
     initialSettings?.costBasisMethod ?? "WEIGHTED_AVERAGE",
   );
@@ -62,7 +68,7 @@ export function GeneralSettingsClient() {
   });
 
   useEffect(() => {
-    setLocale(initialSettings?.locale ?? routeLocale);
+    setLocalLocale(initialSettings?.locale ?? routeLocale);
     setCostBasisMethod(initialSettings?.costBasisMethod ?? "WEIGHTED_AVERAGE");
     setQuotePoll(String(initialSettings?.quotePollIntervalSeconds ?? 10));
   }, [initialSettings, routeLocale]);
@@ -94,7 +100,8 @@ export function GeneralSettingsClient() {
           value={locale}
           onValueChange={(next) => {
             const nextLocale = (next === "zh-TW" ? "zh-TW" : "en") as LocaleCode;
-            setLocale(nextLocale);
+            setLocalLocale(nextLocale);
+            setRouteLocale(nextLocale);
             localeSave.commit(nextLocale);
             void localeSave.flush();
           }}

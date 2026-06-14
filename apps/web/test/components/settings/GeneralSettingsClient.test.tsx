@@ -58,7 +58,10 @@ vi.mock("../../../components/ui/shadcn/select", () => ({
 }));
 
 import { GeneralSettingsClient } from "../../../components/settings/GeneralSettingsClient";
-import { SettingsRouteProvider } from "../../../components/settings/SettingsRouteProvider";
+import {
+  SettingsRouteProvider,
+  useSettingsRouteContext,
+} from "../../../components/settings/SettingsRouteProvider";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -72,6 +75,11 @@ function buildSettings(locale: LocaleCode = "zh-TW"): UserSettings {
     costBasisMethod: "WEIGHTED_AVERAGE",
     quotePollIntervalSeconds: 10,
   };
+}
+
+function LocaleProbe() {
+  const { locale } = useSettingsRouteContext();
+  return <output data-testid="route-locale">{locale}</output>;
 }
 
 describe("GeneralSettingsClient", () => {
@@ -117,6 +125,7 @@ describe("GeneralSettingsClient", () => {
             initialSettings: buildSettings("zh-TW"),
           }}
         >
+          <LocaleProbe />
           <GeneralSettingsClient />
         </SettingsRouteProvider>,
       );
@@ -134,6 +143,9 @@ describe("GeneralSettingsClient", () => {
 
     expect(mockPatchSettings).toHaveBeenCalledTimes(1);
     expect(mockPatchSettings).toHaveBeenCalledWith({ locale: "en" }, { keepalive: true });
+    expect(
+      container.querySelector('[data-testid="route-locale"]')?.textContent,
+    ).toBe("en");
 
     await act(async () => {
       vi.advanceTimersByTime(1_000);
