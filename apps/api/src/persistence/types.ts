@@ -2054,6 +2054,13 @@ export interface Persistence {
    */
   loadPrimaryReadStore(userId: string): Promise<Store>;
   /**
+   * Load the store shape required by dashboard/portfolio enrichment reads.
+   * This includes the accounting facts needed for overview dividends,
+   * freshness, quote inputs, and valuation health while avoiding broad market
+   * catalog hydration.
+   */
+  loadOverviewReadStore(userId: string): Promise<Store>;
+  /**
    * Load the small transaction instrument option set used by portfolio forms.
    * This must not hydrate the full user store or full instrument catalog.
    */

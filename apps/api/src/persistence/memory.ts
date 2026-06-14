@@ -1959,6 +1959,10 @@ export class MemoryPersistence implements Persistence {
     return this.loadStore(userId);
   }
 
+  async loadOverviewReadStore(userId: string): Promise<Store> {
+    return this.loadStore(userId);
+  }
+
   async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
     const store = await this.loadStore(userId);
     return listTransactionInstruments(store.instruments)
