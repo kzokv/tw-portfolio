@@ -197,6 +197,36 @@ describe("useDashboardPrimaryData", () => {
     expect(result.summary.marketValueAmount).toBe(1750);
   });
 
+  it("does not let an older primary request overwrite a fresh cache restore after cache key changes", async () => {
+    const oldRequest = createDeferred<DashboardSnapshot>();
+    const oldSnapshot = snapshotWithMarketValue(900);
+    const ownerSnapshot = snapshotWithMarketValue(3100);
+    const ownerCacheScope = "owner-1";
+    const ownerCacheKey = buildRouteDtoCacheKey("dashboard-primary", ownerCacheScope);
+    vi.mocked(fetchDashboardPrimaryData).mockReturnValueOnce(oldRequest.promise);
+    writeRouteDtoCache(ownerCacheKey, ownerSnapshot);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(<Harness cacheScope={ownerCacheScope} />);
+    });
+
+    expect(result.summary.marketValueAmount).toBe(3100);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {
+      oldRequest.resolve(oldSnapshot);
+      await oldRequest.promise;
+    });
+
+    expect(result.summary.marketValueAmount).toBe(3100);
+  });
+
   it("restores stale cached primary data before refreshing in the background", async () => {
     vi.useFakeTimers();
     const now = new Date("2026-06-08T12:00:00.000Z");

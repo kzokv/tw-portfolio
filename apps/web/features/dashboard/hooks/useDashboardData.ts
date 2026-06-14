@@ -180,6 +180,7 @@ export function useDashboardPrimaryData({
 
     const cached = cacheKey ? readDashboardCache(cacheKey, expectedReportingCurrency) : null;
     if (cached !== null) {
+      startRequest();
       setSnapshot(cached.payload);
       setShowIntegrityDialog(Boolean(cached.payload.actions.integrityIssue));
       setIsBootstrapping(false);

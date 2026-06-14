@@ -2121,6 +2121,29 @@ export function _resetDemoRateBuckets(): void {
   demoRateBuckets.clear();
 }
 
+async function resolveDashboardPerformanceAsOf(persistence: Persistence, store: Store): Promise<string> {
+  const fallbackAsOf = new Date().toISOString();
+  const pairs = new Map<string, { ticker: string; marketCode: SharedMarketCode }>();
+
+  for (const holding of store.accounting.projections.holdings) {
+    if (holding.quantity <= 0) continue;
+    const marketCode = marketCodeFor(holding.currency);
+    pairs.set(`${holding.ticker}:${marketCode}`, { ticker: holding.ticker, marketCode });
+  }
+
+  if (pairs.size === 0) return fallbackAsOf;
+
+  const latestBarDates = await persistence.getLatestBarDatesForReconciliation([...pairs.values()]);
+  let latestDate: string | null = null;
+  for (const date of latestBarDates.values()) {
+    if (date !== null && (latestDate === null || date > latestDate)) {
+      latestDate = date;
+    }
+  }
+
+  return latestDate === null ? fallbackAsOf : `${latestDate}T00:00:00.000Z`;
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerInviteStatusEviction(app);
   registerAnonymousShareEviction(app);
@@ -5076,7 +5099,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
       }).parse(req.query);
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      const asOf = new Date().toISOString();
+      const asOf = await timing.measure("resolve_as_of", "db", () =>
+        resolveDashboardPerformanceAsOf(app.persistence, store));
       return timing.measure("translate_performance", "db", () => translatePerformancePoints(
         userId,
         query.range as DashboardPerformanceRange,
