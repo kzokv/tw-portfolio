@@ -159,7 +159,15 @@ Design requirements:
   - `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/services/valuationHealth.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` passed on 2026-06-14.
   - `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` passed on 2026-06-14.
   Full-gate evidence:
-  - Prior full-gate pass on 2026-06-14 is superseded by the current unpushed route-contract correction. Final full gates, CI, deploy, and live validation remain pending for the latest branch state.
+  - `npx eslint .` passed on 2026-06-14.
+  - `npm run typecheck` passed on 2026-06-14.
+  - `npm run test --prefix apps/web` passed on 2026-06-14: 98 files, 622 tests passed.
+  - `npm run test --prefix apps/api` passed on 2026-06-14: 149 files passed, 42 skipped; 1554 tests passed, 419 skipped.
+  - `npm run test:integration:full:host` passed on 2026-06-14 after a clean rerun against an isolated Postgres/Redis stack: 82 files, 829 passed, 1 skipped.
+  - `npm run test:e2e:bypass:mem --prefix apps/web` passed on 2026-06-14: 271 passed, 13 skipped.
+  - `npm run test:e2e:oauth:mem --prefix apps/web` passed on 2026-06-14: 120 passed.
+  - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
+  - CI, deploy, and live Chrome validation remain pending for the latest branch state.
 - [x] Capture Chrome performance evidence against dev/prod after deployment.
   Evidence: prior dev validation found the manual-refresh cache gap and then the temporary `/dashboard/performance` valuation-health regression. Fresh Chrome validation is required after this latest route-contract correction is pushed and deployed.
 
@@ -205,6 +213,17 @@ Focused verification completed for this correction:
 - `npm run test:http --prefix apps/api -- test/http/specs/dashboard-reporting-currency-aaa.http.spec.ts` → 6 passed, 2 skipped
 - `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/services/valuationHealth.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` → passed
 - `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
+
+Full local gate verification completed for the current branch head:
+
+- `npx eslint .` → passed
+- `npm run typecheck` → passed
+- `npm run test --prefix apps/web` → 98 files, 622 tests passed
+- `npm run test --prefix apps/api` → 149 files passed, 42 skipped; 1554 tests passed, 419 skipped
+- `npm run test:integration:full:host` → 82 files, 829 passed, 1 skipped
+- `npm run test:e2e:bypass:mem --prefix apps/web` → 271 passed, 13 skipped
+- `npm run test:e2e:oauth:mem --prefix apps/web` → 120 passed
+- `npm run test:http --prefix apps/api` → 288 passed, 2 skipped
 
 ## Out Of Scope
 
