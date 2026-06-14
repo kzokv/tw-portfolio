@@ -1,6 +1,7 @@
 import type { ValuationHealthDto } from "@vakwen/shared-types";
 
 const ADMIN_MARKET_DATA_ROOT = "/admin/market-data";
+const SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT = 20;
 
 export function getValuationHealthAdminRepairHref(
   valuationHealth: ValuationHealthDto | null | undefined,
@@ -22,7 +23,11 @@ export function getValuationHealthAdminRepairHref(
   const tickers = [...new Set(actionableHoldings.map((holding) => holding.ticker))];
   const params = new URLSearchParams();
   if (!hasBackfillAction && tickers.length > 1) {
-    params.set("tickers", tickers.join(","));
+    const deepLinkTickers = tickers.slice(0, SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT);
+    params.set("tickers", deepLinkTickers.join(","));
+    if (tickers.length > SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT) {
+      params.set("truncated", "true");
+    }
   } else if (tickers.length === 1) {
     params.set("search", tickers[0]);
   }
