@@ -185,6 +185,38 @@ describe("getValuationHealthAdminRepairHref", () => {
     ).toBe("/admin/market-data/US/backfill");
   });
 
+  it("preserves same-market snapshot repair tickers in the admin repair link", () => {
+    expect(
+      getValuationHealthAdminRepairHref(
+        buildValuationHealth({
+          affectedHoldings: [
+            {
+              ticker: "VRT",
+              marketCode: "US",
+              currentReportingValueAmount: 1200,
+              latestBarDate: "2026-06-13",
+              latestSnapshotDate: "2026-06-12",
+              backfillStatus: "ready",
+              status: "stale_snapshot",
+              recommendedAction: "run_snapshot_repair",
+            },
+            {
+              ticker: "V",
+              marketCode: "US",
+              currentReportingValueAmount: 800,
+              latestBarDate: "2026-06-13",
+              latestSnapshotDate: "2026-06-12",
+              backfillStatus: "ready",
+              status: "stale_snapshot",
+              recommendedAction: "run_snapshot_repair",
+            },
+          ],
+          recommendedActions: ["run_snapshot_repair"],
+        }),
+      ),
+    ).toBe("/admin/market-data/US/backfill?tickers=VRT%2CV&repair=snapshots");
+  });
+
   it("falls back to the landing page when remediation spans multiple markets", () => {
     expect(
       getValuationHealthAdminRepairHref(
