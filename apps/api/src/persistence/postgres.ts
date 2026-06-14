@@ -4431,7 +4431,6 @@ export class PostgresPersistence implements Persistence {
       userResult,
       accountsResult,
       feeProfilesResult,
-      symbolsResult,
     ] = await Promise.all([
       this.pool.query(
         `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
@@ -4458,11 +4457,6 @@ export class PostgresPersistence implements Persistence {
          WHERE a.user_id = $1 AND a.deleted_at IS NULL
          ORDER BY fp.id`,
         [userId],
-      ),
-      this.pool.query(
-        `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
-         FROM market_data.instruments
-         ORDER BY market_code, ticker`,
       ),
     ]);
 
@@ -4498,6 +4492,42 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
     ]);
+    const requestedInstrumentPairs = new Map<string, { ticker: string; marketCode: string }>();
+    for (const instrument of createDefaultInstruments()) {
+      requestedInstrumentPairs.set(`${instrument.marketCode}:${instrument.ticker}`, {
+        ticker: instrument.ticker,
+        marketCode: instrument.marketCode,
+      });
+    }
+    const accountMarketById = new Map(accountsResult.rows.map((row) => [
+      row.id,
+      marketCodeFor(row.default_currency),
+    ]));
+    for (const row of lotsResult.rows) {
+      const marketCode = accountMarketById.get(row.account_id);
+      if (!marketCode) continue;
+      requestedInstrumentPairs.set(`${marketCode}:${row.ticker}`, {
+        ticker: row.ticker,
+        marketCode,
+      });
+    }
+    const requestedInstruments = [...requestedInstrumentPairs.values()];
+    const symbolsResult = requestedInstruments.length
+      ? await this.pool.query(
+          `WITH requested(market_code, ticker) AS (
+             SELECT *
+             FROM unnest($1::text[], $2::text[])
+           )
+           SELECT i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+           FROM market_data.instruments i
+           JOIN requested r ON r.market_code = i.market_code AND r.ticker = i.ticker
+           ORDER BY i.market_code, i.ticker`,
+          [
+            requestedInstruments.map((instrument) => instrument.marketCode),
+            requestedInstruments.map((instrument) => instrument.ticker),
+          ],
+        )
+      : { rows: [] };
 
     const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
     const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
@@ -4571,6 +4601,432 @@ export class PostgresPersistence implements Persistence {
       recomputeJobs: [],
       idempotencyKeys: new Set<string>(),
     };
+    rebuildHoldingProjection(store);
+    return store;
+  }
+
+  async loadOverviewReadStore(userId: string): Promise<Store> {
+    await this.ensureDefaultPortfolioData(userId);
+    const [
+      userResult,
+      accountsResult,
+      feeProfilesResult,
+      tradeEventsResult,
+      cashLedgerResult,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
+         FROM users
+         WHERE id = $1`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+                fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+                fp.commission_currency,
+                fp.commission_rounding_mode, fp.tax_rounding_mode,
+                fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+                fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+         FROM fee_profiles fp
+         JOIN accounts a ON a.id = fp.account_id
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL
+         ORDER BY fp.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.ticker,
+                trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
+                trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
+                trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
+                trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source,
+                trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+                snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
+                snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
+                snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
+                snapshot.stock_sell_tax_rate_bps, snapshot.stock_day_trade_tax_rate_bps,
+                snapshot.etf_sell_tax_rate_bps, snapshot.bond_etf_sell_tax_rate_bps,
+                snapshot.commission_charge_mode
+         FROM trade_events AS trade_event
+         JOIN trade_fee_policy_snapshots AS snapshot
+           ON snapshot.id = trade_event.fee_policy_snapshot_id
+         WHERE trade_event.user_id = $1
+           AND trade_event.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+         ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
+                related_trade_event_id, related_dividend_ledger_entry_id, source,
+                source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+                fx_rate_to_usd, fx_transfer_id::text AS fx_transfer_id
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+         ORDER BY entry_date, booked_at, id`,
+        [userId],
+      ),
+    ]);
+
+    const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
+    const feePolicySnapshotIds = tradeEventsResult.rows.map((row) => String(row.fee_policy_snapshot_id));
+    const accountIds = accountsResult.rows.map((row) => row.id);
+    const [
+      feeProfileTaxRulesResult,
+      snapshotTaxComponentsResult,
+      bindingsResult,
+      lotsResult,
+      lotAllocationsResult,
+      actionsResult,
+      dividendLedgerEntriesResult,
+    ] = await Promise.all([
+      feeProfileIds.length
+        ? this.pool.query(
+            `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+             FROM fee_profile_tax_rules
+             WHERE fee_profile_id = ANY($1)
+             ORDER BY fee_profile_id, sort_order, id`,
+            [feeProfileIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      feePolicySnapshotIds.length
+        ? this.pool.query(
+            `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+             FROM trade_fee_policy_snapshot_tax_components
+             WHERE snapshot_id = ANY($1)
+             ORDER BY snapshot_id, sort_order, id`,
+            [feePolicySnapshotIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT account_id, ticker, fee_profile_id
+             FROM account_fee_profile_overrides
+             WHERE account_id = ANY($1)
+             ORDER BY account_id, ticker`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+             FROM lots
+             WHERE account_id = ANY($1)
+             ORDER BY opened_at, opened_sequence, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
+                    lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+             FROM lot_allocations
+             WHERE user_id = $1
+               AND account_id = ANY($2)
+             ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+            [userId, accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, action_type, numerator, denominator, action_date
+             FROM corporate_actions
+             WHERE account_id = ANY($1)
+             ORDER BY action_date, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, dividend_event_id, eligible_quantity,
+                    expected_cash_amount, expected_stock_quantity,
+                    received_stock_quantity,
+                    posting_status, reconciliation_status, version,
+                    source_composition_status, reconciliation_note, booked_at,
+                    reversal_of_dividend_ledger_entry_id, superseded_at
+             FROM dividend_ledger_entries
+             WHERE account_id = ANY($1)
+             ORDER BY booked_at, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
+    const dividendEventIds = [...new Set(dividendLedgerEntriesResult.rows.map((row) => row.dividend_event_id))];
+    const accountMarketById = new Map(accountsResult.rows.map((row) => [
+      row.id,
+      marketCodeFor(row.default_currency),
+    ]));
+    const relevantTickers = new Set<string>();
+    for (const row of lotsResult.rows) relevantTickers.add(row.ticker);
+    for (const row of tradeEventsResult.rows) relevantTickers.add(row.ticker);
+    const requestedInstrumentPairs = new Map<string, { ticker: string; marketCode: string }>();
+    for (const instrument of createDefaultInstruments()) {
+      requestedInstrumentPairs.set(`${instrument.marketCode}:${instrument.ticker}`, {
+        ticker: instrument.ticker,
+        marketCode: instrument.marketCode,
+      });
+    }
+    for (const row of lotsResult.rows) {
+      const marketCode = accountMarketById.get(row.account_id);
+      if (!marketCode) continue;
+      requestedInstrumentPairs.set(`${marketCode}:${row.ticker}`, { ticker: row.ticker, marketCode });
+    }
+    for (const row of tradeEventsResult.rows) {
+      requestedInstrumentPairs.set(`${row.market_code}:${row.ticker}`, {
+        ticker: row.ticker,
+        marketCode: row.market_code,
+      });
+    }
+    const requestedInstruments = [...requestedInstrumentPairs.values()];
+    const [dividendDeductionsResult, dividendEventsResult, symbolsResult] = await Promise.all([
+      dividendLedgerEntryIds.length
+        ? this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [dividendLedgerEntryIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      relevantTickers.size || dividendEventIds.length
+        ? this.pool.query(
+            `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+                    cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+                    source, source_reference, ingested_at AS created_at,
+                    fiscal_year_period, announcement_date, total_distribution_shares
+             FROM market_data.dividend_events
+             WHERE ticker = ANY($1)
+                OR id = ANY($2)
+             ORDER BY ex_dividend_date, id`,
+            [[...relevantTickers], dividendEventIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      requestedInstruments.length
+        ? this.pool.query(
+            `WITH requested(market_code, ticker) AS (
+               SELECT *
+               FROM unnest($1::text[], $2::text[])
+             )
+             SELECT i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+             FROM market_data.instruments i
+             JOIN requested r ON r.market_code = i.market_code AND r.ticker = i.ticker
+             ORDER BY i.market_code, i.ticker`,
+            [
+              requestedInstruments.map((instrument) => instrument.marketCode),
+              requestedInstruments.map((instrument) => instrument.ticker),
+            ],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
+    const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
+    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
+      hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
+    );
+    const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      tradeEventId: row.trade_event_id,
+      ticker: row.ticker,
+      lotId: row.lot_id,
+      lotOpenedAt: normalizeDate(row.lot_opened_at),
+      lotOpenedSequence: row.lot_opened_sequence,
+      allocatedQuantity: row.allocated_quantity,
+      allocatedCostAmount: Number(row.allocated_cost_amount),
+      costCurrency: row.cost_currency,
+      createdAt: normalizeDateTime(row.created_at),
+    }));
+    const tradeEvents: Transaction[] = tradeEventsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      instrumentType: row.instrument_type,
+      type: row.trade_type,
+      quantity: row.quantity,
+      unitPrice: Number(row.unit_price),
+      priceCurrency: row.price_currency,
+      tradeDate: normalizeDate(row.trade_date),
+      tradeTimestamp: normalizeDateTime(row.trade_timestamp),
+      bookingSequence: row.booking_sequence,
+      commissionAmount: row.commission_amount,
+      taxAmount: row.tax_amount,
+      isDayTrade: row.is_day_trade,
+      feeSnapshot: hydrateTradeFeeSnapshot(
+        row,
+        snapshotTaxComponentsBySnapshotId.get(String(row.fee_policy_snapshot_id)) ?? [],
+      ),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+      realizedPnlCurrency: row.price_currency,
+      reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+    }));
+    const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      entryDate: normalizeDate(row.entry_date),
+      entryType: row.entry_type,
+      amount: Number(row.amount),
+      currency: row.currency,
+      relatedTradeEventId: row.related_trade_event_id ?? undefined,
+      relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
+    }));
+    const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(row.ex_dividend_date),
+      paymentDate: normalizeDate(row.payment_date),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
+    }));
+    const dividendDeductionEntries: DividendDeductionEntry[] = dividendDeductionsResult.rows.map((row) => ({
+      id: row.id,
+      dividendLedgerEntryId: row.dividend_ledger_entry_id,
+      deductionType: row.deduction_type,
+      amount: Number(row.amount),
+      currencyCode: row.currency_code,
+      withheldAtSource: row.withheld_at_source,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+    const receivedCashAmountByDividendLedgerId = new Map<string, number>();
+    for (const entry of cashLedgerEntries) {
+      if (entry.entryType !== "DIVIDEND_RECEIPT" || !entry.relatedDividendLedgerEntryId) continue;
+      receivedCashAmountByDividendLedgerId.set(
+        entry.relatedDividendLedgerEntryId,
+        (receivedCashAmountByDividendLedgerId.get(entry.relatedDividendLedgerEntryId) ?? 0) + entry.amount,
+      );
+    }
+    const dividendLedgerEntries: DividendLedgerEntry[] = dividendLedgerEntriesResult.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      dividendEventId: row.dividend_event_id,
+      eligibleQuantity: Number(row.eligible_quantity),
+      expectedCashAmount: Number(row.expected_cash_amount),
+      expectedStockQuantity: Number(row.expected_stock_quantity),
+      receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
+      receivedStockQuantity: Number(row.received_stock_quantity),
+      postingStatus: row.posting_status,
+      reconciliationStatus: row.reconciliation_status,
+      version: Number(row.version ?? 1),
+      sourceCompositionStatus: row.source_composition_status ?? "unknown_pending_disclosure",
+      reconciliationNote: row.reconciliation_note ?? undefined,
+      reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
+      supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+    const instruments = symbolsResult.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .map((row) => ({
+        ticker: row.ticker,
+        name: row.name ?? undefined,
+        instrumentType: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+      }));
+
+    const user = userResult.rows[0];
+    const store: Store = {
+      userId,
+      settings: {
+        userId,
+        displayName: user.display_name ?? null,
+        locale: user.locale,
+        costBasisMethod: user.cost_basis_method,
+        quotePollIntervalSeconds: user.quote_poll_interval_seconds,
+      },
+      accounts: accountsResult.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
+      })),
+      feeProfileBindings: bindingsResult.rows.map((row) => ({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        feeProfileId: row.fee_profile_id,
+      })),
+      feeProfiles,
+      accounting: {
+        facts: {
+          tradeEvents,
+          cashLedgerEntries,
+          dividendLedgerEntries,
+          dividendDeductionEntries,
+          dividendSourceLines: [],
+          corporateActions: actionsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            actionType: row.action_type,
+            numerator: row.numerator,
+            denominator: row.denominator,
+            actionDate: normalizeDate(row.action_date),
+          })),
+        },
+        projections: {
+          lots: lotsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            openQuantity: row.open_quantity,
+            totalCostAmount: Number(row.total_cost_amount),
+            costCurrency: row.cost_currency,
+            openedAt: normalizeDate(row.opened_at),
+            openedSequence: row.opened_sequence,
+          })),
+          lotAllocations,
+          holdings: [],
+          dailyPortfolioSnapshots: [],
+        },
+        policy: buildAccountingPolicy(),
+      },
+      marketData: {
+        dividendEvents,
+        instruments,
+      },
+      instruments: instruments.map(instrumentRefToDef),
+      recomputeJobs: [],
+      idempotencyKeys: new Set<string>(),
+    };
+    syncTradeEventRealizedPnl(store.accounting);
     rebuildHoldingProjection(store);
     return store;
   }

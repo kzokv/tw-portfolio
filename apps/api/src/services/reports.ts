@@ -225,7 +225,7 @@ async function prepareReportData(
   input: BuildReportInput,
 ): Promise<PreparedReportData> {
   const [store, prefs] = await Promise.all([
-    app.persistence.loadStore(userId),
+    app.persistence.loadOverviewReadStore(userId),
     app.persistence.getUserPreferences(userId),
   ]);
   const { ranges } = await resolveEffectiveRanges(app.persistence, userId, prefs);
