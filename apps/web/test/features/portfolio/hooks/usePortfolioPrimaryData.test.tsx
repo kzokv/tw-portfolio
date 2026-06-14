@@ -63,6 +63,35 @@ function pageDataWithAccount(id: string): PortfolioPageData {
   };
 }
 
+function pageDataWithHolding(id: string, marketValueAmount: number | null): PortfolioPageData {
+  return {
+    ...pageDataWithAccount(id),
+    holdings: [{
+      accountId: "acct-1",
+      accountName: "Broker",
+      ticker: id,
+      instrumentName: id,
+      marketCode: "TW",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+      averageCostPerShare: 100,
+      currentUnitPrice: marketValueAmount === null ? null : 120,
+      marketValueAmount,
+      unrealizedPnlAmount: marketValueAmount === null ? null : 200,
+      allocationPct: 100,
+      change: marketValueAmount === null ? null : 1,
+      changePercent: marketValueAmount === null ? null : 0.1,
+      previousClose: marketValueAmount === null ? null : 119,
+      quoteStatus: marketValueAmount === null ? "missing" : "current",
+      nextDividendDate: null,
+      lastDividendPostedDate: null,
+      freshness: "current",
+      freshnessTooltip: null,
+    }],
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((settle) => {
@@ -130,8 +159,8 @@ describe("usePortfolioPrimaryData", () => {
     expect(result.isBootstrapping).toBe(false);
   });
 
-  it("restores fresh cached portfolio data without fetching again", async () => {
-    const cached = pageDataWithAccount("cached");
+  it("restores fresh enriched cached portfolio data without fetching again", async () => {
+    const cached = pageDataWithHolding("cached", 1200);
     writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
 
     act(() => {
@@ -146,6 +175,26 @@ describe("usePortfolioPrimaryData", () => {
     expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
     expect(fetchPortfolioEnrichmentData).not.toHaveBeenCalled();
     expect(result.data.accounts[0]?.id).toBe("cached");
+  });
+
+  it("restores fresh primary-only portfolio cache before refreshing enrichment", async () => {
+    const cached = pageDataWithHolding("cached-primary", null);
+    const enriched = pageDataWithHolding("enriched", 1200);
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+    vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.holdings[0]?.ticker).toBe("cached-primary");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
+    expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.data.holdings[0]?.ticker).toBe("enriched");
   });
 
   it("restores stale cached portfolio data before refreshing in the background", async () => {

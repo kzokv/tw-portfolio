@@ -131,6 +131,7 @@ export function usePortfolioPrimaryData(
 
     const cached = cacheKey ? readRouteDtoCache<PortfolioPageData>(cacheKey) : null;
     if (cached !== null) {
+      const version = startRequest();
       setData(cached.payload);
       setIsBootstrapping(false);
       setCacheStatus(cached.status);
@@ -138,6 +139,8 @@ export function usePortfolioPrimaryData(
       setRestoredAt(cached.savedAt);
       if (cached.status === "stale") {
         void refresh();
+      } else if (needsPortfolioEnrichment(cached.payload)) {
+        void refreshEnrichment(version);
       }
       return;
     }
@@ -166,4 +169,8 @@ export function usePortfolioPrimaryData(
     restoredFromCache,
     restoredAt,
   };
+}
+
+function needsPortfolioEnrichment(data: PortfolioPageData): boolean {
+  return data.holdings.some((holding) => holding.marketValueAmount === null);
 }
