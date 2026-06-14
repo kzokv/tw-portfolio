@@ -117,15 +117,21 @@ async function buildFxRateMap(
   persistence: Persistence,
 ): Promise<Map<string, number | null>> {
   const map = new Map<string, number | null>();
+  const pending: Array<Promise<void>> = [];
   for (const src of sourceCurrencies) {
     if (map.has(src)) continue;
     if (src === reportingCurrency) {
       map.set(src, 1.0);
       continue;
     }
-    const rate = await persistence.getFxRate(src, reportingCurrency, asOfDate);
-    map.set(src, rate);
+    map.set(src, null);
+    pending.push(
+      persistence.getFxRate(src, reportingCurrency, asOfDate).then((rate) => {
+        map.set(src, rate);
+      }),
+    );
   }
+  await Promise.all(pending);
   return map;
 }
 

@@ -11,16 +11,15 @@ export async function buildFxConversionRateRows(
     .filter((currency): currency is AccountDefaultCurrency => currency !== reportingCurrency)
     .sort();
 
-  const rows: FxConversionRateDto[] = [];
-  for (const fromCurrency of uniqueSources) {
+  const rows = await Promise.all(uniqueSources.map(async (fromCurrency): Promise<FxConversionRateDto | null> => {
     const rate = await persistence.getFxRate(fromCurrency, reportingCurrency, asOf);
-    if (rate === null) continue;
-    rows.push({
+    if (rate === null) return null;
+    return {
       fromCurrency,
       toCurrency: reportingCurrency,
       rate,
       asOf,
-    });
-  }
-  return rows;
+    };
+  }));
+  return rows.filter((row): row is FxConversionRateDto => row !== null);
 }
