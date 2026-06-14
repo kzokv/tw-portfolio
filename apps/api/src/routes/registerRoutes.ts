@@ -1269,9 +1269,20 @@ async function loadUserStoreForUserId(app: FastifyInstance, userId: string) {
   return { userId, store };
 }
 
+async function loadOverviewReadStoreForUserId(app: FastifyInstance, userId: string) {
+  const store = await app.persistence.loadOverviewReadStore(userId);
+  syncAccountingPolicy(store);
+  return { userId, store };
+}
+
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
   return loadUserStoreForUserId(app, contextUserId);
+}
+
+async function loadOverviewReadStore(app: FastifyInstance, req: FastifyRequest) {
+  const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+  return loadOverviewReadStoreForUserId(app, contextUserId);
 }
 
 async function withReadPathTiming<T>(
@@ -4670,7 +4681,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/enrichment", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/enrichment", async (timing) => {
-      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { store, userId } = await timing.measure("load_overview_read_store", "db", () => loadOverviewReadStore(app, req));
       const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
       const symbols = [...new Set(
         holdings
@@ -4933,7 +4944,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/dashboard/overview", async (req, reply) => {
     return withReadPathTiming(req, reply, "/dashboard/overview", async (timing) => {
-      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { store, userId } = await timing.measure("load_overview_read_store", "db", () => loadOverviewReadStore(app, req));
       const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
       const symbols = [...new Set(
         holdings
@@ -5030,7 +5041,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/dashboard/enrichment", async (req, reply) => {
     return withReadPathTiming(req, reply, "/dashboard/enrichment", async (timing) => {
-      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { store, userId } = await timing.measure("load_overview_read_store", "db", () => loadOverviewReadStore(app, req));
       const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
       const symbols = [...new Set(
         holdings
