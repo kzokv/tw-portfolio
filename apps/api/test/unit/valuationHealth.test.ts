@@ -43,6 +43,7 @@ describe("buildValuationHealth", () => {
     expect(dto.status).toBe("healthy");
     expect(dto.reason).toBe("within_minor_unit_tolerance");
     expect(dto.deltaAmount).toBeCloseTo(0.004, 6);
+    expect(dto.latestBarAsOf).toBe("2026-06-13");
     expect(dto.affectedHoldings).toEqual([]);
   });
 

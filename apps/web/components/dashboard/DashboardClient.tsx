@@ -84,10 +84,12 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
+  const performanceReportingCurrency = expectedReportingCurrency ?? dashboard.summary.reportingCurrency;
   const performanceCacheKey = buildRouteDtoCacheKey(
     "dashboard-performance",
     getRouteDtoContextScope(sessionUserId),
     locale,
+    performanceReportingCurrency,
     performanceRange,
   );
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
