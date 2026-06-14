@@ -1026,6 +1026,7 @@ function PerformanceChart({
           <ValuationHealthPanel
             adminRepairHref={adminRepairHref}
             className="mb-4"
+            copy={dict.valuationHealth}
             locale={locale}
             showAdminActions={showAdminActions}
             valuationHealth={valuationHealth}

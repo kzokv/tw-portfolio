@@ -268,6 +268,7 @@ export function PortfolioTrendCard({
         <ValuationHealthPanel
           adminRepairHref={adminRepairHref}
           className="mt-4"
+          copy={dict.valuationHealth}
           locale={locale}
           showAdminActions={showAdminActions}
           valuationHealth={valuationHealth}
