@@ -6562,7 +6562,7 @@ export class PostgresPersistence implements Persistence {
        `SELECT dle.account_id,
                de.ticker,
                de.market_code,
-               de.payment_date::text,
+               COALESCE(de.payment_date, dle.booked_at::date)::text AS payment_date,
                de.cash_dividend_currency AS currency,
                COALESCE(receipts.received_cash_amount, 0)::text AS amount
        FROM dividend_ledger_entries dle
@@ -6579,13 +6579,13 @@ export class PostgresPersistence implements Persistence {
          AND dle.posting_status = 'posted'
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
          AND dle.superseded_at IS NULL
-         AND de.payment_date IS NOT NULL
+         AND COALESCE(de.payment_date, dle.booked_at::date) IS NOT NULL
          AND NOT EXISTS (
            SELECT 1
            FROM dividend_ledger_entries reversal
            WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
          )
-       ORDER BY de.payment_date ASC`,
+       ORDER BY payment_date ASC`,
       divParams,
     );
 

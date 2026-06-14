@@ -3305,7 +3305,9 @@ export class MemoryPersistence implements Persistence {
         && !reversedDividendLedgerIds.has(e.id))
       .map(entry => {
         const event = eventById.get(entry.dividendEventId);
-        if (!event?.paymentDate) return null;
+        if (!event) return null;
+        const paymentDate = event.paymentDate ?? entry.bookedAt?.slice(0, 10);
+        if (!paymentDate) return null;
         const eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
         if (
           scope
@@ -3319,7 +3321,7 @@ export class MemoryPersistence implements Persistence {
           accountId: entry.accountId,
           ticker: event.ticker,
           marketCode: eventMarketCode,
-          paymentDate: event.paymentDate,
+          paymentDate,
           amount: entry.receivedCashAmount,
           currency: event.cashDividendCurrency,
         };
