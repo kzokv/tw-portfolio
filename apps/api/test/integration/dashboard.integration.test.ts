@@ -561,6 +561,16 @@ describe("dashboard overview", () => {
       }),
     );
     expect(body.points.at(-1)).toEqual(expect.objectContaining({ date: "2026-06-12" }));
+    expect(body.valuationHealth).toEqual(
+      expect.objectContaining({
+        status: "healthy",
+        currentValueAmount: body.points.at(-1)?.marketValueAmount,
+        snapshotValueAmount: body.points.at(-1)?.marketValueAmount,
+        deltaAmount: 0,
+        latestSnapshotDate: "2026-06-12",
+        latestUsableSnapshotDate: "2026-06-12",
+      }),
+    );
   });
 
   it("does not synthesize provisional performance points when snapshots are absent", async () => {
