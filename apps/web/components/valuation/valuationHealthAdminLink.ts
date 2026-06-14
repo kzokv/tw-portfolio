@@ -21,6 +21,11 @@ export function getValuationHealthAdminRepairHref(
 
   const hasBackfillAction = actionableHoldings.some((holding) => holding.recommendedAction === "run_backfill");
   const tickers = [...new Set(actionableHoldings.map((holding) => holding.ticker))];
+  const snapshotRepairFromDate = actionableHoldings
+    .filter((holding) => holding.recommendedAction === "run_snapshot_repair")
+    .map((holding) => holding.latestSnapshotDate ?? holding.latestBarDate)
+    .filter((date): date is string => date !== null)
+    .reduce<string | null>((min, date) => (min === null || date < min ? date : min), null);
   const params = new URLSearchParams();
   if (!hasBackfillAction && tickers.length > 1) {
     const deepLinkTickers = tickers.slice(0, SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT);
@@ -33,6 +38,9 @@ export function getValuationHealthAdminRepairHref(
   }
   if (!hasBackfillAction) {
     params.set("repair", "snapshots");
+    if (snapshotRepairFromDate) {
+      params.set("fromDate", snapshotRepairFromDate);
+    }
   }
 
   const query = params.toString();
