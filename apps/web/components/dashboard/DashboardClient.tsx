@@ -60,7 +60,9 @@ export function DashboardClient({
   const {
     uiDict: dict,
     locale,
+    routeCachePolicy,
     sessionUserId,
+    sessionUserRole,
     isSharedContext,
     canUseGlobalQuickActions,
     openQuickActions,
@@ -71,6 +73,7 @@ export function DashboardClient({
   const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
   const dashboard = useDashboardPrimaryData({
     cacheKey,
+    cachePolicy: routeCachePolicy,
     expectedReportingCurrency,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
@@ -81,8 +84,16 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
+  const performanceCacheKey = buildRouteDtoCacheKey(
+    "dashboard-performance",
+    getRouteDtoContextScope(sessionUserId),
+    locale,
+    performanceRange,
+  );
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({
+    cacheKey: performanceCacheKey,
+    cachePolicy: routeCachePolicy,
     range: performanceRange,
     enabled: true,
     timeoutMessage: dict.dashboardHome.performanceRefreshTimeout,
@@ -182,6 +193,8 @@ export function DashboardClient({
           dict={dict}
           canOpenQuickActions={canUseGlobalQuickActions}
           onOpenQuickActions={openQuickActions}
+          showAdminActions={sessionUserRole === "admin"}
+          valuationHealth={dashboard.valuationHealth}
         />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
@@ -261,9 +274,11 @@ export function DashboardClient({
                   isLoading={performance.isLoading}
                   errorMessage={performance.errorMessage}
                   onRangeChange={setPerformanceRange}
+                  showAdminActions={sessionUserRole === "admin"}
                   timelineMode={timelineMode}
                   onTimelineModeChange={setTimelineMode}
                   onOpenCustomize={() => setCustomizeRangesOpen(true)}
+                  valuationHealth={performance.data?.valuationHealth ?? dashboard.valuationHealth}
                 />
               );
             case "allocation-snapshot":

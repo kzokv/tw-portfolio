@@ -15,21 +15,21 @@ import {
   fetchPortfolioPrimaryData,
 } from "../../../../features/portfolio/services/portfolioService";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 beforeAll(() => {
@@ -87,17 +87,19 @@ describe("usePortfolioPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.mocked(fetchPortfolioEnrichmentData).mockReset();
     vi.mocked(fetchPortfolioPrimaryData).mockReset();
   });
@@ -128,10 +130,32 @@ describe("usePortfolioPrimaryData", () => {
     expect(result.isBootstrapping).toBe(false);
   });
 
-  it("restores cached portfolio data before refreshing in the background", async () => {
+  it("restores fresh cached portfolio data without fetching again", async () => {
+    const cached = pageDataWithAccount("cached");
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.accounts[0]?.id).toBe("cached");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
+    expect(fetchPortfolioEnrichmentData).not.toHaveBeenCalled();
+    expect(result.data.accounts[0]?.id).toBe("cached");
+  });
+
+  it("restores stale cached portfolio data before refreshing in the background", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
     const cached = pageDataWithAccount("cached");
     const refreshed = pageDataWithAccount("fresh");
-    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+    vi.setSystemTime(now);
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached, 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
     vi.mocked(fetchPortfolioPrimaryData).mockResolvedValue(refreshed);
     vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(refreshed);
 

@@ -531,14 +531,6 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         }
       }
 
-      if (snapshotRepairFromDate && enqueueSnapshotRepair) {
-        try {
-          await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger });
-        } catch (error) {
-          log.warn({ err: error, ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger }, "snapshot_repair_enqueue_failed");
-        }
-      }
-
       // KZO-172 + KZO-189 — metadata enrichment via the per-market catalog provider.
       // The KZO-189 gate (`shouldEnrich`) skips this block when `mode === "conditional"`
       // and the trigger is `daily_refresh`, conserving the Yahoo budget on the bulk
@@ -592,6 +584,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {
         await updateBackfillStatus(ticker, market, "ready");
+      }
+
+      if (snapshotRepairFromDate && enqueueSnapshotRepair) {
+        try {
+          await enqueueSnapshotRepair({ ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger });
+        } catch (error) {
+          log.warn({ err: error, ticker, marketCode: market, fromDate: snapshotRepairFromDate, trigger }, "snapshot_repair_enqueue_failed");
+        }
       }
 
       if (isDailyRefresh) {

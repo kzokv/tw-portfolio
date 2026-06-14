@@ -8,6 +8,7 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   LocaleCode,
+  RouteCachePolicyDto,
 } from "@vakwen/shared-types";
 import type { IntegrityIssue } from "../../features/dashboard/types";
 import type { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
@@ -27,6 +28,8 @@ export interface AppShellData {
   uiDict: ReturnType<typeof getDictionary>;
   locale: LocaleCode;
   sessionUserId: string | null;
+  sessionUserRole?: string | null;
+  routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
   canUseGlobalQuickActions: boolean;
   openQuickActions: () => void;

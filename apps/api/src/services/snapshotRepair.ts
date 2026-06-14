@@ -222,3 +222,26 @@ export async function registerSnapshotRepairWorker(
     { singletonKey: "startup" },
   );
 }
+
+export async function enqueueSnapshotRepairIfActiveHeld(input: {
+  boss: Pick<PgBoss, "send">;
+  persistence: Pick<Persistence, "listHoldingSnapshotRepairScopesForTickerMarket">;
+  ticker: string;
+  marketCode: MarketCode;
+  fromDate: string | null;
+  trigger: SnapshotRepairJobData["trigger"];
+}): Promise<boolean> {
+  if (!input.fromDate) return false;
+  const scopes = await input.persistence.listHoldingSnapshotRepairScopesForTickerMarket(input.ticker, input.marketCode);
+  if (scopes.length === 0) return false;
+  const payload: SnapshotRepairJobData = {
+    ticker: input.ticker,
+    marketCode: input.marketCode,
+    fromDate: input.fromDate,
+    trigger: input.trigger,
+  };
+  await input.boss.send(SNAPSHOT_REPAIR_QUEUE, payload, {
+    singletonKey: getSnapshotRepairSingletonKey(payload),
+  });
+  return true;
+}

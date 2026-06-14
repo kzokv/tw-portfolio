@@ -16,21 +16,21 @@ import {
   fetchDashboardPrimaryData,
 } from "../../../../features/dashboard/services/dashboardService";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 beforeAll(() => {
@@ -134,17 +134,19 @@ describe("useDashboardPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.mocked(fetchDashboardEnrichmentData).mockReset();
     vi.mocked(fetchDashboardPrimaryData).mockReset();
   });
@@ -177,10 +179,32 @@ describe("useDashboardPrimaryData", () => {
     expect(result.summary.marketValueAmount).toBe(1500);
   });
 
-  it("restores cached primary data before refreshing in the background", async () => {
+  it("restores fresh cached primary data without fetching again", async () => {
+    const cached = snapshotWithMarketValue(1750);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.summary.marketValueAmount).toBe(1750);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
+    expect(fetchDashboardEnrichmentData).not.toHaveBeenCalled();
+    expect(result.summary.marketValueAmount).toBe(1750);
+  });
+
+  it("restores stale cached primary data before refreshing in the background", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
     const cached = snapshotWithMarketValue(1750);
     const refreshed = snapshotWithMarketValue(2100);
-    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+    vi.setSystemTime(now);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached, 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
     vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(refreshed);
     vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(refreshed);
 
