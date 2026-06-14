@@ -11,6 +11,7 @@ import {
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../../src/services/dashboardReportingCurrency.js";
+import { buildFxConversionRateRows } from "../../src/services/fxConversionRates.js";
 import type {
   DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
@@ -296,6 +297,93 @@ describe("translateOverviewHoldingGroups", () => {
 
     expect(group?.reportingDailyChangeAmount).toBe(0.5);
     expect(group?.children[0]?.reportingDailyChangeAmount).toBe(0.5);
+  });
+
+  it("fetches independent FX rates concurrently and de-dupes duplicate source currencies", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const calls: string[] = [];
+    const persistence = {
+      getFxRate: async (base: string, quote: string, asOfDate: string) => {
+        calls.push(`${base}:${quote}:${asOfDate}`);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return base === "USD" ? 32 : 20;
+      },
+    } as unknown as Persistence;
+    const makeCurrencyGroup = (
+      ticker: string,
+      marketCode: DashboardOverviewHoldingGroupDto["marketCode"],
+      currency: DashboardOverviewHoldingGroupDto["currency"],
+    ) => makeHoldingGroup({
+      ticker,
+      marketCode,
+      currency,
+      children: [{
+        ...baseHolding,
+        ticker,
+        marketCode,
+        currency,
+        reportingCurrency: "TWD",
+        reportingCostBasisAmount: null,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+        reportingAllocationPercent: null,
+        fxStatus: "complete",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+      }],
+    });
+
+    await translateOverviewHoldingGroups(
+      [
+        makeCurrencyGroup("AAPL", "US", "USD"),
+        makeCurrencyGroup("BHP", "AU", "AUD"),
+        makeCurrencyGroup("MSFT", "US", "USD"),
+      ],
+      "TWD",
+      "market_value",
+      "2026-04-29",
+      persistence,
+    );
+
+    expect(calls).toEqual(["USD:TWD:2026-04-29", "AUD:TWD:2026-04-29"]);
+    expect(maxActive).toBe(2);
+  });
+});
+
+describe("buildFxConversionRateRows", () => {
+  it("fetches independent FX conversion rows concurrently", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const calls: string[] = [];
+    const persistence = {
+      getFxRate: async (base: string, quote: string, asOfDate: string) => {
+        calls.push(`${base}:${quote}:${asOfDate}`);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return base === "USD" ? 32 : 20;
+      },
+    } as unknown as Persistence;
+
+    const rows = await buildFxConversionRateRows(
+      persistence,
+      ["USD", "AUD", "USD", "TWD"],
+      "TWD",
+      "2026-04-29",
+    );
+
+    expect(calls).toEqual(["AUD:TWD:2026-04-29", "USD:TWD:2026-04-29"]);
+    expect(maxActive).toBe(2);
+    expect(rows).toEqual([
+      { fromCurrency: "AUD", toCurrency: "TWD", rate: 20, asOf: "2026-04-29" },
+      { fromCurrency: "USD", toCurrency: "TWD", rate: 32, asOf: "2026-04-29" },
+    ]);
   });
 });
 
