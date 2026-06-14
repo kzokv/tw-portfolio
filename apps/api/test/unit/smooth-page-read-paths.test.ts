@@ -243,6 +243,14 @@ describe("smooth page read paths", () => {
   });
 
   it("serves portfolio instrument options without hydrating the full store route path", async () => {
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "BHP",
+      name: "BHP Group",
+      instrumentType: "STOCK",
+      marketCode: "AU",
+      barsBackfillStatus: "ready",
+    });
+
     const response = await app.inject({ method: "GET", url: "/portfolio/instrument-index" });
 
     expect(response.statusCode).toBe(200);
@@ -258,6 +266,11 @@ describe("smooth page read paths", () => {
         ticker: "0050",
         marketCode: "TW",
         instrumentType: "ETF",
+      }),
+      expect.objectContaining({
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
       }),
     ]));
   });
