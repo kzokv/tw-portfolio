@@ -41,7 +41,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
   const latestSnapshotByScope = await input.app.persistence.getLatestHoldingSnapshotDatesByScope(input.userId, scopePairs);
 
   const affectedHoldings = input.holdingGroups
-    .map((group) => buildHoldingHealthRow(group, expectedLatestValuationDate, latestBarByKey, latestSnapshotByScope, backfillStatusByKey))
+    .map((group) => buildHoldingHealthRow(group, latestBarByKey, latestSnapshotByScope, backfillStatusByKey))
     .filter((row): row is ValuationHealthHoldingDto => row !== null)
     .filter((row) => row.status !== "healthy");
 
@@ -134,7 +134,6 @@ function buildScopePairs(holdingGroups: ReadonlyArray<DashboardOverviewHoldingGr
 
 function buildHoldingHealthRow(
   group: DashboardOverviewHoldingGroupDto,
-  expectedLatestValuationDate: string | null,
   latestBarByKey: ReadonlyMap<string, string | null>,
   latestSnapshotByScope: ReadonlyMap<string, string | null>,
   backfillStatusByKey: ReadonlyMap<string, ValuationHealthHoldingDto["backfillStatus"]>,
@@ -158,10 +157,10 @@ function buildHoldingHealthRow(
   } else if (latestBarDate === null) {
     status = "missing_latest_bar";
     recommendedAction = "run_backfill";
-  } else if (expectedLatestValuationDate === null || latestSnapshotDate === null) {
+  } else if (latestSnapshotDate === null) {
     status = "missing_snapshot";
     recommendedAction = "run_snapshot_repair";
-  } else if (latestSnapshotDate < expectedLatestValuationDate) {
+  } else if (latestSnapshotDate < latestBarDate) {
     status = "stale_snapshot";
     recommendedAction = "run_snapshot_repair";
   }

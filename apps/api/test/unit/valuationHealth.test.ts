@@ -148,7 +148,57 @@ describe("buildValuationHealth", () => {
     expect(dto.recommendedActions).toEqual(["run_backfill", "run_snapshot_repair"]);
   });
 
-  it("marks holdings stale against the expected valuation date when all snapshots are globally old", async () => {
+  it("keeps holdings healthy when their snapshot matches their own market bar date", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([
+            ["2330:TW", "2026-06-12"],
+            ["AAPL:US", "2026-06-13"],
+          ])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([
+            [scopeKey("acc-1", "2330", "TW"), "2026-06-12"],
+            [scopeKey("acc-2", "AAPL", "US"), "2026-06-13"],
+          ])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 500,
+      asOf: "2026-06-14T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 250,
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+        {
+          ticker: "AAPL",
+          marketCode: "US",
+          reportingMarketValueAmount: 250,
+          children: [{ accountId: "acc-2", ticker: "AAPL", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 500 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-13",
+          latestSnapshotDate: "2026-06-13",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.latestBarAsOf).toBe("2026-06-13");
+    expect(dto.expectedLatestValuationDate).toBe("2026-06-13");
+    expect(dto.affectedHoldings).toEqual([]);
+    expect(dto.recommendedActions).toEqual([]);
+  });
+
+  it("marks holdings stale against their own latest bar date", async () => {
     const dto = await buildValuationHealth({
       app: {
         persistence: {
