@@ -5101,7 +5101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
       const asOf = await timing.measure("resolve_as_of", "db", () =>
         resolveDashboardPerformanceAsOf(app.persistence, store));
-      return timing.measure("translate_performance", "db", () => translatePerformancePoints(
+      const performance = await timing.measure("translate_performance", "db", () => translatePerformancePoints(
         userId,
         query.range as DashboardPerformanceRange,
         asOf,
@@ -5109,6 +5109,51 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.persistence,
         store,
       ));
+      const symbols = [...new Set(
+        listHoldings(store, userId)
+          .map((holding) => holding.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const snapshotMap = await timing.measure("quotes", "db", async () => {
+        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+      });
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const overview = await timing.measure("build_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
+        integrityIssue: getStoreIntegrityIssue(store),
+        quotes,
+      })));
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
+      const translatedSummary = await timing.measure("translate_summary", "db", () => translateOverviewSummary(
+        overview.summary,
+        overview.holdings,
+        overview.dividends,
+        reportingCurrency,
+        overview.summary.asOf,
+        app.persistence,
+      ));
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      const valuationHealth = await timing.measure("valuation_health", "app", () =>
+        buildValuationHealth({
+          app,
+          userId,
+          store,
+          reportingCurrency,
+          currentValueAmount: translatedSummary.marketValueAmount,
+          holdingGroups: translatedHoldingGroups,
+          performance,
+          asOf,
+        }));
+      return { ...performance, valuationHealth };
     });
   });
 
