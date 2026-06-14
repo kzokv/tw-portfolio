@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ValuationHealthDto } from "@vakwen/shared-types";
 import { ValuationHealthPanel } from "../../../components/valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../../../components/valuation/valuationHealthAdminLink";
+import { getDictionary } from "../../../lib/i18n";
 
 function buildValuationHealth(
   overrides: Partial<ValuationHealthDto> = {},
@@ -71,6 +72,7 @@ describe("ValuationHealthPanel", () => {
       root.render(
         <ValuationHealthPanel
           adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
           locale="en"
           showAdminActions={false}
           valuationHealth={valuationHealth}
@@ -81,6 +83,7 @@ describe("ValuationHealthPanel", () => {
     await act(async () => {});
 
     expect(document.querySelector("[data-testid='valuation-health-user-tip']")?.textContent).toContain("Admin repair required");
+    expect(document.body.textContent).toContain("8.3%");
     expect(document.body.textContent).toContain("No repair action is available here.");
     expect(document.body.textContent).not.toContain("Repair snapshots");
     expect(document.body.textContent).not.toContain("Run admin backfill");
@@ -102,6 +105,7 @@ describe("ValuationHealthPanel", () => {
       root.render(
         <ValuationHealthPanel
           adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
           locale="en"
           showAdminActions={false}
           valuationHealth={valuationHealth}
@@ -125,6 +129,7 @@ describe("ValuationHealthPanel", () => {
       root.render(
         <ValuationHealthPanel
           adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
           locale="en"
           showAdminActions
           valuationHealth={valuationHealth}
