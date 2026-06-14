@@ -24,6 +24,8 @@ interface NumericOverrideRowProps {
   bounds: { min: number; max: number };
   /** Optional unit suffix shown beside the input (e.g. "ms", "s", "min"). */
   unit?: string;
+  /** Input step and validation mode; defaults to whole-number admin overrides. */
+  step?: number | "any";
   /** Disabled while a peer save is in flight (one save at a time per page). */
   disabled?: boolean;
   /** PATCH the new value. `null` resets to env default. Throws on server error. */
@@ -38,7 +40,7 @@ interface NumericOverrideRowProps {
   inputTestId?: string;
 }
 
-function validate(raw: string, bounds: { min: number; max: number }, dict: AdminDictionary): {
+function validate(raw: string, bounds: { min: number; max: number }, dict: AdminDictionary, allowDecimal: boolean): {
   value: number | null;
   error: string | null;
 } {
@@ -52,7 +54,7 @@ function validate(raw: string, bounds: { min: number; max: number }, dict: Admin
     };
   }
   const num = Number(trimmed);
-  if (!Number.isFinite(num) || !Number.isInteger(num)) {
+  if (!Number.isFinite(num) || (!allowDecimal && !Number.isInteger(num))) {
     return { value: null, error: dict.inputs.valueWholeNumber };
   }
   if (num < bounds.min || num > bounds.max) {
@@ -74,6 +76,7 @@ export function NumericOverrideRow({
   effective,
   bounds,
   unit,
+  step = 1,
   disabled = false,
   onSave,
   inputTestId,
@@ -92,7 +95,8 @@ export function NumericOverrideRow({
     setInput(override !== null ? String(override) : "");
   }, [override]);
 
-  const validation = overrideEnabled ? validate(input, bounds, dict) : { value: null, error: null };
+  const allowDecimal = step === "any" || (typeof step === "number" && !Number.isInteger(step));
+  const validation = overrideEnabled ? validate(input, bounds, dict, allowDecimal) : { value: null, error: null };
   const inlineError = overrideEnabled ? validation.error : null;
   const canSave = !saving && !disabled && (!overrideEnabled || validation.error === null);
 
@@ -158,7 +162,7 @@ export function NumericOverrideRow({
               type="number"
               min={bounds.min}
               max={bounds.max}
-              step={1}
+              step={step}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);

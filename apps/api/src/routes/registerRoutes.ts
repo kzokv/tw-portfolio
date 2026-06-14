@@ -690,6 +690,7 @@ const ADMIN_ROUTE_KEYS = new Set([
   "POST /admin/providers/:providerId/operations/:operationId/resume",
   "POST /admin/providers/:providerId/operations/:operationId/cancel",
   "POST /admin/providers/:providerId/operations/:operationId/retry",
+  "POST /admin/market-data/:marketCode/snapshot-repair/execute",
 ]);
 const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "POST /admin/users/:id/impersonate",

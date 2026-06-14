@@ -81,6 +81,7 @@ export function useDashboardPrimaryData({
   initialPrimaryData = null,
 }: UseDashboardDataOptions): UseDashboardDataResult {
   const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "dashboard-primary");
+  const enrichmentCacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "dashboard-enrichment");
   const initialCachedRef = useRef<ReturnType<typeof readDashboardCache> | undefined>(undefined);
   if (initialCachedRef.current === undefined) {
     initialCachedRef.current = initialPrimaryData === null && cacheKey
@@ -115,9 +116,9 @@ export function useDashboardPrimaryData({
       setSnapshot(nextSnapshot);
       if (cacheKey) {
         writeRouteDtoCache(cacheKey, nextSnapshot, {
-          staleTtlMs: cacheDurations.staleTtlMs,
+          staleTtlMs: enrichmentCacheDurations.staleTtlMs,
           tags: DASHBOARD_PRIMARY_CACHE_TAGS,
-          ttlMs: cacheDurations.ttlMs,
+          ttlMs: enrichmentCacheDurations.ttlMs,
         });
       }
       setCacheStatus("fresh");
@@ -126,7 +127,7 @@ export function useDashboardPrimaryData({
     } catch {
       // Secondary market/FX/freshness enrichment must not blank primary content.
     }
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest]);
+  }, [cacheKey, enrichmentCacheDurations.staleTtlMs, enrichmentCacheDurations.ttlMs, isCurrentRequest]);
 
   const refresh = useCallback(async () => {
     const version = startRequest();
