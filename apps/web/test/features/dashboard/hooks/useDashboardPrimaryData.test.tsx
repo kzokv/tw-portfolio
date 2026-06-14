@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountDefaultCurrency } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, RouteCachePolicyDto } from "@vakwen/shared-types";
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
@@ -113,15 +113,18 @@ function createDeferred<T>() {
 
 function Harness({
   cacheScope = "self",
+  cachePolicy,
   expectedReportingCurrency,
   initialData = null,
 }: {
   cacheScope?: string;
+  cachePolicy?: RouteCachePolicyDto | null;
   expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialData?: DashboardSnapshot | null;
 }) {
   result = useDashboardPrimaryData({
     cacheKey: buildRouteDtoCacheKey("dashboard-primary", cacheScope),
+    cachePolicy,
     expectedReportingCurrency,
     initialTransaction,
     initialPrimaryData: initialData,
@@ -215,6 +218,30 @@ describe("useDashboardPrimaryData", () => {
     expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
     expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
     expect(result.summary.marketValueAmount).toBe(2200);
+  });
+
+  it("writes enrichment results with the dashboard enrichment cache TTL", async () => {
+    const cachePolicy: RouteCachePolicyDto = {
+      mode: "custom",
+      dashboardPrimaryTtlMs: 120_000,
+      dashboardEnrichmentTtlMs: 45_000,
+      dashboardPerformanceTtlMs: 300_000,
+      portfolioTtlMs: 120_000,
+      reportsTtlMs: 300_000,
+      staleUsableTtlMs: 600_000,
+    };
+    const cacheKey = buildRouteDtoCacheKey("dashboard-primary", "self");
+    const enriched = snapshotWithMarketValue(2200);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness cachePolicy={cachePolicy} initialData={initialPrimaryData} />);
+    });
+
+    await act(async () => {});
+
+    expect(readRouteDtoCache<DashboardSnapshot>(cacheKey)?.payload.summary.marketValueAmount).toBe(2200);
+    expect(readRouteDtoCache<DashboardSnapshot>(cacheKey)?.ttlMs).toBe(45_000);
   });
 
   it("does not let an older primary request overwrite a fresh cache restore after cache key changes", async () => {

@@ -184,6 +184,9 @@ export default async function AdminMarketDataWorkspacePage({
   const limit = instrumentQuery.limit;
   const providerId = firstOptionalQueryValue(query.providerId);
   const operationId = firstOptionalQueryValue(query.operationId);
+  const snapshotRepairRequest = tab === "backfill" && firstOptionalQueryValue(query.repair) === "snapshots"
+    ? { tickers: instrumentQuery.search.trim() ? [instrumentQuery.search.trim().toUpperCase()] : [] }
+    : null;
 
   const [overview, actions] = await Promise.all([
     getJson<AdminMarketDataOverviewResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/overview`),
@@ -274,6 +277,7 @@ export default async function AdminMarketDataWorkspacePage({
       providerFilterId={providerId ?? ""}
       krMappings={krMappings}
       krOperations={krOperations}
+      snapshotRepairRequest={snapshotRepairRequest}
     />
   );
 }

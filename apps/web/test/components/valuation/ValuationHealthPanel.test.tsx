@@ -142,14 +142,14 @@ describe("ValuationHealthPanel", () => {
     const repairButton = document.querySelector("[data-testid='valuation-health-admin-repair']");
     expect(repairButton?.textContent).toContain("Repair snapshots");
     expect(repairButton?.textContent).not.toContain("Generate snapshots");
-    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?search=VRT");
+    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?search=VRT&repair=snapshots");
   });
 });
 
 describe("getValuationHealthAdminRepairHref", () => {
   it("returns a market-scoped backfill route for a single actionable holding", () => {
     expect(getValuationHealthAdminRepairHref(buildValuationHealth())).toBe(
-      "/admin/market-data/US/backfill?search=VRT",
+      "/admin/market-data/US/backfill?search=VRT&repair=snapshots",
     );
   });
 

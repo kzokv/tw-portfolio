@@ -18,10 +18,14 @@ export function getValuationHealthAdminRepairHref(
     return ADMIN_MARKET_DATA_ROOT;
   }
 
+  const hasBackfillAction = actionableHoldings.some((holding) => holding.recommendedAction === "run_backfill");
   const tickers = [...new Set(actionableHoldings.map((holding) => holding.ticker))];
   const params = new URLSearchParams();
   if (tickers.length === 1) {
     params.set("search", tickers[0]);
+  }
+  if (!hasBackfillAction) {
+    params.set("repair", "snapshots");
   }
 
   const query = params.toString();

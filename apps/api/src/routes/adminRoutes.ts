@@ -36,6 +36,8 @@ import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataSnapshotRepairExecuteRequest,
+  AdminMarketDataSnapshotRepairExecuteResponse,
   AdminMarketDataBackfillTargetDto,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
@@ -120,6 +122,12 @@ import {
   getBackfillSingletonKey,
   type BackfillJobData,
 } from "../services/market-data/backfillWorker.js";
+import {
+  defaultSnapshotRepairScanFromDate,
+  getSnapshotRepairSingletonKey,
+  SNAPSHOT_REPAIR_QUEUE,
+  type SnapshotRepairJobData,
+} from "../services/snapshotRepair.js";
 import { RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
 import type { MarketCode } from "@vakwen/domain";
@@ -938,6 +946,10 @@ const marketDataBackfillScopeSchema = z.enum([
   "selected_catalog_rows",
   "all_matching",
 ]);
+const marketDataSnapshotRepairExecuteBodySchema = z.object({
+  tickers: z.array(z.string().trim().min(1).max(40)).min(1).max(20),
+  fromDate: isoDateSchema.optional(),
+});
 const marketDataTargetSchema = z.object({
   ticker: z.string().trim().min(1).max(40),
   marketCode: providerFixerMarketCodeSchema,
@@ -6985,6 +6997,45 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       skippedExistingJobCount: result.skippedExistingJobCount,
       batchId: result.batchId,
     };
+  });
+
+  app.post("/market-data/:marketCode/snapshot-repair/execute", async (req): Promise<AdminMarketDataSnapshotRepairExecuteResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_snapshot_repair_not_supported", "FX snapshot repair is out of scope");
+    if (!app.boss) throw routeError(503, "queue_unavailable", "Job queue is not available");
+
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataSnapshotRepairExecuteBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataSnapshotRepairExecuteRequest;
+    const fromDate = body.fromDate ?? defaultSnapshotRepairScanFromDate();
+    const queued: string[] = [];
+    const rejected: Array<{ ticker: string; reason: string }> = [];
+
+    for (const rawTicker of body.tickers) {
+      const ticker = rawTicker.trim().toUpperCase();
+      const instrument = await app.persistence.getInstrument(ticker, market);
+      if (!instrument) {
+        rejected.push({ ticker, reason: "instrument_not_found" });
+        continue;
+      }
+
+      const payload: SnapshotRepairJobData = {
+        ticker,
+        marketCode: market,
+        fromDate,
+        trigger: "admin_rerun",
+      };
+      const jobId = await app.boss.send(SNAPSHOT_REPAIR_QUEUE, payload, {
+        singletonKey: getSnapshotRepairSingletonKey(payload),
+      });
+      if (jobId === null) {
+        rejected.push({ ticker, reason: "existing_snapshot_repair_job" });
+        continue;
+      }
+      queued.push(ticker);
+    }
+
+    return { marketCode: market, queued, rejected };
   });
 
   app.post("/market-data/:marketCode/purge/preview", async (req): Promise<AdminMarketDataPurgePreviewResponse> => {
