@@ -173,8 +173,9 @@ Design requirements:
   - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
   - GitHub Actions run `27506582429` passed on commit `d47d73f2`, and dev deploy run `27506822424` completed successfully before live Chrome validation.
   - GitHub Actions run `27510245695` passed on commit `a5e35293` after the final review fixes: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
+  - GitHub Actions run `27511794587` and PR Gate run `27511794195` passed on final runtime head `f2e2841f`: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
 - [x] Capture Chrome performance evidence against deployed dev after deployment.
-  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Final validation for deployed commit `a5e35293` confirmed the same valuation-health flow in the existing Chrome profile after deploy run `27510584804`; screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
+  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Final validation for deployed commit `a5e35293` confirmed the same valuation-health flow in the existing Chrome profile after deploy run `27510584804`; final deployed-head validation for `f2e2841f` confirmed the restored healthy state after deploy run `27512068968`. Screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
 
 ## Post-Deploy Live Validation
 
@@ -212,6 +213,16 @@ Final validation for deployed branch head `a5e35293`:
 - Final evidence screenshots:
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-widened-gap-20260615.jpg`
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-restored-20260615.jpg`
+
+Final validation for deployed branch head `f2e2841f`:
+
+- GitHub Actions run `27511794587` and PR Gate run `27511794195` were green on `f2e2841f`; all Codex review threads were resolved.
+- Dev deploy run `27512068968` completed successfully on `f2e2841f` in `16m28s`.
+- QNAP Container Station showed `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running after deployment; web and API public health checks passed through `https://vakwen-dev-web.kzokvdevs.dpdns.org/` and `https://vakwen-dev-api.kzokvdevs.dpdns.org/`.
+- Chrome validation reused the existing authenticated Vakwen Dev tab. The tab initially showed the prior material-gap DTO from tab-scoped `sessionStorage`, then the dashboard `Refresh` control refetched current dev data.
+- After refresh and enrichment settle, Dashboard hero and Portfolio Trend both showed `Healthy`: current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, relative delta `0%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`.
+- Final deployed-head evidence screenshot:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-head-healthy-20260615.jpg`
 
 ## Acceptance Criteria
 
@@ -255,6 +266,9 @@ Focused verification completed for this correction:
 - `npx vitest run test/unit/smooth-page-read-paths.test.ts` from `apps/api` → 11 passed
 - `npx vitest run test/unit/dashboardReportingCurrency.test.ts test/unit/dashboardHoldingGroups.test.ts` from `apps/api` → 2 files, 30 tests passed
 - `npx eslint apps/api/src/services/dashboardReportingCurrency.ts apps/api/src/services/fxConversionRates.ts apps/api/test/unit/dashboardReportingCurrency.test.ts --max-warnings=0` → passed
+- `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
+- `npm run test --prefix apps/api -- test/unit/smooth-page-read-paths.test.ts test/integration/dashboard.integration.test.ts` → 2 files, 28 tests passed
+- `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/src/persistence/memory.ts apps/api/src/persistence/postgres.ts apps/api/test/unit/smooth-page-read-paths.test.ts apps/api/test/integration/dashboard.integration.test.ts --max-warnings=0` → passed
 - `npx tsc -p apps/api/tsconfig.json --noEmit --pretty false` → passed
 
 Full local gate verification completed for the current branch head:
