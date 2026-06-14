@@ -27,7 +27,8 @@ export function ValuationHealthPanel({
   const copy = valuationHealthCopy(locale);
   const hasBackfillAction = valuationHealth.recommendedActions.includes("run_backfill");
   const hasSnapshotRepairAction = valuationHealth.recommendedActions.includes("run_snapshot_repair");
-  const hasAdminRepairAction = showAdminActions && adminRepairHref && (hasBackfillAction || hasSnapshotRepairAction);
+  const hasRepairRecommendation = hasBackfillAction || hasSnapshotRepairAction;
+  const hasAdminRepairAction = showAdminActions && adminRepairHref && hasRepairRecommendation;
   const deltaPercent = valuationHealth.relativeDeltaBps === null
     ? null
     : valuationHealth.relativeDeltaBps / 10_000;
@@ -125,8 +126,8 @@ export function ValuationHealthPanel({
           </p>
         ) : (
           <Alert data-testid="valuation-health-user-tip">
-            <AlertTitle>{copy.userTipTitle}</AlertTitle>
-            <AlertDescription>{copy.userHelp}</AlertDescription>
+            <AlertTitle>{hasRepairRecommendation ? copy.userRepairTipTitle : copy.userInfoTipTitle}</AlertTitle>
+            <AlertDescription>{hasRepairRecommendation ? copy.userRepairHelp : copy.userInfoHelp}</AlertDescription>
           </Alert>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -266,8 +267,10 @@ function valuationHealthCopy(locale: LocaleCode) {
       ticker: "標的",
       title: "估值健康度",
       unavailable: "無法顯示",
-      userHelp: "此處不提供修復操作。若差距持續存在，請等待市場資料完成後再重新整理，或請管理員處理回補與快照修復。",
-      userTipTitle: "需要管理員修復",
+      userInfoHelp: "目前估值與快照來源已在設定門檻內；此面板僅說明圖表值的資料來源。",
+      userInfoTipTitle: "不需處理",
+      userRepairHelp: "此處不提供修復操作。若差距持續存在，請等待市場資料完成後再重新整理，或請管理員處理回補與快照修復。",
+      userRepairTipTitle: "需要管理員修復",
       waitForBackfill: "等待回補",
       withinThreshold: "目前市值與圖表最新快照仍在允許門檻內。",
       withinTolerance: "差異僅屬四捨五入容忍範圍。",
@@ -304,8 +307,10 @@ function valuationHealthCopy(locale: LocaleCode) {
     ticker: "Ticker",
     title: "Valuation health",
     unavailable: "Unavailable",
-    userHelp: "No repair action is available here. If the gap persists, wait for market data to settle and refresh again, or ask an admin to repair the affected holdings.",
-    userTipTitle: "Admin repair required",
+    userInfoHelp: "Current valuation and snapshot-backed chart values are within the configured threshold; this panel explains the chart data source.",
+    userInfoTipTitle: "No action needed",
+    userRepairHelp: "No repair action is available here. If the gap persists, wait for market data to settle and refresh again, or ask an admin to repair the affected holdings.",
+    userRepairTipTitle: "Admin repair required",
     waitForBackfill: "Wait for backfill",
     withinThreshold: "Current valuation and the latest chart snapshot are still within the configured threshold.",
     withinTolerance: "The difference is only within minor-unit rounding tolerance.",

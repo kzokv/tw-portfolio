@@ -88,6 +88,36 @@ describe("ValuationHealthPanel", () => {
     expect(Array.from(document.querySelectorAll("a")).some((link) => link.textContent?.includes("Repair"))).toBe(false);
   });
 
+  it("uses neutral non-admin guidance when no repair is recommended", async () => {
+    const valuationHealth = buildValuationHealth({
+      status: "healthy",
+      reason: "within_threshold",
+      deltaAmount: 0.5,
+      relativeDeltaBps: 4,
+      affectedHoldings: [],
+      recommendedActions: [],
+    });
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='valuation-health-user-tip']")?.textContent).toContain("No action needed");
+    expect(document.body.textContent).toContain("within the configured threshold");
+    expect(document.body.textContent).not.toContain("Admin repair required");
+    expect(document.body.textContent).not.toContain("No repair action is available here.");
+    expect(document.querySelector("[data-testid='valuation-health-admin-repair']")).toBeNull();
+  });
+
   it("renders an admin repair CTA with the targeted label instead of generic snapshot generation", async () => {
     const valuationHealth = buildValuationHealth();
 
