@@ -4745,9 +4745,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/instrument-index", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/instrument-index", async (timing) => {
-      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      const instruments = await timing.measure("map_instruments", "app", () =>
-        Promise.resolve(mapPortfolioInstrumentOptions(store)));
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const instruments = await timing.measure("list_transaction_instruments", "db", () =>
+        app.persistence.listTransactionInstrumentOptions(userId));
 
       return { instruments };
     });

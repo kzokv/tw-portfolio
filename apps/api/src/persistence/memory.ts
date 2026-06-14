@@ -5,11 +5,12 @@ import type {
   AiConnectorProvider,
   DividendLedgerAggregates,
   DividendSourceLine,
+  InstrumentOptionDto,
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
-import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
 import type {
   AccountingStore,
@@ -1956,6 +1957,21 @@ export class MemoryPersistence implements Persistence {
 
   async loadPrimaryReadStore(userId: string): Promise<Store> {
     return this.loadStore(userId);
+  }
+
+  async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
+    const store = await this.loadStore(userId);
+    return listTransactionInstruments(store.instruments)
+      .map((instrument): InstrumentOptionDto | null => {
+        if (instrument.type === null) return null;
+        return {
+          ticker: instrument.ticker,
+          instrumentType: instrument.type,
+          marketCode: instrument.marketCode,
+          isProvisional: instrument.isProvisional === true,
+        };
+      })
+      .filter((instrument): instrument is InstrumentOptionDto => instrument !== null);
   }
 
   async getUserSettings(userId: string) {

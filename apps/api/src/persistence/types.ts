@@ -14,6 +14,7 @@ import type {
   DividendLedgerAggregates,
   DividendSourceLine,
   ShareCapability,
+  InstrumentOptionDto,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
@@ -2052,6 +2053,11 @@ export interface Persistence {
    * recompute jobs, and lot allocations.
    */
   loadPrimaryReadStore(userId: string): Promise<Store>;
+  /**
+   * Load the small transaction instrument option set used by portfolio forms.
+   * This must not hydrate the full user store or full instrument catalog.
+   */
+  listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
