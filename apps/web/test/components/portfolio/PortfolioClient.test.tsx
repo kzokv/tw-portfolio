@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PortfolioClient } from "../../../components/portfolio/PortfolioClient";
 import { getDictionary } from "../../../lib/i18n";
+import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../../lib/routeDtoCache";
 
 const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-holdings-table" />));
 const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
@@ -143,6 +144,9 @@ describe("PortfolioClient", () => {
       root!.render(<PortfolioClient />);
     });
 
+    expect(vi.mocked(usePortfolioPrimaryData).mock.calls[0]?.[1]).toBe(
+      buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope("user-1"), "en", "TWD"),
+    );
     expect(container.textContent).toContain("Change reporting currency: TWD");
     expect(container.textContent).toContain("NT$32,000");
 
