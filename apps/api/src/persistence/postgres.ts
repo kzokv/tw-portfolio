@@ -6589,6 +6589,11 @@ export class PostgresPersistence implements Persistence {
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
          AND dle.superseded_at IS NULL
          AND de.payment_date IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
        ORDER BY de.payment_date ASC`,
       divParams,
     );
