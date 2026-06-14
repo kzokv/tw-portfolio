@@ -22,7 +22,7 @@ import {
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
 import { instrumentRefToDef } from "../services/store.js";
-import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { createDefaultInstruments, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
   CashLedgerEntry,
@@ -53,6 +53,7 @@ import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
   AdminUserListResponse,
+  InstrumentOptionDto,
   InstrumentCatalogItemDto,
   InviteListStatus,
   LocaleCode,
@@ -4572,6 +4573,54 @@ export class PostgresPersistence implements Persistence {
     };
     rebuildHoldingProjection(store);
     return store;
+  }
+
+  async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
+    await this.ensureDefaultPortfolioData(userId);
+    const defaultInstruments = createDefaultInstruments();
+    const result = await this.pool.query<{
+      ticker: string;
+      name: string | null;
+      instrument_type: InstrumentType | null;
+      market_code: string;
+      is_provisional: boolean;
+      last_synced_at: string | null;
+    }>(
+      `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
+       FROM market_data.instruments
+       WHERE (market_code, ticker) IN (
+         SELECT *
+         FROM unnest($1::text[], $2::text[])
+       )
+       ORDER BY market_code, ticker`,
+      [
+        defaultInstruments.map((instrument) => instrument.marketCode),
+        defaultInstruments.map((instrument) => instrument.ticker),
+      ],
+    );
+    const instruments = result.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .map((row): InstrumentDef => ({
+        ticker: row.ticker,
+        type: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+        typeRaw: null,
+        industryCategoryRaw: null,
+        finmindDate: null,
+      }));
+    return listTransactionInstruments(instruments)
+      .map((instrument): InstrumentOptionDto | null => {
+        if (instrument.type === null) return null;
+        return {
+          ticker: instrument.ticker,
+          instrumentType: instrument.type,
+          marketCode: instrument.marketCode,
+          isProvisional: instrument.isProvisional === true,
+        };
+      })
+      .filter((instrument): instrument is InstrumentOptionDto => instrument !== null);
   }
 
   async loadStore(userId: string): Promise<Store> {
