@@ -87,6 +87,29 @@ describe("dashboard overview", () => {
     );
   });
 
+  it.each([
+    "/dashboard/overview",
+    "/dashboard/enrichment",
+  ])("uses recent performance for valuation health on %s", async (url) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
+    const snapshotSpy = vi.spyOn(app.persistence, "getAggregatedSnapshotsInReportingCurrency");
+
+    const response = await app.inject({ method: "GET", url });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.valuationHealth).toEqual(
+      expect.objectContaining({
+        expectedLatestValuationDate: "2026-06-14",
+        latestSnapshotDate: null,
+        latestUsableSnapshotDate: null,
+        status: "unavailable",
+      }),
+    );
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", "2026-05-14", "2026-06-14", "TWD");
+  });
+
   it("adds overview FX conversion rows for mixed-currency holdings", async () => {
     const store = await app.persistence.loadStore("user-1");
     const feeProfile = store.feeProfiles[0];
@@ -561,16 +584,7 @@ describe("dashboard overview", () => {
       }),
     );
     expect(body.points.at(-1)).toEqual(expect.objectContaining({ date: "2026-06-12" }));
-    expect(body.valuationHealth).toEqual(
-      expect.objectContaining({
-        status: "healthy",
-        currentValueAmount: body.points.at(-1)?.marketValueAmount,
-        snapshotValueAmount: body.points.at(-1)?.marketValueAmount,
-        deltaAmount: 0,
-        latestSnapshotDate: "2026-06-12",
-        latestUsableSnapshotDate: "2026-06-12",
-      }),
-    );
+    expect(body).not.toHaveProperty("valuationHealth");
   });
 
   it("does not synthesize provisional performance points when snapshots are absent", async () => {
