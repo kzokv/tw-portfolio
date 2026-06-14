@@ -3278,10 +3278,20 @@ export class MemoryPersistence implements Persistence {
         marketCode: t.marketCode,
       }));
 
-    // Dividends — filter posted, non-reversed, non-superseded; join with events for paymentDate+ticker.
+    // Dividends — filter posted, active, non-superseded entries; join with events for paymentDate+ticker.
     const eventById = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
-    const postedDividends = store.accounting.facts.dividendLedgerEntries
-      .filter(e => e.postingStatus === "posted" && !e.reversalOfDividendLedgerEntryId && !e.supersededAt)
+    const dividendLedgerEntries = store.accounting.facts.dividendLedgerEntries;
+    const reversedDividendLedgerIds = new Set(
+      dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const postedDividends = dividendLedgerEntries
+      .filter(e =>
+        e.postingStatus === "posted"
+        && !e.reversalOfDividendLedgerEntryId
+        && !e.supersededAt
+        && !reversedDividendLedgerIds.has(e.id))
       .map(entry => {
         const event = eventById.get(entry.dividendEventId);
         if (!event?.paymentDate) return null;
