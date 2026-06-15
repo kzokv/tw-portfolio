@@ -173,9 +173,10 @@ Design requirements:
   - `npm run test:http --prefix apps/api` passed on 2026-06-14: 288 passed, 2 skipped.
   - GitHub Actions run `27506582429` passed on commit `d47d73f2`, and dev deploy run `27506822424` completed successfully before live Chrome validation.
   - GitHub Actions run `27510245695` passed on commit `a5e35293` after the final review fixes: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
-  - GitHub Actions run `27511794587` and PR Gate run `27511794195` passed on final runtime head `f2e2841f`: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
+  - GitHub Actions run `27511794587` and PR Gate run `27511794195` passed on runtime head `f2e2841f`: lint, PR gate, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed.
+  - GitHub Actions run `27521887740` passed on runtime head `404e0ded` after the valuation-health read-window optimization: lint, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, OAuth E2E, and bypass E2E passed; PR Gate run `27521887432` also passed.
 - [x] Capture Chrome performance evidence against deployed dev after deployment.
-  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Final validation for deployed commit `a5e35293` confirmed the same valuation-health flow in the existing Chrome profile after deploy run `27510584804`; final deployed-head validation for `f2e2841f` confirmed the restored healthy state after deploy run `27512068968`. Screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
+  Evidence: dev validation for deployed commit `d47d73f2` confirmed the healthy valuation state, material-gap incident UX, restore behavior, and the 2-3s target for Dashboard, Portfolio, Reports, and Dashboard revisit. Final validation for deployed commit `a5e35293` confirmed the same valuation-health flow in the existing Chrome profile after deploy run `27510584804`; deployed-head validation for `f2e2841f` confirmed the restored healthy state after deploy run `27512068968`; deployed-head validation for `404e0ded` confirmed the optimized valuation-health read path, incident simulation, and restore behavior after deploy run `27522157162`. Screenshots are stored in `docs/notes/market-value-reconciliation-ux-performance/screenshots/`.
 
 ## Post-Deploy Live Validation
 
@@ -223,6 +224,22 @@ Final validation for deployed branch head `f2e2841f`:
 - After refresh and enrichment settle, Dashboard hero and Portfolio Trend both showed `Healthy`: current valuation `$663,017.84`, chart valuation `$663,017.84`, delta `$0`, relative delta `0%`, latest bar `Jun 12, 2026`, and latest snapshot `Jun 12, 2026`.
 - Final deployed-head evidence screenshot:
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-final-head-healthy-20260615.jpg`
+
+Final validation for deployed branch head `404e0ded`:
+
+- GitHub Actions run `27521887740` and PR Gate run `27521887432` were green on `404e0ded`; the latest Codex review request for this head had no unresolved review threads at validation time.
+- Dev deploy run `27522157162` completed successfully on `404e0ded` in `17m07s`.
+- QNAP Container Station showed `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running after deployment; API `/health/live` and `/health/ready` passed through `https://vakwen-dev-api.kzokvdevs.dpdns.org/`, and the public web endpoint returned the expected authenticated redirect.
+- Chrome validation reused the existing authenticated Vakwen Dev tab at `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard?validation=final-gap-20260615`.
+- Baseline after reload showed the expected current-vs-snapshot gap caused by newer market bars than holding snapshots: current valuation `$670,357.04`, chart valuation `$663,017.84`, delta `$7,339.20`, relative delta `1.1%`, latest bar `Jun 15, 2026`, latest snapshot `Jun 12, 2026`, and non-repair explanation copy.
+- Warm dashboard refresh after deploy showed the optimized read path in live dev API logs: `/dashboard/primary` `142.16ms`, `/dashboard/performance?range=1M` `162.32ms`, `/dashboard/enrichment` `445.60ms`, and `valuation_health_performance` `72.29ms`.
+- Incident simulation changed the dev DB `daily_holding_snapshots` row for `000660` / `KR` / `2026-06-12` / account `b36b42b8-9522-4b7b-acf9-c92494deeea4` from `close_price=2,150,000`, `value_native=172,000,000.0000`, `market_value=172,000,000`, `is_provisional=false` to `close_price=1,250,000`, `value_native=100,000,000.0000`, `market_value=100,000,000`, `is_provisional=false`.
+- During the simulated incident, Dashboard showed `Material gap`: current valuation `$670,357.04`, chart valuation `$615,497.84`, delta `$54,859.20`, relative delta `8.2%`, latest bar `Jun 15, 2026`, and latest snapshot `Jun 12, 2026`. The live API refresh remained below the hard cap: `/dashboard/enrichment` `1,099.62ms`, with `valuation_health_performance` `64.10ms`.
+- Restoring the same row to `close_price=2,150,000`, `value_native=172,000,000.0000`, `market_value=172,000,000`, `is_provisional=false` was verified directly in the dev Postgres container. A final Chrome refresh returned the UI to the baseline material gap: current valuation `$670,357.04`, chart valuation `$663,017.84`, delta `$7,339.20`, relative delta `1.1%`. The restored refresh API timing was `/dashboard/enrichment` `546.68ms`, with `valuation_health_performance` `80.23ms`.
+- Final 404 evidence screenshots:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-404e0ded-final-dashboard-20260615.jpg`
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-404e0ded-simulated-material-gap-20260615.jpg`
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-404e0ded-restored-baseline-20260615.jpg`
 
 ## Acceptance Criteria
 
