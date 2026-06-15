@@ -20,6 +20,7 @@ function buildInbound(overrides: Partial<InboundShareCardItem>): InboundShareCar
     ownerDisplayName: overrides.ownerDisplayName ?? "Owner Example",
     createdAt: overrides.createdAt ?? "2026-04-10T00:00:00.000Z",
     revokedAt: null,
+    capabilities: overrides.capabilities ?? [],
   };
 }
 

@@ -5,6 +5,13 @@ const CACHE_VERSION = "2026-06-14-market-value-reconciliation-ux-v1";
 const KEY_PREFIX = "vakwen:route-dto-cache";
 const DEFAULT_TTL_MS = 3 * 60 * 1000;
 const DEFAULT_STALE_TTL_MS = 10 * 60 * 1000;
+export const PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS = [
+  buildRouteDtoCacheTag("route", "dashboard-primary"),
+  buildRouteDtoCacheTag("route", "dashboard-performance"),
+  buildRouteDtoCacheTag("route", "portfolio-primary"),
+  buildRouteDtoCacheTag("route", "reports"),
+  buildRouteDtoCacheTag("route", "transactions-primary"),
+] as const;
 
 export type RouteDtoCacheStatus = "fresh" | "stale";
 
@@ -191,6 +198,10 @@ export function clearRouteDtoCacheByTags(tags: string[]): void {
   clearRouteDtoCacheWhere((_key, parsed) =>
     Array.isArray(parsed?.tags) && parsed.tags.some((tag: string) => normalizedTags.has(tag)),
   );
+}
+
+export function clearPortfolioContextRouteCaches(): void {
+  clearRouteDtoCacheByTags([...PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS]);
 }
 
 export function getRouteDtoCachePrefix(): string {

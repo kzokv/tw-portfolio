@@ -3,7 +3,7 @@ import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 
 test.describe("portfolio switcher: write blocked in shared context", () => {
-  test("[switcher write block]: grantee POST /portfolio/transactions with x-context-user-id is rejected 403 write_blocked_viewing_shared and owner data is unchanged", async ({
+  test("[switcher write block]: grantee POST /portfolio/transactions without delegated capability is rejected 403 shared_capability_required and owner data is unchanged", async ({
     request,
     sharesApi,
     transactionsApi,
@@ -44,8 +44,8 @@ test.describe("portfolio switcher: write blocked in shared context", () => {
     const errorBody = await blockedWrite.json() as { error: string };
     await sharesApi.assert.mxAssertEqual(
       errorBody.error,
-      "write_blocked_viewing_shared",
-      "error code is write_blocked_viewing_shared",
+      "shared_capability_required",
+      "error code is shared_capability_required",
     );
 
     const ownerListResponse = await transactionsApi.actions.listTransactionsForCookie(owner.cookieHeader);

@@ -55,6 +55,7 @@ interface RateCounter {
 interface HttpishError extends Error {
   statusCode?: number;
   code?: string;
+  metadata?: Record<string, unknown>;
 }
 
 function appendSetCookieHeader(reply: FastifyReply, cookie: string): void {
@@ -373,6 +374,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
       return reply.code(error.statusCode).send({
         error: error.code ?? "request_error",
         message: error.message,
+        ...(error.metadata ? { metadata: error.metadata } : {}),
       });
     }
 

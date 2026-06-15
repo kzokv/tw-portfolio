@@ -2,7 +2,7 @@ import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 
 test.describe("anonymous share tokens: viewer create blocked", () => {
-  test("[anon token create]: viewer posts token create → 403 share_grant_forbidden", async ({
+  test("[anon token create]: viewer posts token create → 403 write_blocked_viewer_role", async ({
     request,
     anonymousShareTokensApi,
   }) => {
@@ -17,7 +17,7 @@ test.describe("anonymous share tokens: viewer create blocked", () => {
     await anonymousShareTokensApi.assert.statusIs(response, 403);
     await anonymousShareTokensApi.assert.errorCodeIs(
       await anonymousShareTokensApi.arrange.errorBody(response),
-      "share_grant_forbidden",
+      "write_blocked_viewer_role",
     );
   });
 });

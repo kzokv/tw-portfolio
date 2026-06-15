@@ -408,7 +408,12 @@ export function TickerHistoryClient({
     includeDividends: true,
   });
   const sharedContextOwnerId = useSharedContextOwnerId();
-  const { sessionUserId, openQuickActions, reportingCurrency } = useAppShellData();
+  const {
+    sessionUserId,
+    openQuickActions,
+    reportingCurrency,
+    sharedContextPermissions,
+  } = useAppShellData();
   const tickerDetailsCacheKey = useMemo(
     () => buildRouteDtoCacheKey(
       "ticker-details",
@@ -425,6 +430,7 @@ export function TickerHistoryClient({
     [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
+  const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = detailsState.identity.currency;
   const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
@@ -1083,7 +1089,7 @@ export function TickerHistoryClient({
                   <Wrench className="h-4 w-4" />
                   {dict.tickerHistory.repairAction}
                 </Button>
-                {!isSharedContext ? (
+                {canWriteTransactions ? (
                   <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
                     <Plus className="h-4 w-4" />
                     {dict.tickerHistory.recordTransaction}
@@ -1474,7 +1480,7 @@ export function TickerHistoryClient({
           </TabsContent>
 
           <TabsContent value="transactions" className="mt-0 grid gap-6" data-testid="ticker-detail-transactions">
-            {isSharedContext ? (
+            {!canWriteTransactions ? (
               <div
                 className="rounded-[22px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
                 data-testid="ticker-history-readonly"
@@ -1488,11 +1494,11 @@ export function TickerHistoryClient({
               transactions={displayTransactions}
               dict={dict}
               locale={locale}
-              onDeleteRequest={isSharedContext ? undefined : mutations.startDelete}
-              editingId={isSharedContext ? null : mutations.editingId}
-              onEditStart={isSharedContext ? undefined : mutations.startEdit}
-              onEditCancel={isSharedContext ? undefined : mutations.cancelEdit}
-              onEditSave={isSharedContext ? undefined : mutations.submitEdit}
+              onDeleteRequest={canWriteTransactions ? mutations.startDelete : undefined}
+              editingId={canWriteTransactions ? mutations.editingId : null}
+              onEditStart={canWriteTransactions ? mutations.startEdit : undefined}
+              onEditCancel={canWriteTransactions ? mutations.cancelEdit : undefined}
+              onEditSave={canWriteTransactions ? mutations.submitEdit : undefined}
               recomputingIds={mutations.recomputingIds}
             />
           </TabsContent>

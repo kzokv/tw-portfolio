@@ -143,9 +143,11 @@ import { routeError } from "../lib/routeError.js";
 import { listMcpToolDefinitions } from "../mcp/tools.js";
 import {
   requireAdminRole,
+  requireSharedCapability,
   requireShareGrantorRole,
   requireWriteableContext,
   requireWriterRole,
+  resolveActiveSharedCapabilityContext,
 } from "../lib/routeGuards.js";
 import type { Store, Transaction } from "../types/store.js";
 import type {
@@ -595,6 +597,8 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "DELETE /ai/connectors/:id",
   "PATCH /shares/:id/capabilities",
   "PATCH /shares/pending/:code/capabilities",
+  "POST /share-tokens",
+  "DELETE /share-tokens/:id",
   "PUT /monitored-tickers",
   "POST /backfill/retry",
   "POST /backfill/repair",
@@ -617,12 +621,15 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
  * (`PATCH /profile`, notification CUD) are intentionally excluded: they act
  * on the session user's own record regardless of viewing context.
  */
-const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
+const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "PATCH /settings",
   // ui-reshape Phase 3d S8 — `PUT /settings/full` retired; per-resource PATCH.
   "PUT /settings/fee-config",
   "POST /accounts",
   "PATCH /accounts/:id",
+  "DELETE /accounts/:id",
+  "POST /accounts/:id/restore",
+  "POST /accounts/:id/purge",
   "POST /fx-transfers",
   "PATCH /fx-transfers/:id",
   "POST /fx-transfers/:id/reverse",
@@ -636,23 +643,45 @@ const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
   "POST /portfolio/dividends/postings",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
   "POST /corporate-actions",
+  "POST /share-tokens",
+  "DELETE /share-tokens/:id",
   "POST /portfolio/snapshots/generate",
   "POST /portfolio/recompute/preview",
   "POST /portfolio/recompute/confirm",
   "POST /ai/transactions/confirm",
+  "PATCH /ai/transaction-drafts/:batchId/rows/:rowId",
+  "POST /ai/transaction-drafts/:batchId/exclude",
+  "POST /ai/transaction-drafts/:batchId/reinclude",
+  "POST /ai/transaction-drafts/:batchId/reject",
+  "POST /ai/transaction-drafts/:batchId/archive",
+  "DELETE /ai/transaction-drafts/:batchId",
+  "POST /ai/transaction-drafts/:batchId/confirm",
   "PUT /monitored-tickers",
   "POST /backfill/retry",
   "POST /backfill/repair",
-  // ui-enhancement — account lifecycle MUTATIONS. The grantee in a shared-
-  // portfolio context MUST NOT modify the owner's account state. GET
-  // /accounts/deleted is intentionally NOT here — it is a read, and the
-  // shared-context grantee is allowed to see the owner's "Recently deleted"
-  // list via x-context-user-id (the canonical switcher use case; see
-  // `apps/api/test/http/specs/account-lifecycle-role-guards-aaa.http.spec.ts`).
-  "DELETE /accounts/:id",
-  "POST /accounts/:id/restore",
-  "POST /accounts/:id/purge",
 ]);
+const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapability>> = {
+  "PUT /settings/fee-config": "account:manage",
+  "POST /accounts": "account:manage",
+  "PATCH /accounts/:id": "account:manage",
+  "DELETE /accounts/:id": "account:manage",
+  "POST /accounts/:id/restore": "account:manage",
+  "POST /fee-profiles": "account:manage",
+  "PATCH /fee-profiles/:id": "account:manage",
+  "DELETE /fee-profiles/:id": "account:manage",
+  "PUT /fee-profile-bindings": "account:manage",
+  "POST /portfolio/transactions": "transaction:write",
+  "DELETE /portfolio/transactions/:tradeEventId": "transaction:write",
+  "PATCH /portfolio/transactions/:tradeEventId": "transaction:write",
+  "POST /ai/transactions/confirm": "transaction:write",
+  "POST /ai/transaction-drafts/:batchId/confirm": "transaction:write",
+  "PATCH /ai/transaction-drafts/:batchId/rows/:rowId": "transaction_draft:edit",
+  "POST /ai/transaction-drafts/:batchId/exclude": "transaction_draft:edit",
+  "POST /ai/transaction-drafts/:batchId/reinclude": "transaction_draft:edit",
+  "POST /ai/transaction-drafts/:batchId/reject": "transaction_draft:edit",
+  "POST /ai/transaction-drafts/:batchId/archive": "transaction_draft:archive",
+  "DELETE /ai/transaction-drafts/:batchId": "transaction_draft:delete",
+};
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
   "DELETE /invites/:code",
@@ -960,21 +989,20 @@ async function loadWebMcpContext(
 ): Promise<McpRequestContext> {
   const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
   let resolvedContext: McpResolvedContext = {
-    sessionUserId: identity.sessionUserId,
-    portfolioContextUserId: identity.contextUserId,
-    shareId: null,
-    shareCapabilities: [],
+      sessionUserId: identity.sessionUserId,
+      portfolioContextUserId: identity.contextUserId,
+      shareId: null,
+      shareCapabilities: [],
   };
+  const sharedContext = await resolveActiveSharedCapabilityContext(req);
   if (identity.isSharedContext) {
-    const inbound = await app.persistence.listInboundSharesForGrantee(identity.sessionUserId);
-    const share = inbound.active.find((candidate) => candidate.ownerUserId === identity.contextUserId) ?? null;
-    if (!share) {
+    if (!sharedContext) {
       throw routeError(404, "ai_draft_context_not_found", "AI draft context not found");
     }
     resolvedContext = {
       ...resolvedContext,
-      shareId: share.id,
-      shareCapabilities: await app.persistence.getShareCapabilities(share.id),
+      shareId: sharedContext.shareId,
+      shareCapabilities: sharedContext.shareCapabilities,
     };
   }
 
@@ -995,6 +1023,54 @@ async function loadWebMcpContext(
     userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
     logger: req.log,
   };
+}
+
+async function buildDelegatedAuditMetadata(req: FastifyRequest): Promise<Record<string, unknown>> {
+  const sharedContext = await resolveActiveSharedCapabilityContext(req);
+  if (!sharedContext) {
+    return {};
+  }
+
+  return {
+    delegatedByUserId: sharedContext.sessionUserId,
+    ownerUserId: sharedContext.ownerUserId,
+    contextUserId: sharedContext.ownerUserId,
+    shareId: sharedContext.shareId,
+    source: "shared_context",
+  };
+}
+
+async function appendDelegatedWriteAudit(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const sharedContext = await resolveActiveSharedCapabilityContext(req);
+  if (!sharedContext) {
+    return;
+  }
+
+  try {
+    await app.persistence.appendAuditLog({
+      actorUserId: sharedContext.sessionUserId,
+      action: "delegated_portfolio_write",
+      targetUserId: sharedContext.ownerUserId,
+      ipAddress: req.ip,
+      metadata: {
+        ...metadata,
+        delegatedByUserId: sharedContext.sessionUserId,
+        ownerUserId: sharedContext.ownerUserId,
+        contextUserId: sharedContext.ownerUserId,
+        shareId: sharedContext.shareId,
+        source: "shared_context",
+      },
+    });
+  } catch (error) {
+    req.log.error(
+      { error, action: "delegated_portfolio_write", metadata },
+      "delegated write audit append failed",
+    );
+  }
 }
 
 function requireWebDraftCapability(context: McpResolvedContext, capability: ShareCapability): void {
@@ -1455,10 +1531,14 @@ export async function enforceRouteRole(req: FastifyRequest): Promise<void> {
     requireAdminRole(req);
     return;
   }
+  if (req.authContext?.isSharedContext && SHARED_CONTEXT_WRITE_ROUTE_KEYS.has(key)) {
+    await requireSharedCapability(req, key, SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX);
+    return;
+  }
   if (WRITER_ROLE_ROUTE_KEYS.has(key)) {
     requireWriterRole(req);
   }
-  if (WRITE_CONTEXT_GUARD_ROUTE_KEYS.has(key)) {
+  if (SHARED_CONTEXT_WRITE_ROUTE_KEYS.has(key)) {
     requireWriteableContext(req);
   }
 }
@@ -3342,6 +3422,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!share) {
       throw routeError(404, "share_not_found", "Share not found");
     }
+    const oldCapabilities = await app.persistence.getShareCapabilities(params.id);
     const capabilities = await app.persistence.setShareCapabilities({
       shareId: params.id,
       capabilities: body.capabilities,
@@ -3352,7 +3433,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       action: "share_capabilities_updated",
       targetUserId: share.granteeUserId,
       ipAddress: req.ip,
-      metadata: { shareId: params.id, capabilities },
+      metadata: {
+        shareId: params.id,
+        oldCapabilities,
+        newCapabilities: capabilities,
+      },
     });
     await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
     return toShareGrantDto(share, capabilities);
@@ -3371,6 +3456,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!invite) {
       throw routeError(404, "share_pending_not_found", "Pending share invite not found");
     }
+    const oldCapabilities = await app.persistence.getPendingShareInviteCapabilities(params.code);
     const capabilities = await app.persistence.setPendingShareInviteCapabilities({
       inviteCode: params.code,
       capabilities: body.capabilities,
@@ -3381,7 +3467,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       action: "share_capabilities_updated",
       targetUserId: null,
       ipAddress: req.ip,
-      metadata: { inviteCode: params.code, capabilities },
+      metadata: {
+        inviteCode: params.code,
+        oldCapabilities,
+        newCapabilities: capabilities,
+      },
     });
     const status = invite.revokedAt
       ? "revoked" as const
@@ -3638,6 +3728,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     assertStoreIntegrity(draftStore);
     await app.persistence.saveStore(draftStore);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "fee_config_updated",
+      routeKey: "PUT /settings/fee-config",
+    });
 
     return {
       accounts: draftStore.accounts,
@@ -3714,6 +3808,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
       throw error;
     }
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "account_created",
+      routeKey: "POST /accounts",
+      accountId: account.id,
+    });
 
     return account;
   });
@@ -3785,6 +3884,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       account.accountType = body.accountType;
     }
     await app.persistence.saveStore(store);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "account_updated",
+      routeKey: "PATCH /accounts/:id",
+      accountId: account.id,
+      changedFields: Object.keys(body),
+    });
     return account;
   });
 
@@ -3799,10 +3904,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/accounts/:id", async (req, reply) => {
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
     const { deletedAt } = await app.persistence.softDeleteAccount(params.id, userId, {
-      actorUserId: userId,
+      actorUserId: sessionUserId,
       ipAddress: req.ip,
-      metadata: {},
+      metadata: await buildDelegatedAuditMetadata(req),
     });
     await app.eventBus.publishEvent(userId, "account_soft_deleted", {
       type: "account_soft_deleted" as const,
@@ -3819,10 +3925,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/accounts/:id/restore", async (req) => {
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
     const { finalName } = await app.persistence.restoreAccount(params.id, userId, {
-      actorUserId: userId,
+      actorUserId: sessionUserId,
       ipAddress: req.ip,
-      metadata: {},
+      metadata: await buildDelegatedAuditMetadata(req),
     });
     await app.eventBus.publishEvent(userId, "account_restored", {
       type: "account_restored" as const,
@@ -3839,6 +3946,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
     const body = z.object({ confirmationName: z.string().min(1).max(80) }).parse(req.body);
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
 
     const account = await app.persistence.getAccountIncludingDeleted(params.id, userId);
     if (!account) throw routeError(404, "account_not_found", "Account not found.");
@@ -3856,7 +3964,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await app.persistence.hardPurgeAccount(
       params.id,
       userId,
-      { actorUserId: userId, ipAddress: req.ip, metadata: {} },
+      {
+        actorUserId: sessionUserId,
+        ipAddress: req.ip,
+        metadata: await buildDelegatedAuditMetadata(req),
+      },
       { mustBeSoftDeleted: false },
     );
     await app.eventBus.publishEvent(userId, "account_hard_purged", {
@@ -3957,6 +4069,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     store.feeProfiles.push(profile);
     await app.persistence.saveStore(store);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "fee_profile_created",
+      routeKey: "POST /fee-profiles",
+      accountId,
+      feeProfileId: profile.id,
+    });
     return profile;
   });
 
@@ -3969,6 +4087,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     Object.assign(profile, body);
     await app.persistence.saveStore(store);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "fee_profile_updated",
+      routeKey: "PATCH /fee-profiles/:id",
+      accountId: profile.accountId,
+      feeProfileId: profile.id,
+    });
     return profile;
   });
 
@@ -4002,6 +4126,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     store.feeProfiles = store.feeProfiles.filter((profile) => profile.id !== params.id);
     await app.persistence.saveStore(store);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "fee_profile_deleted",
+      routeKey: "DELETE /fee-profiles/:id",
+      accountId: target.accountId,
+      feeProfileId: params.id,
+    });
     return { deletedId: params.id };
   });
 
@@ -4020,6 +4150,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     store.feeProfileBindings = normalizedBindings;
     assertStoreIntegrity(store);
     await app.persistence.saveStore(store);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "fee_profile_bindings_updated",
+      routeKey: "PUT /fee-profile-bindings",
+      bindingCount: normalizedBindings.length,
+    });
     return store.feeProfileBindings;
   });
 
@@ -4232,6 +4367,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;
     }
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_created",
+      routeKey: "POST /portfolio/transactions",
+      tradeEventId: tx.id,
+      accountId: tx.accountId,
+      ticker: tx.ticker,
+      marketCode: tx.marketCode,
+    });
 
     // KZO-37 Invariant 5: a new trade may make a historical dividend
     // retroactively eligible. Fire the replay (which includes dividend
@@ -4354,6 +4497,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const result = await app.persistence.deleteTradeEvent(userId, tradeEventId);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_deleted",
+      routeKey: "DELETE /portfolio/transactions/:tradeEventId",
+      tradeEventId,
+      accountId: result.accountId,
+      ticker: result.ticker,
+    });
 
     // Schedule async recompute — snapshots from the deleted trade's date
     // onward may change, nothing before that can.
@@ -4453,6 +4603,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_updated",
+      routeKey: "PATCH /portfolio/transactions/:tradeEventId",
+      tradeEventId,
+      accountId: trade.accountId,
+      ticker: trade.ticker,
+      changedFields,
+    });
 
     // Schedule async recompute — use min(oldTradeDate, newTradeDate) so a
     // patch that moves the trade earlier regenerates the earlier window too.
@@ -5843,6 +6001,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ),
       }],
     });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_draft_row_updated",
+      routeKey: "PATCH /ai/transaction-drafts/:batchId/rows/:rowId",
+      batchId: params.batchId,
+      rowId: params.rowId,
+    });
     const updated = assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
@@ -5862,6 +6026,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   async function transitionDraftRowsFromWeb(
     req: FastifyRequest,
     capability: ShareCapability,
+    mutation: string,
+    routeKey: string,
     run: (requestContext: McpRequestContext, input: { batchId: string; rowIds: string[]; expectedBatchVersion: number }) => Promise<unknown>,
   ) {
     const requestContext = await loadWebMcpContext(app, req);
@@ -5873,6 +6039,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
     const body = draftRowIdsBodySchema.parse(req.body);
     await run(requestContext, { batchId: params.batchId, rowIds: body.rowIds, expectedBatchVersion: body.expectedBatchVersion });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation,
+      routeKey,
+      batchId: params.batchId,
+      rowIds: body.rowIds,
+    });
     const updated = assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
@@ -5885,15 +6057,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   }
 
   app.post("/ai/transaction-drafts/:batchId/exclude", (req) =>
-    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", "transaction_draft_rows_excluded", "POST /ai/transaction-drafts/:batchId/exclude", (requestContext, input) =>
       excludeTransactionDraftRows({ app, requestContext }, input)));
 
   app.post("/ai/transaction-drafts/:batchId/reinclude", (req) =>
-    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", "transaction_draft_rows_reincluded", "POST /ai/transaction-drafts/:batchId/reinclude", (requestContext, input) =>
       reincludeTransactionDraftRows({ app, requestContext }, input)));
 
   app.post("/ai/transaction-drafts/:batchId/reject", (req) =>
-    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", "transaction_draft_rows_rejected", "POST /ai/transaction-drafts/:batchId/reject", (requestContext, input) =>
       rejectTransactionDraftRows({ app, requestContext }, input)));
 
   const draftBatchVersionBodySchema = z.object({
@@ -5912,6 +6084,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await archiveTransactionDraftBatch({ app, requestContext }, {
       batchId: params.batchId,
       expectedBatchVersion: body.expectedBatchVersion,
+    });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_draft_batch_archived",
+      routeKey: "POST /ai/transaction-drafts/:batchId/archive",
+      batchId: params.batchId,
     });
     const updated = assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
@@ -5936,6 +6113,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await deleteUnconfirmedTransactionDraftBatch({ app, requestContext }, {
       batchId: params.batchId,
       expectedBatchVersion: body.expectedBatchVersion,
+    });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_draft_batch_deleted",
+      routeKey: "DELETE /ai/transaction-drafts/:batchId",
+      batchId: params.batchId,
     });
     await app.eventBus.publishEvent(requestContext.resolvedContext.portfolioContextUserId, "ai_transaction_draft_updated", {
       batchId: params.batchId,
@@ -5969,6 +6151,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       expectedRowVersions: body.expectedRowVersions,
       idempotencyKey: body.idempotencyKey,
       typedConfirmation: body.typedConfirmation,
+    });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "transaction_draft_rows_posted",
+      routeKey: "POST /ai/transaction-drafts/:batchId/confirm",
+      batchId: params.batchId,
+      rowIds: body.rowIds,
     });
     const updated = assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
@@ -6152,6 +6340,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
 
     await app.persistence.saveAccountingStore(userId, draftStore.accounting);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "ai_transaction_confirmed",
+      routeKey: "POST /ai/transactions/confirm",
+      accountId: body.accountId,
+      tradeEventIds: created.map((transaction) => transaction.id),
+    });
 
     // KZO-37 Invariant 5: each new trade may retroactively change the
     // eligibility of existing dividend ledger entries. Schedule a replay

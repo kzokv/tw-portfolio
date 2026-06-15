@@ -5,6 +5,7 @@ import { ChevronDown, Users } from "lucide-react";
 import type { InboundShareCardItem } from "../../features/sharing/types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { cn } from "../../lib/utils";
+import { deriveSharedContextPermissions } from "../../features/sharing/capabilities";
 
 interface PortfolioSwitcherProps {
   inboundActive: InboundShareCardItem[];
@@ -49,6 +50,10 @@ export function PortfolioSwitcher({
     ? sorted.find((item) => item.ownerUserId === currentContextOwnerId) ?? null
     : null;
   const isSharedContext = currentShare !== null;
+  const currentPermissions = deriveSharedContextPermissions(currentShare?.capabilities ?? []);
+  const contextBadgeLabel = currentPermissions.hasAnyDelegatedWrite
+    ? dict.sharedBadge
+    : dict.readonlyBadge;
 
   const triggerLabel = isSharedContext
     ? dict.ownerOptionLabel.replace(
@@ -87,7 +92,7 @@ export function PortfolioSwitcher({
                 className="ml-1 rounded-full border border-rose-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-600"
                 data-testid="portfolio-switcher-badge-readonly"
               >
-                {dict.readonlyBadge}
+                {contextBadgeLabel}
               </span>
             ) : null}
             <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
@@ -140,7 +145,7 @@ export function PortfolioSwitcher({
                     <span
                       className="rounded-full border border-rose-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-600"
                     >
-                      {dict.readonlyBadge}
+                      {contextBadgeLabel}
                     </span>
                   ) : null}
                 </DropdownMenu.Item>

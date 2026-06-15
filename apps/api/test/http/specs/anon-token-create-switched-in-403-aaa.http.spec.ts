@@ -2,7 +2,7 @@ import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 
 test.describe("anonymous share tokens: switched context create blocked", () => {
-  test("[anon token create]: shared-context grantee posts with x-context-user-id → 403 write_blocked_viewing_shared", async ({
+  test("[anon token create]: shared-context grantee posts with x-context-user-id → 403 shared_capability_required", async ({
     request,
     anonymousShareTokensApi,
     sharesApi,
@@ -32,7 +32,7 @@ test.describe("anonymous share tokens: switched context create blocked", () => {
     await anonymousShareTokensApi.assert.statusIs(blocked, 403);
     await anonymousShareTokensApi.assert.errorCodeIs(
       await anonymousShareTokensApi.arrange.errorBody(blocked),
-      "write_blocked_viewing_shared",
+      "shared_capability_required",
     );
   });
 });

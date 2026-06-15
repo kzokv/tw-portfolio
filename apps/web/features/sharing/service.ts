@@ -7,7 +7,7 @@ import type {
   ShareGrantDto,
   SharesListResponseDto,
 } from "@vakwen/shared-types";
-import { deleteJson, getJson, postJson } from "../../lib/api";
+import { deleteJson, getJson, patchJson, postJson } from "../../lib/api";
 import type {
   GrantShareResult,
   InboundShareCardItem,
@@ -57,6 +57,7 @@ function toInboundCard(dto: ShareGrantDto, status: "active" | "revoked"): Inboun
     ownerDisplayName: dto.ownerDisplayName,
     createdAt: dto.createdAt,
     revokedAt: dto.revokedAt,
+    capabilities: dto.capabilities,
   };
 }
 
@@ -122,4 +123,26 @@ export async function revokeActiveShare(shareId: string): Promise<void> {
 
 export async function revokePendingShare(inviteCode: string): Promise<void> {
   await deleteJson(`/shares/pending/${inviteCode}`);
+}
+
+export async function updateActiveShareCapabilities(
+  shareId: string,
+  capabilities: ShareCapability[],
+): Promise<OutboundShareRow> {
+  const response = await patchJson<ShareGrantDto>(
+    `/shares/${encodeURIComponent(shareId)}/capabilities`,
+    { capabilities },
+  );
+  return toOutboundRowFromShare(response, response.revokedAt ? "revoked" : "active");
+}
+
+export async function updatePendingShareCapabilities(
+  inviteCode: string,
+  capabilities: ShareCapability[],
+): Promise<OutboundShareRow> {
+  const response = await patchJson<PendingShareInviteDto>(
+    `/shares/pending/${encodeURIComponent(inviteCode)}/capabilities`,
+    { capabilities },
+  );
+  return toOutboundRowFromInvite(response);
 }

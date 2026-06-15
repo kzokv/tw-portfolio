@@ -3306,6 +3306,7 @@ describePostgres("postgres migrations", () => {
     expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_connected");
     expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_revoked");
     expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_expired");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("delegated_portfolio_write");
 
     const connectionIndex = await pool.query<{ indexname: string }>(
       `SELECT indexname

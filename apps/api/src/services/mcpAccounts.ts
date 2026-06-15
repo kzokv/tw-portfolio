@@ -22,6 +22,37 @@ interface AccountMutationAudit {
   metadata: Record<string, unknown>;
 }
 
+async function appendDelegatedAccountWriteAudit(
+  deps: McpDraftServiceDeps,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const { shareId, portfolioContextUserId } = deps.requestContext.resolvedContext;
+  if (!shareId) {
+    return;
+  }
+  try {
+    await deps.app.persistence.appendAuditLog({
+      actorUserId: deps.requestContext.auth.sessionUserId,
+      action: "delegated_portfolio_write",
+      targetUserId: portfolioContextUserId,
+      ipAddress: deps.requestContext.sourceIp,
+      metadata: {
+        ...metadata,
+        delegatedByUserId: deps.requestContext.auth.sessionUserId,
+        ownerUserId: portfolioContextUserId,
+        contextUserId: portfolioContextUserId,
+        shareId,
+        source: "mcp_tool",
+      },
+    });
+  } catch (error) {
+    deps.requestContext.logger?.error(
+      { error, action: "delegated_portfolio_write", metadata },
+      "delegated account write audit append failed",
+    );
+  }
+}
+
 function buildLiveBalancesByAccount(store: Store): Map<string, Array<{ currency: string; amount: number }>> {
   const reversedIds = new Set<string>();
   for (const entry of store.accounting.facts.cashLedgerEntries) {
@@ -205,6 +236,11 @@ export async function createAccount(
     }
     throw error;
   }
+  await appendDelegatedAccountWriteAudit(deps, {
+    mutation: "account_created",
+    toolName: ACCOUNT_MANAGER_TOOLS.createAccount,
+    accountId: account.id,
+  });
   return { account };
 }
 
@@ -233,14 +269,31 @@ export async function updateAccount(
     account.accountType = input.accountType;
   }
   await deps.app.persistence.saveStore(store);
+  await appendDelegatedAccountWriteAudit(deps, {
+    mutation: "account_updated",
+    toolName: ACCOUNT_MANAGER_TOOLS.updateAccount,
+    accountId: account.id,
+    changedFields: Object.keys(input).filter((key) => input[key as keyof typeof input] !== undefined),
+  });
   return { account };
 }
 
 function auditForMutation(deps: McpDraftServiceDeps): AccountMutationAudit {
+  const { shareId, portfolioContextUserId } = deps.requestContext.resolvedContext;
   return {
     actorUserId: deps.requestContext.auth.sessionUserId,
     ipAddress: deps.requestContext.sourceIp,
-    metadata: { source: "mcp_tool" },
+    metadata: {
+      source: "mcp_tool",
+      ...(shareId
+        ? {
+            delegatedByUserId: deps.requestContext.auth.sessionUserId,
+            ownerUserId: portfolioContextUserId,
+            contextUserId: portfolioContextUserId,
+            shareId,
+          }
+        : {}),
+    },
   };
 }
 

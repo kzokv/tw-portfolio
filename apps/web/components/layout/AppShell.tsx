@@ -12,9 +12,8 @@ import {
 import { getDictionary } from "../../lib/i18n";
 import { getJson, patchJson } from "../../lib/api";
 import {
-  buildRouteDtoCacheTag,
+  clearPortfolioContextRouteCaches,
   clearRouteDtoCacheByPrefix,
-  clearRouteDtoCacheByTags,
   getRouteDtoCachePrefix,
 } from "../../lib/routeDtoCache";
 import { useNotifications } from "../../hooks/useNotifications";
@@ -41,6 +40,7 @@ import { useSharedContext } from "./useSharedContext";
 import { useShellInstrumentIndex } from "./useShellInstrumentIndex";
 import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
 import { useSnapshotGeneration } from "./useSnapshotGeneration";
+import { deriveSharedContextPermissions } from "../../features/sharing/capabilities";
 
 type AppSection = "dashboard" | "reports" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
@@ -76,14 +76,6 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   type: "BUY",
   isDayTrade: false,
 };
-
-const REPORTING_SURFACE_CACHE_TAGS = [
-  buildRouteDtoCacheTag("route", "dashboard-primary"),
-  buildRouteDtoCacheTag("route", "dashboard-performance"),
-  buildRouteDtoCacheTag("route", "portfolio-primary"),
-  buildRouteDtoCacheTag("route", "reports"),
-  buildRouteDtoCacheTag("route", "transactions-primary"),
-];
 
 function isEditableQuickActionsPath(pathname: string): boolean {
   return [
@@ -149,6 +141,7 @@ export function AppShell({
     inboundShares,
     switcherLoaded,
     currentContextOwnerId,
+    currentSharedOwner,
     currentSharedOwnerLabel,
     isSharedContext,
     contextMessage,
@@ -173,6 +166,11 @@ export function AppShell({
       },
     };
   }, [currentSharedOwnerLabel, dict, isSharedContext]);
+  const currentSharedCapabilities = currentSharedOwner?.capabilities ?? [];
+  const sharedContextPermissions = useMemo(
+    () => deriveSharedContextPermissions(currentSharedCapabilities),
+    [currentSharedCapabilities],
+  );
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -263,7 +261,7 @@ export function AppShell({
   }, [bumpContextRefreshSignal, portfolioConfig, recomputeAction, transactionSubmission]);
 
   const handleReportingCurrencySaved = useCallback(() => {
-    clearRouteDtoCacheByTags(REPORTING_SURFACE_CACHE_TAGS);
+    clearPortfolioContextRouteCaches();
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal]);
 
@@ -318,7 +316,8 @@ export function AppShell({
     })().catch(() => undefined);
   }, [portfolioConfig]);
 
-  const canUseGlobalQuickActions = isEditableQuickActionsPath(pathname) && !isSharedContext;
+  const canUseGlobalQuickActions = isEditableQuickActionsPath(pathname)
+    && (!isSharedContext || sharedContextPermissions.canWriteTransactions);
 
   const appShellDataValue = useAppShellDataValue({
     uiDict,
@@ -327,6 +326,8 @@ export function AppShell({
     sessionUserRole: profileData.profile?.role ?? null,
     routeCachePolicy: initialSettings?.effectiveRouteCachePolicy ?? null,
     isSharedContext,
+    currentSharedCapabilities,
+    sharedContextPermissions,
     canUseGlobalQuickActions,
     openQuickActions: () => setQuickActionsOpen(true),
     reportingCurrency,
@@ -436,6 +437,8 @@ export function AppShell({
               dict={dict}
               onAddTransaction={handleAddTransactionFromPalette}
               onRecomputeAll={handleRecomputeFromPalette}
+              showAddTransactionAction={!isSharedContext || sharedContextPermissions.canWriteTransactions}
+              showRecomputeAction={!isSharedContext}
             />
 
             <AddTransactionDialog
@@ -479,6 +482,8 @@ export function AppShell({
               onRecompute={handleRecomputeFromPalette}
               onGenerateSnapshots={snapshotGeneration.generateSnapshots}
               isGeneratingSnapshots={snapshotGeneration.isGeneratingSnapshots}
+              showRecomputeAction={!isSharedContext}
+              showGenerateSnapshotsAction={!isSharedContext}
               dict={dict}
             />
           </CommandPaletteProvider>

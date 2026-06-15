@@ -9,8 +9,10 @@ import type {
   FeeProfileDto,
   LocaleCode,
   RouteCachePolicyDto,
+  ShareCapability,
 } from "@vakwen/shared-types";
 import type { IntegrityIssue } from "../../features/dashboard/types";
+import type { SharedContextPermissions } from "../../features/sharing/capabilities";
 import type { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import type { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import type { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
@@ -31,6 +33,8 @@ export interface AppShellData {
   sessionUserRole?: string | null;
   routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
+  currentSharedCapabilities: ShareCapability[];
+  sharedContextPermissions: SharedContextPermissions;
   canUseGlobalQuickActions: boolean;
   openQuickActions: () => void;
   reportingCurrency: AccountDefaultCurrency;
