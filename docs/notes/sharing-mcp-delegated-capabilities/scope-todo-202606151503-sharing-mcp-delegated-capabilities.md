@@ -89,6 +89,14 @@ superseded_by: null
 - Full repo gate 6: `npm run test:e2e:bypass:mem --prefix apps/web` passed: 275 tests, 12 skipped.
 - Full repo gate 7: `npm run test:e2e:oauth:mem --prefix apps/web` passed: 120 tests.
 - Full repo gate 8: `npm run test:http --prefix apps/api` passed: 289 tests, 2 skipped.
+- PR: https://github.com/kzokv/tw-portfolio/pull/221 targets `dev`, uses labels `enhancement`, `documentation`, and `waiver:linear-ticket`, and includes the required waiver body sections. Feature commit: `b0bd787d7b0cac1039d53a6e9b8c26a2e4f21762`.
+- PR CI: GitHub checks were green for commit `b0bd787d7b0cac1039d53a6e9b8c26a2e4f21762`, including lint, build/typecheck, unit tests, integration tests, deploy config validation, Docker build validation, E2E bypass, E2E OAuth, and PR gate.
+- Dev deploy: `deploy-dev.yml` run `27542584756` succeeded for `b0bd787d7b0cac1039d53a6e9b8c26a2e4f21762`; run URL: https://github.com/kzokv/tw-portfolio/actions/runs/27542584756. Remote deploy completed at `2026-06-15T11:34:25Z`.
+- Live app validation: in the Vakwen Dev app, owner `c2974378@gmail.com` edited the active share for delegate `mmckchuang@gmail.com` and added `Manage accounts and fee settings`. The outbound share row then showed `Manage accounts and fee settings` alongside ChatGPT read, AI draft, and transaction write permissions.
+- Live app validation: after signing back in as delegate `mmckchuang@gmail.com` and selecting `KC vtwin's Portfolio`, the shared transaction form remained enabled for `transaction:write`, and account settings changed from disabled shared-view controls to enabled Add account, fee profile, Rename account, and Delete account controls under `account:manage`. Hard purge remained unavailable.
+- Live MCP validation: in the ChatGPT Vakwen Dev project, the connector created temporary broker account `Codex MCP Validation 2026-06-15T11:46:21.957Z` in `KC vtwin's Portfolio`, then soft-deleted it through delegated account management. Final connector-reported account ID `f8727de4-a331-4af3-916d-82a6b35b34a3`, state `deleted`, deleted at `2026-06-15T11:50:28.169Z`; no hard purge was performed.
+- Live performance smoke: unauthenticated web curls returned expected auth redirects with `web_sharing http=307 total=1.550475s` and `web_settings_accounts http=307 total=1.532906s`.
+- Live performance smoke: API health endpoints returned `api_health_live http=200 total=1.022305s`, `api_health_ready http=200 total=1.164130s`, and `api_mcp_health http=200 total=0.950369s`.
 
 ## Open Items
 
