@@ -1,11 +1,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DashboardPerformanceDto } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DashboardPerformanceDto } from "@vakwen/shared-types";
 import {
   DASHBOARD_PERFORMANCE_REFRESH_TIMEOUT_MS,
   useDashboardPerformance,
 } from "../../../../features/dashboard/hooks/useDashboardPerformance";
+import { writeRouteDtoCache } from "../../../../lib/routeDtoCache";
 
 vi.mock("../../../../features/dashboard/services/dashboardService", () => ({
   fetchDashboardPerformanceEnrichment: vi.fn(),
@@ -39,14 +40,35 @@ const emptyPerformance: DashboardPerformanceDto = {
 };
 
 function Harness({
+  cacheKey,
   enabled = true,
+  expectedReportingCurrency,
   timeoutMessage = "Localized dashboard timeout",
 }: {
+  cacheKey?: string;
   enabled?: boolean;
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   timeoutMessage?: string;
 }) {
-  result = useDashboardPerformance({ range: "1M", enabled, timeoutMessage });
+  result = useDashboardPerformance({ cacheKey, range: "1M", enabled, expectedReportingCurrency, timeoutMessage });
   return null;
+}
+
+function installStorageMocks() {
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
+    },
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 describe("useDashboardPerformance", () => {
@@ -54,6 +76,9 @@ describe("useDashboardPerformance", () => {
   let root: Root;
 
   beforeEach(() => {
+    installStorageMocks();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -108,5 +133,44 @@ describe("useDashboardPerformance", () => {
     expect(result.isLoading).toBe(false);
     expect(result.errorMessage).toBe("Localized dashboard timeout");
     expect(result.data).toBeNull();
+  });
+
+  it("clears loading state when a fresh performance cache entry is restored", async () => {
+    vi.mocked(fetchDashboardPerformanceEnrichment).mockImplementation((() => new Promise(() => {})) as never);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.isLoading).toBe(true);
+
+    const cacheKey = "dashboard-performance:1M";
+    writeRouteDtoCache(cacheKey, emptyPerformance);
+
+    act(() => {
+      root.render(<Harness cacheKey={cacheKey} />);
+    });
+    await act(async () => {});
+
+    expect(result.data).toEqual(emptyPerformance);
+    expect(result.isLoading).toBe(false);
+    expect(result.errorMessage).toBe("");
+    expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores cached performance data with a different reporting currency", async () => {
+    const cacheKey = "dashboard-performance:1M:AUD";
+    const audPerformance = { ...emptyPerformance, reportingCurrency: "AUD" as const };
+    writeRouteDtoCache(cacheKey, emptyPerformance);
+    vi.mocked(fetchDashboardPerformanceEnrichment).mockResolvedValue(audPerformance);
+
+    act(() => {
+      root.render(<Harness cacheKey={cacheKey} expectedReportingCurrency="AUD" />);
+    });
+    await act(async () => {});
+
+    expect(result.data).toEqual(audPerformance);
+    expect(result.restoredFromCache).toBe(false);
+    expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
   });
 });

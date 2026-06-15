@@ -75,6 +75,8 @@ import {
   holdingsWarningBadgeClassName,
 } from "../holdings/holdingsStyle";
 import { TooltipInfo } from "../ui/TooltipInfo";
+import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
+import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import {
@@ -194,7 +196,9 @@ export function ReportsClient({
     locale,
     openQuickActions,
     reportingCurrency,
+    routeCachePolicy,
     sessionUserId,
+    sessionUserRole,
     uiDict,
   } = useAppShellData();
   const searchParamsKey = searchParams?.toString() ?? "";
@@ -210,7 +214,14 @@ export function ReportsClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges } = useEffectiveRanges();
   const cacheScope = getRouteDtoContextScope(sessionUserId);
-  const report = useReportData({ cacheScope, contextRefreshSignal, initialReport, locale, state });
+  const report = useReportData({
+    cachePolicy: routeCachePolicy,
+    cacheScope,
+    contextRefreshSignal,
+    initialReport,
+    locale,
+    state,
+  });
 
   const updateState = useCallback((patch: Partial<ReportRouteState>) => {
     const next = { ...state, ...patch };
@@ -289,6 +300,7 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            showAdminActions={sessionUserRole === "admin"}
             tab="daily-review"
             timelineMode={timelineMode}
             onTimelineModeChange={setTimelineMode}
@@ -303,6 +315,7 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            showAdminActions={sessionUserRole === "admin"}
             tab="portfolio"
             timelineMode={timelineMode}
             onTimelineModeChange={setTimelineMode}
@@ -317,6 +330,7 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            showAdminActions={sessionUserRole === "admin"}
             tab="market"
             timelineMode={timelineMode}
             onTimelineModeChange={setTimelineMode}
@@ -461,6 +475,7 @@ function ReportBody({
   isRefreshing,
   locale,
   onRefresh,
+  showAdminActions,
   tab,
   timelineMode,
   onTimelineModeChange,
@@ -472,6 +487,7 @@ function ReportBody({
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  showAdminActions: boolean;
   tab: ReportTab;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
@@ -515,8 +531,30 @@ function ReportBody({
         <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
       </div>
       {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
-      {tab === "portfolio" ? <PortfolioReportView data={data as PortfolioReportDto} isRefreshing={isRefreshing} locale={locale} dict={uiDict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} /> : null}
-      {tab === "market" ? <MarketReportView data={data as MarketReportDto} isRefreshing={isRefreshing} locale={locale} dict={uiDict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} /> : null}
+      {tab === "portfolio" ? (
+        <PortfolioReportView
+          data={data as PortfolioReportDto}
+          dict={uiDict}
+          isRefreshing={isRefreshing}
+          locale={locale}
+          onRefresh={onRefresh}
+          showAdminActions={showAdminActions}
+          timelineMode={timelineMode}
+          onTimelineModeChange={onTimelineModeChange}
+        />
+      ) : null}
+      {tab === "market" ? (
+        <MarketReportView
+          data={data as MarketReportDto}
+          dict={uiDict}
+          isRefreshing={isRefreshing}
+          locale={locale}
+          onRefresh={onRefresh}
+          showAdminActions={showAdminActions}
+          timelineMode={timelineMode}
+          onTimelineModeChange={onTimelineModeChange}
+        />
+      ) : null}
     </div>
   );
 }
@@ -764,6 +802,7 @@ function PortfolioReportView({
   isRefreshing,
   locale,
   onRefresh,
+  showAdminActions,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -772,12 +811,23 @@ function PortfolioReportView({
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  showAdminActions: boolean;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
   return (
     <>
-      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} dict={dict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} />
+      <PerformanceChart
+        dict={dict}
+        isRefreshing={isRefreshing}
+        locale={locale}
+        onRefresh={onRefresh}
+        performance={data.performance}
+        showAdminActions={showAdminActions}
+        timelineMode={timelineMode}
+        onTimelineModeChange={onTimelineModeChange}
+        valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
+      />
       <div className="grid gap-4 lg:grid-cols-2">
         <AllocationChart dict={dict} title={dict.reports.allocationByMarketTitle} buckets={data.allocation.byMarket} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <AllocationChart dict={dict} title={dict.reports.allocationByAccountTitle} buckets={data.allocation.byAccount} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
@@ -818,6 +868,7 @@ function MarketReportView({
   isRefreshing,
   locale,
   onRefresh,
+  showAdminActions,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -826,12 +877,23 @@ function MarketReportView({
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  showAdminActions: boolean;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
   return (
     <>
-      <PerformanceChart performance={data.performance} isRefreshing={isRefreshing} locale={locale} dict={dict} onRefresh={onRefresh} timelineMode={timelineMode} onTimelineModeChange={onTimelineModeChange} />
+      <PerformanceChart
+        dict={dict}
+        isRefreshing={isRefreshing}
+        locale={locale}
+        onRefresh={onRefresh}
+        performance={data.performance}
+        showAdminActions={showAdminActions}
+        timelineMode={timelineMode}
+        onTimelineModeChange={onTimelineModeChange}
+        valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
+      />
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <AllocationChart dict={dict} title={dict.reports.marketSummaryTitle} buckets={data.marketSummary} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <HoldingsCard
@@ -855,16 +917,20 @@ function PerformanceChart({
   locale,
   onRefresh,
   performance,
+  showAdminActions,
   timelineMode,
   onTimelineModeChange,
+  valuationHealth,
 }: {
   dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
   performance: DashboardPerformanceDto;
+  showAdminActions: boolean;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"];
 }) {
   const points = performance.points;
   const chartPoints = points.map((point) => ({ ...point, dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime() }));
@@ -877,6 +943,9 @@ function PerformanceChart({
     pointDates: points.map((point) => point.date),
     startDate: performance.rangeStartDate ?? points[0]?.date ?? performance.requestedAsOf ?? new Date().toISOString().slice(0, 10),
   });
+  const adminRepairHref = showAdminActions
+    ? getValuationHealthAdminRepairHref(valuationHealth)
+    : null;
   return (
     <Card>
       <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -952,6 +1021,16 @@ function PerformanceChart({
           >
             {formatReportMessage(dict.reports.performanceStaleDataWarning, { date: formatDateLabel(marketDataStaleSince, locale) })}
           </div>
+        ) : null}
+        {valuationHealth ? (
+          <ValuationHealthPanel
+            adminRepairHref={adminRepairHref}
+            className="mb-4"
+            copy={dict.valuationHealth}
+            locale={locale}
+            showAdminActions={showAdminActions}
+            valuationHealth={valuationHealth}
+          />
         ) : null}
         {points.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">{dict.reports.noSnapshotSeries}</div>

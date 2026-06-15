@@ -4,26 +4,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AnyReportDto } from "../services/reportService";
 import { fetchReport } from "../services/reportService";
 import type { ReportRouteState } from "../reportState";
-import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../lib/routeDtoCache";
+import {
+  buildRouteDtoCacheKey,
+  buildRouteDtoCacheTag,
+  readRouteDtoCache,
+  resolveRouteDtoCacheDurations,
+  type RouteDtoCacheStatus,
+  writeRouteDtoCache,
+} from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
-import { ACCOUNT_DEFAULT_CURRENCIES, type LocaleCode } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES, type LocaleCode, type RouteCachePolicyDto } from "@vakwen/shared-types";
 
 export const REPORT_CLIENT_REFRESH_TIMEOUT_MS = 90_000;
 const REPORT_REFRESH_TIMEOUT_MESSAGE = "Report refresh timed out. Try refreshing again.";
 
 export function useReportData({
+  cachePolicy,
   cacheScope,
   contextRefreshSignal,
   initialReport,
   locale,
   state,
 }: {
+  cachePolicy?: RouteCachePolicyDto | null;
   cacheScope: string;
   contextRefreshSignal: number;
   initialReport: AnyReportDto | null;
   locale: LocaleCode;
   state: ReportRouteState;
 }) {
+  const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "reports");
   const buildReportCacheKey = useCallback(
     (reportingCurrency: string) => buildRouteDtoCacheKey(
       "reports",
@@ -45,10 +55,15 @@ export function useReportData({
   const [isBootstrapping, setIsBootstrapping] = useState(initialReport === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(null);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
   const [restoredAt, setRestoredAt] = useState<number | null>(null);
   const initialCacheScopeRef = useRef(cacheScope);
   const requestVersionRef = useRef(0);
+
+  const cancelInFlightRequests = useCallback(() => {
+    requestVersionRef.current += 1;
+  }, []);
 
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
     requestVersionRef.current += 1;
@@ -63,6 +78,7 @@ export function useReportData({
         const cached = readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
         if (cached) {
           setData(cached.payload);
+          setCacheStatus(cached.status);
           setRestoredFromCache(true);
           setRestoredAt(cached.savedAt);
         }
@@ -70,8 +86,13 @@ export function useReportData({
       const next = await fetchReport(state.tab, state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
       setData(next);
-      writeRouteDtoCache(buildReportCacheKey(next.query.reportingCurrency), next);
+      writeRouteDtoCache(buildReportCacheKey(next.query.reportingCurrency), next, {
+        staleTtlMs: cacheDurations.staleTtlMs,
+        tags: [buildRouteDtoCacheTag("route", "reports")],
+        ttlMs: cacheDurations.ttlMs,
+      });
       setErrorMessage("");
+      setCacheStatus("fresh");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
     } catch (error) {
@@ -81,7 +102,7 @@ export function useReportData({
       clearTimeout(timeoutId);
       if (version === requestVersionRef.current) setIsRefreshing(false);
     }
-  }, [buildReportCacheKey, expectedReportingCurrency, state]);
+  }, [buildReportCacheKey, cacheDurations.staleTtlMs, cacheDurations.ttlMs, expectedReportingCurrency, state]);
 
   useEffect(() => {
     const shouldUseInitialReport = initialReport !== null
@@ -92,30 +113,41 @@ export function useReportData({
       ? null
       : readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
     if (shouldUseInitialReport) {
+      cancelInFlightRequests();
       setData(initialReport);
-      writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport);
+      writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport, {
+        staleTtlMs: cacheDurations.staleTtlMs,
+        tags: [buildRouteDtoCacheTag("route", "reports")],
+        ttlMs: cacheDurations.ttlMs,
+      });
       setIsBootstrapping(false);
+      setCacheStatus("fresh");
       setRestoredFromCache(false);
       setRestoredAt(Date.now());
       return;
     }
     if (cached) {
+      cancelInFlightRequests();
       setData(cached.payload);
       setIsBootstrapping(false);
+      setCacheStatus(cached.status);
       setRestoredFromCache(true);
       setRestoredAt(cached.savedAt);
-      void refresh();
+      if (cached.status === "stale") {
+        void refresh({ bypassCache: true });
+      }
       return;
     }
     setData(null);
     setIsBootstrapping(true);
     void refresh({ bypassCache: true }).finally(() => setIsBootstrapping(false));
-  }, [cacheKey, contextRefreshSignal, initialReport, refresh, state]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, cancelInFlightRequests, contextRefreshSignal, initialReport, refresh, state]);
 
   return {
     data,
     errorMessage,
     isBootstrapping,
+    cacheStatus,
     isRefreshing,
     refresh,
     restoredFromCache,
@@ -127,9 +159,9 @@ function readMatchingReportCache(
   buildReportCacheKey: (reportingCurrency: string) => string,
   expectedReportingCurrency: string | null,
   state: ReportRouteState,
-): { payload: AnyReportDto; savedAt: number } | null {
+): ReturnType<typeof readRouteDtoCache<AnyReportDto>> {
   const currencies = expectedReportingCurrency ? [expectedReportingCurrency] : ACCOUNT_DEFAULT_CURRENCIES;
-  let best: { payload: AnyReportDto; savedAt: number } | null = null;
+  let best: ReturnType<typeof readRouteDtoCache<AnyReportDto>> = null;
   for (const currency of currencies) {
     const cached = readRouteDtoCache<AnyReportDto>(buildReportCacheKey(currency));
     if (!cached) continue;

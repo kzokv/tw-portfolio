@@ -5,6 +5,7 @@ import {
   type DashboardPerformanceDto,
   type DashboardPerformanceRange,
   type LocaleCode,
+  type ValuationHealthDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
 } from "@vakwen/shared-types";
 import {
@@ -27,6 +28,8 @@ import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
+import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
+import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 
 const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 
@@ -44,8 +47,10 @@ interface PortfolioTrendCardProps {
   isLoading: boolean;
   errorMessage: string;
   onRangeChange: (range: DashboardPerformanceRange) => void;
+  showAdminActions?: boolean;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
+  valuationHealth?: ValuationHealthDto | null;
   // KZO-161 (158C): optional click handler for the "Customize ranges" gear
   // icon. When omitted, the gear is hidden entirely so this card stays
   // usable in non-dashboard contexts (e.g. the shared-portfolio view).
@@ -87,8 +92,10 @@ export function PortfolioTrendCard({
   isLoading,
   errorMessage,
   onRangeChange,
+  showAdminActions = false,
   timelineMode,
   onTimelineModeChange,
+  valuationHealth,
   onOpenCustomize,
 }: PortfolioTrendCardProps) {
   const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
@@ -135,6 +142,9 @@ export function PortfolioTrendCard({
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
   const emptyStateMessage = resolveSnapshotEmptyStateMessage(data, dict, dict.dashboardHome.performanceEmpty);
+  const adminRepairHref = showAdminActions
+    ? getValuationHealthAdminRepairHref(valuationHealth)
+    : null;
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-performance-card">
@@ -252,6 +262,17 @@ export function PortfolioTrendCard({
         >
           {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
         </p>
+      ) : null}
+
+      {valuationHealth ? (
+        <ValuationHealthPanel
+          adminRepairHref={adminRepairHref}
+          className="mt-4"
+          copy={dict.valuationHealth}
+          locale={locale}
+          showAdminActions={showAdminActions}
+          valuationHealth={valuationHealth}
+        />
       ) : null}
 
       {hasPartialQuotes ? (

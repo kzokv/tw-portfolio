@@ -15,21 +15,21 @@ import {
   fetchPortfolioPrimaryData,
 } from "../../../../features/portfolio/services/portfolioService";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 beforeAll(() => {
@@ -63,6 +63,35 @@ function pageDataWithAccount(id: string): PortfolioPageData {
   };
 }
 
+function pageDataWithHolding(id: string, marketValueAmount: number | null): PortfolioPageData {
+  return {
+    ...pageDataWithAccount(id),
+    holdings: [{
+      accountId: "acct-1",
+      accountName: "Broker",
+      ticker: id,
+      instrumentName: id,
+      marketCode: "TW",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+      averageCostPerShare: 100,
+      currentUnitPrice: marketValueAmount === null ? null : 120,
+      marketValueAmount,
+      unrealizedPnlAmount: marketValueAmount === null ? null : 200,
+      allocationPct: 100,
+      change: marketValueAmount === null ? null : 1,
+      changePercent: marketValueAmount === null ? null : 0.1,
+      previousClose: marketValueAmount === null ? null : 119,
+      quoteStatus: marketValueAmount === null ? "missing" : "current",
+      nextDividendDate: null,
+      lastDividendPostedDate: null,
+      freshness: "current",
+      freshnessTooltip: null,
+    }],
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((settle) => {
@@ -87,17 +116,19 @@ describe("usePortfolioPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.mocked(fetchPortfolioEnrichmentData).mockReset();
     vi.mocked(fetchPortfolioPrimaryData).mockReset();
   });
@@ -128,10 +159,52 @@ describe("usePortfolioPrimaryData", () => {
     expect(result.isBootstrapping).toBe(false);
   });
 
-  it("restores cached portfolio data before refreshing in the background", async () => {
+  it("restores fresh enriched cached portfolio data without fetching again", async () => {
+    const cached = pageDataWithHolding("cached", 1200);
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.accounts[0]?.id).toBe("cached");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
+    expect(fetchPortfolioEnrichmentData).not.toHaveBeenCalled();
+    expect(result.data.accounts[0]?.id).toBe("cached");
+  });
+
+  it("restores fresh primary-only portfolio cache before refreshing enrichment", async () => {
+    const cached = pageDataWithHolding("cached-primary", null);
+    const enriched = pageDataWithHolding("enriched", 1200);
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+    vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.data.holdings[0]?.ticker).toBe("cached-primary");
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
+    expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.data.holdings[0]?.ticker).toBe("enriched");
+  });
+
+  it("restores stale cached portfolio data before refreshing in the background", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
     const cached = pageDataWithAccount("cached");
     const refreshed = pageDataWithAccount("fresh");
-    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);
+    vi.setSystemTime(now);
+    writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached, 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
     vi.mocked(fetchPortfolioPrimaryData).mockResolvedValue(refreshed);
     vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(refreshed);
 

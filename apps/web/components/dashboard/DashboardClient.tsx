@@ -60,10 +60,13 @@ export function DashboardClient({
   const {
     uiDict: dict,
     locale,
+    routeCachePolicy,
     sessionUserId,
+    sessionUserRole,
     isSharedContext,
     canUseGlobalQuickActions,
     openQuickActions,
+    reportingCurrency,
     recomputeAction,
     openRecomputeConfirm,
     contextRefreshSignal,
@@ -71,6 +74,7 @@ export function DashboardClient({
   const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
   const dashboard = useDashboardPrimaryData({
     cacheKey,
+    cachePolicy: routeCachePolicy,
     expectedReportingCurrency,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
@@ -81,10 +85,21 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
+  const performanceReportingCurrency = reportingCurrency ?? expectedReportingCurrency ?? dashboard.summary.reportingCurrency;
+  const performanceCacheKey = buildRouteDtoCacheKey(
+    "dashboard-performance",
+    getRouteDtoContextScope(sessionUserId),
+    locale,
+    performanceReportingCurrency,
+    performanceRange,
+  );
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({
+    cacheKey: performanceCacheKey,
+    cachePolicy: routeCachePolicy,
     range: performanceRange,
     enabled: true,
+    expectedReportingCurrency: performanceReportingCurrency,
     timeoutMessage: dict.dashboardHome.performanceRefreshTimeout,
   });
 
@@ -105,6 +120,10 @@ export function DashboardClient({
   refreshDashboardRef.current = dashboard.refresh;
   const refreshPerformanceRef = useRef(performance.refresh);
   refreshPerformanceRef.current = performance.refresh;
+  const refreshDashboardAndPerformance = () => {
+    void dashboard.refresh();
+    void performance.refresh();
+  };
   useEffect(() => {
     if (firstSignalRef.current) {
       firstSignalRef.current = false;
@@ -182,6 +201,8 @@ export function DashboardClient({
           dict={dict}
           canOpenQuickActions={canUseGlobalQuickActions}
           onOpenQuickActions={openQuickActions}
+          showAdminActions={sessionUserRole === "admin"}
+          valuationHealth={dashboard.valuationHealth}
         />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
@@ -208,8 +229,8 @@ export function DashboardClient({
           type="button"
           size="sm"
           variant="secondary"
-          onClick={() => { void dashboard.refresh(); }}
-          disabled={dashboard.isRefreshing}
+          onClick={refreshDashboardAndPerformance}
+          disabled={dashboard.isRefreshing || performance.isLoading}
           data-testid="dashboard-refresh-button"
         >
           {dict.reports.refresh}
@@ -261,9 +282,11 @@ export function DashboardClient({
                   isLoading={performance.isLoading}
                   errorMessage={performance.errorMessage}
                   onRangeChange={setPerformanceRange}
+                  showAdminActions={sessionUserRole === "admin"}
                   timelineMode={timelineMode}
                   onTimelineModeChange={setTimelineMode}
                   onOpenCustomize={() => setCustomizeRangesOpen(true)}
+                  valuationHealth={performance.data?.valuationHealth ?? dashboard.valuationHealth}
                 />
               );
             case "allocation-snapshot":

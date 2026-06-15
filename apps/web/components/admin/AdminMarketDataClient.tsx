@@ -12,6 +12,7 @@ import type {
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteResponse,
   AdminMarketDataBackfillPreviewResponse,
+  AdminMarketDataSnapshotRepairExecuteResponse,
   AdminMarketDataInstrumentDto,
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataLandingResponse,
@@ -28,6 +29,7 @@ import { cn } from "../../lib/utils";
 import {
   executeMarketBackfill,
   executeMarketAction,
+  executeMarketSnapshotRepair,
   executeMarketPurge,
   previewMarketBackfill,
   previewMarketPurge,
@@ -54,6 +56,7 @@ interface AdminMarketDataWorkspaceClientProps {
   providerFilterId?: string;
   krMappings: KrMappingsData | null;
   krOperations?: KrOperationsData | null;
+  snapshotRepairRequest?: { tickers: string[]; fromDate: string | null } | null;
 }
 
 interface InstrumentQuery {
@@ -228,6 +231,7 @@ export function AdminMarketDataWorkspaceClient({
   providerFilterId = "",
   krMappings,
   krOperations,
+  snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
   const tabSet = new Set(overview.tabs);
   const safeTab = tabSet.has(tab) ? tab : "overview";
@@ -281,6 +285,7 @@ export function AdminMarketDataWorkspaceClient({
           actions={actions}
           instruments={instruments}
           initialQuery={instrumentQuery ?? defaultInstrumentQuery(instruments)}
+          snapshotRepairRequest={snapshotRepairRequest}
         />
       )}
       {safeTab === "mappings" && <MappingsPanel marketCode={marketCode} actions={actions} krMappings={krMappings} />}
@@ -592,11 +597,13 @@ function BackfillPanel({
   actions,
   instruments,
   initialQuery,
+  snapshotRepairRequest,
 }: {
   marketCode: Exclude<AdminMarketCode, "FX">;
   actions: AdminMarketDataActionDto[];
   instruments: AdminMarketDataInstrumentsResponse;
   initialQuery: InstrumentQuery;
+  snapshotRepairRequest: { tickers: string[]; fromDate: string | null } | null;
 }) {
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
@@ -609,6 +616,9 @@ function BackfillPanel({
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataBackfillPreviewResponse | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataBackfillExecuteResponse | null>(null);
+  const [snapshotRepairResult, setSnapshotRepairResult] = useState<AdminMarketDataSnapshotRepairExecuteResponse | null>(null);
+  const [snapshotRepairError, setSnapshotRepairError] = useState<string | null>(null);
+  const [snapshotRepairRunning, setSnapshotRepairRunning] = useState(false);
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [targetModalFilter, setTargetModalFilter] = useState("");
   const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
@@ -632,6 +642,8 @@ function BackfillPanel({
   function clearFrozenPreview() {
     setPreview(null);
     setExecuteResult(null);
+    setSnapshotRepairResult(null);
+    setSnapshotRepairError(null);
     setAcknowledged(false);
     setTypedConfirmation("");
   }
@@ -702,7 +714,60 @@ function BackfillPanel({
     setExecuteResult(result);
   }
 
+  async function runSnapshotRepair() {
+    if (!snapshotRepairRequest || snapshotRepairRequest.tickers.length === 0) return;
+    setSnapshotRepairRunning(true);
+    setSnapshotRepairError(null);
+    setSnapshotRepairResult(null);
+    try {
+      const result = await executeMarketSnapshotRepair(marketCode, {
+        tickers: snapshotRepairRequest.tickers,
+        ...(snapshotRepairRequest.fromDate ? { fromDate: snapshotRepairRequest.fromDate } : {}),
+      });
+      setSnapshotRepairResult(result);
+    } catch (err) {
+      setSnapshotRepairError(err instanceof Error ? err.message : "Snapshot repair failed");
+    } finally {
+      setSnapshotRepairRunning(false);
+    }
+  }
+
   return (
+    <div className="space-y-4">
+    {snapshotRepairRequest ? (
+      <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-snapshot-repair">
+        <h2 className="text-base font-semibold text-foreground">Snapshot repair</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Recompute holding snapshots directly for the affected ticker scopes. Use this when bars are already present and valuation health reports stale or missing snapshots.
+        </p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Target {snapshotRepairRequest.tickers.length > 0 ? snapshotRepairRequest.tickers.join(", ") : "the filtered market scope"} in {marketCode}.
+            {snapshotRepairRequest.fromDate ? ` Recompute from ${snapshotRepairRequest.fromDate}.` : ""}
+          </p>
+          <button
+            type="button"
+            onClick={() => void runSnapshotRepair()}
+            disabled={snapshotRepairRunning || snapshotRepairRequest.tickers.length === 0}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="market-data-snapshot-repair-execute"
+          >
+            {snapshotRepairRunning ? "Repairing..." : "Queue snapshot repair"}
+          </button>
+        </div>
+        {snapshotRepairResult ? (
+          <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">
+            Queued {snapshotRepairResult.queued.length.toLocaleString()} repair job(s).
+            {snapshotRepairResult.rejected.length > 0 ? ` Rejected ${snapshotRepairResult.rejected.length.toLocaleString()}.` : ""}
+          </div>
+        ) : null}
+        {snapshotRepairError ? (
+          <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+            {snapshotRepairError}
+          </div>
+        ) : null}
+      </Card>
+    ) : null}
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-backfill">
       <h2 className="text-base font-semibold text-foreground">Backfill preview</h2>
       <p className="mt-2 text-sm text-muted-foreground">Backfill writes historical bars and dividends from the owning provider. Preview freezes the exact target list before execution.</p>
@@ -934,6 +999,7 @@ function BackfillPanel({
         </div>
       )}
     </Card>
+    </div>
   );
 }
 

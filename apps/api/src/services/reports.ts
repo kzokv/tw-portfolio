@@ -39,6 +39,7 @@ import {
   type HistoricalFxAmountResult,
   type HistoricalFxMissingRatePair,
 } from "./historicalFxTranslation.js";
+import { buildValuationHealth } from "./valuationHealth.js";
 import { routeError } from "../lib/routeError.js";
 import type { HoldingSnapshotScopePair, Persistence } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
@@ -128,6 +129,18 @@ export async function buildPortfolioReport(
 ): Promise<PortfolioReportDto> {
   const prepared = await prepareReportData(app, userId, input);
   const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const valuationHealth = prepared.translatedHoldingGroups.length > 0
+    ? await buildValuationHealth({
+      app,
+      userId,
+      store: prepared.scopedStore,
+      reportingCurrency: prepared.reportQuery.reportingCurrency,
+      currentValueAmount: prepared.translatedSummary.marketValueAmount,
+      holdingGroups: prepared.translatedHoldingGroups,
+      performance,
+      asOf: prepared.asOf,
+    })
+    : undefined;
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
     .sort((left, right) => (right.reportingAllocationPercent ?? 0) - (left.reportingAllocationPercent ?? 0))
@@ -148,7 +161,8 @@ export async function buildPortfolioReport(
       marketBuckets: byMarket.length,
       accountBuckets: byAccount.length,
     }),
-    performance,
+    performance: valuationHealth ? { ...performance, valuationHealth } : performance,
+    ...(valuationHealth ? { valuationHealth } : {}),
     allocation: {
       byMarket,
       byAccount,
@@ -171,6 +185,18 @@ export async function buildMarketReport(
 ): Promise<MarketReportDto> {
   const prepared = await prepareReportData(app, userId, input);
   const performance = await buildReportPerformance(app, userId, prepared.scopedStore, prepared.reportQuery, prepared.quotes);
+  const valuationHealth = prepared.translatedHoldingGroups.length > 0
+    ? await buildValuationHealth({
+      app,
+      userId,
+      store: prepared.scopedStore,
+      reportingCurrency: prepared.reportQuery.reportingCurrency,
+      currentValueAmount: prepared.translatedSummary.marketValueAmount,
+      holdingGroups: prepared.translatedHoldingGroups,
+      performance,
+      asOf: prepared.asOf,
+    })
+    : undefined;
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const marketSummary = buildMarketAllocations(prepared.translatedHoldingGroups);
   const topHoldings = [...allRows]
@@ -189,7 +215,8 @@ export async function buildMarketReport(
       topHoldings: topHoldings.length,
       marketBuckets: marketSummary.length,
     }),
-    performance,
+    performance: valuationHealth ? { ...performance, valuationHealth } : performance,
+    ...(valuationHealth ? { valuationHealth } : {}),
     marketSummary,
     topHoldings,
     detail,
@@ -202,7 +229,7 @@ async function prepareReportData(
   input: BuildReportInput,
 ): Promise<PreparedReportData> {
   const [store, prefs] = await Promise.all([
-    app.persistence.loadStore(userId),
+    app.persistence.loadOverviewReadStore(userId),
     app.persistence.getUserPreferences(userId),
   ]);
   const { ranges } = await resolveEffectiveRanges(app.persistence, userId, prefs);

@@ -29,8 +29,7 @@ import { getAppConfigCacheEntry } from "../services/appConfig/cache.js";
 import { RateLimiter } from "../services/market-data/rateLimiter.js";
 import { handleBatchComplete } from "../services/notificationService.js";
 import {
-  getSnapshotRepairSingletonKey,
-  SNAPSHOT_REPAIR_QUEUE,
+  enqueueSnapshotRepairIfActiveHeld,
   type SnapshotRepairJobData,
 } from "../services/snapshotRepair.js";
 import type { AppInstance } from "../app.js";
@@ -114,8 +113,13 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
       app.tradingCalendarCache.notifyBarsUpserted(market, dates);
     },
     enqueueSnapshotRepair: (input: SnapshotRepairJobData) =>
-      boss.send(SNAPSHOT_REPAIR_QUEUE, input, {
-        singletonKey: getSnapshotRepairSingletonKey(input),
+      enqueueSnapshotRepairIfActiveHeld({
+        boss,
+        persistence: app.persistence,
+        ticker: input.ticker,
+        marketCode: input.marketCode,
+        fromDate: input.fromDate,
+        trigger: input.trigger,
       }).then(() => undefined),
     // KZO-177: feed provider outcomes (success/error/rate_limit) into the
     // health aggregator. Decorated by `registerProviderHealth(app)` in app.ts.

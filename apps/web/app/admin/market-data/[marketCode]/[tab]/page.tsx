@@ -76,6 +76,17 @@ function positiveIntQueryValue(value: string | string[] | undefined, fallback: n
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function snapshotRepairTickersFromSearchParams(query: Record<string, string | string[] | undefined>, fallbackSearch: string): string[] {
+  const rawTickers = firstOptionalQueryValue(query.tickers);
+  if (rawTickers) {
+    return rawTickers
+      .split(",")
+      .map((ticker) => ticker.trim().toUpperCase())
+      .filter((ticker) => ticker.length > 0);
+  }
+  return fallbackSearch.trim() ? [fallbackSearch.trim().toUpperCase()] : [];
+}
+
 function instrumentQueryFromSearchParams(
   query: Record<string, string | string[] | undefined>,
   defaults: Pick<InstrumentQuery, "status" | "supportState"> = { status: "all", supportState: "all" },
@@ -184,6 +195,12 @@ export default async function AdminMarketDataWorkspacePage({
   const limit = instrumentQuery.limit;
   const providerId = firstOptionalQueryValue(query.providerId);
   const operationId = firstOptionalQueryValue(query.operationId);
+  const snapshotRepairRequest = tab === "backfill" && firstOptionalQueryValue(query.repair) === "snapshots"
+    ? {
+        tickers: snapshotRepairTickersFromSearchParams(query, instrumentQuery.search),
+        fromDate: firstOptionalQueryValue(query.fromDate) ?? null,
+      }
+    : null;
 
   const [overview, actions] = await Promise.all([
     getJson<AdminMarketDataOverviewResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/overview`),
@@ -274,6 +291,7 @@ export default async function AdminMarketDataWorkspacePage({
       providerFilterId={providerId ?? ""}
       krMappings={krMappings}
       krOperations={krOperations}
+      snapshotRepairRequest={snapshotRepairRequest}
     />
   );
 }

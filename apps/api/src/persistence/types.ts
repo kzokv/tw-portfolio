@@ -14,6 +14,7 @@ import type {
   DividendLedgerAggregates,
   DividendSourceLine,
   ShareCapability,
+  InstrumentOptionDto,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
@@ -97,7 +98,18 @@ export type AppConfigPlainField =
   | "anonymousShareRateLimitMax"
   | "anonymousShareRateLimitWindowMs"
   // ui-enhancement — Tier B account-soft-delete grace period.
-  | "accountHardPurgeDays";
+  | "accountHardPurgeDays"
+  | "valuationHealthRelativeBps"
+  | "valuationHealthAbsoluteAud"
+  | "valuationHealthAbsoluteUsd"
+  | "valuationHealthAbsoluteTwd"
+  | "valuationHealthAbsoluteKrw"
+  | "routeCacheDashboardPrimaryTtlMs"
+  | "routeCacheDashboardEnrichmentTtlMs"
+  | "routeCacheDashboardPerformanceTtlMs"
+  | "routeCachePortfolioTtlMs"
+  | "routeCacheReportsTtlMs"
+  | "routeCacheStaleUsableTtlMs";
 
 /**
  * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
@@ -166,7 +178,20 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   anonymousShareRateLimitWindowMs: "anonymous_share_rate_limit_window_ms",
   // ui-enhancement — Tier B account-soft-delete grace period.
   accountHardPurgeDays: "account_hard_purge_days",
+  valuationHealthRelativeBps: "valuation_health_relative_bps",
+  valuationHealthAbsoluteAud: "valuation_health_absolute_aud",
+  valuationHealthAbsoluteUsd: "valuation_health_absolute_usd",
+  valuationHealthAbsoluteTwd: "valuation_health_absolute_twd",
+  valuationHealthAbsoluteKrw: "valuation_health_absolute_krw",
+  routeCacheDashboardPrimaryTtlMs: "route_cache_dashboard_primary_ttl_ms",
+  routeCacheDashboardEnrichmentTtlMs: "route_cache_dashboard_enrichment_ttl_ms",
+  routeCacheDashboardPerformanceTtlMs: "route_cache_dashboard_performance_ttl_ms",
+  routeCachePortfolioTtlMs: "route_cache_portfolio_ttl_ms",
+  routeCacheReportsTtlMs: "route_cache_reports_ttl_ms",
+  routeCacheStaleUsableTtlMs: "route_cache_stale_usable_ttl_ms",
 };
+
+export type RouteCachePolicyMode = "fresh" | "balanced" | "low_load" | "custom";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -1742,6 +1767,12 @@ export interface SnapshotScopeDiagnostics {
   }>;
 }
 
+export interface HoldingSnapshotLatestDateScopePair {
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+}
+
 /**
  * Flat dividend record for snapshot generation: the walker accumulates these
  * by (accountId, ticker) in payment-date order. Filtering (posted, not
@@ -1753,6 +1784,7 @@ export interface SnapshotDividendInput {
   marketCode: MarketCode;
   paymentDate: string;
   amount: number;
+  currency: CurrencyCode;
 }
 
 /**
@@ -1768,9 +1800,12 @@ export interface SnapshotTradeInput {
   quantity: number;
   unitPrice: number;
   tradeDate: string;
+  tradeTimestamp?: string;
   bookingSequence?: number;
   commissionAmount: number;
   taxAmount: number;
+  realizedPnlAmount?: number | null;
+  realizedPnlCurrency?: string | null;
   /** KZO-165: native currency of the trade. Walker uses trades[0].priceCurrency
    *  as the holding's native currency and fails fast on mixed values for the
    *  same (account, ticker). */
@@ -1782,9 +1817,17 @@ export interface SnapshotTradeInput {
   marketCode: MarketCode;
 }
 
+export interface SnapshotLotAllocationInput {
+  tradeEventId: string;
+  allocatedCostAmount: number;
+  costCurrency: string;
+  lotOpenedAt: string;
+}
+
 export interface SnapshotGenerationInputs {
   trades: SnapshotTradeInput[];
   postedDividends: SnapshotDividendInput[];
+  lotAllocations: SnapshotLotAllocationInput[];
 }
 
 export interface SnapshotGenerationScope {
@@ -2002,6 +2045,26 @@ export interface Persistence {
    */
   purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number>;
   loadStore(userId: string): Promise<Store>;
+  /**
+   * Load the narrow store shape required by first-paint portfolio/dashboard
+   * primary routes. Implementations should include user settings, active
+   * accounts, fee config, open lots-derived holdings, and instrument metadata,
+   * while skipping broad facts such as trades, cash ledger, dividend events,
+   * recompute jobs, and lot allocations.
+   */
+  loadPrimaryReadStore(userId: string): Promise<Store>;
+  /**
+   * Load the store shape required by dashboard/portfolio enrichment reads.
+   * This includes the accounting facts needed for overview dividends,
+   * freshness, quote inputs, and valuation health while avoiding broad market
+   * catalog hydration.
+   */
+  loadOverviewReadStore(userId: string): Promise<Store>;
+  /**
+   * Load the small transaction instrument option set used by portfolio forms.
+   * This must not hydrate the full user store or full instrument catalog.
+   */
+  listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
@@ -2134,6 +2197,9 @@ export interface Persistence {
     pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
     limit: number,
   ): Promise<DailyBarWithMarket[]>;
+  getLatestBarDatesForReconciliation(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>>;
   /**
    * KZO-173: distinct `bar_date` values from `market_data.daily_bars` for the
    * given market, on or after `fromDate` inclusive. Ordered ascending.
@@ -2276,6 +2342,18 @@ export interface Persistence {
     userPreferencesMaxBytes: number | null;
     // ui-enhancement — Tier B account-soft-delete grace period (NULL → env).
     accountHardPurgeDays: number | null;
+    valuationHealthRelativeBps: number | null;
+    valuationHealthAbsoluteAud: number | null;
+    valuationHealthAbsoluteUsd: number | null;
+    valuationHealthAbsoluteTwd: number | null;
+    valuationHealthAbsoluteKrw: number | null;
+    routeCachePolicyMode: RouteCachePolicyMode | null;
+    routeCacheDashboardPrimaryTtlMs: number | null;
+    routeCacheDashboardEnrichmentTtlMs: number | null;
+    routeCacheDashboardPerformanceTtlMs: number | null;
+    routeCachePortfolioTtlMs: number | null;
+    routeCacheReportsTtlMs: number | null;
+    routeCacheStaleUsableTtlMs: number | null;
     updatedAt: string;
   }>;
 
@@ -2299,6 +2377,7 @@ export interface Persistence {
   // AU metadata enrichment mode. The route layer wraps this in an audit log
   // (action `app_config_updated`).
   setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void>;
+  setRouteCachePolicyMode(value: RouteCachePolicyMode | null): Promise<void>;
 
   // App config (KZO-198) — generic per-field setter for Tier 1/2 plain
   // overrides. `field` is the camelCase key matching `getAppConfig()`'s
@@ -2580,6 +2659,10 @@ export interface Persistence {
     userId: string,
     pairs?: readonly HoldingSnapshotScopePair[],
   ): Promise<SnapshotScopeDiagnostics>;
+  getLatestHoldingSnapshotDatesByScope(
+    userId: string,
+    pairs: readonly HoldingSnapshotLatestDateScopePair[],
+  ): Promise<Map<string, string | null>>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.

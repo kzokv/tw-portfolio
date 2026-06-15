@@ -50,6 +50,17 @@ const DEFAULT_BOUNDS: AppConfigDto["bounds"] = {
   anonymousShareTokenCap: { min: 1, max: 1_000 },
   anonymousShareRateLimitMax: { min: 1, max: 10_000 },
   anonymousShareRateLimitWindowMs: { min: 1_000, max: 600_000 },
+  valuationHealthRelativeBps: { min: 1, max: 10_000 },
+  valuationHealthAbsoluteAud: { min: 0, max: 1_000_000_000 },
+  valuationHealthAbsoluteUsd: { min: 0, max: 1_000_000_000 },
+  valuationHealthAbsoluteTwd: { min: 0, max: 1_000_000_000 },
+  valuationHealthAbsoluteKrw: { min: 0, max: 1_000_000_000 },
+  routeCacheDashboardPrimaryTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheDashboardEnrichmentTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheDashboardPerformanceTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCachePortfolioTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheReportsTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
+  routeCacheStaleUsableTtlMs: { min: 30_000, max: 60 * 60 * 1000 },
 };
 
 export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppConfigDto {
@@ -156,6 +167,40 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     // soft-delete → hard-purge cron.
     accountHardPurgeDays: null,
     effectiveAccountHardPurgeDays: 30,
+
+    valuationHealthRelativeBps: null,
+    effectiveValuationHealthRelativeBps: 100,
+    valuationHealthAbsoluteAud: null,
+    effectiveValuationHealthAbsoluteAud: 25,
+    valuationHealthAbsoluteUsd: null,
+    effectiveValuationHealthAbsoluteUsd: 25,
+    valuationHealthAbsoluteTwd: null,
+    effectiveValuationHealthAbsoluteTwd: 750,
+    valuationHealthAbsoluteKrw: null,
+    effectiveValuationHealthAbsoluteKrw: 25_000,
+    effectiveValuationHealthThresholds: {
+      relativeBps: 100,
+      absoluteAud: 25,
+      absoluteUsd: 25,
+      absoluteTwd: 750,
+      absoluteKrw: 25_000,
+    },
+    routeCachePolicyMode: null,
+    effectiveRouteCachePolicy: {
+      mode: "balanced",
+      dashboardPrimaryTtlMs: 120_000,
+      dashboardEnrichmentTtlMs: 60_000,
+      dashboardPerformanceTtlMs: 300_000,
+      portfolioTtlMs: 120_000,
+      reportsTtlMs: 300_000,
+      staleUsableTtlMs: 10 * 60 * 1000,
+    },
+    routeCacheDashboardPrimaryTtlMs: null,
+    routeCacheDashboardEnrichmentTtlMs: null,
+    routeCacheDashboardPerformanceTtlMs: null,
+    routeCachePortfolioTtlMs: null,
+    routeCacheReportsTtlMs: null,
+    routeCacheStaleUsableTtlMs: null,
 
     // Tier 0 — encrypted secrets (sentinel)
     finmindApiTokenSet: false,

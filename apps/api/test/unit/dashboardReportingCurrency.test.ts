@@ -10,7 +10,9 @@ import {
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
+  translateValuationHealthSnapshotPoints,
 } from "../../src/services/dashboardReportingCurrency.js";
+import { buildFxConversionRateRows } from "../../src/services/fxConversionRates.js";
 import type {
   DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
@@ -41,6 +43,9 @@ function makeFakePersistence(opts: {
     batchPairCounts: number[];
     singleCalls: number;
   };
+  aggregatedReadStats?: {
+    calls: Array<{ startDate: string; endDate: string }>;
+  };
 }): Persistence {
   const fx = opts.fxRates ?? [];
   const aggregated = opts.aggregated ?? [];
@@ -55,7 +60,10 @@ function makeFakePersistence(opts: {
         .sort((a, b) => (b.asOf ?? "").localeCompare(a.asOf ?? ""))[0];
       return match ? match.rate : null;
     },
-    getAggregatedSnapshotsInReportingCurrency: async () => aggregated,
+    getAggregatedSnapshotsInReportingCurrency: async (_userId: string, startDate: string, endDate: string) => {
+      opts.aggregatedReadStats?.calls.push({ startDate, endDate });
+      return aggregated.filter((point) => point.date >= startDate && point.date <= endDate);
+    },
     getDailyBarsForTickers: async (tickers: string[], startDate: string, endDate: string) => {
       const result = new Map<string, DailyBar[]>();
       for (const ticker of tickers) {
@@ -296,6 +304,458 @@ describe("translateOverviewHoldingGroups", () => {
 
     expect(group?.reportingDailyChangeAmount).toBe(0.5);
     expect(group?.children[0]?.reportingDailyChangeAmount).toBe(0.5);
+  });
+
+  it("fetches independent FX rates concurrently and de-dupes duplicate source currencies", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const calls: string[] = [];
+    const persistence = {
+      getFxRate: async (base: string, quote: string, asOfDate: string) => {
+        calls.push(`${base}:${quote}:${asOfDate}`);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return base === "USD" ? 32 : 20;
+      },
+    } as unknown as Persistence;
+    const makeCurrencyGroup = (
+      ticker: string,
+      marketCode: DashboardOverviewHoldingGroupDto["marketCode"],
+      currency: DashboardOverviewHoldingGroupDto["currency"],
+    ) => makeHoldingGroup({
+      ticker,
+      marketCode,
+      currency,
+      children: [{
+        ...baseHolding,
+        ticker,
+        marketCode,
+        currency,
+        reportingCurrency: "TWD",
+        reportingCostBasisAmount: null,
+        reportingMarketValueAmount: null,
+        reportingUnrealizedPnlAmount: null,
+        reportingDailyChangeAmount: null,
+        reportingAllocationPercent: null,
+        fxStatus: "complete",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+      }],
+    });
+
+    await translateOverviewHoldingGroups(
+      [
+        makeCurrencyGroup("AAPL", "US", "USD"),
+        makeCurrencyGroup("BHP", "AU", "AUD"),
+        makeCurrencyGroup("MSFT", "US", "USD"),
+      ],
+      "TWD",
+      "market_value",
+      "2026-04-29",
+      persistence,
+    );
+
+    expect(calls).toEqual(["USD:TWD:2026-04-29", "AUD:TWD:2026-04-29"]);
+    expect(maxActive).toBe(2);
+  });
+});
+
+describe("translateValuationHealthSnapshotPoints", () => {
+  it("preserves snapshot FX rollup without dated finance reconstruction", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-02",
+          totalCostBasis: 100,
+          totalMarketValue: null,
+          totalUnrealizedPnl: null,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          isProvisional: false,
+          fxAvailable: false,
+        },
+        {
+          date: "2026-01-03",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.fxStatus).toBe("partial");
+    expect(out.points).toHaveLength(2);
+    expect(out.points[0]).toEqual(expect.objectContaining({
+      date: "2026-01-02",
+      marketValueAmount: null,
+      fxAvailable: false,
+    }));
+    expect(out.points[1]).toEqual(expect.objectContaining({
+      date: "2026-01-03",
+      marketValueAmount: 150,
+      fxAvailable: true,
+    }));
+    expect(out.lastReliableDate).toBe("2026-01-03");
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
+  });
+
+  it("filters incomplete active-contributor snapshots from valuation health diagnostics", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-01",
+            }),
+            makeTrade({
+              id: "trade-us",
+              accountId: "acct-2",
+              ticker: "AAPL",
+              marketCode: "US",
+              priceCurrency: "USD",
+              tradeDate: "2026-01-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-01-03", 150, "TW"),
+        makeDailyBar("AAPL", "2026-01-03", 200, "US"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points).toEqual([]);
+    expect(out.lastReliableDate).toBeNull();
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: null,
+      latestReliableValuationDate: null,
+      staleSinceDate: null,
+      knownGapReasons: ["missing_snapshot"],
+    }));
+  });
+
+  it("does not use a newer partial-market snapshot as the health comparison point", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "trade-kr",
+              accountId: "acct-2",
+              ticker: "000660",
+              marketCode: "KR",
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 500,
+          totalMarketValue: 600,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 20,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 200,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 25,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 500, "TW"),
+        makeDailyBar("000660", "2026-06-12", 200, "KR"),
+        makeDailyBar("2330", "2026-06-15", 300, "TW"),
+        makeDailyBar("000660", "2026-06-15", 250, "KR"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12"]);
+    expect(out.lastReliableDate).toBe("2026-06-12");
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: "2026-06-12",
+      latestReliableValuationDate: "2026-06-12",
+      staleSinceDate: "2026-06-12",
+      knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    }));
+  });
+
+  it("keeps a newer health snapshot when the omitted market has no bar that day", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "trade-kr",
+              accountId: "acct-2",
+              ticker: "000660",
+              marketCode: "KR",
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 500,
+          totalMarketValue: 600,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 20,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 200,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 25,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 500, "TW"),
+        makeDailyBar("000660", "2026-06-12", 200, "KR"),
+        makeDailyBar("000660", "2026-06-15", 250, "KR"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12", "2026-06-15"]);
+    expect(out.lastReliableDate).toBe("2026-06-15");
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: "2026-06-15",
+      latestReliableValuationDate: "2026-06-15",
+      staleSinceDate: null,
+      knownGapReasons: [],
+    }));
+  });
+
+  it("uses a bounded recent snapshot window before falling back to all-range reads", async () => {
+    const aggregatedReadStats = { calls: [] as Array<{ startDate: string; endDate: string }> };
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "old-trade",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregatedReadStats,
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 150, "TW"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
+    expect(out.lastReliableDate).toBe("2026-06-12");
+    expect(aggregatedReadStats.calls).toEqual([
+      { startDate: "2026-02-15", endDate: "2026-06-15" },
+    ]);
+  });
+});
+
+describe("buildFxConversionRateRows", () => {
+  it("fetches independent FX conversion rows concurrently", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const calls: string[] = [];
+    const persistence = {
+      getFxRate: async (base: string, quote: string, asOfDate: string) => {
+        calls.push(`${base}:${quote}:${asOfDate}`);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return base === "USD" ? 32 : 20;
+      },
+    } as unknown as Persistence;
+
+    const rows = await buildFxConversionRateRows(
+      persistence,
+      ["USD", "AUD", "USD", "TWD"],
+      "TWD",
+      "2026-04-29",
+    );
+
+    expect(calls).toEqual(["AUD:TWD:2026-04-29", "USD:TWD:2026-04-29"]);
+    expect(maxActive).toBe(2);
+    expect(rows).toEqual([
+      { fromCurrency: "AUD", toCurrency: "TWD", rate: 20, asOf: "2026-04-29" },
+      { fromCurrency: "USD", toCurrency: "TWD", rate: 32, asOf: "2026-04-29" },
+    ]);
   });
 });
 
@@ -721,6 +1181,62 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
       "TWD",
       persistence,
       store,
+    );
+
+    expect(out.points).toHaveLength(2);
+    expect(out.points.map((point) => point.totalCostAmount)).toEqual([1000, 1000]);
+    expect(out.points[1]).toMatchObject({
+      marketValueAmount: 1300,
+      unrealizedPnlAmount: 300,
+      totalReturnAmount: 300,
+      totalReturnPercent: 30,
+    });
+  });
+
+  it("uses transaction-date Book Cost from lightweight finance inputs without loading store data", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-02",
+          totalCostBasis: 1000,
+          totalMarketValue: 1000,
+          totalUnrealizedPnl: 0,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 0,
+          totalReturnPercent: 0,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+        {
+          date: "2026-01-03",
+          totalCostBasis: 1200,
+          totalMarketValue: 1300,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 8.3333,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      undefined,
+      undefined,
+      {
+        earliestTradeDate: "2026-01-02",
+        financeTrades: [makeTrade({ tradeDate: "2026-01-02", quantity: 10, unitPrice: 100 })],
+        financeDividends: [],
+        financeLotAllocations: [],
+      },
     );
 
     expect(out.points).toHaveLength(2);

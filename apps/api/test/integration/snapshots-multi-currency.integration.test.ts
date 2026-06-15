@@ -418,6 +418,101 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
     expect(round[1].providerSource).toBe("finmind");
   });
 
+  it("getLatestHoldingSnapshotDatesByScope ignores newer incomplete holding snapshots", async () => {
+    const { userId } = await persistence!.resolveOrCreateUser(
+      "google",
+      "kzo165-latest-complete-sub",
+      { email: "kzo165-latest-complete@example.com", name: "KZO-165 Latest Complete User" },
+    );
+    const accountsResult = await pool.query<{ id: string }>(
+      `SELECT id FROM accounts WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    expect(accountsResult.rows.length).toBeGreaterThan(0);
+    const accountId = accountsResult.rows[0].id;
+    const generatedAt = new Date().toISOString();
+
+    await persistence!.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "latest-complete-snap-1",
+        userId,
+        accountId,
+        ticker: "2002",
+        marketCode: "TW",
+        snapshotDate: "2026-06-10",
+        quantity: 10,
+        closePrice: 100,
+        marketValue: 1000,
+        costBasis: 900,
+        unrealizedPnl: 100,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1000,
+        costBasisNative: 900,
+        unrealizedPnlNative: 100,
+        providerSource: "finmind",
+        generatedAt,
+        generationRunId: "latest-complete-run",
+      },
+      {
+        id: "latest-complete-snap-2",
+        userId,
+        accountId,
+        ticker: "2002",
+        marketCode: "TW",
+        snapshotDate: "2026-06-11",
+        quantity: 10,
+        closePrice: 101,
+        marketValue: null,
+        costBasis: 900,
+        unrealizedPnl: null,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: null,
+        costBasisNative: 900,
+        unrealizedPnlNative: null,
+        providerSource: "finmind",
+        generatedAt,
+        generationRunId: "latest-complete-run",
+      },
+      {
+        id: "latest-complete-snap-3",
+        userId,
+        accountId,
+        ticker: "2002",
+        marketCode: "TW",
+        snapshotDate: "2026-06-12",
+        quantity: 10,
+        closePrice: null,
+        marketValue: null,
+        costBasis: 900,
+        unrealizedPnl: null,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: true,
+        currency: "TWD",
+        valueNative: null,
+        costBasisNative: 900,
+        unrealizedPnlNative: null,
+        providerSource: null,
+        generatedAt,
+        generationRunId: "latest-complete-run",
+      },
+    ]);
+
+    const latestDates = await persistence!.getLatestHoldingSnapshotDatesByScope(userId, [
+      { accountId, ticker: "2002", marketCode: "TW" },
+      { accountId, ticker: "2330", marketCode: "TW" },
+    ]);
+
+    expect(latestDates.get(scopeKey(accountId, "2002", "TW"))).toBe("2026-06-10");
+    expect(latestDates.get(scopeKey(accountId, "2330", "TW"))).toBeNull();
+  });
+
   it("hardPurgeUser cascade: currency_wallet_snapshots rows are deleted when the user is hard-purged", async () => {
     // Seed a real user + account, then write a wallet row for them.
     const { userId } = await persistence!.resolveOrCreateUser(
@@ -507,3 +602,7 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
     expect(Number(userRow.rows[0].count)).toBe(0);
   });
 });
+
+function scopeKey(accountId: string, ticker: string, marketCode: string): string {
+  return [accountId, ticker, marketCode].join("\0");
+}

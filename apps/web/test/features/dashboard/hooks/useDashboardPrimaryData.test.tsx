@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountDefaultCurrency } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, RouteCachePolicyDto } from "@vakwen/shared-types";
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
@@ -16,21 +16,21 @@ import {
   fetchDashboardPrimaryData,
 } from "../../../../features/dashboard/services/dashboardService";
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 beforeAll(() => {
@@ -79,7 +79,7 @@ const initialPrimaryData: DashboardSnapshot = {
   feeProfileBindings: [],
 };
 
-function snapshotWithMarketValue(marketValueAmount: number): DashboardSnapshot {
+function snapshotWithMarketValue(marketValueAmount: number | null): DashboardSnapshot {
   return {
     ...initialPrimaryData,
     summary: {
@@ -113,15 +113,18 @@ function createDeferred<T>() {
 
 function Harness({
   cacheScope = "self",
+  cachePolicy,
   expectedReportingCurrency,
   initialData = null,
 }: {
   cacheScope?: string;
+  cachePolicy?: RouteCachePolicyDto | null;
   expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialData?: DashboardSnapshot | null;
 }) {
   result = useDashboardPrimaryData({
     cacheKey: buildRouteDtoCacheKey("dashboard-primary", cacheScope),
+    cachePolicy,
     expectedReportingCurrency,
     initialTransaction,
     initialPrimaryData: initialData,
@@ -134,17 +137,19 @@ describe("useDashboardPrimaryData", () => {
   let root: Root;
 
   beforeEach(() => {
-    installLocalStorageMock();
+    installStorageMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(initialPrimaryData);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.mocked(fetchDashboardEnrichmentData).mockReset();
     vi.mocked(fetchDashboardPrimaryData).mockReset();
   });
@@ -177,10 +182,106 @@ describe("useDashboardPrimaryData", () => {
     expect(result.summary.marketValueAmount).toBe(1500);
   });
 
-  it("restores cached primary data before refreshing in the background", async () => {
+  it("restores fresh cached primary data without fetching again", async () => {
+    const cached = snapshotWithMarketValue(1750);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.summary.marketValueAmount).toBe(1750);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
+    expect(fetchDashboardEnrichmentData).not.toHaveBeenCalled();
+    expect(result.summary.marketValueAmount).toBe(1750);
+  });
+
+  it("refreshes enrichment when a fresh cached primary-only snapshot is restored", async () => {
+    const cached = snapshotWithMarketValue(null);
+    const enriched = snapshotWithMarketValue(2200);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(result.summary.marketValueAmount).toBeNull();
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {});
+
+    expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
+    expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2200);
+  });
+
+  it("writes enrichment results with the dashboard enrichment cache TTL", async () => {
+    const cachePolicy: RouteCachePolicyDto = {
+      mode: "custom",
+      dashboardPrimaryTtlMs: 120_000,
+      dashboardEnrichmentTtlMs: 45_000,
+      dashboardPerformanceTtlMs: 300_000,
+      portfolioTtlMs: 120_000,
+      reportsTtlMs: 300_000,
+      staleUsableTtlMs: 600_000,
+    };
+    const cacheKey = buildRouteDtoCacheKey("dashboard-primary", "self");
+    const enriched = snapshotWithMarketValue(2200);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness cachePolicy={cachePolicy} initialData={initialPrimaryData} />);
+    });
+
+    await act(async () => {});
+
+    expect(readRouteDtoCache<DashboardSnapshot>(cacheKey)?.payload.summary.marketValueAmount).toBe(2200);
+    expect(readRouteDtoCache<DashboardSnapshot>(cacheKey)?.ttlMs).toBe(45_000);
+  });
+
+  it("does not let an older primary request overwrite a fresh cache restore after cache key changes", async () => {
+    const oldRequest = createDeferred<DashboardSnapshot>();
+    const oldSnapshot = snapshotWithMarketValue(900);
+    const ownerSnapshot = snapshotWithMarketValue(3100);
+    const ownerCacheScope = "owner-1";
+    const ownerCacheKey = buildRouteDtoCacheKey("dashboard-primary", ownerCacheScope);
+    vi.mocked(fetchDashboardPrimaryData).mockReturnValueOnce(oldRequest.promise);
+    writeRouteDtoCache(ownerCacheKey, ownerSnapshot);
+
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(fetchDashboardPrimaryData).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(<Harness cacheScope={ownerCacheScope} />);
+    });
+
+    expect(result.summary.marketValueAmount).toBe(3100);
+    expect(result.restoredFromCache).toBe(true);
+
+    await act(async () => {
+      oldRequest.resolve(oldSnapshot);
+      await oldRequest.promise;
+    });
+
+    expect(result.summary.marketValueAmount).toBe(3100);
+  });
+
+  it("restores stale cached primary data before refreshing in the background", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-08T12:00:00.000Z");
     const cached = snapshotWithMarketValue(1750);
     const refreshed = snapshotWithMarketValue(2100);
-    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
+    vi.setSystemTime(now);
+    writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached, 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
     vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(refreshed);
     vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(refreshed);
 

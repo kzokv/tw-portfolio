@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vakwen Valuation Health Mockups</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --shell: #ffffff;
+      --card: #ffffff;
+      --surface: #f1f5f9;
+      --surface-strong: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --primary-soft: #eff6ff;
+      --positive: #047857;
+      --positive-soft: #ecfdf5;
+      --warning: #b45309;
+      --warning-soft: #fffbeb;
+      --danger: #be123c;
+      --danger-soft: #fff1f2;
+      --shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 14px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .rail {
+      border-right: 1px solid var(--border);
+      background: var(--shell);
+      padding: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      font-weight: 800;
+    }
+
+    .brand-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand-copy strong {
+      font-size: 14px;
+    }
+
+    .brand-copy span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .nav a.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .nav-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.75;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 24px;
+    }
+
+    .shot {
+      width: min(1280px, 100%);
+      margin: 0 auto 42px;
+      padding: 0;
+    }
+
+    .shot-frame {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 860px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .eyebrow {
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .text-sm {
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .text-xs {
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) minmax(160px, 0.8fr) minmax(180px, 0.9fr) auto;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.06);
+    }
+
+    .control {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .control .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 550;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 8px 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+
+    .button.warning {
+      border-color: #f59e0b;
+      background: #f59e0b;
+      color: #111827;
+    }
+
+    .button.ghost {
+      background: transparent;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 {
+      grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.8fr);
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .card.flat {
+      box-shadow: none;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 16px 8px;
+    }
+
+    .card-content {
+      padding: 12px 16px 16px;
+    }
+
+    .hero-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.55fr);
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .metric {
+      font-variant-numeric: tabular-nums;
+      font-size: 38px;
+      font-weight: 850;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .metric-sm {
+      font-variant-numeric: tabular-nums;
+      font-size: 21px;
+      font-weight: 820;
+      letter-spacing: 0;
+    }
+
+    .metric-xs {
+      font-variant-numeric: tabular-nums;
+      font-size: 14px;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      border-color: #bbf7d0;
+      background: var(--positive-soft);
+      color: var(--positive);
+    }
+
+    .badge.warn {
+      border-color: #fde68a;
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .badge.bad {
+      border-color: #fecdd3;
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .health-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      background: var(--warning-soft);
+    }
+
+    .health-panel.good {
+      border-color: #bbf7d0;
+      background: var(--positive-soft);
+    }
+
+    .health-panel.bad {
+      border-color: #fecdd3;
+      background: var(--danger-soft);
+    }
+
+    .health-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .health-copy {
+      color: #78350f;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .health-panel.good .health-copy {
+      color: #065f46;
+    }
+
+    .health-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .kv {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+    }
+
+    .kv span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .kv strong {
+      display: block;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+    }
+
+    .market-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .market-tile {
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+    }
+
+    .market-tile .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .chart {
+      position: relative;
+      min-height: 256px;
+      padding: 18px 14px 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      overflow: hidden;
+    }
+
+    .chart-grid {
+      position: absolute;
+      inset: 18px 14px 34px;
+      background:
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.22) 1px, transparent 1px) 0 0 / 100% 48px,
+        linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px) 0 0 / 80px 100%;
+    }
+
+    .chart-line {
+      position: absolute;
+      left: 36px;
+      right: 36px;
+      bottom: 82px;
+      height: 92px;
+      border-bottom: 4px solid var(--primary);
+      border-radius: 44% 46% 0 0;
+      transform: skewX(-10deg) rotate(-2deg);
+    }
+
+    .chart-line::before {
+      content: "";
+      position: absolute;
+      left: 12%;
+      right: 24%;
+      bottom: 38px;
+      border-bottom: 4px solid #22c55e;
+      border-radius: 55% 40% 0 0;
+      transform: rotate(5deg);
+    }
+
+    .chart-gap {
+      position: absolute;
+      right: 42px;
+      top: 48px;
+      width: 170px;
+      padding: 10px;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      background: rgba(255, 251, 235, 0.96);
+      color: #78350f;
+      font-size: 12px;
+      line-height: 1.35;
+      box-shadow: 0 12px 26px rgba(120, 53, 15, 0.12);
+    }
+
+    .chart-axis {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .tab {
+      min-height: 30px;
+      padding: 7px 11px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .tab.active {
+      background: white;
+      color: var(--text);
+      box-shadow: 0 5px 14px rgba(15, 23, 42, 0.08);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th,
+    td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .cache-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 13px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: var(--primary-soft);
+      color: #1e40af;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .split-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .setting-shell {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .setting-side {
+      border-right: 1px solid var(--border);
+      background: #fbfdff;
+      padding: 14px;
+    }
+
+    .setting-side .item {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .setting-side .item.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .setting-main {
+      padding: 18px 22px;
+    }
+
+    .tabs-row {
+      display: flex;
+      gap: 4px;
+      margin: 14px 0 20px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    .tabs-row .settings-tab {
+      padding: 10px 14px;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tabs-row .settings-tab.active {
+      border-bottom-color: var(--primary);
+      color: var(--text);
+    }
+
+    .settings-row {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 30px;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .settings-row:last-child {
+      border-bottom: 0;
+    }
+
+    .setting-label strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+
+    .setting-label span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .preset {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+    }
+
+    .preset.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .preset strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+
+    .preset span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .note {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .admin-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .mobile-only {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        display: block;
+      }
+
+      .rail {
+        display: none;
+      }
+
+      .main {
+        padding: 14px;
+      }
+
+      .shot {
+        margin-bottom: 26px;
+      }
+
+      .shot-frame {
+        min-height: auto;
+      }
+
+      .page-header,
+      .hero-card,
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .market-strip,
+      .toolbar,
+      .split-row,
+      .setting-shell,
+      .settings-row,
+      .input-grid,
+      .preset-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page-header,
+      .cache-strip,
+      .health-title {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .metric {
+        font-size: 31px;
+      }
+
+      .hero-card {
+        padding: 14px;
+      }
+
+      .chart {
+        min-height: 220px;
+      }
+
+      .chart-gap {
+        left: 24px;
+        right: 24px;
+        width: auto;
+      }
+
+      .setting-side {
+        display: none;
+      }
+
+      .desktop-only {
+        display: none;
+      }
+
+      .mobile-only {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="Reference shell">
+      <div class="brand">
+        <div class="brand-mark">V</div>
+        <div class="brand-copy">
+          <strong>Vakwen</strong>
+          <span>Portfolio console</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <a class="active" href="#dashboard"><span class="nav-dot"></span>Dashboard</a>
+        <a href="#reports"><span class="nav-dot"></span>Reports</a>
+        <a href="#admin"><span class="nav-dot"></span>Admin settings</a>
+        <a href="#admin"><span class="nav-dot"></span>Performance policy</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <section class="shot" id="dashboard" data-shot="dashboard">
+        <div class="shot-frame">
+          <div class="page-header">
+            <div>
+              <div class="eyebrow">Dashboard</div>
+              <h1>Portfolio overview</h1>
+              <p class="muted text-sm">Current valuation, market mix, and trend health for Wen-Ping Chuang.</p>
+            </div>
+            <div class="hero-meta">
+              <span class="badge good"><span class="status-dot"></span>Primary ready 1.8s</span>
+              <span class="badge warn"><span class="status-dot"></span>Trend gap</span>
+              <span class="badge"><span class="status-dot"></span>AUD reporting</span>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="control"><span class="label">Context</span><span>Wen-Ping Chuang</span></div>
+            <div class="control"><span class="label">Currency</span><span>AUD</span></div>
+            <div class="control"><span class="label">Cache</span><span>Fresh for 48s</span></div>
+            <button class="button">Refresh now</button>
+          </div>
+
+          <div class="hero-card">
+            <div>
+              <div class="eyebrow">Current market value</div>
+              <div class="metric" style="margin-top: 10px;">AUD 4,271,223.81</div>
+              <p class="muted text-sm" style="margin-top: 8px;">Current positions priced from latest available bars and converted to AUD.</p>
+              <div class="hero-meta">
+                <span class="badge">US AUD 2,796,389.94</span>
+                <span class="badge">AU AUD 1,205,902.51</span>
+                <span class="badge">KR AUD 268,931.36</span>
+                <span class="badge good">Rounding delta AUD 0.01 ignored</span>
+              </div>
+            </div>
+
+            <div class="health-panel">
+              <div class="health-title">
+                <div>
+                  <h3>Trend value is behind current valuation</h3>
+                  <p class="health-copy">Portfolio Trend is using the latest complete snapshot. Two active holdings need current market data and snapshot repair before the chart can advance to today.</p>
+                </div>
+                <span class="badge warn">Material</span>
+              </div>
+              <div class="kv-grid">
+                <div class="kv"><span>Current</span><strong>AUD 4,271,223.81</strong></div>
+                <div class="kv"><span>Trend</span><strong>AUD 4,002,489.00</strong></div>
+                <div class="kv"><span>Gap</span><strong>AUD 268,734.81</strong></div>
+              </div>
+              <div class="health-actions">
+                <button class="button">View details</button>
+                <button class="button warning">Open admin repair</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="market-strip">
+            <div class="market-tile">
+              <div class="top"><span>US market</span><span class="badge good">current</span></div>
+              <div class="metric-sm">AUD 2.80M</div>
+              <p class="muted text-xs">Latest bars covered except V.</p>
+            </div>
+            <div class="market-tile">
+              <div class="top"><span>AU market</span><span class="badge good">current</span></div>
+              <div class="metric-sm">AUD 1.21M</div>
+              <p class="muted text-xs">Native AUD positions.</p>
+            </div>
+            <div class="market-tile">
+              <div class="top"><span>KR market</span><span class="badge good">current</span></div>
+              <div class="metric-sm">AUD 268.9K</div>
+              <p class="muted text-xs">KRW converted through reporting FX.</p>
+            </div>
+            <div class="market-tile">
+              <div class="top"><span>Valuation health</span><span class="badge warn">review</span></div>
+              <div class="metric-sm">2 blockers</div>
+              <p class="muted text-xs">Snapshot gap exceeds configured threshold.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Portfolio Trend</h2>
+                  <p class="muted text-sm">Snapshot-only chart. Latest complete point is Jun 12, 2026.</p>
+                </div>
+                <div class="tabs">
+                  <span class="tab">1M</span>
+                  <span class="tab active">3M</span>
+                  <span class="tab">YTD</span>
+                  <span class="tab">1Y</span>
+                </div>
+              </div>
+              <div class="card-content">
+                <div class="chart">
+                  <div class="chart-grid"></div>
+                  <div class="chart-line"></div>
+                  <div class="chart-gap"><strong>Gap at latest point</strong><br>Trend AUD 4,002,489.00 vs current AUD 4,271,223.81.</div>
+                  <div class="chart-axis"><span>Mar 14</span><span>Apr 14</span><span>May 14</span><span>Jun 14</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Affected holdings</h2>
+                  <p class="muted text-sm">Admin view with remediation path.</p>
+                </div>
+                <span class="badge warn">2 rows</span>
+              </div>
+              <div class="card-content">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Value</th>
+                      <th>Dates</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>V</strong><br><span class="muted">US</span></td>
+                      <td>AUD 162,430.55</td>
+                      <td>Bar Jun 14<br>Snapshot Jun 12</td>
+                      <td><span class="badge warn">snapshot stale</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>VRT</strong><br><span class="muted">US</span></td>
+                      <td>AUD 106,304.26</td>
+                      <td>Bar Jun 14<br>Snapshot Jun 12</td>
+                      <td><span class="badge bad">backfill pending</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="note" style="margin-top: 12px;">Normal users see the same reason and dates, without admin backfill or snapshot buttons.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cache-strip">
+            <span>Restored from session cache. Entry is fresh for 48 seconds and will not refetch while the user revisits this page.</span>
+            <span>Manual refresh bypasses cache</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="shot" id="reports" data-shot="reports">
+        <div class="shot-frame">
+          <div class="page-header">
+            <div>
+              <div class="eyebrow">Reports</div>
+              <h1>Performance reports</h1>
+              <p class="muted text-sm">Same reconciliation language reused on Portfolio and Market performance charts.</p>
+            </div>
+            <div class="hero-meta">
+              <span class="badge">Portfolio report</span>
+              <span class="badge">Market report</span>
+              <span class="badge warn">Snapshot gap visible</span>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="control"><span class="label">Report</span><span>Portfolio performance</span></div>
+            <div class="control"><span class="label">Range</span><span>3 months</span></div>
+            <div class="control"><span class="label">Snapshot</span><span>Latest complete Jun 12</span></div>
+            <button class="button">Refresh report</button>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Portfolio performance</h2>
+                  <p class="muted text-sm">Snapshot-only market value and return series.</p>
+                </div>
+                <span class="badge warn">2 holdings behind</span>
+              </div>
+              <div class="card-content">
+                <div class="split-row">
+                  <div class="kv"><span>Current valuation</span><strong>AUD 4,271,223.81</strong></div>
+                  <div class="kv"><span>Chart valuation</span><strong>AUD 4,002,489.00</strong></div>
+                </div>
+                <div class="chart" style="margin-top: 12px;">
+                  <div class="chart-grid"></div>
+                  <div class="chart-line"></div>
+                  <div class="chart-gap"><strong>Incomplete latest snapshot</strong><br>Chart keeps the latest complete point and explains the difference.</div>
+                  <div class="chart-axis"><span>Mar 14</span><span>Apr 14</span><span>May 14</span><span>Jun 14</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Valuation health</h2>
+                  <p class="muted text-sm">Shared component used by dashboard and reports.</p>
+                </div>
+                <span class="badge warn">Actionable</span>
+              </div>
+              <div class="card-content">
+                <div class="health-panel">
+                  <div class="health-title">
+                    <div>
+                      <h3>Snapshot coverage is incomplete</h3>
+                      <p class="health-copy">The report is source-honest: it does not mix current holdings into historical chart points. Repair snapshots to align the latest point with the current valuation.</p>
+                    </div>
+                  </div>
+                  <div class="kv-grid">
+                    <div class="kv"><span>Threshold</span><strong>50 bps or AUD 100</strong></div>
+                    <div class="kv"><span>Actual gap</span><strong>AUD 268,734.81</strong></div>
+                    <div class="kv"><span>Repair path</span><strong>Backfill workspace + targeted snapshot repair</strong></div>
+                  </div>
+                  <div class="health-actions">
+                    <button class="button warning">Open admin repair</button>
+                  </div>
+                </div>
+
+                <table style="margin-top: 12px;">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Reason</th>
+                      <th>Recommended action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>V</strong></td>
+                      <td>Snapshot stale after latest bar</td>
+                      <td>Open targeted snapshot repair</td>
+                    </tr>
+                    <tr>
+                      <td><strong>VRT</strong></td>
+                      <td>Backfill was pending before repair</td>
+                      <td>Run admin backfill, then snapshot repair</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-3">
+            <div class="card flat">
+              <div class="card-content">
+                <span class="badge good">Healthy</span>
+                <div class="metric-sm" style="margin-top: 10px;">Daily Review</div>
+                <p class="muted text-xs">Keeps existing data health UX.</p>
+              </div>
+            </div>
+            <div class="card flat">
+              <div class="card-content">
+                <span class="badge warn">Shared</span>
+                <div class="metric-sm" style="margin-top: 10px;">Market report</div>
+                <p class="muted text-xs">Shows valuation-health panel when market chart gap is material.</p>
+              </div>
+            </div>
+            <div class="card flat">
+              <div class="card-content">
+                <span class="badge">Cached</span>
+                <div class="metric-sm" style="margin-top: 10px;">Reports tabs</div>
+                <p class="muted text-xs">Session cache applies to all report tabs.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="cache-strip">
+            <span>Reports tab data restored instantly from session cache. Background refresh starts only after TTL or manual refresh.</span>
+            <span>Balanced mode: reports TTL 300s</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="shot" id="admin" data-shot="admin">
+        <div class="shot-frame">
+          <div class="page-header">
+            <div>
+              <div class="eyebrow">Admin</div>
+              <h1>Settings</h1>
+              <p class="muted text-sm">Configurable valuation thresholds and route cache policy.</p>
+            </div>
+            <div class="hero-meta">
+              <button class="button">Discard</button>
+              <button class="button primary">Save changes</button>
+            </div>
+          </div>
+
+          <div class="setting-shell">
+            <aside class="setting-side">
+              <div class="item">Display defaults</div>
+              <div class="item active">Performance policy</div>
+              <div class="item">Provider keys</div>
+              <div class="item">Rate limits</div>
+              <div class="item">Sessions and auth</div>
+              <div class="item">Maintenance</div>
+            </aside>
+
+            <div class="setting-main">
+              <div>
+                <h2>Admin settings</h2>
+                <p class="muted text-sm">Global defaults that affect every account. User route-cache overrides are not in this scope.</p>
+              </div>
+
+              <div class="tabs-row">
+                <span class="settings-tab">Display defaults</span>
+                <span class="settings-tab active">Performance policy</span>
+                <span class="settings-tab">Provider keys</span>
+                <span class="settings-tab">Feature flags</span>
+                <span class="settings-tab">Maintenance</span>
+              </div>
+
+              <div class="settings-row">
+                <div class="setting-label">
+                  <strong>Valuation health thresholds</strong>
+                  <span>A mismatch is material when it exceeds the relative bps threshold or the fixed reporting-currency amount. Minor rounding deltas are ignored.</span>
+                </div>
+                <div>
+                  <div class="input-grid">
+                    <div class="field">
+                      <label>Relative bps</label>
+                      <input value="50">
+                    </div>
+                    <div class="field">
+                      <label>AUD absolute</label>
+                      <input value="100">
+                    </div>
+                    <div class="field">
+                      <label>USD absolute</label>
+                      <input value="100">
+                    </div>
+                    <div class="field">
+                      <label>TWD absolute</label>
+                      <input value="3000">
+                    </div>
+                    <div class="field">
+                      <label>KRW absolute</label>
+                      <input value="90000">
+                    </div>
+                  </div>
+                  <div class="note" style="margin-top: 10px;">The UI should preview how current mismatches would classify under the edited thresholds before saving.</div>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="setting-label">
+                  <strong>Route cache mode</strong>
+                  <span>Controls sessionStorage TTL and stale-usable windows for Dashboard, Portfolio, and Reports DTOs.</span>
+                </div>
+                <div>
+                  <div class="preset-grid">
+                    <div class="preset">
+                      <strong>Fresh</strong>
+                      <span>Short TTLs. Best for active trading review.</span>
+                    </div>
+                    <div class="preset active">
+                      <strong>Balanced</strong>
+                      <span>Recommended. Smooth navigation with bounded staleness.</span>
+                    </div>
+                    <div class="preset">
+                      <strong>Low Load</strong>
+                      <span>Long TTLs. Reduces QNAP/API pressure.</span>
+                    </div>
+                    <div class="preset">
+                      <strong>Custom</strong>
+                      <span>Manual values inside validated bounds.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="setting-label">
+                  <strong>Balanced TTL values</strong>
+                  <span>Stale-usable window must be greater than or equal to the largest TTL. Manual refresh always bypasses cache.</span>
+                </div>
+                <div>
+                  <div class="input-grid">
+                    <div class="field">
+                      <label>Dashboard primary</label>
+                      <input value="120s">
+                    </div>
+                    <div class="field">
+                      <label>Hero/enrichment</label>
+                      <input value="60s">
+                    </div>
+                    <div class="field">
+                      <label>Dashboard trend</label>
+                      <input value="300s">
+                    </div>
+                    <div class="field">
+                      <label>Portfolio</label>
+                      <input value="120s">
+                    </div>
+                    <div class="field">
+                      <label>Reports</label>
+                      <input value="300s">
+                    </div>
+                    <div class="field">
+                      <label>Stale usable</label>
+                      <input value="10m">
+                    </div>
+                  </div>
+                  <div class="note" style="margin-top: 10px;">Fresh entries render with no client refetch. Stale-usable entries render immediately and refresh in the background. Expired entries show the route skeleton while fetching.</div>
+                </div>
+              </div>
+
+              <div class="admin-actions">
+                <span class="muted text-xs" style="margin-right: auto;">Unsaved changes: performance policy</span>
+                <button class="button">Reset mode</button>
+                <button class="button primary">Save changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

@@ -21,6 +21,7 @@ import {
 import {
   type AiConnectorPolicySettingsDto,
   type AppConfigDto,
+  type RouteCachePolicyMode,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
@@ -32,6 +33,7 @@ import { TabsRoot, TabsList, TabsTrigger, TabsContent } from "../ui/Tabs";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -57,6 +59,7 @@ const TAB_SLUGS = [
 ] as const;
 type TabSlug = (typeof TAB_SLUGS)[number];
 const DEFAULT_TAB: TabSlug = "rate-limits";
+const ROUTE_CACHE_POLICY_DEFAULT_SELECT_VALUE = "__effective_policy";
 
 const TAB_LABELS: Record<TabSlug, string> = {
   "rate-limits": "Rate limits",
@@ -732,6 +735,12 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const [metadataModeSaving, setMetadataModeSaving] = useState(false);
   const [metadataModeError, setMetadataModeError] = useState<string | null>(null);
   const [metadataModeSuccess, setMetadataModeSuccess] = useState<string | null>(null);
+  const [routeCachePolicyMode, setRouteCachePolicyMode] = useState<RouteCachePolicyMode | "">(
+    initial.routeCachePolicyMode ?? "",
+  );
+  const [routeCacheModeSaving, setRouteCacheModeSaving] = useState(false);
+  const [routeCacheModeError, setRouteCacheModeError] = useState<string | null>(null);
+  const [routeCacheModeSuccess, setRouteCacheModeSuccess] = useState<string | null>(null);
 
   // ── Timeframe section derived state ────────────────────────────────────────
   const trimmedCustomInput = customInput.trim();
@@ -853,6 +862,30 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   async function patchAppConfigField(field: string, value: number | string | null): Promise<void> {
     const updated = await patchJson<AppConfigDto>("/admin/settings", { [field]: value });
     setConfig(updated);
+  }
+
+  async function handleSaveRouteCacheMode() {
+    setRouteCacheModeError(null);
+    setRouteCacheModeSuccess(null);
+    setRouteCacheModeSaving(true);
+    try {
+      const updated = await patchJson<AppConfigDto>("/admin/settings", {
+        routeCachePolicyMode: routeCachePolicyMode === "" ? null : routeCachePolicyMode,
+      });
+      setConfig(updated);
+      setRouteCachePolicyMode(updated.routeCachePolicyMode ?? "");
+      setRouteCacheModeSuccess("Route cache policy saved.");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setRouteCacheModeError(err.message);
+      } else if (err instanceof Error) {
+        setRouteCacheModeError(err.message);
+      } else {
+        setRouteCacheModeError("Failed to save route cache policy.");
+      }
+    } finally {
+      setRouteCacheModeSaving(false);
+    }
   }
 
   async function handleResetTimeframes() {
@@ -1710,6 +1743,205 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 >
                   {timeframeSaving ? adminDict.common.saving : adminDict.common.save}
                 </Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card data-testid="valuation-health-thresholds-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Valuation health thresholds</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Controls when Dashboard and Reports treat the current-vs-snapshot valuation gap as material.
+                </p>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <NumericOverrideRow
+                  fieldKey="valuationHealthRelativeBps"
+                  label="Relative threshold"
+                  description="Material gap threshold in basis points."
+                  override={config.valuationHealthRelativeBps}
+                  effective={config.effectiveValuationHealthRelativeBps}
+                  bounds={config.bounds.valuationHealthRelativeBps}
+                  unit="bps"
+                  inputTestId="admin-settings-input-valuationHealthRelativeBps"
+                  onSave={(v) => patchAppConfigField("valuationHealthRelativeBps", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="valuationHealthAbsoluteAud"
+                  label="Absolute AUD threshold"
+                  description="Absolute materiality threshold when reporting currency resolves to AUD."
+                  override={config.valuationHealthAbsoluteAud}
+                  effective={config.effectiveValuationHealthAbsoluteAud}
+                  bounds={config.bounds.valuationHealthAbsoluteAud}
+                  step="any"
+                  unit="AUD"
+                  inputTestId="admin-settings-input-valuationHealthAbsoluteAud"
+                  onSave={(v) => patchAppConfigField("valuationHealthAbsoluteAud", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="valuationHealthAbsoluteUsd"
+                  label="Absolute USD threshold"
+                  description="Absolute materiality threshold when reporting currency resolves to USD."
+                  override={config.valuationHealthAbsoluteUsd}
+                  effective={config.effectiveValuationHealthAbsoluteUsd}
+                  bounds={config.bounds.valuationHealthAbsoluteUsd}
+                  step="any"
+                  unit="USD"
+                  inputTestId="admin-settings-input-valuationHealthAbsoluteUsd"
+                  onSave={(v) => patchAppConfigField("valuationHealthAbsoluteUsd", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="valuationHealthAbsoluteTwd"
+                  label="Absolute TWD threshold"
+                  description="Absolute materiality threshold when reporting currency resolves to TWD."
+                  override={config.valuationHealthAbsoluteTwd}
+                  effective={config.effectiveValuationHealthAbsoluteTwd}
+                  bounds={config.bounds.valuationHealthAbsoluteTwd}
+                  step="any"
+                  unit="TWD"
+                  inputTestId="admin-settings-input-valuationHealthAbsoluteTwd"
+                  onSave={(v) => patchAppConfigField("valuationHealthAbsoluteTwd", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="valuationHealthAbsoluteKrw"
+                  label="Absolute KRW threshold"
+                  description="Absolute materiality threshold when reporting currency resolves to KRW."
+                  override={config.valuationHealthAbsoluteKrw}
+                  effective={config.effectiveValuationHealthAbsoluteKrw}
+                  bounds={config.bounds.valuationHealthAbsoluteKrw}
+                  step="any"
+                  unit="KRW"
+                  inputTestId="admin-settings-input-valuationHealthAbsoluteKrw"
+                  onSave={(v) => patchAppConfigField("valuationHealthAbsoluteKrw", v)}
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card data-testid="route-cache-policy-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Route cache policy</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Controls session route DTO TTLs and the stale-but-usable window for Dashboard, Portfolio, and Reports.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <label className="block text-sm font-medium text-slate-700" htmlFor="admin-settings-route-cache-policy-select">
+                  Mode
+                </label>
+                <Select
+                  value={routeCachePolicyMode || ROUTE_CACHE_POLICY_DEFAULT_SELECT_VALUE}
+                  onValueChange={(value) => {
+                    setRouteCachePolicyMode(
+                      value === ROUTE_CACHE_POLICY_DEFAULT_SELECT_VALUE ? "" : value as RouteCachePolicyMode,
+                    );
+                    setRouteCacheModeError(null);
+                    setRouteCacheModeSuccess(null);
+                  }}
+                  disabled={routeCacheModeSaving}
+                >
+                  <SelectTrigger
+                    id="admin-settings-route-cache-policy-select"
+                    className="w-full sm:w-72"
+                    data-testid="admin-settings-route-cache-policy-select"
+                  >
+                    <SelectValue placeholder={`Use effective policy (${config.effectiveRouteCachePolicy.mode})`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value={ROUTE_CACHE_POLICY_DEFAULT_SELECT_VALUE}>Use effective policy ({config.effectiveRouteCachePolicy.mode})</SelectItem>
+                      <SelectItem value="fresh">Fresh</SelectItem>
+                      <SelectItem value="balanced">Balanced</SelectItem>
+                      <SelectItem value="low_load">Low load</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <NumericOverrideRow
+                    fieldKey="routeCacheDashboardPrimaryTtlMs"
+                    label="Dashboard primary TTL"
+                    description="Fresh-cache TTL for dashboard primary DTOs."
+                    override={config.routeCacheDashboardPrimaryTtlMs}
+                    effective={config.effectiveRouteCachePolicy.dashboardPrimaryTtlMs}
+                    bounds={config.bounds.routeCacheDashboardPrimaryTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCacheDashboardPrimaryTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCacheDashboardPrimaryTtlMs", v)}
+                  />
+                  <NumericOverrideRow
+                    fieldKey="routeCacheDashboardEnrichmentTtlMs"
+                    label="Dashboard enrichment TTL"
+                    description="Fresh-cache TTL for dashboard hero/enrichment DTOs."
+                    override={config.routeCacheDashboardEnrichmentTtlMs}
+                    effective={config.effectiveRouteCachePolicy.dashboardEnrichmentTtlMs}
+                    bounds={config.bounds.routeCacheDashboardEnrichmentTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCacheDashboardEnrichmentTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCacheDashboardEnrichmentTtlMs", v)}
+                  />
+                  <NumericOverrideRow
+                    fieldKey="routeCacheDashboardPerformanceTtlMs"
+                    label="Dashboard performance TTL"
+                    description="Fresh-cache TTL for dashboard performance chart DTOs."
+                    override={config.routeCacheDashboardPerformanceTtlMs}
+                    effective={config.effectiveRouteCachePolicy.dashboardPerformanceTtlMs}
+                    bounds={config.bounds.routeCacheDashboardPerformanceTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCacheDashboardPerformanceTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCacheDashboardPerformanceTtlMs", v)}
+                  />
+                  <NumericOverrideRow
+                    fieldKey="routeCachePortfolioTtlMs"
+                    label="Portfolio TTL"
+                    description="Fresh-cache TTL for portfolio primary DTOs."
+                    override={config.routeCachePortfolioTtlMs}
+                    effective={config.effectiveRouteCachePolicy.portfolioTtlMs}
+                    bounds={config.bounds.routeCachePortfolioTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCachePortfolioTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCachePortfolioTtlMs", v)}
+                  />
+                  <NumericOverrideRow
+                    fieldKey="routeCacheReportsTtlMs"
+                    label="Reports TTL"
+                    description="Fresh-cache TTL for report DTOs."
+                    override={config.routeCacheReportsTtlMs}
+                    effective={config.effectiveRouteCachePolicy.reportsTtlMs}
+                    bounds={config.bounds.routeCacheReportsTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCacheReportsTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCacheReportsTtlMs", v)}
+                  />
+                  <NumericOverrideRow
+                    fieldKey="routeCacheStaleUsableTtlMs"
+                    label="Stale-usable window"
+                    description="Maximum age where cached DTOs may stay visible while background refresh runs."
+                    override={config.routeCacheStaleUsableTtlMs}
+                    effective={config.effectiveRouteCachePolicy.staleUsableTtlMs}
+                    bounds={config.bounds.routeCacheStaleUsableTtlMs}
+                    unit="ms"
+                    inputTestId="admin-settings-input-routeCacheStaleUsableTtlMs"
+                    onSave={(v) => patchAppConfigField("routeCacheStaleUsableTtlMs", v)}
+                  />
+                </div>
+                {routeCacheModeError ? (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert" data-testid="admin-settings-route-cache-policy-error">
+                    {routeCacheModeError}
+                  </p>
+                ) : null}
+                {routeCacheModeSuccess ? (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status" data-testid="admin-settings-route-cache-policy-success">
+                    {routeCacheModeSuccess}
+                  </p>
+                ) : null}
+                <div className="flex items-center justify-end">
+                  <Button onClick={() => void handleSaveRouteCacheMode()} disabled={routeCacheModeSaving} data-testid="admin-settings-route-cache-policy-save">
+                    {routeCacheModeSaving ? adminDict.common.saving : adminDict.common.save}
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>

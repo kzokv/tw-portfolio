@@ -84,6 +84,18 @@ export function fakePersistenceWithAppConfig(
     userPreferencesMaxBytes: null,
     // ui-enhancement — Tier B account-soft-delete grace period.
     accountHardPurgeDays: null,
+    valuationHealthRelativeBps: null,
+    valuationHealthAbsoluteAud: null,
+    valuationHealthAbsoluteUsd: null,
+    valuationHealthAbsoluteTwd: null,
+    valuationHealthAbsoluteKrw: null,
+    routeCachePolicyMode: null,
+    routeCacheDashboardPrimaryTtlMs: null,
+    routeCacheDashboardEnrichmentTtlMs: null,
+    routeCacheDashboardPerformanceTtlMs: null,
+    routeCachePortfolioTtlMs: null,
+    routeCacheReportsTtlMs: null,
+    routeCacheStaleUsableTtlMs: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

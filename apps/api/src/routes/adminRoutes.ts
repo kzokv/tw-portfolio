@@ -36,6 +36,8 @@ import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataSnapshotRepairExecuteRequest,
+  AdminMarketDataSnapshotRepairExecuteResponse,
   AdminMarketDataBackfillTargetDto,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
@@ -80,6 +82,10 @@ import { requireAdminRole } from "../lib/routeGuards.js";
 // gate consults, so DB ⇄ UI stay coherent under live PATCHes).
 import { getEffectiveProviderRerunCooldownMs } from "../services/appConfig/providerHealth.js";
 import { PROVIDER_FIXER_DEFAULTS } from "../services/appConfig/providerFixer.js";
+import {
+  DEFAULT_VALUATION_HEALTH_THRESHOLDS,
+  resolveRouteCachePolicyFromRow,
+} from "../services/appConfig/valuationHealth.js";
 import { enqueueAuCatalogBarsBackfill } from "../services/market-data/enqueueAuCatalogBarsBackfill.js";
 import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
 import {
@@ -116,6 +122,12 @@ import {
   getBackfillSingletonKey,
   type BackfillJobData,
 } from "../services/market-data/backfillWorker.js";
+import {
+  defaultSnapshotRepairScanFromDate,
+  getSnapshotRepairSingletonKey,
+  SNAPSHOT_REPAIR_QUEUE,
+  type SnapshotRepairJobData,
+} from "../services/snapshotRepair.js";
 import { RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
 import type { MarketCode } from "@vakwen/domain";
@@ -354,6 +366,18 @@ export const patchAdminSettingsSchema = z
 
     // ── ui-enhancement Tier B — account lifecycle ───────────────────────
     accountHardPurgeDays: plainBoundedField("accountHardPurgeDays"),
+    valuationHealthRelativeBps: plainBoundedField("valuationHealthRelativeBps"),
+    valuationHealthAbsoluteAud: plainBoundedDecimalField("valuationHealthAbsoluteAud"),
+    valuationHealthAbsoluteUsd: plainBoundedDecimalField("valuationHealthAbsoluteUsd"),
+    valuationHealthAbsoluteTwd: plainBoundedDecimalField("valuationHealthAbsoluteTwd"),
+    valuationHealthAbsoluteKrw: plainBoundedDecimalField("valuationHealthAbsoluteKrw"),
+    routeCachePolicyMode: z.union([z.enum(["fresh", "balanced", "low_load", "custom"]), z.null()]).optional(),
+    routeCacheDashboardPrimaryTtlMs: plainBoundedField("routeCacheDashboardPrimaryTtlMs"),
+    routeCacheDashboardEnrichmentTtlMs: plainBoundedField("routeCacheDashboardEnrichmentTtlMs"),
+    routeCacheDashboardPerformanceTtlMs: plainBoundedField("routeCacheDashboardPerformanceTtlMs"),
+    routeCachePortfolioTtlMs: plainBoundedField("routeCachePortfolioTtlMs"),
+    routeCacheReportsTtlMs: plainBoundedField("routeCacheReportsTtlMs"),
+    routeCacheStaleUsableTtlMs: plainBoundedField("routeCacheStaleUsableTtlMs"),
 
     // KZO-199 Tier 2 fields (anonymousShareTokenRetentionMs,
     // userPreferencesMaxBytes) are deliberately NOT in this PATCH schema —
@@ -418,6 +442,17 @@ const TIER1_PLAIN_FIELDS = [
   "anonymousShareRateLimitWindowMs",
   // ui-enhancement — Tier B account-soft-delete grace period.
   "accountHardPurgeDays",
+  "valuationHealthRelativeBps",
+  "valuationHealthAbsoluteAud",
+  "valuationHealthAbsoluteUsd",
+  "valuationHealthAbsoluteTwd",
+  "valuationHealthAbsoluteKrw",
+  "routeCacheDashboardPrimaryTtlMs",
+  "routeCacheDashboardEnrichmentTtlMs",
+  "routeCacheDashboardPerformanceTtlMs",
+  "routeCachePortfolioTtlMs",
+  "routeCacheReportsTtlMs",
+  "routeCacheStaleUsableTtlMs",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
@@ -543,6 +578,42 @@ function assertProviderHealthThresholdOverrides(
       "providerHealthWarningUnresolvedThreshold must be below providerHealthCriticalUnresolvedThreshold.",
     );
   }
+}
+
+function assertRouteCachePolicyPatch(
+  body: z.infer<typeof patchAdminSettingsSchema>,
+  current: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
+): void {
+  const mode = body.routeCachePolicyMode !== undefined
+    ? body.routeCachePolicyMode ?? "balanced"
+    : current.routeCachePolicyMode ?? "balanced";
+  const effective = resolveRouteCachePolicyFromRow({
+    routeCachePolicyMode: mode,
+    routeCacheDashboardPrimaryTtlMs: valueOrCurrent(body.routeCacheDashboardPrimaryTtlMs, current.routeCacheDashboardPrimaryTtlMs),
+    routeCacheDashboardEnrichmentTtlMs: valueOrCurrent(body.routeCacheDashboardEnrichmentTtlMs, current.routeCacheDashboardEnrichmentTtlMs),
+    routeCacheDashboardPerformanceTtlMs: valueOrCurrent(body.routeCacheDashboardPerformanceTtlMs, current.routeCacheDashboardPerformanceTtlMs),
+    routeCachePortfolioTtlMs: valueOrCurrent(body.routeCachePortfolioTtlMs, current.routeCachePortfolioTtlMs),
+    routeCacheReportsTtlMs: valueOrCurrent(body.routeCacheReportsTtlMs, current.routeCacheReportsTtlMs),
+    routeCacheStaleUsableTtlMs: valueOrCurrent(body.routeCacheStaleUsableTtlMs, current.routeCacheStaleUsableTtlMs),
+  });
+  const largestTtl = Math.max(
+    effective.dashboardPrimaryTtlMs,
+    effective.dashboardEnrichmentTtlMs,
+    effective.dashboardPerformanceTtlMs,
+    effective.portfolioTtlMs,
+    effective.reportsTtlMs,
+  );
+  if (effective.staleUsableTtlMs < largestTtl) {
+    throw routeError(
+      400,
+      "route_cache_stale_window_invalid",
+      "routeCacheStaleUsableTtlMs must be greater than or equal to the largest configured TTL.",
+    );
+  }
+}
+
+function valueOrCurrent<T>(value: T | null | undefined, current: T | null): T | null {
+  return value === undefined ? current : value;
 }
 
 /**
@@ -687,6 +758,36 @@ function buildAppConfigDtoFromRow(
     // ui-enhancement — Tier B account-soft-delete grace period (UI-editable)
     accountHardPurgeDays: row.accountHardPurgeDays,
     effectiveAccountHardPurgeDays: row.accountHardPurgeDays ?? Env.ACCOUNT_HARD_PURGE_DAYS,
+    valuationHealthRelativeBps: row.valuationHealthRelativeBps,
+    effectiveValuationHealthRelativeBps:
+      row.valuationHealthRelativeBps ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.relativeBps,
+    valuationHealthAbsoluteAud: row.valuationHealthAbsoluteAud,
+    effectiveValuationHealthAbsoluteAud:
+      row.valuationHealthAbsoluteAud ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteAud,
+    valuationHealthAbsoluteUsd: row.valuationHealthAbsoluteUsd,
+    effectiveValuationHealthAbsoluteUsd:
+      row.valuationHealthAbsoluteUsd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteUsd,
+    valuationHealthAbsoluteTwd: row.valuationHealthAbsoluteTwd,
+    effectiveValuationHealthAbsoluteTwd:
+      row.valuationHealthAbsoluteTwd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
+    valuationHealthAbsoluteKrw: row.valuationHealthAbsoluteKrw,
+    effectiveValuationHealthAbsoluteKrw:
+      row.valuationHealthAbsoluteKrw ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteKrw,
+    effectiveValuationHealthThresholds: {
+      relativeBps: row.valuationHealthRelativeBps ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.relativeBps,
+      absoluteAud: row.valuationHealthAbsoluteAud ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteAud,
+      absoluteUsd: row.valuationHealthAbsoluteUsd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteUsd,
+      absoluteTwd: row.valuationHealthAbsoluteTwd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
+      absoluteKrw: row.valuationHealthAbsoluteKrw ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteKrw,
+    },
+    routeCachePolicyMode: row.routeCachePolicyMode,
+    effectiveRouteCachePolicy: resolveRouteCachePolicyFromRow(row),
+    routeCacheDashboardPrimaryTtlMs: row.routeCacheDashboardPrimaryTtlMs,
+    routeCacheDashboardEnrichmentTtlMs: row.routeCacheDashboardEnrichmentTtlMs,
+    routeCacheDashboardPerformanceTtlMs: row.routeCacheDashboardPerformanceTtlMs,
+    routeCachePortfolioTtlMs: row.routeCachePortfolioTtlMs,
+    routeCacheReportsTtlMs: row.routeCacheReportsTtlMs,
+    routeCacheStaleUsableTtlMs: row.routeCacheStaleUsableTtlMs,
 
     // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
 
@@ -845,6 +946,10 @@ const marketDataBackfillScopeSchema = z.enum([
   "selected_catalog_rows",
   "all_matching",
 ]);
+const marketDataSnapshotRepairExecuteBodySchema = z.object({
+  tickers: z.array(z.string().trim().min(1).max(40)).min(1).max(20),
+  fromDate: isoDateSchema.optional(),
+});
 const marketDataTargetSchema = z.object({
   ticker: z.string().trim().min(1).max(40),
   marketCode: providerFixerMarketCodeSchema,
@@ -6894,6 +6999,45 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     };
   });
 
+  app.post("/market-data/:marketCode/snapshot-repair/execute", async (req): Promise<AdminMarketDataSnapshotRepairExecuteResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_snapshot_repair_not_supported", "FX snapshot repair is out of scope");
+    if (!app.boss) throw routeError(503, "queue_unavailable", "Job queue is not available");
+
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const body = marketDataSnapshotRepairExecuteBodySchema.parse(req.body ?? {}) satisfies AdminMarketDataSnapshotRepairExecuteRequest;
+    const fromDate = body.fromDate ?? defaultSnapshotRepairScanFromDate();
+    const queued: string[] = [];
+    const rejected: Array<{ ticker: string; reason: string }> = [];
+
+    for (const rawTicker of body.tickers) {
+      const ticker = rawTicker.trim().toUpperCase();
+      const instrument = await app.persistence.getInstrument(ticker, market);
+      if (!instrument) {
+        rejected.push({ ticker, reason: "instrument_not_found" });
+        continue;
+      }
+
+      const payload: SnapshotRepairJobData = {
+        ticker,
+        marketCode: market,
+        fromDate,
+        trigger: "admin_rerun",
+      };
+      const jobId = await app.boss.send(SNAPSHOT_REPAIR_QUEUE, payload, {
+        singletonKey: getSnapshotRepairSingletonKey(payload),
+      });
+      if (jobId === null) {
+        rejected.push({ ticker, reason: "existing_snapshot_repair_job" });
+        continue;
+      }
+      queued.push(ticker);
+    }
+
+    return { marketCode: market, queued, rejected };
+  });
+
   app.post("/market-data/:marketCode/purge/preview", async (req): Promise<AdminMarketDataPurgePreviewResponse> => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
@@ -7318,6 +7462,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
     const current = await app.persistence.getAppConfig();
     assertProviderHealthThresholdOverrides(body, current);
+    assertRouteCachePolicyPatch(body, current);
 
     // KZO-159 (158A): diff each tracked field independently — a PATCH may
     // carry one, the other, both, or neither. `undefined` means "no change",
@@ -7358,6 +7503,15 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       before.metadataEnrichmentMode = current.metadataEnrichmentMode;
       after.metadataEnrichmentMode = body.metadataEnrichmentMode;
       await app.persistence.setMetadataEnrichmentMode(body.metadataEnrichmentMode);
+    }
+
+    if (
+      body.routeCachePolicyMode !== undefined
+      && body.routeCachePolicyMode !== current.routeCachePolicyMode
+    ) {
+      before.routeCachePolicyMode = current.routeCachePolicyMode;
+      after.routeCachePolicyMode = body.routeCachePolicyMode;
+      await app.persistence.setRouteCachePolicyMode(body.routeCachePolicyMode);
     }
 
     // KZO-198 — diff Tier 1/2 plain fields. Only changed fields are added to

@@ -2190,6 +2190,30 @@ describe("report routes", () => {
     });
   });
 
+  it("omits valuation health for empty portfolio and market report scopes", async () => {
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio",
+      headers: { cookie: cookieHeader },
+    });
+    expect(portfolioReport.statusCode).toBe(200);
+    const portfolioBody = portfolioReport.json();
+    expect(portfolioBody.holdings.total).toBe(0);
+    expect(portfolioBody).not.toHaveProperty("valuationHealth");
+    expect(portfolioBody.performance).not.toHaveProperty("valuationHealth");
+
+    const marketReport = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=US",
+      headers: { cookie: cookieHeader },
+    });
+    expect(marketReport.statusCode).toBe(200);
+    const marketBody = marketReport.json();
+    expect(marketBody.detail.total).toBe(0);
+    expect(marketBody).not.toHaveProperty("valuationHealth");
+    expect(marketBody.performance).not.toHaveProperty("valuationHealth");
+  });
+
   it("scopes market reports by holding market instead of account currency", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];

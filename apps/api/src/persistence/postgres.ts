@@ -53,6 +53,7 @@ import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
   AdminUserListResponse,
+  InstrumentOptionDto,
   InstrumentCatalogItemDto,
   InviteListStatus,
   LocaleCode,
@@ -4424,6 +4425,651 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
+  async loadPrimaryReadStore(userId: string): Promise<Store> {
+    await this.ensureDefaultPortfolioData(userId);
+    const [
+      userResult,
+      accountsResult,
+      feeProfilesResult,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
+         FROM users
+         WHERE id = $1`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+                fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+                fp.commission_currency,
+                fp.commission_rounding_mode, fp.tax_rounding_mode,
+                fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+                fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+         FROM fee_profiles fp
+         JOIN accounts a ON a.id = fp.account_id
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL
+         ORDER BY fp.id`,
+        [userId],
+      ),
+    ]);
+
+    const accountIds = accountsResult.rows.map((row) => row.id);
+    const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
+    const [feeProfileTaxRulesResult, bindingsResult, lotsResult] = await Promise.all([
+      feeProfileIds.length
+        ? this.pool.query(
+            `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+             FROM fee_profile_tax_rules
+             WHERE fee_profile_id = ANY($1)
+             ORDER BY fee_profile_id, sort_order, id`,
+            [feeProfileIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT account_id, ticker, fee_profile_id
+             FROM account_fee_profile_overrides
+             WHERE account_id = ANY($1)
+             ORDER BY account_id, ticker`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+             FROM lots
+             WHERE account_id = ANY($1)
+             ORDER BY opened_at, opened_sequence, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+    const requestedInstrumentPairs = new Map<string, { ticker: string; marketCode: string }>();
+    for (const instrument of createDefaultInstruments()) {
+      requestedInstrumentPairs.set(`${instrument.marketCode}:${instrument.ticker}`, {
+        ticker: instrument.ticker,
+        marketCode: instrument.marketCode,
+      });
+    }
+    const accountMarketById = new Map(accountsResult.rows.map((row) => [
+      row.id,
+      marketCodeFor(row.default_currency),
+    ]));
+    for (const row of lotsResult.rows) {
+      const marketCode = accountMarketById.get(row.account_id);
+      if (!marketCode) continue;
+      requestedInstrumentPairs.set(`${marketCode}:${row.ticker}`, {
+        ticker: row.ticker,
+        marketCode,
+      });
+    }
+    const requestedInstruments = [...requestedInstrumentPairs.values()];
+    const symbolsResult = requestedInstruments.length
+      ? await this.pool.query(
+          `WITH requested(market_code, ticker) AS (
+             SELECT *
+             FROM unnest($1::text[], $2::text[])
+           )
+           SELECT i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+           FROM market_data.instruments i
+           JOIN requested r ON r.market_code = i.market_code AND r.ticker = i.ticker
+           ORDER BY i.market_code, i.ticker`,
+          [
+            requestedInstruments.map((instrument) => instrument.marketCode),
+            requestedInstruments.map((instrument) => instrument.ticker),
+          ],
+        )
+      : { rows: [] };
+
+    const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
+    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
+      hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
+    );
+    const instruments = symbolsResult.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .map((row) => ({
+        ticker: row.ticker,
+        name: row.name ?? undefined,
+        instrumentType: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+      }));
+    const user = userResult.rows[0];
+    const store: Store = {
+      userId,
+      settings: {
+        userId,
+        displayName: user.display_name ?? null,
+        locale: user.locale,
+        costBasisMethod: user.cost_basis_method,
+        quotePollIntervalSeconds: user.quote_poll_interval_seconds,
+      },
+      accounts: accountsResult.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
+      })),
+      feeProfileBindings: bindingsResult.rows.map((row) => ({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        feeProfileId: row.fee_profile_id,
+      })),
+      feeProfiles,
+      accounting: {
+        facts: {
+          tradeEvents: [],
+          cashLedgerEntries: [],
+          dividendLedgerEntries: [],
+          dividendDeductionEntries: [],
+          dividendSourceLines: [],
+          corporateActions: [],
+        },
+        projections: {
+          lots: lotsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            openQuantity: row.open_quantity,
+            totalCostAmount: Number(row.total_cost_amount),
+            costCurrency: row.cost_currency,
+            openedAt: normalizeDate(row.opened_at),
+            openedSequence: row.opened_sequence,
+          })),
+          lotAllocations: [],
+          holdings: [],
+          dailyPortfolioSnapshots: [],
+        },
+        policy: buildAccountingPolicy(),
+      },
+      marketData: {
+        dividendEvents: [],
+        instruments,
+      },
+      instruments: instruments.map(instrumentRefToDef),
+      recomputeJobs: [],
+      idempotencyKeys: new Set<string>(),
+    };
+    rebuildHoldingProjection(store);
+    return store;
+  }
+
+  async loadOverviewReadStore(userId: string): Promise<Store> {
+    await this.ensureDefaultPortfolioData(userId);
+    const [
+      userResult,
+      accountsResult,
+      feeProfilesResult,
+      tradeEventsResult,
+      cashLedgerResult,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
+         FROM users
+         WHERE id = $1`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+                fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+                fp.commission_currency,
+                fp.commission_rounding_mode, fp.tax_rounding_mode,
+                fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+                fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+         FROM fee_profiles fp
+         JOIN accounts a ON a.id = fp.account_id
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL
+         ORDER BY fp.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.ticker,
+                trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
+                trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
+                trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
+                trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source,
+                trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+                snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
+                snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
+                snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
+                snapshot.stock_sell_tax_rate_bps, snapshot.stock_day_trade_tax_rate_bps,
+                snapshot.etf_sell_tax_rate_bps, snapshot.bond_etf_sell_tax_rate_bps,
+                snapshot.commission_charge_mode
+         FROM trade_events AS trade_event
+         JOIN trade_fee_policy_snapshots AS snapshot
+           ON snapshot.id = trade_event.fee_policy_snapshot_id
+         WHERE trade_event.user_id = $1
+           AND trade_event.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+         ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
+                related_trade_event_id, related_dividend_ledger_entry_id, source,
+                source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+                fx_rate_to_usd, fx_transfer_id::text AS fx_transfer_id
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+         ORDER BY entry_date, booked_at, id`,
+        [userId],
+      ),
+    ]);
+
+    const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
+    const feePolicySnapshotIds = tradeEventsResult.rows.map((row) => String(row.fee_policy_snapshot_id));
+    const accountIds = accountsResult.rows.map((row) => row.id);
+    const [
+      feeProfileTaxRulesResult,
+      snapshotTaxComponentsResult,
+      bindingsResult,
+      lotsResult,
+      lotAllocationsResult,
+      actionsResult,
+      dividendLedgerEntriesResult,
+    ] = await Promise.all([
+      feeProfileIds.length
+        ? this.pool.query(
+            `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+             FROM fee_profile_tax_rules
+             WHERE fee_profile_id = ANY($1)
+             ORDER BY fee_profile_id, sort_order, id`,
+            [feeProfileIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      feePolicySnapshotIds.length
+        ? this.pool.query(
+            `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+             FROM trade_fee_policy_snapshot_tax_components
+             WHERE snapshot_id = ANY($1)
+             ORDER BY snapshot_id, sort_order, id`,
+            [feePolicySnapshotIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT account_id, ticker, fee_profile_id
+             FROM account_fee_profile_overrides
+             WHERE account_id = ANY($1)
+             ORDER BY account_id, ticker`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+             FROM lots
+             WHERE account_id = ANY($1)
+             ORDER BY opened_at, opened_sequence, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
+                    lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+             FROM lot_allocations
+             WHERE user_id = $1
+               AND account_id = ANY($2)
+             ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+            [userId, accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, ticker, action_type, numerator, denominator, action_date
+             FROM corporate_actions
+             WHERE account_id = ANY($1)
+             ORDER BY action_date, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, dividend_event_id, eligible_quantity,
+                    expected_cash_amount, expected_stock_quantity,
+                    received_stock_quantity,
+                    posting_status, reconciliation_status, version,
+                    source_composition_status, reconciliation_note, booked_at,
+                    reversal_of_dividend_ledger_entry_id, superseded_at
+             FROM dividend_ledger_entries
+             WHERE account_id = ANY($1)
+             ORDER BY booked_at, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
+    const dividendEventIds = [...new Set(dividendLedgerEntriesResult.rows.map((row) => row.dividend_event_id))];
+    const accountMarketById = new Map(accountsResult.rows.map((row) => [
+      row.id,
+      marketCodeFor(row.default_currency),
+    ]));
+    const relevantTickers = new Set<string>();
+    for (const row of lotsResult.rows) relevantTickers.add(row.ticker);
+    for (const row of tradeEventsResult.rows) relevantTickers.add(row.ticker);
+    const requestedInstrumentPairs = new Map<string, { ticker: string; marketCode: string }>();
+    for (const instrument of createDefaultInstruments()) {
+      requestedInstrumentPairs.set(`${instrument.marketCode}:${instrument.ticker}`, {
+        ticker: instrument.ticker,
+        marketCode: instrument.marketCode,
+      });
+    }
+    for (const row of lotsResult.rows) {
+      const marketCode = accountMarketById.get(row.account_id);
+      if (!marketCode) continue;
+      requestedInstrumentPairs.set(`${marketCode}:${row.ticker}`, { ticker: row.ticker, marketCode });
+    }
+    for (const row of tradeEventsResult.rows) {
+      requestedInstrumentPairs.set(`${row.market_code}:${row.ticker}`, {
+        ticker: row.ticker,
+        marketCode: row.market_code,
+      });
+    }
+    const requestedInstruments = [...requestedInstrumentPairs.values()];
+    const [dividendDeductionsResult, dividendEventsResult, symbolsResult] = await Promise.all([
+      dividendLedgerEntryIds.length
+        ? this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [dividendLedgerEntryIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      relevantTickers.size || dividendEventIds.length
+        ? this.pool.query(
+            `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+                    cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+                    source, source_reference, ingested_at AS created_at,
+                    fiscal_year_period, announcement_date, total_distribution_shares
+             FROM market_data.dividend_events
+             WHERE ticker = ANY($1)
+                OR id = ANY($2)
+             ORDER BY ex_dividend_date, id`,
+            [[...relevantTickers], dividendEventIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      requestedInstruments.length
+        ? this.pool.query(
+            `WITH requested(market_code, ticker) AS (
+               SELECT *
+               FROM unnest($1::text[], $2::text[])
+             )
+             SELECT i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+             FROM market_data.instruments i
+             JOIN requested r ON r.market_code = i.market_code AND r.ticker = i.ticker
+             ORDER BY i.market_code, i.ticker`,
+            [
+              requestedInstruments.map((instrument) => instrument.marketCode),
+              requestedInstruments.map((instrument) => instrument.ticker),
+            ],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
+    const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
+    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
+      hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
+    );
+    const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      tradeEventId: row.trade_event_id,
+      ticker: row.ticker,
+      lotId: row.lot_id,
+      lotOpenedAt: normalizeDate(row.lot_opened_at),
+      lotOpenedSequence: row.lot_opened_sequence,
+      allocatedQuantity: row.allocated_quantity,
+      allocatedCostAmount: Number(row.allocated_cost_amount),
+      costCurrency: row.cost_currency,
+      createdAt: normalizeDateTime(row.created_at),
+    }));
+    const tradeEvents: Transaction[] = tradeEventsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      instrumentType: row.instrument_type,
+      type: row.trade_type,
+      quantity: row.quantity,
+      unitPrice: Number(row.unit_price),
+      priceCurrency: row.price_currency,
+      tradeDate: normalizeDate(row.trade_date),
+      tradeTimestamp: normalizeDateTime(row.trade_timestamp),
+      bookingSequence: row.booking_sequence,
+      commissionAmount: row.commission_amount,
+      taxAmount: row.tax_amount,
+      isDayTrade: row.is_day_trade,
+      feeSnapshot: hydrateTradeFeeSnapshot(
+        row,
+        snapshotTaxComponentsBySnapshotId.get(String(row.fee_policy_snapshot_id)) ?? [],
+      ),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+      realizedPnlCurrency: row.price_currency,
+      reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+    }));
+    const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      entryDate: normalizeDate(row.entry_date),
+      entryType: row.entry_type,
+      amount: Number(row.amount),
+      currency: row.currency,
+      relatedTradeEventId: row.related_trade_event_id ?? undefined,
+      relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
+    }));
+    const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(row.ex_dividend_date),
+      paymentDate: normalizeDate(row.payment_date),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
+    }));
+    const dividendDeductionEntries: DividendDeductionEntry[] = dividendDeductionsResult.rows.map((row) => ({
+      id: row.id,
+      dividendLedgerEntryId: row.dividend_ledger_entry_id,
+      deductionType: row.deduction_type,
+      amount: Number(row.amount),
+      currencyCode: row.currency_code,
+      withheldAtSource: row.withheld_at_source,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+    const receivedCashAmountByDividendLedgerId = new Map<string, number>();
+    for (const entry of cashLedgerEntries) {
+      if (entry.entryType !== "DIVIDEND_RECEIPT" || !entry.relatedDividendLedgerEntryId) continue;
+      receivedCashAmountByDividendLedgerId.set(
+        entry.relatedDividendLedgerEntryId,
+        (receivedCashAmountByDividendLedgerId.get(entry.relatedDividendLedgerEntryId) ?? 0) + entry.amount,
+      );
+    }
+    const dividendLedgerEntries: DividendLedgerEntry[] = dividendLedgerEntriesResult.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      dividendEventId: row.dividend_event_id,
+      eligibleQuantity: Number(row.eligible_quantity),
+      expectedCashAmount: Number(row.expected_cash_amount),
+      expectedStockQuantity: Number(row.expected_stock_quantity),
+      receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
+      receivedStockQuantity: Number(row.received_stock_quantity),
+      postingStatus: row.posting_status,
+      reconciliationStatus: row.reconciliation_status,
+      version: Number(row.version ?? 1),
+      sourceCompositionStatus: row.source_composition_status ?? "unknown_pending_disclosure",
+      reconciliationNote: row.reconciliation_note ?? undefined,
+      reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
+      supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+    const instruments = symbolsResult.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .map((row) => ({
+        ticker: row.ticker,
+        name: row.name ?? undefined,
+        instrumentType: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+      }));
+
+    const user = userResult.rows[0];
+    const store: Store = {
+      userId,
+      settings: {
+        userId,
+        displayName: user.display_name ?? null,
+        locale: user.locale,
+        costBasisMethod: user.cost_basis_method,
+        quotePollIntervalSeconds: user.quote_poll_interval_seconds,
+      },
+      accounts: accountsResult.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
+      })),
+      feeProfileBindings: bindingsResult.rows.map((row) => ({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        feeProfileId: row.fee_profile_id,
+      })),
+      feeProfiles,
+      accounting: {
+        facts: {
+          tradeEvents,
+          cashLedgerEntries,
+          dividendLedgerEntries,
+          dividendDeductionEntries,
+          dividendSourceLines: [],
+          corporateActions: actionsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            actionType: row.action_type,
+            numerator: row.numerator,
+            denominator: row.denominator,
+            actionDate: normalizeDate(row.action_date),
+          })),
+        },
+        projections: {
+          lots: lotsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            ticker: row.ticker,
+            openQuantity: row.open_quantity,
+            totalCostAmount: Number(row.total_cost_amount),
+            costCurrency: row.cost_currency,
+            openedAt: normalizeDate(row.opened_at),
+            openedSequence: row.opened_sequence,
+          })),
+          lotAllocations,
+          holdings: [],
+          dailyPortfolioSnapshots: [],
+        },
+        policy: buildAccountingPolicy(),
+      },
+      marketData: {
+        dividendEvents,
+        instruments,
+      },
+      instruments: instruments.map(instrumentRefToDef),
+      recomputeJobs: [],
+      idempotencyKeys: new Set<string>(),
+    };
+    syncTradeEventRealizedPnl(store.accounting);
+    rebuildHoldingProjection(store);
+    return store;
+  }
+
+  async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query<{
+      ticker: string;
+      name: string | null;
+      instrument_type: InstrumentType | null;
+      market_code: string;
+      is_provisional: boolean;
+      last_synced_at: string | null;
+    }>(
+      `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
+       FROM market_data.instruments
+       ORDER BY market_code, ticker`,
+    );
+    const instruments = result.rows
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .map((row): InstrumentDef => ({
+        ticker: row.ticker,
+        type: row.instrument_type,
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+        typeRaw: null,
+        industryCategoryRaw: null,
+        finmindDate: null,
+      }));
+    return upsertInstrumentDefinitions(instruments, createDefaultInstruments())
+      .map((instrument): InstrumentOptionDto | null => {
+        if (instrument.type === null) return null;
+        return {
+          ticker: instrument.ticker,
+          instrumentType: instrument.type,
+          marketCode: instrument.marketCode,
+          isProvisional: instrument.isProvisional === true,
+        };
+      })
+      .filter((instrument): instrument is InstrumentOptionDto => instrument !== null);
+  }
+
   async loadStore(userId: string): Promise<Store> {
     await this.ensureDefaultPortfolioData(userId);
     // Batch 1: all queries with no inter-query dependencies
@@ -5285,6 +5931,35 @@ export class PostgresPersistence implements Persistence {
     return result;
   }
 
+  async getLatestBarDatesForReconciliation(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (pairs.length === 0) return result;
+    for (const pair of pairs) {
+      result.set(`${pair.ticker}:${pair.marketCode}`, null);
+    }
+    const tickers = pairs.map((pair) => pair.ticker);
+    const markets = pairs.map((pair) => pair.marketCode);
+    const rows = await this.pool.query<{ ticker: string; market_code: string; latest_bar_date: string | null }>(
+      `SELECT input.ticker, input.market_code, latest.bar_date::text AS latest_bar_date
+         FROM unnest($1::text[], $2::text[]) AS input(ticker, market_code)
+         LEFT JOIN LATERAL (
+           SELECT b.bar_date
+             FROM market_data.daily_bars b
+            WHERE b.ticker = input.ticker
+              AND b.market_code = input.market_code
+            ORDER BY b.bar_date DESC
+            LIMIT 1
+         ) latest ON true`,
+      [tickers, markets],
+    );
+    for (const row of rows.rows) {
+      result.set(`${row.ticker}:${row.market_code}`, row.latest_bar_date);
+    }
+    return result;
+  }
+
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
     const result = await this.pool.query<{ bar_date: string }>(
       `SELECT DISTINCT bar_date::text AS bar_date
@@ -5444,18 +6119,24 @@ export class PostgresPersistence implements Persistence {
       ticker: string;
       market_code: MarketCode;
     }>(
-      `SELECT DISTINCT te.user_id, te.account_id, te.ticker, te.market_code
-         FROM trade_events te
-         JOIN accounts a
-           ON a.id = te.account_id
-          AND a.user_id = te.user_id
-          AND a.deleted_at IS NULL
-         JOIN users u
-           ON u.id = te.user_id
-        WHERE te.ticker = $1
-          AND te.market_code = $2
-          AND u.is_demo = FALSE
-        ORDER BY te.user_id, te.account_id, te.ticker, te.market_code`,
+       `SELECT DISTINCT
+          te.user_id,
+          te.account_id,
+          te.ticker,
+          te.market_code
+       FROM trade_events te
+       JOIN accounts a
+         ON a.id = te.account_id
+        AND a.user_id = te.user_id
+        AND a.deleted_at IS NULL
+       JOIN users u
+         ON u.id = te.user_id
+       WHERE te.ticker = $1
+         AND te.market_code = $2
+         AND u.is_demo = FALSE
+         AND u.deactivated_at IS NULL
+         AND u.deleted_at IS NULL
+       ORDER BY te.user_id, te.account_id, te.ticker, te.market_code`,
       [ticker, marketCode],
     );
     return result.rows.map((row) => ({
@@ -5837,16 +6518,31 @@ export class PostgresPersistence implements Persistence {
     const tradesResult = await this.pool.query<{
       id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
-      booking_sequence: number | null; commission_amount: string; tax_amount: string;
+      trade_timestamp: string | null; booking_sequence: number | null;
+      commission_amount: string; tax_amount: string;
       price_currency: string; market_code: string;
     }>(
       `SELECT id, account_id, ticker, trade_type, quantity, unit_price, trade_date::text,
-              booking_sequence, commission_amount, tax_amount, price_currency, market_code
+              trade_timestamp::text, booking_sequence, commission_amount, tax_amount,
+              price_currency, market_code
        FROM trade_events
        WHERE ${tradeFilter}
-       ORDER BY trade_date ASC, booking_sequence ASC, id ASC`,
+       ORDER BY trade_date ASC, booking_sequence ASC, trade_timestamp ASC, id ASC`,
       tradeParams,
     );
+    const tradeIds = tradesResult.rows.map((row) => row.id);
+    const lotAllocationsResult = tradeIds.length
+      ? await this.pool.query<{
+          trade_event_id: string; allocated_cost_amount: string; cost_currency: string; lot_opened_at: string;
+        }>(
+          `SELECT trade_event_id, allocated_cost_amount::text, cost_currency, lot_opened_at::text
+           FROM lot_allocations
+           WHERE user_id = $1
+             AND trade_event_id = ANY($2)
+           ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+          [userId, tradeIds],
+        )
+      : { rows: [] };
 
     // Dividends: join ledger entries to events so we can scope by ticker.
     // - tenant scoping via accounts.user_id (dividend_ledger_entries has no user_id column)
@@ -5861,12 +6557,13 @@ export class PostgresPersistence implements Persistence {
       : "account.user_id = $1 AND account.deleted_at IS NULL";
     const divParams = scope ? [userId, scope.accountId, scope.ticker, scope.marketCode ?? null] : [userId];
     const divResult = await this.pool.query<{
-      account_id: string; ticker: string; market_code: MarketCode; payment_date: string; amount: string;
+      account_id: string; ticker: string; market_code: MarketCode; payment_date: string; amount: string; currency: string;
     }>(
        `SELECT dle.account_id,
                de.ticker,
                de.market_code,
-               de.payment_date::text,
+               COALESCE(de.payment_date, dle.booked_at::date)::text AS payment_date,
+               de.cash_dividend_currency AS currency,
                COALESCE(receipts.received_cash_amount, 0)::text AS amount
        FROM dividend_ledger_entries dle
        JOIN accounts AS account ON account.id = dle.account_id
@@ -5882,8 +6579,13 @@ export class PostgresPersistence implements Persistence {
          AND dle.posting_status = 'posted'
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
          AND dle.superseded_at IS NULL
-         AND de.payment_date IS NOT NULL
-       ORDER BY de.payment_date ASC`,
+         AND COALESCE(de.payment_date, dle.booked_at::date) IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
+       ORDER BY payment_date ASC`,
       divParams,
     );
 
@@ -5896,6 +6598,7 @@ export class PostgresPersistence implements Persistence {
         quantity: Number(row.quantity),
         unitPrice: Number(row.unit_price),
         tradeDate: row.trade_date,
+        tradeTimestamp: row.trade_timestamp ? normalizeDateTime(row.trade_timestamp) : undefined,
         bookingSequence: row.booking_sequence ?? undefined,
         commissionAmount: Number(row.commission_amount),
         taxAmount: Number(row.tax_amount),
@@ -5910,6 +6613,13 @@ export class PostgresPersistence implements Persistence {
         marketCode: r.market_code,
         paymentDate: r.payment_date,
         amount: Number(r.amount),
+        currency: r.currency,
+      })),
+      lotAllocations: lotAllocationsResult.rows.map((row) => ({
+        tradeEventId: row.trade_event_id,
+        allocatedCostAmount: Number(row.allocated_cost_amount),
+        costCurrency: row.cost_currency,
+        lotOpenedAt: normalizeDate(row.lot_opened_at),
       })),
     };
   }
@@ -6533,6 +7243,55 @@ export class PostgresPersistence implements Persistence {
         }>)
         : [],
     };
+  }
+
+  async getLatestHoldingSnapshotDatesByScope(
+    userId: string,
+    pairs: readonly import("./types.js").HoldingSnapshotLatestDateScopePair[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (pairs.length === 0) return result;
+    for (const pair of pairs) {
+      result.set(`${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`, null);
+    }
+    const rows = await this.pool.query<{
+      account_id: string;
+      ticker: string;
+      market_code: MarketCode;
+      latest_snapshot_date: string | null;
+    }>(
+      `SELECT input.account_id, input.ticker, input.market_code, MAX(s.snapshot_date)::text AS latest_snapshot_date
+         FROM jsonb_to_recordset($2::jsonb) AS input(account_id text, ticker text, market_code text)
+         LEFT JOIN daily_holding_snapshots s
+           ON s.user_id = $1
+          AND s.account_id = input.account_id
+          AND s.ticker = input.ticker
+          AND s.market_code = input.market_code
+          AND s.is_provisional = FALSE
+          AND s.close_price IS NOT NULL
+          AND s.quantity IS NOT NULL
+          AND (
+            s.quantity <= 0
+            OR (
+              s.market_value IS NOT NULL
+              AND s.value_native IS NOT NULL
+            )
+          )
+          AND s.provider_source IS NOT NULL
+         GROUP BY input.account_id, input.ticker, input.market_code`,
+      [
+        userId,
+        JSON.stringify(pairs.map((pair) => ({
+          account_id: pair.accountId,
+          ticker: pair.ticker,
+          market_code: pair.marketCode,
+        }))),
+      ],
+    );
+    for (const row of rows.rows) {
+      result.set(`${row.account_id}\0${row.ticker}\0${row.market_code}`, row.latest_snapshot_date);
+    }
+    return result;
   }
 
   async getHoldingSnapshotsForTicker(
@@ -10693,6 +11452,18 @@ export class PostgresPersistence implements Persistence {
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
     accountHardPurgeDays: number | null;
+    valuationHealthRelativeBps: number | null;
+    valuationHealthAbsoluteAud: number | null;
+    valuationHealthAbsoluteUsd: number | null;
+    valuationHealthAbsoluteTwd: number | null;
+    valuationHealthAbsoluteKrw: number | null;
+    routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
+    routeCacheDashboardPrimaryTtlMs: number | null;
+    routeCacheDashboardEnrichmentTtlMs: number | null;
+    routeCacheDashboardPerformanceTtlMs: number | null;
+    routeCachePortfolioTtlMs: number | null;
+    routeCacheReportsTtlMs: number | null;
+    routeCacheStaleUsableTtlMs: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -10750,6 +11521,18 @@ export class PostgresPersistence implements Persistence {
       anonymous_share_token_retention_ms: number | string | null;
       user_preferences_max_bytes: number | null;
       account_hard_purge_days: number | null;
+      valuation_health_relative_bps: number | null;
+      valuation_health_absolute_aud: number | string | null;
+      valuation_health_absolute_usd: number | string | null;
+      valuation_health_absolute_twd: number | string | null;
+      valuation_health_absolute_krw: number | string | null;
+      route_cache_policy_mode: import("./types.js").RouteCachePolicyMode | null;
+      route_cache_dashboard_primary_ttl_ms: number | string | null;
+      route_cache_dashboard_enrichment_ttl_ms: number | string | null;
+      route_cache_dashboard_performance_ttl_ms: number | string | null;
+      route_cache_portfolio_ttl_ms: number | string | null;
+      route_cache_reports_ttl_ms: number | string | null;
+      route_cache_stale_usable_ttl_ms: number | string | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -10779,6 +11562,12 @@ export class PostgresPersistence implements Persistence {
          anonymous_share_token_cap, anonymous_share_rate_limit_max, anonymous_share_rate_limit_window_ms,
          anonymous_share_token_retention_ms, user_preferences_max_bytes,
          account_hard_purge_days,
+         valuation_health_relative_bps, valuation_health_absolute_aud, valuation_health_absolute_usd,
+         valuation_health_absolute_twd, valuation_health_absolute_krw,
+         route_cache_policy_mode,
+         route_cache_dashboard_primary_ttl_ms, route_cache_dashboard_enrichment_ttl_ms,
+         route_cache_dashboard_performance_ttl_ms, route_cache_portfolio_ttl_ms,
+         route_cache_reports_ttl_ms, route_cache_stale_usable_ttl_ms,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -10839,6 +11628,18 @@ export class PostgresPersistence implements Persistence {
         anonymousShareTokenRetentionMs: null,
         userPreferencesMaxBytes: null,
         accountHardPurgeDays: null,
+        valuationHealthRelativeBps: null,
+        valuationHealthAbsoluteAud: null,
+        valuationHealthAbsoluteUsd: null,
+        valuationHealthAbsoluteTwd: null,
+        valuationHealthAbsoluteKrw: null,
+        routeCachePolicyMode: null,
+        routeCacheDashboardPrimaryTtlMs: null,
+        routeCacheDashboardEnrichmentTtlMs: null,
+        routeCacheDashboardPerformanceTtlMs: null,
+        routeCachePortfolioTtlMs: null,
+        routeCacheReportsTtlMs: null,
+        routeCacheStaleUsableTtlMs: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -10904,6 +11705,18 @@ export class PostgresPersistence implements Persistence {
       anonymousShareTokenRetentionMs: num(row.anonymous_share_token_retention_ms),
       userPreferencesMaxBytes: row.user_preferences_max_bytes,
       accountHardPurgeDays: row.account_hard_purge_days,
+      valuationHealthRelativeBps: row.valuation_health_relative_bps,
+      valuationHealthAbsoluteAud: num(row.valuation_health_absolute_aud),
+      valuationHealthAbsoluteUsd: num(row.valuation_health_absolute_usd),
+      valuationHealthAbsoluteTwd: num(row.valuation_health_absolute_twd),
+      valuationHealthAbsoluteKrw: num(row.valuation_health_absolute_krw),
+      routeCachePolicyMode: row.route_cache_policy_mode,
+      routeCacheDashboardPrimaryTtlMs: num(row.route_cache_dashboard_primary_ttl_ms),
+      routeCacheDashboardEnrichmentTtlMs: num(row.route_cache_dashboard_enrichment_ttl_ms),
+      routeCacheDashboardPerformanceTtlMs: num(row.route_cache_dashboard_performance_ttl_ms),
+      routeCachePortfolioTtlMs: num(row.route_cache_portfolio_ttl_ms),
+      routeCacheReportsTtlMs: num(row.route_cache_reports_ttl_ms),
+      routeCacheStaleUsableTtlMs: num(row.route_cache_stale_usable_ttl_ms),
       updatedAt,
     };
   }
@@ -11032,6 +11845,15 @@ export class PostgresPersistence implements Persistence {
       `INSERT INTO public.app_config (id, metadata_enrichment_mode, updated_at)
        VALUES (1, $1, NOW())
        ON CONFLICT (id) DO UPDATE SET metadata_enrichment_mode = $1, updated_at = NOW()`,
+      [value],
+    );
+  }
+
+  async setRouteCachePolicyMode(value: import("./types.js").RouteCachePolicyMode | null): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, route_cache_policy_mode, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET route_cache_policy_mode = $1, updated_at = NOW()`,
       [value],
     );
   }

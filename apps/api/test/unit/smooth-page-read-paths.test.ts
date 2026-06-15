@@ -83,6 +83,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_primary_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.headers["server-timing"]).toContain("list_primary_holdings;dur=");
     expect(response.headers["server-timing"]).toContain("map_instruments;dur=");
     expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
@@ -202,6 +204,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/portfolio/enrichment" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_overview_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.headers["server-timing"]).toContain("translate_holding_groups;dur=");
     expect(response.headers["server-timing"]).toContain("load_fx_rates;dur=");
     const body = response.json();
@@ -238,6 +242,39 @@ describe("smooth page read paths", () => {
     ]);
   });
 
+  it("serves portfolio instrument options without hydrating the full store route path", async () => {
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "BHP",
+      name: "BHP Group",
+      instrumentType: "STOCK",
+      marketCode: "AU",
+      barsBackfillStatus: "ready",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/instrument-index" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("list_transaction_instruments;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
+    expect(response.json().instruments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+      }),
+      expect.objectContaining({
+        ticker: "0050",
+        marketCode: "TW",
+        instrumentType: "ETF",
+      }),
+      expect.objectContaining({
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+      }),
+    ]));
+  });
+
   it("serves dashboard primary data from an explicit primary route without quote or FX enrichment", async () => {
     const store = await app.persistence.loadStore("user-1");
     store.accounting.projections.holdings.push({
@@ -251,6 +288,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/dashboard/primary" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_primary_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
     expect(response.headers["server-timing"]).toContain("build_primary_overview;dur=");
     expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
     expect(response.headers["server-timing"]).not.toContain("translate_summary;dur=");
@@ -288,6 +327,48 @@ describe("smooth page read paths", () => {
       fxStatus: "missing",
       totalCostAmount: 0,
       marketValueAmount: null,
+    }));
+  });
+
+  it("serves dashboard enrichment through the overview read-store contract", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/enrichment" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("load_overview_read_store;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_store;dur=");
+    expect(response.headers["server-timing"]).toContain("build_overview;dur=");
+    expect(response.headers["server-timing"]).toContain("valuation_health;dur=");
+    expect(response.json()).toEqual(expect.objectContaining({
+      summary: expect.objectContaining({
+        reportingCurrency: "TWD",
+        holdingCount: 1,
+      }),
+      valuationHealth: expect.any(Object),
+    }));
+  });
+
+  it("serves report data through the overview read-store contract", async () => {
+    const overviewStore = vi.spyOn(app.persistence, "loadOverviewReadStore");
+
+    const response = await app.inject({ method: "GET", url: "/reports/daily-review" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("build_daily_review_report;dur=");
+    expect(overviewStore).toHaveBeenCalledWith("user-1");
+    expect(response.json()).toEqual(expect.objectContaining({
+      summary: expect.any(Object),
+      holdings: expect.objectContaining({
+        rows: expect.any(Array),
+      }),
     }));
   });
 

@@ -46,6 +46,7 @@ export default async function DashboardPage() {
         isDemo={session.isDemo}
         localeOverride={settings?.locale ?? "en"}
         initialProfile={profile}
+        initialSettings={settings}
         initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >

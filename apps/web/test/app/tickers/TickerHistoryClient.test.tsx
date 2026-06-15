@@ -78,21 +78,21 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-function installLocalStorageMock() {
+function installStorageMocks() {
   const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-      key: (index: number) => Array.from(store.keys())[index] ?? null,
-      get length() {
-        return store.size;
-      },
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
     },
-  });
+  };
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(window, key, { configurable: true, value: storage });
+  }
 }
 
 function mount(element: React.ReactElement) {
@@ -106,7 +106,7 @@ function mount(element: React.ReactElement) {
 }
 
 beforeEach(() => {
-  installLocalStorageMock();
+  installStorageMocks();
   vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(details);
 });
 
@@ -118,6 +118,7 @@ afterEach(() => {
   container?.remove();
   container = null;
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.clearAllMocks();
   appShellDataMocks.openQuickActions.mockReset();
 });

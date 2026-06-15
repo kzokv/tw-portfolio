@@ -108,4 +108,18 @@ export interface TPatchAdminSettingsBody {
   anonymousShareTokenCap?: number | null;
   anonymousShareRateLimitMax?: number | null;
   anonymousShareRateLimitWindowMs?: number | null;
+
+  // KZO-216 — valuation health + route DTO cache policy
+  valuationHealthRelativeBps?: number | null;
+  valuationHealthAbsoluteAud?: number | null;
+  valuationHealthAbsoluteUsd?: number | null;
+  valuationHealthAbsoluteTwd?: number | null;
+  valuationHealthAbsoluteKrw?: number | null;
+  routeCachePolicyMode?: "fresh" | "balanced" | "low_load" | "custom" | null;
+  routeCacheDashboardPrimaryTtlMs?: number | null;
+  routeCacheDashboardEnrichmentTtlMs?: number | null;
+  routeCacheDashboardPerformanceTtlMs?: number | null;
+  routeCachePortfolioTtlMs?: number | null;
+  routeCacheReportsTtlMs?: number | null;
+  routeCacheStaleUsableTtlMs?: number | null;
 }

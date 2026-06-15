@@ -5,11 +5,12 @@ import type {
   AiConnectorProvider,
   DividendLedgerAggregates,
   DividendSourceLine,
+  InstrumentOptionDto,
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
-import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
 import type {
   AccountingStore,
@@ -527,6 +528,8 @@ export class MemoryPersistence implements Persistence {
   /** App config: AU metadata enrichment mode override (KZO-189).
    *  null = unset, callers fall back to Env.METADATA_ENRICHMENT_MODE. */
   private _metadataEnrichmentMode: "unconditional" | "conditional" | null = null;
+  /** App config: route DTO cache policy preset override. */
+  private _routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null = null;
   /** KZO-198: Tier 0 encrypted secrets — stored as `nonce_b64:ct+tag_b64`.
    *  null = unset, callers (resolvers) fall back to env. */
   private _finmindApiTokenEncrypted: string | null = null;
@@ -1952,6 +1955,40 @@ export class MemoryPersistence implements Persistence {
     return store;
   }
 
+  async loadPrimaryReadStore(userId: string): Promise<Store> {
+    return this.loadStore(userId);
+  }
+
+  async loadOverviewReadStore(userId: string): Promise<Store> {
+    return this.loadStore(userId);
+  }
+
+  async listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]> {
+    const instruments = [...this._catalogForUser(userId).values()]
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .map((row): Store["instruments"][number] => ({
+        ticker: row.ticker,
+        type: row.instrumentType as InstrumentType | null,
+        marketCode: row.marketCode as MarketCode,
+        isProvisional: false,
+        lastSyncedAt: null,
+        typeRaw: row.typeRaw ?? null,
+        industryCategoryRaw: row.industryCategoryRaw ?? null,
+        finmindDate: null,
+      }));
+    return upsertInstrumentDefinitions(instruments, createDefaultInstruments())
+      .map((instrument): InstrumentOptionDto | null => {
+        if (instrument.type === null) return null;
+        return {
+          ticker: instrument.ticker,
+          instrumentType: instrument.type,
+          marketCode: instrument.marketCode,
+          isProvisional: instrument.isProvisional === true,
+        };
+      })
+      .filter((instrument): instrument is InstrumentOptionDto => instrument !== null);
+  }
+
   async getUserSettings(userId: string) {
     const store = await this.loadStore(userId);
     return store.settings;
@@ -2942,12 +2979,18 @@ export class MemoryPersistence implements Persistence {
     for (const bar of this.dailyBars) {
       const key = `${bar.ticker}:${bar.marketCode}`;
       if (!result.has(key)) continue;
-      const current = result.get(key);
+      const current = result.get(key) ?? null;
       if (!current || bar.barDate > current) {
         result.set(key, bar.barDate);
       }
     }
     return result;
+  }
+
+  async getLatestBarDatesForReconciliation(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    return this.getLatestBarDatesByTickerMarket(pairs);
   }
 
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
@@ -3206,7 +3249,7 @@ export class MemoryPersistence implements Persistence {
   ): Promise<import("./types.js").SnapshotGenerationInputs> {
     const store = await this.loadStore(userId);
 
-    // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → id.
+    // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → timestamp → id.
     const trades = store.accounting.facts.tradeEvents
       .filter(t => (
         !scope
@@ -3220,6 +3263,7 @@ export class MemoryPersistence implements Persistence {
       .sort((a, b) =>
         a.tradeDate.localeCompare(b.tradeDate)
         || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0)
+        || (a.tradeTimestamp ?? "").localeCompare(b.tradeTimestamp ?? "")
         || a.id.localeCompare(b.id),
       )
       .map(t => ({
@@ -3230,9 +3274,12 @@ export class MemoryPersistence implements Persistence {
         quantity: t.quantity,
         unitPrice: t.unitPrice,
         tradeDate: t.tradeDate,
+        tradeTimestamp: t.tradeTimestamp,
         bookingSequence: t.bookingSequence,
         commissionAmount: t.commissionAmount,
         taxAmount: t.taxAmount,
+        realizedPnlAmount: t.realizedPnlAmount ?? null,
+        realizedPnlCurrency: t.realizedPnlCurrency ?? null,
         // KZO-165: project the trade's native currency. BookedTradeEvent always
         // carries a non-null priceCurrency (DB CHECK + TS required field).
         priceCurrency: t.priceCurrency,
@@ -3242,13 +3289,25 @@ export class MemoryPersistence implements Persistence {
         marketCode: t.marketCode,
       }));
 
-    // Dividends — filter posted, non-reversed, non-superseded; join with events for paymentDate+ticker.
+    // Dividends — filter posted, active, non-superseded entries; join with events for paymentDate+ticker.
     const eventById = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
-    const postedDividends = store.accounting.facts.dividendLedgerEntries
-      .filter(e => e.postingStatus === "posted" && !e.reversalOfDividendLedgerEntryId && !e.supersededAt)
+    const dividendLedgerEntries = store.accounting.facts.dividendLedgerEntries;
+    const reversedDividendLedgerIds = new Set(
+      dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const postedDividends = dividendLedgerEntries
+      .filter(e =>
+        e.postingStatus === "posted"
+        && !e.reversalOfDividendLedgerEntryId
+        && !e.supersededAt
+        && !reversedDividendLedgerIds.has(e.id))
       .map(entry => {
         const event = eventById.get(entry.dividendEventId);
-        if (!event?.paymentDate) return null;
+        if (!event) return null;
+        const paymentDate = event.paymentDate ?? entry.bookedAt?.slice(0, 10);
+        if (!paymentDate) return null;
         const eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
         if (
           scope
@@ -3262,14 +3321,25 @@ export class MemoryPersistence implements Persistence {
           accountId: entry.accountId,
           ticker: event.ticker,
           marketCode: eventMarketCode,
-          paymentDate: event.paymentDate,
+          paymentDate,
           amount: entry.receivedCashAmount,
+          currency: event.cashDividendCurrency,
         };
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)
       .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
 
-    return { trades, postedDividends };
+    const tradeIds = new Set(trades.map((trade) => trade.id));
+    const lotAllocations = store.accounting.projections.lotAllocations
+      .filter((allocation) => tradeIds.has(allocation.tradeEventId))
+      .map((allocation) => ({
+        tradeEventId: allocation.tradeEventId,
+        allocatedCostAmount: allocation.allocatedCostAmount,
+        costCurrency: allocation.costCurrency,
+        lotOpenedAt: allocation.lotOpenedAt,
+      }));
+
+    return { trades, postedDividends, lotAllocations };
   }
 
   async listHoldingSnapshotRepairScopesForTickerMarket(
@@ -3278,10 +3348,12 @@ export class MemoryPersistence implements Persistence {
   ): Promise<import("./types.js").HoldingSnapshotRepairScope[]> {
     const scopes = new Map<string, import("./types.js").HoldingSnapshotRepairScope>();
     for (const [userId, store] of this.stores) {
+      const user = this.getUserById(userId);
+      if (user && (user.isDemo === true || user.deactivatedAt || user.deletedAt)) continue;
       const activeAccountIds = new Set(store.accounts.map((account) => account.id));
+
       for (const trade of store.accounting.facts.tradeEvents) {
-        if (trade.ticker !== ticker || trade.marketCode !== marketCode) continue;
-        if (!activeAccountIds.has(trade.accountId)) continue;
+        if (!activeAccountIds.has(trade.accountId) || trade.ticker !== ticker || trade.marketCode !== marketCode) continue;
         const key = `${userId}\0${trade.accountId}\0${trade.ticker}\0${trade.marketCode}`;
         scopes.set(key, {
           userId,
@@ -3733,6 +3805,27 @@ export class MemoryPersistence implements Persistence {
     }
   }
 
+  async getLatestHoldingSnapshotDatesByScope(
+    userId: string,
+    pairs: readonly import("./types.js").HoldingSnapshotLatestDateScopePair[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    for (const pair of pairs) {
+      result.set(`${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`, null);
+    }
+    for (const snapshot of this.holdingSnapshots) {
+      if (snapshot.userId !== userId) continue;
+      if (!isCompleteHoldingSnapshot(snapshot)) continue;
+      const key = `${snapshot.accountId}\0${snapshot.ticker}\0${snapshot.marketCode}`;
+      if (!result.has(key)) continue;
+      const current = result.get(key) ?? null;
+      if (current === null || snapshot.snapshotDate > current) {
+        result.set(key, snapshot.snapshotDate);
+      }
+    }
+    return result;
+  }
+
   async deleteAllCurrencyWalletSnapshots(userId: string): Promise<void> {
     for (let i = this.currencyWalletSnapshots.length - 1; i >= 0; i--) {
       if (this.currencyWalletSnapshots[i].userId === userId) {
@@ -4137,6 +4230,18 @@ export class MemoryPersistence implements Persistence {
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
     accountHardPurgeDays: number | null;
+    valuationHealthRelativeBps: number | null;
+    valuationHealthAbsoluteAud: number | null;
+    valuationHealthAbsoluteUsd: number | null;
+    valuationHealthAbsoluteTwd: number | null;
+    valuationHealthAbsoluteKrw: number | null;
+    routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
+    routeCacheDashboardPrimaryTtlMs: number | null;
+    routeCacheDashboardEnrichmentTtlMs: number | null;
+    routeCacheDashboardPerformanceTtlMs: number | null;
+    routeCachePortfolioTtlMs: number | null;
+    routeCacheReportsTtlMs: number | null;
+    routeCacheStaleUsableTtlMs: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -4205,6 +4310,18 @@ export class MemoryPersistence implements Persistence {
       // ui-enhancement — Tier B account-soft-delete grace period (uses the
       // plain-fields map; setAppConfigField/Patch route through it).
       accountHardPurgeDays: p.accountHardPurgeDays ?? null,
+      valuationHealthRelativeBps: p.valuationHealthRelativeBps ?? null,
+      valuationHealthAbsoluteAud: p.valuationHealthAbsoluteAud ?? null,
+      valuationHealthAbsoluteUsd: p.valuationHealthAbsoluteUsd ?? null,
+      valuationHealthAbsoluteTwd: p.valuationHealthAbsoluteTwd ?? null,
+      valuationHealthAbsoluteKrw: p.valuationHealthAbsoluteKrw ?? null,
+      routeCachePolicyMode: this._routeCachePolicyMode,
+      routeCacheDashboardPrimaryTtlMs: p.routeCacheDashboardPrimaryTtlMs ?? null,
+      routeCacheDashboardEnrichmentTtlMs: p.routeCacheDashboardEnrichmentTtlMs ?? null,
+      routeCacheDashboardPerformanceTtlMs: p.routeCacheDashboardPerformanceTtlMs ?? null,
+      routeCachePortfolioTtlMs: p.routeCachePortfolioTtlMs ?? null,
+      routeCacheReportsTtlMs: p.routeCacheReportsTtlMs ?? null,
+      routeCacheStaleUsableTtlMs: p.routeCacheStaleUsableTtlMs ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -4307,6 +4424,11 @@ export class MemoryPersistence implements Persistence {
 
   async setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void> {
     this._metadataEnrichmentMode = value;
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  async setRouteCachePolicyMode(value: import("./types.js").RouteCachePolicyMode | null): Promise<void> {
+    this._routeCachePolicyMode = value;
     this._bumpAppConfigUpdatedAt();
   }
 
@@ -6840,6 +6962,19 @@ function toNotificationDto(n: MemoryNotification): NotificationDto {
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   };
+}
+
+function isCompleteHoldingSnapshot(snapshot: HoldingSnapshot): boolean {
+  return !snapshot.isProvisional
+    && snapshot.closePrice !== null
+    && (
+      snapshot.quantity <= 0
+      || (
+        snapshot.marketValue !== null
+        && snapshot.valueNative !== null
+      )
+    )
+    && snapshot.providerSource !== null;
 }
 
 // KZO-183 — application-layer mirror of the composite-FK ownership invariant
