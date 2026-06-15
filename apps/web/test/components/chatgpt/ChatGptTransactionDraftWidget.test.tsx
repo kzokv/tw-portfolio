@@ -56,7 +56,7 @@ describe("ChatGptTransactionDraftWidget", () => {
     delete window.openai;
   });
 
-  it("renders from the bridge and posts through callTool without direct API access", async () => {
+  it("renders from the bridge and posts through app-visible low-level tools without direct API access", async () => {
     const initial = buildMockTransactionDraftWidgetData();
     const posted: ChatGptTransactionDraftWidgetDto = {
       ...initial,
@@ -277,6 +277,33 @@ describe("ChatGptTransactionDraftWidget", () => {
 
     expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-4"]')).not.toBeNull();
     expect(document.body.textContent).toContain("0050");
+  });
+
+  it("renders readable preview account names when the preview payload only carries account ids", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    if (!initial.postingPreview) throw new Error("posting preview missing in fixture");
+    initial.postingPreview.rows = initial.postingPreview.rows.map((row) => ({
+      ...row,
+      accountName: row.rowId === "row-2" ? "" : row.accountName,
+    }));
+    initial.postingPreview.groups = initial.postingPreview.groups.map((group) => ({
+      ...group,
+      accountName: group.accountId === "us-brokerage" ? "" : group.accountName,
+    }));
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: ["row-2"], editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-2"]')?.textContent).toContain("USD Brokerage");
+    expect(document.body.textContent).toContain("USD Brokerage");
   });
 
   it("prefills unresolved account edits from accountNameInput and shows row validation details", async () => {

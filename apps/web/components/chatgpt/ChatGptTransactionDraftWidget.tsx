@@ -247,6 +247,16 @@ function buildPostingPreviewForRows(
   };
 }
 
+function previewAccountLabel(
+  row: Pick<ChatGptPostingPreviewSection["rows"][number], "accountId" | "accountName">,
+  accountNameById: Map<string, string>,
+): string {
+  const accountName = row.accountName?.trim();
+  if (accountName) return accountName;
+  const mappedName = row.accountId ? accountNameById.get(row.accountId) : null;
+  return mappedName?.trim() || "Unassigned";
+}
+
 export function ChatGptTransactionDraftWidget({
   fallbackData = null,
   locale = "en",
@@ -311,6 +321,10 @@ export function ChatGptTransactionDraftWidget({
       },
     ];
   }, [accountOptions, editDraft.accountName]);
+  const accountNameById = useMemo(
+    () => new Map(accountOptions.map((account) => [account.id, account.name])),
+    [accountOptions],
+  );
   const postingPreview = useMemo(
     () => buildPostingPreviewForRows(data, readySelectedRows),
     [data, readySelectedRows],
@@ -820,7 +834,7 @@ export function ChatGptTransactionDraftWidget({
                               {postingPreview.rows.map((row) => (
                                 <TableRow key={row.rowId} data-testid={`chatgpt-widget-preview-row-${row.rowId}`}>
                                   <TableCell>
-                                    <div className="font-medium text-slate-900">{row.accountName ?? "Unassigned"}</div>
+                                    <div className="font-medium text-slate-900">{previewAccountLabel(row, accountNameById)}</div>
                                     {row.warnings?.length ? <div className="mt-1 text-xs text-amber-700">{row.warnings[0]}</div> : null}
                                   </TableCell>
                                   <TableCell>{row.ticker}</TableCell>
@@ -853,7 +867,7 @@ export function ChatGptTransactionDraftWidget({
                               <TableBody>
                                 {postingPreview.summaryRows.map((row, index) => (
                                   <TableRow key={`${row.accountId ?? "summary"}-${row.currency}-${index}`}>
-                                    <TableCell>{row.accountName ?? "Unknown account"}</TableCell>
+                                    <TableCell>{previewAccountLabel(row, accountNameById)}</TableCell>
                                     <TableCell>{row.currency}</TableCell>
                                     <TableCell>{formatCurrencyAmount(row.totalBuysAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
                                     <TableCell>{formatCurrencyAmount(row.totalSellsAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
