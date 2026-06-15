@@ -196,4 +196,32 @@ describe("useTransactionsPrimaryData", () => {
 
     expect(result.data.recentTransactions[0]?.id).toBe("owner-fresh");
   });
+
+  it("does not let an older primary request overwrite a fresh cache restore after cache key changes", async () => {
+    const staleRequest = createDeferred<TransactionPrimaryDto>();
+    vi.mocked(fetchTransactionsPrimaryData).mockReturnValue(staleRequest.promise);
+    writeRouteDtoCache(buildRouteDtoCacheKey("transactions-primary", "owner-1"), withTransaction("owner-cached"));
+
+    act(() => {
+      root.render(<Harness />);
+    });
+    await act(async () => {});
+
+    expect(fetchTransactionsPrimaryData).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(<Harness cacheScope="owner-1" />);
+    });
+    await act(async () => {});
+
+    expect(result.data.recentTransactions[0]?.id).toBe("owner-cached");
+    expect(fetchTransactionsPrimaryData).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      staleRequest.resolve(withTransaction("stale-self"));
+      await staleRequest.promise;
+    });
+
+    expect(result.data.recentTransactions[0]?.id).toBe("owner-cached");
+  });
 });

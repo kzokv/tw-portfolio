@@ -101,6 +101,7 @@ export function useTransactionsPrimaryData(
 
     const cached = cacheKey ? readRouteDtoCache<TransactionPrimaryDto>(cacheKey) : null;
     if (cached !== null) {
+      startRequest();
       setData(cached.payload);
       setIsBootstrapping(false);
       setCacheStatus(cached.status);
