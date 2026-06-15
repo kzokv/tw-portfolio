@@ -153,6 +153,14 @@ export interface AppDictionary {
       description: string;
       emailLabel: string;
       emailPlaceholder: string;
+      permissionsTitle: string;
+      presets: {
+        viewer: string;
+        aiViewer: string;
+        draftCollaborator: string;
+        delegateManager: string;
+        fullDelegate: string;
+      };
       continueLabel: string;
       confirmTitle: string;
       confirmDescription: string;

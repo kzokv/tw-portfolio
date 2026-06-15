@@ -603,6 +603,10 @@ describe("mcp name-first delegation", () => {
     });
     expect(deniedPreview.statusCode).toBe(200);
     expect(deniedPreview.body).toContain("shared_capability_required");
+    expect(deniedPreview.body).toContain("requiredCapabilities");
+    expect(deniedPreview.body).not.toContain("shareId");
+    expect(deniedPreview.body).not.toContain("sessionUserId");
+    expect(deniedPreview.body).not.toContain("contextUserId");
   });
 
   it("[draft wrappers]: delegated row and batch lifecycle uses batch labels and row numbers", async () => {
