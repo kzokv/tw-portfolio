@@ -241,6 +241,16 @@ Final validation for deployed branch head `404e0ded`:
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-404e0ded-simulated-material-gap-20260615.jpg`
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-404e0ded-restored-baseline-20260615.jpg`
 
+Final validation for deployed branch head `fb8c91bb`:
+
+- GitHub Actions run `27523531339` and PR Gate run `27523530924` were green on `fb8c91bb`; the three latest Codex review threads were replied to with fix details and resolved.
+- Dev deploy run `27523892378` completed successfully on `fb8c91bb` in `15m33s`.
+- QNAP Container Station showed `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running after deployment; `vakwen-dev-web` and `vakwen-dev-api` were healthy, API `/health/live` returned `{"status":"ok"}`, API `/health/ready` returned ready with Postgres and Redis true, and the public web endpoint returned the expected authenticated redirect.
+- Chrome validation reused the existing authenticated Vakwen Dev tab at `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard?validation=final-gap-20260615` after the final deploy. The dashboard rendered the expected material-gap explanation caused by newer market bars than holding snapshots: current valuation `$670,779.44`, chart valuation `$663,017.84`, delta `$7,761.60`, relative delta `1.2%`, latest bar `Jun 15, 2026`, and latest snapshot `Jun 12, 2026`.
+- Browser-context direct timing APIs (`performance`, `fetch`, and `XMLHttpRequest`) were unavailable through the read-only Chrome bridge during this final validation, so final performance evidence for this head uses the green CI gate, public health checks, container health, and prior live API timing from `404e0ded`; no runtime regression was observed in the visible UI.
+- Final `fb8c91bb` evidence screenshot:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-fb8c91bb-restored-baseline-20260615.png`
+
 ## Acceptance Criteria
 
 - Hero and Portfolio Trend/report performance charts remain source-honest and explain material mismatches.
