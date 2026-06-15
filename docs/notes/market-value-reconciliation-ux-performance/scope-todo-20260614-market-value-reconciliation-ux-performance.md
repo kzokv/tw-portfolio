@@ -251,6 +251,17 @@ Final validation for deployed branch head `fb8c91bb`:
 - Final `fb8c91bb` evidence screenshot:
   - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-fb8c91bb-restored-baseline-20260615.png`
 
+Final validation for deployed branch head `3aefcdae`:
+
+- GitHub Actions run `27525664139` and PR Gate run `27525663743` were green on `3aefcdae`; the two Codex review threads about stale reporting-currency cache keys were replied to with fix details and resolved, and the latest Codex review for `3aefcdae` reported no major issues.
+- Focused local correction checks passed: `npx vitest run test/components/dashboard/DashboardClient.test.tsx test/components/portfolio/PortfolioClient.test.tsx test/features/dashboard/hooks/useDashboardPerformance.test.tsx`, focused ESLint on the changed dashboard/portfolio/cache files, `npx tsc -p apps/web/tsconfig.json --noEmit --pretty false`, and `git diff --check`.
+- Dev deploy run `27525968603` completed successfully on `3aefcdae` in `15m54s`.
+- QNAP Container Station showed `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running after deployment; `vakwen-dev-web` and `vakwen-dev-api` were healthy, API `/health/live` returned `{"status":"ok"}`, API `/health/ready` returned ready with Postgres and Redis true, and the public web endpoint returned the expected authenticated redirect.
+- Chrome validation reused the existing authenticated Vakwen Dev tab at `https://vakwen-dev-web.kzokvdevs.dpdns.org/dashboard?validation=final-gap-20260615` after the `3aefcdae` deploy. The Portfolio Trend block rendered `Valuation health` with `Material gap`, explicit snapshot-only copy, and the non-repair explanation.
+- Final live values shown in the trend block: current valuation `$671,307.44`, chart valuation `$663,017.84`, delta `$8,289.60`, relative delta `1.2%`, latest bar `Jun 15, 2026`, and latest snapshot `Jun 12, 2026`.
+- Final `3aefcdae` evidence screenshot:
+  - `docs/notes/market-value-reconciliation-ux-performance/screenshots/live-dev-3aefcdae-final-20260615.jpg`
+
 ## Acceptance Criteria
 
 - Hero and Portfolio Trend/report performance charts remain source-honest and explain material mismatches.
