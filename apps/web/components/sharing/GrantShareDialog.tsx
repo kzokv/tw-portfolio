@@ -31,12 +31,15 @@ const CAPABILITY_LABELS: Record<ShareCapability, string> = {
   "transaction:write": "Transaction write",
 };
 
-const PRESETS: Array<{ label: string; capabilities: ShareCapability[] }> = [
-  { label: "Viewer", capabilities: [] },
-  { label: "AI-enabled viewer", capabilities: ["portfolio:mcp_read"] },
-  { label: "Draft collaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
-  { label: "Delegate manager", capabilities: ["portfolio:mcp_read", "account:manage", "transaction:write"] },
-  { label: "Full delegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
+const PRESETS: Array<{
+  key: keyof ReturnType<typeof getDictionary>["sharing"]["grantDialog"]["presets"];
+  capabilities: ShareCapability[];
+}> = [
+  { key: "viewer", capabilities: [] },
+  { key: "aiViewer", capabilities: ["portfolio:mcp_read"] },
+  { key: "draftCollaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
+  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "transaction:write"] },
+  { key: "fullDelegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
 ];
 
 function isLikelyEmail(value: string): boolean {
@@ -193,16 +196,16 @@ export function GrantShareDialog({
               </label>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <p className="text-sm font-medium text-slate-700">Delegated permissions</p>
+                <p className="text-sm font-medium text-slate-700">{dict.sharing.grantDialog.permissionsTitle}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {PRESETS.map((preset) => (
                     <button
-                      key={preset.label}
+                      key={preset.key}
                       type="button"
                       className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                       onClick={() => setCapabilities(preset.capabilities)}
                     >
-                      {preset.label}
+                      {dict.sharing.grantDialog.presets[preset.key]}
                     </button>
                   ))}
                 </div>

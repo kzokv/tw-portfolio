@@ -141,9 +141,6 @@ function requireShareCapability(
       `Shared portfolio capability ${needed.join(" or ")} is not enabled`,
       {
         requiredCapabilities: needed,
-        shareId: resolvedContext.shareId,
-        sessionUserId: resolvedContext.sessionUserId,
-        contextUserId: resolvedContext.portfolioContextUserId,
       },
     );
   }

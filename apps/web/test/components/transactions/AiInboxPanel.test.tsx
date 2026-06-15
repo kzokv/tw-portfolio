@@ -83,4 +83,38 @@ describe("AiInboxPanel", () => {
     expect(document.body.textContent).toContain("capped snippets");
     expect(document.body.textContent).toContain("Open deep link");
   });
+
+  it("disables mutation controls for read-only shared-context permissions", async () => {
+    await act(async () => root.render(
+      <AiInboxPanel
+        locale="en"
+        permissions={{
+          canReadAiDrafts: true,
+          canManageAccounts: false,
+          canWriteTransactions: false,
+          canCreateDrafts: false,
+          canEditDrafts: false,
+          canArchiveDrafts: false,
+          canDeleteDrafts: false,
+          hasAnyDelegatedWrite: false,
+        }}
+      />,
+    ));
+    await flushEffects();
+
+    const buttonByText = (text: string) =>
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes(text)) as HTMLButtonElement | undefined;
+    expect(buttonByText("Exclude")?.disabled).toBe(true);
+    expect(buttonByText("Reinclude")?.disabled).toBe(true);
+    expect(buttonByText("Reject")?.disabled).toBe(true);
+    expect(buttonByText("Archive")?.disabled).toBe(true);
+    expect(buttonByText("Delete")?.disabled).toBe(true);
+    expect(buttonByText("Post selected")?.disabled).toBe(true);
+    expect(buttonByText("Edit row")?.disabled).toBe(true);
+    expect(
+      Array.from(document.querySelectorAll("input[type='checkbox']"))
+        .every((input) => (input as HTMLInputElement).disabled),
+    ).toBe(true);
+  });
 });

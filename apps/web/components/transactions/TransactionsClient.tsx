@@ -311,6 +311,7 @@ export function TransactionsClient({
               initialBatchId={initialBatchId}
               initialContextId={initialContextId}
               locale={locale}
+              permissions={isSharedContext ? sharedContextPermissions : null}
             />
           </TabsContent>
         ) : null}
