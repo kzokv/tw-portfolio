@@ -37,10 +37,11 @@ export interface AppDictionary {
     retry: string;
   };
   switcher: {
-    triggerLabel: string;
-    self: string;
-    readonlyBadge: string;
-    eyebrow: string;
+      triggerLabel: string;
+      self: string;
+      readonlyBadge: string;
+      sharedBadge: string;
+      eyebrow: string;
     manageSharing: string;
     ownerOptionLabel: string;
     readonlyDescription: string;
@@ -128,9 +129,9 @@ export interface AppDictionary {
     emptyInboundDescription: string;
     switcherHint: string;
 	  table: {
-	    grantee: string;
-	    status: string;
-	    aiAccess: string;
+      grantee: string;
+      status: string;
+      aiAccess: string;
 	    created: string;
 	    expires: string;
       actions: string;
@@ -167,6 +168,24 @@ export interface AppDictionary {
       resolvedSuccess: string;
       pendingSuccess: string;
     };
+    capabilityLabels: {
+      "portfolio:mcp_read": string;
+      "account:manage": string;
+      "transaction_draft:create": string;
+      "transaction_draft:edit": string;
+      "transaction_draft:archive": string;
+      "transaction_draft:delete": string;
+      "transaction:write": string;
+    };
+    editPermissionsDialog: {
+      title: string;
+      description: string;
+      saveLabel: string;
+      savingLabel: string;
+      readOnlySummary: string;
+      delegatedSummary: string;
+      error: string;
+    };
     revokeDialog: {
       activeTitle: string;
       activeDescription: string;
@@ -176,6 +195,7 @@ export interface AppDictionary {
     };
     actions: {
       copyUrl: string;
+      editPermissions: string;
       revoke: string;
       reshare: string;
       openSwitcher: string;

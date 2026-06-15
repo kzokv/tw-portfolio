@@ -39,7 +39,7 @@ test.describe("ai connectors and sharing", () => {
     await page.getByTestId("admin-settings-mcp-oauth-token-secret-row").waitFor({ state: "visible" });
   });
 
-  test("[sharing]: grant dialog → Editor preset checks AI connector write capability", async ({
+  test("[sharing]: grant dialog → Delegate manager preset checks delegated write capability", async ({
     appShell,
     page,
     sharing,
@@ -48,16 +48,17 @@ test.describe("ai connectors and sharing", () => {
     await appShell.assert.appIsReady();
 
     await sharing.actions.openGrantDialog();
-    await page.getByText("AI connector access").waitFor({ state: "visible" });
-    await page.getByText("App read").waitFor({ state: "visible" });
-    await page.getByText("Draft create").waitFor({ state: "visible" });
-    await page.getByText("Transaction write").waitFor({ state: "visible" });
+    await page.getByText("Delegated permissions").waitFor({ state: "visible" });
+    await page.getByText("ChatGPT portfolio read").waitFor({ state: "visible" });
+    await page.getByText("Manage accounts and fee settings").waitFor({ state: "visible" });
+    await page.getByText("Create AI drafts").waitFor({ state: "visible" });
+    await page.getByText("Create, edit, and delete transactions").waitFor({ state: "visible" });
 
-    await page.getByRole("button", { name: "Editor" }).click();
+    await page.getByRole("button", { name: "Delegate manager" }).click();
 
-    const transactionWriteToggle = page
-      .locator("label", { hasText: "Transaction write" })
-      .locator('input[type="checkbox"]');
+    const transactionWriteToggle = page.getByRole("checkbox", {
+      name: "Create, edit, and delete transactions",
+    });
     await assertToggleChecked(transactionWriteToggle, "Transaction write");
   });
 });

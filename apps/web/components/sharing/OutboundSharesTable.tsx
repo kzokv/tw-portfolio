@@ -14,6 +14,7 @@ interface OutboundSharesTableProps {
   showHistory: boolean;
   onToggleHistory: () => void;
   onCopyUrl: (row: OutboundShareRow) => void;
+  onEditPermissions: (row: OutboundShareRow) => void;
   onRevoke: (row: OutboundShareRow) => void;
   onReshare: (row: OutboundShareRow) => void;
 }
@@ -29,10 +30,14 @@ function formatOptionalDate(value: string | null, locale: LocaleCode): string {
   return value ? formatDateLabel(value, locale) : "—";
 }
 
-function formatCapabilities(row: OutboundShareRow): string {
-  if (row.capabilities.length === 0) return "AI off";
+function formatCapabilities(
+  row: OutboundShareRow,
+  labels: ReturnType<typeof getDictionary>["sharing"]["capabilityLabels"],
+  readOnlyLabel: string,
+): string {
+  if (row.capabilities.length === 0) return readOnlyLabel;
   return row.capabilities
-    .map((capability) => capability.replace("portfolio:", "").replace("transaction_", "").replace("transaction:", ""))
+    .map((capability) => labels[capability])
     .join(", ");
 }
 
@@ -42,6 +47,7 @@ export function OutboundSharesTable({
   showHistory,
   onToggleHistory,
   onCopyUrl,
+  onEditPermissions,
   onRevoke,
   onReshare,
 }: OutboundSharesTableProps) {
@@ -87,32 +93,38 @@ export function OutboundSharesTable({
           <p className="mt-2 text-sm text-slate-600">{dict.sharing.emptyManageStateDescription}</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[52rem] text-sm" data-testid="sharing-outbound-table">
-            <thead>
+        <div>
+          <table className="w-full text-sm" data-testid="sharing-outbound-table">
+            <thead className="hidden md:table-header-group">
               <tr className="border-b border-slate-200 bg-slate-50/70">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.grantee}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.status}</th>
-	                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.aiAccess}</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.aiAccess}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.created}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.expires}</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.actions}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="grid gap-3 md:table-row-group">
               {rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-slate-100 last:border-0"
+                  className="block rounded-xl border border-slate-200 bg-white last:border-slate-200 md:table-row md:rounded-none md:border-0 md:border-b md:border-slate-100 md:bg-transparent md:last:border-0"
                   data-testid={`sharing-outbound-row-${row.id}`}
                 >
-                  <td className="px-4 py-3 align-top">
+                  <td
+                    className="block px-4 py-3 align-top before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:before:hidden"
+                    data-label={dict.sharing.table.grantee}
+                  >
                     <div className="font-medium text-slate-900">{row.email}</div>
                     <div className="mt-1 text-xs text-slate-500">
                       {row.displayName ?? dict.sharing.row.notRegistered}
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top">
+                  <td
+                    className="block px-4 py-3 align-top before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:before:hidden"
+                    data-label={dict.sharing.table.status}
+                  >
                     <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", STATUS_STYLES[row.status])}>
                       {dict.sharing.status[row.status]}
                     </span>
@@ -122,11 +134,33 @@ export function OutboundSharesTable({
                       </p>
                     ) : null}
                   </td>
-                  <td className="max-w-[16rem] px-4 py-3 align-top text-xs text-slate-600">{formatCapabilities(row)}</td>
-                  <td className="px-4 py-3 align-top text-slate-600">{formatDateLabel(row.createdAt, locale)}</td>
-                  <td className="px-4 py-3 align-top text-slate-600">{formatOptionalDate(row.expiresAt, locale)}</td>
-                  <td className="px-4 py-3 align-top">
-                    <div className="flex justify-end gap-2">
+                  <td
+                    className="block px-4 py-3 align-top text-xs text-slate-600 before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:max-w-[16rem] md:before:hidden"
+                    data-label={dict.sharing.table.aiAccess}
+                  >
+                    {formatCapabilities(
+                      row,
+                      dict.sharing.capabilityLabels,
+                      dict.sharing.editPermissionsDialog.readOnlySummary,
+                    )}
+                  </td>
+                  <td
+                    className="block px-4 py-3 align-top text-slate-600 before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:before:hidden"
+                    data-label={dict.sharing.table.created}
+                  >
+                    {formatDateLabel(row.createdAt, locale)}
+                  </td>
+                  <td
+                    className="block px-4 py-3 align-top text-slate-600 before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:before:hidden"
+                    data-label={dict.sharing.table.expires}
+                  >
+                    {formatOptionalDate(row.expiresAt, locale)}
+                  </td>
+                  <td
+                    className="block px-4 py-3 align-top before:mb-1 before:block before:text-[11px] before:font-semibold before:uppercase before:tracking-wider before:text-slate-500 before:content-[attr(data-label)] md:table-cell md:before:hidden"
+                    data-label={dict.sharing.table.actions}
+                  >
+                    <div className="flex flex-wrap justify-start gap-2 md:justify-end">
                       {row.status === "pending" ? (
                         <Button
                           variant="secondary"
@@ -135,6 +169,16 @@ export function OutboundSharesTable({
                           data-testid={`sharing-copy-url-${row.id}`}
                         >
                           {dict.sharing.actions.copyUrl}
+                        </Button>
+                      ) : null}
+                      {row.status === "active" || row.status === "pending" ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onEditPermissions(row)}
+                          data-testid={`sharing-edit-permissions-${row.id}`}
+                        >
+                          {dict.sharing.actions.editPermissions}
                         </Button>
                       ) : null}
                       {row.status === "active" || row.status === "pending" ? (

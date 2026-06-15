@@ -49,6 +49,8 @@ export function AccountsSettingsClient() {
   const { locale, initialSettings } = useSettingsRouteContext();
   const dict = getDictionary(locale);
   const shellData = useAppShellData();
+  const canManageAccounts = !shellData.isSharedContext || shellData.sharedContextPermissions.canManageAccounts;
+  const allowHardPurge = !shellData.isSharedContext;
   // Phase 3d H1 — read the `accountsPrefillCurrency` query param so the
   // KZO-169 NC4 deep-link from the transaction form's "no {currency}
   // account" inline error still pre-selects the right currency on the
@@ -244,6 +246,7 @@ export function AccountsSettingsClient() {
         onAccountsRefresh={shellData.refreshPortfolioConfig}
         prefillCurrency={prefillCurrency}
         dict={dict}
+        disabled={!canManageAccounts}
       />
       {shellData.isPortfolioConfigLoading && !hasShellAccountConfig ? (
         <div
@@ -273,6 +276,8 @@ export function AccountsSettingsClient() {
           onAccountsChanged={shellData.refreshPortfolioConfig}
           effectiveAccountHardPurgeDays={initialSettings.effectiveAccountHardPurgeDays}
           dict={dict}
+          canManage={canManageAccounts}
+          allowHardPurge={allowHardPurge}
         />
       )}
     </div>

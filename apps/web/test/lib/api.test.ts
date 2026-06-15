@@ -3,7 +3,12 @@ import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
   CONTEXT_USER_ID_COOKIE,
 } from "../../lib/context";
-import { getJson, patchJson, postJson } from "../../lib/api";
+import {
+  getJson,
+  patchJson,
+  postJson,
+  shouldInvalidatePortfolioRouteCaches,
+} from "../../lib/api";
 import { LOCALE_OVERRIDE_COOKIE } from "../../lib/i18n/localeOverrideCookie";
 
 describe("apps/web/lib/api — context header injection + fallback intercept", () => {
@@ -241,5 +246,19 @@ describe("apps/web/lib/api — context header injection + fallback intercept", (
     // Assert
     expect(document.cookie).not.toContain(`${CONTEXT_USER_ID_COOKIE}=owner-42`);
     expect(hrefSetter).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates portfolio route caches for delegated portfolio write routes only", () => {
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/portfolio/transactions")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("PATCH", "/portfolio/transactions/trade-1")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("DELETE", "/portfolio/transactions/trade-1")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/ai/transactions/confirm")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/ai/transaction-drafts/batch-1/confirm")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/accounts")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/accounts/account-1/purge")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("PUT", "/settings/fee-config")).toBe(true);
+
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/portfolio/recompute/confirm")).toBe(false);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/share-tokens")).toBe(false);
   });
 });

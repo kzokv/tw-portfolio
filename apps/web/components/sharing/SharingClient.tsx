@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { LocaleCode, UserRole } from "@vakwen/shared-types";
+import type { LocaleCode, ShareCapability, UserRole } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import {
   fetchSharingPageData,
   resolveInviteUrl,
   revokeActiveShare,
   revokePendingShare,
+  updateActiveShareCapabilities,
+  updatePendingShareCapabilities,
 } from "../../features/sharing/service";
 import type { GrantShareResult, OutboundShareRow, SharingPageData } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
@@ -16,6 +18,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "../ui/Tabs";
 import { GrantShareDialog } from "./GrantShareDialog";
+import { EditSharePermissionsDialog } from "./EditSharePermissionsDialog";
 import { InboundSharesCards } from "./InboundSharesCards";
 import { OutboundSharesTable } from "./OutboundSharesTable";
 import { PublicLinksSection } from "./PublicLinksSection";
@@ -77,6 +80,9 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [grantInitialEmail, setGrantInitialEmail] = useState<string | undefined>(undefined);
   const [revokeTarget, setRevokeTarget] = useState<OutboundShareRow | null>(null);
+  const [editTarget, setEditTarget] = useState<OutboundShareRow | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isEditingPermissions, setIsEditingPermissions] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [anonymousActiveCount, setAnonymousActiveCount] = useState(0);
@@ -161,6 +167,28 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
       });
     } finally {
       setIsRevoking(false);
+    }
+  }
+
+  async function handleSavePermissions(row: OutboundShareRow, capabilities: ShareCapability[]) {
+    setIsEditingPermissions(true);
+    setEditError(null);
+    setMessage(null);
+    try {
+      if (row.shareId) {
+        await updateActiveShareCapabilities(row.shareId, capabilities);
+      } else if (row.inviteCode) {
+        await updatePendingShareCapabilities(row.inviteCode, capabilities);
+      } else {
+        throw new Error("Missing share identifier");
+      }
+      setEditTarget(null);
+      await loadData();
+      setMessage({ tone: "success", text: dict.sharing.editPermissionsDialog.saveLabel });
+    } catch {
+      setEditError(dict.sharing.editPermissionsDialog.error);
+    } finally {
+      setIsEditingPermissions(false);
     }
   }
 
@@ -252,6 +280,10 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
 	                showHistory={showHistory}
 	                onToggleHistory={() => setShowHistory((current) => !current)}
 	                onCopyUrl={(row) => void handleCopyUrl(row)}
+	                onEditPermissions={(row) => {
+	                  setEditError(null);
+	                  setEditTarget(row);
+	                }}
 	                onRevoke={setRevokeTarget}
 	                onReshare={(row) => {
 	                  setGrantInitialEmail(row.email);
@@ -287,6 +319,20 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
         initialEmail={grantInitialEmail}
         onOpenChange={setGrantDialogOpen}
         onCreated={handleCreated}
+      />
+      <EditSharePermissionsDialog
+        open={editTarget !== null}
+        locale={locale}
+        row={editTarget}
+        isSubmitting={isEditingPermissions}
+        error={editError}
+        onSave={(row, capabilities) => void handleSavePermissions(row, capabilities)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditTarget(null);
+            setEditError(null);
+          }
+        }}
       />
       <ShareRevokeDialog
         open={revokeTarget !== null}

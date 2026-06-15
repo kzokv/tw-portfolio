@@ -8,6 +8,7 @@ import type {
   FeeProfileDto,
   LocaleCode,
   RouteCachePolicyDto,
+  ShareCapability,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type {
@@ -15,6 +16,7 @@ import type {
   AppShellTransactionAccountOption,
 } from "./AppShellDataContext";
 import type { IntegrityIssue } from "../../features/dashboard/types";
+import type { SharedContextPermissions } from "../../features/sharing/capabilities";
 import type { useTransactionSubmission as useTransactionSubmissionType } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { useTransactionMutations as useTransactionMutationsType } from "../../features/portfolio/hooks/useTransactionMutations";
 import type { useRecomputeAction as useRecomputeActionType } from "../../features/portfolio/hooks/useRecomputeAction";
@@ -26,6 +28,8 @@ interface BuildAppShellDataValueOptions {
   sessionUserRole?: string | null;
   routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
+  currentSharedCapabilities: ShareCapability[];
+  sharedContextPermissions: SharedContextPermissions;
   canUseGlobalQuickActions: boolean;
   openQuickActions: () => void;
   reportingCurrency: AccountDefaultCurrency;
@@ -63,6 +67,8 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     sessionUserRole,
     routeCachePolicy,
     isSharedContext,
+    currentSharedCapabilities,
+    sharedContextPermissions,
     canUseGlobalQuickActions,
     openQuickActions,
     reportingCurrency,
@@ -95,6 +101,8 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       sessionUserRole,
       routeCachePolicy,
       isSharedContext,
+      currentSharedCapabilities,
+      sharedContextPermissions,
       canUseGlobalQuickActions,
       openQuickActions,
       reportingCurrency,
@@ -122,6 +130,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       accounts,
       canUseGlobalQuickActions,
       contextRefreshSignal,
+      currentSharedCapabilities,
       feeProfileBindings,
       feeProfiles,
       generateSnapshots,
@@ -142,7 +151,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       saveReportingCurrency,
       sessionUserId,
       sessionUserRole,
-      routeCachePolicy,
+      sharedContextPermissions,
       setShowIntegrityDialog,
       showIntegrityDialog,
       transactionAccountOptions,

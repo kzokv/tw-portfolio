@@ -37,6 +37,7 @@ import { cn } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
 import { fetchAiInboxBadge } from "../../features/ai-inbox/service";
 import { useOptionalNavigationFeedback } from "./NavigationFeedbackContext";
+import { useOptionalAppShellData } from "./AppShellDataContext";
 
 export type AppSidebarVariant = "user" | "admin";
 
@@ -141,16 +142,21 @@ export function AppSidebar({
   const { isMobile, setOpenMobile, state } = useSidebar();
   const [aiInboxCount, setAiInboxCount] = useState(0);
   const navigationFeedback = useOptionalNavigationFeedback();
+  const appShellData = useOptionalAppShellData();
+  const canReadAiDrafts = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canReadAiDrafts;
 
   const refreshAiInboxBadge = useCallback(async () => {
-    if (variant !== "user") return;
+    if (variant !== "user" || !canReadAiDrafts) {
+      setAiInboxCount(0);
+      return;
+    }
     try {
       const badge = await fetchAiInboxBadge();
       setAiInboxCount(badge.openBatchCount);
     } catch {
       setAiInboxCount(0);
     }
-  }, [variant]);
+  }, [canReadAiDrafts, variant]);
 
   useEffect(() => {
     void refreshAiInboxBadge();
@@ -159,7 +165,7 @@ export function AppSidebar({
   useEventStream({
     eventTypes: ["ai_transaction_draft_created", "ai_transaction_draft_updated", "ai_transaction_draft_confirmed"],
     onEvent: () => { void refreshAiInboxBadge(); },
-    enabled: variant === "user",
+    enabled: variant === "user" && canReadAiDrafts,
   });
 
   const groups: NavGroup[] = variant === "admin"
