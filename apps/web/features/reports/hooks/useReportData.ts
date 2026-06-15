@@ -61,6 +61,10 @@ export function useReportData({
   const initialCacheScopeRef = useRef(cacheScope);
   const requestVersionRef = useRef(0);
 
+  const cancelInFlightRequests = useCallback(() => {
+    requestVersionRef.current += 1;
+  }, []);
+
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
     requestVersionRef.current += 1;
     const version = requestVersionRef.current;
@@ -109,6 +113,7 @@ export function useReportData({
       ? null
       : readMatchingReportCache(buildReportCacheKey, expectedReportingCurrency, state);
     if (shouldUseInitialReport) {
+      cancelInFlightRequests();
       setData(initialReport);
       writeRouteDtoCache(buildReportCacheKey(initialReport.query.reportingCurrency), initialReport, {
         staleTtlMs: cacheDurations.staleTtlMs,
@@ -122,12 +127,13 @@ export function useReportData({
       return;
     }
     if (cached) {
+      cancelInFlightRequests();
       setData(cached.payload);
       setIsBootstrapping(false);
       setCacheStatus(cached.status);
       setRestoredFromCache(true);
       setRestoredAt(cached.savedAt);
-      if (cached.status === "stale" || expectedReportingCurrency === null) {
+      if (cached.status === "stale") {
         void refresh({ bypassCache: true });
       }
       return;
@@ -135,7 +141,7 @@ export function useReportData({
     setData(null);
     setIsBootstrapping(true);
     void refresh({ bypassCache: true }).finally(() => setIsBootstrapping(false));
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, contextRefreshSignal, initialReport, refresh, state]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, cancelInFlightRequests, contextRefreshSignal, initialReport, refresh, state]);
 
   return {
     data,
