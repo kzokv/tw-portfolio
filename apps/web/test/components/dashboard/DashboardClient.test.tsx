@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { DashboardClient } from "../../../components/dashboard/DashboardClient";
 import type { DashboardSnapshot } from "../../../features/dashboard/types";
 
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   dashboardPerformanceCalls: [] as Array<{ cacheKey?: string }>,
   performanceRefresh: vi.fn(async () => undefined),
   performanceIsLoading: false,
+  shellReportingCurrency: "USD" as AccountDefaultCurrency,
 }));
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
@@ -46,6 +48,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
     locale: "en",
     openQuickActions: vi.fn(),
     openRecomputeConfirm: vi.fn(),
+    reportingCurrency: mocks.shellReportingCurrency,
     recomputeAction: { isRunning: false },
     routeCachePolicy: null,
     sessionUserId: "user-1",
@@ -165,6 +168,7 @@ describe("DashboardClient", () => {
     mocks.dashboardPerformanceCalls.length = 0;
     mocks.performanceRefresh.mockClear();
     mocks.performanceIsLoading = false;
+    mocks.shellReportingCurrency = "USD";
   });
 
   afterEach(() => {
@@ -188,9 +192,24 @@ describe("DashboardClient", () => {
     expect(mocks.performanceRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("includes reporting currency in the dashboard performance cache key", () => {
+  it("keys dashboard performance cache by the live shell reporting currency", () => {
     act(() => {
       root.render(<DashboardClient expectedReportingCurrency="AUD" />);
+    });
+
+    expect(mocks.dashboardPerformanceCalls.at(-1)?.cacheKey).toContain(":USD:");
+  });
+
+  it("updates dashboard performance cache key when the shell reporting currency changes before server props refresh", () => {
+    act(() => {
+      root.render(<DashboardClient expectedReportingCurrency="AUD" />);
+    });
+
+    expect(mocks.dashboardPerformanceCalls.at(-1)?.cacheKey).toContain(":USD:");
+
+    mocks.shellReportingCurrency = "AUD";
+    act(() => {
+      root.render(<DashboardClient expectedReportingCurrency="USD" />);
     });
 
     expect(mocks.dashboardPerformanceCalls.at(-1)?.cacheKey).toContain(":AUD:");

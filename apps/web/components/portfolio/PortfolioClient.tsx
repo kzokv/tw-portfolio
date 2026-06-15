@@ -37,7 +37,7 @@ export function PortfolioClient({
     reportingCurrency,
   } = useAppShellData();
   const seedReportingCurrency = resolvePortfolioReportingCurrency(initialPrimaryData, reportingCurrency);
-  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, seedReportingCurrency);
+  const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, reportingCurrency);
   const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy);
   const effectiveReportingCurrency = resolvePortfolioReportingCurrency(portfolio.data, seedReportingCurrency);
   const resetCount = useCardLayoutResetCount("portfolio");
