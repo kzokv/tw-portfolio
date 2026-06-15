@@ -6,6 +6,7 @@ import type { LocaleCode } from "@vakwen/shared-types";
 import { cn, formatCurrencyAmount, formatNumber } from "../../lib/utils";
 import { readContextCookie, writeContextCookie } from "../../lib/context";
 import { useEventStream } from "../../hooks/useEventStream";
+import type { SharedContextPermissions } from "../../features/sharing/capabilities";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import {
@@ -35,6 +36,7 @@ interface AiInboxPanelProps {
   initialBatchId?: string | null;
   initialContextId?: string | null;
   locale: LocaleCode;
+  permissions?: SharedContextPermissions | null;
 }
 
 type EditDraft = Record<keyof DraftRowPatch, string>;
@@ -139,7 +141,7 @@ function parseEditDraft(value: EditDraft): DraftRowPatch {
   };
 }
 
-export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInboxPanelProps) {
+export function AiInboxPanel({ initialBatchId, initialContextId, locale, permissions = null }: AiInboxPanelProps) {
   const [batches, setBatches] = useState<DraftBatchSummary[]>([]);
   const [detail, setDetail] = useState<DraftBatchDetail | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -209,6 +211,11 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
     .filter((row) => row.priceCurrency === "TWD")
     .reduce((sum, row) => sum + rowGross(row), 0);
   const confirmedRowCount = detail?.rows.filter((row) => row.state === "confirmed").length ?? 0;
+  const canEditDrafts = permissions?.canEditDrafts ?? true;
+  const canArchiveDrafts = permissions?.canArchiveDrafts ?? true;
+  const canDeleteDrafts = permissions?.canDeleteDrafts ?? true;
+  const canPostDraftRows = permissions?.canWriteTransactions ?? true;
+  const canSelectRows = canEditDrafts || canPostDraftRows;
   const typedPhrase = `POST ${selectedReadyRows.length} TRADES`;
   const requiresTypedConfirm = selectedReadyRows.length >= 6 || selectedGrossTwd >= 1_000_000;
   const activeEditRow = detail?.rows.find((row) => row.id === editRowId) ?? null;
@@ -360,7 +367,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={isMutating || selectedRows.length === 0}
+                      disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("exclude", detail.batch.id, [...selectedRowIds], batchVersion),
                         "Rows excluded.",
@@ -372,7 +379,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={isMutating || selectedRows.length === 0}
+                      disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("reinclude", detail.batch.id, [...selectedRowIds], batchVersion),
                         "Rows re-included.",
@@ -383,7 +390,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={isMutating || selectedRows.length === 0}
+                      disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("reject", detail.batch.id, [...selectedRowIds], batchVersion),
                         "Rows rejected.",
@@ -394,7 +401,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={isMutating}
+                      disabled={isMutating || !canArchiveDrafts}
                       onClick={archiveCurrentBatch}
                     >
                       <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -403,7 +410,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <Button
                       variant="destructive"
                       size="sm"
-                      disabled={isMutating}
+                      disabled={isMutating || !canDeleteDrafts}
                       onClick={deleteCurrentBatch}
                     >
                       <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -455,6 +462,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                       <input
                         value={confirmText}
                         onChange={(event) => setConfirmText(event.target.value)}
+                        disabled={!canPostDraftRows}
                         className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         placeholder={typedPhrase}
                       />
@@ -463,6 +471,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                   <Button
                     disabled={
                       isMutating
+                      || !canPostDraftRows
                       || selectedReadyRows.length === 0
                       || (requiresTypedConfirm && confirmText !== typedPhrase)
                     }
@@ -522,7 +531,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     </TableHeader>
                     <TableBody>
                       {detail.rows.map((row) => {
-                        const selectable = row.state !== "confirmed" && row.state !== "unsupported";
+                        const selectable = canSelectRows && row.state !== "confirmed" && row.state !== "unsupported";
                         return (
                           <TableRow key={row.id}>
                             <TableCell>
@@ -561,7 +570,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                               {[...row.preflightIssues, ...row.warnings].slice(0, 2).map(issueText).join(" · ") || "-"}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" onClick={() => startEdit(row)} disabled={row.state === "confirmed"}>
+                              <Button variant="ghost" size="sm" onClick={() => startEdit(row)} disabled={!canEditDrafts || row.state === "confirmed"}>
                                 <Pencil className="h-4 w-4" aria-hidden="true" />
                                 <span className="sr-only">Edit row</span>
                               </Button>
@@ -638,7 +647,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                   </div>
                   <div className="mt-4 flex justify-end">
                     <Button
-                      disabled={isMutating}
+                      disabled={isMutating || !canEditDrafts}
                       onClick={() => void mutate(
                         () => updateDraftRow(detail.batch.id, activeEditRow.id, activeEditRow.version, parseEditDraft(editDraft)),
                         "Row saved.",
