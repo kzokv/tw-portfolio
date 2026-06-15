@@ -176,8 +176,19 @@ describe("PortfolioClient", () => {
     expect(openQuickActions).toHaveBeenCalledTimes(1);
   });
 
-  it("keys the initial portfolio cache by the server seed reporting currency", () => {
+  it("keys portfolio cache by the shell reporting currency when server seed matches", () => {
     const audPortfolioData = portfolioDataWithReportingCurrency("AUD");
+    vi.mocked(useAppShellData).mockReturnValue({
+      uiDict: dict,
+      locale: "en",
+      sessionUserId: "user-1",
+      isSharedContext: false,
+      mutations: { recomputingSymbols: new Set() },
+      contextRefreshSignal: 0,
+      canUseGlobalQuickActions: true,
+      openQuickActions,
+      reportingCurrency: "AUD",
+    } as never);
     vi.mocked(usePortfolioPrimaryData).mockReturnValue({
       data: audPortfolioData,
       isBootstrapping: false,
@@ -196,6 +207,38 @@ describe("PortfolioClient", () => {
     );
     expect(container.textContent).toContain("Change reporting currency: AUD");
     expect(container.textContent).toContain("A$1,500");
+  });
+
+  it("keeps portfolio cache key aligned to live shell currency when server seed is stale", () => {
+    const audPortfolioData = portfolioDataWithReportingCurrency("AUD");
+    vi.mocked(useAppShellData).mockReturnValue({
+      uiDict: dict,
+      locale: "en",
+      sessionUserId: "user-1",
+      isSharedContext: false,
+      mutations: { recomputingSymbols: new Set() },
+      contextRefreshSignal: 1,
+      canUseGlobalQuickActions: true,
+      openQuickActions,
+      reportingCurrency: "USD",
+    } as never);
+    vi.mocked(usePortfolioPrimaryData).mockReturnValue({
+      data: audPortfolioData,
+      isBootstrapping: false,
+      isRefreshing: false,
+      restoredFromCache: false,
+      restoredAt: null,
+      refresh: vi.fn(),
+    } as never);
+
+    act(() => {
+      root!.render(<PortfolioClient initialPrimaryData={audPortfolioData} />);
+    });
+
+    expect(vi.mocked(usePortfolioPrimaryData).mock.calls[0]?.[1]).toBe(
+      buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope("user-1"), "en", "USD"),
+    );
+    expect(container.textContent).toContain("Change reporting currency: AUD");
   });
 
   it("falls back to the shell reporting currency when portfolio data has no currency-bearing rows", () => {

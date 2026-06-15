@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DashboardPerformanceDto, DashboardPerformanceRange, RouteCachePolicyDto } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DashboardPerformanceDto, DashboardPerformanceRange, RouteCachePolicyDto } from "@vakwen/shared-types";
 import {
   buildRouteDtoCacheTag,
   readRouteDtoCache,
@@ -20,6 +20,7 @@ interface UseDashboardPerformanceOptions {
   cachePolicy?: RouteCachePolicyDto | null;
   range: DashboardPerformanceRange;
   enabled?: boolean;
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   timeoutMessage: string;
 }
 
@@ -28,10 +29,11 @@ export function useDashboardPerformance({
   cachePolicy,
   range,
   enabled = true,
+  expectedReportingCurrency,
   timeoutMessage,
 }: UseDashboardPerformanceOptions) {
   const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "dashboard-performance");
-  const initialCachedRef = useRef(cacheKey ? readRouteDtoCache<DashboardPerformanceDto>(cacheKey) : null);
+  const initialCachedRef = useRef(cacheKey ? readPerformanceCache(cacheKey, expectedReportingCurrency) : null);
   const [data, setData] = useState<DashboardPerformanceDto | null>(initialCachedRef.current?.payload ?? null);
   const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(initialCachedRef.current?.status ?? null);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,6 +61,15 @@ export function useDashboardPerformance({
     try {
       const next = await fetchDashboardPerformanceEnrichment(range, { signal: controller.signal });
       if (activeControllerRef.current === controller) {
+        const canCachePayload = matchesExpectedReportingCurrency(next, expectedReportingCurrency);
+        if (!canCachePayload) {
+          setData(null);
+          setCacheStatus(null);
+          setRestoredAt(null);
+          setRestoredFromCache(false);
+          setErrorMessage("");
+          return;
+        }
         setData(next);
         if (cacheKey) {
           writeRouteDtoCache(cacheKey, next, {
@@ -83,10 +94,10 @@ export function useDashboardPerformance({
         setIsLoading(false);
       }
     }
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, enabled, range, timeoutMessage]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, enabled, expectedReportingCurrency, range, timeoutMessage]);
 
   useEffect(() => {
-    const cached = cacheKey ? readRouteDtoCache<DashboardPerformanceDto>(cacheKey) : null;
+    const cached = cacheKey ? readPerformanceCache(cacheKey, expectedReportingCurrency) : null;
     if (cached) {
       setData(cached.payload);
       setCacheStatus(cached.status);
@@ -104,7 +115,7 @@ export function useDashboardPerformance({
       setCacheStatus(null);
       setRestoredAt(null);
       setRestoredFromCache(false);
-      if (!enabled) {
+      if (!enabled || expectedReportingCurrency !== undefined) {
         setData(null);
       }
     }
@@ -113,7 +124,7 @@ export function useDashboardPerformance({
       activeControllerRef.current?.abort();
       activeControllerRef.current = null;
     };
-  }, [cacheKey, enabled, refresh]);
+  }, [cacheKey, enabled, expectedReportingCurrency, refresh]);
 
   return {
     cacheStatus,
@@ -124,6 +135,24 @@ export function useDashboardPerformance({
     restoredAt,
     restoredFromCache,
   };
+}
+
+function readPerformanceCache(
+  cacheKey: string,
+  expectedReportingCurrency?: AccountDefaultCurrency | null,
+) {
+  const cached = readRouteDtoCache<DashboardPerformanceDto>(cacheKey);
+  if (cached === null || expectedReportingCurrency === undefined) return cached;
+  return matchesExpectedReportingCurrency(cached.payload, expectedReportingCurrency) ? cached : null;
+}
+
+function matchesExpectedReportingCurrency(
+  payload: DashboardPerformanceDto,
+  expectedReportingCurrency?: AccountDefaultCurrency | null,
+): boolean {
+  return expectedReportingCurrency === undefined
+    || expectedReportingCurrency === null
+    || payload.reportingCurrency === expectedReportingCurrency;
 }
 
 function isAbortError(error: unknown): boolean {

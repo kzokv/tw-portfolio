@@ -66,6 +66,7 @@ export function DashboardClient({
     isSharedContext,
     canUseGlobalQuickActions,
     openQuickActions,
+    reportingCurrency,
     recomputeAction,
     openRecomputeConfirm,
     contextRefreshSignal,
@@ -84,7 +85,7 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
-  const performanceReportingCurrency = expectedReportingCurrency ?? dashboard.summary.reportingCurrency;
+  const performanceReportingCurrency = reportingCurrency ?? expectedReportingCurrency ?? dashboard.summary.reportingCurrency;
   const performanceCacheKey = buildRouteDtoCacheKey(
     "dashboard-performance",
     getRouteDtoContextScope(sessionUserId),
@@ -98,6 +99,7 @@ export function DashboardClient({
     cachePolicy: routeCachePolicy,
     range: performanceRange,
     enabled: true,
+    expectedReportingCurrency: performanceReportingCurrency,
     timeoutMessage: dict.dashboardHome.performanceRefreshTimeout,
   });
 
