@@ -259,15 +259,15 @@ export async function buildAllRangePerformance(
   return translatePerformancePoints(userId, "ALL", asOf, reportingCurrency, app.persistence, store);
 }
 
-export async function buildRecentValuationPerformance(
+export async function buildValuationHealthSnapshotPerformance(
   app: FastifyInstance,
   userId: string,
   store: Store,
   reportingCurrency: AccountDefaultCurrency,
   asOf: string,
 ): Promise<DashboardPerformanceDto> {
-  const { translatePerformancePoints } = await import("./dashboardReportingCurrency.js");
-  return translatePerformancePoints(userId, "1M", asOf, reportingCurrency, app.persistence, store);
+  const { translateValuationHealthSnapshotPoints } = await import("./dashboardReportingCurrency.js");
+  return translateValuationHealthSnapshotPoints(userId, "ALL", asOf, reportingCurrency, app.persistence, store);
 }
 
 export function isMarketCode(value: string): value is MarketCode {
