@@ -49,12 +49,12 @@ superseded_by: null
 - [x] Add ChatGPT widget/unit tests proving widgets can still call app-visible low-level tools and no account-manager or transaction-draft component flow regresses.
 - [x] Run `/aaa` to add or update E2E tests covering the flows agreed in this scope session.
 - [x] Run focused MCP/API/web tests first during implementation, then all eight `AGENTS.md` full repo gates before PR readiness. Do not claim "full tests pass" unless all eight suites are clean.
-- [ ] Include connector metadata refresh/re-scan in release validation. Do not claim done until ChatGPT dev connector sees the new tool metadata and no longer model-selects old ID-heavy lifecycle tools.
-- [ ] Live validate in ChatGPT: discover `KC vtwin` via `list_portfolio_contexts`, create a draft in KC vtwin's portfolio by account name, show readable confirmation/posting UX with portfolio/account/row summaries, and avoid raw IDs in the user-facing consent path.
+- [x] Include connector metadata refresh/re-scan in release validation. Do not claim done until ChatGPT dev connector sees the new tool metadata and no longer model-selects old ID-heavy lifecycle tools.
+- [x] Live validate in ChatGPT: discover `KC vtwin` via `list_portfolio_contexts`, create a draft in KC vtwin's portfolio by account name, show readable confirmation/posting UX with portfolio/account/row summaries, and avoid raw IDs in the user-facing consent path.
 
 ## Current Validation Evidence
 
-Full local `AGENTS.md` gates are clean. This update does not claim live ChatGPT validation, PR/deploy, metadata refresh, or deployed-branch validation.
+Full local `AGENTS.md` gates, PR CI, dev deploy, and live Chrome validation are clean for the deployed branch.
 
 - Preflight: `git fetch origin dev`; `origin/dev` = `9edb12c6d18463ca5c6f808c11b7fbafcf6ef48c`; `git merge-base --is-ancestor origin/dev HEAD` = 0; branch = `codex/sharing-mcp-delegated-capabilities`; HEAD = `8732b472c6359a3c853b79ec3f25de8280e446f2`; git status had the MCP/API/web/doc changes listed in this scope.
 - `npx vitest run test/integration/mcp-name-first-delegation.integration.test.ts` — 10 passed
@@ -69,6 +69,16 @@ Full local `AGENTS.md` gates are clean. This update does not claim live ChatGPT 
 - `npm run test:e2e:bypass:mem --prefix apps/web` — 275 passed, 12 skipped; includes delegated sharing permission editing, shared transaction gating, shared account management gating, ChatGPT widget harness, and portfolio switcher coverage.
 - `npm run test:e2e:oauth:mem --prefix apps/web` — 120 passed.
 - `npm run test:http --prefix apps/api` — 290 passed, 2 skipped
+- Review-fix focused validation after commit `94f24d0d195b1756a4005588704dd0df4ba456aa`: `npx vitest run test/integration/mcp-name-first-delegation.integration.test.ts --reporter=dot` — 10 passed; `npx vitest run test/components/transactions/AiInboxPanel.test.tsx test/components/sharing/OutboundSharesTable.test.tsx test/components/sharing/EditSharePermissionsDialog.test.tsx --reporter=dot` — 3 files / 4 tests passed; `npm run typecheck` — passed; `npx eslint .` — passed.
+- PR #221 CI at head `94f24d0d195b1756a4005588704dd0df4ba456aa` passed: `lint`, `pr-gate`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-bypass`, and `e2e-oauth`.
+- Codex review feedback was fixed, replied to, and resolved for: localized grant-dialog permission copy, ID-free `shared_capability_required` error metadata, and read-only shared-context AI Inbox mutation controls.
+- Dev deploy run `27570525493` succeeded via `.github/workflows/deploy-dev.yml` on branch `codex/sharing-mcp-delegated-capabilities` in 18m24s.
+- ChatGPT connector metadata refresh on Vakwen Dev observed model-facing name-first tools including `list_portfolio_contexts`, `create_transaction_draft_batch_by_name`, `post_transaction_draft_rows_by_name`, `create_account_by_name`, and `batchLabel` support.
+- Live ChatGPT MCP validation used delegate `mmckchuang@gmail.com` against delegated owner `c2974378@gmail.com` / `KC vtwin`: discovery returned `mmc_kchuang` self and `KC vtwin` delegated, plus draftable account `Main` without internal IDs.
+- Live ChatGPT draft validation created batch `Delegated validation 2026-06-16 2363 BUY` in portfolio `KC vtwin`, account `Main`; consent Details showed `portfolio: { label: "KC vtwin" }`, `Row 1: Main BUY 1 2363 @ 1.23 TWD`, and no portfolio/account/batch/row IDs in the user-facing path.
+- Live ChatGPT posting validation posted row `1` from that batch; consent Details used `batchLabel`, `rowNumbers: [1]`, `portfolio: { label: "KC vtwin" }`, and final response showed `KC vtwin`, `Main`, row `1`, status `Posted`, trade `BUY 1 x 2363 @ 1.23 TWD`, date `2026-06-16`, fee `0 TWD`.
+- Live ChatGPT account-management validation created temporary account `Delegation Validation 20260616 0335` in `KC vtwin` as Broker/TWD, then soft-deleted it by name; preview/commit consent Details used `portfolio: { label: "KC vtwin" }`, account name, confirmation summary/digest, and no internal IDs.
+- Live app validation on Vakwen Dev showed delegated mode in the app (`Viewing shared portfolio`, switcher `KC vtwin's Portfolio`, `Delegated`), refreshed `/transactions`, and displayed the MCP-posted `2363 BUY Main Jun 16, 2026 1 NT$1.23` row. `/sharing` inbound tab showed active share from `KC vtwin` / `c2974378@gmail.com`.
 
 ## Current Diff Notes
 
@@ -79,8 +89,8 @@ Full local `AGENTS.md` gates are clean. This update does not claim live ChatGPT 
 - The current HTTP AAA coverage exercises the model-facing MCP transport and validates the visible payload from `structuredContent` or text JSON fallback remains free of internal portfolio/account/batch/row IDs for the delegated name-first account and draft posting path.
 - The current diff aligns MCP delegated missing-capability errors to `shared_capability_required` and returns non-5xx route errors as structured MCP tool errors with `code`, `message`, and `statusCode`.
 - The current diff keeps the ID-free guarantee scoped to new model-facing wrappers and delegated workflow outputs. Existing read/report DTOs and old low-level handlers remain backward-compatible during the metadata transition.
-- Connector metadata refresh/re-scan remains a release validation item: the dev ChatGPT connector must observe the new `_by_name` tools and app-only visibility for old lifecycle tools before this scope is complete.
-- Items left unchecked above remain unverified or unsupported by the current diff/evidence and should not be treated as complete.
+- Connector metadata refresh/re-scan was completed on the dev ChatGPT connector. The model selected the name-first wrappers during live delegated discovery, draft creation, posting, account create, and account soft-delete validation.
+- No unchecked implementation items remain in this scope.
 
 ## Open Items
 
