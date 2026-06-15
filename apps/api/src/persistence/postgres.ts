@@ -7267,6 +7267,17 @@ export class PostgresPersistence implements Persistence {
           AND s.account_id = input.account_id
           AND s.ticker = input.ticker
           AND s.market_code = input.market_code
+          AND s.is_provisional = FALSE
+          AND s.close_price IS NOT NULL
+          AND s.quantity IS NOT NULL
+          AND (
+            s.quantity <= 0
+            OR (
+              s.market_value IS NOT NULL
+              AND s.value_native IS NOT NULL
+            )
+          )
+          AND s.provider_source IS NOT NULL
          GROUP BY input.account_id, input.ticker, input.market_code`,
       [
         userId,

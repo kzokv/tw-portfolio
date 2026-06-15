@@ -3815,6 +3815,7 @@ export class MemoryPersistence implements Persistence {
     }
     for (const snapshot of this.holdingSnapshots) {
       if (snapshot.userId !== userId) continue;
+      if (!isCompleteHoldingSnapshot(snapshot)) continue;
       const key = `${snapshot.accountId}\0${snapshot.ticker}\0${snapshot.marketCode}`;
       if (!result.has(key)) continue;
       const current = result.get(key) ?? null;
@@ -6961,6 +6962,19 @@ function toNotificationDto(n: MemoryNotification): NotificationDto {
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   };
+}
+
+function isCompleteHoldingSnapshot(snapshot: HoldingSnapshot): boolean {
+  return !snapshot.isProvisional
+    && snapshot.closePrice !== null
+    && (
+      snapshot.quantity <= 0
+      || (
+        snapshot.marketValue !== null
+        && snapshot.valueNative !== null
+      )
+    )
+    && snapshot.providerSource !== null;
 }
 
 // KZO-183 — application-layer mirror of the composite-FK ownership invariant
