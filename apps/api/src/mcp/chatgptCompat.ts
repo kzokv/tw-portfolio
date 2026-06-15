@@ -245,6 +245,10 @@ function withToolSecurityMetadata(tool: McpToolListResult["tools"][number]) {
   const openAiMeta = getToolOpenAiMeta(tool);
   const chatGptTool = { ...tool };
   delete chatGptTool.execution;
+  const existingUi = isJsonRecord(tool._meta?.ui) ? tool._meta.ui : {};
+  const visibility = Array.isArray(existingUi.visibility)
+    ? existingUi.visibility.filter((value): value is string => typeof value === "string")
+    : ["model", "app"];
   return {
     ...chatGptTool,
     title: tool.title ?? toToolTitle(tool.name),
@@ -255,8 +259,9 @@ function withToolSecurityMetadata(tool: McpToolListResult["tools"][number]) {
       ...tool._meta,
       securitySchemes,
       ui: {
+        ...existingUi,
         resourceUri: openAiMeta.uiResourceUri,
-        visibility: ["model", "app"],
+        visibility,
       },
       "openai/outputTemplate": openAiMeta.outputTemplate,
       "openai/widgetAccessible": openAiMeta.widgetAccessible,

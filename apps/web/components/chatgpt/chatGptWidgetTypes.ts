@@ -82,12 +82,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
 }
 
+function unwrapWidgetRecord(value: unknown): Record<string, unknown> | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  if (record.widget && typeof record.widget === "object") {
+    return unwrapWidgetRecord(record.widget);
+  }
+  if (record.accountManager && typeof record.accountManager === "object") {
+    return unwrapWidgetRecord(record.accountManager);
+  }
+  return record;
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 export function readAccountOptions(value: unknown): ChatGptWidgetAccountOption[] {
-  const record = asRecord(value);
+  const record = unwrapWidgetRecord(value);
   const source = Array.isArray(record?.accountOptions)
     ? record.accountOptions
     : Array.isArray(record?.accounts)
@@ -108,7 +120,7 @@ export function readAccountOptions(value: unknown): ChatGptWidgetAccountOption[]
 }
 
 export function readPostingPreview(value: unknown): ChatGptPostingPreviewSection | null {
-  const record = asRecord(value);
+  const record = unwrapWidgetRecord(value);
   const preview = asRecord(record?.postingPreview);
   if (!preview) return null;
   const rowSource = Array.isArray(preview.rows) ? preview.rows : [];
@@ -180,7 +192,7 @@ export function readPostingPreview(value: unknown): ChatGptPostingPreviewSection
 }
 
 export function readAccountManagerPayload(value: unknown): ChatGptAccountManagerWidgetPayload | null {
-  const record = asRecord(value);
+  const record = unwrapWidgetRecord(value);
   if (!record) return null;
   const activeSource = Array.isArray(record.activeAccounts)
     ? record.activeAccounts

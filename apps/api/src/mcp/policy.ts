@@ -34,9 +34,16 @@ export function getMcpRateLimitBucketCountForTest(): number {
   return rateBuckets.size;
 }
 
-function scopeForAccessKind(accessKind: AiConnectorAccessKind, toolScope: AiConnectorScope): AiConnectorScope {
-  if (accessKind === "read") return "portfolio:mcp_read";
-  return toolScope;
+function scopesForToolAccess(
+  accessKind: AiConnectorAccessKind,
+  toolName: string,
+  toolScope: AiConnectorScope,
+): AiConnectorScope[] {
+  if (accessKind === "read") return ["portfolio:mcp_read"];
+  if (toolName === "list_draftable_account_names") {
+    return ["transaction_draft:create", "transaction_draft:edit"];
+  }
+  return [toolScope];
 }
 
 function limitsForAccessKind(accessKind: AiConnectorAccessKind) {
@@ -53,9 +60,9 @@ function pruneExpiredRateBuckets(now: number): void {
   }
 }
 
-function requireScope(auth: McpAuthContext, scope: AiConnectorScope): void {
-  if (!auth.scopes.includes(scope)) {
-    throw routeError(403, "mcp_scope_denied", `MCP scope ${scope} is not enabled for this connection`);
+function requireAnyScope(auth: McpAuthContext, scopes: readonly AiConnectorScope[]): void {
+  if (!scopes.some((scope) => auth.scopes.includes(scope))) {
+    throw routeError(403, "mcp_scope_denied", `MCP scope ${scopes.join(" or ")} is not enabled for this connection`);
   }
 }
 
@@ -123,12 +130,22 @@ async function resolveSharedContext(
 
 function requireShareCapability(
   resolvedContext: McpResolvedContext,
-  requiredScope: AiConnectorScope,
+  requiredScopes: readonly AiConnectorScope[],
 ): void {
   if (!resolvedContext.shareId) return;
-  const needed = requiredScope as ShareCapability;
-  if (!resolvedContext.shareCapabilities.includes(needed)) {
-    throw routeError(403, "mcp_share_capability_denied", `Shared portfolio capability ${needed} is not enabled`);
+  const needed = requiredScopes as readonly ShareCapability[];
+  if (!needed.some((scope) => resolvedContext.shareCapabilities.includes(scope))) {
+    throw routeError(
+      403,
+      "shared_capability_required",
+      `Shared portfolio capability ${needed.join(" or ")} is not enabled`,
+      {
+        requiredCapabilities: needed,
+        shareId: resolvedContext.shareId,
+        sessionUserId: resolvedContext.sessionUserId,
+        contextUserId: resolvedContext.portfolioContextUserId,
+      },
+    );
   }
 }
 
@@ -163,9 +180,10 @@ export class DefaultMcpPolicyService implements McpPolicyService {
     if (!settings.groupToggles[group]) {
       throw routeError(403, "mcp_tool_group_disabled", `MCP tool group ${group} is disabled`);
     }
-    requireScope(auth, scopeForAccessKind(accessKind, toolScope));
+    const requiredScopes = scopesForToolAccess(accessKind, toolName, toolScope);
+    requireAnyScope(auth, requiredScopes);
     const resolvedContext = await resolveSharedContext(app, auth.sessionUserId, requestedContextUserId);
-    requireShareCapability(resolvedContext, toolScope);
+    requireShareCapability(resolvedContext, requiredScopes);
     enforceRateLimit(auth, accessKind, resolvedContext, req.ip);
     return resolvedContext;
   }

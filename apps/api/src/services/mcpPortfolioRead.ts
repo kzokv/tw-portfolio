@@ -67,6 +67,51 @@ async function loadStoreAndPrefs(deps: McpReadServiceDeps) {
   return { store, prefs, portfolioContextUserId };
 }
 
+function resolveAccountFilterIds(
+  store: Store,
+  input: { accountIds?: string[]; accountNames?: string[] },
+): Set<string> | null {
+  const idsFromIds = input.accountIds && input.accountIds.length > 0 ? new Set(input.accountIds) : null;
+  if (!input.accountNames || input.accountNames.length === 0) return idsFromIds;
+
+  const accountsByName = new Map<string, Store["accounts"]>();
+  for (const account of store.accounts) {
+    const key = account.name.trim().toLowerCase();
+    const bucket = accountsByName.get(key) ?? [];
+    bucket.push(account);
+    accountsByName.set(key, bucket);
+  }
+
+  const idsFromNames = new Set<string>();
+  for (const accountName of input.accountNames) {
+    const matches = accountsByName.get(accountName.trim().toLowerCase()) ?? [];
+    if (matches.length === 0) {
+      throw routeError(404, "mcp_account_not_found", `Active account named ${accountName} was not found`);
+    }
+    if (matches.length > 1) {
+      throw routeError(
+        409,
+        "mcp_account_name_ambiguous",
+        `Account name ${accountName} matched multiple active accounts. Use unique account names before filtering by accountNames.`,
+      );
+    }
+    idsFromNames.add(matches[0]!.id);
+  }
+
+  if (idsFromIds) {
+    const idList = [...idsFromIds].sort();
+    const nameList = [...idsFromNames].sort();
+    if (idList.length !== nameList.length || idList.some((id, index) => id !== nameList[index])) {
+      throw routeError(
+        409,
+        "mcp_account_filter_conflict",
+        "accountIds and accountNames resolved to different accounts",
+      );
+    }
+  }
+  return idsFromNames;
+}
+
 function resolveRequestedReportingCurrency(
   requested: CurrencyCode | undefined,
   fallback: AccountDefaultCurrency,
@@ -192,6 +237,7 @@ export async function getRecentTransactions(
     offset: number;
     tickers?: string[];
     accountIds?: string[];
+    accountNames?: string[];
   },
 ) {
   const { store, portfolioContextUserId } = await loadStoreAndPrefs(deps);
@@ -206,7 +252,7 @@ export async function getRecentTransactions(
     throw routeError(400, "mcp_invalid_date_range", "Recent transaction window cannot exceed one year");
   }
   const tickerFilter = input.tickers ? new Set(input.tickers.map((ticker) => ticker.trim().toUpperCase())) : null;
-  const accountFilter = input.accountIds ? new Set(input.accountIds) : null;
+  const accountFilter = resolveAccountFilterIds(store, input);
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const all = store.accounting.facts.tradeEvents
     .filter((trade) => trade.tradeDate >= fromDate && trade.tradeDate <= toDate)
@@ -285,10 +331,10 @@ export async function getQuoteFreshness(
 
 export async function getCashBalanceSummary(
   deps: McpReadServiceDeps,
-  input: ReadOverrides & { accountIds?: string[] },
+  input: ReadOverrides & { accountIds?: string[]; accountNames?: string[] },
 ) {
   const { store, portfolioContextUserId } = await loadStoreAndPrefs(deps);
-  const allowedAccounts = input.accountIds ? new Set(input.accountIds) : null;
+  const allowedAccounts = resolveAccountFilterIds(store, input);
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const grouped = new Map<string, { accountId: string; currency: string; balanceAmount: number }>();
   for (const entry of store.accounting.facts.cashLedgerEntries) {

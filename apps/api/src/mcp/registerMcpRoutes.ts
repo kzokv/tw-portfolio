@@ -15,6 +15,7 @@ import {
   toToolTitle,
 } from "./chatgptCompat.js";
 import { DefaultMcpAuthService } from "./auth.js";
+import { routeError } from "../lib/routeError.js";
 import {
   approveMcpOAuthConsent,
   buildMcpWwwAuthenticateHeader,
@@ -30,6 +31,33 @@ import {
 import { DefaultMcpPolicyService } from "./policy.js";
 import { getMcpToolDefinition, listMcpToolDefinitions, type McpToolName } from "./tools.js";
 import type { McpAuthService, McpPolicyService, McpRequestContext, McpResolvedContext } from "./types.js";
+import { resolvePortfolioSelector } from "../services/mcpNameResolution.js";
+import {
+  archiveTransactionDraftBatchByName,
+  createAccountByName,
+  createTransactionDraftBatchByName,
+  deleteUnconfirmedTransactionDraftBatchByName,
+  excludeTransactionDraftRowsByName,
+  getTransactionDraftBatchByName,
+  getTransactionDraftPostingPreviewByName,
+  listAccountNames,
+  listDraftableAccountNames,
+  listPortfolioContexts,
+  listTransactionDraftBatchesByName,
+  postTransactionDraftRowsByName,
+  preflightTransactionDraftCandidatesByName,
+  previewCreateAccountByName,
+  previewRestoreAccountByName,
+  previewSoftDeleteAccountByName,
+  previewUpdateAccountByName,
+  reincludeTransactionDraftRowsByName,
+  rejectTransactionDraftRowsByName,
+  restoreAccountByName,
+  showTransactionDraftBatchByName,
+  softDeleteAccountByName,
+  updateAccountByName,
+  updateTransactionDraftRowsByName,
+} from "../services/mcpNameTools.js";
 import {
   createAccount,
   getAccountManagerComponent,
@@ -103,10 +131,56 @@ function buildToolResult(value: unknown) {
   };
 }
 
+function buildToolErrorResult(error: Error & { statusCode?: unknown; code?: unknown; metadata?: unknown }) {
+  const code = typeof error.code === "string" ? error.code : "mcp_tool_error";
+  const statusCode = typeof error.statusCode === "number" ? error.statusCode : 500;
+  const structuredContent = {
+    code,
+    message: error.message,
+    statusCode,
+    ...(error.metadata && typeof error.metadata === "object" && !Array.isArray(error.metadata)
+      ? { metadata: error.metadata as Record<string, unknown> }
+      : {}),
+  };
+  return {
+    content: [{ type: "text" as const, text: `${code}: ${error.message}` }],
+    structuredContent,
+    isError: true,
+  };
+}
+
 function extractRequestedContextUserId(args: unknown): string | undefined {
   if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
   const value = (args as Record<string, unknown>).portfolioContextUserId;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function requiresExplicitPortfolioSelector(toolName: McpToolName): boolean {
+  return [
+    "list_account_names",
+    "preview_create_account_by_name",
+    "create_account_by_name",
+    "preview_update_account_by_name",
+    "update_account_by_name",
+    "preview_soft_delete_account_by_name",
+    "soft_delete_account_by_name",
+    "preview_restore_account_by_name",
+    "restore_account_by_name",
+    "list_draftable_account_names",
+    "preflight_transaction_draft_candidates_by_name",
+    "create_transaction_draft_batch_by_name",
+    "list_transaction_draft_batches_by_name",
+    "get_transaction_draft_batch_by_name",
+    "show_transaction_draft_batch_by_name",
+    "update_transaction_draft_rows_by_name",
+    "exclude_transaction_draft_rows_by_name",
+    "reinclude_transaction_draft_rows_by_name",
+    "reject_transaction_draft_rows_by_name",
+    "archive_transaction_draft_batch_by_name",
+    "delete_unconfirmed_transaction_draft_batch_by_name",
+    "get_transaction_draft_posting_preview_by_name",
+    "post_transaction_draft_rows_by_name",
+  ].includes(toolName);
 }
 
 function extractPendingContext(extra: unknown): PendingToolRequestContext | undefined {
@@ -171,7 +245,8 @@ export async function registerMcpRoutes(
       });
     }
     const auth = pending.auth;
-    const requestedContextUserId = extractRequestedContextUserId(args);
+    let requestedContextUserId = extractRequestedContextUserId(args);
+    let selectedPortfolio: Awaited<ReturnType<typeof resolvePortfolioSelector>> = { descriptor: null };
     let resolvedContext: McpResolvedContext | undefined;
 
     const logAccess = async (result: "ok" | "denied" | "error", denialReason?: string) => {
@@ -195,6 +270,42 @@ export async function registerMcpRoutes(
     };
 
     try {
+      const hasModelFacingPortfolioSelector = Boolean(
+        args
+        && typeof args === "object"
+        && !Array.isArray(args)
+        && (args as { portfolio?: unknown }).portfolio,
+      );
+      const hasLegacyPortfolioContextUserId = Boolean(
+        args
+        && typeof args === "object"
+        && !Array.isArray(args)
+        && typeof (args as { portfolioContextUserId?: unknown }).portfolioContextUserId === "string"
+        && ((args as { portfolioContextUserId?: string }).portfolioContextUserId ?? "").trim().length > 0,
+      );
+      if (requiresExplicitPortfolioSelector(toolName) && hasLegacyPortfolioContextUserId) {
+        throw routeError(
+          400,
+          "mcp_portfolio_context_id_forbidden",
+          "Model-facing delegated MCP write tools require portfolio: { label, email? }. portfolioContextUserId is only supported by legacy widget/internal tools.",
+        );
+      }
+      selectedPortfolio = await resolvePortfolioSelector(app, auth, args);
+      if (requiresExplicitPortfolioSelector(toolName) && !hasModelFacingPortfolioSelector) {
+        throw routeError(
+          400,
+          "mcp_portfolio_required",
+          "Model-facing delegated MCP write tools require portfolio: { label, email? }. portfolioContextUserId is only supported by legacy widget/internal tools.",
+        );
+      }
+      if (requiresExplicitPortfolioSelector(toolName) && !selectedPortfolio.descriptor) {
+        throw routeError(
+          400,
+          "mcp_portfolio_required",
+          "Model-facing delegated MCP write tools require portfolio: { label, email? }. Call list_portfolio_contexts first.",
+        );
+      }
+      requestedContextUserId = selectedPortfolio.requestedContextUserId ?? requestedContextUserId;
       resolvedContext = await policyService.assertToolAccess(
         app,
         pending.req,
@@ -206,6 +317,15 @@ export async function registerMcpRoutes(
       const requestContext: McpRequestContext = {
         auth,
         resolvedContext,
+        ...(selectedPortfolio.descriptor
+          ? {
+              portfolioContextDescriptor: {
+                label: selectedPortfolio.descriptor.label,
+                email: selectedPortfolio.descriptor.email,
+                isSelf: selectedPortfolio.descriptor.isSelf,
+              },
+            }
+          : {}),
         requestId: pending.requestId,
         sourceIp: pending.sourceIp,
         userAgent: pending.userAgent,
@@ -241,6 +361,7 @@ export async function registerMcpRoutes(
               offset: number;
               tickers?: string[];
               accountIds?: string[];
+              accountNames?: string[];
             },
           );
           break;
@@ -280,8 +401,11 @@ export async function registerMcpRoutes(
         case "get_cash_balance_summary":
           result = await getCashBalanceSummary(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
-            args as { accountIds?: string[]; locale?: string },
+            args as { accountIds?: string[]; accountNames?: string[]; locale?: string },
           );
+          break;
+        case "list_portfolio_contexts":
+          result = await listPortfolioContexts({ app, requestContext, tradingCalendar: app.tradingCalendarCache });
           break;
         case "search_instruments":
           result = await searchInstruments(
@@ -322,13 +446,76 @@ export async function registerMcpRoutes(
         case "get_account_manager_component":
           result = await getAccountManagerComponent({ app, requestContext });
           break;
+        case "list_account_names":
+          result = await listAccountNames(
+            { app, requestContext },
+            args as Parameters<typeof listAccountNames>[1],
+          );
+          break;
+        case "preview_create_account_by_name":
+          result = await previewCreateAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof previewCreateAccountByName>[1],
+          );
+          break;
+        case "create_account_by_name":
+          result = await createAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof createAccountByName>[1],
+          );
+          break;
+        case "preview_update_account_by_name":
+          result = await previewUpdateAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof previewUpdateAccountByName>[1],
+          );
+          break;
+        case "update_account_by_name":
+          result = await updateAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof updateAccountByName>[1],
+          );
+          break;
+        case "preview_soft_delete_account_by_name":
+          result = await previewSoftDeleteAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof previewSoftDeleteAccountByName>[1],
+          );
+          break;
+        case "soft_delete_account_by_name":
+          result = await softDeleteAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof softDeleteAccountByName>[1],
+          );
+          break;
+        case "preview_restore_account_by_name":
+          result = await previewRestoreAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof previewRestoreAccountByName>[1],
+          );
+          break;
+        case "restore_account_by_name":
+          result = await restoreAccountByName(
+            { app, requestContext },
+            args as Parameters<typeof restoreAccountByName>[1],
+          );
+          break;
         case "get_transaction_draft_template":
           result = await getTransactionDraftTemplate();
+          break;
+        case "list_draftable_account_names":
+          result = await listDraftableAccountNames({ app, requestContext });
           break;
         case "preflight_transaction_draft_candidates":
           result = await preflightTransactionDraftCandidates(
             { app, requestContext },
             args as Parameters<typeof preflightTransactionDraftCandidates>[1],
+          );
+          break;
+        case "preflight_transaction_draft_candidates_by_name":
+          result = await preflightTransactionDraftCandidatesByName(
+            { app, requestContext },
+            args as Parameters<typeof preflightTransactionDraftCandidatesByName>[1],
           );
           break;
         case "create_transaction_draft_batch":
@@ -337,10 +524,22 @@ export async function registerMcpRoutes(
             args as Parameters<typeof createTransactionDraftBatch>[1],
           );
           break;
+        case "create_transaction_draft_batch_by_name":
+          result = await createTransactionDraftBatchByName(
+            { app, requestContext },
+            args as Parameters<typeof createTransactionDraftBatchByName>[1],
+          );
+          break;
         case "list_transaction_draft_batches":
           result = await listTransactionDraftBatches(
             { app, requestContext },
             args as Parameters<typeof listTransactionDraftBatches>[1],
+          );
+          break;
+        case "list_transaction_draft_batches_by_name":
+          result = await listTransactionDraftBatchesByName(
+            { app, requestContext },
+            args as Parameters<typeof listTransactionDraftBatchesByName>[1],
           );
           break;
         case "get_transaction_draft_batch": {
@@ -348,6 +547,18 @@ export async function registerMcpRoutes(
           result = await getTransactionDraftBatch({ app, requestContext }, batchId);
           break;
         }
+        case "get_transaction_draft_batch_by_name":
+          result = await getTransactionDraftBatchByName(
+            { app, requestContext },
+            args as Parameters<typeof getTransactionDraftBatchByName>[1],
+          );
+          break;
+        case "show_transaction_draft_batch_by_name":
+          result = await showTransactionDraftBatchByName(
+            { app, requestContext },
+            args as Parameters<typeof showTransactionDraftBatchByName>[1],
+          );
+          break;
         case "get_transaction_draft_batch_component":
           result = await getTransactionDraftBatchComponent(
             { app, requestContext },
@@ -360,10 +571,22 @@ export async function registerMcpRoutes(
             args as Parameters<typeof updateTransactionDraftRows>[1],
           );
           break;
+        case "update_transaction_draft_rows_by_name":
+          result = await updateTransactionDraftRowsByName(
+            { app, requestContext },
+            args as Parameters<typeof updateTransactionDraftRowsByName>[1],
+          );
+          break;
         case "exclude_transaction_draft_rows":
           result = await excludeTransactionDraftRows(
             { app, requestContext },
             args as Parameters<typeof excludeTransactionDraftRows>[1],
+          );
+          break;
+        case "exclude_transaction_draft_rows_by_name":
+          result = await excludeTransactionDraftRowsByName(
+            { app, requestContext },
+            args as Parameters<typeof excludeTransactionDraftRowsByName>[1],
           );
           break;
         case "reinclude_transaction_draft_rows":
@@ -372,10 +595,22 @@ export async function registerMcpRoutes(
             args as Parameters<typeof reincludeTransactionDraftRows>[1],
           );
           break;
+        case "reinclude_transaction_draft_rows_by_name":
+          result = await reincludeTransactionDraftRowsByName(
+            { app, requestContext },
+            args as Parameters<typeof reincludeTransactionDraftRowsByName>[1],
+          );
+          break;
         case "reject_transaction_draft_rows":
           result = await rejectTransactionDraftRows(
             { app, requestContext },
             args as Parameters<typeof rejectTransactionDraftRows>[1],
+          );
+          break;
+        case "reject_transaction_draft_rows_by_name":
+          result = await rejectTransactionDraftRowsByName(
+            { app, requestContext },
+            args as Parameters<typeof rejectTransactionDraftRowsByName>[1],
           );
           break;
         case "archive_transaction_draft_batch":
@@ -384,10 +619,22 @@ export async function registerMcpRoutes(
             args as Parameters<typeof archiveTransactionDraftBatch>[1],
           );
           break;
+        case "archive_transaction_draft_batch_by_name":
+          result = await archiveTransactionDraftBatchByName(
+            { app, requestContext },
+            args as Parameters<typeof archiveTransactionDraftBatchByName>[1],
+          );
+          break;
         case "delete_unconfirmed_transaction_draft_batch":
           result = await deleteUnconfirmedTransactionDraftBatch(
             { app, requestContext },
             args as Parameters<typeof deleteUnconfirmedTransactionDraftBatch>[1],
+          );
+          break;
+        case "delete_unconfirmed_transaction_draft_batch_by_name":
+          result = await deleteUnconfirmedTransactionDraftBatchByName(
+            { app, requestContext },
+            args as Parameters<typeof deleteUnconfirmedTransactionDraftBatchByName>[1],
           );
           break;
         case "get_transaction_draft_posting_preview":
@@ -396,10 +643,22 @@ export async function registerMcpRoutes(
             args as Parameters<typeof getTransactionDraftPostingPreview>[1],
           );
           break;
+        case "get_transaction_draft_posting_preview_by_name":
+          result = await getTransactionDraftPostingPreviewByName(
+            { app, requestContext },
+            args as Parameters<typeof getTransactionDraftPostingPreviewByName>[1],
+          );
+          break;
         case "post_transaction_draft_rows":
           result = await postTransactionDraftRows(
             { app, requestContext },
             args as Parameters<typeof postTransactionDraftRows>[1],
+          );
+          break;
+        case "post_transaction_draft_rows_by_name":
+          result = await postTransactionDraftRowsByName(
+            { app, requestContext },
+            args as Parameters<typeof postTransactionDraftRowsByName>[1],
           );
           break;
       }
@@ -425,6 +684,9 @@ export async function registerMcpRoutes(
           description,
           text: `Authorization required for ${toToolTitle(toolName)}.`,
         });
+      }
+      if (error instanceof Error && "statusCode" in error && Number((error as { statusCode?: unknown }).statusCode) < 500) {
+        return buildToolErrorResult(error as Error & { statusCode?: unknown; code?: unknown; metadata?: unknown });
       }
       throw error;
     }

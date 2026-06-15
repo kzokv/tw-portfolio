@@ -33,6 +33,11 @@ export interface McpAuthContext {
 export interface McpRequestContext {
   auth: McpAuthContext;
   resolvedContext: McpResolvedContext;
+  portfolioContextDescriptor?: {
+    label: string;
+    email: string | null;
+    isSelf: boolean;
+  };
   requestId: string;
   sourceIp: string | null;
   userAgent: string | null;
