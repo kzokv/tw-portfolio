@@ -959,6 +959,19 @@ describe("backfill handler trigger branching", () => {
 
     // Status must NOT flip to "failed" — this is a reschedule.
     expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "AU", "failed");
+
+    expect(deps.enqueueSnapshotRepair).toHaveBeenCalledWith({
+      ticker: "BHP",
+      marketCode: "AU",
+      fromDate: "2024-06-15",
+      trigger: "user_selection",
+    });
+    const repairOrder = deps.enqueueSnapshotRepair.mock.invocationCallOrder[0] ?? 0;
+    const metadataOrder = deps.auProvider.fetchInstrumentMetadata.mock.invocationCallOrder[0] ?? 0;
+    const rescheduleOrder = deps.boss.send.mock.invocationCallOrder[0] ?? 0;
+    expect(repairOrder).toBeGreaterThan(0);
+    expect(repairOrder).toBeLessThan(metadataOrder);
+    expect(repairOrder).toBeLessThan(rescheduleOrder);
   });
 
   it("AU pre-1988 trade-date truncation: startDate before historyStartFor('AU') is replaced with the AU start", async () => {
