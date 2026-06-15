@@ -532,7 +532,7 @@ export async function translateValuationHealthSnapshotPoints(
 
   const coverage = filterAggregatedSnapshotsByActiveCoverage(
     aggregated,
-    buildExpectedPortfolioContributorKeysByDate(store.accounting.facts.tradeEvents, startDate, endDate),
+    await buildExpectedSnapshotContributorKeysForTrades(store.accounting.facts.tradeEvents, startDate, endDate, persistence),
   );
   const points = coverage.points.map((point) => translateAggregatedPerformancePoint(point));
   let allAvailable = true;
@@ -596,48 +596,6 @@ async function buildExpectedSnapshotContributorKeysByDate(
     endDate,
     persistence,
   );
-}
-
-function buildExpectedPortfolioContributorKeysByDate(
-  inputTrades: ReadonlyArray<PerformanceCoverageTrade>,
-  startDate: string,
-  endDate: string,
-): Map<string, Set<string>> {
-  const trades = sortPerformanceCoverageTrades(inputTrades);
-  const activeQuantities = new Map<string, number>();
-  const expectedByDate = new Map<string, Set<string>>();
-  let tradeIndex = 0;
-
-  function applyTradeQuantity(trade: PerformanceCoverageTrade): void {
-    const key = performancePositionKey(trade);
-    const current = activeQuantities.get(key) ?? 0;
-    const next = trade.type === "BUY"
-      ? current + trade.quantity
-      : Math.max(0, current - trade.quantity);
-    if (next === 0) activeQuantities.delete(key);
-    else activeQuantities.set(key, next);
-  }
-
-  while (tradeIndex < trades.length && trades[tradeIndex].tradeDate < startDate) {
-    applyTradeQuantity(trades[tradeIndex]);
-    tradeIndex += 1;
-  }
-
-  const oneDayMs = 86_400_000;
-  for (
-    let cursor = new Date(`${startDate}T00:00:00.000Z`).getTime();
-    cursor <= new Date(`${endDate}T00:00:00.000Z`).getTime();
-    cursor += oneDayMs
-  ) {
-    const currentDate = new Date(cursor).toISOString().slice(0, 10);
-    while (tradeIndex < trades.length && trades[tradeIndex].tradeDate <= currentDate) {
-      applyTradeQuantity(trades[tradeIndex]);
-      tradeIndex += 1;
-    }
-    expectedByDate.set(currentDate, new Set(activeQuantities.keys()));
-  }
-
-  return expectedByDate;
 }
 
 export async function buildExpectedSnapshotContributorKeysForTrades(
