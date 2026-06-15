@@ -73,7 +73,11 @@ import {
   LOCALE_OVERRIDE_COOKIE,
   normalizeLocaleOverride,
 } from "./i18n/localeOverrideCookie";
-import { clearRouteDtoCacheByPrefix, getRouteDtoCachePrefix } from "./routeDtoCache";
+import {
+  clearPortfolioContextRouteCaches,
+  clearRouteDtoCacheByPrefix,
+  getRouteDtoCachePrefix,
+} from "./routeDtoCache";
 
 export class ApiError extends Error {
   constructor(
@@ -377,6 +381,50 @@ interface JsonRequestOptions {
   keepalive?: boolean;
 }
 
+const DELEGATED_PORTFOLIO_WRITE_PATHS = {
+  post: [
+    /^\/accounts$/,
+    /^\/accounts\/[^/]+\/purge$/,
+    /^\/accounts\/[^/]+\/restore$/,
+    /^\/ai\/transactions\/confirm$/,
+    /^\/ai\/transaction-drafts\/[^/]+\/confirm$/,
+    /^\/fee-profiles$/,
+    /^\/portfolio\/transactions$/,
+  ],
+  patch: [
+    /^\/accounts\/[^/]+$/,
+    /^\/fee-profiles\/[^/]+$/,
+    /^\/portfolio\/transactions\/[^/]+$/,
+    /^\/shares\/[^/]+\/capabilities$/,
+    /^\/shares\/pending\/[^/]+\/capabilities$/,
+  ],
+  put: [
+    /^\/fee-profile-bindings$/,
+    /^\/settings\/fee-config$/,
+  ],
+  delete: [
+    /^\/accounts\/[^/]+$/,
+    /^\/fee-profiles\/[^/]+$/,
+    /^\/portfolio\/transactions\/[^/]+$/,
+  ],
+} as const;
+
+export function shouldInvalidatePortfolioRouteCaches(
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
+  path: string,
+): boolean {
+  const patterns = DELEGATED_PORTFOLIO_WRITE_PATHS[method.toLowerCase() as keyof typeof DELEGATED_PORTFOLIO_WRITE_PATHS];
+  return patterns.some((pattern) => pattern.test(path));
+}
+
+function invalidatePortfolioRouteCachesForWrite(
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
+  path: string,
+): void {
+  if (!shouldInvalidatePortfolioRouteCaches(method, path)) return;
+  clearPortfolioContextRouteCaches();
+}
+
 export async function getJson<T>(path: string, options: JsonRequestOptions = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
@@ -409,6 +457,7 @@ export async function postJson<T>(
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
+  invalidatePortfolioRouteCachesForWrite("POST", path);
   return res.json() as Promise<T>;
 }
 
@@ -426,6 +475,7 @@ export async function patchJson<T>(path: string, body: unknown, options: JsonReq
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
+  invalidatePortfolioRouteCachesForWrite("PATCH", path);
   return res.json() as Promise<T>;
 }
 
@@ -439,6 +489,7 @@ export async function putJson<T>(path: string, body: unknown, options: JsonReque
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
+  invalidatePortfolioRouteCachesForWrite("PUT", path);
   return res.json() as Promise<T>;
 }
 
@@ -459,6 +510,7 @@ export async function deleteJson<T>(
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
+  invalidatePortfolioRouteCachesForWrite("DELETE", path);
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }

@@ -9,7 +9,7 @@ import {
   clearContextCookie,
   writeContextCookie,
 } from "../../lib/context";
-import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../lib/routeDtoCache";
+import { clearPortfolioContextRouteCaches } from "../../lib/routeDtoCache";
 import {
   extractSharingNotificationDetail,
   isRevokedSharingNotification,
@@ -26,14 +26,6 @@ interface UseSharedContextOptions {
   /** Locale-aware dictionary used for the revoked-fallback toast copy. */
   dict: AppDictionary;
 }
-
-const CONTEXT_ROUTE_CACHE_TAGS = [
-  buildRouteDtoCacheTag("route", "dashboard-primary"),
-  buildRouteDtoCacheTag("route", "dashboard-performance"),
-  buildRouteDtoCacheTag("route", "portfolio-primary"),
-  buildRouteDtoCacheTag("route", "reports"),
-  buildRouteDtoCacheTag("route", "transactions-primary"),
-];
 
 /**
  * Owns the shared-context (inbound-share / impersonation-as-owner) state +
@@ -85,7 +77,7 @@ export function useSharedContext({
 
   // Preserves §8 item 5 — router.refresh() after context changes.
   const refreshContextDependentData = useCallback(async () => {
-    clearRouteDtoCacheByTags(CONTEXT_ROUTE_CACHE_TAGS);
+    clearPortfolioContextRouteCaches();
     router.refresh();
     setContextRefreshSignal((n) => n + 1);
     await Promise.allSettled([

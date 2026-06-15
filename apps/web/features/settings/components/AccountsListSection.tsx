@@ -97,6 +97,8 @@ interface AccountsListSectionProps {
    */
   effectiveAccountHardPurgeDays?: number;
   dict: AppDictionary;
+  canManage?: boolean;
+  allowHardPurge?: boolean;
 }
 
 const PROFILE_FIELDS: ReadonlyArray<{
@@ -177,6 +179,8 @@ export function AccountsListSection({
   onAccountsChanged,
   effectiveAccountHardPurgeDays = 30,
   dict,
+  canManage = true,
+  allowHardPurge = true,
 }: AccountsListSectionProps) {
   // Rename UI state.
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -490,6 +494,15 @@ export function AccountsListSection({
         <p className="text-xs text-muted-foreground">{dict.settings.accountsListSectionDescription}</p>
       </div>
 
+      {!canManage ? (
+        <div
+          className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground"
+          data-testid="accounts-shared-readonly-note"
+        >
+          {dict.switcher.readonlyDescription}
+        </div>
+      ) : null}
+
       {/* KZO-183 E5 — top-of-tab search input. */}
       <div className="space-y-1">
         <label
@@ -517,6 +530,7 @@ export function AccountsListSection({
             placeholder={dict.settings.accountsTabSearchPlaceholder}
             className={`${fieldClassName} pl-9`}
             data-testid="accounts-tab-search"
+            disabled={!canManage}
           />
         </div>
       </div>
@@ -630,6 +644,7 @@ export function AccountsListSection({
                       className="rounded-full border border-border p-2 text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
                       data-testid="account-rename-icon"
                       aria-label={dict.settings.accountRenameIconLabel}
+                      disabled={!canManage}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -641,6 +656,7 @@ export function AccountsListSection({
                       className="rounded-full border border-border p-2 text-muted-foreground transition hover:border-rose-300/40 hover:bg-rose-500/15 hover:text-rose-600"
                       data-testid={`account-delete-btn-${account.id}`}
                       aria-label={dict.settings.accountsDeleteBtn}
+                      disabled={!canManage}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -664,6 +680,7 @@ export function AccountsListSection({
                       onChange={(event) => onUpdateAccountProfile(account.id, event.target.value)}
                       className={fieldClassName}
                       data-testid={`settings-account-profile-${account.id}`}
+                      disabled={!canManage}
                     >
                       {ownedProfiles.length === 0 ? (
                         <option value="">{dict.settings.accountsListNoProfilesYet}</option>
@@ -692,6 +709,7 @@ export function AccountsListSection({
                           variant="secondary"
                           onClick={() => onAddProfileForAccount(account.id)}
                           data-testid={`accounts-card-${account.id}-add-profile`}
+                          disabled={!canManage}
                         >
                           <Plus className="mr-1 h-3.5 w-3.5" />
                           {dict.settings.accountsListAddProfile}
@@ -702,7 +720,7 @@ export function AccountsListSection({
                           variant="secondary"
                           onClick={() => openDuplicatePicker(account.id)}
                           data-testid={`accounts-card-${account.id}-duplicate-cta`}
-                          disabled={accounts.length < 2}
+                          disabled={!canManage || accounts.length < 2}
                         >
                           <Copy className="mr-1 h-3.5 w-3.5" />
                           {dict.settings.accountsListDuplicateFromAnotherCta}
@@ -745,6 +763,7 @@ export function AccountsListSection({
                                     aria-label={dict.settings.accountsListEditProfileLabel}
                                     className="rounded p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
                                     data-testid={`accounts-profile-edit-${profile.id}`}
+                                    disabled={!canManage}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -754,7 +773,7 @@ export function AccountsListSection({
                                     aria-label={dict.settings.accountsListDeleteProfileLabel}
                                     className="rounded p-1 text-muted-foreground transition hover:bg-rose-500/15 hover:text-rose-600"
                                     data-testid={`accounts-profile-remove-${profile.id}`}
-                                    disabled={ownedProfiles.length <= 1}
+                                    disabled={!canManage || ownedProfiles.length <= 1}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -772,6 +791,7 @@ export function AccountsListSection({
                                       }
                                       className={fieldClassName}
                                       data-testid={`accounts-profile-name-input-${profile.id}`}
+                                      disabled={!canManage}
                                     />
                                   </label>
 
@@ -797,6 +817,7 @@ export function AccountsListSection({
                                       }}
                                       className={fieldClassName}
                                       data-testid={`accounts-profile-discount-${profile.id}`}
+                                      disabled={!canManage}
                                     />
                                     <p className="text-[11px] text-muted-foreground">
                                       {dict.settings.profileDiscountHint}
@@ -822,6 +843,7 @@ export function AccountsListSection({
                                           )
                                         }
                                         className={fieldClassName}
+                                        disabled={!canManage}
                                       />
                                     </label>
                                   ))}
@@ -838,6 +860,7 @@ export function AccountsListSection({
                                         )
                                       }
                                       className={fieldClassName}
+                                      disabled={!canManage}
                                     >
                                       {getCurrencyOptions([profile.commissionCurrency]).map(
                                         (currency) => (
@@ -861,6 +884,7 @@ export function AccountsListSection({
                                         )
                                       }
                                       className={fieldClassName}
+                                      disabled={!canManage}
                                     >
                                       <option value="FLOOR">FLOOR</option>
                                       <option value="ROUND">ROUND</option>
@@ -880,6 +904,7 @@ export function AccountsListSection({
                                         )
                                       }
                                       className={fieldClassName}
+                                      disabled={!canManage}
                                     >
                                       <option value="FLOOR">FLOOR</option>
                                       <option value="ROUND">ROUND</option>
@@ -900,6 +925,7 @@ export function AccountsListSection({
                                       }
                                       className={fieldClassName}
                                       data-testid={`accounts-profile-charge-mode-${profile.id}`}
+                                      disabled={!canManage}
                                     >
                                       <option value="CHARGED_UPFRONT">CHARGED_UPFRONT</option>
                                       <option value="CHARGED_UPFRONT_REBATED_LATER">
@@ -917,6 +943,7 @@ export function AccountsListSection({
                                     size="sm"
                                     onClick={() => setEditingProfileId(null)}
                                     data-testid={`accounts-profile-edit-done-${profile.id}`}
+                                    disabled={!canManage}
                                   >
                                     {dict.settings.accountsListSaveProfileEdit}
                                   </Button>
@@ -941,7 +968,7 @@ export function AccountsListSection({
                         variant="secondary"
                         onClick={() => onAddBinding(account.id)}
                         data-testid={`accounts-card-${account.id}-add-override`}
-                        disabled={ownedProfiles.length === 0}
+                        disabled={!canManage || ownedProfiles.length === 0}
                       >
                         <Plus className="mr-1 h-3.5 w-3.5" />
                         {dict.settings.accountsListAddOverride}
@@ -971,6 +998,7 @@ export function AccountsListSection({
                               maxLength={16}
                               placeholder={dict.settings.accountsListOverrideTickerPlaceholder}
                               data-testid={`accounts-override-ticker-${index}`}
+                              disabled={!canManage}
                             />
                             <select
                               value={
@@ -983,6 +1011,7 @@ export function AccountsListSection({
                               }
                               className={fieldClassName}
                               data-testid={`accounts-override-profile-${index}`}
+                              disabled={!canManage}
                             >
                               {ownedProfiles.length === 0 ? (
                                 <option value="">{dict.settings.accountsListNoProfilesYet}</option>
@@ -999,6 +1028,7 @@ export function AccountsListSection({
                               aria-label={dict.settings.accountsListOverrideRemoveLabel}
                               className="rounded p-1 text-muted-foreground transition hover:bg-rose-500/15 hover:text-rose-600"
                               data-testid={`accounts-override-remove-${index}`}
+                              disabled={!canManage}
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -1038,6 +1068,7 @@ export function AccountsListSection({
               onChange={(event) => setDuplicateSourceAccountId(event.target.value)}
               className={fieldClassName}
               data-testid="accounts-duplicate-source-select"
+              disabled={!canManage}
             >
               {accounts
                 .filter((account) => account.id !== duplicateTargetAccountId)
@@ -1072,6 +1103,7 @@ export function AccountsListSection({
                           checked={checked}
                           onChange={() => toggleDuplicateSelection(profile.id)}
                           data-testid={`accounts-duplicate-checkbox-${profile.id}`}
+                          disabled={!canManage}
                         />
                         <span>{profile.name}</span>
                       </label>
@@ -1087,7 +1119,7 @@ export function AccountsListSection({
               type="button"
               size="sm"
               onClick={confirmDuplicate}
-              disabled={duplicateSelected.size === 0}
+              disabled={!canManage || duplicateSelected.size === 0}
               data-testid="accounts-duplicate-confirm"
             >
               {dict.settings.accountsListDuplicateConfirm}
@@ -1150,22 +1182,24 @@ export function AccountsListSection({
                       size="sm"
                       variant="secondary"
                       onClick={() => void handleRestore(deleted.id)}
-                      disabled={restoreBusy}
+                      disabled={!canManage || restoreBusy}
                       data-testid={`recently-deleted-restore-btn-${deleted.id}`}
                     >
                       <RotateCcw className="mr-1 h-3.5 w-3.5" />
                       {dict.settings.accountsRestoreBtn}
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => openPermanentDeleteModal(deleted)}
-                      data-testid={`recently-deleted-purge-btn-${deleted.id}`}
-                    >
-                      <Trash2 className="mr-1 h-3.5 w-3.5" />
-                      {dict.settings.accountsPurgeNowBtn}
-                    </Button>
+                    {allowHardPurge ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => openPermanentDeleteModal(deleted)}
+                        data-testid={`recently-deleted-purge-btn-${deleted.id}`}
+                      >
+                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                        {dict.settings.accountsPurgeNowBtn}
+                      </Button>
+                    ) : null}
                   </div>
                 </li>
               );

@@ -42,6 +42,8 @@ export interface CommandPaletteProps {
   onAddTransaction: () => void;
   /** Invoked when the user picks `action.recompute.all`. */
   onRecomputeAll: () => void;
+  showAddTransactionAction?: boolean;
+  showRecomputeAction?: boolean;
 }
 
 const TICKER_DEBOUNCE_MS = 200;
@@ -76,6 +78,8 @@ export function CommandPalette({
   dict,
   onAddTransaction,
   onRecomputeAll,
+  showAddTransactionAction = true,
+  showRecomputeAction = true,
 }: CommandPaletteProps) {
   const router = useRouter();
   const { setTheme } = useTheme();
@@ -151,7 +155,15 @@ export function CommandPalette({
   }, [debouncedQuery, open]);
 
   const routeItems = useMemo<RouteCommandItem[]>(() => getRouteCommandItems(dict), [dict]);
-  const actionItems = useMemo<ActionCommandItem[]>(() => getActionCommandItems(dict), [dict]);
+  const actionItems = useMemo<ActionCommandItem[]>(
+    () =>
+      getActionCommandItems(dict).filter((item) => {
+        if (item.actionId === "transaction.add") return showAddTransactionAction;
+        if (item.actionId === "recompute.all") return showRecomputeAction;
+        return true;
+      }),
+    [dict, showAddTransactionAction, showRecomputeAction],
+  );
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 

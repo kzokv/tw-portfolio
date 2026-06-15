@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import { createShareGrant, resolveInviteUrl } from "../../features/sharing/service";
-import { SHARE_CAPABILITIES } from "../../features/ai-inbox/service";
+import { ASSIGNABLE_SHARE_CAPABILITIES } from "../../features/sharing/capabilities";
 import type { GrantShareResult } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -35,7 +35,8 @@ const PRESETS: Array<{ label: string; capabilities: ShareCapability[] }> = [
   { label: "Viewer", capabilities: [] },
   { label: "AI-enabled viewer", capabilities: ["portfolio:mcp_read"] },
   { label: "Draft collaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
-  { label: "Editor", capabilities: [...SHARE_CAPABILITIES] },
+  { label: "Delegate manager", capabilities: ["portfolio:mcp_read", "account:manage", "transaction:write"] },
+  { label: "Full delegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
 ];
 
 function isLikelyEmail(value: string): boolean {
@@ -192,7 +193,7 @@ export function GrantShareDialog({
               </label>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <p className="text-sm font-medium text-slate-700">AI connector access</p>
+                <p className="text-sm font-medium text-slate-700">Delegated permissions</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {PRESETS.map((preset) => (
                     <button
@@ -206,9 +207,9 @@ export function GrantShareDialog({
                   ))}
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {SHARE_CAPABILITIES.map((capability) => (
+                  {ASSIGNABLE_SHARE_CAPABILITIES.map((capability) => (
                     <label key={capability} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                      <span>{CAPABILITY_LABELS[capability]}</span>
+                      <span>{dict.sharing.capabilityLabels[capability] ?? CAPABILITY_LABELS[capability]}</span>
                       <input
                         type="checkbox"
                         checked={capabilities.includes(capability)}
@@ -243,8 +244,8 @@ export function GrantShareDialog({
                 <p className="mt-2 text-base font-semibold text-slate-950">{email}</p>
                 <p className="mt-2 text-sm text-slate-600">
                   {capabilities.length === 0
-                    ? "AI connector permissions off"
-                    : capabilities.map((capability) => CAPABILITY_LABELS[capability]).join(", ")}
+                    ? dict.sharing.editPermissionsDialog.readOnlySummary
+                    : capabilities.map((capability) => dict.sharing.capabilityLabels[capability] ?? CAPABILITY_LABELS[capability]).join(", ")}
                 </p>
               </div>
 

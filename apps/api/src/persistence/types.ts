@@ -296,6 +296,7 @@ export type AuditLogAction =
   | "instrument_delisted_via_absence"
   | "instrument_absence_streak_bumped"
   | "instrument_absence_guard_tripped"
+  | "delegated_portfolio_write"
   // ui-enhancement — account lifecycle audit actions.
   | "account_soft_deleted"
   | "account_restored"

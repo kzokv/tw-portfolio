@@ -38,6 +38,7 @@ export function TransactionsClient({
     routeCachePolicy,
     sessionUserId,
     isSharedContext,
+    sharedContextPermissions,
     transactionSubmission,
     transactionAccountOptions,
     contextRefreshSignal,
@@ -50,10 +51,12 @@ export function TransactionsClient({
   const effectiveTransactionAccountOptions = transactionAccountOptions.length > 0
     ? transactionAccountOptions
     : primary.data.accountOptions;
+  const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
+  const canReadAiDrafts = !isSharedContext || sharedContextPermissions.canReadAiDrafts;
 
   useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
+    setActiveTab(initialTab === "ai-inbox" && !canReadAiDrafts ? "posted" : initialTab);
+  }, [canReadAiDrafts, initialTab]);
 
   // Re-fetch when AppShell signals a context/data change (shared-context
   // switch, transaction submit, retry click). Initial mount skipped.
@@ -89,7 +92,7 @@ export function TransactionsClient({
     : null;
 
   function handleTabChange(next: string) {
-    const tab = next === "ai-inbox" ? "ai-inbox" : "posted";
+    const tab = next === "ai-inbox" && canReadAiDrafts ? "ai-inbox" : "posted";
     setActiveTab(tab);
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     if (tab === "posted") {
@@ -132,6 +135,7 @@ export function TransactionsClient({
           <button
             type="button"
             onClick={handleAddTransactionClick}
+            disabled={!canWriteTransactions}
             className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
           >
             {dict.transactions.title}
@@ -156,7 +160,7 @@ export function TransactionsClient({
           <CompactMetric
             label={dict.transactions.verificationTitle}
             value={activeTab === "ai-inbox" ? "AI" : dict.navigation.transactionsLabel}
-            detail={isSharedContext ? dict.switcher.readonlyDescription : dict.navigation.transactionsDescription}
+            detail={!canWriteTransactions && isSharedContext ? dict.switcher.readonlyDescription : dict.navigation.transactionsDescription}
           />
         </div>
       </section>
@@ -191,7 +195,9 @@ export function TransactionsClient({
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
         <TabsList data-testid="transactions-tabs">
           <TabsTrigger value="posted" data-testid="transactions-tab-posted">Posted</TabsTrigger>
-          <TabsTrigger value="ai-inbox" data-testid="transactions-tab-ai-inbox">AI Inbox</TabsTrigger>
+          {canReadAiDrafts ? (
+            <TabsTrigger value="ai-inbox" data-testid="transactions-tab-ai-inbox">AI Inbox</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="posted">
@@ -256,7 +262,7 @@ export function TransactionsClient({
                     </Card>
                   );
                 case "transactions-add":
-                  return isSharedContext ? (
+                  return !canWriteTransactions ? (
                     <Card
                       className="border border-rose-200 bg-rose-50/90 text-rose-700"
                       data-testid="transactions-readonly"
@@ -299,13 +305,15 @@ export function TransactionsClient({
           </SortableCardGrid>
         </TabsContent>
 
-        <TabsContent value="ai-inbox">
-          <AiInboxPanel
-            initialBatchId={initialBatchId}
-            initialContextId={initialContextId}
-            locale={locale}
-          />
-        </TabsContent>
+        {canReadAiDrafts ? (
+          <TabsContent value="ai-inbox">
+            <AiInboxPanel
+              initialBatchId={initialBatchId}
+              initialContextId={initialContextId}
+              locale={locale}
+            />
+          </TabsContent>
+        ) : null}
       </TabsRoot>
     </div>
   );

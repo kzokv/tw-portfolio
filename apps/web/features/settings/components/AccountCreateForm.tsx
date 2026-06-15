@@ -60,6 +60,7 @@ interface AccountCreateFormProps {
   // initial market-card selection so the user lands on the right currency
   // without having to reselect.
   prefillCurrency?: AccountDefaultCurrency;
+  disabled?: boolean;
 }
 
 export function AccountCreateForm({
@@ -67,6 +68,7 @@ export function AccountCreateForm({
   onAccountsRefresh,
   dict,
   prefillCurrency,
+  disabled = false,
 }: AccountCreateFormProps) {
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("broker");
@@ -77,7 +79,7 @@ export function AccountCreateForm({
   const [errorMessage, setErrorMessage] = useState("");
 
   const trimmedName = name.trim();
-  const submitDisabled = trimmedName.length === 0 || submitting;
+  const submitDisabled = disabled || trimmedName.length === 0 || submitting;
 
   const typeLabels: AccountTypeLabels = useMemo(
     () => ({
@@ -221,6 +223,7 @@ export function AccountCreateForm({
           placeholder={dict.settings.accountCreateNamePlaceholder}
           className={fieldClassName}
           data-testid="account-create-name-input"
+          disabled={disabled}
         />
       </label>
 
@@ -242,6 +245,7 @@ export function AccountCreateForm({
                 onClick={() => setAccountType(type)}
                 className={typePillClassName(active)}
                 data-testid={`account-create-type-${type}`}
+                disabled={disabled}
               >
                 <Icon className="h-4 w-4" />
                 <span>{typeLabelFor(type)}</span>
@@ -268,6 +272,7 @@ export function AccountCreateForm({
                 onClick={() => setDefaultCurrency(currency)}
                 className={marketCardClassName(active)}
                 data-testid={`account-create-currency-${currency}`}
+                disabled={disabled}
               >
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tracking-wide text-foreground">
                   {marketLabelFor(currency)}

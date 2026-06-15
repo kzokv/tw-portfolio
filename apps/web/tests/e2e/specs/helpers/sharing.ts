@@ -1,5 +1,6 @@
 import { request as apiRequest, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { TestEnv } from "@vakwen/config/test";
+import type { ShareCapability } from "@vakwen/shared-types";
 
 const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
@@ -119,6 +120,61 @@ export async function seedResolvedShareFromAdmin(
       throw new Error(`expected resolved share for known grantee email, got pending: ${granteeEmail}`);
     }
     return { shareId: body.share.id };
+  });
+}
+
+export async function seedPendingShareFromAdmin(
+  email: string,
+  ownerUserId: string = "user-1",
+  capabilities: ShareCapability[] = [],
+): Promise<{ inviteCode: string }> {
+  return withFreshContext(async (ctx) => {
+    const response = await ctx.post(new URL("/shares", TestEnv.apiBaseUrl).href, {
+      data: { email, capabilities },
+      headers: { "x-user-id": ownerUserId },
+    });
+    if (!response.ok()) {
+      throw new Error(`seed pending share failed: ${response.status()} ${await response.text()}`);
+    }
+    const body = (await response.json()) as
+      | { type: "resolved"; share: { id: string } }
+      | { type: "pending"; invite: { code: string } };
+    if (body.type !== "pending") {
+      throw new Error(`expected pending share for unknown grantee email, got resolved: ${email}`);
+    }
+    return { inviteCode: body.invite.code };
+  });
+}
+
+export async function updateActiveShareCapabilities(
+  shareId: string,
+  ownerUserId: string,
+  capabilities: ShareCapability[],
+): Promise<void> {
+  await withFreshContext(async (ctx) => {
+    const response = await ctx.patch(new URL(`/shares/${shareId}/capabilities`, TestEnv.apiBaseUrl).href, {
+      data: { capabilities },
+      headers: { "x-user-id": ownerUserId },
+    });
+    if (!response.ok()) {
+      throw new Error(`update active share capabilities failed: ${response.status()} ${await response.text()}`);
+    }
+  });
+}
+
+export async function updatePendingShareCapabilities(
+  inviteCode: string,
+  ownerUserId: string,
+  capabilities: ShareCapability[],
+): Promise<void> {
+  await withFreshContext(async (ctx) => {
+    const response = await ctx.patch(new URL(`/shares/pending/${inviteCode}/capabilities`, TestEnv.apiBaseUrl).href, {
+      data: { capabilities },
+      headers: { "x-user-id": ownerUserId },
+    });
+    if (!response.ok()) {
+      throw new Error(`update pending share capabilities failed: ${response.status()} ${await response.text()}`);
+    }
   });
 }
 

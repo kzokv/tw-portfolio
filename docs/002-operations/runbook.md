@@ -240,8 +240,10 @@ ChatGPT rollout scopes:
 | `transaction_draft:edit` | Update draft transaction candidates before user review | Disabled unless admins enable write/draft tools | Yes |
 | `transaction_draft:archive` | Archive AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
 | `transaction_draft:delete` | Delete AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
+| `account:manage` | Create, edit, soft-delete, and restore portfolio accounts through MCP account tools | Disabled unless admins enable write tools | Yes |
+| `transaction:write` | Create posted transactions directly and post ready AI draft rows | Disabled unless admins enable write tools | Yes |
 
-`transaction:write` is reserved for a future posted-transaction MCP tool. Do not advertise or grant it to ChatGPT until a tool descriptor uses that scope.
+Advanced write scopes are opt-in. Leave `account:manage` and `transaction:write` disabled unless the user intentionally delegates portfolio management and the admin write policy group is enabled. Owner share approval does not auto-upgrade a delegate's ChatGPT connector; delegates must also reconnect or re-consent with the matching connector scopes before MCP write tools can use them.
 
 Built-in production ChatGPT redirect callbacks are:
 

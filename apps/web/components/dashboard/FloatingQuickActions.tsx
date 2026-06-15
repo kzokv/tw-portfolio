@@ -44,6 +44,8 @@ interface FloatingQuickActionsProps {
   onRecompute: () => void;
   onGenerateSnapshots: () => void | Promise<void>;
   isGeneratingSnapshots: boolean;
+  showRecomputeAction?: boolean;
+  showGenerateSnapshotsAction?: boolean;
   dict: AppDictionary;
 }
 
@@ -59,6 +61,8 @@ export function FloatingQuickActions({
   onRecompute,
   onGenerateSnapshots,
   isGeneratingSnapshots,
+  showRecomputeAction = true,
+  showGenerateSnapshotsAction = true,
   dict,
 }: FloatingQuickActionsProps) {
   const isMobile = useIsMobile();
@@ -147,36 +151,40 @@ export function FloatingQuickActions({
           <ReceiptText data-icon="inline-start" aria-hidden="true" />
           {dict.commandPalette.actionAddTransaction}
         </Button>
-        <Button
-          variant="secondary"
-          className="w-full justify-start"
-          onClick={() => {
-            close();
-            onRecompute();
-          }}
-          data-testid="floating-action-recompute"
-        >
-          <RefreshCw data-icon="inline-start" aria-hidden="true" />
-          {dict.commandPalette.actionRecomputeAll}
-        </Button>
-        <div className="flex flex-col gap-2">
+        {showRecomputeAction ? (
           <Button
             variant="secondary"
             className="w-full justify-start"
-            disabled={isGeneratingSnapshots}
             onClick={() => {
               close();
-              void onGenerateSnapshots();
+              onRecompute();
             }}
-            data-testid="floating-action-generate-snapshots"
+            data-testid="floating-action-recompute"
           >
-            <FileClock data-icon="inline-start" aria-hidden="true" />
-            {dict.commandPalette.actionGenerateSnapshots}
+            <RefreshCw data-icon="inline-start" aria-hidden="true" />
+            {dict.commandPalette.actionRecomputeAll}
           </Button>
-          <p className="px-1 text-xs text-muted-foreground" data-testid="floating-action-generate-snapshots-hint">
-            {dict.commandPalette.actionGenerateSnapshotsHint}
-          </p>
-        </div>
+        ) : null}
+        {showGenerateSnapshotsAction ? (
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              className="w-full justify-start"
+              disabled={isGeneratingSnapshots}
+              onClick={() => {
+                close();
+                void onGenerateSnapshots();
+              }}
+              data-testid="floating-action-generate-snapshots"
+            >
+              <FileClock data-icon="inline-start" aria-hidden="true" />
+              {dict.commandPalette.actionGenerateSnapshots}
+            </Button>
+            <p className="px-1 text-xs text-muted-foreground" data-testid="floating-action-generate-snapshots-hint">
+              {dict.commandPalette.actionGenerateSnapshotsHint}
+            </p>
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

@@ -811,6 +811,129 @@ describe("mcp routes", () => {
     });
   });
 
+  it("requires shared account:manage for MCP account create, update, soft-delete, and restore", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-account-manager-user", {
+      email: "shared-account-manager@example.com",
+      name: "Shared Account Manager",
+    });
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read"],
+      grantedByUserId: "user-1",
+    });
+    const connection = await createAiConnectorConnection(
+      app,
+      {
+        userId: sharedUserId,
+        provider: "chatgpt",
+        displayName: "ChatGPT",
+        scopes: ["portfolio:mcp_read", "account:manage"],
+      },
+      { actorUserId: sharedUserId, ipAddress: "127.0.0.1" },
+    );
+    const token = devToken({ userId: sharedUserId, connectionId: connection.id, clientId: "chatgpt" });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+
+    const denied = await callMcpTool(headers, sessionId, "create_account", {
+      portfolioContextUserId: "user-1",
+      name: "Delegated MCP Account",
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    });
+    expect(denied.statusCode).toBe(200);
+    expect(denied.body).toContain("Shared portfolio capability account:manage is not enabled");
+
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "account:manage"],
+      grantedByUserId: "user-1",
+    });
+
+    const created = await callMcpTool(headers, sessionId, "create_account", {
+      portfolioContextUserId: "user-1",
+      name: "Delegated MCP Account",
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.body).toContain("Delegated MCP Account");
+
+    const ownerStore = await app.persistence.loadStore("user-1");
+    const account = ownerStore.accounts.find((item) => item.name === "Delegated MCP Account");
+    expect(account).toBeDefined();
+
+    const updated = await callMcpTool(headers, sessionId, "update_account", {
+      portfolioContextUserId: "user-1",
+      accountId: account!.id,
+      name: "Delegated MCP Account Updated",
+      accountType: "wallet",
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.body).toContain("Delegated MCP Account Updated");
+
+    const deleted = await callMcpTool(headers, sessionId, "soft_delete_account", {
+      portfolioContextUserId: "user-1",
+      accountId: account!.id,
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.body).toContain(account!.id);
+
+    const restored = await callMcpTool(headers, sessionId, "restore_account", {
+      portfolioContextUserId: "user-1",
+      accountId: account!.id,
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.body).toContain(account!.id);
+
+    const auditLog = (app.persistence as unknown as {
+      auditLog: Array<{ action: string; actorUserId: string | null; targetUserId: string | null; metadata: Record<string, unknown> }>;
+    }).auditLog;
+    expect(auditLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delegated_portfolio_write",
+          actorUserId: sharedUserId,
+          targetUserId: "user-1",
+          metadata: expect.objectContaining({
+            source: "mcp_tool",
+            shareId: share.id,
+            ownerUserId: "user-1",
+            mutation: "account_created",
+          }),
+        }),
+        expect.objectContaining({
+          action: "account_soft_deleted",
+          actorUserId: sharedUserId,
+          targetUserId: "user-1",
+          metadata: expect.objectContaining({
+            source: "mcp_tool",
+            shareId: share.id,
+          }),
+        }),
+        expect.objectContaining({
+          action: "account_restored",
+          actorUserId: sharedUserId,
+          targetUserId: "user-1",
+          metadata: expect.objectContaining({
+            source: "mcp_tool",
+            shareId: share.id,
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("requires transaction:write for shared-context AI draft posting and allows it once the share enables write", async () => {
     const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-write-user", {
       email: "shared-write@example.com",
@@ -864,7 +987,13 @@ describe("mcp routes", () => {
       },
     });
     expect(denied.statusCode).toBe(403);
-    expect(denied.json()).toMatchObject({ error: "ai_draft_share_capability_denied" });
+    expect(denied.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "transaction:write",
+        routeKey: "POST /ai/transaction-drafts/:batchId/confirm",
+      },
+    });
 
     await app.persistence.setShareCapabilities({
       shareId: share.id,
@@ -893,6 +1022,27 @@ describe("mcp routes", () => {
       state: "confirmed",
     });
     expect(body.rows[0]?.confirmedTradeEventId).toBeTruthy();
+
+    const auditLog = (app.persistence as unknown as {
+      auditLog: Array<{ action: string; actorUserId: string | null; targetUserId: string | null; metadata: Record<string, unknown> }>;
+    }).auditLog;
+    expect(auditLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delegated_portfolio_write",
+          actorUserId: sharedUserId,
+          targetUserId: "user-1",
+          metadata: expect.objectContaining({
+            mutation: "transaction_draft_rows_posted",
+            routeKey: "POST /ai/transaction-drafts/:batchId/confirm",
+            batchId: created.batch.id,
+            rowIds: [row!.id],
+            shareId: share.id,
+            source: "shared_context",
+          }),
+        }),
+      ]),
+    );
   });
 
   it("omits internal raw and normalized payloads from AI draft detail DTOs", async () => {

@@ -33,6 +33,7 @@ export interface InboundShareCardItem {
   ownerDisplayName: string | null;
   createdAt: string;
   revokedAt: string | null;
+  capabilities: ShareCapability[];
 }
 
 export interface SharingPageData {

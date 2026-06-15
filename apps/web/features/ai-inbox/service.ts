@@ -185,6 +185,7 @@ export async function denyMcpOAuthConsent(
 
 export const SHARE_CAPABILITIES: ShareCapability[] = [
   "portfolio:mcp_read",
+  "account:manage",
   "transaction_draft:create",
   "transaction_draft:edit",
   "transaction_draft:archive",

@@ -9,7 +9,7 @@ const notificationsUrl = new URL("/notifications", TestEnv.apiBaseUrl).href;
 const sharesUrl = new URL("/shares", TestEnv.apiBaseUrl).href;
 
 test.describe("portfolio switcher: narrow write-block taxonomy", () => {
-  test("[switcher taxonomy]: identity routes return session user even under shared context, while write routes are blocked 403", async ({
+  test("[switcher taxonomy]: identity routes return session user even under shared context, while undelegated write routes return shared_capability_required", async ({
     request,
     sharesApi,
     transactionsApi,
@@ -127,8 +127,8 @@ test.describe("portfolio switcher: narrow write-block taxonomy", () => {
     const errorBody = await blockedWrite.json() as { error: string };
     await sharesApi.assert.mxAssertEqual(
       errorBody.error,
-      "write_blocked_viewing_shared",
-      "write route is blocked with write_blocked_viewing_shared",
+      "shared_capability_required",
+      "write route is blocked with shared_capability_required",
     );
   });
 });
