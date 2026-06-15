@@ -43,6 +43,9 @@ function makeFakePersistence(opts: {
     batchPairCounts: number[];
     singleCalls: number;
   };
+  aggregatedReadStats?: {
+    calls: Array<{ startDate: string; endDate: string }>;
+  };
 }): Persistence {
   const fx = opts.fxRates ?? [];
   const aggregated = opts.aggregated ?? [];
@@ -57,7 +60,10 @@ function makeFakePersistence(opts: {
         .sort((a, b) => (b.asOf ?? "").localeCompare(a.asOf ?? ""))[0];
       return match ? match.rate : null;
     },
-    getAggregatedSnapshotsInReportingCurrency: async () => aggregated,
+    getAggregatedSnapshotsInReportingCurrency: async (_userId: string, startDate: string, endDate: string) => {
+      opts.aggregatedReadStats?.calls.push({ startDate, endDate });
+      return aggregated.filter((point) => point.date >= startDate && point.date <= endDate);
+    },
     getDailyBarsForTickers: async (tickers: string[], startDate: string, endDate: string) => {
       const result = new Map<string, DailyBar[]>();
       for (const ticker of tickers) {
@@ -358,6 +364,24 @@ describe("translateOverviewHoldingGroups", () => {
 
 describe("translateValuationHealthSnapshotPoints", () => {
   it("preserves snapshot FX rollup without dated finance reconstruction", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
     const persistence = makeFakePersistence({
       aggregated: [
         {
@@ -393,7 +417,7 @@ describe("translateValuationHealthSnapshotPoints", () => {
       "2026-01-03",
       "TWD",
       persistence,
-      makeStore(),
+      store,
     );
 
     expect(out.fxStatus).toBe("partial");
@@ -643,6 +667,63 @@ describe("translateValuationHealthSnapshotPoints", () => {
       staleSinceDate: null,
       knownGapReasons: [],
     }));
+  });
+
+  it("uses a bounded recent snapshot window before falling back to all-range reads", async () => {
+    const aggregatedReadStats = { calls: [] as Array<{ startDate: string; endDate: string }> };
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "old-trade",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-02",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregatedReadStats,
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 150, "TW"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
+    expect(out.lastReliableDate).toBe("2026-06-12");
+    expect(aggregatedReadStats.calls).toEqual([
+      { startDate: "2026-02-15", endDate: "2026-06-15" },
+    ]);
   });
 });
 
