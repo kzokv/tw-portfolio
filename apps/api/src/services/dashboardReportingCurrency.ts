@@ -52,6 +52,8 @@ import type {
 } from "../persistence/types.js";
 import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
 
+const VALUATION_HEALTH_SNAPSHOT_LOOKBACK_DAYS = 120;
+
 interface PreTranslationOverviewSummary {
   asOf: string;
   accountCount: number;
@@ -515,25 +517,24 @@ export async function translateValuationHealthSnapshotPoints(
   const earliestTradeDate = store.accounting.facts.tradeEvents
     .map((trade) => trade.tradeDate)
     .sort()[0];
-  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
-  const aggregated = await persistence.getAggregatedSnapshotsInReportingCurrency(
+  const { startDate: rangeStartDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
+  const coverage = await loadValuationHealthSnapshotCoverage(
     userId,
-    startDate,
+    rangeStartDate,
     endDate,
     reportingCurrency,
+    persistence,
+    store,
   );
 
-  if (aggregated.length === 0) {
+  if (coverage.points.length === 0) {
     return withPerformanceFreshness(
-      { range, rangeStartDate: startDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
+      { range, rangeStartDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
       asOf,
+      { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
     );
   }
 
-  const coverage = filterAggregatedSnapshotsByActiveCoverage(
-    aggregated,
-    await buildExpectedSnapshotContributorKeysForTrades(store.accounting.facts.tradeEvents, startDate, endDate, persistence),
-  );
   const points = coverage.points.map((point) => translateAggregatedPerformancePoint(point));
   let allAvailable = true;
   let allMissing = true;
@@ -546,7 +547,7 @@ export async function translateValuationHealthSnapshotPoints(
   return withPerformanceFreshness(
     {
       range,
-      rangeStartDate: startDate,
+      rangeStartDate,
       rangeEndDate: endDate,
       points,
       reportingCurrency,
@@ -558,6 +559,72 @@ export async function translateValuationHealthSnapshotPoints(
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
+
+async function loadValuationHealthSnapshotCoverage(
+  userId: string,
+  rangeStartDate: string,
+  endDate: string,
+  reportingCurrency: AccountDefaultCurrency,
+  persistence: Persistence,
+  store: Store,
+): Promise<{ points: AggregatedSnapshotPoint[]; hasSnapshotCoverageGap: boolean }> {
+  const queryStartDates = buildValuationHealthSnapshotQueryStartDates(rangeStartDate, endDate);
+  let hasSnapshotCoverageGap = false;
+
+  for (const queryStartDate of queryStartDates) {
+    const aggregated = await persistence.getAggregatedSnapshotsInReportingCurrency(
+      userId,
+      queryStartDate,
+      endDate,
+      reportingCurrency,
+    );
+    if (aggregated.length === 0 && queryStartDate !== rangeStartDate) {
+      continue;
+    }
+
+    const coverage = filterAggregatedSnapshotsByActiveCoverage(
+      aggregated,
+      await buildExpectedSnapshotContributorKeysForTrades(
+        store.accounting.facts.tradeEvents,
+        queryStartDate,
+        endDate,
+        persistence,
+      ),
+    );
+    hasSnapshotCoverageGap = hasSnapshotCoverageGap || coverage.hasSnapshotCoverageGap;
+
+    const hasReliablePoint = coverage.points.some((point) =>
+      point.fxAvailable && point.totalMarketValue !== null && point.totalCostBasis !== null);
+    if (coverage.points.length > 0 && (hasReliablePoint || queryStartDate === rangeStartDate)) {
+      return {
+        points: coverage.points,
+        hasSnapshotCoverageGap,
+      };
+    }
+  }
+
+  return { points: [], hasSnapshotCoverageGap };
+}
+
+function buildValuationHealthSnapshotQueryStartDates(rangeStartDate: string, endDate: string): string[] {
+  const boundedStartDate = maxDateString(
+    rangeStartDate,
+    addUtcDays(endDate, -VALUATION_HEALTH_SNAPSHOT_LOOKBACK_DAYS),
+  );
+  return boundedStartDate === rangeStartDate
+    ? [rangeStartDate]
+    : [boundedStartDate, rangeStartDate];
+}
+
+function addUtcDays(date: string, days: number): string {
+  const oneDayMs = 86_400_000;
+  const timestamp = new Date(`${date}T00:00:00.000Z`).getTime() + days * oneDayMs;
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function maxDateString(left: string, right: string): string {
+  return left >= right ? left : right;
+}
 
 function filterAggregatedSnapshotsByActiveCoverage(
   points: ReadonlyArray<AggregatedSnapshotPoint>,
