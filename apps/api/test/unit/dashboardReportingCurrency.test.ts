@@ -537,6 +537,9 @@ describe("translateValuationHealthSnapshotPoints", () => {
         },
       ],
       dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 500, "TW"),
+        makeDailyBar("000660", "2026-06-12", 200, "KR"),
+        makeDailyBar("2330", "2026-06-15", 300, "TW"),
         makeDailyBar("000660", "2026-06-15", 250, "KR"),
       ],
     });
@@ -557,6 +560,88 @@ describe("translateValuationHealthSnapshotPoints", () => {
       latestReliableValuationDate: "2026-06-12",
       staleSinceDate: "2026-06-12",
       knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    }));
+  });
+
+  it("keeps a newer health snapshot when the omitted market has no bar that day", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "trade-kr",
+              accountId: "acct-2",
+              ticker: "000660",
+              marketCode: "KR",
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 500,
+          totalMarketValue: 600,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 20,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 200,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 25,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 500, "TW"),
+        makeDailyBar("000660", "2026-06-12", 200, "KR"),
+        makeDailyBar("000660", "2026-06-15", 250, "KR"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12", "2026-06-15"]);
+    expect(out.lastReliableDate).toBe("2026-06-15");
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: "2026-06-15",
+      latestReliableValuationDate: "2026-06-15",
+      staleSinceDate: null,
+      knownGapReasons: [],
     }));
   });
 });
