@@ -10,6 +10,7 @@ import {
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
+  translateValuationHealthSnapshotPoints,
 } from "../../src/services/dashboardReportingCurrency.js";
 import { buildFxConversionRateRows } from "../../src/services/fxConversionRates.js";
 import type {
@@ -352,6 +353,131 @@ describe("translateOverviewHoldingGroups", () => {
 
     expect(calls).toEqual(["USD:TWD:2026-04-29", "AUD:TWD:2026-04-29"]);
     expect(maxActive).toBe(2);
+  });
+});
+
+describe("translateValuationHealthSnapshotPoints", () => {
+  it("preserves snapshot FX rollup without dated finance reconstruction", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-02",
+          totalCostBasis: 100,
+          totalMarketValue: null,
+          totalUnrealizedPnl: null,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: null,
+          totalReturnPercent: null,
+          isProvisional: false,
+          fxAvailable: false,
+        },
+        {
+          date: "2026-01-03",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+        },
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      makeStore(),
+    );
+
+    expect(out.fxStatus).toBe("partial");
+    expect(out.points).toHaveLength(2);
+    expect(out.points[0]).toEqual(expect.objectContaining({
+      date: "2026-01-02",
+      marketValueAmount: null,
+      fxAvailable: false,
+    }));
+    expect(out.points[1]).toEqual(expect.objectContaining({
+      date: "2026-01-03",
+      marketValueAmount: 150,
+      fxAvailable: true,
+    }));
+    expect(out.lastReliableDate).toBe("2026-01-03");
+    expect(out.diagnostics?.knownGapReasons).toEqual(["missing_fx"]);
+  });
+
+  it("filters incomplete active-contributor snapshots from valuation health diagnostics", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-01-01",
+            }),
+            makeTrade({
+              id: "trade-us",
+              accountId: "acct-2",
+              ticker: "AAPL",
+              marketCode: "US",
+              priceCurrency: "USD",
+              tradeDate: "2026-01-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-01-03",
+          totalCostBasis: 100,
+          totalMarketValue: 150,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 50,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-01-03", 150, "TW"),
+        makeDailyBar("AAPL", "2026-01-03", 200, "US"),
+      ],
+    });
+
+    const out = await translateValuationHealthSnapshotPoints(
+      "user-1",
+      "ALL",
+      "2026-01-03",
+      "TWD",
+      persistence,
+      store,
+    );
+
+    expect(out.points).toEqual([]);
+    expect(out.lastReliableDate).toBeNull();
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: null,
+      latestReliableValuationDate: null,
+      staleSinceDate: null,
+      knownGapReasons: ["missing_snapshot"],
+    }));
   });
 });
 

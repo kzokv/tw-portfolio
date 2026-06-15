@@ -496,6 +496,67 @@ export async function translatePerformancePoints(
   );
 }
 
+/**
+ * Build the lightweight performance DTO needed by valuation health.
+ *
+ * Valuation health only compares current value against the latest reliable
+ * snapshot value and reads freshness diagnostics. It must preserve active
+ * contributor coverage semantics, but it does not need the dated finance
+ * reconstruction used by charts.
+ */
+export async function translateValuationHealthSnapshotPoints(
+  userId: string,
+  range: DashboardPerformanceRange,
+  asOf: string,
+  reportingCurrency: AccountDefaultCurrency,
+  persistence: Persistence,
+  store: Store,
+): Promise<DashboardPerformanceDto> {
+  const earliestTradeDate = store.accounting.facts.tradeEvents
+    .map((trade) => trade.tradeDate)
+    .sort()[0];
+  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
+  const aggregated = await persistence.getAggregatedSnapshotsInReportingCurrency(
+    userId,
+    startDate,
+    endDate,
+    reportingCurrency,
+  );
+
+  if (aggregated.length === 0) {
+    return withPerformanceFreshness(
+      { range, rangeStartDate: startDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
+      asOf,
+    );
+  }
+
+  const coverage = filterAggregatedSnapshotsByActiveCoverage(
+    aggregated,
+    await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence),
+  );
+  const points = coverage.points.map((point) => translateAggregatedPerformancePoint(point));
+  let allAvailable = true;
+  let allMissing = true;
+  for (const point of points) {
+    if (point.fxAvailable) allMissing = false;
+    else allAvailable = false;
+  }
+  const fxStatus = allAvailable ? "complete" : allMissing ? "missing" : "partial";
+
+  return withPerformanceFreshness(
+    {
+      range,
+      rangeStartDate: startDate,
+      rangeEndDate: endDate,
+      points,
+      reportingCurrency,
+      fxStatus,
+    },
+    asOf,
+    { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
+  );
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 function filterAggregatedSnapshotsByActiveCoverage(
