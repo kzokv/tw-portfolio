@@ -388,9 +388,17 @@ describe("mcp routes", () => {
       expectChatGptSafeSchema(listedTool?.outputSchema);
       expect(listedTool?.annotations).toEqual(tool.annotations);
       const expectedOutputTemplate = expectedToolOutputTemplate(tool.name);
+      const expectedVisibility = (
+        tool._meta?.ui
+        && typeof tool._meta.ui === "object"
+        && "visibility" in tool._meta.ui
+        && Array.isArray(tool._meta.ui.visibility)
+      )
+        ? tool._meta.ui.visibility
+        : ["model", "app"];
       expect(listedTool?._meta?.ui).toEqual({
         resourceUri: expectedOutputTemplate,
-        visibility: ["model", "app"],
+        visibility: expectedVisibility,
       });
       expect(listedTool?._meta?.["openai/outputTemplate"]).toBe(expectedOutputTemplate);
       expect(listedTool?._meta?.["openai/widgetAccessible"]).toBe(expectedToolWidgetAccessible(tool.name));

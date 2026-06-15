@@ -54,13 +54,22 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
-
 const marketCodeSchema = z.enum(MARKET_CODES);
 const reportScopeSchema = z.enum(REPORT_SCOPES);
 const reportCurrencyModeSchema = z.enum(REPORT_CURRENCY_MODES);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
+const portfolioSelectorSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(200).optional(),
+}).strict();
+const accountNameSchema = z.string().trim().min(1).max(120);
+const accountNameListSchema = z.array(accountNameSchema).max(100);
+const batchLabelSchema = z.string().trim().min(1).max(200);
+const confirmationSummarySchema = z.string().trim().min(1).max(10_000);
+const confirmationDigestSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i);
+const appOnlyVisibilityMeta = { ui: { visibility: ["app"] as const } };
 
 const candidateSourceMetadataSchema = z.object({
   fileId: userScopedIdSchema.nullish(),
@@ -93,6 +102,7 @@ const importProvenanceSchema = z.object({
 
 export const mcpSharedInputShape = {
   portfolioContextUserId: userScopedIdSchema.optional(),
+  portfolio: portfolioSelectorSchema.optional(),
   reportingCurrency: currencyCodeSchema.optional(),
   locale: z.string().trim().min(2).max(32).optional(),
 } as const;
@@ -101,7 +111,7 @@ export const mcpDraftCandidateSchema = z.object({
   rowNumber: z.number().int().positive(),
   recordType: z.enum(["trade", "unsupported"]).default("trade"),
   accountId: userScopedIdSchema.optional(),
-  accountName: z.string().trim().min(1).max(120).optional(),
+  accountName: accountNameSchema.optional(),
   type: z.enum(["BUY", "SELL"]).optional(),
   ticker: z.string().trim().min(1).max(32).optional(),
   marketCode: marketCodeSchema.optional(),
@@ -155,6 +165,7 @@ const toolDefinitions = {
       offset: z.number().int().min(0).default(0),
       tickers: z.array(z.string().trim().min(1).max(32)).max(100).optional(),
       accountIds: z.array(userScopedIdSchema).max(100).optional(),
+      accountNames: accountNameListSchema.optional(),
     }),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
@@ -221,7 +232,14 @@ const toolDefinitions = {
     inputSchema: z.object({
       ...mcpSharedInputShape,
       accountIds: z.array(userScopedIdSchema).max(100).optional(),
+      accountNames: accountNameListSchema.optional(),
     }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  list_portfolio_contexts: {
+    description: "List the self portfolio and active delegated portfolios visible to this MCP connection, including the model-facing label/email/capabilities selectors for follow-up calls.",
+    inputSchema: z.object({}),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },
@@ -236,16 +254,17 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   list_accounts: {
-    description: "List active accounts and, optionally, recently deleted accounts available to the current portfolio context.",
+    description: "Widget/internal account listing. Returns account IDs, fee profile IDs, and balances for existing app components.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       includeDeleted: z.boolean().optional(),
     }),
     scope: "account:manage" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   create_account: {
-    description: "Create an account with a seeded default fee profile. Post-create default-currency changes are not supported through MCP.",
+    description: "Widget/internal account create tool. Prefer preview_create_account_by_name and create_account_by_name for model-facing delegated workflows.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       name: z.string().trim().min(1).max(80),
@@ -254,37 +273,41 @@ const toolDefinitions = {
     }).strict(),
     scope: "account:manage" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   update_account: {
-    description: "Update active account metadata by id or by a uniquely resolvable active account name. Default currency is immutable over MCP after creation.",
+    description: "Widget/internal account update tool. Prefer preview_update_account_by_name and update_account_by_name for model-facing delegated workflows.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       accountId: userScopedIdSchema.optional(),
-      accountName: z.string().trim().min(1).max(120).optional(),
+      accountName: accountNameSchema.optional(),
       name: z.string().trim().min(1).max(80).optional(),
       accountType: z.enum(["broker", "bank", "wallet"]).optional(),
     }).strict(),
     scope: "account:manage" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   soft_delete_account: {
-    description: "Soft-delete an active account by id or by a uniquely resolvable active account name.",
+    description: "Widget/internal account soft-delete tool. Prefer preview_soft_delete_account_by_name and soft_delete_account_by_name for model-facing delegated workflows.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       accountId: userScopedIdSchema.optional(),
-      accountName: z.string().trim().min(1).max(120).optional(),
+      accountName: accountNameSchema.optional(),
     }).strict(),
     scope: "account:manage" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   restore_account: {
-    description: "Restore a soft-deleted account by id. If its prior name collides with an active account, Vakwen auto-renames it deterministically.",
+    description: "Widget/internal account restore tool by account ID. Prefer preview_restore_account_by_name and restore_account_by_name for model-facing delegated workflows.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       accountId: userScopedIdSchema,
     }).strict(),
     scope: "account:manage" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   get_account_manager_component: {
     description: "Return the ChatGPT Apps account manager component state with active and deleted accounts plus MCP tool bindings.",
@@ -294,18 +317,117 @@ const toolDefinitions = {
     scope: "account:manage" as const,
     accessKind: "write" as const,
     _meta: {
+      ...appOnlyVisibilityMeta,
       "openai/outputTemplate": "/connectors/chatgpt/account-manager",
       "openai/widgetAccessible": true,
     },
   },
+  list_account_names: {
+    description: "List active account names and optional deleted account names for the selected portfolio without exposing balances. Use this before name-first account lifecycle actions.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      includeDeleted: z.boolean().optional(),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  preview_create_account_by_name: {
+    description: "Preview creating an account in the explicitly selected portfolio using a name-first confirmation payload.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      name: z.string().trim().min(1).max(80),
+      defaultCurrency: accountDefaultCurrencySchema,
+      accountType: z.enum(["broker", "bank", "wallet"]),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  create_account_by_name: {
+    description: "Create an account in the explicitly selected portfolio after confirming the latest preview confirmationSummary and confirmationDigest.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      name: z.string().trim().min(1).max(80),
+      defaultCurrency: accountDefaultCurrencySchema,
+      accountType: z.enum(["broker", "bank", "wallet"]),
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  preview_update_account_by_name: {
+    description: "Preview a name-first account update in the explicitly selected portfolio.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+      name: z.string().trim().min(1).max(80).optional(),
+      accountType: z.enum(["broker", "bank", "wallet"]).optional(),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  update_account_by_name: {
+    description: "Commit a name-first account update in the explicitly selected portfolio using the latest preview confirmationSummary and confirmationDigest.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+      name: z.string().trim().min(1).max(80).optional(),
+      accountType: z.enum(["broker", "bank", "wallet"]).optional(),
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  preview_soft_delete_account_by_name: {
+    description: "Preview soft-deleting an account by name in the explicitly selected portfolio.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  soft_delete_account_by_name: {
+    description: "Commit a name-first account soft-delete in the explicitly selected portfolio using the latest preview confirmationSummary and confirmationDigest.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  preview_restore_account_by_name: {
+    description: "Preview restoring a deleted account by name in the explicitly selected portfolio, including the final auto-renamed name when needed.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  restore_account_by_name: {
+    description: "Commit restoring a deleted account by name in the explicitly selected portfolio using the latest preview confirmationSummary and confirmationDigest.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountName: accountNameSchema,
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
   get_transaction_draft_template: {
-    description: `Return the trade-only draft template and constraints for BUY/SELL candidate rows. ${adviceBoundary}`,
+    description: `Widget/internal draft template tool. Prefer list_draftable_account_names plus preflight_transaction_draft_candidates_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({ ...mcpSharedInputShape }),
     scope: "transaction_draft:create" as const,
     accessKind: "draft_create" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   preflight_transaction_draft_candidates: {
-    description: `Validate candidate trade rows deterministically before batch creation. Unsupported non-trade rows are surfaced as audit-only items. ${adviceBoundary}`,
+    description: `Widget/internal draft preflight tool with account IDs still allowed. Prefer preflight_transaction_draft_candidates_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       sourceLabel: z.string().trim().max(200).optional(),
@@ -316,9 +438,10 @@ const toolDefinitions = {
     }).strict(),
     scope: "transaction_draft:create" as const,
     accessKind: "draft_create" as const,
+    _meta: appOnlyVisibilityMeta,
   },
   create_transaction_draft_batch: {
-    description: `Create an MCP draft batch after rerunning deterministic server-side preflight. Creation is all-or-nothing. ${adviceBoundary}`,
+    description: `Widget/internal draft batch create tool with ID-heavy outputs. Prefer create_transaction_draft_batch_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       sourceLabel: z.string().trim().max(200).optional(),
@@ -326,12 +449,49 @@ const toolDefinitions = {
       note: z.string().trim().max(1_000).optional(),
       provenance: importProvenanceSchema.optional(),
       candidates: z.array(mcpDraftCandidateSchema).min(1).max(200),
+    }).strict(),
+    scope: "transaction_draft:create" as const,
+    accessKind: "draft_create" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  list_draftable_account_names: {
+    description: "List active account names that can be used in name-first draft tools, including minimal drafting metadata and duplicate-name warnings.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+    }).strict(),
+    scope: "transaction_draft:create" as const,
+    accessKind: "draft_create" as const,
+  },
+  preflight_transaction_draft_candidates_by_name: {
+    description: `Validate candidate trade rows using accountName only before creating a draft batch in the explicitly selected portfolio. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      sourceLabel: z.string().trim().max(200).optional(),
+      sourceFilename: z.string().trim().max(200).optional(),
+      note: z.string().trim().max(1_000).optional(),
+      provenance: importProvenanceSchema.optional(),
+      candidates: z.array(mcpDraftCandidateSchema.omit({ accountId: true })).min(1).max(200),
+    }).strict(),
+    scope: "transaction_draft:create" as const,
+    accessKind: "draft_create" as const,
+  },
+  create_transaction_draft_batch_by_name: {
+    description: `Create a transaction draft batch using accountName only after confirming the latest preflight confirmationSummary and confirmationDigest. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      sourceLabel: z.string().trim().max(200).optional(),
+      sourceFilename: z.string().trim().max(200).optional(),
+      note: z.string().trim().max(1_000).optional(),
+      provenance: importProvenanceSchema.optional(),
+      candidates: z.array(mcpDraftCandidateSchema.omit({ accountId: true })).min(1).max(200),
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
     }).strict(),
     scope: "transaction_draft:create" as const,
     accessKind: "draft_create" as const,
   },
   list_transaction_draft_batches: {
-    description: `List draft batches visible to the connected user in the selected portfolio context. ${adviceBoundary}`,
+    description: `Widget/internal draft batch list tool with batch IDs. Prefer list_transaction_draft_batches_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       status: z.enum(["open", "archived", "deleted"]).optional(),
@@ -339,13 +499,43 @@ const toolDefinitions = {
     }),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  list_transaction_draft_batches_by_name: {
+    description: `List draft batches using human batchLabel selectors for the explicitly selected portfolio. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      status: z.enum(["open", "archived", "deleted"]).optional(),
+      limit: z.number().int().positive().max(100).default(50),
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
   },
   get_transaction_draft_batch: {
-    description: `Return one transaction draft batch with rows, unsupported items, and audit events. ${adviceBoundary}`,
+    description: `Widget/internal draft batch get tool with batch IDs and row IDs. Prefer get_transaction_draft_batch_by_name or show_transaction_draft_batch_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
     }),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  get_transaction_draft_batch_by_name: {
+    description: `Return one draft batch using a human batchLabel selector. Output stays ID-free except internal _meta. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+  },
+  show_transaction_draft_batch_by_name: {
+    description: `Return a concise human-readable draft batch review view using a human batchLabel selector. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+    }).strict(),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
   },
@@ -358,12 +548,13 @@ const toolDefinitions = {
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
     _meta: {
+      ...appOnlyVisibilityMeta,
       "openai/outputTemplate": "/connectors/chatgpt/transaction-draft",
       "openai/widgetAccessible": true,
     },
   },
   update_transaction_draft_rows: {
-    description: `Update draft rows with optimistic concurrency and deterministic preflight. Rejects edits that introduce blocking issues. ${adviceBoundary}`,
+    description: `Widget/internal draft row update tool with row IDs. Prefer update_transaction_draft_rows_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
@@ -375,31 +566,73 @@ const toolDefinitions = {
     }),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  update_transaction_draft_rows_by_name: {
+    description: `Update draft rows by rowNumber in the explicitly selected portfolio. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rows: z.array(z.object({
+        rowNumber: z.number().int().positive(),
+        patch: mcpDraftCandidateSchema.omit({ rowNumber: true, accountId: true }).partial(),
+      }).strict()).min(1).max(200),
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
   },
   exclude_transaction_draft_rows: {
-    description: `Exclude draft rows from further confirmation while preserving audit history. ${adviceBoundary}`,
+    description: `Widget/internal draft row exclusion tool with row IDs. Prefer exclude_transaction_draft_rows_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
       rowIds: z.array(userScopedIdSchema).min(1).max(200),
       expectedBatchVersion: z.number().int().positive(),
     }),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  exclude_transaction_draft_rows_by_name: {
+    description: `Exclude draft rows by rowNumber. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rowNumbers: z.array(z.number().int().positive()).min(1).max(200),
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
   },
   reinclude_transaction_draft_rows: {
-    description: `Reinclude previously excluded draft rows after rerunning deterministic preflight. ${adviceBoundary}`,
+    description: `Widget/internal draft row reinclude tool with row IDs. Prefer reinclude_transaction_draft_rows_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
       rowIds: z.array(userScopedIdSchema).min(1).max(200),
       expectedBatchVersion: z.number().int().positive(),
     }),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  reinclude_transaction_draft_rows_by_name: {
+    description: `Reinclude previously excluded draft rows by rowNumber. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rowNumbers: z.array(z.number().int().positive()).min(1).max(200),
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
   },
   reject_transaction_draft_rows: {
-    description: `Reject draft rows so they remain visible as non-confirmable audit history. ${adviceBoundary}`,
+    description: `Widget/internal draft row reject tool with row IDs. Prefer reject_transaction_draft_rows_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
@@ -408,29 +641,66 @@ const toolDefinitions = {
     }),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  reject_transaction_draft_rows_by_name: {
+    description: `Reject draft rows by rowNumber. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rowNumbers: z.array(z.number().int().positive()).min(1).max(200),
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
   },
   archive_transaction_draft_batch: {
-    description: `Archive a draft batch with optimistic batch version checks. ${adviceBoundary}`,
+    description: `Widget/internal draft batch archive tool with batch IDs. Prefer archive_transaction_draft_batch_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
       expectedBatchVersion: z.number().int().positive(),
-    }),
+    }).strict(),
+    scope: "transaction_draft:archive" as const,
+    accessKind: "draft_archive" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  archive_transaction_draft_batch_by_name: {
+    description: `Archive a draft batch by batchLabel. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
     scope: "transaction_draft:archive" as const,
     accessKind: "draft_archive" as const,
   },
   delete_unconfirmed_transaction_draft_batch: {
-    description: `Delete a never-confirmed draft batch when it contains zero confirmed rows. ${adviceBoundary}`,
+    description: `Widget/internal draft batch delete tool with batch IDs. Prefer delete_unconfirmed_transaction_draft_batch_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
       expectedBatchVersion: z.number().int().positive(),
-    }),
+    }).strict(),
+    scope: "transaction_draft:delete" as const,
+    accessKind: "draft_delete" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  delete_unconfirmed_transaction_draft_batch_by_name: {
+    description: `Delete a never-confirmed draft batch by batchLabel. The first call may return a confirmation payload; retry with confirmationSummary and confirmationDigest to commit. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      confirmationSummary: confirmationSummarySchema.optional(),
+      confirmationDigest: confirmationDigestSchema.optional(),
+    }).strict(),
     scope: "transaction_draft:delete" as const,
     accessKind: "draft_delete" as const,
   },
   get_transaction_draft_posting_preview: {
-    description: "Return a deterministic posting preview for selected ready draft rows, including account names, fee source, gross/net cash impact, and operational warnings.",
+    description: "Widget/internal posting preview tool with batch IDs and row IDs. Prefer get_transaction_draft_posting_preview_by_name for model-facing delegated workflows.",
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
@@ -439,9 +709,20 @@ const toolDefinitions = {
     }).strict(),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  get_transaction_draft_posting_preview_by_name: {
+    description: "Return a deterministic posting preview using portfolio label/email, batchLabel, and rowNumbers. Output stays ID-free except internal _meta.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rowNumbers: z.array(z.number().int().positive()).min(1).max(200).optional(),
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
   },
   post_transaction_draft_rows: {
-    description: `Post selected ready draft rows into the canonical transaction ledger. Requires transaction:write, expected batch and row versions, an idempotency key, and deterministic server-side revalidation. ${adviceBoundary}`,
+    description: `Widget/internal draft posting tool with batch IDs and row IDs. Prefer post_transaction_draft_rows_by_name for model-facing delegated workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       batchId: userScopedIdSchema,
@@ -456,6 +737,21 @@ const toolDefinitions = {
     }).strict(),
     scope: "transaction:write" as const,
     accessKind: "write" as const,
+    _meta: appOnlyVisibilityMeta,
+  },
+  post_transaction_draft_rows_by_name: {
+    description: `Post selected ready draft rows using portfolio label/email, batchLabel, and rowNumbers. Requires transaction:write plus the latest preview confirmationSummary and confirmationDigest. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchLabel: batchLabelSchema,
+      rowNumbers: z.array(z.number().int().positive()).min(1).max(200).optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      typedConfirmation: z.string().trim().max(100).optional(),
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
   },
 } as const;
 
@@ -464,7 +760,14 @@ export type McpToolDefinition = typeof toolDefinitions[McpToolName];
 
 function getToolAnnotations(name: McpToolName, accessKind: AiConnectorAccessKind): McpToolAnnotations {
   if (accessKind === "read") return readOnlyToolAnnotations;
-  if (name === "delete_unconfirmed_transaction_draft_batch" || name === "soft_delete_account") return destructiveWriteToolAnnotations;
+  if (
+    name === "delete_unconfirmed_transaction_draft_batch"
+    || name === "delete_unconfirmed_transaction_draft_batch_by_name"
+    || name === "soft_delete_account"
+    || name === "soft_delete_account_by_name"
+  ) {
+    return destructiveWriteToolAnnotations;
+  }
   return boundedWriteToolAnnotations;
 }
 

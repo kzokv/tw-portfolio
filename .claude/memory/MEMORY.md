@@ -79,6 +79,9 @@
 ## Promoted to .claude/rules/ (MCP account tools scope, 2026-05-31)
 - `mcp-tool-scope-extension-checklist.md` — New MCP tool families/scopes require shared DTO/scope types, OAuth/MCP metadata, lifecycle policy mapping, service auth, connector consent UI, ChatGPT Apps resources, and API/web/E2E tests in the same PR.
 
+## Promoted to .claude/rules/ (MCP name-first delegation, 2026-06-16)
+- `mcp-name-first-delegation-wrappers.md` — Model-facing delegated MCP write tools must use human selectors, keep internal IDs out of visible payloads, preserve low-level widget handlers as app-visible only, and require confirmation digests before commits.
+
 ## Promoted to .claude/rules/ (performance-smooth-pages, 2026-06-01)
 - `smooth-page-performance-boundaries.md` — Authenticated page loads keep `AppShell` lightweight, route primary reads page-owned, enrichment deferred, hot reads instrumented, and portfolio-context reads based on `contextUserId`. Promoted from the deployed shared-portfolio performance incident.
 - 2026-06-02 addendum — route-primary payloads may seed AppShell account/fee-profile config to avoid duplicate first-paint fetches, but seeded shell/route data and command/search indexes must refresh or clear on shared-owner context switches.
