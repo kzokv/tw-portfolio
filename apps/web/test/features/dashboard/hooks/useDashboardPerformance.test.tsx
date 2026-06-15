@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DashboardPerformanceDto } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DashboardPerformanceDto } from "@vakwen/shared-types";
 import {
   DASHBOARD_PERFORMANCE_REFRESH_TIMEOUT_MS,
   useDashboardPerformance,
@@ -42,13 +42,15 @@ const emptyPerformance: DashboardPerformanceDto = {
 function Harness({
   cacheKey,
   enabled = true,
+  expectedReportingCurrency,
   timeoutMessage = "Localized dashboard timeout",
 }: {
   cacheKey?: string;
   enabled?: boolean;
+  expectedReportingCurrency?: AccountDefaultCurrency | null;
   timeoutMessage?: string;
 }) {
-  result = useDashboardPerformance({ cacheKey, range: "1M", enabled, timeoutMessage });
+  result = useDashboardPerformance({ cacheKey, range: "1M", enabled, expectedReportingCurrency, timeoutMessage });
   return null;
 }
 
@@ -153,6 +155,22 @@ describe("useDashboardPerformance", () => {
     expect(result.data).toEqual(emptyPerformance);
     expect(result.isLoading).toBe(false);
     expect(result.errorMessage).toBe("");
+    expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores cached performance data with a different reporting currency", async () => {
+    const cacheKey = "dashboard-performance:1M:AUD";
+    const audPerformance = { ...emptyPerformance, reportingCurrency: "AUD" as const };
+    writeRouteDtoCache(cacheKey, emptyPerformance);
+    vi.mocked(fetchDashboardPerformanceEnrichment).mockResolvedValue(audPerformance);
+
+    act(() => {
+      root.render(<Harness cacheKey={cacheKey} expectedReportingCurrency="AUD" />);
+    });
+    await act(async () => {});
+
+    expect(result.data).toEqual(audPerformance);
+    expect(result.restoredFromCache).toBe(false);
     expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
   });
 });
