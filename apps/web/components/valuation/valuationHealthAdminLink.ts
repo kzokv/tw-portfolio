@@ -47,10 +47,14 @@ function buildMarketRepairLinks(
   expectedLatestValuationDate: string | null,
 ): ValuationHealthAdminRepairLink[] {
   const tickers = [...new Set(holdings.map((holding) => holding.ticker))].sort();
-  const targetRepairDate = expectedLatestValuationDate ?? holdings
+  const latestBarRepairDate = holdings
     .map((holding) => holding.latestBarDate)
     .filter((date): date is string => date !== null)
     .reduce<string | null>((max, date) => (max === null || date > max ? date : max), null);
+  const needsBackfill = holdings.some((holding) => holding.recommendedAction === "run_backfill");
+  const targetRepairDate = needsBackfill
+    ? expectedLatestValuationDate ?? latestBarRepairDate
+    : latestBarRepairDate ?? expectedLatestValuationDate;
   const fromDate = holdings
     .map((holding) => holding.latestSnapshotDate ?? holding.latestBarDate)
     .filter((date): date is string => date !== null)

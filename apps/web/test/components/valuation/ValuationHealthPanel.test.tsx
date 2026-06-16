@@ -309,6 +309,29 @@ describe("getValuationHealthAdminRepairHref", () => {
               latestBarDate: "2026-06-13",
               latestSnapshotDate: "2026-06-12",
               backfillStatus: "ready",
+              status: "missing_latest_bar",
+              recommendedAction: "run_backfill",
+            },
+          ],
+          recommendedActions: ["run_backfill"],
+        }),
+      ),
+    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-16&endDate=2026-06-16&fromDate=2026-06-12&startDate=2026-06-12");
+  });
+
+  it("uses the latest market bar as the guided repair target for snapshot-only repairs", () => {
+    expect(
+      getValuationHealthAdminRepairHref(
+        buildValuationHealth({
+          expectedLatestValuationDate: "2026-06-16",
+          affectedHoldings: [
+            {
+              ticker: "VRT",
+              marketCode: "US",
+              currentReportingValueAmount: 1200,
+              latestBarDate: "2026-06-13",
+              latestSnapshotDate: "2026-06-12",
+              backfillStatus: "ready",
               status: "stale_snapshot",
               recommendedAction: "run_snapshot_repair",
             },
@@ -316,7 +339,7 @@ describe("getValuationHealthAdminRepairHref", () => {
           recommendedActions: ["run_snapshot_repair"],
         }),
       ),
-    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-16&endDate=2026-06-16&fromDate=2026-06-12&startDate=2026-06-12");
+    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-13&endDate=2026-06-13&fromDate=2026-06-12&startDate=2026-06-12");
   });
 
   it("preserves same-market snapshot repair tickers in the admin repair link", () => {
