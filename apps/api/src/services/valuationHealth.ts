@@ -124,7 +124,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     latestComparableSnapshotDate,
     latestPartialSnapshotDate,
     expectedLatestValuationDate,
-    ...(status === "material" || affectedHoldings.length > 0 || latestPartialSnapshotDate !== null
+    ...(status !== "healthy" || affectedHoldings.length > 0
       ? { title: "Market data out of sync" as const }
       : {}),
     marketFreshness,

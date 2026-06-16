@@ -198,6 +198,58 @@ describe("buildValuationHealth", () => {
     expect(dto.recommendedActions).toEqual([]);
   });
 
+  it("does not label healthy partial diagnostics as out of sync", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([
+            ["2330:TW", "2026-06-16"],
+            ["AVGO:US", "2026-06-16"],
+          ])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([
+            [scopeKey("acc-1", "2330", "TW"), "2026-06-16"],
+            [scopeKey("acc-2", "AVGO", "US"), "2026-06-16"],
+          ])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 695_751.36,
+      asOf: "2026-06-16T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 516_114.72,
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+        {
+          ticker: "AVGO",
+          marketCode: "US",
+          reportingMarketValueAmount: 179_636.64,
+          children: [{ accountId: "acc-2", ticker: "AVGO", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 695_751.36 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-16",
+          latestSnapshotDate: "2026-06-16",
+          latestComparableSnapshotDate: "2026-06-16",
+          latestPartialSnapshotDate: "2026-06-03",
+          expectedLatestValuationDate: "2026-06-16",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("healthy");
+    expect(dto.title).toBeUndefined();
+    expect(dto.latestPartialSnapshotDate).toBe("2026-06-03");
+    expect(dto.affectedHoldings).toEqual([]);
+  });
+
   it("prompts backfill when a market bar is behind the expected valuation trading date", async () => {
     const dto = await buildValuationHealth({
       app: {
