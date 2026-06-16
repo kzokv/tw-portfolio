@@ -30,7 +30,7 @@ superseded_by: null
 - [x] Fix delegated/shared Portfolio Trend currency and cache scoping so owner/context reporting currency wins over delegate preferences.
 - [x] Remove the duplicate dashboard valuation-health card and keep valuation health inside Portfolio Trend.
 - [x] Limit performance work to Dashboard/Portfolio Trend and guided repair paths, targeting 2-3s frontend render when cache/data are warm while excluding provider background job duration.
-- [ ] Use synthetic regression fixtures and targeted dev DB manipulation for live validation; do not clone a broad prod DB snapshot.
+- [x] Use synthetic regression fixtures and targeted dev DB manipulation for live validation; do not clone a broad prod DB snapshot.
 - [x] Add or update focused unit/integration tests for comparable snapshot selection, delegated reporting currency, admin range payloads, readiness gating, and role-specific UI behavior.
 - [x] Run `/aaa` to add or update E2E tests covering the new dashboard mismatch details, copied admin-help link, admin guided repair flow, and delegated Portfolio Trend regression.
 - [x] Create mockup screenshots referencing the current UI for Portfolio Trend mismatch details, non-admin copied admin-help flow, and admin guided valuation repair.
@@ -105,6 +105,27 @@ superseded_by: null
   - `npm run test:e2e:bypass:mem --prefix apps/web` (`278` passed, `12` skipped)
   - `npm run test:e2e:oauth:mem --prefix apps/web` (`120` passed)
   - `npm run test:http --prefix apps/api` (`290` passed, `2` skipped)
+- 2026-06-16 PR/CI/Codex review loop:
+  - PR #223 targets `dev` with CI run `27608810475` green at `b22e542e` (`lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `e2e-bypass`, `e2e-oauth`, `docker-build-validation`, `deploy-config-validation`) and PR Gate run `27608810269` green.
+  - Codex review findings through `b22e542e` were fixed and replied to; all review threads were resolved before final live validation.
+  - Late Codex review `3419769363` found that `ValuationHealthPanel` rendered the server literal `Market data out of sync`; fixed by deriving the visible title from i18n copy (`outOfSyncTitle`) and adding zh-TW regression coverage.
+  - Focused follow-up validation passed: `npx eslint apps/web/components/valuation/ValuationHealthPanel.tsx apps/web/features/dashboard/i18n.ts apps/web/lib/i18n/types.ts apps/web/test/components/valuation/ValuationHealthPanel.test.tsx`; `npx vitest run test/components/valuation/ValuationHealthPanel.test.tsx` from `apps/web` (`14` tests passed); `npm run typecheck`.
+- 2026-06-16 deployed Vakwen Dev validation at `b22e542e`:
+  - Deploy run `27609541647` completed successfully in `12m23s`; qnap dev containers `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` were healthy after restart.
+  - Dev DB did not contain the requested production identities `masterj71.tw@gmail.com` or `nocktkv@gmail.com`; the available dev validation identities were `c2974378@gmail.com` (`KC vtwin`, member) and `mmckchuang@gmail.com` (`mmc_kchuang`, admin). Live browser validation used the existing authenticated `mmckchuang@gmail.com` session and targeted dev DB manipulation.
+  - Healthy baseline: dashboard settled with current valuation `$695,751.36`, chart valuation `$695,751.36`, delta `$0`, relative delta `0%`, latest bar/snapshot/comparable dates `Jun 16, 2026`, no admin repair links, and neutral `Valuation health` title.
+  - Stale-US admin fixture: removed the synthetic AVGO `US` Jun 16 bar/snapshot and removed the AVGO Jun 15 snapshot, leaving AVGO latest bar `2026-06-15` and latest snapshot `2026-06-12` while TW/KR retained Jun 16 data. Dashboard showed `Market data out of sync`, current `$695,751.36`, chart `$663,017.84`, delta `$32,733.52`, relative delta `4.7%`, latest snapshot `Jun 12`, partial snapshot `Jun 16`, and a market-local admin link to `/admin/market-data/US/backfill?repair=valuation&tickers=AVGO&targetDate=2026-06-15&endDate=2026-06-15&fromDate=2026-06-12&startDate=2026-06-12`.
+  - Admin repair flow: guided page prefilled market `US`, ticker `AVGO`, target `2026-06-15`, range `2026-06-12` to `2026-06-15`, status `0/1 complete`, and `Queue 1 eligible snapshot repair`; queueing completed in `6.0s`, flipped status to `1/1 complete`, disabled the queue button as `Queue 0 eligible snapshot repairs`, and showed AVGO latest snapshot `2026-06-15`.
+  - Viewer handoff fixture: temporarily changed `mmckchuang@gmail.com` role to `member` and left AVGO latest bar/snapshot at Jun 15 while other markets retained Jun 16 data. Dashboard showed `Market data out of sync`, no admin links, one `Copy admin link · US` button, and viewer guidance to ask an admin; clicking it changed the button to `Admin link copied`. The Chrome bridge returned an empty clipboard read, so the actual copied-text assertion remains covered by the focused E2E/component tests.
+  - Final-clear restore: restored `mmckchuang@gmail.com` to `admin`, reinserted the synthetic AVGO Jun 16 bar/snapshot, and refreshed the dashboard. The warning auto-cleared with no admin links, current/chart both `$695,751.36`, delta `$0`, and `hasOutOfSync=false`.
+  - Observed deployed browser timings: healthy reload DOM `3.4s`; stale admin dashboard visible `10.2s` during cold secondary reload; admin guided page visible `1.6s`; viewer warning visible `3.8s`; final auto-clear visible `4.5s`; restored healthy tab visible `3.5s`. Warm mocked/E2E paths remain near the 2-3s target; provider/background job duration is excluded.
+  - Live screenshots:
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-healthy-final-20260616.png`
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-stale-us-warning-20260616.png`
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-admin-repair-ready-20260616.png`
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-admin-repair-complete-20260616.png`
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-viewer-copy-guidance-20260616.png`
+    - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-final-auto-clear-20260616.png`
 
 ## Open Items
 

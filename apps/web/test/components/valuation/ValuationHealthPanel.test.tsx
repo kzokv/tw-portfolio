@@ -133,6 +133,26 @@ describe("ValuationHealthPanel", () => {
     expect(document.querySelector("[data-testid='valuation-health-market-freshness']")?.textContent).toContain("Missing");
   });
 
+  it("localizes the unhealthy title instead of rendering the server literal", async () => {
+    const valuationHealth = buildValuationHealth({ title: "Market data out of sync" });
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          copy={getDictionary("zh-TW").valuationHealth}
+          locale="zh-TW"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(document.body.textContent).toContain("市場資料不同步");
+    expect(document.body.textContent).not.toContain("Market data out of sync");
+  });
+
   it("copies admin-help text with an absolute deep link for non-admin users", async () => {
     const valuationHealth = buildValuationHealth();
     const writeText = vi.mocked(navigator.clipboard.writeText);
