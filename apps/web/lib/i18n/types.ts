@@ -526,6 +526,7 @@ export interface AppDictionary {
     missingSnapshot: string;
     missingSnapshotValue: string;
     none: string;
+    outOfSyncTitle: string;
     relativeDelta: string;
     relativeExceeded: string;
     partialSnapshotDate: string;

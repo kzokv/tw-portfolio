@@ -60,7 +60,9 @@ export function ValuationHealthPanel({
     : hasMaterialNoRepair
       ? copy.userNoRepairHelp
       : copy.userInfoHelp;
-  const panelTitle = valuationHealth.title ?? copy.title;
+  const panelTitle = valuationHealth.status === "healthy" && valuationHealth.affectedHoldings.length === 0
+    ? copy.title
+    : copy.outOfSyncTitle;
 
   return (
     <section
