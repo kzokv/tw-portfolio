@@ -298,6 +298,47 @@ describe("backfill handler trigger branching", () => {
     }));
   });
 
+  it("preserves date-scoped singleton keys when paused operation-backed jobs are requeued", async () => {
+    const deps = createDeps();
+    deps.marketDataRegistry.set("US", deps.provider);
+    deps.catalogRegistry.set("US", deps.catalogProvider);
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-paused-range",
+        providerId: "finmind-us",
+        marketCode: "US",
+        phase: "paused",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "V",
+        marketCode: "US",
+        trigger: "admin_rerun",
+        startDate: "2026-06-12",
+        endDate: "2026-06-15",
+        providerOperationId: "provider-op-paused-range",
+      }, 0, 3, 10) as never,
+    ]);
+
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      expect.objectContaining({
+        ticker: "V",
+        marketCode: "US",
+        startDate: "2026-06-12",
+        endDate: "2026-06-15",
+        providerOperationId: "provider-op-paused-range",
+      }),
+      expect.objectContaining({ startAfter: 60, singletonKey: "V:US:2026-06-12:2026-06-15", priority: 10 }),
+    );
+    expect(deps.provider.fetchBars).not.toHaveBeenCalled();
+  });
+
   it("drops operation-backed jobs when the provider operation is cancelled", async () => {
     const deps = createDeps();
     const providerOperationLogger = {
@@ -414,7 +455,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       "finmind-backfill",
       { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
-      { startAfter: 30, singletonKey: "2330:TW", priority: 10 },
+      { startAfter: 30, singletonKey: "2330:TW:2026-03-24:open", priority: 10 },
     );
     // Status must NOT flip to "failed" on a reschedule.
     expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "TW", "failed");
@@ -659,7 +700,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
-      expect.objectContaining({ startAfter: 45, singletonKey: "2330:TW" }),
+      expect.objectContaining({ startAfter: 45, singletonKey: "2330:TW:2026-03-24:open" }),
     );
     // Status must NOT flip — this is a reschedule, not a failure or success
     expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "TW", "failed");
@@ -695,7 +736,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
-      expect.objectContaining({ startAfter: 90, singletonKey: "2330:TW" }),
+      expect.objectContaining({ startAfter: 90, singletonKey: "2330:TW:2026-03-24:open" }),
     );
     // Critical: NEITHER fetch ran — that's the whole point of the pre-flight guard
     expect(provider.fetchBars).not.toHaveBeenCalled();
@@ -949,12 +990,12 @@ describe("backfill handler trigger branching", () => {
       ) as never,
     ]);
 
-    // Reschedule fired with composite singletonKey + 25s startAfter
+    // Reschedule fired with date-scoped composite singletonKey + 25s startAfter
     // (`Math.ceil(25000/1000)`).
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       expect.objectContaining({ ticker: "BHP", marketCode: "AU" }),
-      expect.objectContaining({ startAfter: 25, singletonKey: "BHP:AU" }),
+      expect.objectContaining({ startAfter: 25, singletonKey: "BHP:AU:2024-01-02:open" }),
     );
 
     // Status must NOT flip to "failed" — this is a reschedule.
