@@ -5314,6 +5314,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const { startDate, endDate } = resolveRangeBounds(query.range, asOf, earliestTradeDate);
       const expectedContributorKeysByDate = await timing.measure("coverage_inputs", "db", () =>
         buildExpectedSnapshotContributorKeysForTrades(performanceInputs.trades, startDate, endDate, app.persistence));
+      const strictExpectedContributorKeysByDate = await timing.measure("strict_coverage_inputs", "app", () =>
+        buildExpectedSnapshotContributorKeysForTrades(performanceInputs.trades, startDate, endDate, app.persistence, {
+          omitNonTradingContributors: false,
+        }));
       return timing.measure("translate_performance", "db", () => translatePerformancePoints(
         userId,
         query.range as DashboardPerformanceRange,
@@ -5325,6 +5329,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         {
           earliestTradeDate,
           expectedContributorKeysByDate,
+          strictExpectedContributorKeysByDate,
           financeTrades: performanceInputs.trades,
           financeDividends: performanceInputs.postedDividends,
           financeLotAllocations: performanceInputs.lotAllocations,

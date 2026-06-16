@@ -97,9 +97,16 @@ type PerformanceFinanceAllocation = Pick<
 export interface TranslatePerformanceOptions {
   earliestTradeDate?: string;
   expectedContributorKeysByDate?: ReadonlyMap<string, ReadonlySet<string>>;
+  strictExpectedContributorKeysByDate?: ReadonlyMap<string, ReadonlySet<string>>;
   financeTrades?: ReadonlyArray<PerformanceFinanceTrade>;
   financeDividends?: ReadonlyArray<SnapshotDividendInput>;
   financeLotAllocations?: ReadonlyArray<PerformanceFinanceAllocation>;
+}
+
+interface SnapshotCoverageResult {
+  points: AggregatedSnapshotPoint[];
+  hasSnapshotCoverageGap: boolean;
+  latestPartialSnapshotDate: string | null;
 }
 
 /**
@@ -415,6 +422,12 @@ export async function translatePerformancePoints(
     );
   }
 
+  const strictExpectedKeysByDate = options.strictExpectedContributorKeysByDate
+    ?? (store
+      ? await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence, {
+          omitNonTradingContributors: false,
+        })
+      : null);
   const coverage = options.expectedContributorKeysByDate
     ? filterAggregatedSnapshotsByActiveCoverage(aggregated, options.expectedContributorKeysByDate)
     : store
@@ -422,7 +435,7 @@ export async function translatePerformancePoints(
         aggregated,
         await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence),
       )
-    : { points: aggregated, hasSnapshotCoverageGap: false };
+    : { points: aggregated, hasSnapshotCoverageGap: false, latestPartialSnapshotDate: null };
 
   if (coverage.points.length > 0) {
     const datedFinance = store
@@ -441,17 +454,18 @@ export async function translatePerformancePoints(
     let usedSnapshotFinanceFallback = false;
     const points: DashboardPerformancePointDto[] = coverage.points.map((p) => {
       const finance = datedFinance?.get(p.date) ?? null;
+      const partialMetadata = partialMetadataForPoint(p, strictExpectedKeysByDate);
       if (!finance) {
-        return translateAggregatedPerformancePoint(p);
+        return translateAggregatedPerformancePoint(p, partialMetadata);
       }
 
       if (!p.fxAvailable) {
-        return translateAggregatedPerformancePoint(p);
+        return translateAggregatedPerformancePoint(p, partialMetadata);
       }
 
       if (!finance.fxAvailable) {
         usedSnapshotFinanceFallback = true;
-        return translateAggregatedPerformancePoint(p);
+        return translateAggregatedPerformancePoint(p, partialMetadata);
       }
 
       return buildPerformancePoint({
@@ -461,7 +475,7 @@ export async function translatePerformancePoints(
         cumulativeRealizedPnlAmount: finance.cumulativeRealizedPnlAmount,
         cumulativeDividendsAmount: finance.cumulativeDividendsAmount,
         fxAvailable: true,
-      });
+      }, partialMetadata);
     });
     const fxStatus: "complete" | "partial" | "missing" = (() => {
       let allAvail = true;
@@ -487,6 +501,7 @@ export async function translatePerformancePoints(
       {
         hasFinanceFxGap: usedSnapshotFinanceFallback,
         hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+        latestPartialSnapshotDate: coverage.latestPartialSnapshotDate,
       },
     );
   }
@@ -494,7 +509,10 @@ export async function translatePerformancePoints(
   return withPerformanceFreshness(
     { range, rangeStartDate: startDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
     asOf,
-    { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
+    {
+      hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+      latestPartialSnapshotDate: coverage.latestPartialSnapshotDate,
+    },
   );
 }
 
@@ -531,7 +549,10 @@ export async function translateValuationHealthSnapshotPoints(
     return withPerformanceFreshness(
       { range, rangeStartDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
       asOf,
-      { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
+      {
+        hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+        latestPartialSnapshotDate: coverage.latestPartialSnapshotDate,
+      },
     );
   }
 
@@ -554,7 +575,10 @@ export async function translateValuationHealthSnapshotPoints(
       fxStatus,
     },
     asOf,
-    { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
+    {
+      hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+      latestPartialSnapshotDate: coverage.latestPartialSnapshotDate,
+    },
   );
 }
 
@@ -567,9 +591,10 @@ async function loadValuationHealthSnapshotCoverage(
   reportingCurrency: AccountDefaultCurrency,
   persistence: Persistence,
   store: Store,
-): Promise<{ points: AggregatedSnapshotPoint[]; hasSnapshotCoverageGap: boolean }> {
+): Promise<SnapshotCoverageResult> {
   const queryStartDates = buildValuationHealthSnapshotQueryStartDates(rangeStartDate, endDate);
   let hasSnapshotCoverageGap = false;
+  let latestPartialSnapshotDate: string | null = null;
 
   for (const queryStartDate of queryStartDates) {
     const aggregated = await persistence.getAggregatedSnapshotsInReportingCurrency(
@@ -589,9 +614,11 @@ async function loadValuationHealthSnapshotCoverage(
         queryStartDate,
         endDate,
         persistence,
+        { omitNonTradingContributors: false },
       ),
     );
     hasSnapshotCoverageGap = hasSnapshotCoverageGap || coverage.hasSnapshotCoverageGap;
+    latestPartialSnapshotDate = maxNullableDate(latestPartialSnapshotDate, coverage.latestPartialSnapshotDate);
 
     const hasReliablePoint = coverage.points.some((point) =>
       point.fxAvailable && point.totalMarketValue !== null && point.totalCostBasis !== null);
@@ -599,11 +626,12 @@ async function loadValuationHealthSnapshotCoverage(
       return {
         points: coverage.points,
         hasSnapshotCoverageGap,
+        latestPartialSnapshotDate,
       };
     }
   }
 
-  return { points: [], hasSnapshotCoverageGap };
+  return { points: [], hasSnapshotCoverageGap, latestPartialSnapshotDate };
 }
 
 function buildValuationHealthSnapshotQueryStartDates(rangeStartDate: string, endDate: string): string[] {
@@ -629,8 +657,9 @@ function maxDateString(left: string, right: string): string {
 function filterAggregatedSnapshotsByActiveCoverage(
   points: ReadonlyArray<AggregatedSnapshotPoint>,
   expectedKeysByDate: ReadonlyMap<string, ReadonlySet<string>>,
-): { points: AggregatedSnapshotPoint[]; hasSnapshotCoverageGap: boolean } {
+): SnapshotCoverageResult {
   let hasSnapshotCoverageGap = false;
+  let latestPartialSnapshotDate: string | null = null;
   const filtered = points.filter((point) => {
     const expectedKeys = expectedKeysByDate.get(point.date);
     if (!expectedKeys || expectedKeys.size === 0) return true;
@@ -639,16 +668,15 @@ function filterAggregatedSnapshotsByActiveCoverage(
     // In that case, keep the point rather than assuming it is incomplete.
     if (!point.snapshotContributorKeys) return true;
 
-    const actualKeys = new Set(point.snapshotContributorKeys);
-    for (const expectedKey of expectedKeys) {
-      if (!actualKeys.has(expectedKey)) {
-        hasSnapshotCoverageGap = true;
-        return false;
-      }
+    const missingKeys = missingContributorKeysForPoint(point, expectedKeysByDate);
+    if (missingKeys.length > 0) {
+      hasSnapshotCoverageGap = true;
+      latestPartialSnapshotDate = maxNullableDate(latestPartialSnapshotDate, point.date);
+      return false;
     }
     return true;
   });
-  return { points: filtered, hasSnapshotCoverageGap };
+  return { points: filtered, hasSnapshotCoverageGap, latestPartialSnapshotDate };
 }
 
 async function buildExpectedSnapshotContributorKeysByDate(
@@ -656,12 +684,14 @@ async function buildExpectedSnapshotContributorKeysByDate(
   startDate: string,
   endDate: string,
   persistence: Persistence,
+  options: { omitNonTradingContributors?: boolean } = {},
 ): Promise<Map<string, Set<string>>> {
   return buildExpectedSnapshotContributorKeysForTrades(
     store.accounting.facts.tradeEvents,
     startDate,
     endDate,
     persistence,
+    options,
   );
 }
 
@@ -670,6 +700,7 @@ export async function buildExpectedSnapshotContributorKeysForTrades(
   startDate: string,
   endDate: string,
   persistence: Persistence,
+  options: { omitNonTradingContributors?: boolean } = {},
 ): Promise<Map<string, Set<string>>> {
   const trades = sortPerformanceCoverageTrades(inputTrades);
   const activeQuantities = new Map<string, number>();
@@ -707,21 +738,23 @@ export async function buildExpectedSnapshotContributorKeysForTrades(
     expectedByDate.set(currentDate, new Set(activeQuantities.keys()));
   }
 
-  const tradingDatesByTickerMarket = await buildSnapshotTradingDatesByTickerMarket(
-    contributors,
-    startDate,
-    endDate,
-    persistence,
-  );
+  if (options.omitNonTradingContributors ?? true) {
+    const tradingDatesByTickerMarket = await buildSnapshotTradingDatesByTickerMarket(
+      contributors,
+      startDate,
+      endDate,
+      persistence,
+    );
 
-  for (const [date, keys] of expectedByDate) {
-    for (const key of [...keys]) {
-      const contributor = contributors.get(key);
-      const contributorTradingDates = contributor
-        ? tradingDatesByTickerMarket.get(tickerMarketKey(contributor.ticker, contributor.marketCode))
-        : undefined;
-      if (!contributor || !contributorTradingDates?.has(date)) {
-        keys.delete(key);
+    for (const [date, keys] of expectedByDate) {
+      for (const key of [...keys]) {
+        const contributor = contributors.get(key);
+        const contributorTradingDates = contributor
+          ? tradingDatesByTickerMarket.get(tickerMarketKey(contributor.ticker, contributor.marketCode))
+          : undefined;
+        if (!contributor || !contributorTradingDates?.has(date)) {
+          keys.delete(key);
+        }
       }
     }
   }
@@ -766,12 +799,22 @@ function tickerMarketKey(ticker: string, marketCode: string): string {
 function withPerformanceFreshness(
   dto: Omit<DashboardPerformanceDto, "requestedAsOf" | "lastReliableDate" | "marketDataStaleSince">,
   requestedAsOf: string,
-  options: { hasFinanceFxGap?: boolean; hasSnapshotCoverageGap?: boolean } = {},
+  options: {
+    hasFinanceFxGap?: boolean;
+    hasSnapshotCoverageGap?: boolean;
+    latestPartialSnapshotDate?: string | null;
+  } = {},
 ): DashboardPerformanceDto {
   const requestedAsOfDate = requestedAsOf.slice(0, 10);
   const latestSnapshotDate = dto.points.at(-1)?.date ?? null;
   const lastReliableDate =
     [...dto.points].reverse().find((point) => isReliablePerformancePoint(point))?.date ?? null;
+  const latestComparableSnapshotDate =
+    [...dto.points].reverse().find((point) => isReliablePerformancePoint(point) && !point.isPartialMarketData)?.date ?? null;
+  const latestPartialSnapshotDate = maxNullableDate(
+    options.latestPartialSnapshotDate ?? null,
+    [...dto.points].reverse().find((point) => point.isPartialMarketData && isReliablePerformancePoint(point))?.date ?? null,
+  );
   const staleSinceDate =
     lastReliableDate !== null && lastReliableDate < requestedAsOfDate
       ? lastReliableDate
@@ -789,6 +832,9 @@ function withPerformanceFreshness(
     diagnostics: {
       latestSnapshotDate,
       latestReliableValuationDate: lastReliableDate,
+      latestComparableSnapshotDate,
+      latestPartialSnapshotDate,
+      hasPartialMarketData: latestPartialSnapshotDate !== null,
       expectedLatestValuationDate: requestedAsOfDate,
       staleSinceDate,
       knownGapReasons,
@@ -808,6 +854,7 @@ function translateAggregatedPerformancePoint(
     totalReturnPercent: number | null;
     fxAvailable: boolean;
   },
+  metadata: { isPartialMarketData?: boolean; missingContributorKeys?: string[] } = {},
 ): DashboardPerformancePointDto {
   return {
     date: point.date,
@@ -819,6 +866,7 @@ function translateAggregatedPerformancePoint(
     totalReturnAmount: point.fxAvailable ? point.totalReturnAmount : null,
     totalReturnPercent: point.fxAvailable ? point.totalReturnPercent : null,
     fxAvailable: point.fxAvailable,
+    ...metadata,
   };
 }
 
@@ -848,7 +896,7 @@ function buildPerformancePoint(input: {
   cumulativeRealizedPnlAmount: number | null;
   cumulativeDividendsAmount: number | null;
   fxAvailable: boolean;
-}): DashboardPerformancePointDto {
+}, metadata: { isPartialMarketData?: boolean; missingContributorKeys?: string[] } = {}): DashboardPerformancePointDto {
   const totalReturnAmount =
     input.fxAvailable &&
     input.marketValueAmount !== null &&
@@ -879,7 +927,35 @@ function buildPerformancePoint(input: {
         ? (totalReturnAmount / input.bookCostAmount) * 100
         : null,
     fxAvailable: input.fxAvailable,
+    ...metadata,
   };
+}
+
+function partialMetadataForPoint(
+  point: AggregatedSnapshotPoint,
+  expectedKeysByDate: ReadonlyMap<string, ReadonlySet<string>> | null,
+): { isPartialMarketData?: boolean; missingContributorKeys?: string[] } {
+  if (!expectedKeysByDate) return {};
+  const missingContributorKeys = missingContributorKeysForPoint(point, expectedKeysByDate);
+  return missingContributorKeys.length > 0
+    ? { isPartialMarketData: true, missingContributorKeys }
+    : {};
+}
+
+function missingContributorKeysForPoint(
+  point: Pick<AggregatedSnapshotPoint, "date" | "snapshotContributorKeys">,
+  expectedKeysByDate: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] {
+  const expectedKeys = expectedKeysByDate.get(point.date);
+  if (!expectedKeys || expectedKeys.size === 0 || !point.snapshotContributorKeys) return [];
+  const actualKeys = new Set(point.snapshotContributorKeys);
+  return [...expectedKeys].filter((expectedKey) => !actualKeys.has(expectedKey)).sort();
+}
+
+function maxNullableDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left >= right ? left : right;
 }
 
 async function buildDatedPerformanceFinance(

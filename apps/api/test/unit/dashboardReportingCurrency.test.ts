@@ -499,6 +499,8 @@ describe("translateValuationHealthSnapshotPoints", () => {
     expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: null,
       latestReliableValuationDate: null,
+      latestPartialSnapshotDate: "2026-01-03",
+      hasPartialMarketData: true,
       staleSinceDate: null,
       knownGapReasons: ["missing_snapshot"],
     }));
@@ -587,7 +589,7 @@ describe("translateValuationHealthSnapshotPoints", () => {
     }));
   });
 
-  it("keeps a newer health snapshot when the omitted market has no bar that day", async () => {
+  it("does not use a newer health snapshot when the omitted active market has no bar that day", async () => {
     const baseStore = makeStore();
     const store = makeStore({
       accounting: {
@@ -659,13 +661,165 @@ describe("translateValuationHealthSnapshotPoints", () => {
       store,
     );
 
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12"]);
+    expect(out.lastReliableDate).toBe("2026-06-12");
+    expect(out.diagnostics).toEqual(expect.objectContaining({
+      latestSnapshotDate: "2026-06-12",
+      latestReliableValuationDate: "2026-06-12",
+      latestComparableSnapshotDate: "2026-06-12",
+      latestPartialSnapshotDate: "2026-06-15",
+      hasPartialMarketData: true,
+      staleSinceDate: "2026-06-12",
+      knownGapReasons: ["missing_snapshot", "stale_snapshot"],
+    }));
+  });
+
+  it("preserves newer partial market points for trend charts with marker metadata", async () => {
+    const baseStore = makeStore();
+    const store = makeStore({
+      accounting: {
+        ...baseStore.accounting,
+        facts: {
+          ...baseStore.accounting.facts,
+          tradeEvents: [
+            makeTrade({
+              id: "trade-tw",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              tradeDate: "2026-06-01",
+            }),
+            makeTrade({
+              id: "trade-kr",
+              accountId: "acct-2",
+              ticker: "000660",
+              marketCode: "KR",
+              priceCurrency: "KRW",
+              tradeDate: "2026-06-01",
+            }),
+          ],
+        },
+      },
+    });
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 500,
+          totalMarketValue: 600,
+          totalUnrealizedPnl: 100,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 100,
+          totalReturnPercent: 20,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 200,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 50,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 50,
+          totalReturnPercent: 25,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+      dailyBars: [
+        makeDailyBar("2330", "2026-06-12", 500, "TW"),
+        makeDailyBar("000660", "2026-06-12", 200, "KR"),
+        makeDailyBar("000660", "2026-06-15", 250, "KR"),
+      ],
+    });
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      store,
+    );
+
     expect(out.points.map((point) => point.date)).toEqual(["2026-06-12", "2026-06-15"]);
-    expect(out.lastReliableDate).toBe("2026-06-15");
+    expect(out.points.at(-1)).toEqual(expect.objectContaining({
+      date: "2026-06-15",
+      isPartialMarketData: true,
+      missingContributorKeys: ["acct-1:TW:2330"],
+    }));
     expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: "2026-06-15",
-      latestReliableValuationDate: "2026-06-15",
-      staleSinceDate: null,
-      knownGapReasons: [],
+      latestComparableSnapshotDate: "2026-06-12",
+      latestPartialSnapshotDate: "2026-06-15",
+      hasPartialMarketData: true,
+    }));
+  });
+
+  it("marks partial points on the dashboard no-store path using strict contributor coverage", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 100,
+          totalMarketValue: 300,
+          totalUnrealizedPnl: 200,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 200,
+          totalReturnPercent: 200,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 100,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 150,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 150,
+          totalReturnPercent: 150,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+    });
+    const looseExpected = new Map([
+      ["2026-06-12", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+      ["2026-06-15", new Set(["acct-2:KR:000660"])],
+    ]);
+    const strictExpected = new Map([
+      ["2026-06-12", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+      ["2026-06-15", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+    ]);
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      undefined,
+      undefined,
+      {
+        earliestTradeDate: "2026-06-12",
+        expectedContributorKeysByDate: looseExpected,
+        strictExpectedContributorKeysByDate: strictExpected,
+      },
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12", "2026-06-15"]);
+    expect(out.points.at(-1)).toEqual(expect.objectContaining({
+      date: "2026-06-15",
+      isPartialMarketData: true,
+      missingContributorKeys: ["acct-1:TW:2330"],
     }));
   });
 
@@ -989,13 +1143,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.requestedAsOf).toBe("2026-04-29");
     expect(out.lastReliableDate).toBe("2026-04-29");
     expect(out.marketDataStaleSince).toBeNull();
-    expect(out.diagnostics).toEqual({
+    expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: "2026-04-29",
       latestReliableValuationDate: "2026-04-29",
       expectedLatestValuationDate: "2026-04-29",
       staleSinceDate: null,
       knownGapReasons: [],
-    });
+    }));
   });
 
   it("marks performance series stale when the latest reliable point predates the requested as-of date", async () => {
@@ -1041,13 +1195,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     expect(out.requestedAsOf).toBe("2026-06-08");
     expect(out.lastReliableDate).toBe("2026-05-29");
     expect(out.marketDataStaleSince).toBe("2026-05-29");
-    expect(out.diagnostics).toEqual({
+    expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: "2026-06-08",
       latestReliableValuationDate: "2026-05-29",
       expectedLatestValuationDate: "2026-06-08",
       staleSinceDate: "2026-05-29",
       knownGapReasons: ["stale_snapshot", "missing_fx"],
-    });
+    }));
   });
 
   it("does not mark same-day reliable data stale when requestedAsOf is a timestamp", async () => {
@@ -1656,13 +1810,13 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
     expect(out.points).toEqual([]);
     expect(out.fxStatus).toBe("complete");
-    expect(out.diagnostics).toEqual({
+    expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: null,
       latestReliableValuationDate: null,
       expectedLatestValuationDate: "2026-04-29",
       staleSinceDate: null,
       knownGapReasons: ["missing_snapshot"],
-    });
+    }));
   });
 
   it("Empty snapshots + repaired daily bars returns an empty snapshot-only series", async () => {

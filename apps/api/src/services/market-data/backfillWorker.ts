@@ -47,6 +47,14 @@ export interface BackfillJobData {
   providerOperationId?: string;
 }
 
+export function getBackfillJobSingletonKey(
+  data: Pick<BackfillJobData, "ticker" | "marketCode" | "resolverMode" | "startDate" | "endDate">,
+): string {
+  const baseKey = getBackfillSingletonKey(data.ticker, data.marketCode, data.resolverMode);
+  if (!data.startDate && !data.endDate) return baseKey;
+  return [baseKey, data.startDate ?? "open", data.endDate ?? "open"].join(":");
+}
+
 // KZO-185: validation gate at the handler entry. Parsed BEFORE the existing
 // `try` block so a ZodError on a malformed (or pre-KZO-169 in-flight) job
 // propagates straight to pg-boss without running side effects (status updates,
@@ -331,7 +339,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       if (operation.phase === "paused") {
         const id = await boss.send(BACKFILL_QUEUE, data, {
           startAfter: 60,
-          singletonKey: getBackfillSingletonKey(ticker, market, resolverMode),
+          singletonKey: getBackfillJobSingletonKey(data),
           priority: job.priority ?? 0,
         });
         await recordOperationLog(
@@ -379,9 +387,10 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         },
         "backfill_rate_limited: rescheduling",
       );
-      // KZO-169/KZO-197: singletonKey scopes by market and KR resolver mode so
-      // cross-market and acknowledged KR repair reruns don't collapse.
-      const singletonKey = getBackfillSingletonKey(ticker, market, resolverMode);
+      // KZO-169/KZO-197: singletonKey scopes by market and KR resolver mode; date-bounded
+      // jobs also preserve their producer scope on retry so they do not collapse into
+      // unrelated full-history jobs.
+      const singletonKey = getBackfillJobSingletonKey(data);
       // KZO-185: enqueue the parsed (validated) payload, not raw `job.data`.
       const id = await boss.send(BACKFILL_QUEUE, data, {
         startAfter: delaySec,

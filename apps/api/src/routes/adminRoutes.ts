@@ -34,11 +34,16 @@ import type {
   AdminMarketDataActionExecuteRequest,
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataActionsResponse,
+  AdminMarketDataBackfillDateRangeDto,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
   AdminMarketDataSnapshotRepairExecuteRequest,
   AdminMarketDataSnapshotRepairExecuteResponse,
   AdminMarketDataBackfillTargetDto,
+  AdminMarketDataValuationRepairOperationDto,
+  AdminMarketDataValuationRepairReason,
+  AdminMarketDataValuationRepairStatusResponse,
+  AdminMarketDataValuationRepairTickerStatusDto,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataBackfillPreviewRequest,
@@ -119,6 +124,7 @@ import {
 } from "../services/market-data/providerOperationExecutionWorker.js";
 import {
   BACKFILL_QUEUE,
+  getBackfillJobSingletonKey,
   getBackfillSingletonKey,
   type BackfillJobData,
 } from "../services/market-data/backfillWorker.js";
@@ -128,7 +134,7 @@ import {
   SNAPSHOT_REPAIR_QUEUE,
   type SnapshotRepairJobData,
 } from "../services/snapshotRepair.js";
-import { RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
+import { historyStartFor, RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
 import type { MarketCode } from "@vakwen/domain";
 import type {
@@ -5379,14 +5385,32 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       selectedCatalogRows: z.array(marketDataTargetSchema).optional(),
       filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
       includeDemoUsers: z.boolean().optional(),
+      startDate: isoDateSchema.optional(),
+      endDate: isoDateSchema.optional(),
     })
-    .strict();
+    .strict()
+    .superRefine((value, ctx) => {
+      if (value.startDate && value.endDate && value.startDate > value.endDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "startDate must be before or equal to endDate",
+          path: ["startDate"],
+        });
+      }
+    });
   const marketDataBackfillExecuteBodySchema = z
     .object({
       operationId: userScopedIdSchema,
       previewToken: z.string().trim().min(1).max(80),
       acknowledged: z.boolean().optional(),
       typedConfirmation: z.string().trim().max(160).optional(),
+    })
+    .strict();
+  const marketDataValuationRepairStatusQuerySchema = z
+    .object({
+      tickers: z.string().trim().min(1).max(512),
+      targetDate: isoDateSchema,
+      operationId: userScopedIdSchema.optional(),
     })
     .strict();
 
@@ -5601,6 +5625,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const ownership = await app.persistence.countAdminMarketDataTargetOwnership({ targets });
     const matchCount = targets.length;
     const dangerous = body.scope === "all_matching" || matchCount >= 100;
+    const dateRange = resolveBackfillDateRange(marketCode, body);
     return {
       marketCode,
       providerId,
@@ -5610,6 +5635,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       affectedAccountCount: ownership.accountCount,
       estimatedJobCount: matchCount,
       estimatedStorageRows: matchCount === 0 ? 0 : matchCount * 2,
+      dateRange,
       providerBudgetNotes: marketDataProviderBudgetNotes(marketCode, "backfill_catalog_rows"),
       unsupportedRows,
       confirmation: {
@@ -5632,6 +5658,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       frozenBackfillTargets: preview.targets.map(compactBackfillTarget),
       unsupportedRows: preview.unsupportedRows,
       estimatedStorageRows: preview.estimatedStorageRows,
+      dateRange: preview.dateRange,
       affectedUserCount: preview.affectedUserCount,
       affectedAccountCount: preview.affectedAccountCount,
       providerBudgetNotes: preview.providerBudgetNotes,
@@ -5687,6 +5714,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       affectedAccountCount: numberField(metadata?.affectedAccountCount) ?? 0,
       estimatedJobCount: targets.length,
       estimatedStorageRows: numberField(metadata?.estimatedStorageRows),
+      dateRange: backfillDateRangeFromMetadata(operation.marketCode as MarketDataWorkspaceMarketCode, metadata),
       providerBudgetNotes: Array.isArray(metadata?.providerBudgetNotes)
         ? metadata.providerBudgetNotes.flatMap((note) => stringField(note) ?? [])
         : [],
@@ -5697,6 +5725,174 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         reason: stringField(metadata?.confirmationReason),
       },
       targets,
+    };
+  }
+
+  function resolveBackfillDateRange(
+    marketCode: MarketDataWorkspaceMarketCode,
+    body: Pick<MarketDataBackfillBody, "startDate" | "endDate">,
+  ): AdminMarketDataBackfillDateRangeDto {
+    const providerStartDate = historyStartFor(marketCode);
+    const requestedStartDate = body.startDate ?? null;
+    const requestedEndDate = body.endDate ?? null;
+    const effectiveStartDate = requestedStartDate && requestedStartDate >= providerStartDate
+      ? requestedStartDate
+      : providerStartDate;
+    if (requestedEndDate !== null && requestedEndDate < effectiveStartDate) {
+      throw routeError(
+        400,
+        "market_backfill_range_before_provider_history",
+        `Backfill end date ${requestedEndDate} is before the earliest supported ${marketCode} provider date ${effectiveStartDate}`,
+      );
+    }
+    return {
+      requestedStartDate,
+      requestedEndDate,
+      effectiveStartDate,
+      effectiveEndDate: requestedEndDate,
+      providerStartDate,
+      clampedStartDate: requestedStartDate !== null && requestedStartDate < providerStartDate,
+    };
+  }
+
+  function backfillDateRangeFromMetadata(
+    marketCode: MarketDataWorkspaceMarketCode,
+    metadata: Record<string, unknown> | null,
+  ): AdminMarketDataBackfillDateRangeDto {
+    const row = asRecord(metadata?.dateRange);
+    const providerStartDate = historyStartFor(marketCode);
+    const requestedStartDate = stringField(row?.requestedStartDate);
+    const requestedEndDate = stringField(row?.requestedEndDate);
+    return {
+      requestedStartDate,
+      requestedEndDate,
+      effectiveStartDate: stringField(row?.effectiveStartDate) ?? providerStartDate,
+      effectiveEndDate: stringField(row?.effectiveEndDate),
+      providerStartDate: stringField(row?.providerStartDate) ?? providerStartDate,
+      clampedStartDate: typeof row?.clampedStartDate === "boolean" ? row.clampedStartDate : false,
+    };
+  }
+
+  async function buildValuationRepairStatus(input: {
+    marketCode: MarketDataWorkspaceMarketCode;
+    tickers: string[];
+    targetRepairDate: string;
+    operationId?: string;
+  }): Promise<AdminMarketDataValuationRepairStatusResponse> {
+    const uniqueTickers = [...new Set(input.tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))].slice(0, 20);
+    const targetRepairDate = input.targetRepairDate.slice(0, 10);
+    const marketTradingDay = await app.tradingCalendarCache.isTradingDay(input.marketCode, targetRepairDate);
+    const latestBarByKey = await app.persistence.getLatestBarDatesForReconciliation(
+      uniqueTickers.map((ticker) => ({ ticker, marketCode: input.marketCode })),
+    );
+    const tickers = await Promise.all(uniqueTickers.map(async (ticker): Promise<AdminMarketDataValuationRepairTickerStatusDto> => {
+      const instrument = await app.persistence.getInstrument(ticker, input.marketCode);
+      if (!instrument) {
+        return {
+          ticker,
+          marketCode: input.marketCode,
+          targetRepairDate,
+          latestBarDate: null,
+          latestSnapshotDate: null,
+          scopeCount: 0,
+          eligibleForSnapshotRepair: false,
+          completed: false,
+          reasons: ["instrument_not_found"],
+        };
+      }
+      const latestBarDate = latestBarByKey.get(`${ticker}:${input.marketCode}`) ?? null;
+      const scopes = await app.persistence.listHoldingSnapshotRepairScopesForTickerMarket(ticker, input.marketCode);
+      const latestSnapshotDate = await latestSnapshotDateForRepairScopes(scopes);
+      const reasons = valuationRepairReasons({
+        latestBarDate,
+        latestSnapshotDate,
+        marketTradingDay,
+        scopeCount: scopes.length,
+        targetRepairDate,
+      });
+      const completed = latestSnapshotDate !== null && latestSnapshotDate >= targetRepairDate && scopes.length > 0;
+      return {
+        ticker,
+        marketCode: input.marketCode,
+        targetRepairDate,
+        latestBarDate,
+        latestSnapshotDate,
+        scopeCount: scopes.length,
+        eligibleForSnapshotRepair: reasons.includes("ready"),
+        completed,
+        reasons,
+      };
+    }));
+    const operation = input.operationId
+      ? valuationRepairOperationDto(await app.persistence.getProviderOperation(input.operationId))
+      : null;
+
+    return {
+      marketCode: input.marketCode,
+      targetRepairDate,
+      marketTradingDay,
+      operation,
+      tickers,
+      summary: {
+        total: tickers.length,
+        eligibleForSnapshotRepair: tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).length,
+        completed: tickers.filter((ticker) => ticker.completed).length,
+        blocked: tickers.filter((ticker) => !ticker.eligibleForSnapshotRepair && !ticker.completed).length,
+      },
+    };
+  }
+
+  async function latestSnapshotDateForRepairScopes(
+    scopes: Awaited<ReturnType<typeof app.persistence.listHoldingSnapshotRepairScopesForTickerMarket>>,
+  ): Promise<string | null> {
+    const scopesByUser = new Map<string, typeof scopes>();
+    for (const scope of scopes) {
+      scopesByUser.set(scope.userId, [...(scopesByUser.get(scope.userId) ?? []), scope]);
+    }
+    const latestDates: Array<string | null> = [];
+    for (const [userId, userScopes] of scopesByUser) {
+      const dates = await app.persistence.getLatestHoldingSnapshotDatesByScope(
+        userId,
+        userScopes.map((scope) => ({
+          accountId: scope.accountId,
+          ticker: scope.ticker,
+          marketCode: scope.marketCode,
+        })),
+      );
+      latestDates.push(...[...dates.values()]);
+    }
+    if (latestDates.length === 0 || latestDates.some((date) => date === null)) return null;
+    return latestDates.reduce<string | null>((min, date) => (min === null || (date !== null && date < min) ? date : min), null);
+  }
+
+  function valuationRepairReasons(input: {
+    latestBarDate: string | null;
+    latestSnapshotDate: string | null;
+    marketTradingDay: boolean;
+    scopeCount: number;
+    targetRepairDate: string;
+  }): AdminMarketDataValuationRepairReason[] {
+    if (!input.marketTradingDay) return ["market_closed"];
+    if (input.latestBarDate === null) return ["latest_bar_missing"];
+    if (input.latestBarDate < input.targetRepairDate) return ["latest_bar_before_target"];
+    if (input.scopeCount === 0) return ["no_active_snapshot_scopes"];
+    if (input.latestSnapshotDate !== null && input.latestSnapshotDate >= input.targetRepairDate) return ["snapshot_ready"];
+    if (input.latestSnapshotDate === null) return ["ready", "snapshot_missing"];
+    return ["ready", "snapshot_stale"];
+  }
+
+  function valuationRepairOperationDto(
+    operation: ProviderOperationRecord | null,
+  ): AdminMarketDataValuationRepairOperationDto | null {
+    if (!operation) return null;
+    const metadata = asRecord(operation.metadata) ?? {};
+    return {
+      operationId: operation.id,
+      phase: operation.phase,
+      progressPercent: numberField(metadata.progressPercent),
+      enqueuedJobCount: numberField(metadata.enqueuedJobCount),
+      skippedExistingJobCount: numberField(metadata.skippedExistingJobCount),
+      completedAt: operation.completedAt,
     };
   }
 
@@ -5815,6 +6011,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   async function enqueueMarketDataBackfillTargets(
     operation: ProviderOperationRecord,
     targets: readonly MarketDataTarget[],
+    dateRange: AdminMarketDataBackfillDateRangeDto,
   ): Promise<{ batchId: string | null; enqueuedJobCount: number; skippedExistingJobCount: number }> {
     if (!app.boss || targets.length === 0) {
       return { batchId: null, enqueuedJobCount: 0, skippedExistingJobCount: 0 };
@@ -5830,6 +6027,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         trigger: "admin_rerun",
         includeBars: true,
         includeDividends: true,
+        startDate: dateRange.effectiveStartDate,
+        ...(dateRange.effectiveEndDate ? { endDate: dateRange.effectiveEndDate } : {}),
         batchId,
         providerOperationId: operation.id,
         ...(resolverMode ? { resolverMode } : {}),
@@ -5838,7 +6037,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         BACKFILL_QUEUE,
         payload,
         {
-          singletonKey: getBackfillSingletonKey(target.ticker, target.marketCode, resolverMode),
+          singletonKey: getBackfillJobSingletonKey(payload),
           priority: 10,
         },
       );
@@ -5881,6 +6080,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         estimatedStorageRows: preview.estimatedStorageRows,
         affectedUserCount: preview.affectedUserCount,
         affectedAccountCount: preview.affectedAccountCount,
+        dateRange: preview.dateRange,
         providerBudgetNotes: preview.providerBudgetNotes,
         progressPercent: preview.targets.length === 0 || !app.boss ? 100 : 0,
       },
@@ -5888,7 +6088,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       startedAt: now,
       completedAt: app.boss && preview.targets.length > 0 ? null : now,
     });
-    const queued = await enqueueMarketDataBackfillTargets(operation, preview.targets);
+    const queued = await enqueueMarketDataBackfillTargets(operation, preview.targets, preview.dateRange);
     const finalPhase = queued.enqueuedJobCount > 0 ? "running" : "completed";
     const updated = await app.persistence.updateProviderOperation({
       id: operation.id,
@@ -5961,7 +6161,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         progressPercent: preview.targets.length === 0 || !app.boss ? 100 : 0,
       },
     });
-    const queued = await enqueueMarketDataBackfillTargets(running, preview.targets);
+    const queued = await enqueueMarketDataBackfillTargets(running, preview.targets, preview.dateRange);
     const finalPhase = queued.enqueuedJobCount > 0 ? "running" : "completed";
     const updated = await app.persistence.updateProviderOperation({
       id: running.id,
@@ -6993,10 +7193,32 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       scope: preview.scope,
       status: result.operation.phase === "running" ? "queued" : "completed",
       matchCount: preview.matchCount,
+      dateRange: preview.dateRange,
       enqueuedJobCount: result.enqueuedJobCount,
       skippedExistingJobCount: result.skippedExistingJobCount,
       batchId: result.batchId,
     };
+  });
+
+  app.get("/market-data/:marketCode/valuation-repair/status", async (req): Promise<AdminMarketDataValuationRepairStatusResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") throw routeError(404, "market_valuation_repair_not_supported", "FX valuation repair is out of scope");
+    const market = providerFixerMarketCodeSchema.parse(marketCode);
+    const query = marketDataValuationRepairStatusQuerySchema.parse(req.query ?? {});
+    const tickers = query.tickers
+      .split(",")
+      .map((ticker) => ticker.trim().toUpperCase())
+      .filter((ticker) => ticker.length > 0);
+    if (tickers.length === 0 || tickers.length > 20) {
+      throw routeError(400, "market_valuation_repair_ticker_limit", "Valuation repair status requires 1-20 tickers");
+    }
+    return buildValuationRepairStatus({
+      marketCode: market,
+      tickers,
+      targetRepairDate: query.targetDate,
+      operationId: query.operationId,
+    });
   });
 
   app.post("/market-data/:marketCode/snapshot-repair/execute", async (req): Promise<AdminMarketDataSnapshotRepairExecuteResponse> => {
@@ -7113,6 +7335,10 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         affectedAccountCount: preview.affectedAccountCount,
         estimatedJobCount: preview.targets.length,
         estimatedStorageRows: preview.targets.length * 2,
+        dateRange: resolveBackfillDateRange(market, {
+          startDate: preview.fullHistory === false ? preview.startDate : undefined,
+          endDate: preview.fullHistory === false ? preview.endDate : undefined,
+        }),
         providerBudgetNotes: marketDataProviderBudgetNotes(market, "backfill_catalog_rows"),
         unsupportedRows: [],
         confirmation: { level: "checkbox", text: null, reason: "Linked refill follows a confirmed purge." },
