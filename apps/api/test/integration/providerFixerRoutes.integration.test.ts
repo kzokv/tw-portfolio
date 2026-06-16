@@ -1443,6 +1443,76 @@ describe("Provider Fixer admin routes", () => {
     ).resolves.toMatchObject({ resolvedSymbol: "005930.KS" });
   });
 
+  it("uses date-range scoped singleton keys for bounded admin market-data backfills", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn().mockResolvedValue("job-admin-us-range");
+    app.boss = { send: bossSend } as never;
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "US";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "USRANGE1",
+      name: "US range fixture",
+      instrumentType: "STOCK",
+      marketCode: "US",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "NASDAQ",
+      catalogMicCode: "XNAS",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/US/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_catalog_rows",
+        providerId: "finmind-us",
+        selectedCatalogRows: [{ ticker: "USRANGE1", marketCode: "US" }],
+        startDate: "2026-06-12",
+        endDate: "2026-06-15",
+      },
+    });
+
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as { operationId: string; previewToken: string };
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/US/backfill/execute",
+      headers,
+      payload: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
+    });
+
+    expect(execute.statusCode).toBe(200);
+    expect(bossSend).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "USRANGE1",
+        marketCode: "US",
+        trigger: "admin_rerun",
+        startDate: "2026-06-12",
+        endDate: "2026-06-15",
+      }),
+      expect.objectContaining({
+        singletonKey: "USRANGE1:US:2026-06-12:2026-06-15",
+        priority: 10,
+      }),
+    );
+  });
+
   it("queues mapped provider rerun while another provider operation is active", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };

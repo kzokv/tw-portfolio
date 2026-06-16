@@ -6036,7 +6036,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         BACKFILL_QUEUE,
         payload,
         {
-          singletonKey: getBackfillSingletonKey(target.ticker, target.marketCode, resolverMode),
+          singletonKey: getAdminBackfillSingletonKey(target.ticker, target.marketCode, dateRange, resolverMode),
           priority: 10,
         },
       );
@@ -6047,6 +6047,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       }
     }
     return { batchId, enqueuedJobCount, skippedExistingJobCount };
+  }
+
+  function getAdminBackfillSingletonKey(
+    ticker: string,
+    marketCode: MarketCode,
+    dateRange: AdminMarketDataBackfillDateRangeDto,
+    resolverMode?: MarketDataResolverMode,
+  ): string {
+    return [
+      getBackfillSingletonKey(ticker, marketCode, resolverMode),
+      dateRange.effectiveStartDate,
+      dateRange.effectiveEndDate ?? "open",
+    ].join(":");
   }
 
   async function createBackfillOperation(
