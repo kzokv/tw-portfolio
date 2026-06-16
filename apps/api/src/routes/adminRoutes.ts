@@ -124,6 +124,7 @@ import {
 } from "../services/market-data/providerOperationExecutionWorker.js";
 import {
   BACKFILL_QUEUE,
+  getBackfillJobSingletonKey,
   getBackfillSingletonKey,
   type BackfillJobData,
 } from "../services/market-data/backfillWorker.js";
@@ -6036,7 +6037,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         BACKFILL_QUEUE,
         payload,
         {
-          singletonKey: getAdminBackfillSingletonKey(target.ticker, target.marketCode, dateRange, resolverMode),
+          singletonKey: getBackfillJobSingletonKey(payload),
           priority: 10,
         },
       );
@@ -6047,19 +6048,6 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       }
     }
     return { batchId, enqueuedJobCount, skippedExistingJobCount };
-  }
-
-  function getAdminBackfillSingletonKey(
-    ticker: string,
-    marketCode: MarketCode,
-    dateRange: AdminMarketDataBackfillDateRangeDto,
-    resolverMode?: MarketDataResolverMode,
-  ): string {
-    return [
-      getBackfillSingletonKey(ticker, marketCode, resolverMode),
-      dateRange.effectiveStartDate,
-      dateRange.effectiveEndDate ?? "open",
-    ].join(":");
   }
 
   async function createBackfillOperation(

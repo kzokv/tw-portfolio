@@ -36,17 +36,17 @@ describe("daily refresh enqueue", () => {
     expect(result.tickerCount).toBe(2);
     expect(persistence.createRefreshBatch).toHaveBeenCalledWith(null, 2);
     expect(boss.send).toHaveBeenCalledTimes(2);
-    // KZO-185: producer stamps `marketCode` and uses composite singletonKey
-    // `${ticker}:${marketCode}`.
+    // KZO-185/KZO-197: producer stamps `marketCode`; KZO-201 keeps the date
+    // scope in the singleton key so retry jobs preserve their producer identity.
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "0050", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
-      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "0050:TW" },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "0050:TW:2026-03-24:open" },
     );
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
-      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "2330:TW" },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "2330:TW:2026-03-24:open" },
     );
   });
 
@@ -73,7 +73,8 @@ describe("daily refresh enqueue", () => {
 
   // KZO-185 (D2): cross-market tickers must produce independent singleton keys
   // so BHP/AU and BHP/US don't collide in the pg-boss singleton namespace.
-  // Validates that the composite `${ticker}:${marketCode}` singletonKey is correct
+  // Validates that the date-scoped `${ticker}:${marketCode}:${startDate}:open`
+  // singletonKey is correct
   // when the same ticker string appears in different markets.
   it("cross-market tickers produce independent composite singletonKeys", async () => {
     vi.setSystemTime(new Date("2026-03-31T09:30:00Z"));
@@ -95,12 +96,12 @@ describe("daily refresh enqueue", () => {
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "BHP", marketCode: "AU", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
-      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "BHP:AU" },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "BHP:AU:2026-03-24:open" },
     );
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "BHP", marketCode: "US", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
-      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "BHP:US" },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "BHP:US:2026-03-24:open" },
     );
   });
 
@@ -132,7 +133,7 @@ describe("daily refresh enqueue", () => {
         batchId,
         resolverMode: "chart_probe_v1",
       },
-      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "005930:KR:chart_probe_v1" },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "005930:KR:chart_probe_v1:2026-03-24:open" },
     );
   });
 });
