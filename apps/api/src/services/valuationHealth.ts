@@ -36,10 +36,15 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
 
   const tickerMarketPairs = dedupeTickerMarketPairs(input.holdingGroups);
   const latestBarByKey = await input.app.persistence.getLatestBarDatesForReconciliation(tickerMarketPairs);
+  const latestBarAsOf = latestBarDateForPairs(tickerMarketPairs, latestBarByKey);
+  const repairTargetDate = maxNullableDate(
+    maxNullableDate(expectedLatestValuationDate, latestPartialSnapshotDate),
+    latestBarAsOf,
+  ) ?? expectedLatestValuationDate;
   const expectedDateTradingDayByKey = await buildExpectedDateTradingDayByKey(
     input.app,
     tickerMarketPairs,
-    expectedLatestValuationDate,
+    repairTargetDate,
   );
   const backfillStatusByKey = new Map<string, ValuationHealthHoldingDto["backfillStatus"]>();
   await Promise.all(
@@ -62,7 +67,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
       latestSnapshotByScope,
       backfillStatusByKey,
       currentOpenStartDateByScope,
-      expectedLatestValuationDate,
+      repairTargetDate,
       expectedDateTradingDayByKey,
     }))
     .filter((row): row is ValuationHealthHoldingDto => row !== null)
@@ -98,7 +103,6 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     reason = deltaAmount >= absoluteThreshold ? "absolute_threshold_exceeded" : "relative_threshold_exceeded";
   }
 
-  const latestBarAsOf = latestBarDateForPairs(tickerMarketPairs, latestBarByKey);
   const recommendedActions = [...new Set(affectedHoldings
     .map((row) => row.recommendedAction)
     .filter((action) => action !== "none"))];
@@ -199,7 +203,7 @@ function buildHoldingHealthRow(
     latestSnapshotByScope: ReadonlyMap<string, string | null>;
     backfillStatusByKey: ReadonlyMap<string, ValuationHealthHoldingDto["backfillStatus"]>;
     currentOpenStartDateByScope: ReadonlyMap<string, string | null>;
-    expectedLatestValuationDate: string;
+    repairTargetDate: string;
     expectedDateTradingDayByKey: ReadonlyMap<string, boolean>;
   },
 ): ValuationHealthHoldingDto | null {
@@ -233,7 +237,7 @@ function buildHoldingHealthRow(
   } else if (latestBarDate === null) {
     status = "missing_latest_bar";
     recommendedAction = "run_backfill";
-  } else if (expectedDateIsTradingDay && latestBarDate < input.expectedLatestValuationDate) {
+  } else if (expectedDateIsTradingDay && latestBarDate < input.repairTargetDate) {
     status = "missing_latest_bar";
     recommendedAction = "run_backfill";
   } else if (latestSnapshotDate === null && hasSnapshotEligibleScope) {
