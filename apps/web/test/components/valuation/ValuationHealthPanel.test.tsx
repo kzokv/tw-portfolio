@@ -153,6 +153,39 @@ describe("ValuationHealthPanel", () => {
     expect(document.body.textContent).not.toContain("Market data out of sync");
   });
 
+  it("can rerender from loading null state to a loaded valuation health payload", async () => {
+    const valuationHealth = buildValuationHealth();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={null}
+        />,
+      );
+    });
+
+    await act(async () => {});
+    expect(document.querySelector("[data-testid='valuation-health-panel']")).toBeNull();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+    expect(document.querySelector("[data-testid='valuation-health-panel']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Market data out of sync");
+  });
+
   it("copies admin-help text with an absolute deep link for non-admin users", async () => {
     const valuationHealth = buildValuationHealth();
     const writeText = vi.mocked(navigator.clipboard.writeText);
