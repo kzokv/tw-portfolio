@@ -29,6 +29,8 @@ export function ValuationHealthPanel({
   showAdminActions = false,
   valuationHealth,
 }: ValuationHealthPanelProps) {
+  const [copiedHref, setCopiedHref] = useState<string | null>(null);
+
   if (!valuationHealth) return null;
 
   const hasBackfillAction = valuationHealth.recommendedActions.includes("run_backfill");
@@ -41,7 +43,6 @@ export function ValuationHealthPanel({
     : adminRepairHref
       ? [{ href: adminRepairHref, marketCode: "", tickers: [], truncated: false }]
       : [];
-  const [copiedHref, setCopiedHref] = useState<string | null>(null);
   const deltaPercent = valuationHealth.relativeDeltaBps === null
     ? null
     : valuationHealth.relativeDeltaBps / 100;
