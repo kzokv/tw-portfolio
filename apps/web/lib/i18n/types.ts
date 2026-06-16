@@ -517,8 +517,10 @@ export interface AppDictionary {
     healthy: string;
     latestBarAsOf: string;
     latestSnapshotDate: string;
+    market: string;
     marketFreshness: string;
     material: string;
+    missing: string;
     missingCurrentValue: string;
     missingLatestBar: string;
     missingSnapshot: string;
@@ -529,6 +531,7 @@ export interface AppDictionary {
     partialSnapshotDate: string;
     snapshotOnly: string;
     snapshotRepairAction: string;
+    stale: string;
     staleSnapshot: string;
     status: string;
     ticker: string;

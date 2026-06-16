@@ -127,11 +127,11 @@ export function ValuationHealthPanel({
             <table className="min-w-full text-sm">
               <thead className="bg-muted/30 text-left text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5">Market</th>
+                  <th className="px-4 py-2.5">{copy.market}</th>
                   <th className="px-4 py-2.5">{copy.latestBarAsOf}</th>
                   <th className="px-4 py-2.5">{copy.latestSnapshotDate}</th>
-                  <th className="px-4 py-2.5">Stale</th>
-                  <th className="px-4 py-2.5">Missing</th>
+                  <th className="px-4 py-2.5">{copy.stale}</th>
+                  <th className="px-4 py-2.5">{copy.missing}</th>
                 </tr>
               </thead>
               <tbody>
