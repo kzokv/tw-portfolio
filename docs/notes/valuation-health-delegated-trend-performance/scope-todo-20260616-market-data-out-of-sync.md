@@ -110,6 +110,12 @@ superseded_by: null
   - Codex review findings through `b22e542e` were fixed and replied to; all review threads were resolved before final live validation.
   - Late Codex review `3419769363` found that `ValuationHealthPanel` rendered the server literal `Market data out of sync`; fixed by deriving the visible title from i18n copy (`outOfSyncTitle`) and adding zh-TW regression coverage.
   - Focused follow-up validation passed: `npx eslint apps/web/components/valuation/ValuationHealthPanel.tsx apps/web/features/dashboard/i18n.ts apps/web/lib/i18n/types.ts apps/web/test/components/valuation/ValuationHealthPanel.test.tsx`; `npx vitest run test/components/valuation/ValuationHealthPanel.test.tsx` from `apps/web` (`14` tests passed); `npm run typecheck`.
+  - Later Codex review `3420065850` found stale-bar repair links targeting the already-stale latest bar; fixed in `894953f2` by targeting `expectedLatestValuationDate` for `run_backfill` links while keeping snapshot-only links market-local.
+  - Later Codex review `3420247571` found ranged admin backfill retry jobs dropped their date-scoped singleton key; fixed in `32cc10d3` by deriving producer and retry singleton keys from `BackfillJobData` via `getBackfillJobSingletonKey`.
+  - Latest PR CI run `27614553500` at `32cc10d3` is green (`lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `e2e-bypass`, `e2e-oauth`, `docker-build-validation`, `deploy-config-validation`); PR Gate run `27614552326` is green.
+  - Later Codex review `3420448936` found `ValuationHealthPanel` could return before hooks during loading and then render hooks after `valuationHealth` loads; fixed in `6074ee4e` by moving `useState` before the nullable return and adding a null-to-loaded rerender regression.
+  - Latest PR CI run `27616493912` at `6074ee4e` is green (`lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `e2e-bypass`, `e2e-oauth`, `docker-build-validation`, `deploy-config-validation`); PR Gate run `27616492785` is green.
+  - All review threads were resolved after replying to the `6074ee4e` fix. A final `@codex review` request was acknowledged with an `eyes` reaction and had not produced any new unresolved threads as of final evidence capture.
 - 2026-06-16 deployed Vakwen Dev validation at `b22e542e`:
   - Deploy run `27609541647` completed successfully in `12m23s`; qnap dev containers `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` were healthy after restart.
   - Dev DB did not contain the requested production identities `masterj71.tw@gmail.com` or `nocktkv@gmail.com`; the available dev validation identities were `c2974378@gmail.com` (`KC vtwin`, member) and `mmckchuang@gmail.com` (`mmc_kchuang`, admin). Live browser validation used the existing authenticated `mmckchuang@gmail.com` session and targeted dev DB manipulation.
@@ -126,6 +132,18 @@ superseded_by: null
     - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-admin-repair-complete-20260616.png`
     - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-viewer-copy-guidance-20260616.png`
     - `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-b22e542e-final-auto-clear-20260616.png`
+- 2026-06-16 deployed Vakwen Dev validation at `32cc10d3`:
+  - Deploy run `27615109722` completed successfully in `12m44s` for branch `codex/valuation-health-delegated-trend-performance` and SHA `32cc10d3ab513d945ba1ad95ea200a119f55c165`.
+  - qnap dev containers were healthy after deploy: `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared`.
+  - Existing Vakwen Dev Chrome dashboard tab was reloaded with validation marker `32cc10d3-final`. First dashboard render was visible in `3.1s`; secondary enrichment settled immediately after the follow-up check.
+  - Final Chrome evidence: hero market value `Exact $695,751.36`; Portfolio Trend market value `$695,751.36`; current valuation `$695,751.36`; chart valuation `$695,751.36`; delta `$0`; relative delta `0%`; latest bar/snapshot/comparable dates `Jun 16, 2026`; valuation health `Healthy`; FX `complete`; no `Market data out of sync` warning; no admin repair links; console error count `0`.
+  - Final screenshot: `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-32cc10d3-final-healthy-20260616.png`
+- 2026-06-16 final deployed Vakwen Dev validation at `6074ee4e`:
+  - Deploy run `27617026439` completed successfully in `12m43s` for branch `codex/valuation-health-delegated-trend-performance` and SHA `6074ee4e39fa3eacdabed9464ad8f9e42312384d`.
+  - qnap dev containers were healthy after deploy: `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared`.
+  - Existing Vakwen Dev Chrome dashboard tab was reloaded with validation marker `6074ee4e-final`. The page was visible in `11.0s` on the cold post-deploy reload, with secondary enrichment settled after `6.0s` of polling.
+  - Final Chrome evidence: hero market value `Exact $695,751.36`; Portfolio Trend market value `$695,751.36`; current valuation `$695,751.36`; chart valuation `$695,751.36`; delta `$0`; relative delta `0%`; latest bar/snapshot/comparable dates `Jun 16, 2026`; valuation health `Healthy`; FX `complete`; no `Market data out of sync` warning; no admin repair links; console error count `0`.
+  - Final screenshot: `docs/notes/valuation-health-delegated-trend-performance/screenshots/live-dev-6074ee4e-final-healthy-20260616.png`
 
 ## Open Items
 
