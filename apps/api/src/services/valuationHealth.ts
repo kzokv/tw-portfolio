@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import type { DashboardOverviewHoldingGroupDto, DashboardPerformanceDto, ValuationHealthDto, ValuationHealthHoldingDto } from "@vakwen/shared-types";
+import type {
+  DashboardOverviewHoldingGroupDto,
+  DashboardPerformanceDto,
+  ValuationHealthDto,
+  ValuationHealthHoldingDto,
+  ValuationHealthMarketFreshnessDto,
+} from "@vakwen/shared-types";
 import { MARKET_CODES, type AccountDefaultCurrency, type MarketCode } from "@vakwen/shared-types";
 import { getEffectiveValuationHealthThresholds, minorUnitToleranceFor } from "./appConfig/valuationHealth.js";
 import type { HoldingSnapshotLatestDateScopePair } from "../persistence/types.js";
@@ -23,6 +29,9 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
   const snapshotValueAmount = latestPerformancePoint?.marketValueAmount ?? null;
   const latestUsableSnapshotDate = input.performance.diagnostics?.latestReliableValuationDate ?? input.performance.lastReliableDate ?? null;
   const latestSnapshotDate = input.performance.diagnostics?.latestSnapshotDate ?? null;
+  const latestComparableSnapshotDate =
+    input.performance.diagnostics?.latestComparableSnapshotDate ?? latestUsableSnapshotDate;
+  const latestPartialSnapshotDate = input.performance.diagnostics?.latestPartialSnapshotDate ?? null;
   const expectedLatestValuationDate = input.performance.diagnostics?.expectedLatestValuationDate ?? input.asOf.slice(0, 10);
 
   const tickerMarketPairs = dedupeTickerMarketPairs(input.holdingGroups);
@@ -80,6 +89,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
   const recommendedActions = [...new Set(affectedHoldings
     .map((row) => row.recommendedAction)
     .filter((action) => action !== "none"))];
+  const marketFreshness = buildMarketFreshness(affectedHoldings);
 
   return {
     status,
@@ -94,10 +104,46 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     latestBarAsOf,
     latestSnapshotDate,
     latestUsableSnapshotDate,
+    latestComparableSnapshotDate,
+    latestPartialSnapshotDate,
     expectedLatestValuationDate,
+    ...(status === "material" || affectedHoldings.length > 0 || latestPartialSnapshotDate !== null
+      ? { title: "Market data out of sync" as const }
+      : {}),
+    marketFreshness,
     affectedHoldings,
     recommendedActions,
   };
+}
+
+function buildMarketFreshness(
+  holdings: ReadonlyArray<ValuationHealthHoldingDto>,
+): ValuationHealthMarketFreshnessDto[] {
+  const byMarket = new Map<string, ValuationHealthMarketFreshnessDto>();
+  for (const holding of holdings) {
+    const existing = byMarket.get(holding.marketCode) ?? {
+      marketCode: holding.marketCode,
+      latestBarDate: null,
+      latestSnapshotDate: null,
+      staleTickerCount: 0,
+      missingTickerCount: 0,
+    };
+    existing.latestBarDate = maxNullableDate(existing.latestBarDate, holding.latestBarDate);
+    existing.latestSnapshotDate = maxNullableDate(existing.latestSnapshotDate, holding.latestSnapshotDate);
+    if (holding.status === "missing_latest_bar" || holding.status === "missing_snapshot") {
+      existing.missingTickerCount += 1;
+    } else if (holding.status !== "healthy") {
+      existing.staleTickerCount += 1;
+    }
+    byMarket.set(holding.marketCode, existing);
+  }
+  return [...byMarket.values()].sort((left, right) => left.marketCode.localeCompare(right.marketCode));
+}
+
+function maxNullableDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left >= right ? left : right;
 }
 
 function thresholdAmountForCurrency(

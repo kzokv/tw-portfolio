@@ -1,9 +1,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ValuationHealthDto } from "@vakwen/shared-types";
 import { ValuationHealthPanel } from "../../../components/valuation/ValuationHealthPanel";
-import { getValuationHealthAdminRepairHref } from "../../../components/valuation/valuationHealthAdminLink";
+import {
+  getValuationHealthAdminRepairHref,
+  getValuationHealthAdminRepairLinks,
+} from "../../../components/valuation/valuationHealthAdminLink";
 import { getDictionary } from "../../../lib/i18n";
 
 function buildValuationHealth(
@@ -28,7 +31,17 @@ function buildValuationHealth(
     latestBarAsOf: "2026-06-13",
     latestSnapshotDate: "2026-06-12",
     latestUsableSnapshotDate: "2026-06-12",
+    latestComparableSnapshotDate: "2026-06-12",
+    latestPartialSnapshotDate: "2026-06-13",
     expectedLatestValuationDate: "2026-06-13",
+    title: "Market data out of sync",
+    marketFreshness: [{
+      marketCode: "US",
+      latestBarDate: "2026-06-13",
+      latestSnapshotDate: "2026-06-12",
+      staleTickerCount: 1,
+      missingTickerCount: 0,
+    }],
     affectedHoldings: [
       {
         ticker: "VRT",
@@ -58,6 +71,10 @@ describe("ValuationHealthPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
   });
 
   afterEach(() => {
@@ -89,6 +106,62 @@ describe("ValuationHealthPanel", () => {
     expect(document.body.textContent).not.toContain("Run admin backfill");
     expect(document.querySelector("[data-testid='valuation-health-admin-repair']")).toBeNull();
     expect(Array.from(document.querySelectorAll("a")).some((link) => link.textContent?.includes("Repair"))).toBe(false);
+  });
+
+  it("surfaces comparable, partial, and per-market freshness details", async () => {
+    const valuationHealth = buildValuationHealth();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(document.body.textContent).toContain("Market data out of sync");
+    expect(document.body.textContent).toContain("Comparable snapshot");
+    expect(document.body.textContent).toContain("Partial snapshot");
+    expect(document.querySelector("[data-testid='valuation-health-market-freshness']")?.textContent).toContain("US");
+    expect(document.querySelector("[data-testid='valuation-health-market-freshness']")?.textContent).toContain("Stale");
+    expect(document.querySelector("[data-testid='valuation-health-market-freshness']")?.textContent).toContain("Missing");
+  });
+
+  it("copies admin-help text with an absolute deep link for non-admin users", async () => {
+    const valuationHealth = buildValuationHealth();
+    const writeText = vi.mocked(navigator.clipboard.writeText);
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='valuation-health-copy-admin-link-US']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toContain("Admins can open the affected-holdings repair flow");
+    expect(writeText.mock.calls[0]?.[0]).toContain("Market: US");
+    expect(writeText.mock.calls[0]?.[0]).toContain("Tickers: VRT");
+    expect(writeText.mock.calls[0]?.[0]).toContain("Admin repair link: http://localhost:3000/admin/market-data/US/backfill?repair=valuation");
+    expect(document.querySelector("[data-testid='valuation-health-copy-admin-link-US']")?.textContent).toContain("Admin link copied");
   });
 
   it("uses neutral non-admin guidance when no repair is recommended", async () => {
@@ -177,21 +250,21 @@ describe("ValuationHealthPanel", () => {
 
     await act(async () => {});
 
-    const repairButton = document.querySelector("[data-testid='valuation-health-admin-repair']");
+    const repairButton = document.querySelector("[data-testid='valuation-health-admin-repair-US']");
     expect(repairButton?.textContent).toContain("Repair snapshots");
     expect(repairButton?.textContent).not.toContain("Generate snapshots");
-    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?search=VRT&repair=snapshots&fromDate=2026-06-12");
+    expect(repairButton?.getAttribute("href")).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-13&endDate=2026-06-13&fromDate=2026-06-12&startDate=2026-06-12");
   });
 });
 
 describe("getValuationHealthAdminRepairHref", () => {
   it("returns a market-scoped backfill route for a single actionable holding", () => {
     expect(getValuationHealthAdminRepairHref(buildValuationHealth())).toBe(
-      "/admin/market-data/US/backfill?search=VRT&repair=snapshots&fromDate=2026-06-12",
+      "/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-13&endDate=2026-06-13&fromDate=2026-06-12&startDate=2026-06-12",
     );
   });
 
-  it("falls back to the market workspace without a search filter when multiple tickers need repair", () => {
+  it("preserves same-market mixed repair tickers in the admin repair link", () => {
     expect(
       getValuationHealthAdminRepairHref(
         buildValuationHealth({
@@ -220,7 +293,30 @@ describe("getValuationHealthAdminRepairHref", () => {
           recommendedActions: ["run_backfill", "run_snapshot_repair"],
         }),
       ),
-    ).toBe("/admin/market-data/US/backfill");
+    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=V%2CVRT&targetDate=2026-06-13&endDate=2026-06-13&fromDate=2026-06-12&startDate=2026-06-12");
+  });
+
+  it("uses the expected valuation date as the guided repair target when bars are stale", () => {
+    expect(
+      getValuationHealthAdminRepairHref(
+        buildValuationHealth({
+          expectedLatestValuationDate: "2026-06-16",
+          affectedHoldings: [
+            {
+              ticker: "VRT",
+              marketCode: "US",
+              currentReportingValueAmount: 1200,
+              latestBarDate: "2026-06-13",
+              latestSnapshotDate: "2026-06-12",
+              backfillStatus: "ready",
+              status: "stale_snapshot",
+              recommendedAction: "run_snapshot_repair",
+            },
+          ],
+          recommendedActions: ["run_snapshot_repair"],
+        }),
+      ),
+    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=VRT&targetDate=2026-06-16&endDate=2026-06-16&fromDate=2026-06-12&startDate=2026-06-12");
   });
 
   it("preserves same-market snapshot repair tickers in the admin repair link", () => {
@@ -252,7 +348,7 @@ describe("getValuationHealthAdminRepairHref", () => {
           recommendedActions: ["run_snapshot_repair"],
         }),
       ),
-    ).toBe("/admin/market-data/US/backfill?tickers=VRT%2CV&repair=snapshots&fromDate=2026-06-12");
+    ).toBe("/admin/market-data/US/backfill?repair=valuation&tickers=V%2CVRT&targetDate=2026-06-13&endDate=2026-06-13&fromDate=2026-06-12&startDate=2026-06-12");
   });
 
   it("caps snapshot repair deep links at the admin API ticker limit", () => {
@@ -274,41 +370,44 @@ describe("getValuationHealthAdminRepairHref", () => {
       }),
     );
 
-    expect(href).toContain("repair=snapshots");
+    expect(href).toContain("repair=valuation");
     expect(href).toContain("fromDate=2026-06-12");
+    expect(href).toContain("targetDate=2026-06-13");
     expect(href).toContain("truncated=true");
     expect(new URLSearchParams(href?.split("?")[1]).get("tickers")?.split(",")).toHaveLength(20);
   });
 
-  it("falls back to the landing page when remediation spans multiple markets", () => {
-    expect(
-      getValuationHealthAdminRepairHref(
-        buildValuationHealth({
-          affectedHoldings: [
-            {
-              ticker: "VRT",
-              marketCode: "US",
-              currentReportingValueAmount: 1200,
-              latestBarDate: "2026-06-13",
-              latestSnapshotDate: "2026-06-12",
-              backfillStatus: "ready",
-              status: "stale_snapshot",
-              recommendedAction: "run_snapshot_repair",
-            },
-            {
-              ticker: "0050",
-              marketCode: "TW",
-              currentReportingValueAmount: 900,
-              latestBarDate: "2026-06-13",
-              latestSnapshotDate: "2026-06-11",
-              backfillStatus: "failed",
-              status: "backfill_failed",
-              recommendedAction: "run_backfill",
-            },
-          ],
-          recommendedActions: ["run_backfill", "run_snapshot_repair"],
-        }),
-      ),
-    ).toBe("/admin/market-data");
+  it("returns one deep link per affected market", () => {
+    const links = getValuationHealthAdminRepairLinks(
+      buildValuationHealth({
+        affectedHoldings: [
+          {
+            ticker: "VRT",
+            marketCode: "US",
+            currentReportingValueAmount: 1200,
+            latestBarDate: "2026-06-13",
+            latestSnapshotDate: "2026-06-12",
+            backfillStatus: "ready",
+            status: "stale_snapshot",
+            recommendedAction: "run_snapshot_repair",
+          },
+          {
+            ticker: "0050",
+            marketCode: "TW",
+            currentReportingValueAmount: 900,
+            latestBarDate: "2026-06-13",
+            latestSnapshotDate: "2026-06-11",
+            backfillStatus: "failed",
+            status: "backfill_failed",
+            recommendedAction: "run_backfill",
+          },
+        ],
+        recommendedActions: ["run_backfill", "run_snapshot_repair"],
+      }),
+    );
+
+    expect(links.map((link) => link.marketCode)).toEqual(["TW", "US"]);
+    expect(links[0]?.href).toContain("/admin/market-data/TW/backfill?repair=valuation");
+    expect(links[1]?.href).toContain("/admin/market-data/US/backfill?repair=valuation");
   });
 });

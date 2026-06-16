@@ -158,6 +158,64 @@ describe("useDashboardPerformance", () => {
     expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
   });
 
+  it("restores fresh performance cache data without fetching again", async () => {
+    const cacheKey = "dashboard-performance:1M:fresh";
+    writeRouteDtoCache(cacheKey, emptyPerformance);
+    vi.mocked(fetchDashboardPerformanceEnrichment).mockImplementation((() => new Promise(() => {})) as never);
+
+    act(() => {
+      root.render(<Harness cacheKey={cacheKey} />);
+    });
+    await act(async () => {});
+
+    expect(result.data).toEqual(emptyPerformance);
+    expect(result.restoredFromCache).toBe(true);
+    expect(result.cacheStatus).toBe("fresh");
+    expect(result.isLoading).toBe(false);
+    expect(fetchDashboardPerformanceEnrichment).not.toHaveBeenCalled();
+  });
+
+  it("restores stale performance cache data before refreshing in the background", async () => {
+    vi.useFakeTimers();
+    const cacheKey = "dashboard-performance:1M:stale";
+    const now = new Date("2026-06-12T12:00:00.000Z");
+    const refreshedPerformance: DashboardPerformanceDto = {
+      ...emptyPerformance,
+      points: [{
+        date: "2026-06-12",
+        totalCostAmount: 1000,
+        marketValueAmount: 1250,
+        unrealizedPnlAmount: 250,
+        cumulativeRealizedPnlAmount: 0,
+        cumulativeDividendsAmount: 0,
+        totalReturnAmount: 250,
+        totalReturnPercent: 25,
+        fxAvailable: true,
+      }],
+      requestedAsOf: "2026-06-12",
+      lastReliableDate: "2026-06-12",
+    };
+
+    vi.setSystemTime(now);
+    writeRouteDtoCache(cacheKey, emptyPerformance, 1000);
+    vi.setSystemTime(new Date(now.getTime() + 1500));
+    vi.mocked(fetchDashboardPerformanceEnrichment).mockResolvedValue(refreshedPerformance);
+
+    act(() => {
+      root.render(<Harness cacheKey={cacheKey} />);
+    });
+
+    expect(result.data).toEqual(emptyPerformance);
+    expect(result.restoredFromCache).toBe(true);
+    expect(result.cacheStatus).toBe("stale");
+
+    await act(async () => {});
+
+    expect(fetchDashboardPerformanceEnrichment).toHaveBeenCalledTimes(1);
+    expect(result.data).toEqual(refreshedPerformance);
+    expect(result.cacheStatus).toBe("fresh");
+  });
+
   it("ignores cached performance data with a different reporting currency", async () => {
     const cacheKey = "dashboard-performance:1M:AUD";
     const audPerformance = { ...emptyPerformance, reportingCurrency: "AUD" as const };

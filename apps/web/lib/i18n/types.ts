@@ -420,6 +420,8 @@ export interface AppDictionary {
     performanceRefreshTimeout: string;
     performanceSnapshotOnlyTooltip: string;
     performanceSnapshotAsOfTooltip: string;
+    performancePartialMarkerLabel: string;
+    performancePartialMarkerTooltip: string;
     performancePartialQuoteWarning: string;
     performanceStaleDataWarning: string;
     performanceMarketValueSeriesLabel: string;
@@ -500,6 +502,7 @@ export interface AppDictionary {
     absoluteExceeded: string;
     action: string;
     adminHelp: string;
+    adminLinkCopied: string;
     adminRepairAction: string;
     affectedHoldings: string;
     awaitingLatestBar: string;
@@ -507,11 +510,14 @@ export interface AppDictionary {
     backfillFailed: string;
     backfillPending: string;
     chartValue: string;
+    comparableSnapshotDate: string;
     currentValue: string;
+    copyAdminHelpLink: string;
     delta: string;
     healthy: string;
     latestBarAsOf: string;
     latestSnapshotDate: string;
+    marketFreshness: string;
     material: string;
     missingCurrentValue: string;
     missingLatestBar: string;
@@ -520,6 +526,7 @@ export interface AppDictionary {
     none: string;
     relativeDelta: string;
     relativeExceeded: string;
+    partialSnapshotDate: string;
     snapshotOnly: string;
     snapshotRepairAction: string;
     staleSnapshot: string;

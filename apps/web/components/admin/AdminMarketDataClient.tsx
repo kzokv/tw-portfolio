@@ -11,8 +11,11 @@ import type {
   AdminMarketDataActionDto,
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteResponse,
+  AdminMarketDataBackfillDateRangeDto,
+  AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketDataSnapshotRepairExecuteResponse,
+  AdminMarketDataValuationRepairStatusResponse,
   AdminMarketDataInstrumentDto,
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataLandingResponse,
@@ -31,6 +34,7 @@ import {
   executeMarketAction,
   executeMarketSnapshotRepair,
   executeMarketPurge,
+  fetchMarketValuationRepairStatus,
   previewMarketBackfill,
   previewMarketPurge,
   updateMarketInstrumentDelistingOverride,
@@ -56,7 +60,16 @@ interface AdminMarketDataWorkspaceClientProps {
   providerFilterId?: string;
   krMappings: KrMappingsData | null;
   krOperations?: KrOperationsData | null;
-  snapshotRepairRequest?: { tickers: string[]; fromDate: string | null } | null;
+  snapshotRepairRequest?: SnapshotRepairRequest | null;
+}
+
+interface SnapshotRepairRequest {
+  mode: "snapshots" | "valuation";
+  tickers: string[];
+  fromDate: string | null;
+  targetDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
 interface InstrumentQuery {
@@ -603,15 +616,19 @@ function BackfillPanel({
   actions: AdminMarketDataActionDto[];
   instruments: AdminMarketDataInstrumentsResponse;
   initialQuery: InstrumentQuery;
-  snapshotRepairRequest: { tickers: string[]; fromDate: string | null } | null;
+  snapshotRepairRequest: SnapshotRepairRequest | null;
 }) {
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
+  const guidedValuationRepair = snapshotRepairRequest?.mode === "valuation";
   const [mode, setMode] = useState<"owned" | "supported">("owned");
   const [filters, setFilters] = useState<InstrumentQuery>(initialQuery);
   const [providerId, setProviderId] = useState(backfillActions[0]?.providerId ?? actions.find((item) => item.action === "backfill_catalog_rows")?.providerId ?? "");
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [includeDemoUsers, setIncludeDemoUsers] = useState(false);
+  const [fullHistory, setFullHistory] = useState(!guidedValuationRepair);
+  const [startDate, setStartDate] = useState(snapshotRepairRequest?.startDate ?? snapshotRepairRequest?.fromDate ?? "");
+  const [endDate, setEndDate] = useState(snapshotRepairRequest?.endDate ?? snapshotRepairRequest?.targetDate ?? "");
   const [acknowledged, setAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataBackfillPreviewResponse | null>(null);
@@ -619,6 +636,12 @@ function BackfillPanel({
   const [snapshotRepairResult, setSnapshotRepairResult] = useState<AdminMarketDataSnapshotRepairExecuteResponse | null>(null);
   const [snapshotRepairError, setSnapshotRepairError] = useState<string | null>(null);
   const [snapshotRepairRunning, setSnapshotRepairRunning] = useState(false);
+  const [valuationRepairStatus, setValuationRepairStatus] = useState<AdminMarketDataValuationRepairStatusResponse | null>(null);
+  const [valuationRepairStatusError, setValuationRepairStatusError] = useState<string | null>(null);
+  const [valuationRepairStatusLoading, setValuationRepairStatusLoading] = useState(false);
+  const [autoSnapshotRepairKey, setAutoSnapshotRepairKey] = useState<string | null>(null);
+  const [trackedBackfillOperationId, setTrackedBackfillOperationId] = useState<string | null>(null);
+  const [trackedSnapshotRepairKey, setTrackedSnapshotRepairKey] = useState<string | null>(null);
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [targetModalFilter, setTargetModalFilter] = useState("");
   const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
@@ -639,6 +662,22 @@ function BackfillPanel({
     setFilters(initialQuery);
   }, [initialQuery]);
 
+  useEffect(() => {
+    setFullHistory(!guidedValuationRepair);
+    setStartDate(snapshotRepairRequest?.startDate ?? snapshotRepairRequest?.fromDate ?? "");
+    setEndDate(snapshotRepairRequest?.endDate ?? snapshotRepairRequest?.targetDate ?? "");
+    setValuationRepairStatus(null);
+    setValuationRepairStatusError(null);
+    setAutoSnapshotRepairKey(null);
+    setTrackedBackfillOperationId(null);
+    setTrackedSnapshotRepairKey(null);
+  }, [guidedValuationRepair, snapshotRepairRequest?.endDate, snapshotRepairRequest?.fromDate, snapshotRepairRequest?.startDate, snapshotRepairRequest?.targetDate]);
+
+  useEffect(() => {
+    if (!guidedValuationRepair || !snapshotRepairRequest?.targetDate || snapshotRepairRequest.tickers.length === 0) return;
+    void refreshValuationRepairStatus();
+  }, [guidedValuationRepair, marketCode, snapshotRepairRequest?.targetDate, snapshotRepairRequest?.tickers.join(",")]);
+
   function clearFrozenPreview() {
     setPreview(null);
     setExecuteResult(null);
@@ -646,6 +685,13 @@ function BackfillPanel({
     setSnapshotRepairError(null);
     setAcknowledged(false);
     setTypedConfirmation("");
+  }
+
+  function updateBackfillRange(next: { fullHistory?: boolean; startDate?: string; endDate?: string }) {
+    if (next.fullHistory !== undefined) setFullHistory(next.fullHistory);
+    if (next.startDate !== undefined) setStartDate(next.startDate);
+    if (next.endDate !== undefined) setEndDate(next.endDate);
+    clearFrozenPreview();
   }
 
   function updateMode(nextMode: "owned" | "supported") {
@@ -690,13 +736,48 @@ function BackfillPanel({
     };
   }
 
-  async function runPreview(scope: "user_owned_or_monitored" | "selected_catalog_rows" | "all_matching") {
+  function rangeRequest(): Pick<AdminMarketDataBackfillPreviewRequest, "startDate" | "endDate"> {
+    return {
+      startDate: fullHistory || !startDate ? undefined : startDate,
+      endDate: fullHistory || !endDate ? undefined : endDate,
+    };
+  }
+
+  function guidedRepairTargets() {
+    return (snapshotRepairRequest?.tickers ?? []).map((ticker) => ({ ticker, marketCode }));
+  }
+
+  async function refreshValuationRepairStatus(operationId?: string): Promise<AdminMarketDataValuationRepairStatusResponse | null> {
+    if (!guidedValuationRepair || !snapshotRepairRequest?.targetDate || snapshotRepairRequest.tickers.length === 0) return null;
+    setValuationRepairStatusLoading(true);
+    setValuationRepairStatusError(null);
+    try {
+      const status = await fetchMarketValuationRepairStatus(marketCode, {
+        tickers: snapshotRepairRequest.tickers,
+        targetDate: snapshotRepairRequest.targetDate,
+        operationId,
+      });
+      setValuationRepairStatus(status);
+      return status;
+    } catch (err) {
+      setValuationRepairStatusError(err instanceof Error ? err.message : "Repair status failed");
+      return null;
+    } finally {
+      setValuationRepairStatusLoading(false);
+    }
+  }
+
+  async function runPreview(
+    scope: "user_owned_or_monitored" | "selected_catalog_rows" | "all_matching",
+    overrideTargets?: Array<{ ticker: string; marketCode: Exclude<AdminMarketCode, "FX"> }>,
+  ) {
     const result = await previewMarketBackfill(marketCode, {
       scope,
       providerId,
       includeDemoUsers: scope === "user_owned_or_monitored" ? includeDemoUsers : undefined,
-      selectedCatalogRows: scope === "selected_catalog_rows" ? selectedRequestTargets : undefined,
+      selectedCatalogRows: scope === "selected_catalog_rows" ? overrideTargets ?? selectedRequestTargets : undefined,
       filters: scope === "all_matching" ? previewFilters() : undefined,
+      ...rangeRequest(),
     });
     setPreview(result);
     setExecuteResult(null);
@@ -712,19 +793,35 @@ function BackfillPanel({
       typedConfirmation,
     });
     setExecuteResult(result);
+    const status = await refreshValuationRepairStatus(result.operationId);
+    if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
+      await runSnapshotRepair(status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker), result.operationId);
+    } else if (guidedValuationRepair && snapshotRepairRequest?.targetDate) {
+      setTrackedBackfillOperationId(result.operationId);
+    }
   }
 
-  async function runSnapshotRepair() {
-    if (!snapshotRepairRequest || snapshotRepairRequest.tickers.length === 0) return;
+  async function runSnapshotRepair(tickers = snapshotRepairRequest?.tickers ?? [], repairKey = "manual") {
+    if (!snapshotRepairRequest || tickers.length === 0) return;
+    if (guidedValuationRepair && repairKey !== "manual" && autoSnapshotRepairKey === repairKey) return;
+    if (guidedValuationRepair && repairKey !== "manual") setAutoSnapshotRepairKey(repairKey);
     setSnapshotRepairRunning(true);
     setSnapshotRepairError(null);
     setSnapshotRepairResult(null);
     try {
       const result = await executeMarketSnapshotRepair(marketCode, {
-        tickers: snapshotRepairRequest.tickers,
+        tickers,
         ...(snapshotRepairRequest.fromDate ? { fromDate: snapshotRepairRequest.fromDate } : {}),
       });
       setSnapshotRepairResult(result);
+      const status = await refreshValuationRepairStatus();
+      const hasPendingSnapshotJob = result.queued.length > 0
+        || result.rejected.some((item) => item.reason === "existing_snapshot_repair_job");
+      if (guidedValuationRepair && hasPendingSnapshotJob && status && !isValuationRepairComplete(status)) {
+        setTrackedSnapshotRepairKey(`${repairKey}:${tickers.slice().sort().join(",")}`);
+      } else {
+        setTrackedSnapshotRepairKey(null);
+      }
     } catch (err) {
       setSnapshotRepairError(err instanceof Error ? err.message : "Snapshot repair failed");
     } finally {
@@ -732,19 +829,149 @@ function BackfillPanel({
     }
   }
 
+  useEffect(() => {
+    if (!guidedValuationRepair || !trackedBackfillOperationId || !snapshotRepairRequest?.targetDate) return;
+    const operationId = trackedBackfillOperationId;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    async function pollGuidedRepairStatus() {
+      const status = await refreshValuationRepairStatus(operationId);
+      if (cancelled) return;
+
+      if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
+        setTrackedBackfillOperationId(null);
+        await runSnapshotRepair(
+          status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker),
+          operationId,
+        );
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        void pollGuidedRepairStatus();
+      }, 2_500);
+    }
+
+    timeoutId = setTimeout(() => {
+      void pollGuidedRepairStatus();
+    }, 2_500);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [guidedValuationRepair, trackedBackfillOperationId, snapshotRepairRequest?.targetDate]);
+
+  useEffect(() => {
+    if (!guidedValuationRepair || !trackedSnapshotRepairKey || !snapshotRepairRequest?.targetDate) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    async function pollSnapshotReadiness() {
+      const status = await refreshValuationRepairStatus();
+      if (cancelled) return;
+
+      if (status && isValuationRepairComplete(status)) {
+        setTrackedSnapshotRepairKey(null);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts >= 24) {
+        setTrackedSnapshotRepairKey(null);
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        void pollSnapshotReadiness();
+      }, 2_500);
+    }
+
+    timeoutId = setTimeout(() => {
+      void pollSnapshotReadiness();
+    }, 2_500);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [guidedValuationRepair, trackedSnapshotRepairKey, snapshotRepairRequest?.targetDate, snapshotRepairRequest?.tickers.join(",")]);
+
   return (
     <div className="space-y-4">
     {snapshotRepairRequest ? (
       <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-snapshot-repair">
-        <h2 className="text-base font-semibold text-foreground">Snapshot repair</h2>
+        <h2 className="text-base font-semibold text-foreground">
+          {guidedValuationRepair ? "Guided valuation repair" : "Snapshot repair"}
+        </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Recompute holding snapshots directly for the affected ticker scopes. Use this when bars are already present and valuation health reports stale or missing snapshots.
+          {guidedValuationRepair
+            ? "Backfill the affected bars and dividends first, then queue snapshot repair only for tickers whose latest bar reaches the target date."
+            : "Recompute holding snapshots directly for the affected ticker scopes. Use this when bars are already present and valuation health reports stale or missing snapshots."}
         </p>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            Target {snapshotRepairRequest.tickers.length > 0 ? snapshotRepairRequest.tickers.join(", ") : "the filtered market scope"} in {marketCode}.
-            {snapshotRepairRequest.fromDate ? ` Recompute from ${snapshotRepairRequest.fromDate}.` : ""}
-          </p>
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p className="text-muted-foreground">Market</p>
+            <p className="mt-1 font-medium text-foreground">{marketCode}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Tickers</p>
+            <p className="mt-1 font-medium text-foreground">{snapshotRepairRequest.tickers.length > 0 ? snapshotRepairRequest.tickers.join(", ") : "none"}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Target repair date</p>
+            <p className="mt-1 font-medium text-foreground">{snapshotRepairRequest.targetDate ?? snapshotRepairRequest.fromDate ?? "not provided"}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Backfill range</p>
+            <p className="mt-1 font-medium text-foreground">
+              {fullHistory ? "full history" : `${startDate || "provider floor"} to ${endDate || "latest"}`}
+            </p>
+          </div>
+        </div>
+        {guidedValuationRepair ? (
+          <div className="mt-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void runPreview("selected_catalog_rows", guidedRepairTargets())}
+                disabled={snapshotRepairRequest.tickers.length === 0}
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Preview guided backfill
+              </button>
+              <button
+                type="button"
+                onClick={() => void refreshValuationRepairStatus()}
+                disabled={valuationRepairStatusLoading || !snapshotRepairRequest.targetDate || snapshotRepairRequest.tickers.length === 0}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {valuationRepairStatusLoading ? "Checking..." : "Refresh repair status"}
+              </button>
+            </div>
+            {valuationRepairStatus ? (
+              <ValuationRepairStatusSummary
+                status={valuationRepairStatus}
+                onQueueEligible={() => void runSnapshotRepair(
+                  valuationRepairStatus.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker),
+                )}
+                snapshotRepairRunning={snapshotRepairRunning}
+              />
+            ) : null}
+            {valuationRepairStatusError ? (
+              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                {valuationRepairStatusError}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Target {snapshotRepairRequest.tickers.length > 0 ? snapshotRepairRequest.tickers.join(", ") : "the filtered market scope"} in {marketCode}.
+              {snapshotRepairRequest.fromDate ? ` Recompute from ${snapshotRepairRequest.fromDate}.` : ""}
+            </p>
           <button
             type="button"
             onClick={() => void runSnapshotRepair()}
@@ -754,7 +981,8 @@ function BackfillPanel({
           >
             {snapshotRepairRunning ? "Repairing..." : "Queue snapshot repair"}
           </button>
-        </div>
+          </div>
+        )}
         {snapshotRepairResult ? (
           <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">
             Queued {snapshotRepairResult.queued.length.toLocaleString()} repair job(s).
@@ -800,6 +1028,40 @@ function BackfillPanel({
               Include demo users
             </label>
           ) : null}
+          <div className="rounded border border-border p-3">
+            <p className="text-sm font-medium text-foreground">Price/dividend range</p>
+            <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={fullHistory}
+                onChange={(event) => updateBackfillRange({ fullHistory: event.target.checked })}
+              />
+              Full history
+            </label>
+            <label className="mt-3 block text-sm font-medium text-foreground">
+              Start date
+              <input
+                type="date"
+                value={startDate}
+                disabled={fullHistory}
+                onChange={(event) => updateBackfillRange({ startDate: event.target.value })}
+                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              />
+            </label>
+            <label className="mt-3 block text-sm font-medium text-foreground">
+              End date
+              <input
+                type="date"
+                value={endDate}
+                disabled={fullHistory}
+                onChange={(event) => updateBackfillRange({ endDate: event.target.value })}
+                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              />
+            </label>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Applies to price bars and dividends. Guided valuation repair defaults to the affected target window.
+            </p>
+          </div>
         </div>
         <div className="rounded border border-border p-4">
           {mode === "owned" ? (
@@ -878,6 +1140,7 @@ function BackfillPanel({
             ["Jobs", String(preview.estimatedJobCount)],
             ["Affected users", String(preview.affectedUserCount)],
             ["Affected accounts", String(preview.affectedAccountCount)],
+            ...backfillDateRangeRows(preview.dateRange),
             ["Preview expires", formatUtcTimestamp(preview.tokenExpiresAt)],
             ["Demo users", includeDemoUsers ? "included" : "excluded"],
             ["Confirmation", preview.confirmation.text ?? preview.confirmation.level],
@@ -994,6 +1257,7 @@ function BackfillPanel({
             ["Status", executeResult.status],
             ["Enqueued", String(executeResult.enqueuedJobCount)],
             ["Skipped existing", String(executeResult.skippedExistingJobCount)],
+            ...backfillDateRangeRows(executeResult.dateRange),
             ["Batch", executeResult.batchId ?? "none"],
           ]} />
         </div>
@@ -1266,6 +1530,113 @@ function LogsPanel({
         ))}
       </ul>
     </Card>
+  );
+}
+
+function isTerminalBackfillPhase(phase: NonNullable<AdminMarketDataValuationRepairStatusResponse["operation"]>["phase"]): boolean {
+  return phase === "completed" || phase === "failed" || phase === "cancelled";
+}
+
+function isValuationRepairComplete(status: AdminMarketDataValuationRepairStatusResponse): boolean {
+  return status.summary.total > 0 && status.summary.completed === status.summary.total;
+}
+
+function backfillDateRangeRows(range: AdminMarketDataBackfillDateRangeDto): Array<[string, string]> {
+  return [
+    ["Requested start", range.requestedStartDate ?? "full history"],
+    ["Requested end", range.requestedEndDate ?? "latest"],
+    ["Effective start", range.effectiveStartDate],
+    ["Effective end", range.effectiveEndDate ?? "latest"],
+    ["Provider floor", range.providerStartDate],
+    ["Provider floor clamp", range.clampedStartDate ? "yes" : "no"],
+  ];
+}
+
+function repairReasonLabel(reason: AdminMarketDataValuationRepairStatusResponse["tickers"][number]["reasons"][number]): string {
+  switch (reason) {
+    case "ready":
+      return "Ready for snapshot repair";
+    case "market_closed":
+      return "Market closed on target date";
+    case "latest_bar_missing":
+      return "Latest bar missing";
+    case "latest_bar_before_target":
+      return "Latest bar is before target";
+    case "snapshot_ready":
+      return "Snapshot already ready";
+    case "snapshot_missing":
+      return "Snapshot missing";
+    case "snapshot_stale":
+      return "Snapshot stale";
+    case "instrument_not_found":
+      return "Instrument not found";
+    case "no_active_snapshot_scopes":
+      return "No active snapshot scopes";
+  }
+}
+
+function ValuationRepairStatusSummary({
+  status,
+  onQueueEligible,
+  snapshotRepairRunning,
+}: {
+  status: AdminMarketDataValuationRepairStatusResponse;
+  onQueueEligible: () => void;
+  snapshotRepairRunning: boolean;
+}) {
+  const eligible = status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair);
+  const complete = status.summary.total > 0 && status.summary.completed === status.summary.total;
+  return (
+    <div className={cn(
+      "rounded border px-3 py-3",
+      complete ? "border-emerald-200 bg-emerald-50" : status.summary.blocked > 0 ? "border-amber-300 bg-amber-50" : "border-border bg-muted/30",
+    )}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            Repair status: {status.summary.completed}/{status.summary.total} complete
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Target {status.targetRepairDate}. {status.marketTradingDay ? "Market is open for the target date." : "Target date is not a trading day for this market."}
+            {status.operation ? ` Backfill operation ${status.operation.operationId} is ${status.operation.phase}.` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onQueueEligible}
+          disabled={snapshotRepairRunning || eligible.length === 0}
+          className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {snapshotRepairRunning ? "Repairing..." : `Queue ${eligible.length} eligible snapshot repair${eligible.length === 1 ? "" : "s"}`}
+        </button>
+      </div>
+      <div className="mt-3 overflow-x-auto rounded border border-border bg-background">
+        <table className="min-w-full divide-y divide-border text-sm">
+          <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2">Ticker</th>
+              <th className="px-3 py-2">Latest bar</th>
+              <th className="px-3 py-2">Latest snapshot</th>
+              <th className="px-3 py-2">Scopes</th>
+              <th className="px-3 py-2">State</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {status.tickers.map((ticker) => (
+              <tr key={`${ticker.marketCode}:${ticker.ticker}`}>
+                <td className="px-3 py-2 font-medium text-foreground">{ticker.ticker}</td>
+                <td className="px-3 py-2 text-muted-foreground">{ticker.latestBarDate ?? "missing"}</td>
+                <td className="px-3 py-2 text-muted-foreground">{ticker.latestSnapshotDate ?? "missing"}</td>
+                <td className="px-3 py-2 text-muted-foreground">{ticker.scopeCount}</td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  {ticker.reasons.map(repairReasonLabel).join(", ")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
