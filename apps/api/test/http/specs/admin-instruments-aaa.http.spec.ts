@@ -275,6 +275,43 @@ test.describe("admin market-data instruments", () => {
     assertString(executeBody.operationId, "backfill execute operationId");
   });
 
+  test("[backfill-preview]: rejects end date before the effective provider floor", async ({
+    instrumentsApi,
+    request,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "market-data-admin-backfill-range-sub",
+      email: "market-data-admin-backfill-range@example.com",
+      name: "Market Data Admin Backfill Range",
+      role: "admin",
+    });
+    const seed = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "USRNG1",
+        marketCode: "US",
+        name: "US range fixture",
+        instrumentType: "STOCK",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+    await assertStatus(seed, 200);
+
+    const preview = await request.post("/admin/market-data/US/backfill/preview", {
+      headers: { cookie: admin.cookieHeader },
+      data: {
+        scope: "selected_catalog_rows",
+        providerId: "finmind-us",
+        selectedCatalogRows: [{ ticker: "USRNG1", marketCode: "US" }],
+        startDate: "2018-01-01",
+        endDate: "2018-01-15",
+      },
+    });
+
+    await assertStatus(preview, 400);
+    const body = assertRecord(await preview.json(), "backfill range preview body");
+    assertEqual(body.error, "market_backfill_range_before_provider_history", "backfill range error");
+  });
+
   test("[purge-execute]: admin previews and executes a targeted market-data purge", async ({
     instrumentsApi,
     marketDataApi,

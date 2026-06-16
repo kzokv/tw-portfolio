@@ -97,6 +97,7 @@ type PerformanceFinanceAllocation = Pick<
 export interface TranslatePerformanceOptions {
   earliestTradeDate?: string;
   expectedContributorKeysByDate?: ReadonlyMap<string, ReadonlySet<string>>;
+  strictExpectedContributorKeysByDate?: ReadonlyMap<string, ReadonlySet<string>>;
   financeTrades?: ReadonlyArray<PerformanceFinanceTrade>;
   financeDividends?: ReadonlyArray<SnapshotDividendInput>;
   financeLotAllocations?: ReadonlyArray<PerformanceFinanceAllocation>;
@@ -421,11 +422,12 @@ export async function translatePerformancePoints(
     );
   }
 
-  const strictExpectedKeysByDate = store
-    ? await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence, {
-        omitNonTradingContributors: false,
-      })
-    : null;
+  const strictExpectedKeysByDate = options.strictExpectedContributorKeysByDate
+    ?? (store
+      ? await buildExpectedSnapshotContributorKeysByDate(store, startDate, endDate, persistence, {
+          omitNonTradingContributors: false,
+        })
+      : null);
   const coverage = options.expectedContributorKeysByDate
     ? filterAggregatedSnapshotsByActiveCoverage(aggregated, options.expectedContributorKeysByDate)
     : store
