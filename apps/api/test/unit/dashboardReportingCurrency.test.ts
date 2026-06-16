@@ -758,6 +758,69 @@ describe("translateValuationHealthSnapshotPoints", () => {
     }));
   });
 
+  it("marks partial points on the dashboard no-store path using strict contributor coverage", async () => {
+    const persistence = makeFakePersistence({
+      aggregated: [
+        {
+          date: "2026-06-12",
+          totalCostBasis: 100,
+          totalMarketValue: 300,
+          totalUnrealizedPnl: 200,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 200,
+          totalReturnPercent: 200,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-1:TW:2330", "acct-2:KR:000660"],
+        },
+        {
+          date: "2026-06-15",
+          totalCostBasis: 100,
+          totalMarketValue: 250,
+          totalUnrealizedPnl: 150,
+          cumulativeRealizedPnl: 0,
+          cumulativeDividends: 0,
+          totalReturnAmount: 150,
+          totalReturnPercent: 150,
+          isProvisional: false,
+          fxAvailable: true,
+          snapshotContributorKeys: ["acct-2:KR:000660"],
+        },
+      ],
+    });
+    const looseExpected = new Map([
+      ["2026-06-12", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+      ["2026-06-15", new Set(["acct-2:KR:000660"])],
+    ]);
+    const strictExpected = new Map([
+      ["2026-06-12", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+      ["2026-06-15", new Set(["acct-1:TW:2330", "acct-2:KR:000660"])],
+    ]);
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-06-15",
+      "USD",
+      persistence,
+      undefined,
+      undefined,
+      {
+        earliestTradeDate: "2026-06-12",
+        expectedContributorKeysByDate: looseExpected,
+        strictExpectedContributorKeysByDate: strictExpected,
+      },
+    );
+
+    expect(out.points.map((point) => point.date)).toEqual(["2026-06-12", "2026-06-15"]);
+    expect(out.points.at(-1)).toEqual(expect.objectContaining({
+      date: "2026-06-15",
+      isPartialMarketData: true,
+      missingContributorKeys: ["acct-1:TW:2330"],
+    }));
+  });
+
   it("uses a bounded recent snapshot window before falling back to all-range reads", async () => {
     const aggregatedReadStats = { calls: [] as Array<{ startDate: string; endDate: string }> };
     const baseStore = makeStore();

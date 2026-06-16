@@ -934,6 +934,207 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
   });
 
+  it("keeps polling guided repair when execution only skipped an existing backfill job", async () => {
+    vi.useFakeTimers();
+    fetchMarketValuationRepairStatusMock
+      .mockResolvedValueOnce({
+        marketCode: "AU",
+        targetRepairDate: "2026-06-15",
+        marketTradingDay: true,
+        operation: null,
+        tickers: [{
+          ticker: "AUBF3",
+          marketCode: "AU",
+          targetRepairDate: "2026-06-15",
+          latestBarDate: "2026-06-12",
+          latestSnapshotDate: "2026-06-12",
+          scopeCount: 1,
+          eligibleForSnapshotRepair: false,
+          completed: false,
+          reasons: ["latest_bar_before_target"],
+        }],
+        summary: { total: 1, eligibleForSnapshotRepair: 0, completed: 0, blocked: 1 },
+      })
+      .mockResolvedValueOnce({
+        marketCode: "AU",
+        targetRepairDate: "2026-06-15",
+        marketTradingDay: true,
+        operation: {
+          operationId: "OP-GUIDED-SKIPPED",
+          phase: "completed",
+          progressPercent: 100,
+          enqueuedJobCount: 0,
+          skippedExistingJobCount: 1,
+          completedAt: "2026-06-16T00:00:00.000Z",
+        },
+        tickers: [{
+          ticker: "AUBF3",
+          marketCode: "AU",
+          targetRepairDate: "2026-06-15",
+          latestBarDate: "2026-06-12",
+          latestSnapshotDate: "2026-06-12",
+          scopeCount: 1,
+          eligibleForSnapshotRepair: false,
+          completed: false,
+          reasons: ["latest_bar_before_target"],
+        }],
+        summary: { total: 1, eligibleForSnapshotRepair: 0, completed: 0, blocked: 1 },
+      })
+      .mockResolvedValueOnce({
+        marketCode: "AU",
+        targetRepairDate: "2026-06-15",
+        marketTradingDay: true,
+        operation: {
+          operationId: "OP-GUIDED-SKIPPED",
+          phase: "completed",
+          progressPercent: 100,
+          enqueuedJobCount: 0,
+          skippedExistingJobCount: 1,
+          completedAt: "2026-06-16T00:00:00.000Z",
+        },
+        tickers: [{
+          ticker: "AUBF3",
+          marketCode: "AU",
+          targetRepairDate: "2026-06-15",
+          latestBarDate: "2026-06-15",
+          latestSnapshotDate: "2026-06-12",
+          scopeCount: 1,
+          eligibleForSnapshotRepair: true,
+          completed: false,
+          reasons: ["ready", "snapshot_stale"],
+        }],
+        summary: { total: 1, eligibleForSnapshotRepair: 1, completed: 0, blocked: 0 },
+      })
+      .mockResolvedValueOnce({
+        marketCode: "AU",
+        targetRepairDate: "2026-06-15",
+        marketTradingDay: true,
+        operation: null,
+        tickers: [{
+          ticker: "AUBF3",
+          marketCode: "AU",
+          targetRepairDate: "2026-06-15",
+          latestBarDate: "2026-06-15",
+          latestSnapshotDate: "2026-06-15",
+          scopeCount: 1,
+          eligibleForSnapshotRepair: false,
+          completed: true,
+          reasons: ["snapshot_ready"],
+        }],
+        summary: { total: 1, eligibleForSnapshotRepair: 0, completed: 1, blocked: 0 },
+      });
+    previewMarketBackfillMock.mockResolvedValueOnce({
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      scope: "selected_catalog_rows",
+      operationId: "OP-GUIDED-SKIPPED",
+      previewToken: "GUIDED-SKIPPED-TOKEN",
+      tokenExpiresAt: "2999-01-01T00:00:00.000Z",
+      matchCount: 1,
+      affectedUserCount: 1,
+      affectedAccountCount: 1,
+      estimatedJobCount: 1,
+      estimatedStorageRows: 2,
+      dateRange: auBackfillDateRange,
+      providerBudgetNotes: ["Preview freezes exact targets."],
+      targets: [{
+        ticker: "AUBF3",
+        marketCode: "AU",
+        name: "AU Existing Backfill Fixture",
+        instrumentType: "STOCK",
+        status: "listed",
+        supportState: "supported",
+        backfillStatus: "pending",
+        providerIds: ["yahoo-finance-au"],
+      }],
+      unsupportedRows: [],
+      confirmation: { level: "checkbox", text: null, reason: "Preview is required before enqueue." },
+    });
+    executeMarketBackfillMock.mockResolvedValueOnce({
+      operationId: "OP-GUIDED-SKIPPED",
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      scope: "selected_catalog_rows",
+      status: "completed",
+      matchCount: 1,
+      dateRange: auBackfillDateRange,
+      enqueuedJobCount: 0,
+      skippedExistingJobCount: 1,
+      batchId: null,
+    });
+    executeMarketSnapshotRepairMock.mockResolvedValueOnce({
+      marketCode: "AU",
+      queued: ["AUBF3"],
+      rejected: [],
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="backfill"
+          overview={{ ...overview(), tabs: ["overview", "instruments", "backfill"] }}
+          actions={backfillActions()}
+          instruments={instruments("AUBF3", "AU Existing Backfill Fixture")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "listed",
+            supportState: "supported",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "pending",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          logs={null}
+          krMappings={null}
+          snapshotRepairRequest={{
+            mode: "valuation",
+            tickers: ["AUBF3"],
+            fromDate: "2026-06-12",
+            targetDate: "2026-06-15",
+            startDate: "2026-06-12",
+            endDate: "2026-06-15",
+          }}
+        />,
+      );
+    });
+    await act(async () => undefined);
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview guided backfill")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const acknowledge = [...container.querySelectorAll("input[type='checkbox']")]
+      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("I reviewed the preview")) as HTMLInputElement;
+    await act(async () => {
+      acknowledge.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Execute backfill")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(executeMarketSnapshotRepairMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+
+    expect(fetchMarketValuationRepairStatusMock).toHaveBeenCalledWith("AU", {
+      tickers: ["AUBF3"],
+      targetDate: "2026-06-15",
+      operationId: "OP-GUIDED-SKIPPED",
+    });
+    expect(executeMarketSnapshotRepairMock).toHaveBeenCalledWith("AU", {
+      tickers: ["AUBF3"],
+      fromDate: "2026-06-12",
+    });
+  });
+
   it("polls snapshot readiness after a guided snapshot repair is queued", async () => {
     vi.useFakeTimers();
     fetchMarketValuationRepairStatusMock

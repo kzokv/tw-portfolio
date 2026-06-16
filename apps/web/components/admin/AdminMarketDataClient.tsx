@@ -795,7 +795,14 @@ function BackfillPanel({
     setExecuteResult(result);
     const status = await refreshValuationRepairStatus(result.operationId);
     if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
-      await runSnapshotRepair(status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker), result.operationId);
+      const eligibleTickers = status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker);
+      if (eligibleTickers.length > 0) {
+        await runSnapshotRepair(eligibleTickers, result.operationId);
+      } else if ((result.skippedExistingJobCount > 0 || (status.operation.skippedExistingJobCount ?? 0) > 0)
+        && guidedValuationRepair
+        && snapshotRepairRequest?.targetDate) {
+        setTrackedBackfillOperationId(result.operationId);
+      }
     } else if (guidedValuationRepair && snapshotRepairRequest?.targetDate) {
       setTrackedBackfillOperationId(result.operationId);
     }
@@ -833,18 +840,28 @@ function BackfillPanel({
     if (!guidedValuationRepair || !trackedBackfillOperationId || !snapshotRepairRequest?.targetDate) return;
     const operationId = trackedBackfillOperationId;
     let cancelled = false;
+    let attempts = 0;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     async function pollGuidedRepairStatus() {
+      attempts += 1;
       const status = await refreshValuationRepairStatus(operationId);
       if (cancelled) return;
 
       if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
-        setTrackedBackfillOperationId(null);
-        await runSnapshotRepair(
-          status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker),
-          operationId,
-        );
+        const eligibleTickers = status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker);
+        if (eligibleTickers.length > 0) {
+          setTrackedBackfillOperationId(null);
+          await runSnapshotRepair(eligibleTickers, operationId);
+          return;
+        }
+        if ((status.operation.skippedExistingJobCount ?? 0) <= 0 || attempts >= 24) {
+          setTrackedBackfillOperationId(null);
+          return;
+        }
+        timeoutId = setTimeout(() => {
+          void pollGuidedRepairStatus();
+        }, 2_500);
         return;
       }
 

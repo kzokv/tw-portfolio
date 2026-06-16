@@ -5737,6 +5737,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const effectiveStartDate = requestedStartDate && requestedStartDate >= providerStartDate
       ? requestedStartDate
       : providerStartDate;
+    if (requestedEndDate !== null && requestedEndDate < effectiveStartDate) {
+      throw routeError(
+        400,
+        "market_backfill_range_before_provider_history",
+        `Backfill end date ${requestedEndDate} is before the earliest supported ${marketCode} provider date ${effectiveStartDate}`,
+      );
+    }
     return {
       requestedStartDate,
       requestedEndDate,
