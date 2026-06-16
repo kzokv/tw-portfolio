@@ -38,6 +38,8 @@ export function getValuationHealthAdminRepairLinks(
       marketCode,
       holdings,
       valuationHealth.expectedLatestValuationDate ?? null,
+      valuationHealth.latestPartialSnapshotDate ?? null,
+      valuationHealth.latestBarAsOf ?? null,
     ));
 }
 
@@ -45,6 +47,8 @@ function buildMarketRepairLinks(
   marketCode: string,
   holdings: ValuationHealthDto["affectedHoldings"],
   expectedLatestValuationDate: string | null,
+  latestPartialSnapshotDate: string | null,
+  latestBarAsOf: string | null,
 ): ValuationHealthAdminRepairLink[] {
   const tickers = [...new Set(holdings.map((holding) => holding.ticker))].sort();
   const latestBarRepairDate = holdings
@@ -53,7 +57,7 @@ function buildMarketRepairLinks(
     .reduce<string | null>((max, date) => (max === null || date > max ? date : max), null);
   const needsBackfill = holdings.some((holding) => holding.recommendedAction === "run_backfill");
   const targetRepairDate = needsBackfill
-    ? expectedLatestValuationDate ?? latestBarRepairDate
+    ? maxDate(expectedLatestValuationDate, latestPartialSnapshotDate, latestBarAsOf, latestBarRepairDate)
     : latestBarRepairDate ?? expectedLatestValuationDate;
   const fromDate = holdings
     .map((holding) => holding.latestSnapshotDate ?? holding.latestBarDate)
@@ -86,4 +90,10 @@ function buildMarketRepairLinks(
     });
   }
   return links;
+}
+
+function maxDate(...dates: Array<string | null>): string | null {
+  return dates
+    .filter((date): date is string => date !== null)
+    .reduce<string | null>((max, date) => (max === null || date > max ? date : max), null);
 }

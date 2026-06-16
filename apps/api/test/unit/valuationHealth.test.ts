@@ -243,7 +243,7 @@ describe("buildValuationHealth", () => {
           latestSnapshotDate: "2026-06-16",
           latestComparableSnapshotDate: "2026-06-15",
           latestPartialSnapshotDate: "2026-06-16",
-          expectedLatestValuationDate: "2026-06-16",
+          expectedLatestValuationDate: "2026-06-15",
         },
       } as never,
     });
