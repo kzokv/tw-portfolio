@@ -549,7 +549,10 @@ export async function translateValuationHealthSnapshotPoints(
     return withPerformanceFreshness(
       { range, rangeStartDate, rangeEndDate: endDate, points: [], reportingCurrency, fxStatus: "complete" },
       asOf,
-      { hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap },
+      {
+        hasSnapshotCoverageGap: coverage.hasSnapshotCoverageGap,
+        latestPartialSnapshotDate: coverage.latestPartialSnapshotDate,
+      },
     );
   }
 

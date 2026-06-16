@@ -499,6 +499,8 @@ describe("translateValuationHealthSnapshotPoints", () => {
     expect(out.diagnostics).toEqual(expect.objectContaining({
       latestSnapshotDate: null,
       latestReliableValuationDate: null,
+      latestPartialSnapshotDate: "2026-01-03",
+      hasPartialMarketData: true,
       staleSinceDate: null,
       knownGapReasons: ["missing_snapshot"],
     }));
