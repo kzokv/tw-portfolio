@@ -52,6 +52,15 @@ interface KrOperationsQuery {
   operationOutcomeAction: string;
 }
 
+interface SnapshotRepairRequest {
+  mode: "snapshots" | "valuation";
+  tickers: string[];
+  fromDate: string | null;
+  targetDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
 const marketCodes = new Set(["TW", "US", "AU", "KR", "FX"]);
 const tabs = new Set([
   "overview",
@@ -195,12 +204,18 @@ export default async function AdminMarketDataWorkspacePage({
   const limit = instrumentQuery.limit;
   const providerId = firstOptionalQueryValue(query.providerId);
   const operationId = firstOptionalQueryValue(query.operationId);
-  const snapshotRepairRequest = tab === "backfill" && firstOptionalQueryValue(query.repair) === "snapshots"
-    ? {
-        tickers: snapshotRepairTickersFromSearchParams(query, instrumentQuery.search),
-        fromDate: firstOptionalQueryValue(query.fromDate) ?? null,
-      }
-    : null;
+  const repairMode = firstOptionalQueryValue(query.repair);
+  const snapshotRepairRequest: SnapshotRepairRequest | null =
+    tab === "backfill" && (repairMode === "snapshots" || repairMode === "valuation")
+      ? {
+          mode: repairMode,
+          tickers: snapshotRepairTickersFromSearchParams(query, instrumentQuery.search),
+          fromDate: firstOptionalQueryValue(query.fromDate) ?? null,
+          targetDate: firstOptionalQueryValue(query.targetDate) ?? null,
+          startDate: firstOptionalQueryValue(query.startDate) ?? firstOptionalQueryValue(query.fromDate) ?? null,
+          endDate: firstOptionalQueryValue(query.endDate) ?? firstOptionalQueryValue(query.targetDate) ?? null,
+        }
+      : null;
 
   const [overview, actions] = await Promise.all([
     getJson<AdminMarketDataOverviewResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/overview`),

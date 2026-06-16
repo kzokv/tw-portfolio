@@ -63,6 +63,7 @@ interface ChartPoint {
   totalCost: number | null;
   marketValue: number | null;
   totalReturn: number | null;
+  isPartialMarketData?: boolean;
 }
 
 function buildChartConfig(dict: AppDictionary): ChartConfig {
@@ -107,6 +108,9 @@ export function PortfolioTrendCard({
   const marketDataStaleSince = data?.marketDataStaleSince ?? null;
   const expectedLatestValuationDate = data?.diagnostics?.expectedLatestValuationDate ?? data?.requestedAsOf ?? null;
   const latestMarketValueDate = latestMarketValuePoint?.date ?? data?.diagnostics?.latestReliableValuationDate ?? lastReliableDate;
+  const latestComparableDate = data?.diagnostics?.latestComparableSnapshotDate ?? null;
+  const latestPartialDate = data?.diagnostics?.latestPartialSnapshotDate ?? null;
+  const partialMarketPoints = points.filter((point) => point.isPartialMarketData && point.marketValueAmount !== null);
   const marketValueUsesLatestAvailableSnapshot = Boolean(
     latestMarketValueDate
       && expectedLatestValuationDate
@@ -135,6 +139,7 @@ export function PortfolioTrendCard({
     totalCost: point.totalCostAmount,
     marketValue: point.marketValueAmount,
     totalReturn: point.totalReturnAmount ?? null,
+    isPartialMarketData: point.isPartialMarketData,
   }));
 
   const chartConfig = buildChartConfig(dict);
@@ -252,6 +257,20 @@ export function PortfolioTrendCard({
             triggerTestId="dashboard-performance-as-of-tooltip-trigger"
             contentTestId="dashboard-performance-as-of-tooltip-content"
           />
+          {latestPartialDate ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-warning"
+              data-testid="dashboard-performance-partial-marker"
+            >
+              {dict.dashboardHome.performancePartialMarkerLabel}
+              <TooltipInfo
+                label={dict.dashboardHome.performancePartialMarkerLabel}
+                content={formatPartialMarketTooltip(dict, latestPartialDate, latestComparableDate, locale)}
+                triggerTestId="dashboard-performance-partial-tooltip-trigger"
+                contentTestId="dashboard-performance-partial-tooltip-content"
+              />
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -429,6 +448,18 @@ export function PortfolioTrendCard({
                   isFront
                 />
               ) : null}
+              {partialMarketPoints.map((point) => (
+                <ReferenceDot
+                  key={`partial-${point.date}`}
+                  x={dateToUtcMs(point.date)}
+                  y={point.marketValueAmount ?? 0}
+                  r={7}
+                  fill="transparent"
+                  stroke="hsl(var(--warning))"
+                  strokeWidth={3}
+                  isFront
+                />
+              ))}
             </ComposedChart>
           </ChartContainer>
         </div>
@@ -572,6 +603,20 @@ function formatSnapshotAsOfTooltip(dict: AppDictionary, date: string, locale: Lo
     "{date}",
     formatAxisDateLabel(date, locale),
   );
+}
+
+function formatPartialMarketTooltip(
+  dict: AppDictionary,
+  partialDate: string,
+  comparableDate: string | null,
+  locale: LocaleCode,
+): string {
+  return dict.dashboardHome.performancePartialMarkerTooltip
+    .replace("{partialDate}", formatAxisDateLabel(partialDate, locale))
+    .replace(
+      "{comparableDate}",
+      comparableDate ? formatAxisDateLabel(comparableDate, locale) : dict.dashboardHome.noMarketValue,
+    );
 }
 
 function formatMetricDateMeta(

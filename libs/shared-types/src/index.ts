@@ -320,6 +320,14 @@ export interface ValuationHealthHoldingDto {
   recommendedAction: ValuationHealthHoldingAction;
 }
 
+export interface ValuationHealthMarketFreshnessDto {
+  marketCode: MarketCode;
+  latestBarDate: string | null;
+  latestSnapshotDate: string | null;
+  staleTickerCount: number;
+  missingTickerCount: number;
+}
+
 export interface ValuationHealthDto {
   status: ValuationHealthStatus;
   reason: ValuationHealthReason;
@@ -333,7 +341,11 @@ export interface ValuationHealthDto {
   latestBarAsOf: string | null;
   latestSnapshotDate: string | null;
   latestUsableSnapshotDate: string | null;
+  latestComparableSnapshotDate?: string | null;
+  latestPartialSnapshotDate?: string | null;
   expectedLatestValuationDate: string | null;
+  title?: "Market data out of sync";
+  marketFreshness?: ValuationHealthMarketFreshnessDto[];
   affectedHoldings: ValuationHealthHoldingDto[];
   recommendedActions: ValuationHealthHoldingAction[];
 }
@@ -883,6 +895,10 @@ export interface DashboardPerformancePointDto {
   /** KZO-180: false when at least one contributing row's FX did not resolve
    *  for this snapshot date. When false, the 5 numeric fields above are null. */
   fxAvailable: boolean;
+  /** True when the point is renderable in charts but does not contain every active contributor. */
+  isPartialMarketData?: boolean;
+  /** Active contributor keys missing from this snapshot point when known. */
+  missingContributorKeys?: string[];
 }
 
 export type DashboardPerformanceGapReason =
@@ -893,6 +909,9 @@ export type DashboardPerformanceGapReason =
 export interface DashboardPerformanceDiagnosticsDto {
   latestSnapshotDate: string | null;
   latestReliableValuationDate: string | null;
+  latestComparableSnapshotDate?: string | null;
+  latestPartialSnapshotDate?: string | null;
+  hasPartialMarketData?: boolean;
   expectedLatestValuationDate: string;
   staleSinceDate: string | null;
   knownGapReasons: DashboardPerformanceGapReason[];
@@ -2993,6 +3012,17 @@ export interface AdminMarketDataBackfillPreviewRequest {
   selectedCatalogRows?: AdminMarketDataBackfillTargetDto[];
   filters?: Record<string, string | number | boolean | null>;
   includeDemoUsers?: boolean;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface AdminMarketDataBackfillDateRangeDto {
+  requestedStartDate: string | null;
+  requestedEndDate: string | null;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  providerStartDate: string;
+  clampedStartDate: boolean;
 }
 
 export interface AdminMarketDataBackfillPreviewResponse {
@@ -3007,6 +3037,7 @@ export interface AdminMarketDataBackfillPreviewResponse {
   affectedAccountCount: number;
   estimatedJobCount: number;
   estimatedStorageRows: number | null;
+  dateRange: AdminMarketDataBackfillDateRangeDto;
   providerBudgetNotes: string[];
   targets: AdminMarketDataBackfillTargetDto[];
   unsupportedRows: Array<AdminMarketDataBackfillTargetDto & { reason: string }>;
@@ -3031,6 +3062,7 @@ export interface AdminMarketDataBackfillExecuteResponse {
   scope: AdminMarketDataBackfillScope;
   status: "queued" | "completed";
   matchCount: number;
+  dateRange: AdminMarketDataBackfillDateRangeDto;
   enqueuedJobCount: number;
   skippedExistingJobCount: number;
   batchId: string | null;
@@ -3045,6 +3077,52 @@ export interface AdminMarketDataSnapshotRepairExecuteResponse {
   marketCode: MarketCode;
   queued: string[];
   rejected: Array<{ ticker: string; reason: string }>;
+}
+
+export type AdminMarketDataValuationRepairReason =
+  | "ready"
+  | "market_closed"
+  | "latest_bar_missing"
+  | "latest_bar_before_target"
+  | "snapshot_ready"
+  | "snapshot_missing"
+  | "snapshot_stale"
+  | "instrument_not_found"
+  | "no_active_snapshot_scopes";
+
+export interface AdminMarketDataValuationRepairTickerStatusDto {
+  ticker: string;
+  marketCode: MarketCode;
+  targetRepairDate: string;
+  latestBarDate: string | null;
+  latestSnapshotDate: string | null;
+  scopeCount: number;
+  eligibleForSnapshotRepair: boolean;
+  completed: boolean;
+  reasons: AdminMarketDataValuationRepairReason[];
+}
+
+export interface AdminMarketDataValuationRepairOperationDto {
+  operationId: string;
+  phase: ProviderFixerDashboardOperationPhase;
+  progressPercent: number | null;
+  enqueuedJobCount: number | null;
+  skippedExistingJobCount: number | null;
+  completedAt: string | null;
+}
+
+export interface AdminMarketDataValuationRepairStatusResponse {
+  marketCode: MarketCode;
+  targetRepairDate: string;
+  marketTradingDay: boolean;
+  operation: AdminMarketDataValuationRepairOperationDto | null;
+  tickers: AdminMarketDataValuationRepairTickerStatusDto[];
+  summary: {
+    total: number;
+    eligibleForSnapshotRepair: number;
+    completed: number;
+    blocked: number;
+  };
 }
 
 export interface AdminMarketDataPurgePreviewRequest {

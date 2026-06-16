@@ -3,48 +3,83 @@ import type { ValuationHealthDto } from "@vakwen/shared-types";
 const ADMIN_MARKET_DATA_ROOT = "/admin/market-data";
 const SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT = 20;
 
+export interface ValuationHealthAdminRepairLink {
+  href: string;
+  marketCode: string;
+  tickers: string[];
+  truncated: boolean;
+}
+
 export function getValuationHealthAdminRepairHref(
   valuationHealth: ValuationHealthDto | null | undefined,
 ): string | null {
-  if (!valuationHealth) return null;
+  return getValuationHealthAdminRepairLinks(valuationHealth)[0]?.href ?? null;
+}
+
+export function getValuationHealthAdminRepairLinks(
+  valuationHealth: ValuationHealthDto | null | undefined,
+): ValuationHealthAdminRepairLink[] {
+  if (!valuationHealth) return [];
 
   const actionableHoldings = valuationHealth.affectedHoldings.filter((holding) =>
     holding.recommendedAction === "run_backfill" || holding.recommendedAction === "run_snapshot_repair",
   );
 
-  if (actionableHoldings.length === 0) return null;
+  if (actionableHoldings.length === 0) return [];
 
-  const markets = [...new Set(actionableHoldings.map((holding) => holding.marketCode))];
-  if (markets.length !== 1) {
-    return ADMIN_MARKET_DATA_ROOT;
+  const byMarket = new Map<string, typeof actionableHoldings>();
+  for (const holding of actionableHoldings) {
+    byMarket.set(holding.marketCode, [...(byMarket.get(holding.marketCode) ?? []), holding]);
   }
 
-  const hasBackfillAction = actionableHoldings.some((holding) => holding.recommendedAction === "run_backfill");
-  const tickers = [...new Set(actionableHoldings.map((holding) => holding.ticker))];
-  const snapshotRepairFromDate = actionableHoldings
-    .filter((holding) => holding.recommendedAction === "run_snapshot_repair")
+  return [...byMarket.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([marketCode, holdings]) => buildMarketRepairLinks(
+      marketCode,
+      holdings,
+      valuationHealth.expectedLatestValuationDate ?? null,
+    ));
+}
+
+function buildMarketRepairLinks(
+  marketCode: string,
+  holdings: ValuationHealthDto["affectedHoldings"],
+  expectedLatestValuationDate: string | null,
+): ValuationHealthAdminRepairLink[] {
+  const tickers = [...new Set(holdings.map((holding) => holding.ticker))].sort();
+  const targetRepairDate = expectedLatestValuationDate ?? holdings
+    .map((holding) => holding.latestBarDate)
+    .filter((date): date is string => date !== null)
+    .reduce<string | null>((max, date) => (max === null || date > max ? date : max), null);
+  const fromDate = holdings
     .map((holding) => holding.latestSnapshotDate ?? holding.latestBarDate)
     .filter((date): date is string => date !== null)
     .reduce<string | null>((min, date) => (min === null || date < min ? date : min), null);
-  const params = new URLSearchParams();
-  if (!hasBackfillAction && tickers.length > 1) {
-    const deepLinkTickers = tickers.slice(0, SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT);
-    params.set("tickers", deepLinkTickers.join(","));
+
+  const links: ValuationHealthAdminRepairLink[] = [];
+  for (let index = 0; index < tickers.length; index += SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT) {
+    const batch = tickers.slice(index, index + SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT);
+    const params = new URLSearchParams();
+    params.set("repair", "valuation");
+    params.set("tickers", batch.join(","));
+    if (targetRepairDate) {
+      params.set("targetDate", targetRepairDate);
+      params.set("endDate", targetRepairDate);
+    }
+    if (fromDate) {
+      params.set("fromDate", fromDate);
+      params.set("startDate", fromDate);
+    }
     if (tickers.length > SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT) {
       params.set("truncated", "true");
+      params.set("batch", `${Math.floor(index / SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT) + 1}`);
     }
-  } else if (tickers.length === 1) {
-    params.set("search", tickers[0]);
+    links.push({
+      href: `${ADMIN_MARKET_DATA_ROOT}/${marketCode}/backfill?${params.toString()}`,
+      marketCode,
+      tickers: batch,
+      truncated: tickers.length > SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT,
+    });
   }
-  if (!hasBackfillAction) {
-    params.set("repair", "snapshots");
-    if (snapshotRepairFromDate) {
-      params.set("fromDate", snapshotRepairFromDate);
-    }
-  }
-
-  const query = params.toString();
-  return query
-    ? `${ADMIN_MARKET_DATA_ROOT}/${markets[0]}/backfill?${query}`
-    : `${ADMIN_MARKET_DATA_ROOT}/${markets[0]}/backfill`;
+  return links;
 }

@@ -8,15 +8,12 @@ import {
   type DashboardOverviewSummaryDto,
   type FxConversionRateDto,
   type LocaleCode,
-  type ValuationHealthDto,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/shadcn/badge";
-import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
-import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 
 interface DashboardHeroProps {
   fxRates?: FxConversionRateDto[];
@@ -27,8 +24,6 @@ interface DashboardHeroProps {
   dict: AppDictionary;
   canOpenQuickActions?: boolean;
   onOpenQuickActions?: () => void;
-  showAdminActions?: boolean;
-  valuationHealth?: ValuationHealthDto | null;
 }
 
 export function DashboardHero({
@@ -40,8 +35,6 @@ export function DashboardHero({
   dict,
   canOpenQuickActions = false,
   onOpenQuickActions,
-  showAdminActions = false,
-  valuationHealth,
 }: DashboardHeroProps) {
   const totalValue = summary.marketValueAmount !== null
     ? formatCompactCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
@@ -57,9 +50,6 @@ export function DashboardHero({
     : null;
   const dayDeltaPercent = summary.dailyChangePercent !== null
     ? formatPercent(summary.dailyChangePercent, locale)
-    : null;
-  const adminRepairHref = showAdminActions
-    ? getValuationHealthAdminRepairHref(valuationHealth)
     : null;
   const deltaTone = summary.dailyChangeAmount === null
     ? "text-foreground"
@@ -214,17 +204,6 @@ export function DashboardHero({
           </div>
         </div>
       </Card>
-
-      {valuationHealth ? (
-        <ValuationHealthPanel
-          adminRepairHref={adminRepairHref}
-          className="sm:col-span-2 xl:col-span-3"
-          copy={dict.valuationHealth}
-          locale={locale}
-          showAdminActions={showAdminActions}
-          valuationHealth={valuationHealth}
-        />
-      ) : null}
     </section>
   );
 }

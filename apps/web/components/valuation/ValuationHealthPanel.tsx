@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { LocaleCode, ValuationHealthDto, ValuationHealthHoldingAction } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
 import { Button } from "../ui/Button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { cn, formatCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
+import { getValuationHealthAdminRepairLinks, type ValuationHealthAdminRepairLink } from "./valuationHealthAdminLink";
 
 type ValuationHealthCopy = AppDictionary["valuationHealth"];
 
@@ -33,7 +35,13 @@ export function ValuationHealthPanel({
   const hasSnapshotRepairAction = valuationHealth.recommendedActions.includes("run_snapshot_repair");
   const hasRepairRecommendation = hasBackfillAction || hasSnapshotRepairAction;
   const hasMaterialNoRepair = valuationHealth.status === "material" && !hasRepairRecommendation;
-  const hasAdminRepairAction = showAdminActions && adminRepairHref && hasRepairRecommendation;
+  const adminRepairLinks = getValuationHealthAdminRepairLinks(valuationHealth);
+  const repairLinks = adminRepairLinks.length > 0
+    ? adminRepairLinks
+    : adminRepairHref
+      ? [{ href: adminRepairHref, marketCode: "", tickers: [], truncated: false }]
+      : [];
+  const [copiedHref, setCopiedHref] = useState<string | null>(null);
   const deltaPercent = valuationHealth.relativeDeltaBps === null
     ? null
     : valuationHealth.relativeDeltaBps / 100;
@@ -52,6 +60,7 @@ export function ValuationHealthPanel({
     : hasMaterialNoRepair
       ? copy.userNoRepairHelp
       : copy.userInfoHelp;
+  const panelTitle = valuationHealth.title ?? copy.title;
 
   return (
     <section
@@ -61,7 +70,7 @@ export function ValuationHealthPanel({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">{copy.title}</p>
+            <p className="text-sm font-semibold text-foreground">{panelTitle}</p>
             <Badge variant={badgeVariantForStatus(valuationHealth.status)}>
               {statusLabel(copy, valuationHealth.status)}
             </Badge>
@@ -98,8 +107,48 @@ export function ValuationHealthPanel({
             label={copy.latestSnapshotDate}
             value={formatMaybeDate(valuationHealth.latestSnapshotDate, locale, copy)}
           />
+          <MetricRow
+            label={copy.comparableSnapshotDate}
+            value={formatMaybeDate(valuationHealth.latestComparableSnapshotDate ?? null, locale, copy)}
+          />
+          <MetricRow
+            label={copy.partialSnapshotDate}
+            value={formatMaybeDate(valuationHealth.latestPartialSnapshotDate ?? null, locale, copy)}
+          />
         </div>
       </div>
+
+      {valuationHealth.marketFreshness && valuationHealth.marketFreshness.length > 0 ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-border bg-background" data-testid="valuation-health-market-freshness">
+          <div className="border-b border-border px-4 py-3 text-sm font-medium text-foreground">
+            {copy.marketFreshness}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/30 text-left text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2.5">Market</th>
+                  <th className="px-4 py-2.5">{copy.latestBarAsOf}</th>
+                  <th className="px-4 py-2.5">{copy.latestSnapshotDate}</th>
+                  <th className="px-4 py-2.5">Stale</th>
+                  <th className="px-4 py-2.5">Missing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {valuationHealth.marketFreshness.map((market) => (
+                  <tr key={market.marketCode} className="border-t border-border">
+                    <td className="px-4 py-3 font-medium text-foreground">{market.marketCode}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{formatMaybeDate(market.latestBarDate, locale, copy)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{formatMaybeDate(market.latestSnapshotDate, locale, copy)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{market.staleTickerCount}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{market.missingTickerCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {valuationHealth.affectedHoldings.length > 0 ? (
         <div className="mt-4 overflow-hidden rounded-lg border border-border bg-background" data-testid="valuation-health-holdings">
@@ -151,21 +200,60 @@ export function ValuationHealthPanel({
           </Alert>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {hasAdminRepairAction ? (
-            <Button asChild size="sm" data-testid="valuation-health-admin-repair">
-              <Link href={adminRepairHref}>
-                {hasBackfillAction && hasSnapshotRepairAction
-                  ? copy.adminRepairAction
-                  : hasSnapshotRepairAction
-                    ? copy.snapshotRepairAction
-                    : copy.backfillAction}
-              </Link>
-            </Button>
-          ) : null}
+          {showAdminActions
+            ? repairLinks.map((link) => (
+                <Button
+                  asChild
+                  size="sm"
+                  data-testid={link.marketCode ? `valuation-health-admin-repair-${link.marketCode}` : "valuation-health-admin-repair"}
+                  key={link.href}
+                >
+                  <Link href={link.href}>
+                    {repairActionLabel(copy, hasBackfillAction, hasSnapshotRepairAction, link.marketCode)}
+                  </Link>
+                </Button>
+              ))
+            : repairLinks.map((link) => (
+                <Button
+                  key={link.href}
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  data-testid={link.marketCode ? `valuation-health-copy-admin-link-${link.marketCode}` : "valuation-health-copy-admin-link"}
+                  onClick={() => {
+                    void copyAdminHelpText({
+                      adminHelp,
+                      link,
+                      locale,
+                      valuationHealth,
+                    }).then((copied) => {
+                      if (copied) setCopiedHref(link.href);
+                    });
+                  }}
+                >
+                  {copiedHref === link.href
+                    ? copy.adminLinkCopied
+                    : copy.copyAdminHelpLink.replace("{market}", link.marketCode || copy.action)}
+                </Button>
+              ))}
         </div>
       </div>
     </section>
   );
+}
+
+function repairActionLabel(
+  copy: ValuationHealthCopy,
+  hasBackfillAction: boolean,
+  hasSnapshotRepairAction: boolean,
+  marketCode: string,
+): string {
+  const action = hasBackfillAction && hasSnapshotRepairAction
+    ? copy.adminRepairAction
+    : hasSnapshotRepairAction
+      ? copy.snapshotRepairAction
+      : copy.backfillAction;
+  return marketCode ? `${action} · ${marketCode}` : action;
 }
 
 function MetricRow({ label, value }: { label: string; value: string }) {
@@ -188,6 +276,43 @@ function formatMaybeCurrency(
 
 function formatMaybeDate(value: string | null, locale: LocaleCode, copy: ValuationHealthCopy): string {
   return value ? formatDateLabel(value, locale) : copy.unavailable;
+}
+
+async function copyAdminHelpText({
+  adminHelp,
+  link,
+  locale,
+  valuationHealth,
+}: {
+  adminHelp: string;
+  link: ValuationHealthAdminRepairLink;
+  locale: LocaleCode;
+  valuationHealth: ValuationHealthDto;
+}): Promise<boolean> {
+  if (!navigator.clipboard?.writeText) return false;
+  const absoluteHref = typeof window === "undefined"
+    ? link.href
+    : new URL(link.href, window.location.origin).href;
+  const lines = [
+    adminHelp,
+    `Market: ${link.marketCode || "all"}`,
+    link.tickers.length > 0 ? `Tickers: ${link.tickers.join(", ")}` : null,
+    valuationHealth.expectedLatestValuationDate ? `Target date: ${valuationHealth.expectedLatestValuationDate}` : null,
+    valuationHealth.latestComparableSnapshotDate
+      ? `Comparable snapshot: ${formatDateLabel(valuationHealth.latestComparableSnapshotDate, locale)}`
+      : null,
+    valuationHealth.latestPartialSnapshotDate
+      ? `Partial snapshot: ${formatDateLabel(valuationHealth.latestPartialSnapshotDate, locale)}`
+      : null,
+    `Admin repair link: ${absoluteHref}`,
+  ].filter((line): line is string => line !== null);
+
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function badgeVariantForStatus(status: ValuationHealthDto["status"]) {

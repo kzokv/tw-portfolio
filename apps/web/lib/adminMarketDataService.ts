@@ -12,6 +12,7 @@ import type {
   AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
+  AdminMarketDataValuationRepairStatusResponse,
   AdminMarketDataPurgeExecuteRequest,
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
@@ -23,7 +24,7 @@ import type {
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemState,
 } from "@vakwen/shared-types";
-import { postJson } from "./api";
+import { getJson, postJson } from "./api";
 
 export function executeMarketAction(
   marketCode: AdminMarketCode,
@@ -51,6 +52,17 @@ export function executeMarketSnapshotRepair(
   input: AdminMarketDataSnapshotRepairExecuteRequest,
 ): Promise<AdminMarketDataSnapshotRepairExecuteResponse> {
   return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/snapshot-repair/execute`, input);
+}
+
+export function fetchMarketValuationRepairStatus(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: { tickers: string[]; targetDate: string; operationId?: string },
+): Promise<AdminMarketDataValuationRepairStatusResponse> {
+  const params = new URLSearchParams();
+  params.set("tickers", input.tickers.join(","));
+  params.set("targetDate", input.targetDate);
+  if (input.operationId) params.set("operationId", input.operationId);
+  return getJson(`/admin/market-data/${encodeURIComponent(marketCode)}/valuation-repair/status?${params.toString()}`);
 }
 
 export function previewMarketPurge(

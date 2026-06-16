@@ -87,4 +87,67 @@ describe("admin market-data snapshot repair", () => {
       { singletonKey: "2330:TW:2026-06-12" },
     );
   });
+
+  it("reports valuation repair readiness when bars reach the target date and snapshots are stale", async () => {
+    const admin = await createAdmin(app);
+    seedInstrument(app);
+    vi.spyOn(app.tradingCalendarCache, "isTradingDay").mockResolvedValue(true);
+    vi.spyOn(app.persistence, "getLatestBarDatesForReconciliation").mockResolvedValue(new Map([["2330:TW", "2026-06-12"]]));
+    vi.spyOn(app.persistence, "listHoldingSnapshotRepairScopesForTickerMarket").mockResolvedValue([
+      { userId: "user-1", accountId: "acc-1", ticker: "2330", marketCode: "TW" },
+    ]);
+    vi.spyOn(app.persistence, "getLatestHoldingSnapshotDatesByScope").mockResolvedValue(new Map([[`acc-1\0${"2330"}\0TW`, "2026-06-11"]]));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/valuation-repair/status?tickers=2330&targetDate=2026-06-12",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      marketCode: "TW",
+      targetRepairDate: "2026-06-12",
+      marketTradingDay: true,
+      summary: { total: 1, eligibleForSnapshotRepair: 1, completed: 0, blocked: 0 },
+      tickers: [{
+        ticker: "2330",
+        latestBarDate: "2026-06-12",
+        latestSnapshotDate: "2026-06-11",
+        scopeCount: 1,
+        eligibleForSnapshotRepair: true,
+        completed: false,
+        reasons: ["ready", "snapshot_stale"],
+      }],
+    });
+  });
+
+  it("does not mark valuation repair eligible when the target date is a market holiday", async () => {
+    const admin = await createAdmin(app);
+    seedInstrument(app);
+    vi.spyOn(app.tradingCalendarCache, "isTradingDay").mockResolvedValue(false);
+    vi.spyOn(app.persistence, "getLatestBarDatesForReconciliation").mockResolvedValue(new Map([["2330:TW", "2026-06-12"]]));
+    vi.spyOn(app.persistence, "listHoldingSnapshotRepairScopesForTickerMarket").mockResolvedValue([
+      { userId: "user-1", accountId: "acc-1", ticker: "2330", marketCode: "TW" },
+    ]);
+    vi.spyOn(app.persistence, "getLatestHoldingSnapshotDatesByScope").mockResolvedValue(new Map([[`acc-1\0${"2330"}\0TW`, "2026-06-11"]]));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/valuation-repair/status?tickers=2330&targetDate=2026-06-12",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      marketTradingDay: false,
+      summary: { total: 1, eligibleForSnapshotRepair: 0, completed: 0, blocked: 1 },
+      tickers: [{
+        ticker: "2330",
+        eligibleForSnapshotRepair: false,
+        completed: false,
+        reasons: ["market_closed"],
+      }],
+    });
+  });
 });

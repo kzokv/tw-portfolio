@@ -85,7 +85,7 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
-  const performanceReportingCurrency = reportingCurrency ?? expectedReportingCurrency ?? dashboard.summary.reportingCurrency;
+  const performanceReportingCurrency = dashboard.summary.reportingCurrency ?? expectedReportingCurrency ?? reportingCurrency;
   const performanceCacheKey = buildRouteDtoCacheKey(
     "dashboard-performance",
     getRouteDtoContextScope(sessionUserId),
@@ -201,8 +201,6 @@ export function DashboardClient({
           dict={dict}
           canOpenQuickActions={canUseGlobalQuickActions}
           onOpenQuickActions={openQuickActions}
-          showAdminActions={sessionUserRole === "admin"}
-          valuationHealth={dashboard.valuationHealth}
         />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
