@@ -198,6 +198,77 @@ describe("buildValuationHealth", () => {
     expect(dto.recommendedActions).toEqual([]);
   });
 
+  it("prompts backfill when a market bar is behind the expected valuation trading date", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([
+            ["2330:TW", "2026-06-16"],
+            ["AVGO:US", "2026-06-15"],
+          ])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([
+            [scopeKey("acc-1", "2330", "TW"), "2026-06-16"],
+            [scopeKey("acc-2", "AVGO", "US"), "2026-06-15"],
+          ])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+        tradingCalendarCache: {
+          isTradingDay: vi.fn().mockImplementation(async (marketCode: string, date: string) =>
+            marketCode === "US" && date === "2026-06-16"),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 700_000,
+      asOf: "2026-06-16T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 500_000,
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+        {
+          ticker: "AVGO",
+          marketCode: "US",
+          reportingMarketValueAmount: 200_000,
+          children: [{ accountId: "acc-2", ticker: "AVGO", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 691_000 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-15",
+          latestSnapshotDate: "2026-06-16",
+          latestComparableSnapshotDate: "2026-06-15",
+          latestPartialSnapshotDate: "2026-06-16",
+          expectedLatestValuationDate: "2026-06-16",
+        },
+      } as never,
+    });
+
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "AVGO",
+        marketCode: "US",
+        latestBarDate: "2026-06-15",
+        latestSnapshotDate: "2026-06-15",
+        status: "missing_latest_bar",
+        recommendedAction: "run_backfill",
+      }),
+    ]);
+    expect(dto.marketFreshness).toEqual([
+      expect.objectContaining({
+        marketCode: "US",
+        latestBarDate: "2026-06-15",
+        latestSnapshotDate: "2026-06-15",
+        missingTickerCount: 1,
+      }),
+    ]);
+    expect(dto.recommendedActions).toEqual(["run_backfill"]);
+  });
+
   it("marks holdings stale against their own latest bar date", async () => {
     const dto = await buildValuationHealth({
       app: {
