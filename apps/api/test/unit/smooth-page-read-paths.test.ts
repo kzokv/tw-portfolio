@@ -536,8 +536,8 @@ describe("smooth page read paths", () => {
         change: 10,
         quoteStatus: "provisional",
         priceState: expect.objectContaining({
-          basis: "stale_close",
-          chipState: "stale",
+          basis: "pending_today_close",
+          chipState: "closed",
           sourceKind: "primary_daily",
         }),
       }),
