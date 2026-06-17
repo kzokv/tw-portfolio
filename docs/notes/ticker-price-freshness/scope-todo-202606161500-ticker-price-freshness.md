@@ -158,6 +158,18 @@ superseded_by: null
   - Public-share daily-only behavior was validated with an approved temporary public read-only link at `2026-06-17 15:41 CST`; the link was revoked immediately after validation and Sharing returned to `Anonymous links (0)`.
   - The public share page loaded in `5937ms`, rendered a read-only snapshot with `prices as of Jun 17, 2026`, and showed holdings for `000660.KR`, `2330.TW`, `3714.TW`, and `AVGO.US`.
   - The public share page rendered `0` price-state chips, `0` market-state summary elements, `0` refresh-closes buttons, and no open-market polling/freshness words such as `Updated`, `Delayed`, `Previous close`, `Refresh closes`, or `Held markets`.
+- Chrome mobile live validation on Vakwen Dev as `mmckchuang@gmail.com` / `mmc_kchuang` at `2026-06-17 16:08 CST`:
+  - A user-visible Chrome dashboard tab was resized and verified from inside the page at the iPhone 12 Pro CSS viewport: `window.innerWidth=390`, `window.innerHeight=844`, `devicePixelRatio=2`.
+  - Dashboard rendered the held-market state summary for the live account's held markets: `TW Closed`, `US Closed`, `KR Closed`; no AU holding exists in the live account, so AU remained absent from the held-market-only summary.
+  - Dashboard rendered `4` dashboard row-level price-state chips: `dashboard-price-state-2330-TW`, `dashboard-price-state-AVGO-US`, `dashboard-price-state-000660-KR`, and `dashboard-price-state-3714-TW`, all with `Closed`.
+  - Dashboard `Refresh closes` action was clicked once in the mobile viewport; the button re-enabled after `7095ms`, no inline refresh error rendered, and the dashboard still rendered `4` price-state chips. This was the only mobile post-close refresh click to avoid unnecessary rate-limit pressure.
+  - Portfolio `/portfolio` rendered `10` holdings price-state chips in the mobile holdings surface, including group and account-level chips for `000660.KR`, `2330.TW`, `3714.TW`, and `AVGO.US`; the live portfolio route rendered `Unavailable` chip state where no usable route quote was available.
+  - Ticker detail `/tickers/2330` loaded in `5676ms` and rendered `ticker-price-state-chip` for `台積電 (2330)`.
+  - Reports `/reports` loaded in `2777ms`, rendered `Non-current prices 0`, and rendered `reports-price-state-*` chips with `Closed` for `2330.TW`, `AVGO.US`, `000660.KR`, and `3714.TW`.
+  - Mobile price chip tooltip was validated by focusing/clicking `reports-price-state-2330-TW`; the tooltip opened and showed `Price translation`, `Reporting currency is TWD.`, `Reporting price (TWD) NT$2,385.00`, and `Quote status Current`.
+  - Admin settings `/admin/settings` rendered the grouped `Ticker price freshness` surface with close grace, sync cap, intraday interval/tolerance, Yahoo request limit, queue concurrency, cycle cap, refresh endpoint rate limits, Yahoo chart range/interval, intraday toggle, regular-session-only toggle, save button, and supported markets `TW`, `US`, `AU`, `KR`.
+  - Public-share daily-only behavior was validated with an approved temporary public read-only link created from the mobile sharing UI; the public share page loaded in `4275ms`, rendered `Read-only · expires Jul 17, 2026 · prices as of Jun 17, 2026`, showed holdings for `000660.KR`, `2330.TW`, `3714.TW`, and `AVGO.US`, rendered `0` price-state chips, `0` market-state summary elements, `0` refresh-closes buttons, and no open-market polling/freshness words such as `Updated`, `Delayed`, `Previous close`, `Refresh closes`, or `Held markets`.
+  - The temporary public link was revoked immediately after mobile validation; Sharing showed the row as `Revoked`, no revoke button remained for that row, and the tab returned to `Anonymous links (0)`.
 
 ## References
 
