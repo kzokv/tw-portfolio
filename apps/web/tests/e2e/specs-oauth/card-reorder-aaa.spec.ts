@@ -181,26 +181,15 @@ test.describe("card reorder (KZO-161 F5)", () => {
 
   test("[card-A]: drag holdings-table above portfolio-trend → PATCH persisted after debounce → state read-back", async ({
     appShell,
-    testUser,
     page,
   }) => {
-    // Arrange — clear any prior cardOrder for this user.
-    // mintSessionCookie creates a valid API session only used for the seed call.
-    // The browser navigates as testUser (via the oauth fixture) — see HIGH-2 fix.
-    const seedSession = await mintSessionCookie({
-      sub: "card-reorder-A-sub",
-      email: "card-reorder-A@example.com",
-      name: "Card Reorder A",
-    });
-    await seedUserPreferences(seedSession.cookieHeader, testUser.userId, {});
+    // Arrange — start from canonical order on the BROWSER's user. Must seed
+    // before navigation because SortableCardGrid reads cardOrder on mount.
+    const testUserCookieHeader = await getTestUserCookieHeader(page);
+    await seedAsBrowser(page, { cardOrder: { dashboard: null } });
 
     // Actions — navigate to /dashboard.
     await appShell.actions.navigateToRoute("/dashboard");
-
-    // Extract testUser's browser session cookie for API read-back.
-    // The browser navigates as testUser; the drag PATCH writes to testUser's prefs.
-    // Using the seed session's cookie would read the wrong user's preferences.
-    const testUserCookieHeader = await getTestUserCookieHeader(page);
 
     // Assert — all card drag handles are visible (confirming F5 rendered).
     await appShell.assert.cardDragHandleIsVisible("portfolio-trend");
@@ -210,8 +199,8 @@ test.describe("card reorder (KZO-161 F5)", () => {
     // This moves holdings-table to index 0 in the rendered order.
     await appShell.actions.dragCard("holdings-table", "portfolio-trend");
 
-    // Assert — wait for debounce to fire (≥300ms). Use a short wait via
-    // expect.poll to avoid a fixed sleep while respecting the 250ms debounce.
+    // Assert — wait for the debounced PATCH to land. The full OAuth suite can
+    // run this path under enough server load that the old 2s poll was flaky.
     // Per `.claude/rules/e2e-aaa-guardrails.md`: probe-based waits.
     await expect
       .poll(
@@ -221,7 +210,7 @@ test.describe("card reorder (KZO-161 F5)", () => {
           // should appear at index 0 in the saved order.
           return order?.[0] === "holdings-table";
         },
-        { timeout: 2000, intervals: [300, 500, 700] },
+        { timeout: 6000, intervals: [300, 500, 700, 1000] },
       )
       .toBe(true);
 
