@@ -313,6 +313,95 @@ describe("dashboard overview", () => {
     ]));
   });
 
+  it("does not enqueue displayed intraday refreshes for unheld cross-listed markets", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-17T14:00:00.000Z"));
+    const sendCalls: unknown[] = [];
+    app.boss = {
+      send: async (...args: unknown[]) => {
+        sendCalls.push(args);
+        return `job-${sendCalls.length}`;
+      },
+    } as never;
+    const store = await app.persistence.loadStore("user-1");
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const accountFeeProfile = {
+      ...feeProfile,
+      id: "fp-bhp-au-only",
+      accountId: "acc-bhp-au-only",
+      name: "BHP AU Fee",
+      commissionCurrency: "AUD" as const,
+    };
+    store.feeProfiles.push(accountFeeProfile);
+    store.accounts.push({
+      id: "acc-bhp-au-only",
+      userId: "user-1",
+      name: "BHP AU Broker",
+      feeProfileId: accountFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.marketData.instruments.push(
+      {
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        isProvisional: false,
+      },
+      {
+        ticker: "BHP",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        isProvisional: false,
+      },
+    );
+    store.accounting.projections.holdings.push({
+      accountId: "acc-bhp-au-only",
+      ticker: "BHP",
+      quantity: 3,
+      costBasisAmount: 132,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "dashboard-bhp-au-trade-1",
+      userId: "user-1",
+      accountId: "acc-bhp-au-only",
+      ticker: "BHP",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 3,
+      unitPrice: 44,
+      priceCurrency: "AUD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: accountFeeProfile,
+      tradeTimestamp: "2026-06-01T00:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T00:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().holdings).toEqual([
+      expect.objectContaining({
+        ticker: "BHP",
+        marketCode: "AU",
+      }),
+    ]);
+    expect(sendCalls).not.toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        "intraday-refresh",
+        expect.objectContaining({ ticker: "BHP", marketCode: "US" }),
+      ]),
+    ]));
+  });
+
   it("returns holdings and dividend overview details when accounting facts exist", async () => {
     (app.persistence as MemoryPersistence)._seedDailyBars([
       { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
