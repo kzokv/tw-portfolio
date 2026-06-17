@@ -52,7 +52,7 @@ export function hasOpenMarketPriceState(value: PriceStateCarrierLike | null | un
 export function isNonCurrentPrice(value: PriceStateCarrierLike | null | undefined): boolean {
   const priceState = getPriceState(value);
   if (priceState) {
-    return priceState.chipState !== "open_fresh" && priceState.chipState !== "closed";
+    return priceState.basis !== "intraday" && priceState.basis !== "today_close";
   }
   return value?.quoteStatus === "missing" || value?.quoteStatus === "provisional";
 }
@@ -60,6 +60,7 @@ export function isNonCurrentPrice(value: PriceStateCarrierLike | null | undefine
 export function priceStateSortRank(value: PriceStateCarrierLike | null | undefined): number {
   const priceState = getPriceState(value);
   if (priceState) {
+    if (priceState.basis === "pending_today_close") return 3;
     switch (priceState.chipState) {
       case "missing":
         return 5;
