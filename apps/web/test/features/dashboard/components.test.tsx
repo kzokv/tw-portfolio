@@ -421,6 +421,16 @@ describe("dashboard components", () => {
     });
     await flushPromises();
 
+    const priceDetailsButton = container.querySelector('[aria-label="Open 2330 price details"]') as HTMLButtonElement | null;
+    if (!priceDetailsButton) throw new Error("Expected dashboard mobile price details button");
+    expect(priceDetailsButton.parentElement?.closest("button")).toBeNull();
+
+    click(priceDetailsButton);
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("Price translation");
+    expect(document.body.textContent).not.toContain("Reporting and native price details");
+
     const chip = container.querySelector('[data-testid="dashboard-mobile-price-state-2330-TW"]') as HTMLButtonElement | null;
     if (!chip) throw new Error("Expected dashboard mobile price-state chip");
     expect(chip.tagName).toBe("BUTTON");
