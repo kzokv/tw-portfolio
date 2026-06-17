@@ -1255,7 +1255,15 @@ function PriceTextButton({
               aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
             >
               <span className="font-semibold">{reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}</span>
-              {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`dashboard-price-state-${group.ticker}-${group.marketCode}`} /> : null}
+              {priceState ? (
+                <PriceStateChip
+                  dict={dict}
+                  interactive={false}
+                  locale={locale}
+                  priceState={priceState}
+                  testId={`dashboard-price-state-${group.ticker}-${group.marketCode}`}
+                />
+              ) : null}
               {group.currency !== reportingCurrency && group.currentUnitPrice !== null ? (
                 <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsNativeAvailable}</span>
               ) : null}

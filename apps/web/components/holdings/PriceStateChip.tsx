@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
 import {
@@ -17,18 +18,48 @@ import {
 
 export function PriceStateChip({
   dict,
+  interactive = true,
   locale,
   priceState,
   testId,
 }: {
   dict: AppDictionary;
+  interactive?: boolean;
   locale: LocaleCode;
   priceState: PriceStateDtoLike | null | undefined;
   testId?: string;
 }) {
-  const label = formatPriceStateLabel(dict, locale, priceState);
+  const [clientNow, setClientNow] = useState<number | null>(null);
+  const label = formatPriceStateLabel(dict, locale, priceState, clientNow ?? getInitialPriceStateNow(priceState));
+  useEffect(() => {
+    if (!priceState || !priceState.chipState.startsWith("open_")) return;
+    setClientNow(Date.now());
+    const timer = window.setInterval(() => setClientNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [priceState]);
+
   if (!priceState || !label) return null;
   const tooltipRows = formatPriceStateTooltip(dict, locale, priceState);
+  const chipClassName = "mt-1 inline-flex items-center gap-1.5 rounded-sm bg-transparent p-0 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+  const dot = (
+    <span
+      aria-hidden="true"
+      className={`h-2 w-2 rounded-full ${getPriceStateToneClassName(priceState)}`}
+    />
+  );
+
+  if (!interactive) {
+    return (
+      <span
+        aria-label={label}
+        className={chipClassName}
+        data-testid={testId}
+      >
+        {dot}
+        <span>{label}</span>
+      </span>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -37,13 +68,10 @@ export function PriceStateChip({
           <button
             type="button"
             aria-label={label}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-sm bg-transparent p-0 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={chipClassName}
             data-testid={testId}
           >
-            <span
-              aria-hidden="true"
-              className={`h-2 w-2 rounded-full ${getPriceStateToneClassName(priceState)}`}
-            />
+            {dot}
             <span>{label}</span>
           </button>
         </TooltipTrigger>
@@ -57,4 +85,11 @@ export function PriceStateChip({
       </Tooltip>
     </TooltipProvider>
   );
+}
+
+function getInitialPriceStateNow(priceState: PriceStateDtoLike | null | undefined): number {
+  const timestamp = priceState?.observedAt ?? priceState?.asOfTimestamp;
+  if (!timestamp) return 0;
+  const parsed = new Date(timestamp).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }

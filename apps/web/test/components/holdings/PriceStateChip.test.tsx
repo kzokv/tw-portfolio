@@ -163,6 +163,41 @@ describe("PriceStateChip", () => {
     expect(closedChip?.querySelector("[aria-hidden='true']")?.className).toContain("bg-slate-400");
   });
 
+  it("can render as non-interactive text for use inside another button", async () => {
+    act(() => {
+      root.render(
+        <button type="button">
+          <PriceStateChip
+            dict={dict}
+            interactive={false}
+            locale="en"
+            testId="price-state-chip"
+            priceState={{
+              basis: "today_close",
+              chipState: "closed",
+              marketState: "closed",
+              source: "daily-provider",
+              sourceKind: "primary_daily",
+              asOfDate: "2026-06-17",
+              asOfTimestamp: null,
+              observedAt: null,
+              delaySeconds: null,
+              marketTimeZone: "Asia/Taipei",
+              quality: "full_bar",
+            }}
+          />
+        </button>,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']");
+    expect(chip?.tagName).toBe("SPAN");
+    expect(chip?.textContent).toContain("Closed");
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+  });
+
   it("uses the bar timestamp for delayed relative labels even when observed recently", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-17T11:00:00.000Z"));
