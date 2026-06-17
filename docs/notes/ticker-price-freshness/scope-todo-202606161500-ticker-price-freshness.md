@@ -201,6 +201,16 @@ superseded_by: null
   - Focused ESLint passed: `npx eslint apps/api/src/persistence/postgres.ts apps/api/src/persistence/memory.ts apps/api/test/integration/daily-refresh-persistence.integration.test.ts`.
   - `npm run typecheck` passed.
   - Full Postgres integration gate passed: `npm run test:integration:full:host` (`89` files / `864` tests passed, `1` skipped).
+- Final PR/deploy evidence for commit `ed26b215`:
+  - PR #225 checks passed on the pushed head: `pr-gate`, `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-bypass`, and `e2e-oauth`.
+  - Dev deploy run `27684973576` succeeded for branch `codex/ticker-price-freshness`; `deploy / deploy` completed in `13m8s`.
+  - Chrome desktop live smoke on Vakwen Dev at viewport `1400x857`, DPR `2`: dashboard rendered held-market summary `TW Closed`, `US Closed`, `KR Closed`; four dashboard price-state chips rendered `Closed`; no alerts; `Refresh closes` button was present.
+  - Chrome mobile live smoke on Vakwen Dev at viewport `430x797`, DPR `2`: dashboard rendered held-market summary `TW Closed`, `US Closed`, `KR Closed`; four dashboard price-state chips rendered `Closed`; no alerts; `Refresh closes` button was present.
+  - Post-close refresh live smoke on the final deployed head: dashboard `Refresh closes` disabled during the request and re-enabled after `6297ms`; no alert/error rendered; four dashboard price-state chips remained present.
+  - Ticker detail `/tickers/2330` rendered `ticker-price-state-chip` as `Closed` and showed the current quote block for `台積電 (2330)`.
+  - Reports rendered `Non-current prices 0`; report price-state chips rendered `Closed`; focusing/clicking `reports-price-state-2330-TW` opened a tooltip with price translation, reporting price, and quote status facts.
+  - Admin settings rendered the grouped `Ticker price freshness` surface with close grace, sync cap, intraday interval/tolerance, Yahoo request limit, queue concurrency, max tickers per cycle, refresh endpoint limits, Yahoo chart range/interval, intraday toggle, regular-session-only toggle, save button, and supported markets `TW`, `US`, `AU`, `KR`.
+  - Public-share daily-only behavior was validated with a temporary public read-only link `https://vakwen-dev-web.kzokvdevs.dpdns.org/share/zxqiLvMXB8eLOiCHHuq4lw`; the public page rendered `Read-only · expires Jul 17, 2026 · prices as of Jun 17, 2026`, four holdings, `0` price-state chips, `0` market-state summaries, `0` refresh-close buttons, and no intraday freshness words (`Updated`, `Delayed`, `Previous close`, `Refresh closes`, `Held markets`). The temporary link was revoked immediately; Sharing returned to `Anonymous links (0)` with the row marked `Revoked`.
 
 ## References
 
