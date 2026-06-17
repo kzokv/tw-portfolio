@@ -64,6 +64,83 @@ describe("POST /portfolio/refresh-closes", () => {
     }));
   });
 
+  it("uses the quoteable instrument market for refresh pairs instead of account currency", async () => {
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "AAPL",
+      name: "Apple",
+      instrumentType: "STOCK",
+      marketCode: "US",
+      barsBackfillStatus: "ready",
+    });
+    const store = await app.persistence.loadStore("user-1");
+    const defaultFeeProfile = store.feeProfiles[0];
+    if (!defaultFeeProfile) throw new Error("expected default fee profile");
+    store.feeProfiles.push({
+      ...defaultFeeProfile,
+      id: "fp-aud-account-us-holding",
+      accountId: "acc-aud-account-us-holding",
+      name: "AUD account for US holding",
+      commissionCurrency: "USD",
+    });
+    store.accounts.push({
+      id: "acc-aud-account-us-holding",
+      userId: "user-1",
+      name: "AUD account for US holding",
+      defaultCurrency: "USD",
+      accountType: "broker",
+      feeProfileId: "fp-aud-account-us-holding",
+    });
+    await app.persistence.saveStore(store);
+    const trade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "refresh-closes-cross-currency-account" },
+      payload: transactionPayload({
+        accountId: "acc-aud-account-us-holding",
+        ticker: "AAPL",
+        marketCode: "US",
+        tradeDate: "2026-06-17",
+        quantity: 1,
+        unitPrice: 200,
+        priceCurrency: "USD",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(trade.statusCode, trade.body).toBe(200);
+    const mutatedStore = await app.persistence.loadStore("user-1");
+    const account = mutatedStore.accounts.find((item) => item.id === "acc-aud-account-us-holding");
+    if (!account) throw new Error("expected account");
+    account.defaultCurrency = "AUD";
+    await app.persistence.saveStore(mutatedStore);
+    await app.persistence.upsertInstruments("user-1", [{
+      ticker: "AAPL",
+      marketCode: "US",
+      type: "STOCK",
+      isProvisional: false,
+    }]);
+    const persistedStore = await app.persistence.loadStore("user-1");
+    expect(persistedStore.instruments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ticker: "AAPL", marketCode: "US", isProvisional: false }),
+    ]));
+    expect(persistedStore.accounting.projections.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountId: "acc-aud-account-us-holding", ticker: "AAPL", quantity: 1 }),
+    ]));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/refresh-closes",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual([
+      expect.objectContaining({
+        ticker: "AAPL",
+        marketCode: "US",
+      }),
+    ]);
+  });
+
   it("queues every eligible pair when the request exceeds the sync ticker cap", async () => {
     const sendCalls: unknown[] = [];
     app.boss = {

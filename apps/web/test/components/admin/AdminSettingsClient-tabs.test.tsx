@@ -146,6 +146,36 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(payload.tickerPriceFreshness).not.toHaveProperty("bounds");
   });
 
+  it("preserves zero as a close-grace override in the freshness save payload", async () => {
+    const updated = buildConfig();
+    mockPatchJson.mockResolvedValueOnce(updated);
+    mockParams = new URLSearchParams();
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    const input = document.querySelector(
+      "[data-testid='admin-settings-input-tickerPriceCloseRefreshGraceMinutes']",
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "0");
+      input!.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const saveButton = document.querySelector(
+      "[data-testid='admin-settings-save-ticker-price-freshness']",
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const [, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
+    expect(payload.tickerPriceFreshness.closeRefreshGraceMinutes).toBe(0);
+  });
+
   it("falls back to rate-limits when ?tab=<bogus-slug>", () => {
     mockParams = new URLSearchParams({ tab: "totally-not-a-real-slug" });
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
