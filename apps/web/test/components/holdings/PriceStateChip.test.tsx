@@ -198,6 +198,45 @@ describe("PriceStateChip", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
+  it("can render as a popover disclosure for touch and narrow viewports", async () => {
+    act(() => {
+      root.render(
+        <PriceStateChip
+          disclosure="popover"
+          dict={dict}
+          locale="en"
+          testId="price-state-chip"
+          priceState={{
+            basis: "today_close",
+            chipState: "closed",
+            marketState: "closed",
+            source: "daily-provider",
+            sourceKind: "primary_daily",
+            asOfDate: "2026-06-17",
+            asOfTimestamp: null,
+            observedAt: "2026-06-17T08:00:00.000Z",
+            delaySeconds: null,
+            marketTimeZone: "Asia/Taipei",
+            quality: "full_bar",
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
+    expect(chip?.tagName).toBe("BUTTON");
+    expect(chip?.textContent).toContain("Closed");
+
+    await act(async () => {
+      chip?.click();
+    });
+
+    expect(document.body.textContent).toContain("Basis: Today close");
+    expect(document.body.textContent).toContain("Market: Closed");
+  });
+
   it("uses the bar timestamp for delayed relative labels even when observed recently", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-17T11:00:00.000Z"));

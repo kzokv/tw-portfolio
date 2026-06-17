@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useDeferredValue, useMemo, useState, type CSSProperties } from "react";
+import React, { useDeferredValue, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import type {
@@ -513,18 +513,19 @@ export function HoldingsTable({
             <HoldingsGridMobileList className="mt-6" testId="holdings-mobile-list">
               {displayMode === "accounts"
                 ? visibleChildRows.map((child) => (
-                  <HoldingChildMobileCard
-                    key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
-                    child={child}
-                    dict={dict}
-                    locale={locale}
-                    allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
-                    allocationBasis={effectiveAllocationBasis}
-                    detailColumns={mobileColumnSplit.detailColumns}
-                    nested={false}
-                    summaryColumns={mobileColumnSplit.summaryColumns}
-                  />
-                ))
+                    <HoldingChildMobileCard
+                      key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
+                      child={child}
+                      dict={dict}
+                      locale={locale}
+                      allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
+                      allocationBasis={effectiveAllocationBasis}
+                      detailColumns={mobileColumnSplit.detailColumns}
+                      nested={false}
+                      showFreshnessBadge={showFreshnessBadge}
+                      summaryColumns={mobileColumnSplit.summaryColumns}
+                    />
+                  ))
                 : filteredGroups.map((group) => {
                   const groupKey = `${group.ticker}::${group.marketCode}`;
                   const showChildren = expandedState.has(groupKey);
@@ -543,6 +544,7 @@ export function HoldingsTable({
                         allocationBasis={effectiveAllocationBasis}
                         detailColumns={mobileColumnSplit.detailColumns}
                         expanded={showChildren}
+                        showFreshnessBadge={showFreshnessBadge}
                         summaryColumns={mobileColumnSplit.summaryColumns}
                         onToggle={() => toggleGroup(groupKey)}
                       />
@@ -557,6 +559,7 @@ export function HoldingsTable({
                             allocationBasis={effectiveAllocationBasis}
                             detailColumns={mobileColumnSplit.detailColumns}
                             nested
+                            showFreshnessBadge={showFreshnessBadge}
                             summaryColumns={mobileColumnSplit.summaryColumns}
                           />
                         ))
@@ -668,6 +671,7 @@ function HoldingGroupMobileCard({
   allocationBasis,
   detailColumns,
   expanded,
+  showFreshnessBadge,
   summaryColumns,
   onToggle,
 }: {
@@ -678,6 +682,7 @@ function HoldingGroupMobileCard({
   allocationBasis: HoldingAllocationBasis;
   detailColumns: HoldingsColumn[];
   expanded: boolean;
+  showFreshnessBadge: boolean;
   summaryColumns: HoldingsColumn[];
   onToggle: () => void;
 }) {
@@ -721,6 +726,7 @@ function HoldingGroupMobileCard({
             dict={dict}
             locale={locale}
             row={group}
+            showFreshnessBadge={showFreshnessBadge}
           />
         ))}
       </div>
@@ -742,6 +748,7 @@ function HoldingGroupMobileCard({
                   dict={dict}
                   locale={locale}
                   row={group}
+                  showFreshnessBadge={showFreshnessBadge}
                 />
               ))}
             </div>
@@ -767,6 +774,7 @@ function HoldingChildMobileCard({
   allocationBasis,
   detailColumns,
   nested,
+  showFreshnessBadge,
   summaryColumns,
 }: {
   child: DashboardOverviewHoldingChildDto;
@@ -776,6 +784,7 @@ function HoldingChildMobileCard({
   allocationBasis: HoldingAllocationBasis;
   detailColumns: HoldingsColumn[];
   nested: boolean;
+  showFreshnessBadge: boolean;
   summaryColumns: HoldingsColumn[];
 }) {
   const reportingCurrency = child.reportingCurrency;
@@ -812,6 +821,7 @@ function HoldingChildMobileCard({
             dict={dict}
             locale={locale}
             row={child}
+            showFreshnessBadge={showFreshnessBadge}
           />
         ))}
       </div>
@@ -833,6 +843,7 @@ function HoldingChildMobileCard({
                   dict={dict}
                   locale={locale}
                   row={child}
+                  showFreshnessBadge={showFreshnessBadge}
                 />
               ))}
             </div>
@@ -861,7 +872,7 @@ function MobileHoldingMetric({
   value: React.ReactNode;
   tone?: number | null;
   secondary?: string;
-  detail?: string;
+  detail?: ReactNode;
   valueClassName?: string;
 }) {
   return (
@@ -869,7 +880,7 @@ function MobileHoldingMetric({
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className={cn("mt-1 min-w-0 break-words font-mono text-sm font-semibold tabular-nums", getUnrealizedPnlTone(tone), valueClassName)}>{value}</div>
       {secondary ? <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{secondary}</p> : null}
-      {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
+      {detail ? <div className="mt-1 text-xs text-muted-foreground">{detail}</div> : null}
     </div>
   );
 }
@@ -881,6 +892,7 @@ function PortfolioMobileColumnMetric({
   dict,
   locale,
   row,
+  showFreshnessBadge,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
   allocationBasis: HoldingAllocationBasis;
@@ -889,6 +901,7 @@ function PortfolioMobileColumnMetric({
   dict: AppDictionary;
   locale: LocaleCode;
   row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
+  showFreshnessBadge: boolean;
 }) {
   const reportingCurrency = row.reportingCurrency;
   const avgCost = getDashboardReportingAverageCost(row, reportingCurrency);
@@ -919,14 +932,28 @@ function PortfolioMobileColumnMetric({
           detail={unitPnl.percent == null ? "-" : formatPercent(unitPnl.percent, locale)}
         />
       );
-    case "price":
+    case "price": {
+      const priceState = getPriceState(row);
+      const priceStateTestId = "accountId" in row
+        ? `holdings-mobile-price-state-${row.accountId}-${row.ticker}`
+        : `holdings-mobile-price-state-${row.ticker}-${row.marketCode}`;
       return (
         <MobileHoldingMetric
           label={dict.holdings.priceTerm}
           tone={row.currentUnitPrice == null ? null : row.currentUnitPrice - row.averageCostPerShare}
           value={row.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(row.currentUnitPrice, row.currency, locale)}
+          detail={showFreshnessBadge && priceState ? (
+            <PriceStateChip
+              disclosure="popover"
+              dict={dict}
+              locale={locale}
+              priceState={priceState}
+              testId={priceStateTestId}
+            />
+          ) : undefined}
         />
       );
+    }
     case "dailyChange":
       return (
         <MobileHoldingMetric
