@@ -170,6 +170,13 @@ superseded_by: null
   - Admin settings `/admin/settings` rendered the grouped `Ticker price freshness` surface with close grace, sync cap, intraday interval/tolerance, Yahoo request limit, queue concurrency, cycle cap, refresh endpoint rate limits, Yahoo chart range/interval, intraday toggle, regular-session-only toggle, save button, and supported markets `TW`, `US`, `AU`, `KR`.
   - Public-share daily-only behavior was validated with an approved temporary public read-only link created from the mobile sharing UI; the public share page loaded in `4275ms`, rendered `Read-only · expires Jul 17, 2026 · prices as of Jun 17, 2026`, showed holdings for `000660.KR`, `2330.TW`, `3714.TW`, and `AVGO.US`, rendered `0` price-state chips, `0` market-state summary elements, `0` refresh-closes buttons, and no open-market polling/freshness words such as `Updated`, `Delayed`, `Previous close`, `Refresh closes`, or `Held markets`.
   - The temporary public link was revoked immediately after mobile validation; Sharing showed the row as `Revoked`, no revoke button remained for that row, and the tab returned to `Anonymous links (0)`.
+- Additional Codex-review fixes after final audit:
+  - Admin `Ticker price freshness` save now sends only strict-schema patch fields and excludes read-only/effective fields, `options`, and `bounds`.
+  - `POST /portfolio/refresh-closes` is now guarded as a writer/shared-context write route so viewer-role sessions and shared-context grantees cannot consume provider budget or enqueue/write owner refresh work directly.
+  - Focused verification passed: `npx vitest run apps/api/test/integration/role-enforcement.integration.test.ts apps/api/test/integration/shared-context-delegated-capabilities.integration.test.ts` (`2` files / `27` tests).
+  - Web verification passed via `npm run test --prefix apps/web -- AdminSettingsClient-tabs.test.tsx`; the command ran both web test phases and passed `47` files / `271` tests, then `58` files / `406` tests, including the new admin freshness save-payload regression.
+  - Focused ESLint passed for the touched admin settings, route guard, and regression-test files.
+  - `npm run typecheck` passed after the review fixes.
 
 ## References
 

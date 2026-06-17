@@ -106,6 +106,46 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceRefreshCloseRateLimitMax']")).not.toBeNull();
   });
 
+  it("saves only patchable ticker price freshness fields", async () => {
+    const updated = buildConfig();
+    mockPatchJson.mockResolvedValueOnce(updated);
+    mockParams = new URLSearchParams();
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    const saveButton = document.querySelector(
+      "[data-testid='admin-settings-save-ticker-price-freshness']",
+    ) as HTMLButtonElement | null;
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(mockPatchJson).toHaveBeenCalledTimes(1);
+    const [path, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
+    expect(path).toBe("/admin/settings");
+    expect(Object.keys(payload.tickerPriceFreshness).sort()).toEqual([
+      "closeRefreshGraceMinutes",
+      "intradayEnabled",
+      "intradayFreshnessToleranceMinutes",
+      "intradayRefreshIntervalMinutes",
+      "maxTickersPerRefreshCycle",
+      "queueConcurrency",
+      "refreshCloseRateLimitMax",
+      "refreshCloseRateLimitWindowMs",
+      "regularSessionOnly",
+      "supportedMarkets",
+      "syncTickerCap",
+      "yahooChartInterval",
+      "yahooChartRange",
+      "yahooChartRequestLimitPerMinute",
+    ].sort());
+    expect(payload.tickerPriceFreshness).not.toHaveProperty("effectiveCloseRefreshGraceMinutes");
+    expect(payload.tickerPriceFreshness).not.toHaveProperty("options");
+    expect(payload.tickerPriceFreshness).not.toHaveProperty("bounds");
+  });
+
   it("falls back to rate-limits when ?tab=<bogus-slug>", () => {
     mockParams = new URLSearchParams({ tab: "totally-not-a-real-slug" });
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
