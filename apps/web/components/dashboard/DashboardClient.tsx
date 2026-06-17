@@ -159,15 +159,6 @@ export function DashboardClient({
     }
   }, [effectiveRanges, performanceRange]);
 
-  if (dashboard.isBootstrapping) {
-    return (
-      <>
-        <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-        <DashboardLoading />
-      </>
-    );
-  }
-
   const holdingGroups = resolveHoldingGroups({
     holdings: dashboard.holdings,
     holdingGroups: dashboard.holdingGroups,
@@ -198,6 +189,15 @@ export function DashboardClient({
     }, dashboardPollMs);
     return () => window.clearInterval(timer);
   }, [dashboard, dashboard.holdings, dashboardPollMs, marketStates]);
+
+  if (dashboard.isBootstrapping) {
+    return (
+      <>
+        <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
+        <DashboardLoading />
+      </>
+    );
+  }
 
   return (
     <div className="stagger grid min-w-0 gap-6">

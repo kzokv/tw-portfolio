@@ -15,7 +15,7 @@ const effectiveConfig: IntradayDemandRefreshInput["config"] = {
   maxTickersPerRefreshCycle: 10,
   supportedMarkets: ["TW", "US", "AU", "KR"],
   regularSessionOnly: true,
-  yahooChartRange: "1d",
+  yahooChartRange: "5d",
   yahooChartInterval: "1m",
   refreshCloseRateLimitWindowMs: 60_000,
   refreshCloseRateLimitMax: 10,

@@ -53,7 +53,7 @@ export const DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG: TickerPriceFreshnessDefaults
   maxTickersPerRefreshCycle: 100,
   supportedMarkets: [...MARKET_CODES],
   regularSessionOnly: true,
-  yahooChartRange: "1d",
+  yahooChartRange: "5d",
   yahooChartInterval: "1m",
   refreshCloseRateLimitWindowMs: 60_000,
   refreshCloseRateLimitMax: 10,
