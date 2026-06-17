@@ -277,6 +277,31 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.chipState).toBe("open_fresh");
   });
 
+  it("keeps stale close state while the market is open when the latest bar is older than settled", async () => {
+    persistence._seedDailyBars([
+      { ticker: "AAPL", marketCode: "US", barDate: "2026-06-18", open: 195, high: 198, low: 194, close: 197, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T22:00:00.000Z" },
+      { ticker: "AAPL", marketCode: "US", barDate: "2026-06-17", open: 193, high: 196, low: 192, close: 195, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T22:00:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "AAPL", marketCode: "US" }],
+      persistence,
+      new Map([["US", "2026-06-19"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T14:00:00.000Z"),
+        heldPairs: new Set(["AAPL:US"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["AAPL"]?.priceState.marketState).toBe("open");
+    expect(result["AAPL"]?.priceState.basis).toBe("stale_close");
+    expect(result["AAPL"]?.priceState.chipState).toBe("stale");
+  });
+
   it("keeps intraday overlays enabled during open sessions when regular-session-only is disabled", async () => {
     await seedCache(
       { tickerPriceRegularSessionOnly: false },

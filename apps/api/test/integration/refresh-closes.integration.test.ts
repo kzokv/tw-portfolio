@@ -141,6 +141,89 @@ describe("POST /portfolio/refresh-closes", () => {
     ]);
   });
 
+  it("refreshes only the held market when the ticker exists in multiple quoteable markets", async () => {
+    for (const marketCode of ["AU", "US"] as const) {
+      (app.persistence as MemoryPersistence)._seedInstrument({
+        ticker: "BHP",
+        name: `BHP ${marketCode}`,
+        instrumentType: "STOCK",
+        marketCode,
+        barsBackfillStatus: "ready",
+      });
+    }
+    const store = await app.persistence.loadStore("user-1");
+    const defaultFeeProfile = store.feeProfiles[0];
+    if (!defaultFeeProfile) throw new Error("expected default fee profile");
+    store.feeProfiles.push({
+      ...defaultFeeProfile,
+      id: "fp-au-bhp-holding",
+      accountId: "acc-au-bhp-holding",
+      name: "AU BHP holding",
+      commissionCurrency: "AUD",
+    });
+    store.accounts.push({
+      id: "acc-au-bhp-holding",
+      userId: "user-1",
+      name: "AU BHP holding",
+      defaultCurrency: "AUD",
+      accountType: "broker",
+      feeProfileId: "fp-au-bhp-holding",
+    });
+    store.marketData.instruments.push(
+      {
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        isProvisional: false,
+      },
+      {
+        ticker: "BHP",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        isProvisional: false,
+      },
+    );
+    await app.persistence.saveStore(store);
+    const trade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "refresh-closes-bhp-au-only" },
+      payload: transactionPayload({
+        accountId: "acc-au-bhp-holding",
+        ticker: "BHP",
+        marketCode: "AU",
+        tradeDate: "2026-06-17",
+        quantity: 1,
+        unitPrice: 44,
+        priceCurrency: "AUD",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(trade.statusCode, trade.body).toBe(200);
+    const persistedStore = await app.persistence.loadStore("user-1");
+    expect(persistedStore.instruments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ticker: "BHP", marketCode: "AU", isProvisional: false }),
+      expect.objectContaining({ ticker: "BHP", marketCode: "US", isProvisional: false }),
+    ]));
+    expect(persistedStore.accounting.projections.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountId: "acc-au-bhp-holding", ticker: "BHP", quantity: 1 }),
+    ]));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/refresh-closes",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual([
+      expect.objectContaining({
+        ticker: "BHP",
+        marketCode: "AU",
+      }),
+    ]);
+  });
+
   it("queues every eligible pair when the request exceeds the sync ticker cap", async () => {
     const sendCalls: unknown[] = [];
     app.boss = {
