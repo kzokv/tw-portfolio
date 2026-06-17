@@ -10,19 +10,31 @@ import {
   TooltipTrigger,
 } from "../ui/shadcn/tooltip";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/shadcn/popover";
+import { cn } from "../../lib/utils";
+import {
   formatPriceStateLabel,
   formatPriceStateTooltip,
   getPriceStateToneClassName,
   type PriceStateDtoLike,
 } from "../../features/price-state/priceState";
 
+type PriceStateDisclosure = "tooltip" | "popover";
+
 export function PriceStateChip({
+  className,
+  disclosure = "tooltip",
   dict,
   interactive = true,
   locale,
   priceState,
   testId,
 }: {
+  className?: string;
+  disclosure?: PriceStateDisclosure;
   dict: AppDictionary;
   interactive?: boolean;
   locale: LocaleCode;
@@ -40,7 +52,10 @@ export function PriceStateChip({
 
   if (!priceState || !label) return null;
   const tooltipRows = formatPriceStateTooltip(dict, locale, priceState);
-  const chipClassName = "mt-1 inline-flex items-center gap-1.5 rounded-sm bg-transparent p-0 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+  const chipClassName = cn(
+    "mt-1 inline-flex items-center gap-1.5 rounded-sm bg-transparent p-0 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    className,
+  );
   const dot = (
     <span
       aria-hidden="true"
@@ -61,6 +76,33 @@ export function PriceStateChip({
     );
   }
 
+  if (disclosure === "popover") {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            className={chipClassName}
+            data-testid={testId}
+          >
+            {dot}
+            <span>{label}</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          side="top"
+          sideOffset={8}
+          collisionPadding={16}
+          className="w-[min(20rem,calc(100vw-2rem))] p-3"
+        >
+          <PriceStateDetailsRows rows={tooltipRows} />
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
@@ -75,15 +117,21 @@ export function PriceStateChip({
             <span>{label}</span>
           </button>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6} className="max-w-xs">
-          <div className="flex flex-col gap-1.5 text-xs leading-relaxed">
-            {tooltipRows.map((row) => (
-              <div key={row}>{row}</div>
-            ))}
-          </div>
+        <TooltipContent sideOffset={6} collisionPadding={16} className="max-w-[calc(100vw-2rem)] sm:max-w-xs">
+          <PriceStateDetailsRows rows={tooltipRows} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+function PriceStateDetailsRows({ rows }: { rows: string[] }) {
+  return (
+    <div className="flex flex-col gap-1.5 text-xs leading-relaxed">
+      {rows.map((row) => (
+        <div key={row}>{row}</div>
+      ))}
+    </div>
   );
 }
 

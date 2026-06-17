@@ -378,8 +378,59 @@ describe("dashboard components", () => {
     expect(html).not.toContain("A$490");
     expect(html).toContain("A$30.00");
     expect(html).toContain("Native NT$610");
+    expect(html).toContain('data-testid="dashboard-mobile-price-state-2330-TW"');
+    expect(html).toContain('data-testid="dashboard-price-state-2330-TW"');
     expect(html).toContain("Open Portfolio Report");
     expect(html).not.toContain('data-testid="holdings-table"');
+  });
+
+  it("opens the dashboard mobile freshness popover outside the price details button", async () => {
+    mockUserPreferencesFetch();
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000,
+      reportingCostBasisAmount: 58_000,
+      reportingUnrealizedPnlAmount: 2_000,
+      reportingDailyChangeAmount: 123,
+      reportingAllocationPercent: 12,
+      fxStatus: "complete" as const,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: 60_000,
+        reportingCostBasisAmount: 58_000,
+        reportingUnrealizedPnlAmount: 2_000,
+        reportingDailyChangeAmount: 123,
+      })),
+    };
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[reportingGroup]}
+          locale="en"
+          reportingCurrency="AUD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const chip = container.querySelector('[data-testid="dashboard-mobile-price-state-2330-TW"]') as HTMLButtonElement | null;
+    if (!chip) throw new Error("Expected dashboard mobile price-state chip");
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.parentElement?.closest("button")).toBeNull();
+
+    click(chip);
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("Basis: Today close");
+    expect(document.body.textContent).toContain("Market: Closed");
   });
 
   it("renders holding focus presets and account filter controls", () => {
@@ -1543,7 +1594,30 @@ describe("dashboard components", () => {
     );
 
     expect(html).toContain("holdings-price-state-");
+    expect(html).toContain("holdings-mobile-price-state-");
     expect(html).toMatch(/bg-warning/);
+  });
+
+  it("opens the portfolio mobile freshness popover outside the metric card", async () => {
+    mockUserPreferencesFetch();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(<HoldingsTable holdings={holdings} dict={dict} locale="en" showFreshnessBadge={true} />);
+    });
+    await flushPromises();
+
+    const chip = container.querySelector('[data-testid="holdings-mobile-price-state-2330-TW"]') as HTMLButtonElement | null;
+    if (!chip) throw new Error("Expected portfolio mobile price-state chip");
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.parentElement?.closest("button")).toBeNull();
+
+    click(chip);
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("Basis: Today close");
+    expect(document.body.textContent).toContain("Market: Closed");
   });
 
   it("renders stale price-state chip", () => {
@@ -1567,6 +1641,7 @@ describe("dashboard components", () => {
     );
 
     expect(html).not.toContain("holdings-price-state-");
+    expect(html).not.toContain("holdings-mobile-price-state-");
   });
 
   it("renders closed price-state chip for current close data", () => {

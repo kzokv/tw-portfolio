@@ -92,7 +92,7 @@ import {
   holdingsFinanceToneClass,
   holdingsStickyFirstColumnClassName,
 } from "../holdings/holdingsStyle";
-import { buildMissingPriceState, formatPriceStateLabel, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
+import { buildMissingPriceState, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
@@ -1245,42 +1245,43 @@ function PriceTextButton({
     : dict.dashboardHome.topHoldingsPriceDetailsTooltip;
 
   return (
-    <Tooltip>
-      <Popover>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex flex-col items-end rounded-md px-2 py-1 text-right font-mono tabular-nums text-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
-            >
-              <span className="font-semibold">{reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}</span>
-              {priceState ? (
-                <PriceStateChip
-                  dict={dict}
-                  interactive={false}
-                  locale={locale}
-                  priceState={priceState}
-                  testId={`dashboard-price-state-${group.ticker}-${group.marketCode}`}
-                />
-              ) : null}
-              {group.currency !== reportingCurrency && group.currentUnitPrice !== null ? (
-                <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsNativeAvailable}</span>
-              ) : null}
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{tooltip}</TooltipContent>
-        <PricePopoverContent
+    <div className="inline-flex flex-col items-end text-right font-mono tabular-nums">
+      <Tooltip>
+        <Popover>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex flex-col items-end rounded-md px-2 py-1 text-right text-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
+              >
+                <span className="font-semibold">{reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}</span>
+                {group.currency !== reportingCurrency && group.currentUnitPrice !== null ? (
+                  <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsNativeAvailable}</span>
+                ) : null}
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{tooltip}</TooltipContent>
+          <PricePopoverContent
+            dict={dict}
+            fxRate={fxRate}
+            group={group}
+            locale={locale}
+            reportingCurrency={reportingCurrency}
+            reportingPrice={reportingPrice}
+          />
+        </Popover>
+      </Tooltip>
+      {priceState ? (
+        <PriceStateChip
           dict={dict}
-          fxRate={fxRate}
-          group={group}
           locale={locale}
-          reportingCurrency={reportingCurrency}
-          reportingPrice={reportingPrice}
+          priceState={priceState}
+          testId={`dashboard-price-state-${group.ticker}-${group.marketCode}`}
         />
-      </Popover>
-    </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
@@ -1308,35 +1309,49 @@ function PricePreviewMetric({
     : dict.dashboardHome.topHoldingsPriceDetailsTooltip;
 
   return (
-    <Tooltip>
-      <Popover>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
-            >
-              <PreviewMetric
-                label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency })}
-                title={reportingPrice === null ? undefined : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
-                value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
-                subValue={priceState ? formatPriceStateLabel(dict, locale, priceState) ?? undefined : undefined}
-              />
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{tooltip}</TooltipContent>
-        <PricePopoverContent
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
+      <Tooltip>
+        <Popover>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
+              >
+                <span className="block text-xs text-muted-foreground">
+                  {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency })}
+                </span>
+                <span
+                  className="mt-1 block truncate font-mono text-sm font-semibold tabular-nums text-foreground"
+                  title={reportingPrice === null ? undefined : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
+                >
+                  {reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
+                </span>
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{tooltip}</TooltipContent>
+          <PricePopoverContent
+            dict={dict}
+            fxRate={fxRate}
+            group={group}
+            locale={locale}
+            reportingCurrency={reportingCurrency}
+            reportingPrice={reportingPrice}
+          />
+        </Popover>
+      </Tooltip>
+      {priceState ? (
+        <PriceStateChip
+          disclosure="popover"
           dict={dict}
-          fxRate={fxRate}
-          group={group}
           locale={locale}
-          reportingCurrency={reportingCurrency}
-          reportingPrice={reportingPrice}
+          priceState={priceState}
+          testId={`dashboard-mobile-price-state-${group.ticker}-${group.marketCode}`}
         />
-      </Popover>
-    </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
