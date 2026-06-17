@@ -16,7 +16,7 @@ describe("appConfig/tickerPriceFreshness", () => {
     expect(resolved.effectiveIntradayRefreshIntervalMinutes).toBe(5);
     expect(resolved.effectiveIntradayFreshnessToleranceMinutes).toBe(20);
     expect(resolved.effectiveSupportedMarkets).toEqual(["TW", "US", "AU", "KR"]);
-    expect(resolved.effectiveYahooChartRange).toBe("1d");
+    expect(resolved.effectiveYahooChartRange).toBe(DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.yahooChartRange);
     expect(resolved.effectiveYahooChartInterval).toBe("1m");
     expect(resolved.bounds.syncTickerCap).toEqual(APP_CONFIG_BOUNDS.tickerPriceSyncTickerCap);
   });
