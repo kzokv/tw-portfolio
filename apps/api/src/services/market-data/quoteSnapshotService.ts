@@ -217,6 +217,8 @@ function resolveSnapshotForPair(input: {
 
   const session = displayContext.sessionByMarket.get(pair.marketCode);
   if (!session) return dailySnapshot;
+  // Cached overlays are only display-current while the regular session is open.
+  if (!session.isOpen) return dailySnapshot;
   if (displayContext.regularSessionOnly && !session.isOpen) return dailySnapshot;
 
   const overlay = displayContext.overlaysByKey.get(key);

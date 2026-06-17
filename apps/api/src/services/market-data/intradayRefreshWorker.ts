@@ -14,10 +14,16 @@ export interface IntradayRefreshRequestBudget {
   tryConsume(requests: number): Promise<{ allowed: true } | { allowed: false; retryAfterMs: number }>;
 }
 
+export interface IntradayRefreshWorkerRuntimeConfig {
+  intradayEnabled: boolean;
+  supportedMarkets: ReadonlyArray<MarketCode>;
+}
+
 export interface IntradayRefreshWorkerDeps {
   cache: { setLatest(overlay: IntradayPriceOverlay): Promise<void> };
   fetchOverlay(input: { ticker: string; marketCode: MarketCode; now: Date }): Promise<IntradayPriceOverlay | null>;
   requestBudget: IntradayRefreshRequestBudget;
+  resolveRuntimeConfig?: () => IntradayRefreshWorkerRuntimeConfig;
   log: {
     info: (payload: Record<string, unknown>, message: string) => void;
     warn: (payload: Record<string, unknown>, message: string) => void;
@@ -53,6 +59,18 @@ export function createIntradayRefreshHandler(deps: IntradayRefreshWorkerDeps) {
       const data = job.data;
       if (!data?.ticker || !data.marketCode) {
         throw new Error("intraday_refresh_job_invalid");
+      }
+      const runtimeConfig = resolveIntradayRuntimeConfig(deps);
+      if (!runtimeConfig.intradayEnabled || !runtimeConfig.supportedMarkets.includes(data.marketCode)) {
+        deps.log.info(
+          {
+            ticker: data.ticker,
+            marketCode: data.marketCode,
+            intradayEnabled: runtimeConfig.intradayEnabled,
+          },
+          "intraday_refresh_skipped_by_current_config",
+        );
+        continue;
       }
       const budget = await deps.requestBudget.tryConsume(1);
       if (!budget.allowed) {
@@ -94,6 +112,13 @@ export function createIntradayRefreshHandler(deps: IntradayRefreshWorkerDeps) {
         "intraday_refresh_completed",
       );
     }
+  };
+}
+
+function resolveIntradayRuntimeConfig(deps: IntradayRefreshWorkerDeps): IntradayRefreshWorkerRuntimeConfig {
+  return deps.resolveRuntimeConfig?.() ?? {
+    intradayEnabled: true,
+    supportedMarkets: ["TW", "US", "AU", "KR"],
   };
 }
 

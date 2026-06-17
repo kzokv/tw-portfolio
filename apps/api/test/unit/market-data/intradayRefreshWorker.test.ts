@@ -55,6 +55,34 @@ describe("intradayRefreshWorker", () => {
     ).rejects.toBeInstanceOf(RateLimitedError);
   });
 
+  it("uses current intraday config before spending budget or fetching", async () => {
+    const requestBudget = {
+      tryConsume: vi.fn().mockResolvedValue({ allowed: true as const }),
+    };
+    const fetchOverlay = vi.fn().mockResolvedValue(overlay);
+    const resolveRuntimeConfig = vi.fn()
+      .mockReturnValueOnce({ intradayEnabled: false, supportedMarkets: ["US"] })
+      .mockReturnValueOnce({ intradayEnabled: true, supportedMarkets: ["TW"] })
+      .mockReturnValueOnce({ intradayEnabled: true, supportedMarkets: ["US"] });
+    const handler = createIntradayRefreshHandler({
+      requestBudget,
+      cache: { setLatest: vi.fn().mockResolvedValue(undefined) },
+      fetchOverlay,
+      resolveRuntimeConfig,
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    await handler([
+      { id: "job-1", data: { ticker: "AAPL", marketCode: "US", requestedAt: overlay.observedAt } },
+      { id: "job-2", data: { ticker: "AAPL", marketCode: "US", requestedAt: overlay.observedAt } },
+      { id: "job-3", data: { ticker: "AAPL", marketCode: "US", requestedAt: overlay.observedAt } },
+    ] as never);
+
+    expect(resolveRuntimeConfig).toHaveBeenCalledTimes(3);
+    expect(requestBudget.tryConsume).toHaveBeenCalledTimes(1);
+    expect(fetchOverlay).toHaveBeenCalledTimes(1);
+  });
+
   it("uses singleton keys per market+ticker and no-ops when no boss is available", async () => {
     expect(intradayRefreshSingletonKey("2330", "TW")).toBe("intraday-refresh:TW:2330");
     await expect(
