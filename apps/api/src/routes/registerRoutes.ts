@@ -1990,23 +1990,24 @@ async function buildHeldMarketStatesForStoreHoldings(
 
 function buildHeldTickerMarketPairsForCloseRefresh(
   store: Store,
-  holdings: ReadonlyArray<{ ticker: string; accountId: string; quantity: number }>,
+  holdings: ReadonlyArray<{ ticker: string; quantity: number }>,
 ): Array<{ ticker: string; marketCode: MarketCode }> {
-  const accountMarketById = new Map(store.accounts.map((account) => [
-    account.id,
-    marketCodeFor(account.defaultCurrency) as MarketCode,
-  ]));
-  const instrumentKeys = new Set(store.instruments
-    .filter((instrument) => isInstrumentQuoteable(instrument))
-    .map((instrument) => `${instrument.ticker}:${instrument.marketCode}`));
+  const quoteableMarketsByTicker = new Map<string, Set<MarketCode>>();
+  for (const instrument of store.instruments) {
+    if (!isInstrumentQuoteable(instrument)) continue;
+    const markets = quoteableMarketsByTicker.get(instrument.ticker) ?? new Set<MarketCode>();
+    markets.add(instrument.marketCode as MarketCode);
+    quoteableMarketsByTicker.set(instrument.ticker, markets);
+  }
   const pairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
   for (const holding of holdings) {
     if (holding.quantity <= 0) continue;
-    const marketCode = accountMarketById.get(holding.accountId);
-    if (!marketCode) continue;
-    const key = `${holding.ticker}:${marketCode}`;
-    if (!instrumentKeys.has(key)) continue;
-    pairs.set(key, { ticker: holding.ticker, marketCode });
+    const marketCodes = quoteableMarketsByTicker.get(holding.ticker);
+    if (!marketCodes) continue;
+    for (const marketCode of marketCodes) {
+      const key = `${holding.ticker}:${marketCode}`;
+      pairs.set(key, { ticker: holding.ticker, marketCode });
+    }
   }
   return [...pairs.values()];
 }

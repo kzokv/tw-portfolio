@@ -429,6 +429,12 @@ function buildTickerPriceFreshnessPatch(
   };
 }
 
+function parseNullableNumberInput(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function TickerPriceFreshnessSettingsCard({
   config,
   isZhTW,
@@ -479,7 +485,7 @@ function TickerPriceFreshnessSettingsCard({
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">
             {isZhTW ? "收盤寬限（分鐘）" : "Close grace minutes"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.closeRefreshGraceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, closeRefreshGraceMinutes: Number(event.target.value) || null }))} />
+            <input data-testid="admin-settings-input-tickerPriceCloseRefreshGraceMinutes" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.closeRefreshGraceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, closeRefreshGraceMinutes: parseNullableNumberInput(event.target.value) }))} />
           </label>
           <label className="text-sm font-medium text-slate-700">
             {isZhTW ? "同步刷新上限" : "Sync ticker cap"}

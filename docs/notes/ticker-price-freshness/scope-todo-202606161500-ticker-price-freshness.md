@@ -184,6 +184,16 @@ superseded_by: null
   - Focused ESLint passed for the touched quote snapshot, close refresh worker, intraday worker, pg-boss wiring, and regression-test files.
   - `npm run typecheck` passed after the refreshed-review fixes.
   - Broader API verification passed: `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1651` tests passed, `425` skipped).
+- Additional refreshed-review fixes:
+  - `POST /portfolio/refresh-closes` now derives refresh pairs from quoteable held ticker markets instead of account default currency, avoiding cross-currency account drift.
+  - Yahoo close-only fallback now selects chart quotes for the requested `barDate` instead of the caller's current date, so previous-day/weekend refreshes target the intended daily bar.
+  - Admin settings now preserves `0` as an explicit close-grace override instead of converting it to `null`.
+  - Focused verification passed: `npx vitest run apps/api/test/integration/refresh-closes.integration.test.ts apps/api/test/unit/market-data/yahooFinanceIntradayProvider.test.ts` (`2` files / `9` tests).
+  - Focused admin verification passed: `npx vitest run test/components/admin/AdminSettingsClient-tabs.test.tsx` from `apps/web` (`1` file / `9` tests).
+  - Focused ESLint passed for the touched close-refresh route, Yahoo close fallback provider, admin settings component, and regression-test files.
+  - `npm run typecheck` passed.
+  - Broader API verification passed: `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1653` tests passed, `425` skipped).
+  - Broader web verification passed: `npm run test --prefix apps/web -- AdminSettingsClient-tabs.test.tsx` (`58` files / `407` tests).
 
 ## References
 

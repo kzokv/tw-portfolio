@@ -126,6 +126,35 @@ describe("yahooFinanceIntradayProvider", () => {
     expect(activeSdkStub!.chart).not.toHaveBeenCalled();
   });
 
+  it("selects Yahoo close fallback quotes for the requested bar date instead of current time", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "USD", previousClose: 99 },
+      quotes: [
+        { date: new Date("2026-06-16T20:00:00.000Z"), close: 100 },
+        { date: new Date("2026-06-17T14:00:00.000Z"), close: 110 },
+      ],
+    });
+    const provider = new YahooChartCloseProvider({
+      range: "5d",
+      interval: "15m",
+    });
+
+    const bar = await provider.fetchCloseOnlyBar(
+      "AAPL",
+      "US",
+      "2026-06-16",
+      new Date("2026-06-17T14:30:00.000Z"),
+    );
+
+    expect(bar).toMatchObject({
+      ticker: "AAPL",
+      barDate: "2026-06-16",
+      close: 100,
+      quality: "close_only",
+      source: "yahoo-chart-close",
+    });
+  });
+
   it("parses TWSE STOCK_DAY rows and synthesizes close-only bars", async () => {
     expect(parseTwseStockDayRow([["115/06/17", "1", "1", "1", "1", "1", "1,010", "1"]], "2026-06-17"))
       .toEqual({ date: "2026-06-17", close: "1,010" });
