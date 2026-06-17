@@ -12,9 +12,9 @@ import { createIntradayOverlayCache } from "./intradayOverlayCache.js";
 import {
   getRegularSessionState,
   isRegularSessionMarketCode,
+  type RegularSessionClock,
   type RegularSessionState,
 } from "./marketRegularSession.js";
-import type { TradingCalendarCache } from "./tradingCalendar.js";
 
 export interface QuoteSnapshotPair {
   ticker: string;
@@ -29,7 +29,7 @@ export interface ResolvedQuoteSnapshot extends QuoteSnapshot {
 export interface ResolveQuoteSnapshotsOptions {
   mode?: "daily_only" | "displayed";
   now?: Date;
-  tradingCalendar?: Pick<TradingCalendarCache, "isTradingDay">;
+  tradingCalendar?: RegularSessionClock;
   heldPairs?: ReadonlySet<string>;
 }
 
