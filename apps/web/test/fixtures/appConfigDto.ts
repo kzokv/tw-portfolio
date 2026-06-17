@@ -91,7 +91,7 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
       regularSessionOnly: null,
       effectiveRegularSessionOnly: true,
       yahooChartRange: null,
-      effectiveYahooChartRange: "1d",
+      effectiveYahooChartRange: "5d",
       yahooChartInterval: null,
       effectiveYahooChartInterval: "1m",
       refreshCloseRateLimitWindowMs: null,
