@@ -303,4 +303,40 @@ describe("buildPublicShareView", () => {
     expect(totals.get("AUD")).toBe(440);
     expect(totals.get("USD")).toBe(580);
   });
+
+  it("does not expose priceState or intraday overlay facts in the public share DTO", () => {
+    const store = seedStoreWithHoldings([
+      { ticker: "2330", quantity: 100, costBasisAmount: 50_000, currency: "TWD" },
+    ]);
+    const quotes: Record<string, QuoteSnapshot | null> = {
+      "2330:TW": {
+        ...quote("2330", 610),
+        marketCode: "TW",
+        asOf: "2026-06-17T02:30:00.000Z",
+        priceState: {
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          source: "yahoo-chart",
+          sourceKind: "intraday_yahoo_chart",
+          asOfDate: "2026-06-17",
+          asOfTimestamp: "2026-06-17T02:30:00.000Z",
+          observedAt: "2026-06-17T02:31:00.000Z",
+          delaySeconds: 60,
+          marketTimeZone: "Asia/Taipei",
+          quality: null,
+        },
+      } as QuoteSnapshot,
+    };
+
+    const view = buildPublicShareView(store, quotes, ownerDisplayName, expiresAt);
+
+    expect(view.holdings[0]).toEqual(expect.objectContaining({
+      ticker: "2330",
+      marketValueAmount: 61_000,
+      quoteStatus: "current",
+    }));
+    expect(JSON.stringify(view)).not.toContain("priceState");
+    expect(JSON.stringify(view)).not.toContain("intraday_yahoo_chart");
+  });
 });

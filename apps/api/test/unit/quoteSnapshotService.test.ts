@@ -2,31 +2,33 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { resolveQuoteSnapshots } from "../../src/services/market-data/quoteSnapshotService.js";
 
+const FULL_BAR = "full_bar" as const;
+
 // Fixtures — realistic TWSE bars matching the KZO-87 design doc
 const FIXTURE_BARS_2330 = [
-  { ticker: "2330", barDate: "2026-03-28", open: 595, high: 600, low: 590, close: 598, volume: 25000000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
-  { ticker: "2330", barDate: "2026-03-27", open: 590, high: 596, low: 588, close: 595, volume: 22000000, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
-  { ticker: "2330", barDate: "2026-03-26", open: 585, high: 592, low: 583, close: 590, volume: 20000000, source: "test", ingestedAt: "2026-03-26T18:00:00Z" },
+  { ticker: "2330", barDate: "2026-03-28", open: 595, high: 600, low: 590, close: 598, volume: 25000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+  { ticker: "2330", barDate: "2026-03-27", open: 590, high: 596, low: 588, close: 595, volume: 22000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
+  { ticker: "2330", barDate: "2026-03-26", open: 585, high: 592, low: 583, close: 590, volume: 20000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-26T18:00:00Z" },
 ];
 
 // Single-bar ticker — derived fields must all be null
 const FIXTURE_BARS_2317 = [
-  { ticker: "2317", barDate: "2026-03-28", open: 108, high: 110, low: 107, close: 109, volume: 15000000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+  { ticker: "2317", barDate: "2026-03-28", open: 108, high: 110, low: 107, close: 109, volume: 15000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
 ];
 
 // Division guard — previousClose=0 must produce null change/changePercent, not Infinity/NaN
 const FIXTURE_BARS_ZEROPREV = [
-  { ticker: "ZEROPREV", barDate: "2026-03-28", open: 0, high: 0, low: 0, close: 5, volume: 100, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
-  { ticker: "ZEROPREV", barDate: "2026-03-27", open: 0, high: 0, low: 0, close: 0, volume: 100, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
+  { ticker: "ZEROPREV", barDate: "2026-03-28", open: 0, high: 0, low: 0, close: 5, volume: 100, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+  { ticker: "ZEROPREV", barDate: "2026-03-27", open: 0, high: 0, low: 0, close: 0, volume: 100, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
 ];
 
 // KZO-191: US/AU fixtures for multi-market provisional coverage
 const FIXTURE_BARS_AAPL = [
-  { ticker: "AAPL", marketCode: "US", barDate: "2026-03-27", open: 170, high: 173, low: 169, close: 172, volume: 50000000, source: "test", ingestedAt: "2026-03-27T22:00:00Z" },
+  { ticker: "AAPL", marketCode: "US", barDate: "2026-03-27", open: 170, high: 173, low: 169, close: 172, volume: 50000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-27T22:00:00Z" },
 ];
 
 const FIXTURE_BARS_BHP = [
-  { ticker: "BHP", marketCode: "AU", barDate: "2026-03-25", open: 44, high: 45, low: 43.5, close: 44.5, volume: 8000000, source: "test", ingestedAt: "2026-03-25T07:00:00Z" },
+  { ticker: "BHP", marketCode: "AU", barDate: "2026-03-25", open: 44, high: 45, low: 43.5, close: 44.5, volume: 8000000, quality: FULL_BAR, source: "test", ingestedAt: "2026-03-25T07:00:00Z" },
 ];
 
 const EMPTY_SETTLED = new Map<string, string>();
@@ -56,6 +58,7 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]!.changePercent).toBeCloseTo((3 / 595) * 100, 4);
     expect(result["2330"]!.asOf).toBe("2026-03-28");
     expect(result["2330"]!.source).toBe("test");
+    expect(result["2330"]!.priceState.basis).toBe("today_close");
 
     // 2317: 1 day → null derived fields
     expect(result["2317"]).not.toBeNull();
@@ -186,10 +189,10 @@ describe("resolveQuoteSnapshots", () => {
 
   it("TC-U10b: cross-listed bare ticker keeps AU and US snapshots separate", async () => {
     persistence._seedDailyBars([
-      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-28", open: 44, high: 45, low: 43, close: 44.5, volume: 8000000, source: "au", ingestedAt: "2026-03-28T07:00:00Z" },
-      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-27", open: 43, high: 44, low: 42, close: 43.5, volume: 7000000, source: "au", ingestedAt: "2026-03-27T07:00:00Z" },
-      { ticker: "BHP", marketCode: "US", barDate: "2026-03-28", open: 58, high: 59, low: 57, close: 58.25, volume: 3000000, source: "us", ingestedAt: "2026-03-28T22:00:00Z" },
-      { ticker: "BHP", marketCode: "US", barDate: "2026-03-27", open: 57, high: 58, low: 56, close: 57.25, volume: 2800000, source: "us", ingestedAt: "2026-03-27T22:00:00Z" },
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-28", open: 44, high: 45, low: 43, close: 44.5, volume: 8000000, quality: FULL_BAR, source: "au", ingestedAt: "2026-03-28T07:00:00Z" },
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-27", open: 43, high: 44, low: 42, close: 43.5, volume: 7000000, quality: FULL_BAR, source: "au", ingestedAt: "2026-03-27T07:00:00Z" },
+      { ticker: "BHP", marketCode: "US", barDate: "2026-03-28", open: 58, high: 59, low: 57, close: 58.25, volume: 3000000, quality: FULL_BAR, source: "us", ingestedAt: "2026-03-28T22:00:00Z" },
+      { ticker: "BHP", marketCode: "US", barDate: "2026-03-27", open: 57, high: 58, low: 56, close: 57.25, volume: 2800000, quality: FULL_BAR, source: "us", ingestedAt: "2026-03-27T22:00:00Z" },
     ]);
 
     const result = await resolveQuoteSnapshots(
@@ -223,5 +226,43 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]).not.toBeNull();
     expect(result["2330"]!.close).toBe(598);
     expect(result["2330"]!.isProvisional).toBe(false);
+  });
+
+  it("uses the intraday overlay for held tickers during open regular sessions", async () => {
+    persistence._seedDailyBars([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 995, high: 1000, low: 990, close: 998, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-13", open: 980, high: 985, low: 975, close: 982, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-13T13:40:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "2330",
+      marketCode: "TW",
+      price: 1010,
+      previousClose: 998,
+      asOfDate: "2026-06-17",
+      asOfTimestamp: "2026-06-17T01:15:00.000Z",
+      observedAt: "2026-06-17T01:16:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "TWD",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "2330", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-16"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-17T01:18:00.000Z"),
+        heldPairs: new Set(["2330:TW"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["2330"]?.close).toBe(1010);
+    expect(result["2330"]?.dailyCompatibleClose).toBe(998);
+    expect(result["2330"]?.priceState.basis).toBe("intraday");
+    expect(result["2330"]?.priceState.chipState).toBe("open_fresh");
   });
 });

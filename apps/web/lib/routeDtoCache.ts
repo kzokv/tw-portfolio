@@ -109,7 +109,7 @@ export function getRouteDtoContextScope(sessionUserId?: string | null): string {
 
 export function readRouteDtoCache<T>(
   key: string,
-  options: { allowStale?: boolean } = {},
+  options: { allowStale?: boolean; maxAgeMs?: number } = {},
 ): RouteDtoCacheReadResult<T> | null {
   const storage = getStorage();
   if (!storage) return null;
@@ -131,6 +131,9 @@ export function readRouteDtoCache<T>(
     }
 
     const now = Date.now();
+    if (typeof options.maxAgeMs === "number" && options.maxAgeMs > 0 && now - parsed.createdAt > options.maxAgeMs) {
+      return null;
+    }
     if (parsed.staleUntilAt <= now) {
       storage.removeItem(key);
       return null;

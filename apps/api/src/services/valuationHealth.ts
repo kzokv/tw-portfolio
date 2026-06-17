@@ -8,6 +8,7 @@ import type {
 } from "@vakwen/shared-types";
 import { MARKET_CODES, type AccountDefaultCurrency, type MarketCode } from "@vakwen/shared-types";
 import { getEffectiveValuationHealthThresholds, minorUnitToleranceFor } from "./appConfig/valuationHealth.js";
+import { isIntradayPriceState } from "./market-data/quoteSnapshotService.js";
 import type { HoldingSnapshotLatestDateScopePair } from "../persistence/types.js";
 import type { Store } from "../types/store.js";
 
@@ -82,6 +83,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
       ? (deltaAmount / Math.max(Math.abs(input.currentValueAmount ?? 0), Math.abs(snapshotValueAmount ?? 0), 1)) * 10_000
       : null;
   const absoluteThreshold = thresholdAmountForCurrency(thresholds, input.reportingCurrency);
+  const hasDisplayedIntradayPrices = input.holdingGroups.some((group) => isIntradayPriceState(group.priceState));
 
   let status: ValuationHealthDto["status"] = "healthy";
   let reason: ValuationHealthDto["reason"] = "within_threshold";
@@ -99,8 +101,13 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     && relativeDeltaBps !== null
     && (deltaAmount >= absoluteThreshold || relativeDeltaBps >= thresholds.relativeBps)
   ) {
-    status = "material";
-    reason = deltaAmount >= absoluteThreshold ? "absolute_threshold_exceeded" : "relative_threshold_exceeded";
+    if (hasDisplayedIntradayPrices && affectedHoldings.length === 0) {
+      status = "healthy";
+      reason = "within_threshold";
+    } else {
+      status = "material";
+      reason = deltaAmount >= absoluteThreshold ? "absolute_threshold_exceeded" : "relative_threshold_exceeded";
+    }
   }
 
   const recommendedActions = [...new Set(affectedHoldings

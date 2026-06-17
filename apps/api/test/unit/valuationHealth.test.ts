@@ -5,6 +5,23 @@ function scopeKey(accountId: string, ticker: string, marketCode: string): string
   return `${accountId}\0${ticker}\0${marketCode}`;
 }
 
+function dailyPriceState(overrides: Record<string, unknown> = {}) {
+  return {
+    basis: "today_close",
+    chipState: "closed",
+    marketState: "closed",
+    source: "test",
+    sourceKind: "primary_daily",
+    asOfDate: "2026-06-13",
+    asOfTimestamp: null,
+    observedAt: "2026-06-13T00:00:00.000Z",
+    delaySeconds: null,
+    marketTimeZone: "UTC",
+    quality: "full_bar",
+    ...overrides,
+  };
+}
+
 describe("buildValuationHealth", () => {
   it("treats rounding-only deltas below the minor-unit tolerance as healthy", async () => {
     const dto = await buildValuationHealth({
@@ -25,6 +42,7 @@ describe("buildValuationHealth", () => {
           ticker: "BHP",
           marketCode: "AU",
           reportingMarketValueAmount: 100.004,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "BHP", marketCode: "AU" }],
         },
       ] as never,
@@ -66,6 +84,7 @@ describe("buildValuationHealth", () => {
           ticker: "2330",
           marketCode: "TW",
           reportingMarketValueAmount: 10_000,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
         },
       ] as never,
@@ -84,6 +103,111 @@ describe("buildValuationHealth", () => {
     expect(dto.status).toBe("material");
     expect(dto.reason).toBe("relative_threshold_exceeded");
     expect(dto.relativeDeltaBps).toBe(100);
+  });
+
+  it("suppresses overlay-only valuation deltas when displayed prices are intraday", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([["2330:TW", "2026-06-13"]])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([[scopeKey("acc-1", "2330", "TW"), "2026-06-13"]])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "TWD",
+      currentValueAmount: 10_000,
+      asOf: "2026-06-17T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 10_000,
+          priceState: dailyPriceState({
+            basis: "intraday",
+            chipState: "open_fresh",
+            marketState: "open",
+            quality: null,
+          }),
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 9_900 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-13",
+          latestSnapshotDate: "2026-06-13",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("healthy");
+    expect(dto.reason).toBe("within_threshold");
+    expect(dto.affectedHoldings).toEqual([]);
+  });
+
+  it("does not let unrelated intraday movement escalate genuine stale snapshot diagnostics", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([
+            ["2330:TW", "2026-06-13"],
+            ["AAPL:US", "2026-06-13"],
+          ])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([
+            [scopeKey("acc-1", "2330", "TW"), "2026-06-13"],
+            [scopeKey("acc-2", "AAPL", "US"), "2026-06-12"],
+          ])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 500,
+      asOf: "2026-06-17T10:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 600,
+          priceState: dailyPriceState({
+            basis: "intraday",
+            chipState: "open_fresh",
+            marketState: "open",
+            quality: null,
+          }),
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+        {
+          ticker: "AAPL",
+          marketCode: "US",
+          reportingMarketValueAmount: 250,
+          priceState: dailyPriceState(),
+          children: [{ accountId: "acc-2", ticker: "AAPL", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 500 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-13",
+          latestSnapshotDate: "2026-06-12",
+          expectedLatestValuationDate: "2026-06-13",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("healthy");
+    expect(dto.reason).toBe("within_minor_unit_tolerance");
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "AAPL",
+        status: "stale_snapshot",
+        recommendedAction: "run_snapshot_repair",
+      }),
+    ]);
   });
 
   it("surfaces active-held diagnostics from latest bars, snapshots, and backfill state", async () => {
@@ -114,12 +238,14 @@ describe("buildValuationHealth", () => {
           ticker: "7203",
           marketCode: "US",
           reportingMarketValueAmount: 250,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "7203", marketCode: "US" }],
         },
         {
           ticker: "005930",
           marketCode: "KR",
           reportingMarketValueAmount: 250,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-2", ticker: "005930", marketCode: "KR" }],
         },
       ] as never,
@@ -173,12 +299,14 @@ describe("buildValuationHealth", () => {
           ticker: "2330",
           marketCode: "TW",
           reportingMarketValueAmount: 250,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
         },
         {
           ticker: "AAPL",
           marketCode: "US",
           reportingMarketValueAmount: 250,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-2", ticker: "AAPL", marketCode: "US" }],
         },
       ] as never,
@@ -223,12 +351,14 @@ describe("buildValuationHealth", () => {
           ticker: "2330",
           marketCode: "TW",
           reportingMarketValueAmount: 516_114.72,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
         },
         {
           ticker: "AVGO",
           marketCode: "US",
           reportingMarketValueAmount: 179_636.64,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-2", ticker: "AVGO", marketCode: "US" }],
         },
       ] as never,
@@ -279,12 +409,14 @@ describe("buildValuationHealth", () => {
           ticker: "2330",
           marketCode: "TW",
           reportingMarketValueAmount: 500_000,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
         },
         {
           ticker: "AVGO",
           marketCode: "US",
           reportingMarketValueAmount: 200_000,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-2", ticker: "AVGO", marketCode: "US" }],
         },
       ] as never,
@@ -340,6 +472,7 @@ describe("buildValuationHealth", () => {
           ticker: "BHP",
           marketCode: "AU",
           reportingMarketValueAmount: 10_500,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "BHP", marketCode: "AU" }],
         },
       ] as never,
@@ -400,6 +533,7 @@ describe("buildValuationHealth", () => {
           ticker: "VRT",
           marketCode: "US",
           reportingMarketValueAmount: 1_000,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "VRT", marketCode: "US" }],
         },
       ] as never,
@@ -485,6 +619,7 @@ describe("buildValuationHealth", () => {
           ticker: "VRT",
           marketCode: "US",
           reportingMarketValueAmount: 500,
+          priceState: dailyPriceState(),
           children: [{ accountId: "acc-1", ticker: "VRT", marketCode: "US" }],
         },
       ] as never,

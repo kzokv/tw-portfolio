@@ -15,9 +15,10 @@ import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { usePortfolioPrimaryData } from "../../features/portfolio/hooks/usePortfolioPageData";
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
-import type { PortfolioPageData } from "../../features/portfolio/services/portfolioService";
+import { refreshPortfolioCloses, type PortfolioPageData } from "../../features/portfolio/services/portfolioService";
 import { Button } from "../ui/Button";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
+import { shouldPollForOpenMarket } from "../../features/price-state/priceState";
 
 export function PortfolioClient({
   initialPrimaryData = null,
@@ -38,14 +39,21 @@ export function PortfolioClient({
   } = useAppShellData();
   const seedReportingCurrency = resolvePortfolioReportingCurrency(initialPrimaryData, reportingCurrency);
   const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, reportingCurrency);
-  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy);
+  const initialPortfolioPollMs = Math.max(15_000, (initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy, initialPortfolioPollMs);
   const effectiveReportingCurrency = resolvePortfolioReportingCurrency(portfolio.data, seedReportingCurrency);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const [holdingsTableStyle, setHoldingsTableStyle] = useState<"dashboard" | "portfolio">("portfolio");
+  const [isRefreshingCloses, setIsRefreshingCloses] = useState(false);
+  const [closeRefreshError, setCloseRefreshError] = useState("");
   const firstSignalRef = useRef(true);
   const refreshPortfolioRef = useRef(portfolio.refresh);
   refreshPortfolioRef.current = portfolio.refresh;
+  const portfolioPollMs = Math.max(
+    15_000,
+    (portfolio.data.settings?.quotePollIntervalSeconds ?? initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000,
+  );
 
   useEffect(() => {
     if (firstSignalRef.current) {
@@ -54,6 +62,27 @@ export function PortfolioClient({
     }
     void refreshPortfolioRef.current();
   }, [contextRefreshSignal]);
+
+  useEffect(() => {
+    if (!shouldPollForOpenMarket(portfolio.data.holdings)) return;
+    const timer = window.setInterval(() => {
+      void refreshPortfolioRef.current();
+    }, portfolioPollMs);
+    return () => window.clearInterval(timer);
+  }, [portfolio.data.holdings, portfolioPollMs]);
+
+  async function refreshCloses() {
+    setIsRefreshingCloses(true);
+    setCloseRefreshError("");
+    try {
+      await refreshPortfolioCloses();
+      await portfolio.refresh();
+    } catch (error) {
+      setCloseRefreshError(error instanceof Error ? error.message : "Failed to refresh closes");
+    } finally {
+      setIsRefreshingCloses(false);
+    }
+  }
 
   if (portfolio.isBootstrapping) {
     return (
@@ -174,17 +203,39 @@ export function PortfolioClient({
               {dict.dashboardHome.refreshingLabel}
             </span>
           ) : null}
+          {isRefreshingCloses ? (
+            <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              {dict.dashboardHome.refreshClosesRunningLabel}
+            </span>
+          ) : null}
+          {closeRefreshError ? (
+            <span className="text-xs font-medium text-destructive">{closeRefreshError}</span>
+          ) : null}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => { void portfolio.refresh(); }}
-          disabled={portfolio.isRefreshing}
-          data-testid="portfolio-refresh-button"
-        >
-          {dict.dashboardHome.refreshLabel}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {!isSharedContext ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => { void refreshCloses(); }}
+              disabled={portfolio.isRefreshing || isRefreshingCloses}
+              data-testid="portfolio-refresh-closes-button"
+            >
+              {dict.dashboardHome.refreshClosesLabel}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => { void portfolio.refresh(); }}
+            disabled={portfolio.isRefreshing || isRefreshingCloses}
+            data-testid="portfolio-refresh-button"
+          >
+            {dict.dashboardHome.refreshLabel}
+          </Button>
+        </div>
       </div>
       {/*
         KZO-162 — Portfolio cards rendered as a SortableCardGrid. Slugs

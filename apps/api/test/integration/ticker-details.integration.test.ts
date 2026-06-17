@@ -367,7 +367,8 @@ describe("GET /tickers/:ticker/details", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(expect.objectContaining({
+    const body = response.json();
+    expect(body).toEqual(expect.objectContaining({
       identity: expect.objectContaining({
         ticker: "AAPL",
         marketCode: "US",
@@ -378,7 +379,11 @@ describe("GET /tickers/:ticker/details", () => {
         currentUnitPrice: 125,
         previousClose: 120,
         change: 5,
-        changePercent: 4.1667,
+        priceState: expect.objectContaining({
+          basis: "stale_close",
+          chipState: "stale",
+          sourceKind: "primary_daily",
+        }),
       }),
       position: expect.objectContaining({
         quantity: 3,
@@ -405,6 +410,7 @@ describe("GET /tickers/:ticker/details", () => {
         }),
       ],
     }));
+    expect(body.quote.changePercent).toBeCloseTo(4.1667, 4);
   });
 
   it("[ticker details]: preserves null reporting amounts when user reporting FX is unavailable", async () => {

@@ -6,6 +6,7 @@ import {
   getAmountForAllocationBasis,
   resolveHoldingGroups,
 } from "../../../features/portfolio/holdingGroups";
+import { testPriceState } from "../../fixtures/priceState";
 
 const holdings: DashboardOverviewHoldingDto[] = [
   {
@@ -27,8 +28,7 @@ const holdings: DashboardOverviewHoldingDto[] = [
     quoteStatus: "current",
     nextDividendDate: null,
     lastDividendPostedDate: "2026-02-20",
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: testPriceState(),
   },
 ];
 

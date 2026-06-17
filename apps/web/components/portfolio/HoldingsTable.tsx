@@ -52,7 +52,9 @@ import {
   HoldingsGridMobileList,
   HoldingsGridNativeTable,
 } from "../holdings/HoldingsGrid";
-import { holdingsFreshnessDotClassName, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
+import { PriceStateChip } from "../holdings/PriceStateChip";
+import { holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
+import { getPriceState } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
 type HoldingsColumn =
@@ -1201,10 +1203,11 @@ function HoldingGroupCell({
     );
   }
   if (column === "price") {
+    const priceState = getPriceState(group);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(group.currentUnitPrice, group.averageCostPerShare))} style={style}>
         {group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}
-        {showFreshnessBadge && group.freshness !== "current" ? <FreshnessBadge freshness={group.freshness} tooltip={group.freshnessTooltip} testId={`holdings-freshness-badge-${group.ticker}-${group.marketCode}`} /> : null}
+        {showFreshnessBadge && priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} /> : null}
       </td>
     );
   }
@@ -1236,7 +1239,7 @@ function HoldingGroupCell({
   if (column === "health") {
     return (
       <td className="px-4 py-3" style={style}>
-        <HoldingsDataHealthBadges dict={dict} row={group} showAllocationFallback />
+        <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showAllocationFallback />
       </td>
     );
   }
@@ -1336,10 +1339,11 @@ function HoldingChildCell({
     );
   }
   if (column === "price") {
+    const priceState = getPriceState(child);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(child.currentUnitPrice, child.averageCostPerShare))} style={style}>
         {child.currentUnitPrice != null ? formatCurrencyAmount(child.currentUnitPrice, child.currency, locale) : dict.holdings.quoteMissing}
-        {showFreshnessBadge && child.freshness !== "current" ? <FreshnessBadge freshness={child.freshness} tooltip={child.freshnessTooltip} testId={`holdings-freshness-badge-${child.accountId}-${child.ticker}`} /> : null}
+        {showFreshnessBadge && priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${child.accountId}-${child.ticker}`} /> : null}
       </td>
     );
   }
@@ -1371,7 +1375,7 @@ function HoldingChildCell({
   if (column === "health") {
     return (
       <td className="px-4 py-3" style={style}>
-        <HoldingsDataHealthBadges dict={dict} row={child} showAllocationFallback />
+        <HoldingsDataHealthBadges dict={dict} locale={locale} row={child} showAllocationFallback />
       </td>
     );
   }
@@ -1482,29 +1486,4 @@ function splitMobileHoldingColumns<ColumnId extends string>(
     summaryColumns: visibleColumns.slice(0, settings.mobileSummaryCount),
     detailColumns: visibleColumns.slice(settings.mobileSummaryCount),
   };
-}
-
-function FreshnessBadge({
-  freshness,
-  tooltip,
-  testId,
-}: {
-  freshness: DashboardOverviewHoldingDto["freshness"];
-  tooltip: string | null;
-  testId: string;
-}) {
-  return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        <span className={cn("ml-1 inline-flex h-2.5 w-2.5 rounded-full", holdingsFreshnessDotClassName(freshness))} data-testid={testId} />
-      </Tooltip.Trigger>
-      {tooltip ? (
-        <Tooltip.Portal>
-          <Tooltip.Content sideOffset={6} className="rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md">
-            {tooltip}
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      ) : null}
-    </Tooltip.Root>
-  );
 }

@@ -1,8 +1,11 @@
 import type {
+  DashboardMarketStateDto,
   DashboardOverviewDto,
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
+  PriceStateDto,
+  PriceStateRollupDto,
   DashboardOverviewRecentDividendDto,
   DashboardOverviewUpcomingDividendDto,
   IntegrityIssueDto,
@@ -13,12 +16,20 @@ import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
 import { deriveEligibleQuantity, resolveDividendEventMarketCode } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
-import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
+import {
+  buildMissingPriceState,
+  isCurrentPriceState,
+  quoteSnapshotKey,
+  type ResolvedQuoteSnapshot,
+} from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
 
 interface BuildDashboardOverviewOptions {
   integrityIssue: IntegrityIssueDto | null;
-  quotes?: QuoteSnapshot[];
+  marketStates?: DashboardMarketStateDto[];
+  quotes?: Array<QuoteSnapshot | ResolvedQuoteSnapshot>;
+  regularSessionOnly?: boolean;
+  summaryAsOf?: string;
 }
 
 interface DashboardOverviewDividends {
@@ -46,6 +57,7 @@ export interface RawDashboardOverviewSummary {
   upcomingDividendCount: number;
   upcomingDividendAmount: number | null;
   openIssueCount: number;
+  priceStateRollup: PriceStateRollupDto;
 }
 
 export interface RawDashboardOverview extends Omit<DashboardOverviewDto, "summary" | "fxRates"> {
@@ -54,10 +66,16 @@ export interface RawDashboardOverview extends Omit<DashboardOverviewDto, "summar
 
 export function buildDashboardOverview(
   store: Store,
-  { integrityIssue, quotes = [] }: BuildDashboardOverviewOptions,
+  {
+    integrityIssue,
+    marketStates: marketStatesOverride,
+    quotes = [],
+    regularSessionOnly = true,
+    summaryAsOf,
+  }: BuildDashboardOverviewOptions,
 ): RawDashboardOverview {
-  const quoteByKey = new Map(quotes.flatMap((quote): Array<[string, QuoteSnapshot]> => {
-    const entries: Array<[string, QuoteSnapshot]> = [[quoteSnapshotKey(quote.ticker, quote.marketCode), quote]];
+  const quoteByKey = new Map(quotes.flatMap((quote): Array<[string, QuoteSnapshot | ResolvedQuoteSnapshot]> => {
+    const entries: Array<[string, QuoteSnapshot | ResolvedQuoteSnapshot]> = [[quoteSnapshotKey(quote.ticker, quote.marketCode), quote]];
     if (!quote.marketCode) entries.push([quote.ticker, quote]);
     return entries;
   }));
@@ -66,7 +84,9 @@ export function buildDashboardOverview(
     recent: buildRecentDividends(store),
   };
   const totalCostAmount = store.accounting.projections.holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
-  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteByKey, dividends);
+  const marketStateByMarket = new Map((marketStatesOverride ?? []).map((state) => [state.marketCode, state]));
+  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteByKey, dividends, marketStateByMarket);
+  const marketStates = marketStatesOverride ?? buildDashboardMarketStates(holdings, regularSessionOnly);
   const hasCompleteQuotes = holdings.length > 0 && holdings.every((holding) => holding.currentUnitPrice !== null);
   const marketValueAmount = hasCompleteQuotes
     ? holdings.reduce((sum, holding) => sum + (holding.marketValueAmount ?? 0), 0)
@@ -100,7 +120,7 @@ export function buildDashboardOverview(
   return {
     settings: store.settings,
     summary: {
-      asOf: quotes[0]?.asOf ?? new Date().toISOString(),
+      asOf: summaryAsOf ?? new Date().toISOString().slice(0, 10),
       accountCount: store.accounts.length,
       holdingCount: holdings.length,
       totalCostAmount,
@@ -111,7 +131,9 @@ export function buildDashboardOverview(
       upcomingDividendCount: dividends.upcoming.length,
       upcomingDividendAmount: dividends.upcoming.reduce((sum, dividend) => sum + (dividend.expectedAmount ?? 0), 0) || null,
       openIssueCount: integrityIssue ? 1 : 0,
+      priceStateRollup: buildPriceStateRollup(holdings),
     },
+    marketStates,
     marketValues: [],
     holdings,
     holdingGroups: buildOverviewHoldingGroups(store, holdings),
@@ -148,8 +170,9 @@ function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptio
 function buildOverviewHoldings(
   store: Store,
   totalCostAmount: number,
-  quoteByKey: Map<string, QuoteSnapshot>,
+  quoteByKey: Map<string, QuoteSnapshot | ResolvedQuoteSnapshot>,
   dividends: DashboardOverviewDividends,
+  marketStateByMarket: ReadonlyMap<MarketCode, DashboardMarketStateDto>,
 ): DashboardOverviewHoldingDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const accountMarket = new Map(store.accounts.map((account) => [
@@ -204,12 +227,7 @@ function buildOverviewHoldings(
         quoteStatus: !quote ? "missing" as const : quote.isProvisional ? "provisional" as const : "current" as const,
         nextDividendDate: upcomingDividendDates.get(`${holding.accountId}:${holding.ticker}`) || null,
         lastDividendPostedDate: recentPostedDividends.get(`${holding.accountId}:${holding.ticker}`) ?? null,
-        // KZO-177: defaults — the route handler post-processes these via
-        // `enrichHoldingsWithFreshness()` using the trading-calendar helper.
-        // Sync `buildDashboardOverview` returns these as `current`/`null` so
-        // unit tests that don't supply a calendar still produce a valid DTO.
-        freshness: "current" as const,
-        freshnessTooltip: null,
+        priceState: resolvePriceState(quote, market, marketStateByMarket.get(market)),
       };
     })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
@@ -247,8 +265,7 @@ export function buildOverviewHoldingGroups(
       quoteStatus: holding.quoteStatus,
       nextDividendDate: holding.nextDividendDate,
       lastDividendPostedDate: holding.lastDividendPostedDate,
-      freshness: holding.freshness,
-      freshnessTooltip: holding.freshnessTooltip,
+      priceState: holding.priceState,
       reportingCurrency: account?.defaultCurrency ?? currencyFor(marketCode),
       reportingCostBasisAmount: null,
       reportingMarketValueAmount: null,
@@ -274,8 +291,7 @@ export function buildOverviewHoldingGroups(
       existing.nextDividendDate = minDate(existing.nextDividendDate, child.nextDividendDate);
       existing.lastDividendPostedDate = maxDate(existing.lastDividendPostedDate, child.lastDividendPostedDate);
       existing.quoteStatus = mergeQuoteStatus(existing.quoteStatus, child.quoteStatus);
-      existing.freshness = mergeFreshness(existing.freshness, child.freshness);
-      existing.freshnessTooltip = existing.freshnessTooltip ?? child.freshnessTooltip;
+      existing.priceState = mergePriceState(existing.priceState, child.priceState);
       existing.children.push(child);
       existing.accountCount = existing.children.length;
       existing.averageCostPerShare = existing.quantity > 0
@@ -305,8 +321,7 @@ export function buildOverviewHoldingGroups(
       quoteStatus: child.quoteStatus,
       nextDividendDate: child.nextDividendDate,
       lastDividendPostedDate: child.lastDividendPostedDate,
-      freshness: child.freshness,
-      freshnessTooltip: child.freshnessTooltip,
+      priceState: child.priceState,
       accountCount: 1,
       reportingCurrency: child.reportingCurrency,
       reportingCostBasisAmount: null,
@@ -352,6 +367,66 @@ function mergeQuoteStatus(
   return "current";
 }
 
+export function buildDashboardMarketStates(
+  holdings: ReadonlyArray<DashboardOverviewHoldingDto>,
+  regularSessionOnly: boolean,
+): DashboardMarketStateDto[] {
+  const byMarket = new Map<MarketCode, DashboardMarketStateDto>();
+  for (const holding of holdings) {
+    if (byMarket.has(holding.marketCode)) continue;
+    byMarket.set(holding.marketCode, {
+      marketCode: holding.marketCode,
+      marketState: holding.priceState.marketState,
+      asOf: holding.priceState.asOfTimestamp ?? holding.priceState.asOfDate ?? new Date().toISOString(),
+      marketTimeZone: holding.priceState.marketTimeZone ?? "UTC",
+      regularSessionOnly,
+    });
+  }
+
+  const order: MarketCode[] = ["TW", "US", "AU", "KR"];
+  return [...byMarket.values()].sort(
+    (left, right) => order.indexOf(left.marketCode) - order.indexOf(right.marketCode),
+  );
+}
+
+function buildPriceStateRollup(holdings: ReadonlyArray<DashboardOverviewHoldingDto>): PriceStateRollupDto {
+  const basisCounts = new Map<PriceStateDto["basis"], number>();
+  let currentPriceCount = 0;
+  let nonCurrentPriceCount = 0;
+  let missingPriceCount = 0;
+
+  for (const holding of holdings) {
+    basisCounts.set(holding.priceState.basis, (basisCounts.get(holding.priceState.basis) ?? 0) + 1);
+    if (holding.priceState.basis === "missing") {
+      missingPriceCount += 1;
+    } else if (isCurrentPriceState(holding.priceState)) {
+      currentPriceCount += 1;
+    } else {
+      nonCurrentPriceCount += 1;
+    }
+  }
+
+  return {
+    holdingCount: holdings.length,
+    currentPriceCount,
+    nonCurrentPriceCount,
+    missingPriceCount,
+    basisCounts: [...basisCounts.entries()].map(([basis, count]) => ({ basis, count })),
+  };
+}
+
+function resolvePriceState(
+  quote: QuoteSnapshot | ResolvedQuoteSnapshot | undefined,
+  marketCode: MarketCode,
+  marketState: DashboardMarketStateDto | undefined,
+): PriceStateDto {
+  if (quote && "priceState" in quote) return quote.priceState;
+  return buildMissingPriceState(marketCode, {
+    marketState: marketState?.marketState,
+    marketTimeZone: marketState?.marketTimeZone ?? null,
+  });
+}
+
 function resolveHoldingMarketCode(
   store: Store,
   holding: Pick<Store["accounting"]["projections"]["holdings"][number], "accountId" | "ticker" | "currency"> & {
@@ -384,13 +459,32 @@ function uniqueMarketCodes(values: ReadonlyArray<string>): MarketCode[] {
     .filter((market): market is MarketCode => (MARKET_CODES as readonly string[]).includes(market));
 }
 
-function mergeFreshness(
-  left: DashboardOverviewHoldingDto["freshness"],
-  right: DashboardOverviewHoldingDto["freshness"],
-): DashboardOverviewHoldingDto["freshness"] {
-  if (left === "stale_red" || right === "stale_red") return "stale_red";
-  if (left === "stale_amber" || right === "stale_amber") return "stale_amber";
-  return "current";
+function mergePriceState(
+  left: PriceStateDto,
+  right: PriceStateDto,
+): PriceStateDto {
+  return priceStateSeverity(left) >= priceStateSeverity(right) ? left : right;
+}
+
+function priceStateSeverity(priceState: PriceStateDto): number {
+  switch (priceState.basis) {
+    case "missing":
+      return 6;
+    case "stale_close":
+      return 5;
+    case "pending_today_close":
+      return 4;
+    case "previous_close":
+      return 3;
+    case "delayed_intraday":
+      return 2;
+    case "today_close":
+      return 1;
+    case "intraday":
+      return 0;
+    default:
+      return 0;
+  }
 }
 
 const UPCOMING_DIVIDEND_WINDOW_DAYS = 60;

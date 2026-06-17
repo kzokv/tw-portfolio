@@ -78,7 +78,7 @@ function buildReport(
       missingQuoteCount: 0,
       provisionalQuoteCount: 0,
       missingFxCount: 0,
-      staleQuoteCount: 0,
+      nonCurrentPriceCount: 0,
     },
     diagnostics: {
       scope: reportState.scope,
@@ -92,7 +92,7 @@ function buildReport(
       staleSinceDate: null,
       missingQuoteCount: 0,
       provisionalQuoteCount: 0,
-      staleQuoteCount: 0,
+      nonCurrentPriceCount: 0,
       markets: [],
       missingFxCount: 0,
       missingProviderSourceCount: 0,

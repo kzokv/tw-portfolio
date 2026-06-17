@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ticker Price Freshness UI Mockups</title>
+  <style>
+    :root {
+      --background: #f8fafc;
+      --foreground: #0f172a;
+      --muted: #f1f5f9;
+      --muted-strong: #e2e8f0;
+      --muted-foreground: #64748b;
+      --card: #ffffff;
+      --border: #dbe3ee;
+      --primary: #4f46e5;
+      --primary-soft: #eef2ff;
+      --success: #15803d;
+      --success-soft: #dcfce7;
+      --warning: #b45309;
+      --warning-soft: #fef3c7;
+      --neutral: #64748b;
+      --neutral-soft: #f1f5f9;
+      --danger: #dc2626;
+      --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .page {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 2px 0 0;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .button {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--foreground);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 600;
+      font-size: 12px;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+
+    .section {
+      margin-top: 20px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .section-title span {
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .card-pad {
+      padding: 18px;
+    }
+
+    .hero-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .money-large {
+      margin: 0;
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .subtle {
+      color: var(--muted-foreground);
+    }
+
+    .metric-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .metric {
+      min-width: 150px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 10px 12px;
+    }
+
+    .metric dt {
+      color: var(--muted-foreground);
+      font-size: 11px;
+      margin: 0 0 4px;
+    }
+
+    .metric dd {
+      margin: 0;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .market-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .market-pill {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 11px;
+      background: #fbfdff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .market-pill strong {
+      font-size: 13px;
+    }
+
+    .market-pill span {
+      font-size: 12px;
+      color: var(--muted-foreground);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.10);
+    }
+
+    .dot.green {
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.14);
+    }
+
+    .dot.amber {
+      background: #d97706;
+      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
+    }
+
+    .dot.gray {
+      background: #94a3b8;
+    }
+
+    .market-note {
+      margin-top: 12px;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 0.45fr);
+      gap: 16px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .segmented {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--muted);
+      padding: 3px;
+    }
+
+    .segmented button {
+      border: 0;
+      background: transparent;
+      border-radius: 7px;
+      padding: 6px 10px;
+      font: inherit;
+      font-size: 12px;
+      color: var(--muted-foreground);
+      font-weight: 600;
+    }
+
+    .segmented button.active {
+      background: white;
+      color: var(--foreground);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted-foreground);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: #fbfdff;
+    }
+
+    td.num,
+    th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .ticker-cell {
+      min-width: 145px;
+    }
+
+    .ticker-cell strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .ticker-cell span {
+      display: block;
+      color: var(--muted-foreground);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .price-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      min-width: 160px;
+    }
+
+    .price-value {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .price-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      max-width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px 7px;
+      background: white;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .price-chip.green {
+      border-color: rgba(21, 128, 61, 0.28);
+      background: var(--success-soft);
+      color: #166534;
+    }
+
+    .price-chip.amber {
+      border-color: rgba(217, 119, 6, 0.34);
+      background: var(--warning-soft);
+      color: #92400e;
+    }
+
+    .price-chip.gray {
+      background: var(--neutral-soft);
+      color: #475569;
+    }
+
+    .tooltip-card {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fbfdff;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .tooltip-card strong {
+      color: var(--foreground);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .tooltip-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 5px 10px;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .status-list li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fbfdff;
+    }
+
+    .status-list strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .status-list span {
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .ticker-detail {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 0.4fr);
+      gap: 16px;
+    }
+
+    .quote-panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fbfdff;
+    }
+
+    .quote-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .quote-header h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .quote-price {
+      margin: 12px 0 0;
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .mini {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: white;
+      min-width: 0;
+    }
+
+    .mini span {
+      display: block;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .mini strong {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .health-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fbfdff;
+    }
+
+    .health-card span {
+      display: block;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+
+    .health-card strong {
+      font-size: 18px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .settings-nav {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .settings-nav button {
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: var(--muted-foreground);
+      font: inherit;
+      font-weight: 600;
+    }
+
+    .settings-nav button.active {
+      border-color: var(--border);
+      background: white;
+      color: var(--foreground);
+    }
+
+    .settings-panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: white;
+      overflow: hidden;
+    }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 230px;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+
+    .setting-row:last-child {
+      border-bottom: 0;
+    }
+
+    .setting-row h4 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    .setting-row p {
+      margin: 3px 0 0;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .input-like {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 7px 10px;
+      font-weight: 600;
+      color: var(--foreground);
+    }
+
+    .toggle {
+      width: 44px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--primary);
+      position: relative;
+      margin-left: auto;
+    }
+
+    .toggle::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: white;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
+    }
+
+    .mockup-frame {
+      scroll-margin-top: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        padding: 18px;
+      }
+
+      .topbar,
+      .hero-card,
+      .section-title {
+        align-items: flex-start;
+      }
+
+      .hero-grid,
+      .grid-two,
+      .ticker-detail,
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .market-strip,
+      .health-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 12px;
+      }
+
+      .topbar,
+      .hero-card,
+      .toolbar {
+        flex-direction: column;
+        display: flex;
+        align-items: stretch;
+      }
+
+      .money-large {
+        font-size: 28px;
+      }
+
+      .market-strip,
+      .health-grid,
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+      }
+
+      tr:last-child {
+        border-bottom: 0;
+      }
+
+      td {
+        border-bottom: 0;
+        padding: 5px 0;
+      }
+
+      td.num {
+        text-align: left;
+      }
+
+      td[data-label] {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      td[data-label]::before {
+        content: attr(data-label);
+        color: var(--muted-foreground);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .price-cell {
+        align-items: flex-start;
+      }
+
+      .setting-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">V</div>
+        <div>
+          <h1>Ticker Price Freshness Mockups</h1>
+          <p>Dashboard, holdings, ticker detail, reports, and admin settings states</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="button">Refresh closes</button>
+        <button class="button primary">Open dashboard</button>
+      </div>
+    </header>
+
+    <section class="mockup-frame section" id="dashboard">
+      <div class="section-title">
+        <h2>Dashboard Overview</h2>
+        <span>Market state is separate from valuation-health repair state</span>
+      </div>
+      <div class="hero-grid">
+        <div class="card card-pad hero-card">
+          <div>
+            <p class="eyebrow">Portfolio value</p>
+            <p class="money-large">TWD 12.84M</p>
+            <p class="subtle">As of 2026-06-17. Some current values use open-market price states.</p>
+            <div class="metric-row">
+              <dl class="metric">
+                <dt>Daily change</dt>
+                <dd>+TWD 84,210</dd>
+              </dl>
+              <dl class="metric">
+                <dt>Non-current prices</dt>
+                <dd>2 holdings</dd>
+              </dl>
+              <dl class="metric">
+                <dt>Reporting currency</dt>
+                <dd>TWD</dd>
+              </dl>
+            </div>
+          </div>
+          <div class="price-chip amber"><span class="dot amber"></span> Mixed price bases</div>
+        </div>
+
+        <div class="card card-pad">
+          <p class="eyebrow">Held markets</p>
+          <div class="market-strip">
+            <div class="market-pill"><strong>TW</strong><span><i class="dot green"></i> Open</span></div>
+            <div class="market-pill"><strong>US</strong><span><i class="dot gray"></i> Closed</span></div>
+            <div class="market-pill"><strong>AU</strong><span><i class="dot green"></i> Open</span></div>
+            <div class="market-pill"><strong>KR</strong><span><i class="dot green"></i> Open</span></div>
+          </div>
+          <p class="market-note">Only markets represented by current holdings appear here. Row price chips carry the exact source and timestamp.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mockup-frame section" id="holdings">
+      <div class="section-title">
+        <h2>Holdings Table Price Cells</h2>
+        <span>Freshness chip sits under price, not beside ticker identity</span>
+      </div>
+      <div class="grid-two">
+        <div class="card">
+          <div class="toolbar">
+            <div class="segmented" aria-label="Holdings mode">
+              <button class="active">Grouped</button>
+              <button>Accounts</button>
+            </div>
+            <button class="button">Refresh closes</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th class="num">Price</th>
+                <th class="num">Market value</th>
+                <th class="num">Day change</th>
+                <th>Data health</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="Ticker" class="ticker-cell"><strong>2330</strong><span>Taiwan Semiconductor</span></td>
+                <td data-label="Price" class="num">
+                  <div class="price-cell">
+                    <span class="price-value">TWD 2,350.00</span>
+                    <span class="price-chip green"><span class="dot green"></span> Updated 5m ago</span>
+                  </div>
+                </td>
+                <td data-label="Market value" class="num">TWD 4.70M</td>
+                <td data-label="Day change" class="num">+1.7%</td>
+                <td data-label="Data health"><span class="price-chip green"><span class="dot green"></span> Current</span></td>
+              </tr>
+              <tr>
+                <td data-label="Ticker" class="ticker-cell"><strong>BHP</strong><span>BHP Group</span></td>
+                <td data-label="Price" class="num">
+                  <div class="price-cell">
+                    <span class="price-value">AUD 43.18</span>
+                    <span class="price-chip amber"><span class="dot amber"></span> Delayed 32m ago</span>
+                  </div>
+                </td>
+                <td data-label="Market value" class="num">AUD 21,590</td>
+                <td data-label="Day change" class="num">-0.4%</td>
+                <td data-label="Data health"><span class="price-chip amber"><span class="dot amber"></span> Delayed</span></td>
+              </tr>
+              <tr>
+                <td data-label="Ticker" class="ticker-cell"><strong>005930</strong><span>Samsung Electronics</span></td>
+                <td data-label="Price" class="num">
+                  <div class="price-cell">
+                    <span class="price-value">KRW 86,100</span>
+                    <span class="price-chip amber"><span class="dot amber"></span> Prev close</span>
+                  </div>
+                </td>
+                <td data-label="Market value" class="num">KRW 8.61M</td>
+                <td data-label="Day change" class="num">-</td>
+                <td data-label="Data health"><span class="price-chip amber"><span class="dot amber"></span> No same-day bar</span></td>
+              </tr>
+              <tr>
+                <td data-label="Ticker" class="ticker-cell"><strong>AAPL</strong><span>Apple Inc.</span></td>
+                <td data-label="Price" class="num">
+                  <div class="price-cell">
+                    <span class="price-value">USD 198.42</span>
+                    <span class="price-chip gray"><span class="dot gray"></span> Close price</span>
+                  </div>
+                </td>
+                <td data-label="Market value" class="num">USD 39,684</td>
+                <td data-label="Day change" class="num">+0.9%</td>
+                <td data-label="Data health"><span class="price-chip gray"><span class="dot gray"></span> Closed</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="card card-pad">
+          <p class="eyebrow">Tooltip example</p>
+          <div class="price-cell" style="align-items: flex-start; margin-bottom: 10px;">
+            <span class="price-value">TWD 2,350.00</span>
+            <span class="price-chip green"><span class="dot green"></span> Updated 5m ago</span>
+          </div>
+          <div class="tooltip-card">
+            <strong>2330 price facts</strong>
+            <div class="tooltip-grid">
+              <span>Source</span><span>Yahoo chart</span>
+              <span>Bar time</span><span>2026-06-17 13:25 Asia/Taipei</span>
+              <span>Observed</span><span>2026-06-17 13:30 Asia/Taipei</span>
+              <span>Delay</span><span>300 seconds</span>
+              <span>Basis</span><span>Intraday</span>
+            </div>
+          </div>
+          <ul class="status-list" style="margin-top: 12px;">
+            <li><span class="dot green"></span><div><strong>Open fresh</strong><span>Market open and Yahoo bar within tolerance.</span></div></li>
+            <li><span class="dot amber"></span><div><strong>Open delayed</strong><span>Market open, but the latest same-day bar is stale.</span></div></li>
+            <li><span class="dot gray"></span><div><strong>Closed</strong><span>Market closed and using a close or previous close.</span></div></li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="mockup-frame section" id="ticker-detail">
+      <div class="section-title">
+        <h2>Ticker Detail And Reports</h2>
+        <span>Same chip language, tighter surfaces</span>
+      </div>
+      <div class="grid-two">
+        <div class="card card-pad ticker-detail">
+          <div class="quote-panel">
+            <div class="quote-header">
+              <h3>2330 · Taiwan Semiconductor</h3>
+              <span class="price-chip green"><span class="dot green"></span> Open</span>
+            </div>
+            <p class="quote-price">TWD 2,350.00</p>
+            <span class="price-chip green"><span class="dot green"></span> Updated 5m ago</span>
+            <div class="mini-grid">
+              <div class="mini"><span>Previous close</span><strong>TWD 2,310.00</strong></div>
+              <div class="mini"><span>Change</span><strong>+1.73%</strong></div>
+              <div class="mini"><span>Price basis</span><strong>Intraday</strong></div>
+              <div class="mini"><span>Daily bar quality</span><strong>-</strong></div>
+            </div>
+          </div>
+          <div class="quote-panel">
+            <p class="eyebrow">Position</p>
+            <div class="mini-grid">
+              <div class="mini"><span>Quantity</span><strong>2,000</strong></div>
+              <div class="mini"><span>Value</span><strong>TWD 4.70M</strong></div>
+              <div class="mini"><span>Unrealized P&L</span><strong>+TWD 620K</strong></div>
+              <div class="mini"><span>Non-current</span><strong>No</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <p class="eyebrow">Reports data health</p>
+          <div class="health-grid">
+            <div class="health-card"><span>Holdings</span><strong>18</strong></div>
+            <div class="health-card"><span>Missing quotes</span><strong>0</strong></div>
+            <div class="health-card"><span>Provisional</span><strong>1</strong></div>
+            <div class="health-card"><span>Non-current prices</span><strong>2</strong></div>
+          </div>
+          <div class="tooltip-card">
+            <strong>Report row sample</strong>
+            A data-health filter includes delayed intraday and previous-close rows while keeping missing/provisional quote status separate.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mockup-frame section" id="admin-settings">
+      <div class="section-title">
+        <h2>Admin Settings</h2>
+        <span>One grouped ticker-price-freshness object at service/UI boundary</span>
+      </div>
+      <div class="card card-pad settings-grid">
+        <nav class="settings-nav" aria-label="Settings sections">
+          <button>Rate limits</button>
+          <button>Provider health</button>
+          <button class="active">Ticker price freshness</button>
+          <button>Route cache</button>
+          <button>Secrets</button>
+        </nav>
+        <div class="settings-panel">
+          <div class="toolbar">
+            <div>
+              <strong>Ticker price freshness</strong>
+              <div class="subtle" style="font-size: 12px;">Close refresh and intraday overlay settings</div>
+            </div>
+            <button class="button primary">Save changes</button>
+          </div>
+          <div class="setting-row">
+            <div><h4>Intraday refresh enabled</h4><p>Authenticated dashboard, portfolio, and ticker reads enqueue stale held tickers while markets are open.</p></div>
+            <div class="toggle" aria-label="Enabled"></div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Intraday refresh interval</h4><p>Frontend polling interval and overlay staleness check cadence.</p></div>
+            <div class="input-like">5 minutes</div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Freshness tolerance</h4><p>Bars older than this render delayed but still drive current price if same-day.</p></div>
+            <div class="input-like">20 minutes</div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Yahoo chart request budget</h4><p>Queue-level budget separate from existing AU/KR daily-provider budgets.</p></div>
+            <div class="input-like">60 requests / minute</div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Supported markets</h4><p>MVP enabled markets for intraday overlay and market-state summary.</p></div>
+            <div class="segmented"><button class="active">TW</button><button class="active">US</button><button class="active">AU</button><button class="active">KR</button></div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Yahoo chart interval / range</h4><p>Constrained to known-safe values for current MVP behavior.</p></div>
+            <div class="input-like">1m · 1d · includePrePost=false</div>
+          </div>
+          <div class="setting-row">
+            <div><h4>Post-close close refresh cap</h4><p>Run synchronously up to this count, queue larger batches.</p></div>
+            <div class="input-like">50 tickers</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

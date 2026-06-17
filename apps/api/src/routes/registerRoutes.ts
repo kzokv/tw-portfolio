@@ -29,6 +29,7 @@ import type {
   AiConnectorSummaryDto,
   AiConnectorScope,
   DashboardOverviewDto,
+  DashboardMarketStateDto,
   DashboardOverviewHoldingGroupDto,
   DashboardPerformanceRange,
   IntegrityIssueDto,
@@ -67,21 +68,27 @@ import { getEffectiveRouteCachePolicy } from "../services/appConfig/valuationHea
 import {
   buildExpectedSnapshotContributorKeysForTrades,
   buildOverviewMarketValues,
+  translateDailyCompatibleCurrentValue,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../services/dashboardReportingCurrency.js";
 import type { ImpersonationDto } from "@vakwen/shared-types";
 import { Env } from "@vakwen/config";
-import type { QuoteSnapshot } from "@vakwen/domain";
-import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "../services/market-data/quoteSnapshotService.js";
+import {
+  buildMissingPriceState,
+  resolveQuoteSnapshots,
+  type QuoteSnapshotPair,
+  type ResolvedQuoteSnapshot,
+} from "../services/market-data/quoteSnapshotService.js";
+import { enqueueDemandIntradayRefreshes } from "../services/market-data/intradayDemandRefresh.js";
+import { getRegularSessionState, isRegularSessionMarketCode } from "../services/market-data/marketRegularSession.js";
 import {
   listCorporateActions,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "../services/dashboard.js";
-import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
 import { buildValuationHealthSnapshotPerformance, buildValuationHealth } from "../services/valuationHealth.js";
 import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
@@ -138,6 +145,10 @@ import { getEffectiveAnonymousShareRateLimitWindowMs } from "../services/appConf
 import { APP_CONFIG_BOUNDS } from "../services/appConfig/bounds.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
+import { getEffectiveTickerPriceFreshnessConfig } from "../services/appConfig/tickerPriceFreshness.js";
+import { runCloseRefresh, type CloseRefreshResult } from "../services/market-data/closeRefreshService.js";
+import { enqueueCloseRefresh } from "../services/market-data/closeRefreshWorker.js";
+import { TwseStockDayCloseProvider, YahooChartCloseProvider } from "../services/market-data/providers/index.js";
 import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
 import { routeError } from "../lib/routeError.js";
 import { listMcpToolDefinitions } from "../mcp/tools.js";
@@ -173,6 +184,10 @@ import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../li
 import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
 import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
 import { _resetMarketDataSearchBuckets, assertMarketDataSearchRateLimit, registerMarketDataSearchEviction } from "../lib/marketDataSearchRateLimit.js";
+import {
+  assertTickerPriceRefreshCloseRateLimit,
+  registerTickerPriceRefreshCloseEviction,
+} from "../lib/tickerPriceRefreshCloseRateLimit.js";
 import { registerProviderErrorTrailPurge } from "../lib/providerErrorTrailPurge.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import { buildTickerDetails } from "../services/tickerDetails.js";
@@ -1874,6 +1889,126 @@ async function buildQuoteSnapshotInputs(
   return { pairs, settledByMarket };
 }
 
+async function resolveDisplayedQuoteSnapshotsForHeldPairs(
+  app: FastifyInstance,
+  store: Store,
+  tickers: ReadonlyArray<string>,
+  now: Date = new Date(),
+): Promise<Record<string, ResolvedQuoteSnapshot | null>> {
+  const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, tickers, now);
+  await enqueueDisplayedQuoteRefreshes(app, pairs, now);
+  return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket, {
+    mode: "displayed",
+    now,
+    tradingCalendar: app.tradingCalendarCache,
+    heldPairs: new Set(pairs
+      .filter((pair): pair is { ticker: string; marketCode: MarketCode } => pair.marketCode !== undefined)
+      .map((pair) => `${pair.ticker}:${pair.marketCode}`)),
+  });
+}
+
+async function enqueueDisplayedQuoteRefreshes(
+  app: FastifyInstance,
+  pairs: ReadonlyArray<QuoteSnapshotPair>,
+  now: Date = new Date(),
+): Promise<void> {
+  try {
+    await enqueueDemandIntradayRefreshes({
+      pairs,
+      boss: app.boss,
+      persistence: app.persistence,
+      tradingCalendar: app.tradingCalendarCache,
+      log: app.log,
+      now,
+    });
+  } catch (error) {
+    app.log.warn(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        pairCount: pairs.length,
+      },
+      "intraday_demand_refresh_failed_degrading_to_daily_bars",
+    );
+  }
+}
+
+async function enqueueDisplayedTickerRefresh(
+  app: FastifyInstance,
+  pair: { ticker: string; marketCode: MarketCode; now: Date },
+): Promise<void> {
+  await enqueueDisplayedQuoteRefreshes(app, [{ ticker: pair.ticker, marketCode: pair.marketCode }], pair.now);
+}
+
+async function buildDashboardHeldMarketStates(
+  app: FastifyInstance,
+  holdings: ReadonlyArray<{ marketCode: SharedMarketCode }>,
+  regularSessionOnly: boolean,
+  now: Date = new Date(),
+): Promise<DashboardMarketStateDto[]> {
+  const order: MarketCode[] = ["TW", "US", "AU", "KR"];
+  const marketCodes = [...new Set(holdings.map((holding) => holding.marketCode as MarketCode))]
+    .filter(isRegularSessionMarketCode)
+    .sort((left, right) => order.indexOf(left) - order.indexOf(right));
+
+  return Promise.all(marketCodes.map(async (marketCode) => {
+    const state = await getRegularSessionState(marketCode, app.tradingCalendarCache, now);
+    return {
+      marketCode,
+      marketState: state.isOpen ? "open" as const : "closed" as const,
+      asOf: now.toISOString(),
+      marketTimeZone: state.marketTimeZone,
+      regularSessionOnly,
+    };
+  }));
+}
+
+async function buildHeldMarketStatesForStoreHoldings(
+  app: FastifyInstance,
+  store: Store,
+  holdings: ReadonlyArray<{ accountId: string; quantity: number }>,
+  regularSessionOnly: boolean,
+  now: Date = new Date(),
+): Promise<DashboardMarketStateDto[]> {
+  const accountMarketById = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
+  return buildDashboardHeldMarketStates(
+    app,
+    holdings
+      .filter((holding) => holding.quantity > 0)
+      .flatMap((holding) => {
+        const marketCode = accountMarketById.get(holding.accountId);
+        return marketCode ? [{ marketCode }] : [];
+      }),
+    regularSessionOnly,
+    now,
+  );
+}
+
+function buildHeldTickerMarketPairsForCloseRefresh(
+  store: Store,
+  holdings: ReadonlyArray<{ ticker: string; accountId: string; quantity: number }>,
+): Array<{ ticker: string; marketCode: MarketCode }> {
+  const accountMarketById = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency) as MarketCode,
+  ]));
+  const instrumentKeys = new Set(store.instruments
+    .filter((instrument) => isInstrumentQuoteable(instrument))
+    .map((instrument) => `${instrument.ticker}:${instrument.marketCode}`));
+  const pairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const holding of holdings) {
+    if (holding.quantity <= 0) continue;
+    const marketCode = accountMarketById.get(holding.accountId);
+    if (!marketCode) continue;
+    const key = `${holding.ticker}:${marketCode}`;
+    if (!instrumentKeys.has(key)) continue;
+    pairs.set(key, { ticker: holding.ticker, marketCode });
+  }
+  return [...pairs.values()];
+}
+
 const reportQuerySchema = z.object({
   scope: z.enum(REPORT_SCOPES).optional(),
   currencyMode: z.enum(REPORT_CURRENCY_MODES).optional(),
@@ -2029,8 +2164,7 @@ function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
         quoteStatus: "missing" as const,
         nextDividendDate: null,
         lastDividendPostedDate: null,
-        freshness: "current" as const,
-        freshnessTooltip: null,
+        priceState: buildMissingPriceState(marketCode),
       };
     })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
@@ -2092,7 +2226,15 @@ async function buildDashboardPrimaryOverview(
       upcomingDividendCount: 0,
       upcomingDividendAmount: null,
       openIssueCount: integrityIssue ? 1 : 0,
+      priceStateRollup: {
+        holdingCount: holdings.length,
+        currentPriceCount: 0,
+        nonCurrentPriceCount: 0,
+        missingPriceCount: holdings.length,
+        basisCounts: [{ basis: "missing", count: holdings.length }],
+      },
     },
+    marketStates: [],
     fxRates: [],
     marketValues: [],
     holdings,
@@ -2134,6 +2276,7 @@ async function opportunisticUpsertDailyBars(
         low: bar.low,
         close: bar.close,
         volume: bar.volume,
+        quality: bar.quality,
         // KZO-163 D7: propagate DailyBar.source → RawDailyBar.sourceId so the
         // upsert preserves provider attribution. Without this the SQL fell back
         // to 'finmind' for every row, masking future multi-provider sources.
@@ -2269,6 +2412,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerAnonymousShareEviction(app);
   registerMarketDataPriceEviction(app);
   registerMarketDataSearchEviction(app);
+  registerTickerPriceRefreshCloseEviction(app);
   registerProviderErrorTrailPurge(app);
 
   app.post("/__e2e/reset", async (req) => {
@@ -4210,6 +4354,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .sort((left, right) => left.barDate.localeCompare(right.barDate))
         .map((bar) => ({
           ...bar,
+          quality: "full_bar" as const,
           // KZO-163 D7: forward provider's sourceId so KZO-164/170 providers report correctly.
           // Today every TW bar has sourceId='finmind'; the fallback preserves that behavior.
           source: bar.sourceId ?? "finmind",
@@ -4748,29 +4893,25 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
       const snapshotMap = await timing.measure("load_quotes", "db", async () => {
-        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+        return resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols);
       });
-      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
+      const marketStates = await timing.measure("build_market_states", "app", () =>
+        buildHeldMarketStatesForStoreHoldings(app, store, holdings, true));
+      const summaryAsOf = new Date().toISOString().slice(0, 10);
       const overview = await timing.measure("build_portfolio_page_data", "app", () =>
         Promise.resolve(buildDashboardOverview(store, {
           integrityIssue: null,
+          marketStates,
           quotes,
+          regularSessionOnly: true,
+          summaryAsOf,
         })));
-      if (app.tradingCalendarCache) {
-        try {
-          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
-            persistence: app.persistence,
-            tradingCalendar: app.tradingCalendarCache,
-          }));
-        } catch (err) {
-          app.log.warn({ err }, "portfolio_page_freshness_enrichment_failed");
-        }
-      }
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
         Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
 
       return {
+        settings: overview.settings,
         holdings: overview.holdings,
         holdingGroups,
         dividends: overview.dividends,
@@ -4821,6 +4962,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return {
+        settings: store.settings,
         holdings,
         holdingGroups: translatedHoldingGroups,
         fxRates,
@@ -4848,28 +4990,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
       const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        (async () => {
-          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-        })(),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
         app.persistence.getUserPreferences(userId),
       ]));
-      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
+      const marketStates = await timing.measure("build_market_states", "app", () =>
+        buildHeldMarketStatesForStoreHoldings(app, store, holdings, true));
+      const summaryAsOf = new Date().toISOString().slice(0, 10);
       const overview = await timing.measure("build_portfolio_enrichment", "app", () =>
         Promise.resolve(buildDashboardOverview(store, {
           integrityIssue: null,
+          marketStates,
           quotes,
+          regularSessionOnly: true,
+          summaryAsOf,
         })));
-      if (app.tradingCalendarCache) {
-        try {
-          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
-            persistence: app.persistence,
-            tradingCalendar: app.tradingCalendarCache,
-          }));
-        } catch (err) {
-          app.log.warn({ err }, "portfolio_enrichment_freshness_failed");
-        }
-      }
       const reportingCurrency = resolveReportingCurrency(prefs);
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
@@ -4899,6 +5034,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ));
 
       return {
+        settings: overview.settings,
         holdings: overview.holdings,
         holdingGroups: translatedHoldingGroups,
         fxRates,
@@ -4911,6 +5047,77 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         integrityIssue: getStoreIntegrityIssue(store),
       };
     });
+  });
+
+  app.post("/portfolio/refresh-closes", async (req, reply): Promise<CloseRefreshResult> => {
+    const { store, userId } = await loadUserStore(app, req);
+    assertTickerPriceRefreshCloseRateLimit(`user:${userId}`);
+    assertTickerPriceRefreshCloseRateLimit(`ip:${req.ip}`);
+
+    const holdings = listHoldings(store, userId);
+    const pairs = buildHeldTickerMarketPairsForCloseRefresh(store, holdings);
+    const config = getEffectiveTickerPriceFreshnessConfig();
+    const shouldQueueAll = pairs.length > config.syncTickerCap;
+    const syncPairs = shouldQueueAll ? [] : pairs;
+    const queuedPairs = shouldQueueAll ? pairs : [];
+    const fallbackProviders = {
+      twseStockDay: new TwseStockDayCloseProvider(),
+      ...(app.tickerPriceChartRequestBudget
+        ? {
+            yahooChartClose: new YahooChartCloseProvider({
+              range: config.yahooChartRange,
+              interval: config.yahooChartInterval,
+              persistence: app.persistence,
+              requestBudget: app.tickerPriceChartRequestBudget,
+            }),
+          }
+        : {}),
+    };
+
+    const result = await runCloseRefresh({
+      pairs: syncPairs,
+      persistence: app.persistence,
+      tradingCalendar: app.tradingCalendarCache,
+      marketDataProviders: app.marketDataRegistry.marketData,
+      fallbackProviders,
+      upsertBars: (bars, marketCode) => opportunisticUpsertDailyBars(app, bars, marketCode),
+      closeRefreshGraceMinutes: config.closeRefreshGraceMinutes,
+      supportedMarkets: config.supportedMarkets,
+      log: app.log,
+    });
+
+    for (const pair of queuedPairs) {
+      const jobId = await enqueueCloseRefresh(app.boss, {
+        ticker: pair.ticker,
+        marketCode: pair.marketCode,
+        requestedAt: new Date().toISOString(),
+      });
+      if (!jobId) {
+        result.items.push({
+          ticker: pair.ticker,
+          marketCode: pair.marketCode,
+          status: "failed",
+          barDate: null,
+          source: null,
+          quality: null,
+          error: "close_refresh_queue_unavailable",
+        });
+        result.summary.failed += 1;
+        continue;
+      }
+      result.items.push({
+        ticker: pair.ticker,
+        marketCode: pair.marketCode,
+        status: "queued",
+        barDate: null,
+        source: null,
+        quality: null,
+      });
+      result.summary.queued += 1;
+    }
+
+    reply.header("Cache-Control", "no-store");
+    return result;
   });
 
   app.get("/portfolio/instrument-index", async (req, reply) => {
@@ -4949,6 +5156,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
     return {
       identity: details.identity,
@@ -4990,6 +5199,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
     const latestFundamentals = preferredMarketCode === marketCode
       ? fundamentalsRecord
@@ -5061,6 +5272,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
 
     const latestFundamentals = preferredMarketCode === marketCode
@@ -5111,28 +5324,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
       const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        (async () => {
-          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-        })(),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
         app.persistence.getUserPreferences(userId),
       ]));
-      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
 
+      const marketStates = await timing.measure("build_market_states", "app", () =>
+        buildHeldMarketStatesForStoreHoldings(app, store, holdings, true));
+      const summaryAsOf = new Date().toISOString().slice(0, 10);
       const overview = await timing.measure("build_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
         integrityIssue: getStoreIntegrityIssue(store),
+        marketStates,
         quotes,
+        regularSessionOnly: true,
+        summaryAsOf,
       })));
-      if (app.tradingCalendarCache) {
-        try {
-          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
-            persistence: app.persistence,
-            tradingCalendar: app.tradingCalendarCache,
-          }));
-        } catch (err) {
-          app.log.warn({ err }, "dashboard_freshness_enrichment_failed");
-        }
-      }
       const reportingCurrency = resolveReportingCurrency(prefs);
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const translatedSummary = await timing.measure("translate_summary", "db", () => translateOverviewSummary(
@@ -5163,6 +5369,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
+      const dailyCompatibleCurrentValueAmount = await timing.measure("daily_compatible_current_value", "db", () =>
+        translateDailyCompatibleCurrentValue(
+          translatedHoldingGroups,
+          quotes,
+          reportingCurrency,
+          overview.summary.asOf,
+          app.persistence,
+        ));
       const valuationPerformance = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health_performance", "db", () =>
             buildValuationHealthSnapshotPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
@@ -5174,7 +5388,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               userId,
               store,
               reportingCurrency,
-              currentValueAmount: translatedSummary.marketValueAmount,
+              currentValueAmount: dailyCompatibleCurrentValueAmount,
               holdingGroups: translatedHoldingGroups,
               performance: valuationPerformance!,
               asOf: overview.summary.asOf,
@@ -5182,6 +5396,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         : undefined;
       return {
         ...overview,
+        marketStates,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
@@ -5212,28 +5427,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
       const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        (async () => {
-          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-        })(),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
         app.persistence.getUserPreferences(userId),
       ]));
-      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
 
+      const marketStates = await timing.measure("build_market_states", "app", () =>
+        buildHeldMarketStatesForStoreHoldings(app, store, holdings, true));
+      const summaryAsOf = new Date().toISOString().slice(0, 10);
       const overview = await timing.measure("build_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
         integrityIssue: getStoreIntegrityIssue(store),
+        marketStates,
         quotes,
+        regularSessionOnly: true,
+        summaryAsOf,
       })));
-      if (app.tradingCalendarCache) {
-        try {
-          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
-            persistence: app.persistence,
-            tradingCalendar: app.tradingCalendarCache,
-          }));
-        } catch (err) {
-          app.log.warn({ err }, "dashboard_enrichment_freshness_failed");
-        }
-      }
       const reportingCurrency = resolveReportingCurrency(prefs);
       const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
       const translatedSummary = await timing.measure("translate_summary", "db", () => translateOverviewSummary(
@@ -5264,6 +5472,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reportingCurrency,
           overview.summary.asOf,
         ));
+      const dailyCompatibleCurrentValueAmount = await timing.measure("daily_compatible_current_value", "db", () =>
+        translateDailyCompatibleCurrentValue(
+          translatedHoldingGroups,
+          quotes,
+          reportingCurrency,
+          overview.summary.asOf,
+          app.persistence,
+        ));
       const valuationPerformance = translatedHoldingGroups.length > 0
         ? await timing.measure("valuation_health_performance", "db", () =>
             buildValuationHealthSnapshotPerformance(app, userId, store, reportingCurrency, overview.summary.asOf))
@@ -5275,7 +5491,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               userId,
               store,
               reportingCurrency,
-              currentValueAmount: translatedSummary.marketValueAmount,
+              currentValueAmount: dailyCompatibleCurrentValueAmount,
               holdingGroups: translatedHoldingGroups,
               performance: valuationPerformance!,
               asOf: overview.summary.asOf,
@@ -5283,6 +5499,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         : undefined;
       return {
         ...overview,
+        marketStates,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),

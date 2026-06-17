@@ -68,6 +68,7 @@ import {
   HoldingsGridDesktopFrame,
   HoldingsGridEmptyState,
 } from "../holdings/HoldingsGrid";
+import { PriceStateChip } from "../holdings/PriceStateChip";
 import {
   holdingsFinanceToneClass,
   holdingsInfoBadgeClassName,
@@ -79,6 +80,7 @@ import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
+import { getPriceState, isNonCurrentPrice, priceStateSortRank } from "../../features/price-state/priceState";
 import {
   REPORT_TABS,
   parseReportRouteState,
@@ -694,7 +696,7 @@ function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto;
     [dict.holdings.dataHealthMissingQuoteCount, dataHealth.missingQuoteCount],
     [dict.holdings.dataHealthProvisionalQuoteCount, dataHealth.provisionalQuoteCount],
     [dict.holdings.dataHealthMissingFxCount, dataHealth.missingFxCount],
-    [dict.holdings.dataHealthStaleQuoteCount, dataHealth.staleQuoteCount],
+    [dict.holdings.dataHealthNonCurrentPriceCount, dataHealth.nonCurrentPriceCount],
   ];
   return (
     <Card>
@@ -1428,7 +1430,7 @@ function ReportHoldingTableCell({
       <TableCell className={className} style={style}>
         <div className="flex min-w-0 flex-col gap-1">
           <Badge variant="outline" className="w-fit">{row.marketCode}</Badge>
-          <span className="text-xs text-muted-foreground">{dict.holdings[row.freshness === "current" ? "freshnessCurrent" : row.freshness === "stale_amber" ? "freshnessStale" : "freshnessDelayed"]}</span>
+          <span className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })}</span>
         </div>
       </TableCell>
     );
@@ -1500,7 +1502,7 @@ function ReportHoldingTableCell({
       className={className}
       style={style}
     >
-      <HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness />
+      <HoldingsDataHealthBadges dict={dict} locale={locale} row={row} showCurrentFreshness />
     </TableCell>
   );
 }
@@ -1568,7 +1570,7 @@ function applyReportHoldingPreset(
   preset: ReportHoldingFocusPreset,
 ): ReportHoldingRowDto[] {
   if (preset === "stale-quotes") {
-    return rows.filter((row) => row.quoteStatus !== "current" || row.freshness !== "current");
+    return rows.filter((row) => isNonCurrentPrice(row));
   }
   if (preset === "fx-exposure") {
     return rows.filter((row) => row.nativeCurrency !== row.reportingCurrency);
@@ -1583,7 +1585,7 @@ function compareReportHoldingRows(
   selectedPreset: ReportHoldingFocusPreset,
 ): number {
   if (selectedPreset === "stale-quotes") {
-    const freshnessRankDiff = reportFreshnessSortRank(right) - reportFreshnessSortRank(left);
+    const freshnessRankDiff = priceStateSortRank(right) - priceStateSortRank(left);
     if (freshnessRankDiff !== 0) return freshnessRankDiff;
   }
   if (sortMode === "ticker") {
@@ -1606,14 +1608,6 @@ function compareReportHoldingRows(
   }
   return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
-}
-
-function reportFreshnessSortRank(row: ReportHoldingRowDto): number {
-  if (row.quoteStatus === "missing") return 4;
-  if (row.freshness === "stale_red") return 3;
-  if (row.freshness === "stale_amber") return 2;
-  if (row.quoteStatus === "provisional") return 1;
-  return 0;
 }
 
 function isReportHoldingFocusPreset(value: string): value is ReportHoldingFocusPreset {
@@ -1721,7 +1715,7 @@ function ReportMobileColumnMetric({
           locale={locale}
           value={null}
           currency={row.reportingCurrency}
-          valueOverride={<span className="flex flex-wrap gap-1.5"><HoldingsDataHealthBadges dict={dict} row={row} showCurrentFreshness /></span>}
+          valueOverride={<span className="flex flex-wrap gap-1.5"><HoldingsDataHealthBadges dict={dict} locale={locale} row={row} showCurrentFreshness /></span>}
         />
       );
     case "ticker":
@@ -1872,6 +1866,7 @@ function PriceDisclosure({
   row: ReportHoldingRowDto;
 }) {
   const hasNativeDisclosure = row.nativeCurrency !== row.reportingCurrency;
+  const priceState = getPriceState(row);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1884,6 +1879,7 @@ function PriceDisclosure({
           <span className="font-semibold">
             {formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)}
           </span>
+          {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`reports-price-state-${row.ticker}-${row.marketCode}`} /> : null}
           {hasNativeDisclosure ? (
             <span className="text-xs text-muted-foreground">
               {dict.reports.nativePrice} {formatOptionalNativePrice(row, locale)}

@@ -1,4 +1,4 @@
-import { getJson, postJson } from "../../../lib/api";
+import { getJson, postJson, postNoBody } from "../../../lib/api";
 import type {
   AccountDto,
   DashboardOverviewDto,
@@ -9,6 +9,7 @@ import type {
   MarketCode,
   TransactionPrimaryDto,
   TransactionHistoryItemDto,
+  UserSettings,
 } from "@vakwen/shared-types";
 import type { IntegrityIssue } from "../../dashboard/types";
 import type { TransactionInput } from "../../../components/portfolio/types";
@@ -38,6 +39,7 @@ export type PortfolioPageData = Pick<
   DashboardOverviewDto,
   "holdings" | "holdingGroups" | "dividends" | "instruments" | "fxRates"
 > & {
+  settings?: UserSettings;
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
@@ -50,6 +52,19 @@ export interface MarketDataPriceResponse {
   source: string;
   match: "exact" | "previous";
   reason?: "weekend" | "no_bar";
+}
+
+export interface RefreshClosesResponse {
+  items: Array<{
+    ticker: string;
+    marketCode: MarketCode;
+    status: "refreshed" | "current" | "not_eligible" | "missing" | "failed" | "queued";
+    barDate: string | null;
+    source: string | null;
+    quality: "full_bar" | "close_only" | null;
+    error?: string;
+  }>;
+  summary: Record<RefreshClosesResponse["items"][number]["status"], number>;
 }
 
 export interface TransactionEstimateInput {
@@ -124,6 +139,10 @@ export async function fetchPortfolioPrimaryData(): Promise<PortfolioPageData> {
 
 export async function fetchPortfolioEnrichmentData(): Promise<PortfolioPageData> {
   return getJson<PortfolioPageData>("/portfolio/enrichment");
+}
+
+export async function refreshPortfolioCloses(): Promise<RefreshClosesResponse> {
+  return postNoBody<RefreshClosesResponse>("/portfolio/refresh-closes");
 }
 
 export async function fetchPortfolioInstrumentIndex(): Promise<PortfolioInstrumentIndexResponse> {

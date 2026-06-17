@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
 import type { DailyReviewReportDto, PortfolioReportDto } from "@vakwen/shared-types";
 import { ReportsClient } from "../../../components/reports/ReportsClient";
 import { parseReportRouteState, type ReportRouteState } from "../../../features/reports/reportState";
+import { testPriceState } from "../../fixtures/priceState";
 
 const refreshMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
@@ -242,7 +243,7 @@ const fixture: DailyReviewReportDto = {
     missingQuoteCount: 0,
     provisionalQuoteCount: 0,
     missingFxCount: 0,
-    staleQuoteCount: 0,
+    nonCurrentPriceCount: 0,
   },
   diagnostics: {
     scope: "all",
@@ -256,7 +257,7 @@ const fixture: DailyReviewReportDto = {
     staleSinceDate: null,
     missingQuoteCount: 0,
     provisionalQuoteCount: 0,
-    staleQuoteCount: 0,
+    nonCurrentPriceCount: 0,
     missingFxCount: 0,
     missingProviderSourceCount: 0,
     markets: [],
@@ -297,7 +298,7 @@ const fixture: DailyReviewReportDto = {
       dailyChangePercent: 0.8,
       quoteStatus: "current",
       fxStatus: "complete",
-      freshness: "current",
+      priceState: testPriceState(),
     }],
   },
 };

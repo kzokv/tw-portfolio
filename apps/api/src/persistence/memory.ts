@@ -20,7 +20,13 @@ import type {
   MarketDataFacts,
   Store,
 } from "../types/store.js";
-import type { DailyBar, DailyBarWithMarket, InstrumentType, MarketCode } from "@vakwen/domain";
+import type {
+  DailyBar,
+  DailyBarWithMarket,
+  InstrumentType,
+  IntradayPriceOverlay,
+  MarketCode,
+} from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
@@ -234,7 +240,7 @@ interface MemoryInstrument {
 }
 
 type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
-type SeedDailyBar = DailyBar & { marketCode?: MarketCode };
+type SeedDailyBar = Omit<DailyBar, "quality"> & { quality?: DailyBar["quality"]; marketCode?: MarketCode };
 
 interface MemoryTickerFundamentalsRecord {
   ticker: string;
@@ -459,6 +465,7 @@ export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
   private readonly dailyBars: MemoryDailyBar[] = [];
+  private readonly intradayOverlays = new Map<string, IntradayPriceOverlay>();
   private readonly tickerFundamentals = new Map<string, MemoryTickerFundamentalsRecord>();
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
@@ -536,7 +543,7 @@ export class MemoryPersistence implements Persistence {
   private _twelveDataApiKeyEncrypted: string | null = null;
   private _mcpOauthTokenSecretEncrypted: string | null = null;
   /** KZO-198: Tier 1/2 plain overrides — keyed by AppConfigPlainField. */
-  private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, number | null>> = {};
+  private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, import("./types.js").AppConfigPlainValue>> = {};
   /** KZO-196: AU GICS sync cron override. null = use Env.ASX_GICS_REFRESH_CRON. */
   private _asxGicsRefreshCron: string | null = null;
   /** KZO-199: Tier 2 SQL-only override for anonymous-share retention window.
@@ -2971,6 +2978,33 @@ export class MemoryPersistence implements Persistence {
     return result;
   }
 
+  async getLatestIntradayOverlay(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<IntradayPriceOverlay | null> {
+    return this.intradayOverlays.get(`${ticker}:${marketCode}`) ?? null;
+  }
+
+  async getLatestIntradayOverlays(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, IntradayPriceOverlay>> {
+    const overlays = new Map<string, IntradayPriceOverlay>();
+    for (const pair of pairs) {
+      const key = `${pair.ticker}:${pair.marketCode}`;
+      const overlay = this.intradayOverlays.get(key);
+      if (overlay) overlays.set(key, overlay);
+    }
+    return overlays;
+  }
+
+  async setLatestIntradayOverlay(overlay: IntradayPriceOverlay): Promise<void> {
+    this.intradayOverlays.set(`${overlay.ticker}:${overlay.marketCode}`, overlay);
+  }
+
+  async deleteLatestIntradayOverlay(ticker: string, marketCode: MarketCode): Promise<void> {
+    this.intradayOverlays.delete(`${ticker}:${marketCode}`);
+  }
+
   async getLatestBarDatesByTickerMarket(
     pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
   ): Promise<Map<string, string | null>> {
@@ -3004,7 +3038,11 @@ export class MemoryPersistence implements Persistence {
   }
 
   _seedDailyBars(bars: SeedDailyBar[]): void {
-    this.dailyBars.push(...bars.map((bar) => ({ ...bar, marketCode: bar.marketCode ?? "TW" })));
+    this.dailyBars.push(...bars.map((bar) => ({
+      ...bar,
+      marketCode: bar.marketCode ?? "TW",
+      quality: bar.quality ?? "full_bar",
+    })));
   }
   _clearDailyBars(): void { this.dailyBars.length = 0; }
   _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
@@ -4215,6 +4253,20 @@ export class MemoryPersistence implements Persistence {
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
+    tickerPriceCloseRefreshGraceMinutes: number | null;
+    tickerPriceIntradayEnabled: boolean | null;
+    tickerPriceIntradayRefreshIntervalMinutes: number | null;
+    tickerPriceIntradayFreshnessToleranceMinutes: number | null;
+    tickerPriceYahooChartRequestLimitPerMinute: number | null;
+    tickerPriceQueueConcurrency: number | null;
+    tickerPriceMaxTickersPerRefreshCycle: number | null;
+    tickerPriceSupportedMarkets: import("@vakwen/shared-types").MarketCode[] | null;
+    tickerPriceRegularSessionOnly: boolean | null;
+    tickerPriceYahooChartRange: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null;
+    tickerPriceYahooChartInterval: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null;
+    tickerPriceRefreshCloseRateLimitWindowMs: number | null;
+    tickerPriceRefreshCloseRateLimitMax: number | null;
+    tickerPriceSyncTickerCap: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -4245,6 +4297,16 @@ export class MemoryPersistence implements Persistence {
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
+    const numberOrNull = (value: import("./types.js").AppConfigPlainValue | undefined): number | null =>
+      typeof value === "number" ? value : null;
+    const booleanOrNull = (value: import("./types.js").AppConfigPlainValue | undefined): boolean | null =>
+      typeof value === "boolean" ? value : null;
+    const marketsOrNull = (
+      value: import("./types.js").AppConfigPlainValue | undefined,
+    ): import("@vakwen/shared-types").MarketCode[] | null =>
+      Array.isArray(value) ? [...value] : null;
+    const textOrNull = (value: import("./types.js").AppConfigPlainValue | undefined): string | null =>
+      typeof value === "string" ? value : null;
     return {
       repairCooldownMinutes: this._repairCooldownMinutes,
       dashboardPerformanceRanges: this._dashboardPerformanceRanges
@@ -4254,54 +4316,68 @@ export class MemoryPersistence implements Persistence {
       finmindApiTokenEncrypted: this._finmindApiTokenEncrypted,
       twelveDataApiKeyEncrypted: this._twelveDataApiKeyEncrypted,
       mcpOauthTokenSecretEncrypted: this._mcpOauthTokenSecretEncrypted,
-      marketDataPriceWindowMs: p.marketDataPriceWindowMs ?? null,
-      marketDataPriceLimit: p.marketDataPriceLimit ?? null,
-      marketDataSearchWindowMs: p.marketDataSearchWindowMs ?? null,
-      marketDataSearchLimit: p.marketDataSearchLimit ?? null,
-      inviteStatusWindowMs: p.inviteStatusWindowMs ?? null,
-      inviteStatusLimit: p.inviteStatusLimit ?? null,
-      providerDownNotificationSuppressionMs: p.providerDownNotificationSuppressionMs ?? null,
-      providerErrorTrailRetentionDays: p.providerErrorTrailRetentionDays ?? null,
-      providerRerunCooldownMs: p.providerRerunCooldownMs ?? null,
+      marketDataPriceWindowMs: numberOrNull(p.marketDataPriceWindowMs),
+      marketDataPriceLimit: numberOrNull(p.marketDataPriceLimit),
+      marketDataSearchWindowMs: numberOrNull(p.marketDataSearchWindowMs),
+      marketDataSearchLimit: numberOrNull(p.marketDataSearchLimit),
+      inviteStatusWindowMs: numberOrNull(p.inviteStatusWindowMs),
+      inviteStatusLimit: numberOrNull(p.inviteStatusLimit),
+      providerDownNotificationSuppressionMs: numberOrNull(p.providerDownNotificationSuppressionMs),
+      providerErrorTrailRetentionDays: numberOrNull(p.providerErrorTrailRetentionDays),
+      providerRerunCooldownMs: numberOrNull(p.providerRerunCooldownMs),
       // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
-      yahooAuRerunCooldownMs: p.yahooAuRerunCooldownMs ?? null,
-      providerFixerDangerousMatchThreshold: p.providerFixerDangerousMatchThreshold ?? null,
-      providerFixerPreviewSampleLimit: p.providerFixerPreviewSampleLimit ?? null,
-      providerFixerUiPageSize: p.providerFixerUiPageSize ?? null,
-      providerFixerAutoPauseFailuresPerMinute: p.providerFixerAutoPauseFailuresPerMinute ?? null,
-      providerFixerPreviewTokenTtlMinutes: p.providerFixerPreviewTokenTtlMinutes ?? null,
-      providerOperationAutoRenewIntervalMinutes: p.providerOperationAutoRenewIntervalMinutes ?? null,
-      providerIncidentRecurrenceWindowMinutes: p.providerIncidentRecurrenceWindowMinutes ?? null,
-      providerHealthWarningUnresolvedThreshold: p.providerHealthWarningUnresolvedThreshold ?? null,
-      providerHealthCriticalUnresolvedThreshold: p.providerHealthCriticalUnresolvedThreshold ?? null,
-      providerOperationStaleHeartbeatMinutes: p.providerOperationStaleHeartbeatMinutes ?? null,
-      providerOperationSummaryRetentionDays: p.providerOperationSummaryRetentionDays ?? null,
-      providerOperationLogRetentionDays: p.providerOperationLogRetentionDays ?? null,
-      providerIncidentRetentionDays: p.providerIncidentRetentionDays ?? null,
-      providerResolvedItemRetentionDays: p.providerResolvedItemRetentionDays ?? null,
-      finmindProviderRateLimitPerHour: p.finmindProviderRateLimitPerHour ?? null,
-      twelveDataProviderRateLimitPerMinute: p.twelveDataProviderRateLimitPerMinute ?? null,
-      yahooAuProviderRateLimitPerMinute: p.yahooAuProviderRateLimitPerMinute ?? null,
-      yahooKrProviderRateLimitPerMinute: p.yahooKrProviderRateLimitPerMinute ?? null,
-      frankfurterProviderRateLimitPerMinute: p.frankfurterProviderRateLimitPerMinute ?? null,
-      asxGicsProviderRateLimitPerHour: p.asxGicsProviderRateLimitPerHour ?? null,
-      backfillRetryLimit: p.backfillRetryLimit ?? null,
-      backfillRetryDelaySeconds: p.backfillRetryDelaySeconds ?? null,
-      backfillFinmind402RetryMs: p.backfillFinmind402RetryMs ?? null,
-      dailyRefreshLookbackDays: p.dailyRefreshLookbackDays ?? null,
-      dailyRefreshPriority: p.dailyRefreshPriority ?? null,
-      sseHeartbeatIntervalMs: p.sseHeartbeatIntervalMs ?? null,
-      sseMaxConnectionsPerUser: p.sseMaxConnectionsPerUser ?? null,
-      sseBufferDefaultTtlMs: p.sseBufferDefaultTtlMs ?? null,
-      catalogAbsenceThreshold: p.catalogAbsenceThreshold ?? null,
-      catalogAbsenceGuardPercent: p.catalogAbsenceGuardPercent ?? null,
-      catalogAbsenceGuardFloor: p.catalogAbsenceGuardFloor ?? null,
+      yahooAuRerunCooldownMs: numberOrNull(p.yahooAuRerunCooldownMs),
+      providerFixerDangerousMatchThreshold: numberOrNull(p.providerFixerDangerousMatchThreshold),
+      providerFixerPreviewSampleLimit: numberOrNull(p.providerFixerPreviewSampleLimit),
+      providerFixerUiPageSize: numberOrNull(p.providerFixerUiPageSize),
+      providerFixerAutoPauseFailuresPerMinute: numberOrNull(p.providerFixerAutoPauseFailuresPerMinute),
+      providerFixerPreviewTokenTtlMinutes: numberOrNull(p.providerFixerPreviewTokenTtlMinutes),
+      providerOperationAutoRenewIntervalMinutes: numberOrNull(p.providerOperationAutoRenewIntervalMinutes),
+      providerIncidentRecurrenceWindowMinutes: numberOrNull(p.providerIncidentRecurrenceWindowMinutes),
+      providerHealthWarningUnresolvedThreshold: numberOrNull(p.providerHealthWarningUnresolvedThreshold),
+      providerHealthCriticalUnresolvedThreshold: numberOrNull(p.providerHealthCriticalUnresolvedThreshold),
+      providerOperationStaleHeartbeatMinutes: numberOrNull(p.providerOperationStaleHeartbeatMinutes),
+      providerOperationSummaryRetentionDays: numberOrNull(p.providerOperationSummaryRetentionDays),
+      providerOperationLogRetentionDays: numberOrNull(p.providerOperationLogRetentionDays),
+      providerIncidentRetentionDays: numberOrNull(p.providerIncidentRetentionDays),
+      providerResolvedItemRetentionDays: numberOrNull(p.providerResolvedItemRetentionDays),
+      finmindProviderRateLimitPerHour: numberOrNull(p.finmindProviderRateLimitPerHour),
+      twelveDataProviderRateLimitPerMinute: numberOrNull(p.twelveDataProviderRateLimitPerMinute),
+      yahooAuProviderRateLimitPerMinute: numberOrNull(p.yahooAuProviderRateLimitPerMinute),
+      yahooKrProviderRateLimitPerMinute: numberOrNull(p.yahooKrProviderRateLimitPerMinute),
+      frankfurterProviderRateLimitPerMinute: numberOrNull(p.frankfurterProviderRateLimitPerMinute),
+      asxGicsProviderRateLimitPerHour: numberOrNull(p.asxGicsProviderRateLimitPerHour),
+      backfillRetryLimit: numberOrNull(p.backfillRetryLimit),
+      backfillRetryDelaySeconds: numberOrNull(p.backfillRetryDelaySeconds),
+      backfillFinmind402RetryMs: numberOrNull(p.backfillFinmind402RetryMs),
+      tickerPriceCloseRefreshGraceMinutes: numberOrNull(p.tickerPriceCloseRefreshGraceMinutes),
+      tickerPriceIntradayEnabled: booleanOrNull(p.tickerPriceIntradayEnabled),
+      tickerPriceIntradayRefreshIntervalMinutes: numberOrNull(p.tickerPriceIntradayRefreshIntervalMinutes),
+      tickerPriceIntradayFreshnessToleranceMinutes: numberOrNull(p.tickerPriceIntradayFreshnessToleranceMinutes),
+      tickerPriceYahooChartRequestLimitPerMinute: numberOrNull(p.tickerPriceYahooChartRequestLimitPerMinute),
+      tickerPriceQueueConcurrency: numberOrNull(p.tickerPriceQueueConcurrency),
+      tickerPriceMaxTickersPerRefreshCycle: numberOrNull(p.tickerPriceMaxTickersPerRefreshCycle),
+      tickerPriceSupportedMarkets: marketsOrNull(p.tickerPriceSupportedMarkets),
+      tickerPriceRegularSessionOnly: booleanOrNull(p.tickerPriceRegularSessionOnly),
+      tickerPriceYahooChartRange: textOrNull(p.tickerPriceYahooChartRange) as import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null,
+      tickerPriceYahooChartInterval: textOrNull(p.tickerPriceYahooChartInterval) as import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null,
+      tickerPriceRefreshCloseRateLimitWindowMs: numberOrNull(p.tickerPriceRefreshCloseRateLimitWindowMs),
+      tickerPriceRefreshCloseRateLimitMax: numberOrNull(p.tickerPriceRefreshCloseRateLimitMax),
+      tickerPriceSyncTickerCap: numberOrNull(p.tickerPriceSyncTickerCap),
+      dailyRefreshLookbackDays: numberOrNull(p.dailyRefreshLookbackDays),
+      dailyRefreshPriority: numberOrNull(p.dailyRefreshPriority),
+      sseHeartbeatIntervalMs: numberOrNull(p.sseHeartbeatIntervalMs),
+      sseMaxConnectionsPerUser: numberOrNull(p.sseMaxConnectionsPerUser),
+      sseBufferDefaultTtlMs: numberOrNull(p.sseBufferDefaultTtlMs),
+      catalogAbsenceThreshold: numberOrNull(p.catalogAbsenceThreshold),
+      catalogAbsenceGuardPercent: numberOrNull(p.catalogAbsenceGuardPercent),
+      catalogAbsenceGuardFloor: numberOrNull(p.catalogAbsenceGuardFloor),
       // KZO-196 — AU GICS sync cron override (NULL = use env default).
       asxGicsRefreshCron: this._asxGicsRefreshCron ?? null,
       // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
-      anonymousShareTokenCap: p.anonymousShareTokenCap ?? null,
-      anonymousShareRateLimitMax: p.anonymousShareRateLimitMax ?? null,
-      anonymousShareRateLimitWindowMs: p.anonymousShareRateLimitWindowMs ?? null,
+      anonymousShareTokenCap: numberOrNull(p.anonymousShareTokenCap),
+      anonymousShareRateLimitMax: numberOrNull(p.anonymousShareRateLimitMax),
+      anonymousShareRateLimitWindowMs: numberOrNull(p.anonymousShareRateLimitWindowMs),
       // KZO-199 — Tier 2 (DB+SQL only). Memory persistence doesn't surface a
       // setter for these; they always resolve null and the resolver layer
       // falls back to env. Postgres backend exposes them via direct SQL.
@@ -4309,31 +4385,31 @@ export class MemoryPersistence implements Persistence {
       userPreferencesMaxBytes: this._userPreferencesMaxBytes ?? null,
       // ui-enhancement — Tier B account-soft-delete grace period (uses the
       // plain-fields map; setAppConfigField/Patch route through it).
-      accountHardPurgeDays: p.accountHardPurgeDays ?? null,
-      valuationHealthRelativeBps: p.valuationHealthRelativeBps ?? null,
-      valuationHealthAbsoluteAud: p.valuationHealthAbsoluteAud ?? null,
-      valuationHealthAbsoluteUsd: p.valuationHealthAbsoluteUsd ?? null,
-      valuationHealthAbsoluteTwd: p.valuationHealthAbsoluteTwd ?? null,
-      valuationHealthAbsoluteKrw: p.valuationHealthAbsoluteKrw ?? null,
+      accountHardPurgeDays: numberOrNull(p.accountHardPurgeDays),
+      valuationHealthRelativeBps: numberOrNull(p.valuationHealthRelativeBps),
+      valuationHealthAbsoluteAud: numberOrNull(p.valuationHealthAbsoluteAud),
+      valuationHealthAbsoluteUsd: numberOrNull(p.valuationHealthAbsoluteUsd),
+      valuationHealthAbsoluteTwd: numberOrNull(p.valuationHealthAbsoluteTwd),
+      valuationHealthAbsoluteKrw: numberOrNull(p.valuationHealthAbsoluteKrw),
       routeCachePolicyMode: this._routeCachePolicyMode,
-      routeCacheDashboardPrimaryTtlMs: p.routeCacheDashboardPrimaryTtlMs ?? null,
-      routeCacheDashboardEnrichmentTtlMs: p.routeCacheDashboardEnrichmentTtlMs ?? null,
-      routeCacheDashboardPerformanceTtlMs: p.routeCacheDashboardPerformanceTtlMs ?? null,
-      routeCachePortfolioTtlMs: p.routeCachePortfolioTtlMs ?? null,
-      routeCacheReportsTtlMs: p.routeCacheReportsTtlMs ?? null,
-      routeCacheStaleUsableTtlMs: p.routeCacheStaleUsableTtlMs ?? null,
+      routeCacheDashboardPrimaryTtlMs: numberOrNull(p.routeCacheDashboardPrimaryTtlMs),
+      routeCacheDashboardEnrichmentTtlMs: numberOrNull(p.routeCacheDashboardEnrichmentTtlMs),
+      routeCacheDashboardPerformanceTtlMs: numberOrNull(p.routeCacheDashboardPerformanceTtlMs),
+      routeCachePortfolioTtlMs: numberOrNull(p.routeCachePortfolioTtlMs),
+      routeCacheReportsTtlMs: numberOrNull(p.routeCacheReportsTtlMs),
+      routeCacheStaleUsableTtlMs: numberOrNull(p.routeCacheStaleUsableTtlMs),
       updatedAt: this._appConfigUpdatedAt,
     };
   }
 
   async setAppConfigField(
     field: import("./types.js").AppConfigPlainField,
-    value: number | null,
+    value: import("./types.js").AppConfigPlainValue,
   ): Promise<void> {
     if (value === null) {
       delete this._appConfigPlain[field];
     } else {
-      this._appConfigPlain[field] = value;
+      this._appConfigPlain[field] = Array.isArray(value) ? [...value] : value;
     }
     this._bumpAppConfigUpdatedAt();
   }
@@ -4369,7 +4445,7 @@ export class MemoryPersistence implements Persistence {
         if (value === null) {
           delete this._appConfigPlain[key];
         } else {
-          this._appConfigPlain[key] = value;
+          this._appConfigPlain[key] = Array.isArray(value) ? [...value] : value;
         }
         touched = true;
       }
@@ -4608,6 +4684,40 @@ export class MemoryPersistence implements Persistence {
         out.push({ ticker: sel.ticker, marketCode: sel.marketCode });
       }
     }
+    out.sort((a, b) => {
+      const t = a.ticker.localeCompare(b.ticker);
+      return t !== 0 ? t : a.marketCode.localeCompare(b.marketCode);
+    });
+    return out;
+  }
+
+  async listHeldTickerMarketPairs(): Promise<{ ticker: string; marketCode: MarketCode }[]> {
+    const seen = new Set<string>();
+    const out: { ticker: string; marketCode: MarketCode }[] = [];
+
+    for (const [userId, store] of this.stores.entries()) {
+      const user = [...this.usersByEmail.values()].find((candidate) => candidate.id === userId);
+      if (user?.isDemo === true || user?.deactivatedAt || user?.deletedAt) continue;
+
+      const accountMarketById = new Map(store.accounts.map((account) => [
+        account.id,
+        marketCodeFor(account.defaultCurrency) as MarketCode,
+      ]));
+      for (const lot of store.accounting.projections.lots) {
+        if (lot.openQuantity <= 0) continue;
+        const marketCode = accountMarketById.get(lot.accountId);
+        if (!marketCode) continue;
+        const key = instrumentCatalogKey(lot.ticker, marketCode);
+        if (seen.has(key)) continue;
+        const instrument = this.instruments.get(key);
+        if (!instrument) continue;
+        if (instrument.barsBackfillStatus !== "ready") continue;
+        if (instrument.delistedAt) continue;
+        seen.add(key);
+        out.push({ ticker: lot.ticker, marketCode });
+      }
+    }
+
     out.sort((a, b) => {
       const t = a.ticker.localeCompare(b.ticker);
       return t !== 0 ? t : a.marketCode.localeCompare(b.marketCode);

@@ -350,6 +350,65 @@ export interface ValuationHealthDto {
   recommendedActions: ValuationHealthHoldingAction[];
 }
 
+export type DailyBarQualityDto = "full_bar" | "close_only";
+export type PriceStateBasisDto =
+  | "intraday"
+  | "delayed_intraday"
+  | "previous_close"
+  | "today_close"
+  | "pending_today_close"
+  | "stale_close"
+  | "missing";
+export type PriceStateChipStateDto =
+  | "open_fresh"
+  | "open_delayed"
+  | "open_previous_close"
+  | "closed"
+  | "stale"
+  | "missing";
+export type PriceStateMarketStateDto = "open" | "closed";
+export type PriceStateSourceKindDto =
+  | "primary_daily"
+  | "intraday_yahoo_chart"
+  | "twse_stock_day_close"
+  | "yahoo_chart_close"
+  | "missing";
+
+export interface PriceStateDto {
+  basis: PriceStateBasisDto;
+  chipState: PriceStateChipStateDto;
+  marketState: PriceStateMarketStateDto;
+  source: string | null;
+  sourceKind: PriceStateSourceKindDto;
+  asOfDate: string | null;
+  asOfTimestamp: string | null;
+  observedAt: string | null;
+  delaySeconds: number | null;
+  marketTimeZone: string | null;
+  quality: DailyBarQualityDto | null;
+}
+
+export interface DashboardMarketStateDto {
+  marketCode: MarketCode;
+  marketState: PriceStateMarketStateDto;
+  asOf: string;
+  marketTimeZone: string;
+  regularSessionOnly: boolean;
+}
+
+export interface PriceStateRollupBucketDto {
+  basis: PriceStateBasisDto;
+  count: number;
+}
+
+export interface PriceStateRollupDto {
+  holdingCount: number;
+  currentPriceCount: number;
+  nonCurrentPriceCount: number;
+  missingPriceCount: number;
+  basisCounts: PriceStateRollupBucketDto[];
+}
+
 // KZO-183: account-scoped fee profiles. `accountId` replaces the previous
 // `userId` field — every profile is owned by exactly one account. `taxRules?`
 // stays internal to `libs/domain.FeeProfile` and is NOT promoted to the wire
@@ -473,6 +532,7 @@ export interface DashboardOverviewSummaryDto {
   upcomingDividendCount: number;
   upcomingDividendAmount: number | null;
   openIssueCount: number;
+  priceStateRollup: PriceStateRollupDto;
 }
 
 export interface FxConversionRateDto {
@@ -508,9 +568,7 @@ export interface DashboardOverviewHoldingDto {
   quoteStatus: "current" | "provisional" | "missing";
   nextDividendDate: string | null;
   lastDividendPostedDate: string | null;
-  // KZO-177: server-classified freshness, null when current
-  freshness: "current" | "stale_amber" | "stale_red";
-  freshnessTooltip: string | null;
+  priceState: PriceStateDto;
 }
 
 export interface DashboardOverviewHoldingChildDto {
@@ -533,8 +591,7 @@ export interface DashboardOverviewHoldingChildDto {
   quoteStatus: "current" | "provisional" | "missing";
   nextDividendDate: string | null;
   lastDividendPostedDate: string | null;
-  freshness: "current" | "stale_amber" | "stale_red";
-  freshnessTooltip: string | null;
+  priceState: PriceStateDto;
   reportingCurrency: AccountDefaultCurrency;
   reportingCurrentUnitPrice?: number | null;
   reportingCostBasisAmount: number | null;
@@ -565,8 +622,7 @@ export interface DashboardOverviewHoldingGroupDto {
   quoteStatus: "current" | "provisional" | "missing";
   nextDividendDate: string | null;
   lastDividendPostedDate: string | null;
-  freshness: "current" | "stale_amber" | "stale_red";
-  freshnessTooltip: string | null;
+  priceState: PriceStateDto;
   accountCount: number;
   reportingCurrency: AccountDefaultCurrency;
   reportingCurrentUnitPrice?: number | null;
@@ -617,6 +673,7 @@ export interface InstrumentOptionDto {
 export interface DashboardOverviewDto {
   settings: UserSettings;
   summary: DashboardOverviewSummaryDto;
+  marketStates: DashboardMarketStateDto[];
   fxRates?: FxConversionRateDto[];
   marketValues: DashboardOverviewMarketValueDto[];
   holdings: DashboardOverviewHoldingDto[];
@@ -965,7 +1022,7 @@ export interface ReportDataHealthDto {
   missingQuoteCount: number;
   provisionalQuoteCount: number;
   missingFxCount: number;
-  staleQuoteCount: number;
+  nonCurrentPriceCount: number;
 }
 
 export interface ReportDiagnosticsDto {
@@ -980,7 +1037,7 @@ export interface ReportDiagnosticsDto {
   staleSinceDate: string | null;
   missingQuoteCount: number;
   provisionalQuoteCount: number;
-  staleQuoteCount: number;
+  nonCurrentPriceCount: number;
   missingFxCount: number;
   missingProviderSourceCount: number;
   knownGapReasons: Array<
@@ -988,7 +1045,7 @@ export interface ReportDiagnosticsDto {
     | "stale_snapshot"
     | "missing_quote"
     | "provisional_quote"
-    | "stale_quote"
+    | "non_current_price"
     | "missing_fx"
     | "missing_provider_source"
   >;
@@ -1003,7 +1060,7 @@ export interface ReportDiagnosticsDto {
       | "stale_snapshot"
       | "missing_quote"
       | "provisional_quote"
-      | "stale_quote"
+      | "non_current_price"
       | "missing_fx"
       | "missing_provider_source"
     >;
@@ -1058,7 +1115,7 @@ export interface ReportHoldingRowDto {
   dailyChangePercent: number | null;
   quoteStatus: "current" | "provisional" | "missing";
   fxStatus: "complete" | "partial" | "missing";
-  freshness: "current" | "stale_amber" | "stale_red";
+  priceState: PriceStateDto;
 }
 
 export interface ReportHoldingRowsPageDto {
@@ -1207,6 +1264,7 @@ export interface TickerDetailsQuoteDto {
   asOf: string | null;
   source: string | null;
   quoteStatus: "current" | "provisional" | "missing";
+  priceState: PriceStateDto;
 }
 
 export interface TickerDetailsPositionDto {
@@ -1474,6 +1532,62 @@ export interface AdminAuditLogResponse {
  */
 export type AppConfigBoundsDto = Record<string, { min: number; max: number }>;
 
+export const TICKER_PRICE_FRESHNESS_YAHOO_CHART_RANGES = ["1d", "5d"] as const;
+export type TickerPriceFreshnessYahooChartRange = (typeof TICKER_PRICE_FRESHNESS_YAHOO_CHART_RANGES)[number];
+export const TICKER_PRICE_FRESHNESS_YAHOO_CHART_INTERVALS = ["1m", "2m", "5m", "15m"] as const;
+export type TickerPriceFreshnessYahooChartInterval = (typeof TICKER_PRICE_FRESHNESS_YAHOO_CHART_INTERVALS)[number];
+
+export interface TickerPriceFreshnessAppConfigBoundsDto {
+  closeRefreshGraceMinutes: { min: number; max: number };
+  intradayRefreshIntervalMinutes: { min: number; max: number };
+  intradayFreshnessToleranceMinutes: { min: number; max: number };
+  yahooChartRequestLimitPerMinute: { min: number; max: number };
+  queueConcurrency: { min: number; max: number };
+  maxTickersPerRefreshCycle: { min: number; max: number };
+  refreshCloseRateLimitWindowMs: { min: number; max: number };
+  refreshCloseRateLimitMax: { min: number; max: number };
+  syncTickerCap: { min: number; max: number };
+}
+
+export interface TickerPriceFreshnessAppConfigOptionsDto {
+  supportedMarkets: MarketCode[];
+  yahooChartRanges: TickerPriceFreshnessYahooChartRange[];
+  yahooChartIntervals: TickerPriceFreshnessYahooChartInterval[];
+}
+
+export interface TickerPriceFreshnessAppConfigDto {
+  closeRefreshGraceMinutes: number | null;
+  effectiveCloseRefreshGraceMinutes: number;
+  intradayEnabled: boolean | null;
+  effectiveIntradayEnabled: boolean;
+  intradayRefreshIntervalMinutes: number | null;
+  effectiveIntradayRefreshIntervalMinutes: number;
+  intradayFreshnessToleranceMinutes: number | null;
+  effectiveIntradayFreshnessToleranceMinutes: number;
+  yahooChartRequestLimitPerMinute: number | null;
+  effectiveYahooChartRequestLimitPerMinute: number;
+  queueConcurrency: number | null;
+  effectiveQueueConcurrency: number;
+  maxTickersPerRefreshCycle: number | null;
+  effectiveMaxTickersPerRefreshCycle: number;
+  supportedMarkets: MarketCode[] | null;
+  effectiveSupportedMarkets: MarketCode[];
+  regularSessionOnly: boolean | null;
+  effectiveRegularSessionOnly: boolean;
+  yahooChartRange: TickerPriceFreshnessYahooChartRange | null;
+  effectiveYahooChartRange: TickerPriceFreshnessYahooChartRange;
+  yahooChartInterval: TickerPriceFreshnessYahooChartInterval | null;
+  effectiveYahooChartInterval: TickerPriceFreshnessYahooChartInterval;
+  refreshCloseRateLimitWindowMs: number | null;
+  effectiveRefreshCloseRateLimitWindowMs: number;
+  refreshCloseRateLimitMax: number | null;
+  effectiveRefreshCloseRateLimitMax: number;
+  syncTickerCap: number | null;
+  effectiveSyncTickerCap: number;
+  options: TickerPriceFreshnessAppConfigOptionsDto;
+  bounds: TickerPriceFreshnessAppConfigBoundsDto;
+}
+
 export interface AppConfigDto {
   // ── KZO-133 / KZO-189 / KZO-159 — pre-existing override knobs ──────────
   repairCooldownMinutes: number | null;
@@ -1486,6 +1600,7 @@ export interface AppConfigDto {
   metadataEnrichmentMode: "unconditional" | "conditional" | null;
   /** Fully-resolved mode after env fallback. */
   effectiveMetadataEnrichmentMode: "unconditional" | "conditional";
+  tickerPriceFreshness: TickerPriceFreshnessAppConfigDto;
 
   // ── KZO-198 Tier 1 — Rate limits (UI-editable) ─────────────────────────
   marketDataPriceWindowMs: number | null;

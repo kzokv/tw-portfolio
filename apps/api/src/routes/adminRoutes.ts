@@ -88,6 +88,11 @@ import { requireAdminRole } from "../lib/routeGuards.js";
 import { getEffectiveProviderRerunCooldownMs } from "../services/appConfig/providerHealth.js";
 import { PROVIDER_FIXER_DEFAULTS } from "../services/appConfig/providerFixer.js";
 import {
+  resolveTickerPriceFreshnessConfig,
+  TICKER_PRICE_FRESHNESS_YAHOO_CHART_INTERVALS,
+  TICKER_PRICE_FRESHNESS_YAHOO_CHART_RANGES,
+} from "../services/appConfig/tickerPriceFreshness.js";
+import {
   DEFAULT_VALUATION_HEALTH_THRESHOLDS,
   resolveRouteCachePolicyFromRow,
 } from "../services/appConfig/valuationHealth.js";
@@ -296,6 +301,28 @@ const aiConnectorPolicySettingsPatchSchema = z
   })
   .strict();
 
+const tickerPriceFreshnessPatchSchema = z
+  .object({
+    closeRefreshGraceMinutes: plainBoundedField("tickerPriceCloseRefreshGraceMinutes"),
+    intradayEnabled: z.union([z.boolean(), z.null()]).optional(),
+    intradayRefreshIntervalMinutes: plainBoundedField("tickerPriceIntradayRefreshIntervalMinutes"),
+    intradayFreshnessToleranceMinutes: plainBoundedField("tickerPriceIntradayFreshnessToleranceMinutes"),
+    yahooChartRequestLimitPerMinute: plainBoundedField("tickerPriceYahooChartRequestLimitPerMinute"),
+    queueConcurrency: plainBoundedField("tickerPriceQueueConcurrency"),
+    maxTickersPerRefreshCycle: plainBoundedField("tickerPriceMaxTickersPerRefreshCycle"),
+    supportedMarkets: z.union([
+      z.array(z.enum(MARKET_CODES)).min(1).max(MARKET_CODES.length).transform((values) => [...new Set(values)]),
+      z.null(),
+    ]).optional(),
+    regularSessionOnly: z.union([z.boolean(), z.null()]).optional(),
+    yahooChartRange: z.union([z.enum(TICKER_PRICE_FRESHNESS_YAHOO_CHART_RANGES), z.null()]).optional(),
+    yahooChartInterval: z.union([z.enum(TICKER_PRICE_FRESHNESS_YAHOO_CHART_INTERVALS), z.null()]).optional(),
+    refreshCloseRateLimitWindowMs: plainBoundedField("tickerPriceRefreshCloseRateLimitWindowMs"),
+    refreshCloseRateLimitMax: plainBoundedField("tickerPriceRefreshCloseRateLimitMax"),
+    syncTickerCap: plainBoundedField("tickerPriceSyncTickerCap"),
+  })
+  .strict();
+
 export const patchAdminSettingsSchema = z
   .object({
     // KZO-133 — pre-existing
@@ -350,6 +377,7 @@ export const patchAdminSettingsSchema = z
     backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
     backfillRetryDelaySeconds: plainBoundedField("backfillRetryDelaySeconds"),
     backfillFinmind402RetryMs: plainBoundedField("backfillFinmind402RetryMs"),
+    tickerPriceFreshness: tickerPriceFreshnessPatchSchema.optional(),
 
     // Tier 2 (`dailyRefreshLookbackDays`, `dailyRefreshPriority`,
     // `sseHeartbeatIntervalMs`, `sseMaxConnectionsPerUser`,
@@ -438,6 +466,20 @@ const TIER1_PLAIN_FIELDS = [
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
+  "tickerPriceCloseRefreshGraceMinutes",
+  "tickerPriceIntradayEnabled",
+  "tickerPriceIntradayRefreshIntervalMinutes",
+  "tickerPriceIntradayFreshnessToleranceMinutes",
+  "tickerPriceYahooChartRequestLimitPerMinute",
+  "tickerPriceQueueConcurrency",
+  "tickerPriceMaxTickersPerRefreshCycle",
+  "tickerPriceSupportedMarkets",
+  "tickerPriceRegularSessionOnly",
+  "tickerPriceYahooChartRange",
+  "tickerPriceYahooChartInterval",
+  "tickerPriceRefreshCloseRateLimitWindowMs",
+  "tickerPriceRefreshCloseRateLimitMax",
+  "tickerPriceSyncTickerCap",
   // KZO-195 — Tier 2 absence detection fields (admin-tunable via PATCH).
   "catalogAbsenceThreshold",
   "catalogAbsenceGuardPercent",
@@ -460,6 +502,36 @@ const TIER1_PLAIN_FIELDS = [
   "routeCacheReportsTtlMs",
   "routeCacheStaleUsableTtlMs",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
+
+function flattenTickerPriceFreshnessPatch(
+  value: z.infer<typeof tickerPriceFreshnessPatchSchema> | undefined,
+): Partial<Record<AppConfigPlainField, import("../persistence/types.js").AppConfigPlainValue>> {
+  if (!value) return {};
+  return {
+    tickerPriceCloseRefreshGraceMinutes: value.closeRefreshGraceMinutes,
+    tickerPriceIntradayEnabled: value.intradayEnabled,
+    tickerPriceIntradayRefreshIntervalMinutes: value.intradayRefreshIntervalMinutes,
+    tickerPriceIntradayFreshnessToleranceMinutes: value.intradayFreshnessToleranceMinutes,
+    tickerPriceYahooChartRequestLimitPerMinute: value.yahooChartRequestLimitPerMinute,
+    tickerPriceQueueConcurrency: value.queueConcurrency,
+    tickerPriceMaxTickersPerRefreshCycle: value.maxTickersPerRefreshCycle,
+    tickerPriceSupportedMarkets: value.supportedMarkets,
+    tickerPriceRegularSessionOnly: value.regularSessionOnly,
+    tickerPriceYahooChartRange: value.yahooChartRange,
+    tickerPriceYahooChartInterval: value.yahooChartInterval,
+    tickerPriceRefreshCloseRateLimitWindowMs: value.refreshCloseRateLimitWindowMs,
+    tickerPriceRefreshCloseRateLimitMax: value.refreshCloseRateLimitMax,
+    tickerPriceSyncTickerCap: value.syncTickerCap,
+  };
+}
+
+function appConfigValuesEqual(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
+  return left === right;
+}
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
   const sessionUserId = requireSessionUserId(req);
@@ -632,9 +704,10 @@ function valueOrCurrent<T>(value: T | null | undefined, current: T | null): T | 
  * the post-write effective values. Cache invalidation stays fire-and-forget
  * for subsequent reads — the response itself does not depend on it.
  */
-function buildAppConfigDtoFromRow(
+export function buildAppConfigDtoFromRow(
   row: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
 ): AppConfigDto {
+  const bounds = appConfigBoundsForEnv();
   return {
     repairCooldownMinutes: row.repairCooldownMinutes,
     effectiveRepairCooldownMinutes: row.repairCooldownMinutes ?? Env.REPAIR_COOLDOWN_MINUTES,
@@ -644,6 +717,11 @@ function buildAppConfigDtoFromRow(
     ),
     metadataEnrichmentMode: row.metadataEnrichmentMode,
     effectiveMetadataEnrichmentMode: row.metadataEnrichmentMode ?? Env.METADATA_ENRICHMENT_MODE,
+    tickerPriceFreshness: resolveTickerPriceFreshnessConfig(
+      row as Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>
+        & import("../services/appConfig/tickerPriceFreshness.js").TickerPriceFreshnessRowFields,
+      bounds,
+    ),
 
     // KZO-198 Tier 1 — rate limits
     marketDataPriceWindowMs: row.marketDataPriceWindowMs,
@@ -802,7 +880,7 @@ function buildAppConfigDtoFromRow(
     twelveDataApiKeySet: row.twelveDataApiKeyEncrypted !== null,
 
     // KZO-198 — bounds (single source of truth for UI form constraints)
-    bounds: appConfigBoundsForEnv(),
+    bounds,
     secretLengthBounds: APP_CONFIG_SECRET_LENGTH,
 
     updatedAt: row.updatedAt,
@@ -7740,14 +7818,19 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       await app.persistence.setRouteCachePolicyMode(body.routeCachePolicyMode);
     }
 
+    const tickerPriceFreshnessPatch = flattenTickerPriceFreshnessPatch(body.tickerPriceFreshness);
+    const plainBody = body as Record<string, unknown>;
+
     // KZO-198 — diff Tier 1/2 plain fields. Only changed fields are added to
     // `patch` so a no-op PATCH does not bump `updated_at`.
     const patch: import("../persistence/types.js").AppConfigPatch = {};
     for (const field of TIER1_PLAIN_FIELDS) {
-      const next = body[field];
+      const next = Object.prototype.hasOwnProperty.call(tickerPriceFreshnessPatch, field)
+        ? tickerPriceFreshnessPatch[field]
+        : plainBody[field] as import("../persistence/types.js").AppConfigPlainValue | undefined;
       if (next === undefined) continue;
       const currentVal = current[field] ?? null;
-      if (next === currentVal) continue;
+      if (appConfigValuesEqual(next, currentVal)) continue;
       before[field] = currentVal;
       after[field] = next;
       patch[field] = next;

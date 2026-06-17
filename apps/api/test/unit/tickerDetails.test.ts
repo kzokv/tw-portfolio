@@ -15,6 +15,7 @@ describe("buildTickerDetails", () => {
       close: number;
       volume: number;
       source: string;
+      quality?: "full_bar" | "close_only";
     }> = [],
     calls: {
       historicalReads?: Array<{ ticker: string; marketCode: string; startDate: string; endDate: string }>;
@@ -33,6 +34,7 @@ describe("buildTickerDetails", () => {
           ))
           .map((bar) => ({
             ...bar,
+            quality: bar.quality ?? "full_bar" as const,
             ingestedAt: "2026-06-01T00:00:00.000Z",
           }));
       },
@@ -56,8 +58,31 @@ describe("buildTickerDetails", () => {
             .slice(0, limit))
           .map((bar) => ({
             ...bar,
+            quality: bar.quality ?? "full_bar" as const,
             ingestedAt: "2026-06-01T00:00:00.000Z",
           }));
+      },
+      async getLatestBars(tickers: readonly string[], limit: number) {
+        const tickerSet = new Set(tickers);
+        const grouped = new Map<string, typeof bars>();
+        for (const bar of bars) {
+          if (!tickerSet.has(bar.ticker)) continue;
+          const group = grouped.get(bar.ticker) ?? [];
+          group.push(bar);
+          grouped.set(bar.ticker, group);
+        }
+        return [...grouped.values()]
+          .flatMap((group) => group
+            .sort((left, right) => right.barDate.localeCompare(left.barDate))
+            .slice(0, limit))
+          .map((bar) => ({
+            ...bar,
+            quality: bar.quality ?? "full_bar" as const,
+            ingestedAt: "2026-06-01T00:00:00.000Z",
+          }));
+      },
+      async getLatestIntradayOverlays() {
+        return new Map();
       },
       async getLatestBarDatesByTickerMarket() {
         const result = new Map<string, string>();
@@ -333,6 +358,29 @@ describe("buildTickerDetails", () => {
         grossAmount: 6,
       }),
     ]);
+  });
+
+  it("keeps missing ticker quote state open during an open regular session", async () => {
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "US",
+      loadChart: false,
+      fundamentalsRecord: null,
+      getSettledTradingDay: async () => "2026-06-16",
+      isTradingDay: async () => true,
+      now: new Date("2026-06-17T14:00:00.000Z"),
+    });
+
+    expect(details.quote.quoteStatus).toBe("missing");
+    expect(details.quote.priceState).toEqual(expect.objectContaining({
+      basis: "missing",
+      chipState: "missing",
+      marketState: "open",
+      marketTimeZone: "America/New_York",
+    }));
   });
 
   it("uses requested chart ranges while keeping the quote pinned to the latest local bar", async () => {

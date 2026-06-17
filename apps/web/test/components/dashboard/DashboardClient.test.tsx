@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => ({
     holdingGroups: [],
     holdings: [],
     instruments: [],
+    marketStates: [{
+      marketCode: "TW",
+      marketState: "closed",
+      asOf: "2026-06-17T08:00:00.000Z",
+      marketTimeZone: "Asia/Taipei",
+      regularSessionOnly: true,
+    }],
     marketValues: [],
     settings: null,
     summary: {
@@ -31,6 +38,13 @@ const mocks = vi.hoisted(() => ({
       unrealizedPnlAmount: null,
       upcomingDividendAmount: null,
       upcomingDividendCount: 0,
+      priceStateRollup: {
+        holdingCount: 0,
+        currentPriceCount: 0,
+        nonCurrentPriceCount: 0,
+        missingPriceCount: 0,
+        basisCounts: [],
+      },
     },
   } as DashboardSnapshot,
   dashboardRefresh: vi.fn(async () => undefined),

@@ -118,6 +118,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
             chartStart,
           }}
           initialTradeDate={initialTradeDate}
+          quotePollIntervalSeconds={settings?.quotePollIntervalSeconds ?? dashboard.settings?.quotePollIntervalSeconds}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}
