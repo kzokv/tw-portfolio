@@ -25,7 +25,7 @@ export class YahooChartCloseProvider {
     ticker: string,
     marketCode: Extract<RegularSessionMarketCode, "TW" | "US">,
     barDate: string,
-    now: Date = new Date(`${barDate}T23:59:59.000Z`),
+    _now: Date = new Date(`${barDate}T12:00:00.000Z`),
   ): Promise<DailyBar | null> {
     const budget = await this.requestBudget?.tryConsume(1);
     if (budget && !budget.allowed) {
@@ -34,7 +34,7 @@ export class YahooChartCloseProvider {
     const overlay = await this.intradayProvider.fetchLatestOverlay({
       ticker,
       marketCode,
-      now,
+      now: new Date(`${barDate}T12:00:00.000Z`),
     });
     if (!overlay || overlay.asOfDate !== barDate) return null;
     return {
