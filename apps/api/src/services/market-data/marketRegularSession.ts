@@ -5,6 +5,7 @@ export type RegularSessionMarketCode = "TW" | "US" | "AU" | "KR";
 
 export interface RegularSessionClock {
   isTradingDay(market: RegularSessionMarketCode, date: string): Promise<boolean>;
+  getTradingDates?(market: RegularSessionMarketCode): Promise<ReadonlySet<string>>;
   useWeekdayFallback?: boolean;
 }
 
@@ -85,8 +86,21 @@ async function isRegularSessionTradingDay(
 ): Promise<boolean> {
   const isTradingDay = await clock.isTradingDay(marketCode, date);
   if (isTradingDay) return true;
-  if (clock.useWeekdayFallback === false) return false;
-  return isWeekdayIsoDate(date);
+  if (clock.useWeekdayFallback !== undefined) {
+    return clock.useWeekdayFallback && isWeekdayIsoDate(date);
+  }
+  if (!clock.getTradingDates) return false;
+
+  const tradingDates = await clock.getTradingDates(marketCode);
+  if (tradingDates.size === 0) return isWeekdayIsoDate(date);
+
+  let latestKnownDate: string | null = null;
+  for (const tradingDate of tradingDates) {
+    if (latestKnownDate === null || tradingDate > latestKnownDate) {
+      latestKnownDate = tradingDate;
+    }
+  }
+  return latestKnownDate !== null && date > latestKnownDate && isWeekdayIsoDate(date);
 }
 
 export function isWithinRegularSessionTime(

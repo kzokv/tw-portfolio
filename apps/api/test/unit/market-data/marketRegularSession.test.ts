@@ -46,9 +46,42 @@ describe("marketRegularSession", () => {
   });
 
   it("falls back to weekday trading for current-day regular sessions missing from daily bars", async () => {
+    const tradingDates = new Set(["2026-06-16"]);
     const state = await getRegularSessionState(
       "TW",
-      { isTradingDay: vi.fn().mockResolvedValue(false) },
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(tradingDates),
+      },
+      new Date("2026-06-17T02:15:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(true);
+    expect(state.isOpen).toBe(true);
+  });
+
+  it("preserves populated calendar weekday holiday closures", async () => {
+    const tradingDates = new Set(["2026-06-16", "2026-06-18"]);
+    const state = await getRegularSessionState(
+      "TW",
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(tradingDates),
+      },
+      new Date("2026-06-17T02:15:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(false);
+    expect(state.isOpen).toBe(false);
+  });
+
+  it("uses weekday fallback when the calendar is empty during bootstrap", async () => {
+    const state = await getRegularSessionState(
+      "TW",
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(new Set()),
+      },
       new Date("2026-06-17T02:15:00.000Z"),
     );
 
@@ -59,7 +92,10 @@ describe("marketRegularSession", () => {
   it("uses the weekday fallback for same-day close-refresh eligibility", async () => {
     const closeDate = await getRegularSessionCloseRefreshDate(
       "TW",
-      { isTradingDay: vi.fn().mockResolvedValue(false) },
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(new Set(["2026-06-16"])),
+      },
       new Date("2026-06-17T06:00:00.000Z"),
       10,
     );
