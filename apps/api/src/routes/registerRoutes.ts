@@ -2023,24 +2023,25 @@ function isSharedMarketCode(value: string | null | undefined): value is SharedMa
 
 function buildHeldTickerMarketPairsForCloseRefresh(
   store: Store,
-  holdings: ReadonlyArray<{ ticker: string; quantity: number }>,
+  holdings: ReadonlyArray<{ accountId: string; ticker: string; quantity: number; currency: string; marketCode?: SharedMarketCode | null }>,
 ): Array<{ ticker: string; marketCode: MarketCode }> {
-  const quoteableMarketsByTicker = new Map<string, Set<MarketCode>>();
+  const quoteablePairs = new Set<string>();
   for (const instrument of store.instruments) {
     if (!isInstrumentQuoteable(instrument)) continue;
-    const markets = quoteableMarketsByTicker.get(instrument.ticker) ?? new Set<MarketCode>();
-    markets.add(instrument.marketCode as MarketCode);
-    quoteableMarketsByTicker.set(instrument.ticker, markets);
+    quoteablePairs.add(`${instrument.ticker}:${instrument.marketCode}`);
   }
+  const accountMarketById = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
   const pairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
   for (const holding of holdings) {
     if (holding.quantity <= 0) continue;
-    const marketCodes = quoteableMarketsByTicker.get(holding.ticker);
-    if (!marketCodes) continue;
-    for (const marketCode of marketCodes) {
-      const key = `${holding.ticker}:${marketCode}`;
-      pairs.set(key, { ticker: holding.ticker, marketCode });
-    }
+    const marketCode = resolveHeldMarketCodeForStoreHolding(store, holding, accountMarketById);
+    if (!marketCode || !isRegularSessionMarketCode(marketCode)) continue;
+    const key = `${holding.ticker}:${marketCode}`;
+    if (!quoteablePairs.has(key)) continue;
+    pairs.set(key, { ticker: holding.ticker, marketCode });
   }
   return [...pairs.values()];
 }

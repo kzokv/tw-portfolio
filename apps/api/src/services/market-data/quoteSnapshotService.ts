@@ -222,6 +222,7 @@ function resolveSnapshotForPair(input: {
   const overlay = displayContext.overlaysByKey.get(key);
   if (!overlay || overlay.asOfDate !== session.localDate) {
     if (!session.isOpen) return dailySnapshot;
+    if (dailySnapshot.priceState.basis === "stale_close") return dailySnapshot;
     return {
       ...dailySnapshot,
       priceState: buildOpenPreviousCloseState(latest, pair.marketCode, session),
@@ -310,12 +311,12 @@ function buildDailyPriceState(
   let basis: PriceStateBasisDto = "today_close";
   let chipState: PriceStateDto["chipState"] = "closed";
 
-  if (marketState === "open") {
-    basis = "previous_close";
-    chipState = "open_previous_close";
-  } else if (settled && latest.barDate < settled) {
+  if (settled && latest.barDate < settled) {
     basis = session?.isTradingDay && session.localDate === settled ? "pending_today_close" : "stale_close";
     chipState = basis === "stale_close" ? "stale" : "closed";
+  } else if (marketState === "open") {
+    basis = "previous_close";
+    chipState = "open_previous_close";
   }
 
   return {
