@@ -246,6 +246,73 @@ describe("dashboard overview", () => {
     ]));
   });
 
+  it("derives dashboard market states from held trade markets when account currency drifts", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    const accountFeeProfile = {
+      ...feeProfile,
+      id: "fp-cross-currency-1",
+      accountId: "acc-cross-currency-1",
+      name: "Cross Currency Fee",
+    };
+    store.feeProfiles.push(accountFeeProfile);
+    store.accounts.push({
+      id: "acc-cross-currency-1",
+      userId: "user-1",
+      name: "Cross Currency Broker",
+      feeProfileId: accountFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.accounting.projections.holdings.push({
+      accountId: "acc-cross-currency-1",
+      ticker: "AAPL",
+      quantity: 3,
+      costBasisAmount: 300,
+      currency: "USD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "dashboard-cross-currency-trade-1",
+      userId: "user-1",
+      accountId: "acc-cross-currency-1",
+      ticker: "AAPL",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 3,
+      unitPrice: 100,
+      priceCurrency: "USD",
+      tradeDate: "2026-06-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: accountFeeProfile,
+      tradeTimestamp: "2026-06-01T14:30:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-06-01T14:30:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().holdings).toEqual([
+      expect.objectContaining({
+        ticker: "AAPL",
+        marketCode: "US",
+      }),
+    ]);
+    expect(response.json().marketStates).toEqual([
+      expect.objectContaining({
+        marketCode: "US",
+      }),
+    ]);
+    expect(response.json().marketStates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ marketCode: "AU" }),
+    ]));
+  });
+
   it("returns holdings and dividend overview details when accounting facts exist", async () => {
     (app.persistence as MemoryPersistence)._seedDailyBars([
       { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
