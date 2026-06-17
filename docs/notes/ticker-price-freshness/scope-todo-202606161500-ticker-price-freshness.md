@@ -146,6 +146,18 @@ superseded_by: null
 - Deploy hardening:
   - Dev deploy run `27670119887` timed out in migration `078_ticker_price_freshness_daily_bar_quality.sql` after rewriting `7,713,382` existing `daily_bars` rows to `full_bar`.
   - Migration `078` was revised to use Postgres' fast `ADD COLUMN quality TEXT NOT NULL DEFAULT 'full_bar'` path for fresh deployments, while keeping an idempotent repair branch for environments where the column already exists nullable.
+- CI after deploy hardening commit `fa758abe` passed on PR #225: `pr-gate`, `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-bypass`, and `e2e-oauth`.
+- Dev deploy run `27672052644` succeeded for branch `codex/ticker-price-freshness` at commit `fa758abe`: branch validation passed and remote deploy completed in `13m20s`.
+- Chrome live validation on Vakwen Dev as `mmckchuang@gmail.com` / `mmc_kchuang` at `2026-06-17 15:34 CST`:
+  - Dashboard loaded in `6783ms` and rendered dashboard-only held-market state summary for the live account's held markets: `TW Closed`, `US Closed`, `KR Closed`; no AU holding exists in the live account, so AU was correctly absent from the held-market-only summary.
+  - Dashboard and portfolio rendered row-level price-state chips for held tickers including `2330.TW`, `3714.TW`, `000660.KR`, and `AVGO.US`; the live portfolio's unresolved quote state rendered as `Unavailable` where no usable quote existed.
+  - Ticker detail `/tickers/2330` loaded in `4341ms` and rendered `ticker-price-state-chip` for `台積電 (2330)`.
+  - Reports portfolio tab rendered `Non-current prices 0` and `reports-price-state-*` chips with `Closed` state for `2330.TW`, `AVGO.US`, `000660.KR`, and `3714.TW`.
+  - Admin settings `/admin/settings` loaded in `1142ms` and rendered the grouped `Ticker price freshness` surface with close grace, sync cap, intraday interval/tolerance, Yahoo request limit, queue concurrency, cycle cap, refresh endpoint rate limits, Yahoo chart range/interval, intraday toggle, regular-session-only toggle, and supported markets `TW`, `US`, `AU`, `KR`.
+  - Dashboard `Refresh closes` action was clicked once; the button re-enabled after `6330ms` and no inline refresh error rendered.
+  - Public-share daily-only behavior was validated with an approved temporary public read-only link at `2026-06-17 15:41 CST`; the link was revoked immediately after validation and Sharing returned to `Anonymous links (0)`.
+  - The public share page loaded in `5937ms`, rendered a read-only snapshot with `prices as of Jun 17, 2026`, and showed holdings for `000660.KR`, `2330.TW`, `3714.TW`, and `AVGO.US`.
+  - The public share page rendered `0` price-state chips, `0` market-state summary elements, `0` refresh-closes buttons, and no open-market polling/freshness words such as `Updated`, `Delayed`, `Previous close`, `Refresh closes`, or `Held markets`.
 
 ## References
 
