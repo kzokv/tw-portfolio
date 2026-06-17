@@ -390,6 +390,45 @@ const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto 
   },
 };
 
+type TickerPriceFreshnessPatchDto = Pick<
+  TickerPriceFreshnessAppConfigDto,
+  | "closeRefreshGraceMinutes"
+  | "intradayEnabled"
+  | "intradayRefreshIntervalMinutes"
+  | "intradayFreshnessToleranceMinutes"
+  | "yahooChartRequestLimitPerMinute"
+  | "queueConcurrency"
+  | "maxTickersPerRefreshCycle"
+  | "supportedMarkets"
+  | "regularSessionOnly"
+  | "yahooChartRange"
+  | "yahooChartInterval"
+  | "refreshCloseRateLimitWindowMs"
+  | "refreshCloseRateLimitMax"
+  | "syncTickerCap"
+>;
+
+function buildTickerPriceFreshnessPatch(
+  draft: TickerPriceFreshnessAppConfigDto,
+): TickerPriceFreshnessPatchDto {
+  return {
+    closeRefreshGraceMinutes: draft.closeRefreshGraceMinutes,
+    intradayEnabled: draft.intradayEnabled,
+    intradayRefreshIntervalMinutes: draft.intradayRefreshIntervalMinutes,
+    intradayFreshnessToleranceMinutes: draft.intradayFreshnessToleranceMinutes,
+    yahooChartRequestLimitPerMinute: draft.yahooChartRequestLimitPerMinute,
+    queueConcurrency: draft.queueConcurrency,
+    maxTickersPerRefreshCycle: draft.maxTickersPerRefreshCycle,
+    supportedMarkets: draft.supportedMarkets,
+    regularSessionOnly: draft.regularSessionOnly,
+    yahooChartRange: draft.yahooChartRange,
+    yahooChartInterval: draft.yahooChartInterval,
+    refreshCloseRateLimitWindowMs: draft.refreshCloseRateLimitWindowMs,
+    refreshCloseRateLimitMax: draft.refreshCloseRateLimitMax,
+    syncTickerCap: draft.syncTickerCap,
+  };
+}
+
 function TickerPriceFreshnessSettingsCard({
   config,
   isZhTW,
@@ -415,7 +454,7 @@ function TickerPriceFreshnessSettingsCard({
     try {
       const updated = await patchJson<AppConfigDto>(
         "/admin/settings",
-        { tickerPriceFreshness: draft },
+        { tickerPriceFreshness: buildTickerPriceFreshnessPatch(draft) },
       );
       onUpdated(updated);
       setSuccess(isZhTW ? "價格新鮮度設定已儲存。" : "Ticker price freshness settings saved.");
