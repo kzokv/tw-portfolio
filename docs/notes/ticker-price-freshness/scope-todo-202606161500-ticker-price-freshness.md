@@ -137,6 +137,12 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: `120` tests passed.
   - `npm run test:http --prefix apps/api` passed: `291` tests passed, `2` skipped.
 - Scope audit searches: no unchecked todo boxes remained, and no `freshnessTooltip`, `staleQuoteCount`, or `stale_quote` references remained in `libs/shared-types/src`, `apps/api/src`, or `apps/web`.
+- Post-Codex-review fixes:
+  - Close refresh now resolves the latest eligible prior trading close when today is not yet eligible or is not a trading day.
+  - `tickerPriceRegularSessionOnly=false` no longer disables intraday overlays during an open regular session.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/market-data/marketRegularSession.test.ts apps/api/test/unit/quoteSnapshotService.test.ts` (`2` files / `19` tests).
+  - Focused ESLint passed for touched market-session, quote-snapshot, and unit-test files.
+  - Broader post-fix verification passed: `npm run typecheck`; `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1646` tests passed, `425` skipped).
 
 ## References
 
