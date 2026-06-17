@@ -34,6 +34,7 @@ const sampleCatalog: CatalogInstrument[] = [
   { ticker: "2330", name: "TSMC", typeRaw: "twse", industryCategoryRaw: "半導體業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
   { ticker: "2603", name: "Evergreen", typeRaw: "twse", industryCategoryRaw: "航運業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
   { ticker: "0050", name: "Yuanta Taiwan 50", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "ETF", marketCode: "TW" },
+  { ticker: "AAPL", name: "Apple", typeRaw: "stock", industryCategoryRaw: "Technology", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "US" },
 ];
 
 describePostgres("daily refresh persistence queries", () => {
@@ -65,7 +66,7 @@ describePostgres("daily refresh persistence queries", () => {
     }
   }
 
-  async function createUser(email: string, isDemo = false): Promise<{ userId: string; accountId: string }> {
+  async function createUser(email: string, isDemo = false): Promise<{ userId: string; accountId: string; feeProfileId: string }> {
     const { userId } = await persistence!.resolveOrCreateUser("google", `sub:${email}`, {
       email,
       name: email,
@@ -75,7 +76,8 @@ describePostgres("daily refresh persistence queries", () => {
       await persistence!.markDemoUser(userId, 3600);
     }
     const store = await persistence!.loadStore(userId);
-    return { userId, accountId: store.accounts[0]!.id };
+    const account = store.accounts[0]!;
+    return { userId, accountId: account.id, feeProfileId: account.feeProfileId };
   }
 
   async function addOpenPosition(userId: string, accountId: string, ticker: string, lotId: string): Promise<void> {
@@ -91,6 +93,46 @@ describePostgres("daily refresh persistence queries", () => {
       },
     ];
     await persistence!.bulkUpsertLots(userId, lots);
+  }
+
+  async function addTradeEventMarket(
+    userId: string,
+    accountId: string,
+    feeProfileId: string,
+    ticker: string,
+    marketCode: "TW" | "US",
+  ): Promise<void> {
+    const snapshotId = `snapshot-${accountId}-${ticker}-${marketCode}`;
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking,
+         board_commission_rate, commission_discount_percent, minimum_commission_amount,
+         commission_currency, commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
+       ) VALUES (
+         $1, $2, $3, 'Default Broker',
+         1.425, 28, 20,
+         'USD', 'FLOOR', 'FLOOR',
+         30, 15,
+         10, 0, 'CHARGED_UPFRONT'
+       )`,
+      [snapshotId, userId, feeProfileId],
+    );
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
+         quantity, unit_price, price_currency, trade_date, trade_timestamp,
+         booking_sequence, commission_amount, tax_amount, is_day_trade,
+         fee_policy_snapshot_id, source, source_reference, booked_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'STOCK', 'BUY',
+         1, 100, $6, DATE '2026-02-01', TIMESTAMPTZ '2026-02-01T00:00:00Z',
+         1, 0, 0, false,
+         $7, 'test', $1, TIMESTAMPTZ '2026-02-01T00:00:00Z'
+       )`,
+      [`trade-${accountId}-${ticker}-${marketCode}`, userId, accountId, ticker, marketCode, marketCode === "US" ? "USD" : "TWD", snapshotId],
+    );
   }
 
   beforeEach(async () => {
@@ -164,6 +206,32 @@ describePostgres("daily refresh persistence queries", () => {
 
     await expect(persistence!.listHeldTickerMarketPairs()).resolves.toEqual([
       { ticker: "0050", marketCode: "TW" },
+    ]);
+  });
+
+  it("uses held trade markets for scheduled close refresh when account currency drifts", async () => {
+    const realPosition = await createUser("close-refresh-cross-currency@example.com");
+
+    await persistence!.updateBackfillStatus("AAPL", "US", "ready");
+    await pool.query(
+      "UPDATE accounts SET default_currency = 'USD' WHERE id = $1",
+      [realPosition.accountId],
+    );
+    await addOpenPosition(realPosition.userId, realPosition.accountId, "AAPL", "lot-close-refresh-aapl-us");
+    await addTradeEventMarket(
+      realPosition.userId,
+      realPosition.accountId,
+      realPosition.feeProfileId,
+      "AAPL",
+      "US",
+    );
+    await pool.query(
+      "UPDATE accounts SET default_currency = 'AUD' WHERE id = $1",
+      [realPosition.accountId],
+    );
+
+    await expect(persistence!.listHeldTickerMarketPairs()).resolves.toEqual([
+      { ticker: "AAPL", marketCode: "US" },
     ]);
   });
 

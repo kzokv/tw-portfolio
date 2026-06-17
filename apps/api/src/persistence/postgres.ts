@@ -13011,26 +13011,50 @@ export class PostgresPersistence implements Persistence {
 
   async listHeldTickerMarketPairs(): Promise<{ ticker: string; marketCode: MarketCode }[]> {
     const result = await this.pool.query<{ ticker: string; market_code: MarketCode }>(
-      `WITH held AS (
-         SELECT DISTINCT l.ticker, currency_to_market(a.default_currency)::text AS market_code
+      `WITH held_lots AS (
+         SELECT DISTINCT l.account_id, l.ticker
          FROM lots l
          JOIN accounts a
            ON a.id = l.account_id
           AND a.deleted_at IS NULL
          JOIN users u
            ON u.id = a.user_id
-         JOIN market_data.instruments i
-           ON i.ticker = l.ticker
-          AND i.market_code = currency_to_market(a.default_currency)::text
         WHERE l.open_quantity > 0
           AND u.is_demo = FALSE
           AND u.deactivated_at IS NULL
           AND u.deleted_at IS NULL
-          AND i.bars_backfill_status = 'ready'
-          AND i.delisted_at IS NULL
+       ),
+       trade_markets AS (
+         SELECT DISTINCT hl.ticker, te.market_code
+           FROM held_lots hl
+           JOIN trade_events te
+             ON te.account_id = hl.account_id
+            AND te.ticker = hl.ticker
+       ),
+       legacy_lot_markets AS (
+         SELECT DISTINCT hl.ticker, i.market_code
+           FROM held_lots hl
+           JOIN market_data.instruments i
+             ON i.ticker = hl.ticker
+          WHERE NOT EXISTS (
+            SELECT 1
+              FROM trade_events te
+             WHERE te.account_id = hl.account_id
+               AND te.ticker = hl.ticker
+          )
+       ),
+       held AS (
+         SELECT ticker, market_code FROM trade_markets
+         UNION
+         SELECT ticker, market_code FROM legacy_lot_markets
        )
-       SELECT ticker, market_code
+       SELECT DISTINCT held.ticker, held.market_code
          FROM held
+         JOIN market_data.instruments i
+           ON i.ticker = held.ticker
+          AND i.market_code = held.market_code
+        WHERE i.bars_backfill_status = 'ready'
+          AND i.delisted_at IS NULL
         ORDER BY ticker, market_code`,
     );
     return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));

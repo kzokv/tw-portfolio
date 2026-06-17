@@ -4699,22 +4699,30 @@ export class MemoryPersistence implements Persistence {
       const user = [...this.usersByEmail.values()].find((candidate) => candidate.id === userId);
       if (user?.isDemo === true || user?.deactivatedAt || user?.deletedAt) continue;
 
-      const accountMarketById = new Map(store.accounts.map((account) => [
-        account.id,
-        marketCodeFor(account.defaultCurrency) as MarketCode,
-      ]));
       for (const lot of store.accounting.projections.lots) {
         if (lot.openQuantity <= 0) continue;
-        const marketCode = accountMarketById.get(lot.accountId);
-        if (!marketCode) continue;
-        const key = instrumentCatalogKey(lot.ticker, marketCode);
-        if (seen.has(key)) continue;
-        const instrument = this.instruments.get(key);
-        if (!instrument) continue;
-        if (instrument.barsBackfillStatus !== "ready") continue;
-        if (instrument.delistedAt) continue;
-        seen.add(key);
-        out.push({ ticker: lot.ticker, marketCode });
+        const tradeMarketCodes = new Set(
+          store.accounting.facts.tradeEvents
+            .filter((trade) => trade.accountId === lot.accountId && trade.ticker === lot.ticker)
+            .map((trade) => trade.marketCode),
+        );
+        const marketCodes = tradeMarketCodes.size > 0
+          ? tradeMarketCodes
+          : new Set(
+            [...this.instruments.values()]
+              .filter((instrument) => instrument.ticker === lot.ticker)
+              .map((instrument) => instrument.marketCode as MarketCode),
+          );
+        for (const marketCode of marketCodes) {
+          const key = instrumentCatalogKey(lot.ticker, marketCode);
+          if (seen.has(key)) continue;
+          const instrument = this.instruments.get(key);
+          if (!instrument) continue;
+          if (instrument.barsBackfillStatus !== "ready") continue;
+          if (instrument.delistedAt) continue;
+          seen.add(key);
+          out.push({ ticker: lot.ticker, marketCode });
+        }
       }
     }
 
