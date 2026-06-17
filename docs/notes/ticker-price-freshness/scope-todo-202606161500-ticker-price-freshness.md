@@ -177,6 +177,13 @@ superseded_by: null
   - Web verification passed via `npm run test --prefix apps/web -- AdminSettingsClient-tabs.test.tsx`; the command ran both web test phases and passed `47` files / `271` tests, then `58` files / `406` tests, including the new admin freshness save-payload regression.
   - Focused ESLint passed for the touched admin settings, route guard, and regression-test files.
   - `npm run typecheck` passed after the review fixes.
+- Final Codex-review fixes after refreshed review:
+  - Quote snapshots now ignore cached same-day intraday overlays after the market session is closed, including when `tickerPriceRegularSessionOnly=false`, so closed-market displays fall back to the daily snapshot instead of showing a stale open-market chip.
+  - Close-refresh and intraday worker jobs now resolve current ticker freshness config at execution time for supported markets, close grace, Yahoo chart range/interval, intraday enablement, and Yahoo request budget limits; intraday workers are registered when runtime dependencies are available and skip jobs when the current config disables them.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/quoteSnapshotService.test.ts apps/api/test/unit/market-data/closeRefreshWorker.test.ts apps/api/test/unit/market-data/intradayRefreshWorker.test.ts` (`3` files / `24` tests).
+  - Focused ESLint passed for the touched quote snapshot, close refresh worker, intraday worker, pg-boss wiring, and regression-test files.
+  - `npm run typecheck` passed after the refreshed-review fixes.
+  - Broader API verification passed: `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1651` tests passed, `425` skipped).
 
 ## References
 
