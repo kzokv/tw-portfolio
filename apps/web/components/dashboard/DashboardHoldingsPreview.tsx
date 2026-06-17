@@ -1301,47 +1301,36 @@ function PricePreviewMetric({
   reportingPrice: number | null;
 }) {
   const priceState = getPriceState(group);
-  const tooltip = group.currentUnitPrice !== null && group.currency !== reportingCurrency
-    ? formatTopHoldingsMessage(dict.dashboardHome.topHoldingsNativePriceTooltip, {
-        price: formatCurrencyAmount(group.currentUnitPrice, group.currency, locale),
-        fx: fxRate !== null ? ` · ${dict.reports.fxRate} ${formatFxRate(fxRate)}` : "",
-      })
-    : dict.dashboardHome.topHoldingsPriceDetailsTooltip;
 
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
-      <Tooltip>
-        <Popover>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
-              >
-                <span className="block text-xs text-muted-foreground">
-                  {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency })}
-                </span>
-                <span
-                  className="mt-1 block truncate font-mono text-sm font-semibold tabular-nums text-foreground"
-                  title={reportingPrice === null ? undefined : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
-                >
-                  {reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
-                </span>
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{tooltip}</TooltipContent>
-          <PricePopoverContent
-            dict={dict}
-            fxRate={fxRate}
-            group={group}
-            locale={locale}
-            reportingCurrency={reportingCurrency}
-            reportingPrice={reportingPrice}
-          />
-        </Popover>
-      </Tooltip>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
+          >
+            <span className="block text-xs text-muted-foreground">
+              {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency })}
+            </span>
+            <span
+              className="mt-1 block truncate font-mono text-sm font-semibold tabular-nums text-foreground"
+              title={reportingPrice === null ? undefined : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
+            >
+              {reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PricePopoverContent
+          dict={dict}
+          fxRate={fxRate}
+          group={group}
+          locale={locale}
+          reportingCurrency={reportingCurrency}
+          reportingPrice={reportingPrice}
+        />
+      </Popover>
       {priceState ? (
         <PriceStateChip
           disclosure="popover"
@@ -1371,7 +1360,7 @@ function PricePopoverContent({
   reportingPrice: number | null;
 }) {
   return (
-    <PopoverContent align="start" className="w-80 p-3">
+    <PopoverContent align="start" collisionPadding={16} className="w-[min(20rem,calc(100vw-2rem))] p-3">
       <div className="flex flex-col gap-3">
         <div>
           <p className="text-sm font-semibold text-foreground">{dict.reports.priceTranslationTitle}</p>
