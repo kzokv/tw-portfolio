@@ -225,6 +225,7 @@ describe("shared-context delegated capabilities", () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "account:manage"]);
     const cases: Array<{ method: "POST" | "PUT" | "PATCH" | "DELETE"; url: string; routeKey: string }> = [
       { method: "POST", url: "/portfolio/snapshots/generate", routeKey: "POST /portfolio/snapshots/generate" },
+      { method: "POST", url: "/portfolio/refresh-closes", routeKey: "POST /portfolio/refresh-closes" },
       { method: "POST", url: "/portfolio/recompute/preview", routeKey: "POST /portfolio/recompute/preview" },
       { method: "POST", url: "/portfolio/recompute/confirm", routeKey: "POST /portfolio/recompute/confirm" },
       { method: "POST", url: "/fx-transfers", routeKey: "POST /fx-transfers" },
