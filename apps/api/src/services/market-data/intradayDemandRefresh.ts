@@ -68,7 +68,7 @@ export async function enqueueDemandIntradayRefreshes(
   initialResult.considered = dedupedPairs.length;
   if (dedupedPairs.length === 0) return initialResult;
 
-  const openPairs = await filterOpenMarketPairs(dedupedPairs, input.tradingCalendar, now);
+  const openPairs = await filterOpenMarketPairs(dedupedPairs, input.tradingCalendar, now, config.regularSessionOnly);
   initialResult.open = openPairs.length;
   if (openPairs.length === 0) return initialResult;
 
@@ -146,6 +146,7 @@ async function filterOpenMarketPairs(
   pairs: ReadonlyArray<MarketPair>,
   tradingCalendar: RegularSessionClock,
   now: Date,
+  regularSessionOnly: boolean,
 ): Promise<MarketPair[]> {
   const distinctMarkets = [...new Set(pairs.map((pair) => pair.marketCode))]
     .filter(isRegularSessionMarketCode);
@@ -154,7 +155,7 @@ async function filterOpenMarketPairs(
     await getRegularSessionState(marketCode, tradingCalendar, now),
   ] as const));
   const openMarkets = new Set(sessionEntries
-    .filter(([, state]) => state.isOpen)
+    .filter(([, state]) => regularSessionOnly ? state.isOpen : state.isTradingDay)
     .map(([marketCode]) => marketCode));
   return pairs.filter((pair) => openMarkets.has(pair.marketCode));
 }

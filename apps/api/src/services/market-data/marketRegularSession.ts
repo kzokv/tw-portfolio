@@ -5,6 +5,7 @@ export type RegularSessionMarketCode = "TW" | "US" | "AU" | "KR";
 
 export interface RegularSessionClock {
   isTradingDay(market: RegularSessionMarketCode, date: string): Promise<boolean>;
+  useWeekdayFallback?: boolean;
 }
 
 export interface RegularSessionState {
@@ -72,6 +73,22 @@ function addDaysIsoDate(date: string, days: number): string {
   return parsed.toISOString().slice(0, 10);
 }
 
+function isWeekdayIsoDate(date: string): boolean {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+async function isRegularSessionTradingDay(
+  clock: RegularSessionClock,
+  marketCode: RegularSessionMarketCode,
+  date: string,
+): Promise<boolean> {
+  const isTradingDay = await clock.isTradingDay(marketCode, date);
+  if (isTradingDay) return true;
+  if (clock.useWeekdayFallback === false) return false;
+  return isWeekdayIsoDate(date);
+}
+
 export function isWithinRegularSessionTime(
   marketCode: RegularSessionMarketCode,
   localHour: number,
@@ -91,7 +108,7 @@ export async function getRegularSessionState(
   at: Date,
 ): Promise<RegularSessionState> {
   const { localDate, localHour, localMinute } = getMarketLocalParts(marketCode, at);
-  const isTradingDay = await clock.isTradingDay(marketCode, localDate);
+  const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
   const open = MARKET_OPEN_LOCAL_TIME[marketCode];
   const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
   return {
@@ -112,7 +129,7 @@ export async function getRegularSessionCloseRefreshDate(
   graceMinutes: number,
 ): Promise<string | null> {
   const { localDate, localHour, localMinute } = getMarketLocalParts(marketCode, at);
-  const isTradingDay = await clock.isTradingDay(marketCode, localDate);
+  const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
   const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
   const localMinutes = localHour * 60 + localMinute;
   const eligibleMinutes = close.hour * 60 + close.minute + graceMinutes;
@@ -120,7 +137,7 @@ export async function getRegularSessionCloseRefreshDate(
 
   for (let offset = 1; offset <= CLOSE_REFRESH_LOOKBACK_DAYS; offset += 1) {
     const candidate = addDaysIsoDate(localDate, -offset);
-    if (await clock.isTradingDay(marketCode, candidate)) return candidate;
+    if (await isRegularSessionTradingDay(clock, marketCode, candidate)) return candidate;
   }
 
   return null;
