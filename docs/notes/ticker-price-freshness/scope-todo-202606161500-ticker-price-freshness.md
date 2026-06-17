@@ -143,6 +143,9 @@ superseded_by: null
   - Focused verification passed: `npx vitest run apps/api/test/unit/market-data/marketRegularSession.test.ts apps/api/test/unit/quoteSnapshotService.test.ts` (`2` files / `19` tests).
   - Focused ESLint passed for touched market-session, quote-snapshot, and unit-test files.
   - Broader post-fix verification passed: `npm run typecheck`; `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1646` tests passed, `425` skipped).
+- Deploy hardening:
+  - Dev deploy run `27670119887` timed out in migration `078_ticker_price_freshness_daily_bar_quality.sql` after rewriting `7,713,382` existing `daily_bars` rows to `full_bar`.
+  - Migration `078` was revised to use Postgres' fast `ADD COLUMN quality TEXT NOT NULL DEFAULT 'full_bar'` path for fresh deployments, while keeping an idempotent repair branch for environments where the column already exists nullable.
 
 ## References
 
