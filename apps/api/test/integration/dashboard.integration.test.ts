@@ -13,6 +13,7 @@ import { buildApp } from "../../src/app.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
 import { generateHoldingSnapshots } from "../../src/services/snapshotGeneration.js";
+import { setStoreInstruments } from "../../src/services/store.js";
 import { dividendEventPayload, dividendPostingPayload, transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -342,20 +343,11 @@ describe("dashboard overview", () => {
       defaultCurrency: "AUD",
       accountType: "broker",
     });
-    store.marketData.instruments.push(
-      {
-        ticker: "BHP",
-        marketCode: "AU",
-        instrumentType: "STOCK",
-        isProvisional: false,
-      },
-      {
-        ticker: "BHP",
-        marketCode: "US",
-        instrumentType: "STOCK",
-        isProvisional: false,
-      },
-    );
+    setStoreInstruments(store, [
+      ...store.instruments,
+      { ticker: "BHP", marketCode: "AU", type: "STOCK", isProvisional: false },
+      { ticker: "BHP", marketCode: "US", type: "STOCK", isProvisional: false },
+    ]);
     store.accounting.projections.holdings.push({
       accountId: "acc-bhp-au-only",
       ticker: "BHP",
