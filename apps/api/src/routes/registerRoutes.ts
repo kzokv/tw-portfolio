@@ -1897,7 +1897,8 @@ async function resolveDisplayedQuoteSnapshotsForHeldPairs(
   tickers: ReadonlyArray<string>,
   now: Date = new Date(),
 ): Promise<Record<string, ResolvedQuoteSnapshot | null>> {
-  const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, tickers, now);
+  const pairs = buildHeldTickerMarketPairsForDisplayedQuotes(store, tickers);
+  const settledByMarket = await buildSettledTradingDayMap(app, pairs, now);
   await enqueueDisplayedQuoteRefreshes(app, pairs, now);
   return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket, {
     mode: "displayed",
@@ -1907,6 +1908,42 @@ async function resolveDisplayedQuoteSnapshotsForHeldPairs(
       .filter((pair): pair is { ticker: string; marketCode: MarketCode } => pair.marketCode !== undefined)
       .map((pair) => `${pair.ticker}:${pair.marketCode}`)),
   });
+}
+
+function buildHeldTickerMarketPairsForDisplayedQuotes(
+  store: Store,
+  tickers: ReadonlyArray<string>,
+): QuoteSnapshotPair[] {
+  const requestedTickers = new Set(tickers);
+  const accountMarketById = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
+  const pairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const holding of store.accounting.projections.holdings) {
+    if (holding.quantity <= 0 || !requestedTickers.has(holding.ticker)) continue;
+    const marketCode = resolveHeldMarketCodeForStoreHolding(store, holding, accountMarketById);
+    if (!marketCode || !(MARKET_CODES as readonly string[]).includes(marketCode)) continue;
+    const key = `${holding.ticker}:${marketCode}`;
+    pairs.set(key, { ticker: holding.ticker, marketCode });
+  }
+  return [...pairs.values()];
+}
+
+async function buildSettledTradingDayMap(
+  app: FastifyInstance,
+  pairs: ReadonlyArray<QuoteSnapshotPair>,
+  now: Date,
+): Promise<Map<MarketCode, string>> {
+  const settledByMarket = new Map<MarketCode, string>();
+  const distinctMarkets = new Set<MarketCode>();
+  for (const pair of pairs) {
+    if (pair.marketCode) distinctMarkets.add(pair.marketCode);
+  }
+  for (const market of distinctMarkets) {
+    settledByMarket.set(market, await app.tradingCalendarCache.latestSettledTradingDay(market, now));
+  }
+  return settledByMarket;
 }
 
 async function enqueueDisplayedQuoteRefreshes(
