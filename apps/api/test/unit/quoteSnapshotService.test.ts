@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
+import {
+  _resetAppConfigCache,
+  refresh,
+  setAppConfigCachePersistence,
+} from "../../src/services/appConfig/cache.js";
 import { resolveQuoteSnapshots } from "../../src/services/market-data/quoteSnapshotService.js";
+import { seedCache } from "./appConfig/_helpers.js";
 
 const FULL_BAR = "full_bar" as const;
 
@@ -37,8 +43,13 @@ describe("resolveQuoteSnapshots", () => {
   let persistence: MemoryPersistence;
 
   beforeEach(async () => {
+    _resetAppConfigCache();
     persistence = new MemoryPersistence();
     await persistence.init();
+  });
+
+  afterEach(() => {
+    _resetAppConfigCache();
   });
 
   it("TC-U1: 2+ bars → all derived fields populated for both tickers", async () => {
@@ -264,5 +275,45 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.dailyCompatibleClose).toBe(998);
     expect(result["2330"]?.priceState.basis).toBe("intraday");
     expect(result["2330"]?.priceState.chipState).toBe("open_fresh");
+  });
+
+  it("keeps intraday overlays enabled during open sessions when regular-session-only is disabled", async () => {
+    await seedCache(
+      { tickerPriceRegularSessionOnly: false },
+      { _resetAppConfigCache, refresh, setAppConfigCachePersistence },
+    );
+    persistence._seedDailyBars([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 995, high: 1000, low: 990, close: 998, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-13", open: 980, high: 985, low: 975, close: 982, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-13T13:40:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "2330",
+      marketCode: "TW",
+      price: 1015,
+      previousClose: 998,
+      asOfDate: "2026-06-17",
+      asOfTimestamp: "2026-06-17T01:15:00.000Z",
+      observedAt: "2026-06-17T01:16:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "TWD",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "2330", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-16"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-17T01:18:00.000Z"),
+        heldPairs: new Set(["2330:TW"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["2330"]?.close).toBe(1015);
+    expect(result["2330"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
   });
 });

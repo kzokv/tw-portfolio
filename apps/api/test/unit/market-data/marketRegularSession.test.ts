@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { getRegularSessionState } from "../../../src/services/market-data/marketRegularSession.js";
+import {
+  getRegularSessionCloseRefreshDate,
+  getRegularSessionState,
+} from "../../../src/services/market-data/marketRegularSession.js";
 
 describe("marketRegularSession", () => {
   it("marks TW as open during a TW trading day regular session", async () => {
@@ -40,5 +43,31 @@ describe("marketRegularSession", () => {
 
     expect(state.isTradingDay).toBe(false);
     expect(state.isOpen).toBe(false);
+  });
+
+  it("resolves the latest eligible close when today's close is not yet eligible", async () => {
+    const tradingDays = new Set(["2026-06-12", "2026-06-15"]);
+    const isTradingDay = vi.fn(async (_market: string, date: string) => tradingDays.has(date));
+
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "TW",
+      { isTradingDay },
+      new Date("2026-06-16T01:00:00.000Z"),
+      10,
+    );
+
+    expect(closeDate).toBe("2026-06-15");
+  });
+
+  it("resolves the prior trading close on weekends", async () => {
+    const tradingDays = new Set(["2026-06-19"]);
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "US",
+      { isTradingDay: vi.fn(async (_market: string, date: string) => tradingDays.has(date)) },
+      new Date("2026-06-20T16:00:00.000Z"),
+      10,
+    );
+
+    expect(closeDate).toBe("2026-06-19");
   });
 });

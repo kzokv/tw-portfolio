@@ -32,6 +32,7 @@ const MARKET_CLOSE_LOCAL_TIME: Record<RegularSessionMarketCode, { hour: number; 
   AU: { hour: 16, minute: 0 },
   KR: { hour: 15, minute: 30 },
 };
+const CLOSE_REFRESH_LOOKBACK_DAYS = 14;
 
 export function isRegularSessionMarketCode(marketCode: MarketCode): marketCode is RegularSessionMarketCode {
   return REGULAR_SESSION_MARKETS.has(marketCode as RegularSessionMarketCode);
@@ -63,6 +64,12 @@ export function marketLocalDateFromTimestamp(
   at: Date,
 ): string {
   return getMarketLocalParts(marketCode, at).localDate;
+}
+
+function addDaysIsoDate(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 export function isWithinRegularSessionTime(
@@ -106,9 +113,15 @@ export async function getRegularSessionCloseRefreshDate(
 ): Promise<string | null> {
   const { localDate, localHour, localMinute } = getMarketLocalParts(marketCode, at);
   const isTradingDay = await clock.isTradingDay(marketCode, localDate);
-  if (!isTradingDay) return null;
   const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
   const localMinutes = localHour * 60 + localMinute;
   const eligibleMinutes = close.hour * 60 + close.minute + graceMinutes;
-  return localMinutes >= eligibleMinutes ? localDate : null;
+  if (isTradingDay && localMinutes >= eligibleMinutes) return localDate;
+
+  for (let offset = 1; offset <= CLOSE_REFRESH_LOOKBACK_DAYS; offset += 1) {
+    const candidate = addDaysIsoDate(localDate, -offset);
+    if (await clock.isTradingDay(marketCode, candidate)) return candidate;
+  }
+
+  return null;
 }

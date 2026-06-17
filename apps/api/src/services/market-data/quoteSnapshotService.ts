@@ -216,7 +216,8 @@ function resolveSnapshotForPair(input: {
   if (displayContext.heldPairs && !displayContext.heldPairs.has(key)) return dailySnapshot;
 
   const session = displayContext.sessionByMarket.get(pair.marketCode);
-  if (!session?.isOpen || !displayContext.regularSessionOnly) return dailySnapshot;
+  if (!session) return dailySnapshot;
+  if (displayContext.regularSessionOnly && !session.isOpen) return dailySnapshot;
 
   const overlay = displayContext.overlaysByKey.get(key);
   if (!overlay || overlay.asOfDate !== session.localDate) {
