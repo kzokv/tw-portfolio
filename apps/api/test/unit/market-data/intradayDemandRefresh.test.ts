@@ -120,4 +120,29 @@ describe("intradayDemandRefresh", () => {
       "intraday_demand_refresh_queue_unavailable",
     );
   });
+
+  it("enqueues trading-day after-hours pairs when regular-session-only is disabled", async () => {
+    const send = vi.fn().mockResolvedValue("job-1");
+    const result = await enqueueDemandIntradayRefreshes({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      boss: { send },
+      persistence: persistenceWithOverlays(new Map()),
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      log: { info: vi.fn(), warn: vi.fn() },
+      now: new Date("2026-06-17T07:00:00.000Z"),
+      config: { ...effectiveConfig, regularSessionOnly: false },
+    });
+
+    expect(result).toMatchObject({
+      considered: 1,
+      open: 1,
+      staleOrMissing: 1,
+      enqueued: 1,
+    });
+    expect(send).toHaveBeenCalledWith(
+      "intraday-refresh",
+      expect.objectContaining({ ticker: "2330", marketCode: "TW" }),
+      expect.objectContaining({ singletonKey: "intraday-refresh:TW:2330" }),
+    );
+  });
 });
