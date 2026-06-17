@@ -11,6 +11,7 @@ describe("smooth page read paths", () => {
 
   afterEach(async () => {
     if (app) await app.close();
+    vi.useRealTimers();
   });
 
   it("serves settings through an instrumented lightweight read contract", async () => {
@@ -486,6 +487,8 @@ describe("smooth page read paths", () => {
   });
 
   it("preserves cached quote and freshness fields in portfolio primary data", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-30T07:00:00.000Z"));
     (app.persistence as MemoryPersistence)._seedDailyBars([
       {
         ticker: "2330",
@@ -534,9 +537,9 @@ describe("smooth page read paths", () => {
         marketValueAmount: 6000,
         previousClose: 590,
         change: 10,
-        quoteStatus: "provisional",
+        quoteStatus: "current",
         priceState: expect.objectContaining({
-          basis: "pending_today_close",
+          basis: "today_close",
           chipState: "closed",
           sourceKind: "primary_daily",
         }),
@@ -549,12 +552,22 @@ describe("smooth page read paths", () => {
         marketValueAmount: 6000,
         previousClose: 590,
         change: 10,
-        quoteStatus: "provisional",
+        quoteStatus: "current",
+        priceState: expect.objectContaining({
+          basis: "today_close",
+          chipState: "closed",
+          sourceKind: "primary_daily",
+        }),
         children: [
           expect.objectContaining({
             currentUnitPrice: 600,
             marketValueAmount: 6000,
-            quoteStatus: "provisional",
+            quoteStatus: "current",
+            priceState: expect.objectContaining({
+              basis: "today_close",
+              chipState: "closed",
+              sourceKind: "primary_daily",
+            }),
           }),
         ],
       }),
