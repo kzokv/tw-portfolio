@@ -18,6 +18,14 @@ import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvent
 import { deriveEligibleQuantity } from "./dividends.js";
 import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
 import { historyStartFor } from "./market-data/types.js";
+import {
+  buildMissingPriceState,
+  resolveQuoteSnapshots,
+} from "./market-data/quoteSnapshotService.js";
+import {
+  getRegularSessionState,
+  isRegularSessionMarketCode,
+} from "./market-data/marketRegularSession.js";
 import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
 import type { DividendEvent, Store, Transaction } from "../types/store.js";
@@ -26,7 +34,7 @@ type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
 type TickerChartSelection = TickerChartRange | "CUSTOM";
 
 interface BuildTickerDetailsInput {
-  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getInstrument" | "getFxRate">;
+  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getLatestBars" | "getLatestIntradayOverlays" | "getInstrument" | "getFxRate">;
   store: Store;
   userId: string;
   ticker: string;
@@ -38,6 +46,8 @@ interface BuildTickerDetailsInput {
   endDate?: string;
   loadChart?: boolean;
   getSettledTradingDay?: (marketCode: MarketCode) => Promise<string | null>;
+  isTradingDay?: (marketCode: MarketCode, date: string) => Promise<boolean>;
+  enqueueIntradayRefresh?: (input: { ticker: string; marketCode: MarketCode; now: Date }) => Promise<void>;
   fundamentalsRecord: PersistedTickerFundamentalsRecord | null;
   now?: Date;
 }
@@ -102,7 +112,18 @@ export async function buildTickerDetails(
   const settledTradingDay = input.getSettledTradingDay
     ? await input.getSettledTradingDay(resolvedMarketCode)
     : null;
-  const quote = buildQuoteFromBars(quoteBars, settledTradingDay);
+  const quote = input.isTradingDay
+    ? await buildQuoteForTicker({
+        persistence: input.persistence,
+        ticker: normalizedTicker,
+        marketCode: resolvedMarketCode,
+        settledTradingDay,
+        hasHeldPosition: quantityForHoldings(filteredHoldings) > 0,
+        isTradingDay: { isTradingDay: input.isTradingDay },
+        enqueueIntradayRefresh: input.enqueueIntradayRefresh,
+        now: input.now,
+      })
+    : buildQuoteFromBars(quoteBars, settledTradingDay);
   const chart = buildChart({
     allLocalBars,
     latestBarDate,
@@ -237,8 +258,7 @@ function buildAccountBreakdown(input: {
           .filter((dividend) => dividend.accountId === holding.accountId)
           .map((dividend) => dividend.postedAt),
       ),
-      freshness: "current" as const,
-      freshnessTooltip: null,
+      priceState: input.quote.priceState,
       reportingCurrency: input.reportingCurrency,
       reportingCostBasisAmount: input.fxRateToReporting === null ? null : roundToDecimal(holding.costBasisAmount * input.fxRateToReporting, 2),
       reportingMarketValueAmount: input.fxRateToReporting === null || marketValueAmount === null
@@ -323,8 +343,7 @@ function buildHoldingGroup(input: {
     quoteStatus: input.quote.quoteStatus,
     nextDividendDate: minNullableDate(input.accountBreakdown.map((child) => child.nextDividendDate)),
     lastDividendPostedDate: maxNullableDate(input.accountBreakdown.map((child) => child.lastDividendPostedDate)),
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: input.quote.priceState,
     accountCount: new Set(input.accountBreakdown.map((child) => child.accountId)).size,
     reportingCurrency: input.reportingCurrency,
     reportingCostBasisAmount: input.fxRateToReporting === null ? null : roundToDecimal(costBasisAmount * input.fxRateToReporting, 2),
@@ -440,6 +459,7 @@ async function loadTickerQuoteBars(
       low: bar.low,
       close: bar.close,
       volume: bar.volume,
+      quality: bar.quality,
       source: bar.source,
       ingestedAt: bar.ingestedAt,
     }))
@@ -465,6 +485,7 @@ function buildQuoteFromBars(
       asOf: null,
       source: null,
       quoteStatus: "missing",
+      priceState: buildMissingPriceState(),
     };
   }
 
@@ -484,7 +505,93 @@ function buildQuoteFromBars(
     asOf: latest.barDate,
     source: latest.source,
     quoteStatus,
+    priceState: {
+      basis: settledTradingDay && latest.barDate < settledTradingDay ? "pending_today_close" : "today_close",
+      chipState: settledTradingDay && latest.barDate < settledTradingDay ? "closed" : "closed",
+      marketState: "closed",
+      source: latest.source,
+      sourceKind: "primary_daily",
+      asOfDate: latest.barDate,
+      asOfTimestamp: null,
+      observedAt: latest.ingestedAt,
+      delaySeconds: null,
+      marketTimeZone: null,
+      quality: latest.quality,
+    },
   };
+}
+
+async function buildQuoteForTicker(input: {
+  persistence: BuildTickerDetailsInput["persistence"];
+  ticker: string;
+  marketCode: MarketCode;
+  settledTradingDay: string | null;
+  hasHeldPosition: boolean;
+  isTradingDay?: { isTradingDay(marketCode: MarketCode, date: string): Promise<boolean> };
+  enqueueIntradayRefresh?: (input: { ticker: string; marketCode: MarketCode; now: Date }) => Promise<void>;
+  now?: Date;
+}): Promise<TickerDetailsDto["quote"]> {
+  if (!input.isTradingDay) {
+    return buildQuoteFromBars(
+      (await loadTickerQuoteBars(input.persistence, input.ticker, input.marketCode)).quoteBars,
+      input.settledTradingDay,
+    );
+  }
+
+  const now = input.now ?? new Date();
+  if (input.hasHeldPosition) {
+    await input.enqueueIntradayRefresh?.({
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      now,
+    });
+  }
+
+  const snapshotMap = await resolveQuoteSnapshots(
+    [{ ticker: input.ticker, marketCode: input.marketCode }],
+    input.persistence as Persistence,
+    new Map(input.settledTradingDay ? [[input.marketCode, input.settledTradingDay]] : []),
+    {
+      mode: input.hasHeldPosition ? "displayed" : "daily_only",
+      now,
+      tradingCalendar: input.isTradingDay,
+      heldPairs: input.hasHeldPosition ? new Set([`${input.ticker}:${input.marketCode}`]) : new Set<string>(),
+    },
+  );
+  const snapshot = snapshotMap[`${input.ticker}:${input.marketCode}`];
+  if (!snapshot) {
+    const session = isRegularSessionMarketCode(input.marketCode)
+      ? await getRegularSessionState(input.marketCode, input.isTradingDay, now)
+      : null;
+    return {
+      currentUnitPrice: null,
+      previousClose: null,
+      change: null,
+      changePercent: null,
+      asOf: null,
+      source: null,
+      quoteStatus: "missing",
+      priceState: buildMissingPriceState(input.marketCode, {
+        marketState: session?.isOpen ? "open" : "closed",
+        marketTimeZone: session?.marketTimeZone ?? null,
+      }),
+    };
+  }
+
+  return {
+    currentUnitPrice: snapshot.close,
+    previousClose: snapshot.previousClose,
+    change: snapshot.change,
+    changePercent: snapshot.changePercent,
+    asOf: snapshot.asOf,
+    source: snapshot.source,
+    quoteStatus: snapshot.isProvisional ? "provisional" : "current",
+    priceState: snapshot.priceState,
+  };
+}
+
+function quantityForHoldings(holdings: ReturnType<typeof listHoldings>): number {
+  return holdings.reduce((sum, holding) => sum + holding.quantity, 0);
 }
 
 function buildChart(input: {

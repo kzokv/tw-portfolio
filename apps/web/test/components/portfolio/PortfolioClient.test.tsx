@@ -6,6 +6,7 @@ import { PortfolioClient } from "../../../components/portfolio/PortfolioClient";
 import { getDictionary } from "../../../lib/i18n";
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../../lib/routeDtoCache";
 import type { PortfolioPageData } from "../../../features/portfolio/services/portfolioService";
+import { testPriceState } from "../../fixtures/priceState";
 
 const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-holdings-table" />));
 const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
@@ -73,8 +74,7 @@ const portfolioData = {
       quoteStatus: "current",
       nextDividendDate: null,
       lastDividendPostedDate: null,
-      freshness: "current",
-      freshnessTooltip: null,
+      priceState: testPriceState(),
       accountCount: 1,
       reportingCurrency: "TWD",
       reportingCostBasisAmount: 32_000,

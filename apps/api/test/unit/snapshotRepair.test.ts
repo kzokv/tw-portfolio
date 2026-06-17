@@ -32,6 +32,7 @@ function makeBar(date: string, close: number): DailyBar {
     low: close,
     close,
     volume: 1000,
+    quality: "full_bar",
     source: "test",
     ingestedAt: new Date("2026-06-01T00:00:00.000Z").toISOString(),
   };

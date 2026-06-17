@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AccountDefaultCurrency, DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
 import { formatCompactCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
@@ -26,9 +26,11 @@ import { resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import { refreshPortfolioCloses } from "../../features/portfolio/services/portfolioService";
 import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
 import type { TimelineMode } from "../../lib/timelineAxis";
+import { shouldPollForOpenMarket, sortDashboardMarketStates, summarizeDashboardMarketStates, type DashboardMarketStateLike } from "../../features/price-state/priceState";
 import {
   Card as ShadcnCard,
   CardContent,
@@ -72,12 +74,14 @@ export function DashboardClient({
     contextRefreshSignal,
   } = useAppShellData();
   const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
+  const initialDashboardPollMs = Math.max(15_000, (initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
   const dashboard = useDashboardPrimaryData({
     cacheKey,
     cachePolicy: routeCachePolicy,
     expectedReportingCurrency,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
+    openMarketPollMs: initialDashboardPollMs,
   });
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis } = useHoldingAllocationBasis();
@@ -85,6 +89,8 @@ export function DashboardClient({
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("auto");
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
+  const [isRefreshingCloses, setIsRefreshingCloses] = useState(false);
+  const [closeRefreshError, setCloseRefreshError] = useState("");
   const performanceReportingCurrency = dashboard.summary.reportingCurrency ?? expectedReportingCurrency ?? reportingCurrency;
   const performanceCacheKey = buildRouteDtoCacheKey(
     "dashboard-performance",
@@ -124,6 +130,19 @@ export function DashboardClient({
     void dashboard.refresh();
     void performance.refresh();
   };
+  const refreshClosesAndDashboard = async () => {
+    setIsRefreshingCloses(true);
+    setCloseRefreshError("");
+    try {
+      await refreshPortfolioCloses();
+      await dashboard.refresh();
+      await performance.refresh();
+    } catch (error) {
+      setCloseRefreshError(error instanceof Error ? error.message : "Failed to refresh closes");
+    } finally {
+      setIsRefreshingCloses(false);
+    }
+  };
   useEffect(() => {
     if (firstSignalRef.current) {
       firstSignalRef.current = false;
@@ -161,6 +180,24 @@ export function DashboardClient({
         minute: "2-digit",
       }).format(new Date(dashboard.restoredAt))
     : null;
+  const marketStates = useMemo(
+    () => {
+      const payloadStates = (dashboard as DashboardSnapshot & { marketStates?: DashboardMarketStateLike[] | null }).marketStates;
+      return payloadStates && payloadStates.length > 0
+        ? sortDashboardMarketStates(payloadStates)
+        : summarizeDashboardMarketStates(holdingGroups);
+    },
+    [dashboard, holdingGroups],
+  );
+  const dashboardPollMs = Math.max(15_000, (dashboard.settings?.quotePollIntervalSeconds ?? initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
+
+  useEffect(() => {
+    if (!shouldPollForOpenMarket(dashboard.holdings, marketStates)) return;
+    const timer = window.setInterval(() => {
+      void dashboard.refresh();
+    }, dashboardPollMs);
+    return () => window.clearInterval(timer);
+  }, [dashboard, dashboard.holdings, dashboardPollMs, marketStates]);
 
   return (
     <div className="stagger grid min-w-0 gap-6">
@@ -222,17 +259,39 @@ export function DashboardClient({
               {dict.dashboardHome.silentRefreshRunning}
             </span>
           ) : null}
+          {isRefreshingCloses ? (
+            <span className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              {dict.dashboardHome.refreshClosesRunningLabel}
+            </span>
+          ) : null}
+          {closeRefreshError ? (
+            <span className="text-xs font-medium text-destructive">{closeRefreshError}</span>
+          ) : null}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={refreshDashboardAndPerformance}
-          disabled={dashboard.isRefreshing || performance.isLoading}
-          data-testid="dashboard-refresh-button"
-        >
-          {dict.reports.refresh}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {!isSharedContext ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => { void refreshClosesAndDashboard(); }}
+              disabled={dashboard.isRefreshing || performance.isLoading || isRefreshingCloses}
+              data-testid="dashboard-refresh-closes-button"
+            >
+              {dict.dashboardHome.refreshClosesLabel}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={refreshDashboardAndPerformance}
+            disabled={dashboard.isRefreshing || performance.isLoading || isRefreshingCloses}
+            data-testid="dashboard-refresh-button"
+          >
+            {dict.reports.refresh}
+          </Button>
+        </div>
         {!isSharedContext ? (
           <Button
             type="button"
@@ -246,6 +305,8 @@ export function DashboardClient({
           </Button>
         ) : null}
       </div>
+
+      {marketStates.length > 0 ? <DashboardMarketStateSummary dict={dict} marketStates={marketStates} /> : null}
 
       <DashboardCommandModules
         dict={dict}
@@ -361,6 +422,37 @@ export function DashboardClient({
         />
       ) : null}
     </div>
+  );
+}
+
+function DashboardMarketStateSummary({
+  dict,
+  marketStates,
+}: {
+  dict: AppDictionary;
+  marketStates: DashboardMarketStateLike[];
+}) {
+  return (
+    <ShadcnCard data-testid="dashboard-market-state-summary">
+      <CardHeader className="pb-3">
+        <CardTitle>{dict.dashboardHome.heldMarketsTitle}</CardTitle>
+        <CardDescription>{dict.dashboardHome.heldMarketsDescription}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        {marketStates.map((state) => (
+          <div
+            key={state.marketCode}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+            data-testid={`dashboard-market-state-${state.marketCode}`}
+          >
+            <span className="font-semibold text-foreground">{state.marketCode}</span>
+            <span className={state.marketState === "open" ? "text-[hsl(var(--success))]" : "text-muted-foreground"}>
+              {state.marketState === "open" ? dict.dashboardHome.heldMarketsOpen : dict.dashboardHome.heldMarketsClosed}
+            </span>
+          </div>
+        ))}
+      </CardContent>
+    </ShadcnCard>
   );
 }
 

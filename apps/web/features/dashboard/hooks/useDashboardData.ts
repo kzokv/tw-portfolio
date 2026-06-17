@@ -11,6 +11,7 @@ import {
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
+import { shouldPollForOpenMarket, type DashboardMarketStateLike } from "../../price-state/priceState";
 import { fetchDashboardEnrichmentData, fetchDashboardPrimaryData } from "../services/dashboardService";
 import { resolveTransactionDraftAccount, type DashboardSnapshot } from "../types";
 
@@ -20,6 +21,7 @@ interface UseDashboardDataOptions {
   expectedReportingCurrency?: AccountDefaultCurrency | null;
   initialTransaction: TransactionInput;
   initialPrimaryData?: DashboardSnapshot | null;
+  openMarketPollMs?: number | null;
 }
 
 interface UseDashboardDataResult extends DashboardSnapshot {
@@ -55,8 +57,16 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
     upcomingDividendCount: 0,
     upcomingDividendAmount: null,
     openIssueCount: 0,
+    priceStateRollup: {
+      holdingCount: 0,
+      currentPriceCount: 0,
+      nonCurrentPriceCount: 0,
+      missingPriceCount: 0,
+      basisCounts: [],
+    },
   },
   marketValues: [],
+  marketStates: [],
   holdings: [],
   holdingGroups: [],
   dividends: {
@@ -79,13 +89,14 @@ export function useDashboardPrimaryData({
   expectedReportingCurrency,
   initialTransaction,
   initialPrimaryData = null,
+  openMarketPollMs = null,
 }: UseDashboardDataOptions): UseDashboardDataResult {
   const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "dashboard-primary");
   const enrichmentCacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "dashboard-enrichment");
   const initialCachedRef = useRef<ReturnType<typeof readDashboardCache> | undefined>(undefined);
   if (initialCachedRef.current === undefined) {
     initialCachedRef.current = initialPrimaryData === null && cacheKey
-      ? readDashboardCache(cacheKey, expectedReportingCurrency)
+      ? readDashboardCache(cacheKey, expectedReportingCurrency, openMarketPollMs)
       : null;
   }
   const initialCached = initialCachedRef.current;
@@ -179,7 +190,7 @@ export function useDashboardPrimaryData({
       return;
     }
 
-    const cached = cacheKey ? readDashboardCache(cacheKey, expectedReportingCurrency) : null;
+    const cached = cacheKey ? readDashboardCache(cacheKey, expectedReportingCurrency, openMarketPollMs) : null;
     if (cached !== null) {
       const version = startRequest();
       setSnapshot(cached.payload);
@@ -213,7 +224,7 @@ export function useDashboardPrimaryData({
     return () => {
       mounted = false;
     };
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, expectedReportingCurrency, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, expectedReportingCurrency, initialPrimaryData, openMarketPollMs, refresh, refreshEnrichment, startRequest]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
@@ -255,10 +266,23 @@ function needsDashboardEnrichment(snapshot: DashboardSnapshot): boolean {
 function readDashboardCache(
   cacheKey: string,
   expectedReportingCurrency?: AccountDefaultCurrency | null,
+  openMarketPollMs?: number | null,
 ): ReturnType<typeof readRouteDtoCache<DashboardSnapshot>> {
   if (expectedReportingCurrency === null) return null;
 
   const cached = readRouteDtoCache<DashboardSnapshot>(cacheKey);
+  if (
+    cached !== null
+    && typeof openMarketPollMs === "number"
+    && openMarketPollMs > 0
+    && shouldPollForOpenMarket(
+      cached.payload.holdings,
+      (cached.payload as DashboardSnapshot & { marketStates?: DashboardMarketStateLike[] | null }).marketStates,
+    )
+    && Date.now() - cached.createdAt > openMarketPollMs
+  ) {
+    return null;
+  }
   if (cached === null || expectedReportingCurrency === undefined) return cached;
   return cached.payload.summary.reportingCurrency === expectedReportingCurrency ? cached : null;
 }

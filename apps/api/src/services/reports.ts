@@ -23,13 +23,18 @@ import {
   type ReportSummaryTotalsDto,
 } from "@vakwen/shared-types";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "./dashboard.js";
-import { enrichHoldingsWithFreshness } from "./dashboardFreshness.js";
 import {
+  translateDailyCompatibleCurrentValue,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
 } from "./dashboardReportingCurrency.js";
-import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "./market-data/quoteSnapshotService.js";
+import {
+  isCurrentPriceState,
+  resolveQuoteSnapshots,
+  type QuoteSnapshotPair,
+  type ResolvedQuoteSnapshot,
+} from "./market-data/quoteSnapshotService.js";
 import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferences.js";
 import { resolveReportContext } from "./reportContext.js";
@@ -60,7 +65,8 @@ interface PreparedReportData {
   reportQuery: ReportQueryStateDto;
   translatedSummary: Awaited<ReturnType<typeof translateOverviewSummary>>;
   translatedHoldingGroups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>;
-  quotes: QuoteSnapshot[];
+  dailyCompatibleCurrentValueAmount: number | null;
+  quotes: ResolvedQuoteSnapshot[];
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
@@ -80,7 +86,7 @@ type ReportKnownGapReason =
   | "stale_snapshot"
   | "missing_quote"
   | "provisional_quote"
-  | "stale_quote"
+  | "non_current_price"
   | "missing_fx"
   | "missing_provider_source";
 
@@ -135,7 +141,7 @@ export async function buildPortfolioReport(
       userId,
       store: prepared.scopedStore,
       reportingCurrency: prepared.reportQuery.reportingCurrency,
-      currentValueAmount: prepared.translatedSummary.marketValueAmount,
+      currentValueAmount: prepared.dailyCompatibleCurrentValueAmount,
       holdingGroups: prepared.translatedHoldingGroups,
       performance,
       asOf: prepared.asOf,
@@ -191,7 +197,7 @@ export async function buildMarketReport(
       userId,
       store: prepared.scopedStore,
       reportingCurrency: prepared.reportQuery.reportingCurrency,
-      currentValueAmount: prepared.translatedSummary.marketValueAmount,
+      currentValueAmount: prepared.dailyCompatibleCurrentValueAmount,
       holdingGroups: prepared.translatedHoldingGroups,
       performance,
       asOf: prepared.asOf,
@@ -252,16 +258,14 @@ async function prepareReportData(
       .filter((symbol) => quoteableTickers.has(symbol)),
   )];
   const { pairs, settledByMarket } = await buildQuoteInputs(app, scopedStore, symbols);
-  const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-  const quotes = Object.values(snapshotMap).filter((quote): quote is QuoteSnapshot => quote !== null);
-  const overview = buildDashboardOverview(scopedStore, { integrityIssue: null, quotes });
-  if (app.tradingCalendarCache) {
-    await enrichHoldingsWithFreshness(overview.holdings, scopedStore, {
-      persistence: app.persistence,
-      tradingCalendar: app.tradingCalendarCache,
-    });
-  }
-  const asOf = overview.summary.asOf;
+  const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket, {
+    mode: "displayed",
+    now: new Date(),
+    tradingCalendar: app.tradingCalendarCache,
+  });
+  const quotes = Object.values(snapshotMap).filter((quote): quote is ResolvedQuoteSnapshot => quote !== null);
+  const asOf = new Date().toISOString().slice(0, 10);
+  const overview = buildDashboardOverview(scopedStore, { integrityIssue: null, quotes, summaryAsOf: asOf });
   const translatedSummary = await translateOverviewSummary(
     overview.summary,
     overview.holdings,
@@ -277,6 +281,13 @@ async function prepareReportData(
     asOf,
     app.persistence,
   ), scopedStore, app.persistence);
+  const dailyCompatibleCurrentValueAmount = await translateDailyCompatibleCurrentValue(
+    translatedHoldingGroups,
+    quotes,
+    context.reportingCurrency,
+    asOf,
+    app.persistence,
+  );
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
     translateTradeAmounts(scopedStore, context.reportingCurrency, app.persistence, "realized_pnl"),
@@ -304,6 +315,7 @@ async function prepareReportData(
     },
     translatedSummary,
     translatedHoldingGroups,
+    dailyCompatibleCurrentValueAmount,
     quotes,
     dataHealth: buildDataHealth(translatedHoldingGroups, historicalMissingRatePairs.length),
     fxStatus,
@@ -491,7 +503,7 @@ function mapHoldingRows(groups: Awaited<ReturnType<typeof translateOverviewHoldi
       dailyChangePercent: group.changePercent,
       quoteStatus: group.quoteStatus,
       fxStatus: group.fxStatus,
-      freshness: group.freshness,
+      priceState: group.priceState,
     };
   });
 }
@@ -607,7 +619,7 @@ function buildDataHealth(
     missingQuoteCount: groups.filter((group) => group.quoteStatus === "missing").length,
     provisionalQuoteCount: groups.filter((group) => group.quoteStatus === "provisional").length,
     missingFxCount: groups.filter((group) => group.fxStatus !== "complete").length + historicalMissingFxCount,
-    staleQuoteCount: groups.filter((group) => group.freshness !== "current").length,
+    nonCurrentPriceCount: groups.filter((group) => !isCurrentPriceState(group.priceState)).length,
   };
 }
 
@@ -624,7 +636,7 @@ function buildMarketHealthGapReasons(
   for (const group of groups) {
     if (group.quoteStatus === "missing") addMarketReason(group.marketCode, "missing_quote");
     if (group.quoteStatus === "provisional") addMarketReason(group.marketCode, "provisional_quote");
-    if (group.freshness !== "current") addMarketReason(group.marketCode, "stale_quote");
+    if (!isCurrentPriceState(group.priceState)) addMarketReason(group.marketCode, "non_current_price");
     if (group.fxStatus !== "complete") addMarketReason(group.marketCode, "missing_fx");
   }
 
@@ -661,7 +673,7 @@ function buildReportDiagnostics(
   if (staleSinceDate !== null) knownGapReasons.push("stale_snapshot");
   if (prepared.dataHealth.missingQuoteCount > 0) knownGapReasons.push("missing_quote");
   if (prepared.dataHealth.provisionalQuoteCount > 0) knownGapReasons.push("provisional_quote");
-  if (prepared.dataHealth.staleQuoteCount > 0) knownGapReasons.push("stale_quote");
+  if (prepared.dataHealth.nonCurrentPriceCount > 0) knownGapReasons.push("non_current_price");
   if (prepared.dataHealth.missingFxCount > 0) knownGapReasons.push("missing_fx");
   if (prepared.snapshotDiagnostics.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
   const markets = resolveReportMarketDiagnostics(prepared);
@@ -677,7 +689,7 @@ function buildReportDiagnostics(
     staleSinceDate,
     missingQuoteCount: prepared.dataHealth.missingQuoteCount,
     provisionalQuoteCount: prepared.dataHealth.provisionalQuoteCount,
-    staleQuoteCount: prepared.dataHealth.staleQuoteCount,
+    nonCurrentPriceCount: prepared.dataHealth.nonCurrentPriceCount,
     missingFxCount: prepared.dataHealth.missingFxCount,
     missingProviderSourceCount: prepared.snapshotDiagnostics.missingProviderSourceCount,
     knownGapReasons,

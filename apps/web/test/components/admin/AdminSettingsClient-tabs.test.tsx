@@ -97,6 +97,15 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(panelHidden("catalog-metadata")).toBe(true);
   });
 
+  it("renders the grouped ticker price freshness close-refresh rate-limit controls", () => {
+    mockParams = new URLSearchParams();
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    expect(document.querySelector("[data-testid='admin-settings-ticker-price-freshness-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceRefreshCloseRateLimitWindowMs']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceRefreshCloseRateLimitMax']")).not.toBeNull();
+  });
+
   it("falls back to rate-limits when ?tab=<bogus-slug>", () => {
     mockParams = new URLSearchParams({ tab: "totally-not-a-real-slug" });
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));

@@ -256,6 +256,7 @@ describe("apps/web/lib/api — context header injection + fallback intercept", (
     expect(shouldInvalidatePortfolioRouteCaches("POST", "/ai/transaction-drafts/batch-1/confirm")).toBe(true);
     expect(shouldInvalidatePortfolioRouteCaches("POST", "/accounts")).toBe(true);
     expect(shouldInvalidatePortfolioRouteCaches("POST", "/accounts/account-1/purge")).toBe(true);
+    expect(shouldInvalidatePortfolioRouteCaches("POST", "/portfolio/refresh-closes")).toBe(true);
     expect(shouldInvalidatePortfolioRouteCaches("PUT", "/settings/fee-config")).toBe(true);
 
     expect(shouldInvalidatePortfolioRouteCaches("POST", "/portfolio/recompute/confirm")).toBe(false);

@@ -51,6 +51,7 @@ import type {
   SnapshotTradeInput,
 } from "../persistence/types.js";
 import type { BookedTradeEvent, LotAllocationProjection, Store } from "../types/store.js";
+import { quoteSnapshotKey, type ResolvedQuoteSnapshot } from "./market-data/quoteSnapshotService.js";
 
 const VALUATION_HEALTH_SNAPSHOT_LOOKBACK_DAYS = 120;
 
@@ -66,6 +67,7 @@ interface PreTranslationOverviewSummary {
   upcomingDividendCount: number;
   upcomingDividendAmount: number | null;
   openIssueCount: number;
+  priceStateRollup: import("@vakwen/shared-types").PriceStateRollupDto;
 }
 
 interface OverviewDividends {
@@ -327,6 +329,7 @@ export async function translateOverviewSummary(
     upcomingDividendCount: summary.upcomingDividendCount,
     upcomingDividendAmount: finalUpcomingDividend,
     openIssueCount: summary.openIssueCount,
+    priceStateRollup: summary.priceStateRollup,
   };
 }
 
@@ -358,6 +361,39 @@ export async function translateOverviewHoldingGroups(
     ...applyAllocationDetails(group, groupAllocations),
     children: group.children.map((child) => applyAllocationDetails(child, childAllocations)),
   }));
+}
+
+export async function translateDailyCompatibleCurrentValue(
+  holdingGroups: ReadonlyArray<DashboardOverviewHoldingGroupDto>,
+  quotes: ReadonlyArray<ResolvedQuoteSnapshot>,
+  reportingCurrency: AccountDefaultCurrency,
+  asOfDate: string,
+  persistence: Persistence,
+): Promise<number | null> {
+  const quoteByKey = new Map<string, ResolvedQuoteSnapshot>();
+  for (const quote of quotes) {
+    quoteByKey.set(quoteSnapshotKey(quote.ticker, quote.marketCode), quote);
+    if (!quote.marketCode && !quoteByKey.has(quote.ticker)) {
+      quoteByKey.set(quote.ticker, quote);
+    }
+  }
+
+  const children = holdingGroups.flatMap((group) => group.children);
+  const fxMap = await buildFxRateMap(
+    [...new Set(children.map((child) => child.currency))],
+    reportingCurrency,
+    asOfDate,
+    persistence,
+  );
+
+  let total = 0;
+  for (const child of children) {
+    const quote = quoteByKey.get(quoteSnapshotKey(child.ticker, child.marketCode)) ?? quoteByKey.get(child.ticker);
+    const fx = fxMap.get(child.currency) ?? null;
+    if (!quote || fx === null) return null;
+    total += child.quantity * quote.dailyCompatibleClose * fx;
+  }
+  return roundToDecimal(total, 2);
 }
 
 export function buildOverviewMarketValues(

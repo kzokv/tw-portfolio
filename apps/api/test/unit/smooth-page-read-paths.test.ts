@@ -40,7 +40,9 @@ describe("smooth page read paths", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["server-timing"]).toContain("build_portfolio_page_data;dur=");
     const body = response.json();
-    expect(body.settings).toBeUndefined();
+    expect(body.settings).toEqual(expect.objectContaining({
+      quotePollIntervalSeconds: expect.any(Number),
+    }));
     expect(body.summary).toBeUndefined();
     expect(body.actions).toBeUndefined();
     expect(body.holdings).toEqual([
@@ -98,7 +100,11 @@ describe("smooth page read paths", () => {
         ticker: "2330",
         instrumentName: "台積電",
         currentUnitPrice: null,
-        freshness: "current",
+        priceState: expect.objectContaining({
+          basis: "missing",
+          chipState: "missing",
+          sourceKind: "missing",
+        }),
         quoteStatus: "missing",
       }),
     ]);
@@ -529,7 +535,11 @@ describe("smooth page read paths", () => {
         previousClose: 590,
         change: 10,
         quoteStatus: "provisional",
-        freshness: expect.any(String),
+        priceState: expect.objectContaining({
+          basis: "stale_close",
+          chipState: "stale",
+          sourceKind: "primary_daily",
+        }),
       }),
     ]);
     expect(body.holdingGroups).toEqual([

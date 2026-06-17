@@ -58,6 +58,15 @@ export const APP_CONFIG_BOUNDS = {
   backfillRetryLimit: { min: 0, max: 10 },
   backfillRetryDelaySeconds: { min: 1, max: 3_600 },
   backfillFinmind402RetryMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
+  tickerPriceCloseRefreshGraceMinutes: { min: 0, max: 24 * 60 },
+  tickerPriceIntradayRefreshIntervalMinutes: { min: 1, max: 60 },
+  tickerPriceIntradayFreshnessToleranceMinutes: { min: 1, max: 24 * 60 },
+  tickerPriceYahooChartRequestLimitPerMinute: { min: 1, max: 10_000 },
+  tickerPriceQueueConcurrency: { min: 1, max: 128 },
+  tickerPriceMaxTickersPerRefreshCycle: { min: 1, max: 10_000 },
+  tickerPriceRefreshCloseRateLimitWindowMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
+  tickerPriceRefreshCloseRateLimitMax: { min: 1, max: 10_000 },
+  tickerPriceSyncTickerCap: { min: 1, max: 10_000 },
 
   // Tier 2 (DB + SQL only — NOT in UI / NOT in PATCH):
   //   dailyRefreshLookbackDays, dailyRefreshPriority,

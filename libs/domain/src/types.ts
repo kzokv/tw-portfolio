@@ -18,6 +18,8 @@ export type DayTradeScope = "ANY" | "DAY_TRADE_ONLY" | "NON_DAY_TRADE_ONLY";
 export type TaxCalculationMethod = "RATE_BPS";
 export type BackfillStatus = "pending" | "backfilling" | "ready" | "failed";
 export type VerificationStatus = "unverified" | "verified" | "mismatch";
+export type DailyBarQuality = "full_bar" | "close_only";
+export type IntradaySourceKind = "intraday_yahoo_chart";
 
 export interface InstrumentRef {
   ticker: string;
@@ -50,10 +52,24 @@ export interface DailyBar {
   volume: number;
   source: string;
   ingestedAt: string;
+  quality: DailyBarQuality;
 }
 
 export interface DailyBarWithMarket extends DailyBar {
   marketCode: MarketCode;
+}
+
+export interface IntradayPriceOverlay {
+  ticker: string;
+  marketCode: MarketCode;
+  price: number;
+  previousClose: number | null;
+  asOfDate: string;
+  asOfTimestamp: string;
+  observedAt: string;
+  sourceKind: IntradaySourceKind;
+  source: string;
+  currency: CurrencyCode;
 }
 
 export interface FeeProfileTaxRule {

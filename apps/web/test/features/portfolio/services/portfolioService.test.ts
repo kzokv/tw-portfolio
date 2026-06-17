@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../lib/api", () => ({
   getJson: vi.fn(),
+  postNoBody: vi.fn(),
   postJson: vi.fn(),
 }));
 
@@ -9,10 +10,11 @@ import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPageData,
   fetchPortfolioPrimaryData,
+  refreshPortfolioCloses,
   fetchTransactionsPrimaryData,
   fetchTransactionInstrumentCatalog,
 } from "../../../../features/portfolio/services/portfolioService";
-import { getJson } from "../../../../lib/api";
+import { getJson, postNoBody } from "../../../../lib/api";
 
 // KZO-169 — Frontend Implementer's TDD red specs for slice 5 service-layer
 // changes (D5c): `?market_code=` is appended for specific markets AND for
@@ -26,6 +28,7 @@ describe("fetchTransactionInstrumentCatalog — KZO-169 D5c market_code query", 
 
   afterEach(() => {
     vi.mocked(getJson).mockReset();
+    vi.mocked(postNoBody).mockReset();
   });
 
   it("omits market_code when called with no argument", async () => {
@@ -92,5 +95,23 @@ describe("portfolio primary/enrichment service paths", () => {
   it("fetches secondary enrichment from the explicit enrichment endpoint", async () => {
     await fetchPortfolioEnrichmentData();
     expect(getJson).toHaveBeenCalledWith("/portfolio/enrichment");
+  });
+
+  it("posts the close-refresh request without a request body", async () => {
+    vi.mocked(postNoBody).mockResolvedValue({
+      items: [],
+      summary: {
+        refreshed: 0,
+        current: 0,
+        not_eligible: 0,
+        missing: 0,
+        failed: 0,
+        queued: 0,
+      },
+    });
+
+    await refreshPortfolioCloses();
+
+    expect(postNoBody).toHaveBeenCalledWith("/portfolio/refresh-closes");
   });
 });

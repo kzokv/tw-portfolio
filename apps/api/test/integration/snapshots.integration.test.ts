@@ -18,6 +18,7 @@ function makeBar(ticker: string, date: string, close: number): DailyBar {
     low: close,
     close,
     volume: 1000,
+    quality: "full_bar",
     source: "test",
     ingestedAt: new Date().toISOString(),
   };

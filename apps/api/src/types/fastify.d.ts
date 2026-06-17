@@ -7,6 +7,7 @@ import type { UserRole } from "../persistence/types.js";
 import type { MarketDataRegistry } from "../services/market-data/registry.js";
 import type { FundamentalsRegistry } from "../services/fundamentals/types.js";
 import type { ProviderOperationExecutionJobData } from "../services/market-data/providerOperationExecutionWorker.js";
+import type { IntradayRefreshRequestBudget } from "../services/market-data/intradayRefreshWorker.js";
 
 interface RequestImpersonationContext {
   active: boolean;
@@ -36,6 +37,7 @@ declare module "fastify" {
     boss: PgBoss | null;
     marketDataRegistry: MarketDataRegistry;
     fundamentalsRegistry: FundamentalsRegistry;
+    tickerPriceChartRequestBudget?: IntradayRefreshRequestBudget | null;
     providerOperationExecutor?: (job: ProviderOperationExecutionJobData) => Promise<void>;
   }
   interface FastifyRequest {

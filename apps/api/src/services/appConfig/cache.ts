@@ -71,6 +71,20 @@ export interface AppConfigCacheEntry {
   backfillRetryLimit: number | null;
   backfillRetryDelaySeconds: number | null;
   backfillFinmind402RetryMs: number | null;
+  tickerPriceCloseRefreshGraceMinutes?: number | null;
+  tickerPriceIntradayEnabled?: boolean | null;
+  tickerPriceIntradayRefreshIntervalMinutes?: number | null;
+  tickerPriceIntradayFreshnessToleranceMinutes?: number | null;
+  tickerPriceYahooChartRequestLimitPerMinute?: number | null;
+  tickerPriceQueueConcurrency?: number | null;
+  tickerPriceMaxTickersPerRefreshCycle?: number | null;
+  tickerPriceSupportedMarkets?: import("@vakwen/shared-types").MarketCode[] | null;
+  tickerPriceRegularSessionOnly?: boolean | null;
+  tickerPriceYahooChartRange?: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null;
+  tickerPriceYahooChartInterval?: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null;
+  tickerPriceRefreshCloseRateLimitWindowMs?: number | null;
+  tickerPriceRefreshCloseRateLimitMax?: number | null;
+  tickerPriceSyncTickerCap?: number | null;
   dailyRefreshLookbackDays: number | null;
   dailyRefreshPriority: number | null;
 

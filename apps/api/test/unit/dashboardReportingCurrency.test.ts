@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildOverviewMarketValues,
+  translateDailyCompatibleCurrentValue,
   translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
@@ -198,6 +199,7 @@ function makeDailyBar(ticker: string, barDate: string, close: number, marketCode
     low: close,
     close,
     volume: 1000,
+    quality: "full_bar",
     source: "test",
     ingestedAt: `${barDate}T00:00:00.000Z`,
   };
@@ -222,8 +224,19 @@ const baseHolding: DashboardOverviewHoldingDto = {
   quoteStatus: "current",
   nextDividendDate: null,
   lastDividendPostedDate: null,
-  freshness: "current",
-  freshnessTooltip: null,
+  priceState: {
+    basis: "today_close",
+    chipState: "closed",
+    marketState: "closed",
+    source: "test",
+    sourceKind: "primary_daily",
+    asOfDate: "2026-04-29",
+    asOfTimestamp: null,
+    observedAt: "2026-04-29T00:00:00.000Z",
+    delaySeconds: null,
+    marketTimeZone: "Asia/Taipei",
+    quality: "full_bar",
+  },
 };
 
 const baseSummary = {
@@ -238,6 +251,13 @@ const baseSummary = {
   upcomingDividendCount: 0,
   upcomingDividendAmount: null as number | null,
   openIssueCount: 0,
+  priceStateRollup: {
+    holdingCount: 1,
+    currentPriceCount: 1,
+    nonCurrentPriceCount: 0,
+    missingPriceCount: 0,
+    basisCounts: [{ basis: "today_close" as const, count: 1 }],
+  },
 };
 
 const noDividends = { upcoming: [] as DashboardOverviewUpcomingDividendDto[], recent: [] as DashboardOverviewRecentDividendDto[] };
@@ -260,8 +280,7 @@ function makeHoldingGroup(overrides: Partial<DashboardOverviewHoldingGroupDto> =
     quoteStatus: baseHolding.quoteStatus,
     nextDividendDate: baseHolding.nextDividendDate,
     lastDividendPostedDate: baseHolding.lastDividendPostedDate,
-    freshness: baseHolding.freshness,
-    freshnessTooltip: baseHolding.freshnessTooltip,
+    priceState: baseHolding.priceState,
     accountCount: 1,
     reportingCurrency: "TWD",
     reportingCostBasisAmount: null,
@@ -359,6 +378,105 @@ describe("translateOverviewHoldingGroups", () => {
 
     expect(calls).toEqual(["USD:TWD:2026-04-29", "AUD:TWD:2026-04-29"]);
     expect(maxActive).toBe(2);
+  });
+});
+
+describe("translateDailyCompatibleCurrentValue", () => {
+  it("uses daily-compatible closes instead of displayed intraday prices", async () => {
+    const value = await translateDailyCompatibleCurrentValue(
+      [{
+        ticker: "BHP",
+        marketCode: "AU",
+        quantity: 2,
+        costBasisAmount: 100,
+        currency: "AUD",
+        averageCostPerShare: 50,
+        currentUnitPrice: 62,
+        marketValueAmount: 124,
+        unrealizedPnlAmount: 24,
+        allocationPct: 100,
+        change: 2,
+        changePercent: 3.33,
+        previousClose: 60,
+        quoteStatus: "current",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        priceState: {
+          ...baseHolding.priceState,
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          quality: null,
+        },
+        accountCount: 1,
+        reportingCurrency: "USD",
+        reportingCostBasisAmount: 65,
+        reportingMarketValueAmount: 80.6,
+        reportingUnrealizedPnlAmount: 15.6,
+        reportingAllocationPercent: 100,
+        fxStatus: "complete",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+        children: [{
+          accountId: "acct-1",
+          ticker: "BHP",
+          marketCode: "AU",
+          quantity: 2,
+          costBasisAmount: 100,
+          currency: "AUD",
+          averageCostPerShare: 50,
+          currentUnitPrice: 62,
+          marketValueAmount: 124,
+          unrealizedPnlAmount: 24,
+          allocationPct: 100,
+          change: 2,
+          changePercent: 3.33,
+          previousClose: 60,
+          quoteStatus: "current",
+          nextDividendDate: null,
+          lastDividendPostedDate: null,
+          priceState: {
+            ...baseHolding.priceState,
+            basis: "intraday",
+            chipState: "open_fresh",
+            marketState: "open",
+            quality: null,
+          },
+          reportingCurrency: "USD",
+          reportingCostBasisAmount: 65,
+          reportingMarketValueAmount: 80.6,
+          reportingUnrealizedPnlAmount: 15.6,
+          reportingAllocationPercent: 100,
+          fxStatus: "complete",
+          allocationBasisUsed: "market_value",
+          allocationBasisFallbackReason: null,
+        }],
+      }],
+      [{
+        ticker: "BHP",
+        marketCode: "AU",
+        close: 62,
+        previousClose: 60,
+        change: 2,
+        changePercent: 3.33,
+        asOf: "2026-06-17T04:00:00.000Z",
+        source: "yahoo-chart",
+        isProvisional: false,
+        dailyCompatibleClose: 60,
+        priceState: {
+          ...baseHolding.priceState,
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          quality: null,
+        },
+      }],
+      "USD",
+      "2026-06-17",
+      makeFakePersistence({ fxRates: [{ base: "AUD", quote: "USD", rate: 0.65, asOf: "2026-06-17" }] }),
+    );
+
+    expect(value).toBe(78);
   });
 });
 

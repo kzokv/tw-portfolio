@@ -30,7 +30,7 @@ import type {
   Store,
   InstrumentDef,
 } from "../types/store.js";
-import type { DailyBar, DailyBarWithMarket, MarketCode } from "@vakwen/domain";
+import type { DailyBar, DailyBarWithMarket, IntradayPriceOverlay, MarketCode } from "@vakwen/domain";
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -38,6 +38,7 @@ import type {
   AdminUserStatus,
   InstrumentCatalogItemDto,
   InviteListStatus,
+  MarketCode as SharedMarketCode,
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
@@ -84,6 +85,20 @@ export type AppConfigPlainField =
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
+  | "tickerPriceCloseRefreshGraceMinutes"
+  | "tickerPriceIntradayEnabled"
+  | "tickerPriceIntradayRefreshIntervalMinutes"
+  | "tickerPriceIntradayFreshnessToleranceMinutes"
+  | "tickerPriceYahooChartRequestLimitPerMinute"
+  | "tickerPriceQueueConcurrency"
+  | "tickerPriceMaxTickersPerRefreshCycle"
+  | "tickerPriceSupportedMarkets"
+  | "tickerPriceRegularSessionOnly"
+  | "tickerPriceYahooChartRange"
+  | "tickerPriceYahooChartInterval"
+  | "tickerPriceRefreshCloseRateLimitWindowMs"
+  | "tickerPriceRefreshCloseRateLimitMax"
+  | "tickerPriceSyncTickerCap"
   | "dailyRefreshLookbackDays"
   | "dailyRefreshPriority"
   | "sseHeartbeatIntervalMs"
@@ -111,12 +126,24 @@ export type AppConfigPlainField =
   | "routeCacheReportsTtlMs"
   | "routeCacheStaleUsableTtlMs";
 
+export type AppConfigPlainValue =
+  | number
+  | boolean
+  | SharedMarketCode[]
+  | "1d"
+  | "5d"
+  | "1m"
+  | "2m"
+  | "5m"
+  | "15m"
+  | null;
+
 /**
  * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
  * is optional; absent keys are not touched. Tier 0 secret keys carry the
  * plaintext (the implementation encrypts inline) or `null` to clear.
  */
-export type AppConfigPatch = Partial<Record<AppConfigPlainField, number | null>> & {
+export type AppConfigPatch = Partial<Record<AppConfigPlainField, AppConfigPlainValue>> & {
   finmindApiToken?: string | null;
   twelveDataApiKey?: string | null;
   mcpOauthTokenSecret?: string | null;
@@ -163,6 +190,20 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
+  tickerPriceCloseRefreshGraceMinutes: "ticker_price_close_refresh_grace_minutes",
+  tickerPriceIntradayEnabled: "ticker_price_intraday_enabled",
+  tickerPriceIntradayRefreshIntervalMinutes: "ticker_price_intraday_refresh_interval_minutes",
+  tickerPriceIntradayFreshnessToleranceMinutes: "ticker_price_intraday_freshness_tolerance_minutes",
+  tickerPriceYahooChartRequestLimitPerMinute: "ticker_price_yahoo_chart_request_limit_per_minute",
+  tickerPriceQueueConcurrency: "ticker_price_queue_concurrency",
+  tickerPriceMaxTickersPerRefreshCycle: "ticker_price_max_tickers_per_refresh_cycle",
+  tickerPriceSupportedMarkets: "ticker_price_supported_markets",
+  tickerPriceRegularSessionOnly: "ticker_price_regular_session_only",
+  tickerPriceYahooChartRange: "ticker_price_yahoo_chart_range",
+  tickerPriceYahooChartInterval: "ticker_price_yahoo_chart_interval",
+  tickerPriceRefreshCloseRateLimitWindowMs: "ticker_price_refresh_close_rate_limit_window_ms",
+  tickerPriceRefreshCloseRateLimitMax: "ticker_price_refresh_close_rate_limit_max",
+  tickerPriceSyncTickerCap: "ticker_price_sync_ticker_cap",
   dailyRefreshLookbackDays: "daily_refresh_lookback_days",
   dailyRefreshPriority: "daily_refresh_priority",
   sseHeartbeatIntervalMs: "sse_heartbeat_interval_ms",
@@ -2198,6 +2239,12 @@ export interface Persistence {
     pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
     limit: number,
   ): Promise<DailyBarWithMarket[]>;
+  getLatestIntradayOverlay(ticker: string, marketCode: MarketCode): Promise<IntradayPriceOverlay | null>;
+  getLatestIntradayOverlays(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, IntradayPriceOverlay>>;
+  setLatestIntradayOverlay(overlay: IntradayPriceOverlay): Promise<void>;
+  deleteLatestIntradayOverlay(ticker: string, marketCode: MarketCode): Promise<void>;
   getLatestBarDatesForReconciliation(
     pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
   ): Promise<Map<string, string | null>>;
@@ -2323,6 +2370,20 @@ export interface Persistence {
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
+    tickerPriceCloseRefreshGraceMinutes: number | null;
+    tickerPriceIntradayEnabled: boolean | null;
+    tickerPriceIntradayRefreshIntervalMinutes: number | null;
+    tickerPriceIntradayFreshnessToleranceMinutes: number | null;
+    tickerPriceYahooChartRequestLimitPerMinute: number | null;
+    tickerPriceQueueConcurrency: number | null;
+    tickerPriceMaxTickersPerRefreshCycle: number | null;
+    tickerPriceSupportedMarkets: SharedMarketCode[] | null;
+    tickerPriceRegularSessionOnly: boolean | null;
+    tickerPriceYahooChartRange: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null;
+    tickerPriceYahooChartInterval: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null;
+    tickerPriceRefreshCloseRateLimitWindowMs: number | null;
+    tickerPriceRefreshCloseRateLimitMax: number | null;
+    tickerPriceSyncTickerCap: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -2387,7 +2448,7 @@ export interface Persistence {
   // audit entry. Setters must be atomic (single UPSERT).
   setAppConfigField(
     field: AppConfigPlainField,
-    value: number | null,
+    value: AppConfigPlainValue,
   ): Promise<void>;
 
   // App config (KZO-198 Tier 0) — set (or clear, when `null`) an encrypted
@@ -2436,6 +2497,10 @@ export interface Persistence {
   // directly. The Zod gatekeeper at the worker entry validates the value; the
   // catalog `i.market_code` join in postgres.ts is the authoritative source.
   getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]>;
+  // Ticker price freshness: returns active, non-demo open-position pairs only.
+  // Unlike `getAllMonitoredTickers`, this intentionally excludes manual/watchlist
+  // selections so scheduled close refreshes stay scoped to held tickers.
+  listHeldTickerMarketPairs(): Promise<{ ticker: string; marketCode: MarketCode }[]>;
   /**
    * KZO-197 — return AU instruments that need a bars-backfill (status `pending`
    * or `failed`, not delisted). Used by the AU "Re-run now" button's catalog

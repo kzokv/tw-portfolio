@@ -1,4 +1,4 @@
-import type { CurrencyCode, MarketCode, QuoteSnapshot } from "@vakwen/domain";
+import type { CurrencyCode, MarketCode } from "@vakwen/domain";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
@@ -8,8 +8,11 @@ import {
 import { resolveReportingCurrency, resolveEffectiveRanges } from "./userPreferences.js";
 import { buildDashboardOverview } from "./dashboard.js";
 import { translateOverviewSummary, translatePerformancePoints } from "./dashboardReportingCurrency.js";
-import { enrichHoldingsWithFreshness } from "./dashboardFreshness.js";
-import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "./market-data/quoteSnapshotService.js";
+import {
+  resolveQuoteSnapshots,
+  type QuoteSnapshotPair,
+  type ResolvedQuoteSnapshot,
+} from "./market-data/quoteSnapshotService.js";
 import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { routeError } from "../lib/routeError.js";
 import type { McpReadServiceDeps } from "../mcp/types.js";
@@ -141,12 +144,16 @@ export async function getPortfolioOverview(
     .filter((holding) => isInstrumentQuoteable(store.instruments.find((instrument) => instrument.ticker === holding.ticker)));
   const symbols = [...new Set(holdings.map((holding) => holding.ticker))];
   const { pairs, settledByMarket } = await buildQuoteInputs(deps, store, symbols);
-  const snapshotMap = await resolveQuoteSnapshots(pairs, deps.app.persistence, settledByMarket);
-  const quotes = Object.values(snapshotMap).filter((quote): quote is QuoteSnapshot => quote !== null);
-  const overview = buildDashboardOverview(store, { integrityIssue: null, quotes });
-  await enrichHoldingsWithFreshness(overview.holdings, store, {
-    persistence: deps.app.persistence,
+  const snapshotMap = await resolveQuoteSnapshots(pairs, deps.app.persistence, settledByMarket, {
+    mode: "displayed",
+    now: new Date(),
     tradingCalendar: deps.tradingCalendar,
+  });
+  const quotes = Object.values(snapshotMap).filter((quote): quote is ResolvedQuoteSnapshot => quote !== null);
+  const overview = buildDashboardOverview(store, {
+    integrityIssue: null,
+    quotes,
+    summaryAsOf: new Date().toISOString().slice(0, 10),
   });
   const { reportingCurrency, locale } = resolveOverrides(prefs, overrides);
   const summary = await translateOverviewSummary(
@@ -197,8 +204,12 @@ export async function getPerformance(
       .filter((ticker) => isInstrumentQuoteable(store.instruments.find((instrument) => instrument.ticker === ticker))),
   )];
   const { pairs, settledByMarket } = await buildQuoteInputs(deps, store, symbols);
-  const snapshotMap = await resolveQuoteSnapshots(pairs, deps.app.persistence, settledByMarket);
-  const quotes = Object.values(snapshotMap).filter((quote): quote is QuoteSnapshot => quote !== null);
+  const snapshotMap = await resolveQuoteSnapshots(pairs, deps.app.persistence, settledByMarket, {
+    mode: "displayed",
+    now: new Date(),
+    tradingCalendar: deps.tradingCalendar,
+  });
+  const quotes = Object.values(snapshotMap).filter((quote): quote is ResolvedQuoteSnapshot => quote !== null);
   const reportingCurrency = resolveRequestedReportingCurrency(input.reportingCurrency, resolveReportingCurrency(prefs));
   const asOf = quotes[0]?.asOf ?? new Date().toISOString();
   const performance = await translatePerformancePoints(
@@ -320,8 +331,7 @@ export async function getQuoteFreshness(
     quotes: overview.holdings.map((holding) => ({
       accountId: holding.accountId,
       ticker: holding.ticker,
-      freshness: holding.freshness,
-      freshnessTooltip: holding.freshnessTooltip,
+      priceState: holding.priceState,
       quoteStatus: holding.quoteStatus,
       currentUnitPrice: holding.currentUnitPrice,
       previousClose: holding.previousClose,

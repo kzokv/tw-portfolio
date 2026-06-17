@@ -147,6 +147,26 @@ describePostgres("daily refresh persistence queries", () => {
     ]);
   });
 
+  it("returns held ticker-market pairs for scheduled close refresh without manual-only selections", async () => {
+    const realManual = await createUser("close-refresh-manual@example.com");
+    const realPosition = await createUser("close-refresh-position@example.com");
+    const demoPosition = await createUser("close-refresh-demo@example.com", true);
+
+    await persistence!.updateBackfillStatus("0050", "TW", "ready");
+    await persistence!.updateBackfillStatus("2330", "TW", "ready");
+    await persistence!.updateBackfillStatus("2603", "TW", "ready");
+
+    await persistence!.replaceManualSelections(realManual.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
+    await addOpenPosition(realPosition.userId, realPosition.accountId, "0050", "lot-close-refresh-0050");
+    await addOpenPosition(demoPosition.userId, demoPosition.accountId, "2603", "lot-close-refresh-demo-2603");
+
+    await expect(persistence!.listHeldTickerMarketPairs()).resolves.toEqual([
+      { ticker: "0050", marketCode: "TW" },
+    ]);
+  });
+
   it("returns the non-demo users monitoring a ticker via manual selections or open positions", async () => {
     const realManual = await createUser("manual@example.com");
     const realPosition = await createUser("position@example.com");

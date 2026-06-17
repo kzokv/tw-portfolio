@@ -59,6 +59,7 @@ function makeBar(ticker: string, date: string, close: number, marketCode: Market
     low: close,
     close,
     volume: 1000,
+    quality: "full_bar",
     source: "test",
     ingestedAt: new Date().toISOString(),
   };

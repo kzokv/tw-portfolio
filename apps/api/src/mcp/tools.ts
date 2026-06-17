@@ -138,7 +138,7 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   get_holdings: {
-    description: `Return holdings, quote state, and freshness for the selected portfolio context. ${adviceBoundary}`,
+    description: `Return holdings, quote state, and factual priceState for the selected portfolio context. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       tickers: z.array(z.string().trim().min(1).max(32)).max(100).optional(),
@@ -219,7 +219,7 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   get_quote_freshness: {
-    description: `Return quote freshness diagnostics and latest quote dates without inferring trade execution prices. ${adviceBoundary}`,
+    description: `Return priceState diagnostics, non-current price facts, and latest quote dates without inferring trade execution prices. ${adviceBoundary}`,
     inputSchema: z.object({
       ...mcpSharedInputShape,
       tickers: z.array(z.string().trim().min(1).max(32)).max(100).optional(),

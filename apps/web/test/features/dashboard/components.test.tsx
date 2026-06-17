@@ -23,6 +23,7 @@ import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
 import { buildHoldingGroupsFromHoldings } from "../../../features/portfolio/holdingGroups";
 import { getDictionary } from "../../../lib/i18n";
+import { testPriceState, testPriceStateRollup } from "../../fixtures/priceState";
 
 vi.mock("recharts", () => ({
   Cell: () => null,
@@ -72,8 +73,7 @@ const holdings: DashboardOverviewHoldingDto[] = [
     quoteStatus: "current",
     nextDividendDate: null,
     lastDividendPostedDate: "2026-02-20",
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: testPriceState(),
   },
 ];
 
@@ -253,6 +253,7 @@ describe("dashboard components", () => {
           upcomingDividendCount: 0,
           upcomingDividendAmount: null,
           openIssueCount: 0,
+          priceStateRollup: testPriceStateRollup({ holdingCount: 1, currentPriceCount: 1 }),
         }}
         locale="en"
         dict={dict}
@@ -310,6 +311,7 @@ describe("dashboard components", () => {
           upcomingDividendCount: 0,
           upcomingDividendAmount: null,
           openIssueCount: 0,
+          priceStateRollup: testPriceStateRollup({ holdingCount: 1, currentPriceCount: 1 }),
         }}
         locale="en"
         dict={dict}
@@ -700,7 +702,7 @@ describe("dashboard components", () => {
       reportingUnrealizedPnlAmount: 2_000,
       reportingAllocationPercent: 12,
       fxStatus: "complete" as const,
-      freshness: "stale_amber" as const,
+      priceState: testPriceState({ basis: "delayed_intraday", chipState: "open_delayed", marketState: "open" }),
       children: group.children.map((child) => ({
         ...child,
         reportingCurrency: "AUD" as const,
@@ -1293,6 +1295,7 @@ describe("dashboard components", () => {
           upcomingDividendCount: 0,
           upcomingDividendAmount: null,
           openIssueCount: 0,
+          priceStateRollup: testPriceStateRollup({ holdingCount: 1, missingPriceCount: 1 }),
         }}
         locale="en"
         dict={dict}
@@ -1324,6 +1327,7 @@ describe("dashboard components", () => {
           upcomingDividendCount: 1,
           upcomingDividendAmount: 12,
           openIssueCount: 0,
+          priceStateRollup: testPriceStateRollup({ holdingCount: 1, currentPriceCount: 1 }),
         }}
       />,
     );
@@ -1530,47 +1534,47 @@ describe("dashboard components", () => {
     expect(container.querySelector('[data-testid="holdings-column-resize-allocation"]')).not.toBeNull();
   });
 
-  it("renders freshness badge for stale_amber holdings when showFreshnessBadge=true", () => {
+  it("renders delayed price-state chip when showFreshnessBadge=true", () => {
     const stale: DashboardOverviewHoldingDto[] = [
-      { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Last quote 3 days ago" },
+      { ...holdings[0]!, priceState: testPriceState({ basis: "delayed_intraday", chipState: "open_delayed", marketState: "open" }) },
     ];
     const html = renderToStaticMarkup(
       <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={true} />,
     );
 
-    expect(html).toContain("holdings-freshness-badge-acc-1-2330");
+    expect(html).toContain("holdings-price-state-");
     expect(html).toMatch(/bg-warning/);
   });
 
-  it("renders freshness badge for stale_red holdings", () => {
+  it("renders stale price-state chip", () => {
     const stale: DashboardOverviewHoldingDto[] = [
-      { ...holdings[0]!, freshness: "stale_red", freshnessTooltip: "Last quote 14 days ago" },
+      { ...holdings[0]!, priceState: testPriceState({ basis: "stale_close", chipState: "stale" }) },
     ];
     const html = renderToStaticMarkup(
       <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={true} />,
     );
 
-    expect(html).toContain("holdings-freshness-badge-acc-1-2330");
-    expect(html).toMatch(/bg-destructive/);
+    expect(html).toContain("holdings-price-state-");
+    expect(html).toMatch(/bg-slate-400/);
   });
 
-  it("does not render freshness badge when showFreshnessBadge=false", () => {
+  it("does not render price-state chip when showFreshnessBadge=false", () => {
     const stale: DashboardOverviewHoldingDto[] = [
-      { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Stale" },
+      { ...holdings[0]!, priceState: testPriceState({ basis: "delayed_intraday", chipState: "open_delayed", marketState: "open" }) },
     ];
     const html = renderToStaticMarkup(
       <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={false} />,
     );
 
-    expect(html).not.toContain("holdings-freshness-badge-");
+    expect(html).not.toContain("holdings-price-state-");
   });
 
-  it("does not render freshness badge when freshness=current", () => {
+  it("renders closed price-state chip for current close data", () => {
     const html = renderToStaticMarkup(
       <HoldingsTable holdings={holdings} dict={dict} locale="en" showFreshnessBadge={true} />,
     );
 
-    expect(html).not.toContain("holdings-freshness-badge-");
+    expect(html).toContain("holdings-price-state-");
   });
 
   it("renders performance range controls and chart legend", () => {

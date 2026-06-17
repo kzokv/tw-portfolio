@@ -225,7 +225,7 @@ describe("dashboard holdingGroups", () => {
     expect(usGroup.children[0]?.allocationBasisFallbackReason).toBe("missing_quote");
   });
 
-  it("rebuilds grouped rows from freshness-enriched holdings", () => {
+  it("rebuilds grouped rows from price-state enriched holdings", () => {
     const store = makeStore({
       accounts: [
         { id: "acc-us-1", name: "US One", defaultCurrency: "USD" },
@@ -242,16 +242,98 @@ describe("dashboard holdingGroups", () => {
     });
     const staleHolding = overview.holdings.find((holding) => holding.accountId === "acc-us-1");
     if (!staleHolding) throw new Error("Expected acc-us-1 holding");
-    staleHolding.freshness = "stale_red";
-    staleHolding.freshnessTooltip = "Last quote 14 days ago";
+    staleHolding.priceState = {
+      ...staleHolding.priceState,
+      basis: "stale_close",
+      chipState: "stale",
+    };
 
     const holdingGroups = buildOverviewHoldingGroups(store, overview.holdings);
     const group = findGroup(holdingGroups, "AAPL", "US");
 
-    expect(group.freshness).toBe("stale_red");
-    expect(group.freshnessTooltip).toBe("Last quote 14 days ago");
-    expect(group.children.find((child) => child.accountId === "acc-us-1")?.freshness).toBe("stale_red");
-    expect(group.children.find((child) => child.accountId === "acc-us-2")?.freshness).toBe("current");
+    expect(group.priceState.basis).toBe("missing");
+    expect(group.children.find((child) => child.accountId === "acc-us-1")?.priceState.basis).toBe("stale_close");
+    expect(group.children.find((child) => child.accountId === "acc-us-2")?.priceState.basis).toBe("missing");
+  });
+
+  it("uses session-derived dashboard market states without changing missing quote rows", () => {
+    const store = makeStore({
+      accounts: [
+        { id: "acc-us-1", name: "US One", defaultCurrency: "USD" },
+      ],
+      holdings: [
+        { accountId: "acc-us-1", ticker: "AAPL", quantity: 1, costBasisAmount: 100, currency: "USD" },
+      ],
+    });
+
+    const overview = buildDashboardOverview(store, {
+      integrityIssue: null,
+      marketStates: [{
+        marketCode: "US",
+        marketState: "open",
+        asOf: "2026-06-17T14:00:00.000Z",
+        marketTimeZone: "America/New_York",
+        regularSessionOnly: true,
+      }],
+      quotes: [],
+    });
+
+    expect(overview.holdings[0]?.quoteStatus).toBe("missing");
+    expect(overview.holdings[0]?.priceState.basis).toBe("missing");
+    expect(overview.holdings[0]?.priceState.marketState).toBe("open");
+    expect(overview.holdings[0]?.priceState.marketTimeZone).toBe("America/New_York");
+    expect(overview.marketStates).toEqual([{
+      marketCode: "US",
+      marketState: "open",
+      asOf: "2026-06-17T14:00:00.000Z",
+      marketTimeZone: "America/New_York",
+      regularSessionOnly: true,
+    }]);
+  });
+
+  it("keeps aggregate summary asOf pinned to the caller-provided valuation date", () => {
+    const store = makeStore({
+      accounts: [
+        { id: "acc-tw-1", name: "TW One", defaultCurrency: "TWD" },
+        { id: "acc-us-1", name: "US One", defaultCurrency: "USD" },
+      ],
+      holdings: [
+        { accountId: "acc-tw-1", ticker: "2330", quantity: 1, costBasisAmount: 500, currency: "TWD" },
+        { accountId: "acc-us-1", ticker: "AAPL", quantity: 1, costBasisAmount: 200, currency: "USD" },
+      ],
+    });
+    const quotes: QuoteSnapshot[] = [
+      {
+        ticker: "AAPL",
+        marketCode: "US",
+        close: 200,
+        previousClose: 199,
+        change: 1,
+        changePercent: 0.5025,
+        asOf: "2026-06-17T14:00:00.000Z",
+        source: "intraday-like",
+        isProvisional: false,
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        close: 1000,
+        previousClose: 990,
+        change: 10,
+        changePercent: 1.0101,
+        asOf: "2026-06-16",
+        source: "daily",
+        isProvisional: false,
+      },
+    ];
+
+    const overview = buildDashboardOverview(store, {
+      integrityIssue: null,
+      quotes,
+      summaryAsOf: "2026-06-16",
+    });
+
+    expect(overview.summary.asOf).toBe("2026-06-16");
   });
 
 });
