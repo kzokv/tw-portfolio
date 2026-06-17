@@ -222,6 +222,16 @@ superseded_by: null
   - Connector holdings evidence returned `AVGO.US` as the live open-market previous-close case: `basis=previous_close`, `chipState=open_previous_close`, `marketState=open`, `source=finmind-us`, `sourceKind=primary_daily`, `asOfDate=2026-06-16`, `quality=full_bar`.
   - Connector market report evidence returned `dataHealth.nonCurrentPriceCount=1`, diagnostics `knownGapReasons=["non_current_price"]`, market diagnostics for `TW`, `KR`, and `US`, and top-holdings row-level `priceState` facts for `2330.TW`, `AVGO.US`, `000660.KR`, and `3714.TW`.
   - Final-pass browser inspection limitation: the real Chrome tab was authenticated, but Chrome had JavaScript from Apple Events disabled and macOS screenshot/accessibility capture was unavailable in this desktop session. A copied Chrome profile and clean Playwright demo session could not carry or establish an authenticated/dev-demo session. Therefore the final `b5e20644` pass used authenticated Chrome URL-state checks plus Vakwen Dev connector/API evidence; no new temporary public share link was created on this final pass. The earlier public-share daily-only validation above remains the latest successful UI evidence, and its temporary links were revoked.
+- Mobile price-state disclosure fix after screenshot review on `2026-06-18`:
+  - Root cause: dashboard and portfolio mobile price cells did not expose the price-state details as an independent touch disclosure. Dashboard also rendered freshness details inside the price-details trigger path, so the small chip could be occluded by the parent price disclosure on narrow viewports.
+  - Fix: `PriceStateChip` now supports `disclosure="popover"` with viewport collision padding and a narrow-screen width cap; dashboard desktop/mobile price-details triggers are separate from the price-state chip; portfolio mobile price metrics now render the same freshness chip when `showFreshnessBadge` is enabled.
+  - Focused reviewer check completed with no remaining code-structure issues after adding mounted interaction coverage for the dashboard and portfolio mobile chip popovers.
+  - Focused verification passed: `cd apps/web && npx vitest run test/components/holdings/PriceStateChip.test.tsx test/features/dashboard/components.test.tsx` (`2` files / `49` tests).
+  - Targeted ESLint passed: `npx eslint apps/web/components/holdings/PriceStateChip.tsx apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/portfolio/HoldingsTable.tsx apps/web/test/components/holdings/PriceStateChip.test.tsx apps/web/test/features/dashboard/components.test.tsx`.
+  - `git diff --check` passed.
+  - `npm run typecheck` passed.
+  - Broader web verification passed: `npm run test --prefix apps/web` (`58` files / `402` tests).
+  - Live browser validation for this exact uncommitted mobile disclosure patch is still pending; the prior live evidence above predates this fix.
 
 ## References
 
