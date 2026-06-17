@@ -1967,7 +1967,7 @@ async function buildDashboardHeldMarketStates(
 async function buildHeldMarketStatesForStoreHoldings(
   app: FastifyInstance,
   store: Store,
-  holdings: ReadonlyArray<{ accountId: string; quantity: number }>,
+  holdings: ReadonlyArray<{ accountId: string; ticker: string; quantity: number; currency: string; marketCode?: SharedMarketCode | null }>,
   regularSessionOnly: boolean,
   now: Date = new Date(),
 ): Promise<DashboardMarketStateDto[]> {
@@ -1980,12 +1980,45 @@ async function buildHeldMarketStatesForStoreHoldings(
     holdings
       .filter((holding) => holding.quantity > 0)
       .flatMap((holding) => {
-        const marketCode = accountMarketById.get(holding.accountId);
+        const marketCode = resolveHeldMarketCodeForStoreHolding(store, holding, accountMarketById);
         return marketCode ? [{ marketCode }] : [];
       }),
     regularSessionOnly,
     now,
   );
+}
+
+function resolveHeldMarketCodeForStoreHolding(
+  store: Store,
+  holding: { accountId: string; ticker: string; currency: string; marketCode?: SharedMarketCode | null },
+  accountMarketById: ReadonlyMap<string, SharedMarketCode>,
+): SharedMarketCode | null {
+  if (holding.marketCode && isSharedMarketCode(holding.marketCode)) return holding.marketCode;
+
+  const tradeMarkets = uniqueSharedMarketCodes(
+    (store.accounting.facts.tradeEvents ?? [])
+      .filter((trade) => trade.accountId === holding.accountId && trade.ticker === holding.ticker)
+      .map((trade) => trade.marketCode),
+  );
+  if (tradeMarkets.length === 1) return tradeMarkets[0]!;
+
+  const instrumentMarkets = uniqueSharedMarketCodes(
+    store.instruments
+      .filter((instrument) => instrument.ticker === holding.ticker && isInstrumentQuoteable(instrument))
+      .map((instrument) => instrument.marketCode),
+  );
+  if (instrumentMarkets.length === 1) return instrumentMarkets[0]!;
+
+  return accountMarketById.get(holding.accountId) ?? marketCodeFor(holding.currency as AccountDefaultCurrency);
+}
+
+function uniqueSharedMarketCodes(values: ReadonlyArray<string | null | undefined>): SharedMarketCode[] {
+  return [...new Set(values)]
+    .filter((market): market is SharedMarketCode => isSharedMarketCode(market));
+}
+
+function isSharedMarketCode(value: string | null | undefined): value is SharedMarketCode {
+  return typeof value === "string" && (MARKET_CODES as readonly string[]).includes(value);
 }
 
 function buildHeldTickerMarketPairsForCloseRefresh(
