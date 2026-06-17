@@ -34,15 +34,37 @@ describe("marketRegularSession", () => {
     expect(state.closesAtLocal.endsWith("16:00:00")).toBe(true);
   });
 
-  it("marks KR as closed on non-trading days even during regular local hours", async () => {
+  it("marks KR as closed on weekends even during regular local hours", async () => {
     const state = await getRegularSessionState(
       "KR",
       { isTradingDay: vi.fn().mockResolvedValue(false) },
-      new Date("2026-06-17T01:30:00.000Z"),
+      new Date("2026-06-20T01:30:00.000Z"),
     );
 
     expect(state.isTradingDay).toBe(false);
     expect(state.isOpen).toBe(false);
+  });
+
+  it("falls back to weekday trading for current-day regular sessions missing from daily bars", async () => {
+    const state = await getRegularSessionState(
+      "TW",
+      { isTradingDay: vi.fn().mockResolvedValue(false) },
+      new Date("2026-06-17T02:15:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(true);
+    expect(state.isOpen).toBe(true);
+  });
+
+  it("uses the weekday fallback for same-day close-refresh eligibility", async () => {
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "TW",
+      { isTradingDay: vi.fn().mockResolvedValue(false) },
+      new Date("2026-06-17T06:00:00.000Z"),
+      10,
+    );
+
+    expect(closeDate).toBe("2026-06-17");
   });
 
   it("resolves the latest eligible close when today's close is not yet eligible", async () => {
