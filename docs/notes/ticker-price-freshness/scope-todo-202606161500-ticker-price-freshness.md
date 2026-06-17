@@ -194,6 +194,13 @@ superseded_by: null
   - `npm run typecheck` passed.
   - Broader API verification passed: `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1653` tests passed, `425` skipped).
   - Broader web verification passed: `npm run test --prefix apps/web -- AdminSettingsClient-tabs.test.tsx` (`58` files / `407` tests).
+- Scheduled-refresh market derivation review fix:
+  - Scheduled close-refresh ticker-market discovery now derives held markets from matching held trade events, with a quoteable instrument fallback only for legacy/test lots without trade events; memory persistence mirrors the Postgres logic.
+  - Added a Postgres regression proving an `AAPL`/`US` held lot remains scheduled as `US` after the account default currency drifts to `AUD`.
+  - `git diff --check` passed.
+  - Focused ESLint passed: `npx eslint apps/api/src/persistence/postgres.ts apps/api/src/persistence/memory.ts apps/api/test/integration/daily-refresh-persistence.integration.test.ts`.
+  - `npm run typecheck` passed.
+  - Full Postgres integration gate passed: `npm run test:integration:full:host` (`89` files / `864` tests passed, `1` skipped).
 
 ## References
 
