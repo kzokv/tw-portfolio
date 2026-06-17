@@ -11,6 +11,7 @@ import type {
 import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
+import { testPriceState } from "../../fixtures/priceState";
 
 const appShellDataMocks = vi.hoisted(() => ({
   openQuickActions: vi.fn(),
@@ -202,8 +203,7 @@ const details: TickerDetailsModel = {
     changeAmount: 1,
     changePercent: 0.92,
     quoteStatus: "current",
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: testPriceState(),
   },
   position: {
     accountScope: "acc-2",
@@ -244,8 +244,7 @@ const details: TickerDetailsModel = {
     quoteStatus: "current",
     nextDividendDate: null,
     lastDividendPostedDate: null,
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: testPriceState(),
     accountCount: 1,
     reportingCurrency: "TWD",
     reportingCostBasisAmount: 1000,
@@ -276,8 +275,7 @@ const details: TickerDetailsModel = {
     quoteStatus: "current",
     nextDividendDate: null,
     lastDividendPostedDate: null,
-    freshness: "current",
-    freshnessTooltip: null,
+    priceState: testPriceState(),
     reportingCurrency: "TWD",
     reportingCostBasisAmount: 1000,
     reportingMarketValueAmount: 1100,
@@ -412,12 +410,12 @@ describe("TickerHistoryClient", () => {
       quote: {
         ...details.quote,
         quoteStatus: "provisional",
-        freshness: "stale_amber",
+        priceState: testPriceState({ basis: "delayed_intraday", chipState: "open_delayed", marketState: "open" }),
       },
     });
 
     expect(element.textContent).toContain("Provisional");
-    expect(element.textContent).toContain("Stale");
+    expect(element.textContent).toContain("Delayed");
   });
 
   it("restores cached ticker details before the silent refresh completes", async () => {

@@ -14,6 +14,7 @@ import type {
 import { getJson } from "../../../lib/api";
 import type { DashboardSnapshot } from "../../dashboard/types";
 import { findHoldingGroup, resolveHoldingGroups } from "../holdingGroups";
+import type { PriceStateDtoLike } from "../../price-state/priceState";
 
 export interface TickerDetailStat {
   label: string;
@@ -57,8 +58,7 @@ export interface TickerDetailsModel {
     changeAmount: number | null;
     changePercent: number | null;
     quoteStatus: "current" | "provisional" | "missing";
-    freshness: "current" | "stale_amber" | "stale_red";
-    freshnessTooltip: string | null;
+    priceState?: PriceStateDtoLike | null;
   };
   position: {
     accountScope: string;
@@ -231,10 +231,10 @@ function buildFallbackFundamentals(
           asOf: null,
         },
         {
-          key: "freshness",
-          label: "Freshness",
-          value: holding?.freshness ?? null,
-          source: holding?.freshness ? "dashboard" : null,
+          key: "priceState",
+          label: "Price state",
+          value: (holding as { priceState?: PriceStateDtoLike | null } | undefined)?.priceState?.chipState ?? null,
+          source: (holding as { priceState?: PriceStateDtoLike | null } | undefined)?.priceState ? "dashboard" : null,
           asOf: null,
         },
       ],
@@ -274,8 +274,7 @@ export function buildPrimaryTickerDetails({
       changeAmount: null,
       changePercent: null,
       quoteStatus: "missing",
-      freshness: holding?.freshness ?? "current",
-      freshnessTooltip: holding?.freshnessTooltip ?? null,
+      priceState: holding?.priceState ?? null,
     },
     position: {
       accountScope: accountId ?? marketCode ?? "all",
@@ -464,8 +463,7 @@ function mapApiDetailsToModel(
     changeAmount: payload.quote.change,
     changePercent: payload.quote.changePercent,
     quoteStatus: payload.quote.quoteStatus,
-    freshness: fallback.quote.freshness,
-    freshnessTooltip: fallback.quote.freshnessTooltip,
+    priceState: (payload.quote as typeof payload.quote & { priceState?: PriceStateDtoLike | null }).priceState ?? fallback.quote.priceState ?? null,
   };
   const position = {
     accountScope: payload.identity.accountId ?? "all",

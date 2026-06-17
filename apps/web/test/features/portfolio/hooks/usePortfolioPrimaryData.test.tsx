@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { PortfolioPageData } from "../../../../features/portfolio/services/portfolioService";
 import { usePortfolioPrimaryData } from "../../../../features/portfolio/hooks/usePortfolioPageData";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
+import { testPriceState } from "../../../fixtures/priceState";
 
 vi.mock("../../../../features/portfolio/services/portfolioService", () => ({
   fetchPortfolioEnrichmentData: vi.fn(),
@@ -86,8 +87,7 @@ function pageDataWithHolding(id: string, marketValueAmount: number | null): Port
       quoteStatus: marketValueAmount === null ? "missing" : "current",
       nextDividendDate: null,
       lastDividendPostedDate: null,
-      freshness: "current",
-      freshnessTooltip: null,
+      priceState: testPriceState(),
     }],
   };
 }

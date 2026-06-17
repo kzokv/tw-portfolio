@@ -10,6 +10,7 @@ import type {
   MarketCode,
 } from "@vakwen/shared-types";
 import { marketCodeFor } from "@vakwen/shared-types";
+import { buildMissingPriceState, getPriceState, priceStateSortRank, type PriceStateDtoLike } from "../price-state/priceState";
 
 export type HoldingAllocationBasis = SharedHoldingAllocationBasis;
 export type DashboardOverviewHoldingChildDto = SharedDashboardOverviewHoldingChildDto;
@@ -84,20 +85,21 @@ function sumNullable(values: Array<number | null | undefined>): number | null {
   return present.reduce((sum, value) => sum + value, 0);
 }
 
-function maxFreshness(
-  items: Array<DashboardOverviewHoldingDto["freshness"]>,
-): DashboardOverviewHoldingDto["freshness"] {
-  if (items.includes("stale_red")) return "stale_red";
-  if (items.includes("stale_amber")) return "stale_amber";
-  return "current";
-}
-
 function resolveQuoteStatus(
   items: Array<DashboardOverviewHoldingDto["quoteStatus"]>,
 ): DashboardOverviewHoldingDto["quoteStatus"] {
   if (items.includes("missing")) return "missing";
   if (items.includes("provisional")) return "provisional";
   return "current";
+}
+
+function aggregatePriceState(
+  items: Array<{ priceState?: PriceStateDtoLike | null }>,
+): PriceStateDtoLike {
+  return items
+    .map((item) => getPriceState(item))
+    .filter((item): item is PriceStateDtoLike => item !== null)
+    .sort((left, right) => priceStateSortRank({ priceState: right }) - priceStateSortRank({ priceState: left }))[0] ?? buildMissingPriceState();
 }
 
 function weightedAverageCost(children: DashboardOverviewHoldingChildDto[]): number {
@@ -198,8 +200,7 @@ export function buildHoldingGroupsFromHoldings({
         .filter((value): value is string => Boolean(value))
         .sort()
         .at(-1) ?? null,
-      freshness: maxFreshness(sortedChildren.map((child) => child.freshness)),
-      freshnessTooltip: sortedChildren.find((child) => child.freshnessTooltip)?.freshnessTooltip ?? null,
+      priceState: aggregatePriceState(sortedChildren),
       reportingCurrency: sortedChildren[0]!.reportingCurrency ?? sortedChildren[0]!.currency,
       reportingCostBasisAmount,
       reportingMarketValueAmount,

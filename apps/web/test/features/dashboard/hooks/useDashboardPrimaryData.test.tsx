@@ -5,6 +5,7 @@ import type { AccountDefaultCurrency, RouteCachePolicyDto } from "@vakwen/shared
 import type { DashboardSnapshot } from "../../../../features/dashboard/types";
 import { useDashboardPrimaryData } from "../../../../features/dashboard/hooks/useDashboardData";
 import { buildRouteDtoCacheKey, readRouteDtoCache, writeRouteDtoCache } from "../../../../lib/routeDtoCache";
+import { testPriceStateRollup } from "../../../fixtures/priceState";
 
 vi.mock("../../../../features/dashboard/services/dashboardService", () => ({
   fetchDashboardEnrichmentData: vi.fn(),
@@ -67,7 +68,9 @@ const initialPrimaryData: DashboardSnapshot = {
     upcomingDividendCount: 0,
     upcomingDividendAmount: null,
     openIssueCount: 0,
+    priceStateRollup: testPriceStateRollup({ holdingCount: 1, currentPriceCount: 1 }),
   },
+  marketStates: [],
   marketValues: [],
   holdings: [],
   holdingGroups: [],

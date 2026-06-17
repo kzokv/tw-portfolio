@@ -1,10 +1,21 @@
 import type { Pool } from "pg";
-import type { MarketCode } from "@vakwen/domain";
+import type { DailyBarQuality, MarketCode } from "@vakwen/domain";
 import { currencyFor } from "@vakwen/shared-types";
 
 export async function upsertDailyBars(
   pool: Pool,
-  bars: Array<{ ticker: string; marketCode: MarketCode; barDate: string; open: number; high: number; low: number; close: number; volume: number; sourceId?: string }>,
+  bars: Array<{
+    ticker: string;
+    marketCode: MarketCode;
+    barDate: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    quality?: DailyBarQuality;
+    sourceId?: string;
+  }>,
 ): Promise<number> {
   if (bars.length === 0) return 0;
 
@@ -16,6 +27,7 @@ export async function upsertDailyBars(
   const lows: number[] = [];
   const closes: number[] = [];
   const volumes: number[] = [];
+  const qualities: DailyBarQuality[] = [];
   const sources: string[] = [];
   for (const bar of bars) {
     tickers.push(bar.ticker);
@@ -26,6 +38,7 @@ export async function upsertDailyBars(
     lows.push(bar.low);
     closes.push(bar.close);
     volumes.push(bar.volume);
+    qualities.push(bar.quality ?? "full_bar");
     // KZO-163: per-row sourceId with 'finmind' fallback. Future-proofs for mixed-provider
     // batches (e.g. KZO-170 mixing US + TW) without behavioral change today.
     sources.push(bar.sourceId ?? "finmind");
@@ -34,17 +47,21 @@ export async function upsertDailyBars(
   // KZO-169: composite PK after migration 044 — INSERT now stamps market_code
   // and ON CONFLICT keys on (ticker, market_code, bar_date).
   const result = await pool.query(
-    `INSERT INTO market_data.daily_bars (ticker, market_code, bar_date, open, high, low, close, volume, source, ingested_at)
+    `INSERT INTO market_data.daily_bars (
+       ticker, market_code, bar_date, open, high, low, close, volume, quality, source, ingested_at
+     )
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::date[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::bigint[],
-       $9::text[],
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$10::int])
+       $9::text[], $10::text[],
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$11::int])
      )
      ON CONFLICT (ticker, market_code, bar_date) DO UPDATE SET
        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
        close = EXCLUDED.close, volume = EXCLUDED.volume,
-       source = EXCLUDED.source, ingested_at = EXCLUDED.ingested_at`,
-    [tickers, marketCodes, dates, opens, highs, lows, closes, volumes, sources, bars.length],
+       quality = EXCLUDED.quality,
+       source = EXCLUDED.source, ingested_at = EXCLUDED.ingested_at
+     WHERE market_data.daily_bars.quality <> 'full_bar' OR EXCLUDED.quality = 'full_bar'`,
+    [tickers, marketCodes, dates, opens, highs, lows, closes, volumes, qualities, sources, bars.length],
   );
   return result.rowCount ?? 0;
 }

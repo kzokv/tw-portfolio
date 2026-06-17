@@ -10,6 +10,7 @@ import {
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
 import { resolveErrorMessage } from "../../../lib/utils";
+import { shouldPollForOpenMarket } from "../../price-state/priceState";
 import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPrimaryData,
@@ -37,12 +38,13 @@ export function usePortfolioPrimaryData(
   initialPrimaryData: PortfolioPageData | null = null,
   cacheKey?: string,
   cachePolicy?: RouteCachePolicyDto | null,
+  openMarketPollMs?: number | null,
 ) {
   const cacheDurations = resolveRouteDtoCacheDurations(cachePolicy, "portfolio-primary");
   const initialCachedRef = useRef<ReturnType<typeof readRouteDtoCache<PortfolioPageData>> | undefined>(undefined);
   if (initialCachedRef.current === undefined) {
     initialCachedRef.current = initialPrimaryData === null && cacheKey
-      ? readRouteDtoCache<PortfolioPageData>(cacheKey)
+      ? readPortfolioCache(cacheKey, openMarketPollMs)
       : null;
   }
   const initialCached = initialCachedRef.current;
@@ -129,7 +131,7 @@ export function usePortfolioPrimaryData(
       return;
     }
 
-    const cached = cacheKey ? readRouteDtoCache<PortfolioPageData>(cacheKey) : null;
+    const cached = cacheKey ? readPortfolioCache(cacheKey, openMarketPollMs) : null;
     if (cached !== null) {
       const version = startRequest();
       setData(cached.payload);
@@ -157,7 +159,7 @@ export function usePortfolioPrimaryData(
     return () => {
       mounted = false;
     };
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, initialPrimaryData, refresh, refreshEnrichment, startRequest]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, initialPrimaryData, openMarketPollMs, refresh, refreshEnrichment, startRequest]);
 
   return {
     data,
@@ -173,4 +175,21 @@ export function usePortfolioPrimaryData(
 
 function needsPortfolioEnrichment(data: PortfolioPageData): boolean {
   return data.holdings.some((holding) => holding.marketValueAmount === null);
+}
+
+function readPortfolioCache(
+  cacheKey: string,
+  openMarketPollMs?: number | null,
+): ReturnType<typeof readRouteDtoCache<PortfolioPageData>> {
+  const cached = readRouteDtoCache<PortfolioPageData>(cacheKey);
+  if (
+    cached !== null
+    && typeof openMarketPollMs === "number"
+    && openMarketPollMs > 0
+    && shouldPollForOpenMarket(cached.payload.holdings)
+    && Date.now() - cached.createdAt > openMarketPollMs
+  ) {
+    return null;
+  }
+  return cached;
 }

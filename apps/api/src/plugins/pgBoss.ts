@@ -1,5 +1,6 @@
 import { PgBoss } from "pg-boss";
 import pg from "pg";
+import { createClient, type RedisClientType } from "redis";
 import { Env } from "@vakwen/config";
 import type { MarketCode } from "@vakwen/domain";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
@@ -28,11 +29,57 @@ import { MockAsxGicsCatalogProvider } from "../services/market-data/providers/mo
 import { getAppConfigCacheEntry } from "../services/appConfig/cache.js";
 import { RateLimiter } from "../services/market-data/rateLimiter.js";
 import { handleBatchComplete } from "../services/notificationService.js";
+import { buildRedisSocketOptions } from "../lib/redisClientOptions.js";
 import {
   enqueueSnapshotRepairIfActiveHeld,
   type SnapshotRepairJobData,
 } from "../services/snapshotRepair.js";
 import type { AppInstance } from "../app.js";
+import { createIntradayOverlayCache } from "../services/market-data/intradayOverlayCache.js";
+import { YahooFinanceIntradayProvider } from "../services/market-data/providers/yahooFinanceIntraday.js";
+import { TwseStockDayCloseProvider, YahooChartCloseProvider } from "../services/market-data/providers/index.js";
+import {
+  getEffectiveTickerPriceFreshnessConfig,
+} from "../services/appConfig/tickerPriceFreshness.js";
+import {
+  buildIntradayRefreshWorkerConfig,
+  registerIntradayRefreshWorker,
+} from "../services/market-data/registerIntradayRefreshWorker.js";
+import type { IntradayRefreshRequestBudget } from "../services/market-data/intradayRefreshWorker.js";
+import {
+  buildCloseRefreshWorkerConfig,
+  registerCloseRefreshWorker,
+} from "../services/market-data/registerCloseRefreshWorker.js";
+import { toDailyBarUpsertRows } from "../services/market-data/closeRefreshWorker.js";
+import { upsertDailyBars } from "../services/market-data/upserts.js";
+
+function createRedisIntradayRefreshRequestBudget(
+  redis: Pick<RedisClientType, "isOpen" | "connect" | "incrBy" | "pExpire" | "pTTL">,
+  requestsPerMinute: number,
+): IntradayRefreshRequestBudget {
+  return {
+    async tryConsume(requests: number) {
+      if (!redis.isOpen) {
+        await redis.connect();
+      }
+      const windowMs = 60_000;
+      const bucket = Math.floor(Date.now() / windowMs);
+      const key = `intraday-refresh-budget:${bucket}`;
+      const consumed = await redis.incrBy(key, requests);
+      if (consumed === requests) {
+        await redis.pExpire(key, windowMs);
+      }
+      if (consumed <= requestsPerMinute) {
+        return { allowed: true };
+      }
+      const retryAfterMs = await redis.pTTL(key);
+      return {
+        allowed: false,
+        retryAfterMs: retryAfterMs > 0 ? retryAfterMs : windowMs,
+      };
+    },
+  };
+}
 
 /**
  * Initialize pg-boss job queue and register the backfill worker.
@@ -42,6 +89,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   const backend = persistenceOverride ?? Env.PERSISTENCE_BACKEND;
   if (backend === "memory") {
     app.boss = null;
+    app.tickerPriceChartRequestBudget = null;
     return;
   }
 
@@ -59,6 +107,8 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     max: Env.BACKFILL_POSTGRES_POOL_MAX,
     application_name: "vakwen-backfill",
   });
+  let chartBudgetRedis: RedisClientType | null = null;
+  let chartRequestBudget: IntradayRefreshRequestBudget | null = null;
 
   // KZO-163: providers + rate limiters now live inside `app.marketDataRegistry` (built in app.ts).
   // The backfill worker takes the marketData map; the catalog-sync worker takes the catalog map.
@@ -216,10 +266,142 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     {},
   );
 
+  const tickerPriceFreshness = getEffectiveTickerPriceFreshnessConfig();
+  const tickerPriceReadiness = await app.persistence.readiness();
+  if (tickerPriceReadiness.redis) {
+    try {
+      chartBudgetRedis = createClient({
+        url: Env.getRedisUrl(),
+        socket: buildRedisSocketOptions(),
+      });
+      chartBudgetRedis.on("error", (err) =>
+        app.log.warn({ err: err instanceof Error ? err.message : String(err) }, "ticker_price_chart_budget_redis_error"));
+      chartRequestBudget = createRedisIntradayRefreshRequestBudget(
+        chartBudgetRedis,
+        tickerPriceFreshness.yahooChartRequestLimitPerMinute,
+      );
+      app.tickerPriceChartRequestBudget = chartRequestBudget;
+    } catch (error) {
+      app.log.warn(
+        {
+          feature: "ticker_price_chart_budget",
+          err: error instanceof Error ? error.message : String(error),
+        },
+        "ticker_price_chart_budget_unavailable; close_yahoo_fallback_and_intraday_budget_disabled",
+      );
+      chartBudgetRedis = null;
+      chartRequestBudget = null;
+      app.tickerPriceChartRequestBudget = null;
+    }
+  } else {
+    app.log.warn(
+      { feature: "ticker_price_chart_budget", backend: tickerPriceReadiness.backend },
+      "ticker_price_chart_budget_unavailable_missing_redis; close_yahoo_fallback_and_intraday_budget_disabled",
+    );
+    app.tickerPriceChartRequestBudget = null;
+  }
+  await registerCloseRefreshWorker(
+    boss,
+    buildCloseRefreshWorkerConfig(tickerPriceFreshness),
+    {
+      boss,
+      persistence: app.persistence,
+      tradingCalendar: app.tradingCalendarCache,
+      marketDataProviders: app.marketDataRegistry.marketData,
+      fallbackProviders: {
+        twseStockDay: new TwseStockDayCloseProvider(),
+        ...(chartRequestBudget
+          ? {
+              yahooChartClose: new YahooChartCloseProvider({
+                range: tickerPriceFreshness.yahooChartRange,
+                interval: tickerPriceFreshness.yahooChartInterval,
+                persistence: app.persistence,
+                requestBudget: chartRequestBudget,
+              }),
+            }
+          : {}),
+      },
+      upsertBars: async (bars, marketCode) => {
+        if (bars.length === 0) return;
+        await upsertDailyBars(pool, toDailyBarUpsertRows(bars, marketCode));
+        app.tradingCalendarCache.notifyBarsUpserted(marketCode, [...new Set(bars.map((bar) => bar.barDate))]);
+      },
+      closeRefreshGraceMinutes: tickerPriceFreshness.closeRefreshGraceMinutes,
+      supportedMarkets: tickerPriceFreshness.supportedMarkets,
+      log: app.log,
+    },
+  );
+  app.log.info(
+    {
+      feature: "ticker_price_close_refresh",
+      concurrency: tickerPriceFreshness.queueConcurrency,
+      closeRefreshGraceMinutes: tickerPriceFreshness.closeRefreshGraceMinutes,
+    },
+    "close_refresh_worker_registered",
+  );
+
+  if (!tickerPriceFreshness.intradayEnabled) {
+    app.log.info(
+      { feature: "ticker_price_freshness_intraday" },
+      "intraday_refresh_disabled_by_config; falling back to daily_bar_behavior",
+    );
+  } else {
+    if (!tickerPriceReadiness.redis || !chartRequestBudget) {
+      app.log.warn(
+        { feature: "ticker_price_freshness_intraday", backend: tickerPriceReadiness.backend },
+        "intraday_refresh_runtime_unavailable_missing_redis; falling back to daily_bar_behavior",
+      );
+    } else {
+      try {
+        const intradayProvider = new YahooFinanceIntradayProvider({
+          range: tickerPriceFreshness.yahooChartRange,
+          interval: tickerPriceFreshness.yahooChartInterval,
+          persistence: app.persistence,
+        });
+        await registerIntradayRefreshWorker(
+          boss,
+          buildIntradayRefreshWorkerConfig(tickerPriceFreshness),
+          {
+            cache: createIntradayOverlayCache(app.persistence, app.log),
+            fetchOverlay: ({ ticker, marketCode, now }) =>
+              intradayProvider.fetchLatestOverlay({
+                ticker,
+                marketCode: marketCode as "TW" | "US" | "AU" | "KR",
+                now,
+              }),
+            requestBudget: chartRequestBudget,
+            log: app.log,
+          },
+        );
+        app.log.info(
+          {
+            feature: "ticker_price_freshness_intraday",
+            concurrency: tickerPriceFreshness.queueConcurrency,
+            requestsPerMinute: tickerPriceFreshness.yahooChartRequestLimitPerMinute,
+            range: tickerPriceFreshness.yahooChartRange,
+            interval: tickerPriceFreshness.yahooChartInterval,
+          },
+          "intraday_refresh_worker_registered",
+        );
+      } catch (error) {
+        app.log.warn(
+          {
+            feature: "ticker_price_freshness_intraday",
+            err: error instanceof Error ? error.message : String(error),
+          },
+          "intraday_refresh_runtime_unavailable_missing_queue_or_redis; falling back to daily_bar_behavior",
+        );
+      }
+    }
+  }
+
   app.boss = boss;
 
   app.addHook("onClose", async () => {
     await boss.stop({ graceful: true, timeout: 10_000 });
+    if (chartBudgetRedis?.isOpen) {
+      await chartBudgetRedis.quit();
+    }
     await pool.end();
   });
 

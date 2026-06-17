@@ -22,6 +22,7 @@ import {
   type AiConnectorPolicySettingsDto,
   type AppConfigDto,
   type RouteCachePolicyMode,
+  type TickerPriceFreshnessAppConfigDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
@@ -340,6 +341,205 @@ function generateHexSecret(bytes = 32): string {
   const values = new Uint8Array(bytes);
   cryptoApi.getRandomValues(values);
   return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto = {
+  closeRefreshGraceMinutes: null,
+  effectiveCloseRefreshGraceMinutes: 30,
+  intradayEnabled: null,
+  effectiveIntradayEnabled: true,
+  intradayRefreshIntervalMinutes: null,
+  effectiveIntradayRefreshIntervalMinutes: 1,
+  intradayFreshnessToleranceMinutes: null,
+  effectiveIntradayFreshnessToleranceMinutes: 20,
+  yahooChartRequestLimitPerMinute: null,
+  effectiveYahooChartRequestLimitPerMinute: 30,
+  queueConcurrency: null,
+  effectiveQueueConcurrency: 2,
+  maxTickersPerRefreshCycle: null,
+  effectiveMaxTickersPerRefreshCycle: 100,
+  supportedMarkets: null,
+  effectiveSupportedMarkets: ["TW", "US", "AU", "KR"],
+  regularSessionOnly: null,
+  effectiveRegularSessionOnly: true,
+  yahooChartRange: null,
+  effectiveYahooChartRange: "1d",
+  yahooChartInterval: null,
+  effectiveYahooChartInterval: "1m",
+  refreshCloseRateLimitWindowMs: null,
+  effectiveRefreshCloseRateLimitWindowMs: 60_000,
+  refreshCloseRateLimitMax: null,
+  effectiveRefreshCloseRateLimitMax: 10,
+  syncTickerCap: null,
+  effectiveSyncTickerCap: 50,
+  options: {
+    supportedMarkets: ["TW", "US", "AU", "KR"],
+    yahooChartRanges: ["1d", "5d"],
+    yahooChartIntervals: ["1m", "2m", "5m", "15m"],
+  },
+  bounds: {
+    closeRefreshGraceMinutes: { min: 0, max: 240 },
+    intradayRefreshIntervalMinutes: { min: 1, max: 60 },
+    intradayFreshnessToleranceMinutes: { min: 1, max: 240 },
+    yahooChartRequestLimitPerMinute: { min: 1, max: 600 },
+    queueConcurrency: { min: 1, max: 32 },
+    maxTickersPerRefreshCycle: { min: 1, max: 1000 },
+    refreshCloseRateLimitWindowMs: { min: 1000, max: 600000 },
+    refreshCloseRateLimitMax: { min: 1, max: 1000 },
+    syncTickerCap: { min: 1, max: 1000 },
+  },
+};
+
+function TickerPriceFreshnessSettingsCard({
+  config,
+  isZhTW,
+  onUpdated,
+}: {
+  config: AppConfigDto;
+  isZhTW: boolean;
+  onUpdated: (next: AppConfigDto) => void;
+}) {
+  const [draft, setDraft] = useState<TickerPriceFreshnessAppConfigDto>(config.tickerPriceFreshness ?? DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(config.tickerPriceFreshness ?? DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS);
+  }, [config]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const updated = await patchJson<AppConfigDto>(
+        "/admin/settings",
+        { tickerPriceFreshness: draft },
+      );
+      onUpdated(updated);
+      setSuccess(isZhTW ? "價格新鮮度設定已儲存。" : "Ticker price freshness settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : isZhTW ? "無法儲存價格新鮮度設定。" : "Failed to save ticker price freshness settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card data-testid="admin-settings-ticker-price-freshness-section">
+      <div className="space-y-5">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">{isZhTW ? "價格新鮮度" : "Ticker price freshness"}</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            {isZhTW ? "把收盤刷新與盤中輪詢設定集中在同一個群組。" : "Group close-refresh and intraday freshness controls in one operator surface."}
+          </p>
+        </div>
+        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "收盤寬限（分鐘）" : "Close grace minutes"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.closeRefreshGraceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, closeRefreshGraceMinutes: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "同步刷新上限" : "Sync ticker cap"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.syncTickerCap ?? ""} onChange={(event) => setDraft((current) => ({ ...current, syncTickerCap: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "盤中刷新間隔（分鐘）" : "Intraday refresh interval (minutes)"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.intradayRefreshIntervalMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, intradayRefreshIntervalMinutes: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "新鮮度容忍（分鐘）" : "Freshness tolerance (minutes)"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.intradayFreshnessToleranceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, intradayFreshnessToleranceMinutes: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "Yahoo 每分鐘請求上限" : "Yahoo requests per minute"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.yahooChartRequestLimitPerMinute ?? ""} onChange={(event) => setDraft((current) => ({ ...current, yahooChartRequestLimitPerMinute: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "佇列並行數" : "Queue concurrency"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.queueConcurrency ?? ""} onChange={(event) => setDraft((current) => ({ ...current, queueConcurrency: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "每輪最大代號數" : "Max tickers per cycle"}
+            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.maxTickersPerRefreshCycle ?? ""} onChange={(event) => setDraft((current) => ({ ...current, maxTickersPerRefreshCycle: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "刷新視窗（毫秒）" : "Refresh endpoint window (ms)"}
+            <input data-testid="admin-settings-input-tickerPriceRefreshCloseRateLimitWindowMs" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.refreshCloseRateLimitWindowMs ?? ""} onChange={(event) => setDraft((current) => ({ ...current, refreshCloseRateLimitWindowMs: Number(event.target.value) || null }))} />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "刷新請求上限" : "Refresh endpoint max requests"}
+            <input data-testid="admin-settings-input-tickerPriceRefreshCloseRateLimitMax" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.refreshCloseRateLimitMax ?? ""} onChange={(event) => setDraft((current) => ({ ...current, refreshCloseRateLimitMax: Number(event.target.value) || null }))} />
+          </label>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "Yahoo range" : "Yahoo chart range"}
+            <Select value={draft.yahooChartRange ?? draft.effectiveYahooChartRange} onValueChange={(value: "1d" | "5d") => setDraft((current) => ({ ...current, yahooChartRange: value }))}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1d">1d</SelectItem>
+                <SelectItem value="5d">5d</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            {isZhTW ? "Yahoo interval" : "Yahoo chart interval"}
+            <Select value={draft.yahooChartInterval ?? draft.effectiveYahooChartInterval} onValueChange={(value: "1m" | "2m" | "5m" | "15m") => setDraft((current) => ({ ...current, yahooChartInterval: value }))}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1m">1m</SelectItem>
+                <SelectItem value="2m">2m</SelectItem>
+                <SelectItem value="5m">5m</SelectItem>
+                <SelectItem value="15m">15m</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+            <span className="font-medium text-slate-800">{isZhTW ? "啟用盤中刷新" : "Enable intraday refresh"}</span>
+            <input type="checkbox" checked={draft.intradayEnabled ?? draft.effectiveIntradayEnabled} onChange={(event) => setDraft((current) => ({ ...current, intradayEnabled: event.target.checked }))} />
+          </label>
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+            <span className="font-medium text-slate-800">{isZhTW ? "僅常規時段" : "Regular session only"}</span>
+            <input type="checkbox" checked={draft.regularSessionOnly ?? draft.effectiveRegularSessionOnly} onChange={(event) => setDraft((current) => ({ ...current, regularSessionOnly: event.target.checked }))} />
+          </label>
+        </div>
+        <div>
+          <p className="text-sm font-medium text-slate-700">{isZhTW ? "支援市場" : "Supported markets"}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(["TW", "US", "AU", "KR"] as const).map((market) => {
+              const selected = (draft.supportedMarkets ?? draft.effectiveSupportedMarkets).includes(market);
+              return (
+                <button
+                  key={market}
+                  type="button"
+                  className={cn("rounded-full border px-3 py-1.5 text-sm", selected ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-700")}
+                  onClick={() => setDraft((current) => ({
+                    ...current,
+                    supportedMarkets: selected
+                      ? (current.supportedMarkets ?? current.effectiveSupportedMarkets).filter((item) => item !== market)
+                      : [...(current.supportedMarkets ?? current.effectiveSupportedMarkets), market],
+                  }))}
+                >
+                  {market}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" onClick={() => void save()} disabled={saving} data-testid="admin-settings-save-ticker-price-freshness">
+            {saving ? (isZhTW ? "儲存中..." : "Saving...") : (isZhTW ? "儲存價格新鮮度設定" : "Save freshness settings")}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 // KZO-159: Predefined chip palette for the Dashboard Timeframe Defaults section.
@@ -1404,6 +1604,13 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
             </div>
           </Card>
+          <div className="mt-6">
+            <TickerPriceFreshnessSettingsCard
+              config={config}
+              isZhTW={isZhTW}
+              onUpdated={setConfig}
+            />
+          </div>
         </TabsContent>
 
         {/* ── Backfill & repair tab (Repair cooldown + Backfill knobs) ─── */}

@@ -6,6 +6,7 @@ import { useHoldingsColumnSettings, type HoldingsGridColumnDefinition } from "..
 import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { getJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
+import { testPriceState } from "../../fixtures/priceState";
 
 vi.mock("../../../lib/api", () => ({
   getJson: vi.fn(async () => ({ preferences: {} })),
@@ -39,8 +40,7 @@ const baseGroup: DashboardOverviewHoldingGroupDto = {
   quoteStatus: "current",
   nextDividendDate: null,
   lastDividendPostedDate: null,
-  freshness: "current",
-  freshnessTooltip: null,
+  priceState: testPriceState(),
   accountCount: 1,
   reportingCurrency: "TWD",
   reportingCostBasisAmount: 32_000,

@@ -42,9 +42,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/toggle-group";
 import {
-  getHoldingsFreshnessLabel,
   getHoldingsQuoteStatusLabel,
 } from "../../../components/holdings/HoldingsDataHealth";
+import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
 import { holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
@@ -72,6 +72,7 @@ import {
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 import { getNativeUnitPnl } from "../../../lib/holdingsMetrics";
 import { buildTimelineAxis, type TimelineMode } from "../../../lib/timelineAxis";
+import { getPriceState, shouldPollForOpenMarket } from "../../../features/price-state/priceState";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -93,6 +94,7 @@ interface TickerHistoryClientProps {
     chartStart?: string;
   };
   initialTradeDate: string;
+  quotePollIntervalSeconds?: number | null;
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -359,11 +361,13 @@ export function TickerHistoryClient({
   transactionMarketFilter,
   initialChartQuery,
   initialTradeDate,
+  quotePollIntervalSeconds,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
+  const tickerOpenMarketPollMs = Math.max(15_000, (quotePollIntervalSeconds ?? 60) * 1000);
   const initialChartMetadata = getTickerChartMetadata(details.chart);
   const initialTickerChartState = resolveInitialTickerChartState(
     buildInitialTickerChartSearchParams(initialChartQuery),
@@ -480,17 +484,21 @@ export function TickerHistoryClient({
   }, [detailsState]);
 
   useEffect(() => {
-    const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
+    const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey, {
+      maxAgeMs: shouldPollForOpenMarket([detailsStateRef.current.quote]) ? tickerOpenMarketPollMs : undefined,
+    });
     if (isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)) {
       detailsStateRef.current = cached.payload;
       setDetailsState(cached.payload);
     }
-  }, [reportingCurrency, ticker, tickerDetailsCacheKey, transactionMarketFilter]);
+  }, [reportingCurrency, ticker, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionMarketFilter]);
 
   const refreshDetails = useCallback(async () => {
     setIsDetailsLoading(true);
     try {
-      const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey);
+      const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey, {
+        maxAgeMs: shouldPollForOpenMarket([detailsStateRef.current.quote]) ? tickerOpenMarketPollMs : undefined,
+      });
       const primaryDetails = isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)
         ? cached.payload
         : detailsStateRef.current;
@@ -510,11 +518,19 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
   }, [refreshDetails]);
+
+  useEffect(() => {
+    if (!shouldPollForOpenMarket([detailsState.quote])) return;
+    const timer = window.setInterval(() => {
+      void refreshDetails();
+    }, tickerOpenMarketPollMs);
+    return () => window.clearInterval(timer);
+  }, [detailsState.quote, refreshDetails, tickerOpenMarketPollMs]);
 
   const refresh = useCallback(async () => {
     const nextTransactions = await fetchTransactionHistory({
@@ -665,7 +681,7 @@ export function TickerHistoryClient({
       ? "border-success/40 bg-success/10 text-success"
       : "border-destructive/40 bg-destructive/10 text-destructive";
   const quoteStatusBadgeClassName = detailsState.quote.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined;
-  const freshnessBadgeClassName = detailsState.quote.freshness === "stale_amber" ? holdingsWarningBadgeClassName : undefined;
+  const priceState = getPriceState(detailsState.quote);
   const summaryCards = [
     {
       key: "quantity",
@@ -950,11 +966,7 @@ export function TickerHistoryClient({
                 >
                   {getHoldingsQuoteStatusLabel(dict, detailsState.quote.quoteStatus)}
                 </Badge>
-                {detailsState.quote.freshness !== "current" ? (
-                  <Badge variant={detailsState.quote.freshness === "stale_red" ? "destructive" : "outline"} className={freshnessBadgeClassName}>
-                    {getHoldingsFreshnessLabel(dict, detailsState.quote.freshness)}
-                  </Badge>
-                ) : null}
+                {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId="ticker-price-state-chip" /> : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
@@ -1000,9 +1012,6 @@ export function TickerHistoryClient({
                   <p className="mt-1 text-xs opacity-80" data-testid="repair-status-badge">{statusText}</p>
                 </div>
               </div>
-              {detailsState.quote.freshnessTooltip ? (
-              <p className="mt-3 text-sm text-muted-foreground">{detailsState.quote.freshnessTooltip}</p>
-            ) : null}
           </div>
 
             <Card className="rounded-[26px] border-border bg-background/90 p-5 shadow-none">

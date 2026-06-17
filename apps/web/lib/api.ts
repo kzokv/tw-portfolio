@@ -389,6 +389,7 @@ const DELEGATED_PORTFOLIO_WRITE_PATHS = {
     /^\/ai\/transactions\/confirm$/,
     /^\/ai\/transaction-drafts\/[^/]+\/confirm$/,
     /^\/fee-profiles$/,
+    /^\/portfolio\/refresh-closes$/,
     /^\/portfolio\/transactions$/,
   ],
   patch: [
@@ -454,6 +455,22 @@ export async function postJson<T>(
       ...(await getAuthHeaders()),
     },
     body: JSON.stringify(body),
+  });
+  handleContextFallback(res);
+  if (!res.ok) return throwApiError<T>(res, path);
+  invalidatePortfolioRouteCachesForWrite("POST", path);
+  return res.json() as Promise<T>;
+}
+
+export async function postNoBody<T>(
+  path: string,
+  options: JsonRequestOptions = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    signal: options.signal,
+    headers: { ...(options.headers ?? {}), ...(await getAuthHeaders()) },
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);

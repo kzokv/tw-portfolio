@@ -12,7 +12,14 @@ import {
   type FeeProfile,
   type FeeProfileTaxRule,
 } from "@vakwen/domain";
-import type { DailyBar, DailyBarWithMarket, InstrumentType, MarketCode } from "@vakwen/domain";
+import type {
+  DailyBar,
+  DailyBarQuality,
+  DailyBarWithMarket,
+  InstrumentType,
+  IntradayPriceOverlay,
+  MarketCode,
+} from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import { buildRedisSocketOptions } from "../lib/redisClientOptions.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
@@ -5835,15 +5842,15 @@ export class PostgresPersistence implements Persistence {
     if (tickers.length === 0) return [];
     const result = await this.pool.query<{
       ticker: string; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
       `WITH ranked AS (
-         SELECT ticker, bar_date, open, high, low, close, volume, source, ingested_at,
+         SELECT ticker, bar_date, open, high, low, close, volume, quality, source, ingested_at,
                 ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY bar_date DESC) AS rn
          FROM market_data.daily_bars
          WHERE ticker = ANY($1)
        )
-       SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       SELECT ticker, bar_date::text, open, high, low, close, volume, quality, source, ingested_at::text
        FROM ranked WHERE rn <= $2
        ORDER BY ticker, bar_date DESC`,
       [tickers, limit],
@@ -5856,6 +5863,7 @@ export class PostgresPersistence implements Persistence {
       low: Number(row.low),
       close: Number(row.close),
       volume: Number(row.volume),
+      quality: row.quality,
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
@@ -5870,7 +5878,7 @@ export class PostgresPersistence implements Persistence {
     const markets = pairs.map((p) => p.marketCode);
     const result = await this.pool.query<{
       ticker: string; market_code: string; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
       `WITH input AS (
          SELECT DISTINCT ticker, market_code
@@ -5878,7 +5886,7 @@ export class PostgresPersistence implements Persistence {
        ),
        ranked AS (
          SELECT b.ticker, b.market_code, b.bar_date, b.open, b.high, b.low, b.close,
-                b.volume, b.source, b.ingested_at,
+                b.volume, b.quality, b.source, b.ingested_at,
                 ROW_NUMBER() OVER (
                   PARTITION BY b.ticker, b.market_code
                   ORDER BY b.bar_date DESC
@@ -5887,7 +5895,7 @@ export class PostgresPersistence implements Persistence {
          INNER JOIN input i
            ON i.ticker = b.ticker AND i.market_code = b.market_code
        )
-       SELECT ticker, market_code, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       SELECT ticker, market_code, bar_date::text, open, high, low, close, volume, quality, source, ingested_at::text
        FROM ranked WHERE rn <= $3
        ORDER BY ticker, market_code, bar_date DESC`,
       [tickers, markets, limit],
@@ -5901,9 +5909,50 @@ export class PostgresPersistence implements Persistence {
       low: Number(row.low),
       close: Number(row.close),
       volume: Number(row.volume),
+      quality: row.quality,
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
+  }
+
+  async getLatestIntradayOverlay(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<IntradayPriceOverlay | null> {
+    await this.ensureRedisOpen();
+    return this.parseIntradayOverlay(
+      await this.redis.get(this.intradayOverlayRedisKey(ticker, marketCode)),
+    );
+  }
+
+  async getLatestIntradayOverlays(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, IntradayPriceOverlay>> {
+    const overlays = new Map<string, IntradayPriceOverlay>();
+    if (pairs.length === 0) return overlays;
+    await this.ensureRedisOpen();
+    const keys = pairs.map((pair) => this.intradayOverlayRedisKey(pair.ticker, pair.marketCode));
+    const values = await this.redis.mGet(keys);
+    for (let index = 0; index < pairs.length; index += 1) {
+      const overlay = this.parseIntradayOverlay(values[index] ?? null);
+      if (!overlay) continue;
+      const pair = pairs[index]!;
+      overlays.set(`${pair.ticker}:${pair.marketCode}`, overlay);
+    }
+    return overlays;
+  }
+
+  async setLatestIntradayOverlay(overlay: IntradayPriceOverlay): Promise<void> {
+    await this.ensureRedisOpen();
+    await this.redis.set(
+      this.intradayOverlayRedisKey(overlay.ticker, overlay.marketCode),
+      JSON.stringify(overlay),
+    );
+  }
+
+  async deleteLatestIntradayOverlay(ticker: string, marketCode: MarketCode): Promise<void> {
+    await this.ensureRedisOpen();
+    await this.redis.del(this.intradayOverlayRedisKey(ticker, marketCode));
   }
 
   async getLatestBarDatesByTickerMarket(
@@ -5974,9 +6023,9 @@ export class PostgresPersistence implements Persistence {
   async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {
     const result = await this.pool.query<{
       ticker: string; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
-      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, quality, source, ingested_at::text
        FROM market_data.daily_bars
        WHERE ticker = $1 AND bar_date >= $2::date AND bar_date <= $3::date
        ORDER BY bar_date ASC`,
@@ -5990,6 +6039,7 @@ export class PostgresPersistence implements Persistence {
       low: Number(row.low),
       close: Number(row.close),
       volume: Number(row.volume),
+      quality: row.quality,
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
@@ -6003,9 +6053,9 @@ export class PostgresPersistence implements Persistence {
   ): Promise<DailyBar[]> {
     const result = await this.pool.query<{
       ticker: string; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
-      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, quality, source, ingested_at::text
          FROM market_data.daily_bars
         WHERE ticker = $1
           AND market_code = $2
@@ -6022,6 +6072,7 @@ export class PostgresPersistence implements Persistence {
       low: Number(row.low),
       close: Number(row.close),
       volume: Number(row.volume),
+      quality: row.quality,
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
@@ -6038,7 +6089,7 @@ export class PostgresPersistence implements Persistence {
 
     const rows = await this.pool.query<{
       ticker: string; market_code: MarketCode; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
       `WITH requested_pairs AS (
          SELECT DISTINCT ticker, "marketCode" AS market_code
@@ -6046,7 +6097,7 @@ export class PostgresPersistence implements Persistence {
           WHERE ticker IS NOT NULL
             AND "marketCode" IS NOT NULL
        )
-       SELECT b.ticker, b.market_code, b.bar_date::text, b.open, b.high, b.low, b.close, b.volume, b.source, b.ingested_at::text
+       SELECT b.ticker, b.market_code, b.bar_date::text, b.open, b.high, b.low, b.close, b.volume, b.quality, b.source, b.ingested_at::text
          FROM market_data.daily_bars b
          JOIN requested_pairs pair
            ON pair.ticker = b.ticker
@@ -6068,6 +6119,7 @@ export class PostgresPersistence implements Persistence {
         low: Number(row.low),
         close: Number(row.close),
         volume: Number(row.volume),
+        quality: row.quality,
         source: row.source,
         ingestedAt: row.ingested_at,
       });
@@ -6083,9 +6135,9 @@ export class PostgresPersistence implements Persistence {
     if (tickers.length === 0) return result;
     const rows = await this.pool.query<{
       ticker: string; bar_date: string; open: string; high: string; low: string;
-      close: string; volume: string; source: string; ingested_at: string;
+      close: string; volume: string; quality: DailyBarQuality; source: string; ingested_at: string;
     }>(
-      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, quality, source, ingested_at::text
        FROM market_data.daily_bars
        WHERE ticker = ANY($1::text[]) AND bar_date >= $2::date AND bar_date <= $3::date
        ORDER BY ticker ASC, bar_date ASC`,
@@ -6101,6 +6153,7 @@ export class PostgresPersistence implements Persistence {
         low: Number(row.low),
         close: Number(row.close),
         volume: Number(row.volume),
+        quality: row.quality,
         source: row.source,
         ingestedAt: row.ingested_at,
       });
@@ -7647,6 +7700,20 @@ export class PostgresPersistence implements Persistence {
 
   private async ensureRedisOpen(): Promise<void> {
     if (!this.redis.isOpen) await this.redis.connect();
+  }
+
+  private intradayOverlayRedisKey(ticker: string, marketCode: MarketCode): string {
+    return `intraday-overlay:${marketCode}:${ticker}`;
+  }
+
+  private parseIntradayOverlay(raw: string | null): IntradayPriceOverlay | null {
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as IntradayPriceOverlay;
+    return {
+      ...parsed,
+      price: Number(parsed.price),
+      previousClose: parsed.previousClose === null ? null : Number(parsed.previousClose),
+    };
   }
 
   async saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void> {
@@ -11437,6 +11504,20 @@ export class PostgresPersistence implements Persistence {
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
+    tickerPriceCloseRefreshGraceMinutes: number | null;
+    tickerPriceIntradayEnabled: boolean | null;
+    tickerPriceIntradayRefreshIntervalMinutes: number | null;
+    tickerPriceIntradayFreshnessToleranceMinutes: number | null;
+    tickerPriceYahooChartRequestLimitPerMinute: number | null;
+    tickerPriceQueueConcurrency: number | null;
+    tickerPriceMaxTickersPerRefreshCycle: number | null;
+    tickerPriceSupportedMarkets: import("@vakwen/shared-types").MarketCode[] | null;
+    tickerPriceRegularSessionOnly: boolean | null;
+    tickerPriceYahooChartRange: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null;
+    tickerPriceYahooChartInterval: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null;
+    tickerPriceRefreshCloseRateLimitWindowMs: number | null;
+    tickerPriceRefreshCloseRateLimitMax: number | null;
+    tickerPriceSyncTickerCap: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -11506,6 +11587,20 @@ export class PostgresPersistence implements Persistence {
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
+      ticker_price_close_refresh_grace_minutes: number | null;
+      ticker_price_intraday_enabled: boolean | null;
+      ticker_price_intraday_refresh_interval_minutes: number | null;
+      ticker_price_intraday_freshness_tolerance_minutes: number | null;
+      ticker_price_yahoo_chart_request_limit_per_minute: number | null;
+      ticker_price_queue_concurrency: number | null;
+      ticker_price_max_tickers_per_refresh_cycle: number | null;
+      ticker_price_supported_markets: import("@vakwen/shared-types").MarketCode[] | null;
+      ticker_price_regular_session_only: boolean | null;
+      ticker_price_yahoo_chart_range: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartRange | null;
+      ticker_price_yahoo_chart_interval: import("@vakwen/shared-types").TickerPriceFreshnessYahooChartInterval | null;
+      ticker_price_refresh_close_rate_limit_window_ms: number | string | null;
+      ticker_price_refresh_close_rate_limit_max: number | null;
+      ticker_price_sync_ticker_cap: number | null;
       daily_refresh_lookback_days: number | null;
       daily_refresh_priority: number | null;
       sse_heartbeat_interval_ms: number | null;
@@ -11555,6 +11650,13 @@ export class PostgresPersistence implements Persistence {
          yahoo_au_provider_rate_limit_per_minute, yahoo_kr_provider_rate_limit_per_minute,
          frankfurter_provider_rate_limit_per_minute, asx_gics_provider_rate_limit_per_hour,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
+         ticker_price_close_refresh_grace_minutes, ticker_price_intraday_enabled,
+         ticker_price_intraday_refresh_interval_minutes, ticker_price_intraday_freshness_tolerance_minutes,
+         ticker_price_yahoo_chart_request_limit_per_minute, ticker_price_queue_concurrency,
+         ticker_price_max_tickers_per_refresh_cycle, ticker_price_supported_markets,
+         ticker_price_regular_session_only, ticker_price_yahoo_chart_range, ticker_price_yahoo_chart_interval,
+         ticker_price_refresh_close_rate_limit_window_ms, ticker_price_refresh_close_rate_limit_max,
+         ticker_price_sync_ticker_cap,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
          catalog_absence_threshold, catalog_absence_guard_percent, catalog_absence_guard_floor,
@@ -11613,6 +11715,20 @@ export class PostgresPersistence implements Persistence {
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
+        tickerPriceCloseRefreshGraceMinutes: null,
+        tickerPriceIntradayEnabled: null,
+        tickerPriceIntradayRefreshIntervalMinutes: null,
+        tickerPriceIntradayFreshnessToleranceMinutes: null,
+        tickerPriceYahooChartRequestLimitPerMinute: null,
+        tickerPriceQueueConcurrency: null,
+        tickerPriceMaxTickersPerRefreshCycle: null,
+        tickerPriceSupportedMarkets: null,
+        tickerPriceRegularSessionOnly: null,
+        tickerPriceYahooChartRange: null,
+        tickerPriceYahooChartInterval: null,
+        tickerPriceRefreshCloseRateLimitWindowMs: null,
+        tickerPriceRefreshCloseRateLimitMax: null,
+        tickerPriceSyncTickerCap: null,
         dailyRefreshLookbackDays: null,
         dailyRefreshPriority: null,
         sseHeartbeatIntervalMs: null,
@@ -11690,6 +11806,20 @@ export class PostgresPersistence implements Persistence {
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
+      tickerPriceCloseRefreshGraceMinutes: row.ticker_price_close_refresh_grace_minutes,
+      tickerPriceIntradayEnabled: row.ticker_price_intraday_enabled,
+      tickerPriceIntradayRefreshIntervalMinutes: row.ticker_price_intraday_refresh_interval_minutes,
+      tickerPriceIntradayFreshnessToleranceMinutes: row.ticker_price_intraday_freshness_tolerance_minutes,
+      tickerPriceYahooChartRequestLimitPerMinute: row.ticker_price_yahoo_chart_request_limit_per_minute,
+      tickerPriceQueueConcurrency: row.ticker_price_queue_concurrency,
+      tickerPriceMaxTickersPerRefreshCycle: row.ticker_price_max_tickers_per_refresh_cycle,
+      tickerPriceSupportedMarkets: row.ticker_price_supported_markets,
+      tickerPriceRegularSessionOnly: row.ticker_price_regular_session_only,
+      tickerPriceYahooChartRange: row.ticker_price_yahoo_chart_range,
+      tickerPriceYahooChartInterval: row.ticker_price_yahoo_chart_interval,
+      tickerPriceRefreshCloseRateLimitWindowMs: num(row.ticker_price_refresh_close_rate_limit_window_ms),
+      tickerPriceRefreshCloseRateLimitMax: row.ticker_price_refresh_close_rate_limit_max,
+      tickerPriceSyncTickerCap: row.ticker_price_sync_ticker_cap,
       dailyRefreshLookbackDays: row.daily_refresh_lookback_days,
       dailyRefreshPriority: row.daily_refresh_priority,
       sseHeartbeatIntervalMs: row.sse_heartbeat_interval_ms,
@@ -11723,7 +11853,7 @@ export class PostgresPersistence implements Persistence {
 
   async setAppConfigField(
     field: import("./types.js").AppConfigPlainField,
-    value: number | null,
+    value: import("./types.js").AppConfigPlainValue,
   ): Promise<void> {
     const { APP_CONFIG_PLAIN_COLUMNS } = await import("./types.js");
     const column = APP_CONFIG_PLAIN_COLUMNS[field];
@@ -11761,7 +11891,7 @@ export class PostgresPersistence implements Persistence {
   async setAppConfigPatch(patch: import("./types.js").AppConfigPatch): Promise<void> {
     const { APP_CONFIG_PLAIN_COLUMNS } = await import("./types.js");
     const columns: string[] = [];
-    const values: Array<number | string | null> = [];
+    const values: Array<import("./types.js").AppConfigPlainValue | string> = [];
 
     for (const [key, column] of Object.entries(APP_CONFIG_PLAIN_COLUMNS) as Array<[
       import("./types.js").AppConfigPlainField,
@@ -12875,6 +13005,33 @@ export class PostgresPersistence implements Persistence {
          AND i.bars_backfill_status = 'ready'
          AND i.delisted_at IS NULL
        ORDER BY i.ticker, i.market_code`,
+    );
+    return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
+  }
+
+  async listHeldTickerMarketPairs(): Promise<{ ticker: string; marketCode: MarketCode }[]> {
+    const result = await this.pool.query<{ ticker: string; market_code: MarketCode }>(
+      `WITH held AS (
+         SELECT DISTINCT l.ticker, currency_to_market(a.default_currency)::text AS market_code
+         FROM lots l
+         JOIN accounts a
+           ON a.id = l.account_id
+          AND a.deleted_at IS NULL
+         JOIN users u
+           ON u.id = a.user_id
+         JOIN market_data.instruments i
+           ON i.ticker = l.ticker
+          AND i.market_code = currency_to_market(a.default_currency)::text
+        WHERE l.open_quantity > 0
+          AND u.is_demo = FALSE
+          AND u.deactivated_at IS NULL
+          AND u.deleted_at IS NULL
+          AND i.bars_backfill_status = 'ready'
+          AND i.delisted_at IS NULL
+       )
+       SELECT ticker, market_code
+         FROM held
+        ORDER BY ticker, market_code`,
     );
     return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
   }

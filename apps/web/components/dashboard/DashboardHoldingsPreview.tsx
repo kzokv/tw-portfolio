@@ -82,6 +82,7 @@ import {
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
+import { PriceStateChip } from "../holdings/PriceStateChip";
 import {
   getDashboardReportingAverageCost,
   getDashboardUnitPnl,
@@ -91,6 +92,7 @@ import {
   holdingsFinanceToneClass,
   holdingsStickyFirstColumnClassName,
 } from "../holdings/holdingsStyle";
+import { buildMissingPriceState, formatPriceStateLabel, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
@@ -988,7 +990,7 @@ function renderDashboardGroupCell({
   if (column === "health") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
-        <HoldingsDataHealthBadges dict={dict} row={group} showCurrentFreshness={false} />
+        <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showCurrentFreshness={false} />
       </TableCell>
     );
   }
@@ -1121,7 +1123,7 @@ function renderDashboardChildCell({
   if (column === "health") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
-        <HoldingsDataHealthBadges dict={dict} row={child} showCurrentFreshness={false} />
+        <HoldingsDataHealthBadges dict={dict} locale={locale} row={child} showCurrentFreshness={false} />
       </TableCell>
     );
   }
@@ -1234,6 +1236,7 @@ function PriceTextButton({
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
 }) {
+  const priceState = getPriceState(group);
   const tooltip = group.currentUnitPrice !== null && group.currency !== reportingCurrency
     ? formatTopHoldingsMessage(dict.dashboardHome.topHoldingsNativePriceTooltip, {
         price: formatUnitPrice(group.currentUnitPrice, group.currency, locale),
@@ -1252,6 +1255,7 @@ function PriceTextButton({
               aria-label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsOpenPriceDetailsAria, { ticker: group.ticker })}
             >
               <span className="font-semibold">{reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}</span>
+              {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`dashboard-price-state-${group.ticker}-${group.marketCode}`} /> : null}
               {group.currency !== reportingCurrency && group.currentUnitPrice !== null ? (
                 <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsNativeAvailable}</span>
               ) : null}
@@ -1287,6 +1291,7 @@ function PricePreviewMetric({
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
 }) {
+  const priceState = getPriceState(group);
   const tooltip = group.currentUnitPrice !== null && group.currency !== reportingCurrency
     ? formatTopHoldingsMessage(dict.dashboardHome.topHoldingsNativePriceTooltip, {
         price: formatCurrencyAmount(group.currentUnitPrice, group.currency, locale),
@@ -1308,6 +1313,7 @@ function PricePreviewMetric({
                 label={formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency })}
                 title={reportingPrice === null ? undefined : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
                 value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)}
+                subValue={priceState ? formatPriceStateLabel(dict, locale, priceState) ?? undefined : undefined}
               />
             </button>
           </PopoverTrigger>
@@ -1654,7 +1660,7 @@ function DashboardMobileColumnMetric({
         <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
           <p className="text-xs text-muted-foreground">{dict.holdings.dataHealthTerm}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <HoldingsDataHealthBadges dict={dict} row={group} showCurrentFreshness />
+            <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showCurrentFreshness />
           </div>
         </div>
       );
@@ -1726,7 +1732,7 @@ function compareHoldingGroups(
   reportingCurrency: AccountDefaultCurrency,
 ): number {
   if (selectedPreset === "stale-quotes") {
-    const freshnessRankDiff = freshnessSortRank(right) - freshnessSortRank(left);
+    const freshnessRankDiff = priceStateSortRank(right) - priceStateSortRank(left);
     if (freshnessRankDiff !== 0) return freshnessRankDiff;
   }
   if (sortMode === "ticker") {
@@ -1802,25 +1808,16 @@ function applyHoldingPreset(
     return groups.filter((group) => group.currency !== reportingCurrency);
   }
   if (preset === "stale-quotes") {
-    return groups.filter((group) => group.quoteStatus !== "current" || group.freshness !== "current");
+    return groups.filter((group) => isNonCurrentPrice(group));
   }
   return groups;
 }
 
-function freshnessSortRank(group: DashboardOverviewHoldingGroupDto): number {
-  if (group.quoteStatus === "missing") return 4;
-  if (group.freshness === "stale_red") return 3;
-  if (group.freshness === "stale_amber") return 2;
-  if (group.quoteStatus === "provisional") return 1;
-  return 0;
-}
-
-function maxFreshness(
-  items: Array<DashboardOverviewHoldingChildDto["freshness"]>,
-): DashboardOverviewHoldingChildDto["freshness"] {
-  if (items.includes("stale_red")) return "stale_red";
-  if (items.includes("stale_amber")) return "stale_amber";
-  return "current";
+function aggregatePriceState(items: Array<{ priceState?: PriceStateDtoLike | null }>): PriceStateDtoLike {
+  return items
+    .map((item) => getPriceState(item))
+    .filter((item): item is PriceStateDtoLike => item !== null)
+    .sort((left, right) => priceStateSortRank({ priceState: right }) - priceStateSortRank({ priceState: left }))[0] ?? buildMissingPriceState();
 }
 
 function resolveQuoteStatus(
@@ -1876,8 +1873,7 @@ function projectHoldingGroupToChildren(
       .filter((value): value is string => Boolean(value))
       .sort()
       .at(-1) ?? null,
-    freshness: maxFreshness(children.map((child) => child.freshness)),
-    freshnessTooltip: children.find((child) => child.freshnessTooltip)?.freshnessTooltip ?? null,
+    priceState: aggregatePriceState(children),
     reportingCurrentUnitPrice: firstNumber(children.map((child) => child.reportingCurrentUnitPrice)),
     reportingCostBasisAmount: sumAllOrNull(children.map((child) => child.reportingCostBasisAmount)),
     reportingMarketValueAmount: sumAllOrNull(children.map((child) => child.reportingMarketValueAmount)),

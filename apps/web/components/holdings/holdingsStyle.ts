@@ -24,9 +24,5 @@ export function holdingsStickyFirstColumnClassName(
   );
 }
 
-export function holdingsFreshnessDotClassName(freshness: "current" | "stale_amber" | "stale_red"): string {
-  return freshness === "stale_red" ? "bg-destructive" : "bg-warning";
-}
-
 export const holdingsWarningBadgeClassName = "border-warning/60 bg-warning/10 text-warning";
 export const holdingsInfoBadgeClassName = "border-primary/40 bg-primary/10 text-primary";

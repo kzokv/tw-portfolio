@@ -35,6 +35,15 @@ const TIER_1_NUMERIC_FIELDS = [
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
+  "tickerPriceCloseRefreshGraceMinutes",
+  "tickerPriceIntradayRefreshIntervalMinutes",
+  "tickerPriceIntradayFreshnessToleranceMinutes",
+  "tickerPriceYahooChartRequestLimitPerMinute",
+  "tickerPriceQueueConcurrency",
+  "tickerPriceMaxTickersPerRefreshCycle",
+  "tickerPriceRefreshCloseRateLimitWindowMs",
+  "tickerPriceRefreshCloseRateLimitMax",
+  "tickerPriceSyncTickerCap",
   "valuationHealthRelativeBps",
   "valuationHealthAbsoluteAud",
   "valuationHealthAbsoluteUsd",
@@ -72,6 +81,12 @@ describe("APP_CONFIG_BOUNDS — schema invariants", () => {
     // `apps/api/test/unit/admin-settings-schema.test.ts`. KZO-198 surfaces it
     // via APP_CONFIG_BOUNDS without changing the value.
     expect(APP_CONFIG_BOUNDS.repairCooldownMinutes).toMatchObject({ min: 1, max: 10080 });
+  });
+
+  it("includes grouped ticker-price-freshness numeric bounds", () => {
+    expect(APP_CONFIG_BOUNDS.tickerPriceCloseRefreshGraceMinutes).toMatchObject({ min: 0, max: 1440 });
+    expect(APP_CONFIG_BOUNDS.tickerPriceIntradayRefreshIntervalMinutes).toMatchObject({ min: 1, max: 60 });
+    expect(APP_CONFIG_BOUNDS.tickerPriceSyncTickerCap).toMatchObject({ min: 1, max: 10000 });
   });
 
   it("every Tier 1 numeric field above appears in APP_CONFIG_BOUNDS (locks the schema)", () => {
