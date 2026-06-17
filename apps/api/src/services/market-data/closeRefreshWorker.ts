@@ -28,9 +28,15 @@ export interface CloseRefreshWorkerConfig {
   expireInSeconds: number;
 }
 
+export interface CloseRefreshWorkerRuntimeConfig {
+  closeRefreshGraceMinutes: number;
+  supportedMarkets: ReadonlyArray<MarketCode>;
+}
+
 export interface CloseRefreshWorkerDeps extends Omit<RunCloseRefreshInput, "pairs" | "now" | "persistence"> {
   boss?: Pick<PgBoss, "send">;
   persistence: RunCloseRefreshInput["persistence"] & Partial<Pick<Persistence, "listHeldTickerMarketPairs">>;
+  resolveRuntimeConfig?: () => CloseRefreshWorkerRuntimeConfig;
   log: NonNullable<RunCloseRefreshInput["log"]>;
 }
 
@@ -52,12 +58,13 @@ export function createCloseRefreshHandler(deps: CloseRefreshWorkerDeps) {
   return async (jobs: ReadonlyArray<JobWithMetadata<CloseRefreshJobData>>) => {
     for (const job of jobs) {
       const data = job.data;
+      const runtimeConfig = resolveCloseRefreshRuntimeConfig(deps);
       if (data?.kind === "scheduled_scan") {
         await enqueueScheduledCloseRefreshes({
           boss: deps.boss ?? null,
           persistence: deps.persistence,
           requestedAt: data.requestedAt,
-          supportedMarkets: deps.supportedMarkets,
+          supportedMarkets: runtimeConfig.supportedMarkets,
           log: deps.log,
         });
         continue;
@@ -71,6 +78,7 @@ export function createCloseRefreshHandler(deps: CloseRefreshWorkerDeps) {
       );
       const result = await runCloseRefresh({
         ...deps,
+        ...runtimeConfig,
         pairs: [{ ticker: data.ticker, marketCode: data.marketCode }],
         now: parseRequestedAt(data.requestedAt),
       });
@@ -84,6 +92,13 @@ export function createCloseRefreshHandler(deps: CloseRefreshWorkerDeps) {
         "close_refresh_worker_completed",
       );
     }
+  };
+}
+
+function resolveCloseRefreshRuntimeConfig(deps: CloseRefreshWorkerDeps): CloseRefreshWorkerRuntimeConfig {
+  return deps.resolveRuntimeConfig?.() ?? {
+    closeRefreshGraceMinutes: deps.closeRefreshGraceMinutes,
+    supportedMarkets: deps.supportedMarkets,
   };
 }
 

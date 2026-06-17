@@ -55,7 +55,7 @@ import { upsertDailyBars } from "../services/market-data/upserts.js";
 
 function createRedisIntradayRefreshRequestBudget(
   redis: Pick<RedisClientType, "isOpen" | "connect" | "incrBy" | "pExpire" | "pTTL">,
-  requestsPerMinute: number,
+  getRequestsPerMinute: () => number,
 ): IntradayRefreshRequestBudget {
   return {
     async tryConsume(requests: number) {
@@ -69,7 +69,7 @@ function createRedisIntradayRefreshRequestBudget(
       if (consumed === requests) {
         await redis.pExpire(key, windowMs);
       }
-      if (consumed <= requestsPerMinute) {
+      if (consumed <= getRequestsPerMinute()) {
         return { allowed: true };
       }
       const retryAfterMs = await redis.pTTL(key);
@@ -278,7 +278,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
         app.log.warn({ err: err instanceof Error ? err.message : String(err) }, "ticker_price_chart_budget_redis_error"));
       chartRequestBudget = createRedisIntradayRefreshRequestBudget(
         chartBudgetRedis,
-        tickerPriceFreshness.yahooChartRequestLimitPerMinute,
+        () => getEffectiveTickerPriceFreshnessConfig().yahooChartRequestLimitPerMinute,
       );
       app.tickerPriceChartRequestBudget = chartRequestBudget;
     } catch (error) {
@@ -312,12 +312,17 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
         twseStockDay: new TwseStockDayCloseProvider(),
         ...(chartRequestBudget
           ? {
-              yahooChartClose: new YahooChartCloseProvider({
-                range: tickerPriceFreshness.yahooChartRange,
-                interval: tickerPriceFreshness.yahooChartInterval,
-                persistence: app.persistence,
-                requestBudget: chartRequestBudget,
-              }),
+              yahooChartClose: {
+                fetchCloseOnlyBar: (ticker, marketCode, barDate, now) => {
+                  const currentConfig = getEffectiveTickerPriceFreshnessConfig();
+                  return new YahooChartCloseProvider({
+                    range: currentConfig.yahooChartRange,
+                    interval: currentConfig.yahooChartInterval,
+                    persistence: app.persistence,
+                    requestBudget: chartRequestBudget,
+                  }).fetchCloseOnlyBar(ticker, marketCode, barDate, now);
+                },
+              },
             }
           : {}),
       },
@@ -328,6 +333,13 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
       },
       closeRefreshGraceMinutes: tickerPriceFreshness.closeRefreshGraceMinutes,
       supportedMarkets: tickerPriceFreshness.supportedMarkets,
+      resolveRuntimeConfig: () => {
+        const currentConfig = getEffectiveTickerPriceFreshnessConfig();
+        return {
+          closeRefreshGraceMinutes: currentConfig.closeRefreshGraceMinutes,
+          supportedMarkets: currentConfig.supportedMarkets,
+        };
+      },
       log: app.log,
     },
   );
@@ -340,58 +352,60 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     "close_refresh_worker_registered",
   );
 
-  if (!tickerPriceFreshness.intradayEnabled) {
-    app.log.info(
-      { feature: "ticker_price_freshness_intraday" },
-      "intraday_refresh_disabled_by_config; falling back to daily_bar_behavior",
+  if (!tickerPriceReadiness.redis || !chartRequestBudget) {
+    app.log.warn(
+      { feature: "ticker_price_freshness_intraday", backend: tickerPriceReadiness.backend },
+      "intraday_refresh_runtime_unavailable_missing_redis; falling back to daily_bar_behavior",
     );
   } else {
-    if (!tickerPriceReadiness.redis || !chartRequestBudget) {
-      app.log.warn(
-        { feature: "ticker_price_freshness_intraday", backend: tickerPriceReadiness.backend },
-        "intraday_refresh_runtime_unavailable_missing_redis; falling back to daily_bar_behavior",
+    try {
+      await registerIntradayRefreshWorker(
+        boss,
+        buildIntradayRefreshWorkerConfig(tickerPriceFreshness),
+        {
+          cache: createIntradayOverlayCache(app.persistence, app.log),
+          fetchOverlay: ({ ticker, marketCode, now }) => {
+            const currentConfig = getEffectiveTickerPriceFreshnessConfig();
+            return new YahooFinanceIntradayProvider({
+              range: currentConfig.yahooChartRange,
+              interval: currentConfig.yahooChartInterval,
+              persistence: app.persistence,
+            }).fetchLatestOverlay({
+              ticker,
+              marketCode: marketCode as "TW" | "US" | "AU" | "KR",
+              now,
+            });
+          },
+          requestBudget: chartRequestBudget,
+          resolveRuntimeConfig: () => {
+            const currentConfig = getEffectiveTickerPriceFreshnessConfig();
+            return {
+              intradayEnabled: currentConfig.intradayEnabled,
+              supportedMarkets: currentConfig.supportedMarkets,
+            };
+          },
+          log: app.log,
+        },
       );
-    } else {
-      try {
-        const intradayProvider = new YahooFinanceIntradayProvider({
+      app.log.info(
+        {
+          feature: "ticker_price_freshness_intraday",
+          concurrency: tickerPriceFreshness.queueConcurrency,
+          intradayEnabled: tickerPriceFreshness.intradayEnabled,
+          requestsPerMinute: tickerPriceFreshness.yahooChartRequestLimitPerMinute,
           range: tickerPriceFreshness.yahooChartRange,
           interval: tickerPriceFreshness.yahooChartInterval,
-          persistence: app.persistence,
-        });
-        await registerIntradayRefreshWorker(
-          boss,
-          buildIntradayRefreshWorkerConfig(tickerPriceFreshness),
-          {
-            cache: createIntradayOverlayCache(app.persistence, app.log),
-            fetchOverlay: ({ ticker, marketCode, now }) =>
-              intradayProvider.fetchLatestOverlay({
-                ticker,
-                marketCode: marketCode as "TW" | "US" | "AU" | "KR",
-                now,
-              }),
-            requestBudget: chartRequestBudget,
-            log: app.log,
-          },
-        );
-        app.log.info(
-          {
-            feature: "ticker_price_freshness_intraday",
-            concurrency: tickerPriceFreshness.queueConcurrency,
-            requestsPerMinute: tickerPriceFreshness.yahooChartRequestLimitPerMinute,
-            range: tickerPriceFreshness.yahooChartRange,
-            interval: tickerPriceFreshness.yahooChartInterval,
-          },
-          "intraday_refresh_worker_registered",
-        );
-      } catch (error) {
-        app.log.warn(
-          {
-            feature: "ticker_price_freshness_intraday",
-            err: error instanceof Error ? error.message : String(error),
-          },
-          "intraday_refresh_runtime_unavailable_missing_queue_or_redis; falling back to daily_bar_behavior",
-        );
-      }
+        },
+        "intraday_refresh_worker_registered",
+      );
+    } catch (error) {
+      app.log.warn(
+        {
+          feature: "ticker_price_freshness_intraday",
+          err: error instanceof Error ? error.message : String(error),
+        },
+        "intraday_refresh_runtime_unavailable_missing_queue_or_redis; falling back to daily_bar_behavior",
+      );
     }
   }
 
