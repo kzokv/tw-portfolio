@@ -2,6 +2,7 @@ import { WebEnv } from "@vakwen/config/web";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { applyContextForwarding } from "./lib/proxyHeaders";
+import { isPublicPath } from "./lib/proxyPublicPaths";
 import { parseSessionCookie } from "./lib/sessionCookie";
 
 const textEncoder = new TextEncoder();
@@ -40,15 +41,6 @@ async function verifySessionCookie(cookieValue: string, secret: string): Promise
 
   const expectedHmac = await hmacSign(parsed.signedPayload, secret);
   return constantTimeEqual(expectedHmac, parsed.hmac);
-}
-
-function isPublicPath(pathname: string): boolean {
-  return pathname === "/login"
-    || pathname === "/auth/error"
-    || pathname === "/invite"
-    || pathname.startsWith("/invite/")
-    || pathname === "/api/demo"
-    || pathname.startsWith("/api/demo/");
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
@@ -100,7 +92,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   matcher: [
-    // Protect all paths except: /login, /invite/*, /auth/error, /api/demo/*, /_next/*, static assets
-    "/((?!login|invite(?:/|$)|auth/error|api/demo|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
+    // Protect all paths except: /login, /invite/*, /share/*, /auth/error, /api/demo/*, /_next/*, static assets
+    "/((?!login|invite(?:/|$)|share(?:/|$)|auth/error|api/demo|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
   ],
 };
