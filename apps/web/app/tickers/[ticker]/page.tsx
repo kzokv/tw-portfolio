@@ -12,7 +12,7 @@ import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
-import { buildPrimaryTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
+import { buildPrimaryTickerDetails, fetchTickerPrimaryDetails } from "../../../features/portfolio/services/tickerDetailsService";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
@@ -78,13 +78,21 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   const locale = settings?.locale ?? dashboard.settings?.locale ?? "en";
   const dict = getDictionary(locale);
-  const details = buildPrimaryTickerDetails({
+  const primaryDetails = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
     marketCode: scopedMarketCode,
     dashboard,
     transactions,
     instrument,
+  });
+  const details = await fetchTickerPrimaryDetails({
+    ticker,
+    accountId: scopedAccountId,
+    marketCode: scopedMarketCode,
+    instrument,
+    transactions,
+    primaryDetails,
   });
   const initialPortfolioConfig = {
     accounts: dashboard.accounts,
@@ -119,6 +127,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           }}
           initialTradeDate={initialTradeDate}
           quotePollIntervalSeconds={settings?.quotePollIntervalSeconds ?? dashboard.settings?.quotePollIntervalSeconds}
+          tickerPriceIntradayEnabled={settings?.effectiveTickerPriceIntradayEnabled ?? dashboard.settings?.effectiveTickerPriceIntradayEnabled}
+          tickerPriceIntradayRefreshIntervalMinutes={settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes ?? dashboard.settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}

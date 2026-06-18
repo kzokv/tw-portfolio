@@ -115,6 +115,7 @@ afterEach(() => {
   if (root) {
     act(() => root!.unmount());
   }
+  vi.useRealTimers();
   root = null;
   container?.remove();
   container = null;
@@ -318,6 +319,7 @@ function renderTickerHistoryClient(
     chartRange?: string;
     chartStart?: string;
   },
+  clientProps: Partial<React.ComponentProps<typeof TickerHistoryClient>> = {},
 ) {
   return mount(
     <TickerHistoryClient
@@ -336,6 +338,7 @@ function renderTickerHistoryClient(
       transactionMarketFilter="TW"
       initialChartQuery={initialChartQuery}
       initialTradeDate="2026-06-12"
+      {...clientProps}
     />,
   );
 }
@@ -548,6 +551,74 @@ describe("TickerHistoryClient", () => {
         }),
       }),
     }));
+    expect(fetchTickerDetailsHydration).not.toHaveBeenCalled();
+  });
+
+  it("refreshes ticker price state from full details at the admin intraday interval", async () => {
+    vi.useFakeTimers();
+    const openDetails: TickerDetailsModel = {
+      ...details,
+      quote: {
+        ...details.quote,
+        currentPrice: 110,
+        priceState: testPriceState({
+          basis: "delayed_intraday",
+          chipState: "open_delayed",
+          marketState: "open",
+          asOfTimestamp: "2026-06-18T03:49:16.000Z",
+          observedAt: "2026-06-18T04:09:46.188Z",
+          source: "yahoo-finance-chart",
+          sourceKind: "intraday_yahoo_chart",
+        }),
+      },
+    };
+    const refreshedDetails: TickerDetailsModel = {
+      ...openDetails,
+      quote: {
+        ...openDetails.quote,
+        currentPrice: 2390,
+        previousClose: 2385,
+        changeAmount: 5,
+        changePercent: 0.2096,
+        priceState: testPriceState({
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          asOfDate: "2026-06-18",
+          asOfTimestamp: "2026-06-18T03:54:43.000Z",
+          observedAt: "2026-06-18T04:14:48.384Z",
+          source: "yahoo-finance-chart",
+          sourceKind: "intraday_yahoo_chart",
+        }),
+      },
+    };
+    vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(refreshedDetails);
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(refreshedDetails);
+
+    const element = renderTickerHistoryClient(openDetails, tickerInstrument, undefined, {
+      quotePollIntervalSeconds: 10,
+      tickerPriceIntradayEnabled: true,
+      tickerPriceIntradayRefreshIntervalMinutes: 1,
+    });
+    await flushEffects();
+    await flushEffects();
+
+    expect(fetchTickerDetailsFullRefresh).toHaveBeenCalledTimes(1);
+    expect(element.textContent).toContain("NT$2,390");
+    expect(element.querySelector('[data-testid="ticker-price-state-chip"]')?.textContent).toContain("Updated");
+
+    vi.mocked(fetchTickerDetailsFullRefresh).mockClear();
+    await act(async () => {
+      vi.advanceTimersByTime(59_999);
+      await Promise.resolve();
+    });
+    expect(fetchTickerDetailsFullRefresh).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(fetchTickerDetailsFullRefresh).toHaveBeenCalledTimes(1);
     expect(fetchTickerDetailsHydration).not.toHaveBeenCalled();
   });
 

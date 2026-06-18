@@ -9,6 +9,7 @@ import type {
   TickerDetailsChartMetadataDto,
   TickerDetailsDto,
   TickerEnrichmentDto,
+  TickerPrimaryDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
@@ -109,6 +110,8 @@ interface TickerDetailsRequest {
   instrument?: InstrumentCatalogItemDto | null;
   transactions?: TransactionHistoryItemDto[];
 }
+
+type TickerDetailsEndpoint = "primary" | "details" | "enrichment";
 
 const DEFAULT_TICKER_CHART_RANGE: TickerChartRange = "1Y";
 
@@ -529,6 +532,17 @@ function isTickerEnrichmentDto(value: unknown): value is TickerEnrichmentDto {
     && isObject(value.fundamentalsRefresh);
 }
 
+function isTickerPrimaryDto(value: unknown): value is TickerPrimaryDto {
+  return isObject(value)
+    && isObject(value.identity)
+    && isObject(value.quote)
+    && isObject(value.position)
+    && Array.isArray(value.transactions)
+    && isObject(value.dividends)
+    && ("holdingGroup" in value)
+    && Array.isArray(value.accountBreakdown);
+}
+
 export async function fetchTickerDetails(
   options: FetchTickerDetailsOptions,
 ): Promise<TickerDetailsModel> {
@@ -543,7 +557,7 @@ export async function fetchTickerDetails(
   }, "details");
 }
 
-function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: "details" | "enrichment"): string {
+function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: TickerDetailsEndpoint): string {
   const params = new URLSearchParams();
   if (request.accountId) {
     params.set("accountId", request.accountId);
@@ -560,6 +574,49 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: "detail
   }
 
   return `/tickers/${encodeURIComponent(request.ticker)}/${endpoint}${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function mapApiPrimaryToModel(
+  payload: TickerPrimaryDto,
+  fallback: TickerDetailsModel,
+): TickerDetailsModel {
+  return {
+    ...fallback,
+    identity: {
+      ticker: payload.identity.ticker,
+      name: payload.identity.name,
+      marketCode: payload.identity.marketCode,
+      instrumentType: payload.identity.instrumentType,
+      currency: payload.identity.priceCurrency,
+    },
+    quote: {
+      currentPrice: payload.quote.currentUnitPrice,
+      previousClose: payload.quote.previousClose,
+      changeAmount: payload.quote.change,
+      changePercent: payload.quote.changePercent,
+      quoteStatus: payload.quote.quoteStatus,
+      priceState: (payload.quote as typeof payload.quote & { priceState?: PriceStateDtoLike | null }).priceState ?? fallback.quote.priceState ?? null,
+    },
+    position: {
+      accountScope: payload.identity.accountId ?? fallback.position.accountScope,
+      quantity: payload.position.quantity,
+      averageCost: payload.position.averageCostPerShare,
+      costBasis: payload.position.costBasisAmount,
+      marketValue: payload.position.marketValueAmount,
+      unrealizedPnl: payload.position.unrealizedPnlAmount,
+      realizedPnl: payload.position.realizedPnlAmount,
+      transactionsCount: payload.transactions.length,
+      nextDividendDate: payload.dividends.upcoming[0]?.paymentDate ?? payload.dividends.upcoming[0]?.exDividendDate ?? null,
+      lastDividendPostedDate: payload.dividends.recent[0]?.postedAt ?? null,
+    },
+    holdingGroup: payload.holdingGroup,
+    accountBreakdown: payload.accountBreakdown,
+    dividends: {
+      upcomingCount: payload.dividends.upcoming.length,
+      nextPaymentDate: payload.dividends.upcoming[0]?.paymentDate ?? null,
+      lastPostedDate: payload.dividends.recent[0]?.postedAt ?? null,
+    },
+  };
 }
 
 function mapApiEnrichmentToModel(
@@ -641,6 +698,32 @@ export async function fetchTickerDetailsFullRefresh({
   }, "details");
 }
 
+export async function fetchTickerPrimaryDetails({
+  ticker,
+  accountId,
+  marketCode,
+  range,
+  startDate,
+  endDate,
+  instrument = null,
+  transactions = [],
+  primaryDetails,
+}: TickerDetailsRequest & {
+  primaryDetails: TickerDetailsModel;
+}): Promise<TickerDetailsModel> {
+  return fetchTickerDetailsFromEndpoint({
+    ticker,
+    accountId,
+    marketCode,
+    range,
+    startDate,
+    endDate,
+    instrument,
+    transactions,
+    primaryDetails,
+  }, "primary");
+}
+
 export async function fetchTickerDetailsEnrichment({
   ticker,
   accountId,
@@ -683,13 +766,16 @@ async function fetchTickerDetailsFromEndpoint({
   primaryDetails,
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
-}, endpoint: "details" | "enrichment"): Promise<TickerDetailsModel> {
+}, endpoint: TickerDetailsEndpoint): Promise<TickerDetailsModel> {
   const path = buildTickerDetailsPath({ ticker, accountId, marketCode, range, startDate, endDate, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);
     if (isTickerDetailsDto(payload)) {
       return mapApiDetailsToModel(payload, primaryDetails);
+    }
+    if (isTickerPrimaryDto(payload)) {
+      return mapApiPrimaryToModel(payload, primaryDetails);
     }
     if (isTickerEnrichmentDto(payload)) {
       return mapApiEnrichmentToModel(payload, primaryDetails);

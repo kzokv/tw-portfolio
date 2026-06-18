@@ -95,6 +95,8 @@ interface TickerHistoryClientProps {
   };
   initialTradeDate: string;
   quotePollIntervalSeconds?: number | null;
+  tickerPriceIntradayEnabled?: boolean | null;
+  tickerPriceIntradayRefreshIntervalMinutes?: number | null;
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -289,6 +291,20 @@ function formatTickerChartMessage(template: string, values: Record<string, strin
   );
 }
 
+function resolveTickerPricePollMs(
+  quotePollIntervalSeconds: number | null | undefined,
+  tickerPriceIntradayRefreshIntervalMinutes: number | null | undefined,
+): number {
+  if (
+    typeof tickerPriceIntradayRefreshIntervalMinutes === "number"
+    && Number.isFinite(tickerPriceIntradayRefreshIntervalMinutes)
+    && tickerPriceIntradayRefreshIntervalMinutes > 0
+  ) {
+    return Math.max(60_000, tickerPriceIntradayRefreshIntervalMinutes * 60_000);
+  }
+  return Math.max(15_000, (quotePollIntervalSeconds ?? 60) * 1000);
+}
+
 function truncateChartLabel(value: string, maxLength = 9): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(1, maxLength - 3))}...`;
@@ -362,12 +378,18 @@ export function TickerHistoryClient({
   initialChartQuery,
   initialTradeDate,
   quotePollIntervalSeconds,
+  tickerPriceIntradayEnabled,
+  tickerPriceIntradayRefreshIntervalMinutes,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
-  const tickerOpenMarketPollMs = Math.max(15_000, (quotePollIntervalSeconds ?? 60) * 1000);
+  const tickerOpenMarketPollMs = resolveTickerPricePollMs(
+    quotePollIntervalSeconds,
+    tickerPriceIntradayRefreshIntervalMinutes,
+  );
+  const isTickerPriceIntradayEnabled = tickerPriceIntradayEnabled ?? true;
   const initialChartMetadata = getTickerChartMetadata(details.chart);
   const initialTickerChartState = resolveInitialTickerChartState(
     buildInitialTickerChartSearchParams(initialChartQuery),
@@ -476,6 +498,7 @@ export function TickerHistoryClient({
   }, [transactions]);
 
   useEffect(() => {
+    detailsStateRef.current = details;
     setDetailsState(details);
   }, [details]);
 
@@ -485,18 +508,20 @@ export function TickerHistoryClient({
 
   useEffect(() => {
     const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey, {
-      maxAgeMs: shouldPollForOpenMarket([detailsStateRef.current.quote]) ? tickerOpenMarketPollMs : undefined,
+      maxAgeMs: isTickerPriceIntradayEnabled && shouldPollForOpenMarket([detailsStateRef.current.quote])
+        ? tickerOpenMarketPollMs
+        : undefined,
     });
     if (isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)) {
       detailsStateRef.current = cached.payload;
       setDetailsState(cached.payload);
     }
-  }, [reportingCurrency, ticker, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionMarketFilter]);
+  }, [isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionMarketFilter]);
 
   const refreshDetails = useCallback(async () => {
     setIsDetailsLoading(true);
     try {
-      const shouldRefreshQuote = shouldPollForOpenMarket([detailsStateRef.current.quote]);
+      const shouldRefreshQuote = isTickerPriceIntradayEnabled && shouldPollForOpenMarket([detailsStateRef.current.quote]);
       const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey, {
         maxAgeMs: shouldRefreshQuote ? tickerOpenMarketPollMs : undefined,
       });
@@ -517,24 +542,27 @@ export function TickerHistoryClient({
         transactions,
         primaryDetails,
       });
+      detailsStateRef.current = next;
       setDetailsState(next);
       writeRouteDtoCache(tickerDetailsCacheKey, next, TICKER_DETAILS_CACHE_TTL_MS);
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
   }, [refreshDetails]);
 
+  const shouldPollTickerPrices = isTickerPriceIntradayEnabled && shouldPollForOpenMarket([detailsState.quote]);
+
   useEffect(() => {
-    if (!shouldPollForOpenMarket([detailsState.quote])) return;
+    if (!shouldPollTickerPrices) return;
     const timer = window.setInterval(() => {
       void refreshDetails();
     }, tickerOpenMarketPollMs);
     return () => window.clearInterval(timer);
-  }, [detailsState.quote, refreshDetails, tickerOpenMarketPollMs]);
+  }, [refreshDetails, shouldPollTickerPrices, tickerOpenMarketPollMs]);
 
   const refresh = useCallback(async () => {
     const nextTransactions = await fetchTransactionHistory({
