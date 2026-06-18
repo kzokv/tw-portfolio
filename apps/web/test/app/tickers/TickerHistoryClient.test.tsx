@@ -520,6 +520,37 @@ describe("TickerHistoryClient", () => {
     expect(cached?.payload.position.marketValue).toBe(3300);
   });
 
+  it("uses a full details refresh for open-market quote polling", async () => {
+    const openDetails: TickerDetailsModel = {
+      ...details,
+      quote: {
+        ...details.quote,
+        priceState: testPriceState({
+          basis: "delayed_intraday",
+          chipState: "open_delayed",
+          marketState: "open",
+        }),
+      },
+    };
+    vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(openDetails);
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(openDetails);
+
+    renderTickerHistoryClient(openDetails);
+    await flushEffects();
+    await flushEffects();
+
+    expect(fetchTickerDetailsFullRefresh).toHaveBeenCalledWith(expect.objectContaining({
+      ticker: "2330",
+      marketCode: "TW",
+      primaryDetails: expect.objectContaining({
+        quote: expect.objectContaining({
+          priceState: expect.objectContaining({ marketState: "open" }),
+        }),
+      }),
+    }));
+    expect(fetchTickerDetailsHydration).not.toHaveBeenCalled();
+  });
+
   it("requests ticker chart ranges and custom date windows from the details endpoint", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
     const element = renderTickerHistoryClient();

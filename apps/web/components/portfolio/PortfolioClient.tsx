@@ -39,8 +39,14 @@ export function PortfolioClient({
   } = useAppShellData();
   const seedReportingCurrency = resolvePortfolioReportingCurrency(initialPrimaryData, reportingCurrency);
   const cacheKey = buildRouteDtoCacheKey("portfolio-primary", getRouteDtoContextScope(sessionUserId), locale, reportingCurrency);
-  const initialPortfolioPollMs = Math.max(15_000, (initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
-  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy, initialPortfolioPollMs);
+  const initialPortfolioPollMs = resolveTickerPricePollMs(
+    initialPrimaryData?.settings,
+    initialPrimaryData?.settings,
+  );
+  const initialPortfolioOpenMarketPollMs = isTickerPriceIntradayEnabled(initialPrimaryData?.settings)
+    ? initialPortfolioPollMs
+    : null;
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData, cacheKey, routeCachePolicy, initialPortfolioOpenMarketPollMs);
   const effectiveReportingCurrency = resolvePortfolioReportingCurrency(portfolio.data, seedReportingCurrency);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
@@ -50,10 +56,11 @@ export function PortfolioClient({
   const firstSignalRef = useRef(true);
   const refreshPortfolioRef = useRef(portfolio.refresh);
   refreshPortfolioRef.current = portfolio.refresh;
-  const portfolioPollMs = Math.max(
-    15_000,
-    (portfolio.data.settings?.quotePollIntervalSeconds ?? initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000,
-  );
+  const refreshPortfolioPricesRef = useRef(portfolio.refreshPrices);
+  refreshPortfolioPricesRef.current = portfolio.refreshPrices;
+  const portfolioPollMs = resolveTickerPricePollMs(portfolio.data.settings, initialPrimaryData?.settings);
+  const shouldPollPortfolioPrices = shouldPollForOpenMarket(portfolio.data.holdings)
+    && isTickerPriceIntradayEnabled(portfolio.data.settings, initialPrimaryData?.settings);
 
   useEffect(() => {
     if (firstSignalRef.current) {
@@ -64,12 +71,12 @@ export function PortfolioClient({
   }, [contextRefreshSignal]);
 
   useEffect(() => {
-    if (!shouldPollForOpenMarket(portfolio.data.holdings)) return;
+    if (!shouldPollPortfolioPrices) return;
     const timer = window.setInterval(() => {
-      void refreshPortfolioRef.current();
+      void refreshPortfolioPricesRef.current();
     }, portfolioPollMs);
     return () => window.clearInterval(timer);
-  }, [portfolio.data.holdings, portfolioPollMs]);
+  }, [portfolioPollMs, shouldPollPortfolioPrices]);
 
   async function refreshCloses() {
     setIsRefreshingCloses(true);
@@ -332,6 +339,31 @@ function resolvePortfolioReportingCurrency(
     ?? data?.holdingGroups.find((group) => group.children[0]?.reportingCurrency)?.children[0]?.reportingCurrency
     ?? data?.fxRates?.[0]?.toCurrency
     ?? fallback;
+}
+
+function resolveTickerPricePollMs(
+  currentSettings: PortfolioPageData["settings"],
+  initialSettings?: PortfolioPageData["settings"],
+): number {
+  const intervalMinutes =
+    currentSettings?.effectiveTickerPriceIntradayRefreshIntervalMinutes
+    ?? initialSettings?.effectiveTickerPriceIntradayRefreshIntervalMinutes;
+  if (typeof intervalMinutes === "number" && Number.isFinite(intervalMinutes) && intervalMinutes > 0) {
+    return Math.max(60_000, intervalMinutes * 60_000);
+  }
+  return Math.max(
+    15_000,
+    (currentSettings?.quotePollIntervalSeconds ?? initialSettings?.quotePollIntervalSeconds ?? 60) * 1000,
+  );
+}
+
+function isTickerPriceIntradayEnabled(
+  currentSettings: PortfolioPageData["settings"],
+  initialSettings?: PortfolioPageData["settings"],
+): boolean {
+  return currentSettings?.effectiveTickerPriceIntradayEnabled
+    ?? initialSettings?.effectiveTickerPriceIntradayEnabled
+    ?? true;
 }
 
 function CompactMetric({ label, value, detail }: { label: string; value: string; detail: string }) {

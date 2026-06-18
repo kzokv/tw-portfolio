@@ -74,14 +74,20 @@ export function DashboardClient({
     contextRefreshSignal,
   } = useAppShellData();
   const cacheKey = buildRouteDtoCacheKey("dashboard-primary", getRouteDtoContextScope(sessionUserId), locale);
-  const initialDashboardPollMs = Math.max(15_000, (initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
+  const initialDashboardPollMs = resolveTickerPricePollMs(
+    initialPrimaryData?.settings ?? null,
+    initialPrimaryData?.settings,
+  );
+  const initialDashboardOpenMarketPollMs = isTickerPriceIntradayEnabled(initialPrimaryData?.settings)
+    ? initialDashboardPollMs
+    : null;
   const dashboard = useDashboardPrimaryData({
     cacheKey,
     cachePolicy: routeCachePolicy,
     expectedReportingCurrency,
     initialTransaction: DEFAULT_TRANSACTION,
     initialPrimaryData,
-    openMarketPollMs: initialDashboardPollMs,
+    openMarketPollMs: initialDashboardOpenMarketPollMs,
   });
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis } = useHoldingAllocationBasis();
@@ -124,6 +130,8 @@ export function DashboardClient({
   const firstSignalRef = useRef(true);
   const refreshDashboardRef = useRef(dashboard.refresh);
   refreshDashboardRef.current = dashboard.refresh;
+  const refreshDashboardPricesRef = useRef(dashboard.refreshPrices);
+  refreshDashboardPricesRef.current = dashboard.refreshPrices;
   const refreshPerformanceRef = useRef(performance.refresh);
   refreshPerformanceRef.current = performance.refresh;
   const refreshDashboardAndPerformance = () => {
@@ -180,15 +188,17 @@ export function DashboardClient({
     },
     [dashboard, holdingGroups],
   );
-  const dashboardPollMs = Math.max(15_000, (dashboard.settings?.quotePollIntervalSeconds ?? initialPrimaryData?.settings?.quotePollIntervalSeconds ?? 60) * 1000);
+  const dashboardPollMs = resolveTickerPricePollMs(dashboard.settings, initialPrimaryData?.settings);
+  const shouldPollDashboardPrices = shouldPollForOpenMarket(dashboard.holdings, marketStates)
+    && isTickerPriceIntradayEnabled(dashboard.settings, initialPrimaryData?.settings);
 
   useEffect(() => {
-    if (!shouldPollForOpenMarket(dashboard.holdings, marketStates)) return;
+    if (!shouldPollDashboardPrices) return;
     const timer = window.setInterval(() => {
-      void dashboard.refresh();
+      void refreshDashboardPricesRef.current();
     }, dashboardPollMs);
     return () => window.clearInterval(timer);
-  }, [dashboard, dashboard.holdings, dashboardPollMs, marketStates]);
+  }, [dashboardPollMs, shouldPollDashboardPrices]);
 
   if (dashboard.isBootstrapping) {
     return (
@@ -567,4 +577,29 @@ function DashboardCommandCard({
 
 function formatDashboardMessage(template: string, values: Record<string, string>): string {
   return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
+}
+
+function resolveTickerPricePollMs(
+  currentSettings: DashboardSnapshot["settings"],
+  initialSettings?: DashboardSnapshot["settings"],
+): number {
+  const intervalMinutes =
+    currentSettings?.effectiveTickerPriceIntradayRefreshIntervalMinutes
+    ?? initialSettings?.effectiveTickerPriceIntradayRefreshIntervalMinutes;
+  if (typeof intervalMinutes === "number" && Number.isFinite(intervalMinutes) && intervalMinutes > 0) {
+    return Math.max(60_000, intervalMinutes * 60_000);
+  }
+  return Math.max(
+    15_000,
+    (currentSettings?.quotePollIntervalSeconds ?? initialSettings?.quotePollIntervalSeconds ?? 60) * 1000,
+  );
+}
+
+function isTickerPriceIntradayEnabled(
+  currentSettings: DashboardSnapshot["settings"] | undefined,
+  initialSettings?: DashboardSnapshot["settings"],
+): boolean {
+  return currentSettings?.effectiveTickerPriceIntradayEnabled
+    ?? initialSettings?.effectiveTickerPriceIntradayEnabled
+    ?? true;
 }

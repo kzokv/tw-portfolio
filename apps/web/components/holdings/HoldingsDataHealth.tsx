@@ -47,7 +47,11 @@ export function HoldingsDataHealthBadges({
     <TooltipProvider delayDuration={150}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex flex-wrap gap-1" aria-label={formatHoldingsDataHealthTitle(dict, row, locale)}>
+          <button
+            type="button"
+            className="flex flex-wrap gap-1 rounded-md border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label={formatHoldingsDataHealthTitle(dict, row, locale)}
+          >
             <Badge
               variant={row.quoteStatus === "current" ? "secondary" : row.quoteStatus === "missing" ? "destructive" : "outline"}
               className={row.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined}
@@ -61,14 +65,14 @@ export function HoldingsDataHealthBadges({
               {getHoldingsFxStatusLabel(dict, row.fxStatus)}
             </Badge>
             {priceState ? (
-              <PriceStateChip dict={dict} locale={locale} priceState={priceState} />
+              <PriceStateChip dict={dict} interactive={false} locale={locale} priceState={priceState} />
             ) : null}
             {showAllocationFallback && row.allocationBasisFallbackReason === "missing_quote" ? (
               <Badge variant="outline" className={holdingsWarningBadgeClassName}>
                 {dict.dashboardHome.allocationFallbackLabel}
               </Badge>
             ) : null}
-          </div>
+          </button>
         </TooltipTrigger>
         <TooltipContent sideOffset={6} className="max-w-xs">
           <div className="flex flex-col gap-1.5 text-xs leading-relaxed">

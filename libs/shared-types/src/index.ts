@@ -256,6 +256,8 @@ export interface UserSettings {
   locale: LocaleCode;
   costBasisMethod: CostBasisMethod;
   quotePollIntervalSeconds: number;
+  effectiveTickerPriceIntradayEnabled?: boolean;
+  effectiveTickerPriceIntradayRefreshIntervalMinutes?: number;
   /**
    * ui-enhancement (2026-05-14) — effective grace period (in days) for the
    * soft-delete → hard-purge account cron. Mirrors

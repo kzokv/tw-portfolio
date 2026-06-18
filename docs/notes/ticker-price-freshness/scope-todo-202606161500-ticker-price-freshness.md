@@ -33,7 +33,7 @@ superseded_by: null
 - The frontend polls the app API/enrichment payloads, not Yahoo Finance directly.
 - Redis stores the latest intraday overlay per `ticker + market`; pg-boss owns the background refresh queue with singleton keys per `ticker + market`.
 - Memory-mode tests/dev may use in-memory overlay and no-op queue fallbacks; production Redis or pg-boss unavailability degrades to daily-bar pricing and structured logs.
-- Yahoo chart intraday default request is `range=1d`, `interval=1m`, `includePrePost=false`.
+- Yahoo chart intraday default config is `range=1d`, `interval=1m`, `includePrePost=false`; the worker may translate the configured range into the installed SDK's supported `period1` / `period2` chart options.
 - Yahoo chart `range` and `interval` are admin-configurable with constrained options; `includePrePost=false` is fixed for MVP.
 - The worker selects the latest same-market-date non-null close from Yahoo intraday bars and uses that bar timestamp as the factual quote timestamp.
 - Market-open detection is regular cash-market session only, using the existing trading calendar plus market time zones; half-days, auctions, pre-market, after-hours, and special sessions are out of scope.
@@ -256,6 +256,28 @@ superseded_by: null
   - Focused verification passed: `npx vitest run apps/api/test/integration/reports.integration.test.ts` (`1` file / `20` tests).
   - Targeted ESLint passed: `npx eslint apps/api/test/integration/reports.integration.test.ts`.
   - CI-equivalent local checks passed: `npm run test:integration` (`45` files passed, `44` skipped; `442` tests passed, `426` skipped) and `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1663` tests passed, `426` skipped).
+- Local follow-up fixes after live dashboard investigation on `2026-06-18`:
+  - Yahoo intraday chart requests now translate the configured `1d` / `5d` range into SDK-compatible `period1` / `period2` options, preserving `includePrePost=false`; this fixes live worker failures where the installed `yahoo-finance2` chart schema rejected literal `range`.
+  - Dashboard and portfolio open-market polling now refresh price-bearing enrichment silently at the effective ticker-price-freshness intraday interval instead of refreshing primary page data; admin-disabled intraday freshness suppresses that polling.
+  - Dashboard and portfolio primary/enrichment settings payloads now expose `effectiveTickerPriceIntradayEnabled` and `effectiveTickerPriceIntradayRefreshIntervalMinutes` for the client polling cadence.
+  - Ticker detail open-market quote polling now uses the full details refresh path so stale hydrated details do not mask fresh quote changes.
+  - Holdings data-health badges render the nested `PriceStateChip` as non-interactive content inside a single focusable tooltip trigger, avoiding nested disclosures while keeping the data-health explanation keyboard reachable.
+  - Reports remain read-only for intraday demand refresh per locked scope; the transient report enqueue experiment was removed after team review.
+  - Team review findings resolved: backend/doc reviewers flagged report-read enqueueing as out of scope, and frontend reviewer flagged the data-health trigger accessibility gap.
+  - Focused API verification passed: `npx vitest run apps/api/test/unit/market-data/yahooFinanceIntradayProvider.test.ts apps/api/test/unit/smooth-page-read-paths.test.ts apps/api/test/integration/reports.integration.test.ts` (`3` files / `40` tests).
+  - Focused web verification passed: `cd apps/web && npx vitest run test/app/tickers/TickerHistoryClient.test.tsx test/components/dashboard/DashboardClient.test.tsx test/components/portfolio/PortfolioClient.test.tsx test/components/holdings/HoldingsDataHealth.test.tsx test/features/dashboard/hooks/useDashboardPrimaryData.test.tsx test/features/portfolio/hooks/usePortfolioPrimaryData.test.tsx` (`6` files / `49` tests).
+  - Targeted code ESLint passed for touched API, web, and shared-types files; Markdown scope note is ignored by repo ESLint config and was checked with `git diff --check`.
+  - `git diff --check` passed.
+  - `npm run typecheck` passed.
+  - Full repo gates after the live-dashboard follow-up passed:
+    - `npx eslint .` passed.
+    - `npm run typecheck` passed.
+    - `npm run test --prefix apps/web` passed: `58` files / `404` tests.
+    - `npm run test --prefix apps/api` passed: `167` files passed, `44` skipped; `1664` tests passed, `426` skipped.
+    - `npm run test:integration:full:host` passed: `89` files / `867` tests passed, `1` skipped.
+    - `npm run test:e2e:bypass:mem --prefix apps/web` passed: `280` tests passed, `12` skipped.
+    - `npm run test:e2e:oauth:mem --prefix apps/web` passed: `120` tests passed.
+    - `npm run test:http --prefix apps/api` passed: `291` tests passed, `2` skipped.
 
 ## References
 

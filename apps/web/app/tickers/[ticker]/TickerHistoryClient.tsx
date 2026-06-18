@@ -496,13 +496,17 @@ export function TickerHistoryClient({
   const refreshDetails = useCallback(async () => {
     setIsDetailsLoading(true);
     try {
+      const shouldRefreshQuote = shouldPollForOpenMarket([detailsStateRef.current.quote]);
       const cached = readRouteDtoCache<TickerDetailsModel>(tickerDetailsCacheKey, {
-        maxAgeMs: shouldPollForOpenMarket([detailsStateRef.current.quote]) ? tickerOpenMarketPollMs : undefined,
+        maxAgeMs: shouldRefreshQuote ? tickerOpenMarketPollMs : undefined,
       });
       const primaryDetails = isMatchingTickerDetailsCache(cached, ticker, transactionMarketFilter, reportingCurrency)
         ? cached.payload
         : detailsStateRef.current;
-      const next = await fetchTickerDetailsHydration({
+      const refreshTickerDetails = shouldRefreshQuote
+        ? fetchTickerDetailsFullRefresh
+        : fetchTickerDetailsHydration;
+      const next = await refreshTickerDetails({
         ticker,
         accountId: transactionAccountFilter,
         marketCode: transactionMarketFilter,
