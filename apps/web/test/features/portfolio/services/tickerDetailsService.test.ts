@@ -11,6 +11,7 @@ import {
   fetchTickerDetailsEnrichment,
   fetchTickerDetailsFullRefresh,
   fetchTickerDetailsHydration,
+  fetchTickerPrimaryDetails,
   type TickerDetailsModel,
 } from "../../../../features/portfolio/services/tickerDetailsService";
 import { testPriceState } from "../../../fixtures/priceState";
@@ -343,6 +344,97 @@ describe("fetchTickerDetails", () => {
         }),
       ]),
     );
+  });
+
+  it("maps ticker primary quote data without replacing chart and fundamentals fallback", async () => {
+    const priceState = testPriceState({
+      basis: "intraday",
+      chipState: "open_fresh",
+      marketState: "open",
+      source: "yahoo-finance-chart",
+      sourceKind: "intraday_yahoo_chart",
+      asOfDate: "2026-06-18",
+      asOfTimestamp: "2026-06-18T03:54:43.000Z",
+      observedAt: "2026-06-18T04:14:48.384Z",
+    });
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "2330",
+        marketCode: "TW",
+        accountId: "acc-1",
+        name: "Taiwan Semiconductor Manufacturing",
+        instrumentType: "STOCK",
+        priceCurrency: "TWD",
+        barsBackfillStatus: "ready",
+      },
+      quote: {
+        currentUnitPrice: 2390,
+        previousClose: 2385,
+        change: 5,
+        changePercent: 0.2096,
+        asOf: "2026-06-18",
+        source: "yahoo-finance-chart",
+        quoteStatus: "current",
+        priceState,
+      },
+      position: {
+        quantity: 5000,
+        averageCostPerShare: 837.44,
+        costBasisAmount: 4187200,
+        marketValueAmount: 11950000,
+        unrealizedPnlAmount: 7762800,
+        realizedPnlAmount: 0,
+        currency: "TWD",
+        accountIds: ["acc-1"],
+        lastTradeDate: "2026-01-02",
+      },
+      transactions: [],
+      dividends: {
+        upcoming: [],
+        recent: [],
+      },
+      holdingGroup: null,
+      accountBreakdown: [],
+    } as never);
+    const primaryDetails = buildPrimaryTickerDetails({
+      ticker: "2330",
+      marketCode: "TW",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: {
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        name: "TSMC",
+      } as never,
+    });
+
+    const details = await fetchTickerPrimaryDetails({
+      ticker: "2330",
+      marketCode: "TW",
+      transactions: [],
+      instrument: null,
+      primaryDetails,
+    });
+
+    expect(details.quote).toMatchObject({
+      currentPrice: 2390,
+      previousClose: 2385,
+      quoteStatus: "current",
+      priceState: expect.objectContaining({
+        basis: "intraday",
+        chipState: "open_fresh",
+        source: "yahoo-finance-chart",
+      }),
+    });
+    expect(details.position).toMatchObject({
+      quantity: 5000,
+      marketValue: 11950000,
+      unrealizedPnl: 7762800,
+    });
+    expect(details.chart).toBe(primaryDetails.chart);
+    expect(details.fundamentals).toBe(primaryDetails.fundamentals);
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?marketCode=TW");
   });
 
   it("does not replace missing details payload valuation with dashboard-derived ticker values", async () => {
