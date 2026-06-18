@@ -225,13 +225,19 @@ superseded_by: null
 - Mobile price-state disclosure fix after screenshot review on `2026-06-18`:
   - Root cause: dashboard and portfolio mobile price cells did not expose the price-state details as an independent touch disclosure. Dashboard also rendered freshness details inside the price-details trigger path, so the small chip could be occluded by the parent price disclosure on narrow viewports.
   - Fix: `PriceStateChip` now supports `disclosure="popover"` with viewport collision padding and a narrow-screen width cap; dashboard desktop/mobile price-details triggers are separate from the price-state chip; portfolio mobile price metrics now render the same freshness chip when `showFreshnessBadge` is enabled.
+  - Follow-up fix after live screenshot analysis: dashboard mobile price metric no longer wraps the price-details popover trigger in the desktop hover tooltip, preventing the `Reporting and native price details` tooltip from appearing over the mobile price-state chip. The price-details popover also uses viewport collision padding and a `100vw - 2rem` width cap.
   - Focused reviewer check completed with no remaining code-structure issues after adding mounted interaction coverage for the dashboard and portfolio mobile chip popovers.
   - Focused verification passed: `cd apps/web && npx vitest run test/components/holdings/PriceStateChip.test.tsx test/features/dashboard/components.test.tsx` (`2` files / `49` tests).
   - Targeted ESLint passed: `npx eslint apps/web/components/holdings/PriceStateChip.tsx apps/web/components/dashboard/DashboardHoldingsPreview.tsx apps/web/components/portfolio/HoldingsTable.tsx apps/web/test/components/holdings/PriceStateChip.test.tsx apps/web/test/features/dashboard/components.test.tsx`.
   - `git diff --check` passed.
-  - `npm run typecheck` passed.
+  - `npm run typecheck` passed again after commit `2e2f8399`.
   - Broader web verification passed: `npm run test --prefix apps/web` (`58` files / `402` tests).
-  - Live browser validation for this exact uncommitted mobile disclosure patch is still pending; the prior live evidence above predates this fix.
+  - PR #225 checks passed on commit `2e2f8399`: `pr-gate`, `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-bypass`, and `e2e-oauth`.
+  - Dev deploy run `27728076459` succeeded for branch `codex/ticker-price-freshness` at commit `2e2f8399`; `deploy / deploy` completed successfully.
+  - Chrome desktop live validation on Vakwen Dev as `mmckchuang@gmail.com` / `mmc_kchuang` after deploy: dashboard loaded at viewport `1135x1035`, rendered held-market state summary with `TW Closed`, `US Closed`, and `KR Closed`; hovering `dashboard-price-state-2330-TW` opened the freshness disclosure with `Basis: Today close`, `Market: Closed`, `Source: finmind`, `Quality: Full bar`, and `Time zone: Asia/Taipei`.
+  - Chrome mobile live validation after resizing the authenticated Chrome window to `390x737`: dashboard loaded the mobile holdings card, tapping the `Open 2330 price details` trigger opened the price translation popover and did not render the old `Reporting and native price details` hover tooltip copy.
+  - Chrome mobile live validation of the separate freshness chip: after closing the price-details popover, tapping `dashboard-mobile-price-state-2330-TW` opened the freshness popover with `Basis: Today close`, `Market: Closed`, `Source: finmind`, `Quality: Full bar`, and `Time zone: Asia/Taipei`; the old hover tooltip copy remained absent.
+  - Chrome window bounds were restored to the original desktop bounds after mobile validation.
 
 ## References
 
