@@ -349,6 +349,12 @@ async function flushEffects() {
   });
 }
 
+function createPointerEvent(type: string, pointerType: "mouse" | "touch"): Event {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, "pointerType", { value: pointerType });
+  return event;
+}
+
 function findButtonByText(element: HTMLElement, text: string): HTMLButtonElement {
   const button = Array.from(element.querySelectorAll("button"))
     .find((candidate) => candidate.textContent?.trim() === text);
@@ -435,7 +441,7 @@ describe("TickerHistoryClient", () => {
     expect(chip?.textContent).toContain("Closed");
 
     await act(async () => {
-      chip?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      chip?.dispatchEvent(createPointerEvent("pointerover", "mouse"));
     });
 
     expect(document.body.textContent).toContain("Basis: Today close");

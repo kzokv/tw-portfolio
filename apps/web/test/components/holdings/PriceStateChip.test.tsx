@@ -39,6 +39,12 @@ const dict = {
   },
 } as unknown as AppDictionary;
 
+function createPointerEvent(type: string, pointerType: "mouse" | "touch"): Event {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, "pointerType", { value: pointerType });
+  return event;
+}
+
 describe("PriceStateChip", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -257,6 +263,12 @@ describe("PriceStateChip", () => {
     const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
     expect(chip?.tagName).toBe("BUTTON");
     expect(chip?.textContent).toContain("Closed");
+
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerover", "touch"));
+    });
+
+    expect(document.body.textContent).not.toContain("Basis: Today close");
 
     await act(async () => {
       chip?.click();
