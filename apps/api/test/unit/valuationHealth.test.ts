@@ -105,7 +105,7 @@ describe("buildValuationHealth", () => {
     expect(dto.relativeDeltaBps).toBe(100);
   });
 
-  it("suppresses overlay-only valuation deltas when displayed prices are intraday", async () => {
+  it("keeps date-clean intraday valuation deltas material when no awaiting row explains them", async () => {
     const dto = await buildValuationHealth({
       app: {
         persistence: {
@@ -143,8 +143,8 @@ describe("buildValuationHealth", () => {
       } as never,
     });
 
-    expect(dto.status).toBe("healthy");
-    expect(dto.reason).toBe("within_threshold");
+    expect(dto.status).toBe("material");
+    expect(dto.reason).toBe("relative_threshold_exceeded");
     expect(dto.affectedHoldings).toEqual([]);
   });
 
