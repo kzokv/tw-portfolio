@@ -181,7 +181,9 @@ export function getPriceStateToneClassName(priceState: PriceStateDtoLike | null 
       return "bg-warning";
     case "closed":
     case "stale":
+      return "bg-slate-400";
     case "missing":
+      return "bg-destructive";
     default:
       return "bg-slate-400";
   }
