@@ -5160,12 +5160,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     for (const pair of queuedPairs) {
-      const jobId = await enqueueCloseRefresh(app.boss, {
-        ticker: pair.ticker,
-        marketCode: pair.marketCode,
-        requestedAt: new Date().toISOString(),
-      });
-      if (!jobId) {
+      if (!app.boss) {
         result.items.push({
           ticker: pair.ticker,
           marketCode: pair.marketCode,
@@ -5178,6 +5173,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         result.summary.failed += 1;
         continue;
       }
+      await enqueueCloseRefresh(app.boss, {
+        ticker: pair.ticker,
+        marketCode: pair.marketCode,
+        requestedAt: new Date().toISOString(),
+      });
       result.items.push({
         ticker: pair.ticker,
         marketCode: pair.marketCode,

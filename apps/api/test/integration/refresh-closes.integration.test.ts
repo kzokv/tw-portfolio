@@ -229,7 +229,7 @@ describe("POST /portfolio/refresh-closes", () => {
     app.boss = {
       send: async (...args: unknown[]) => {
         sendCalls.push(args);
-        return `job-${sendCalls.length}`;
+        return null;
       },
     } as never;
     await app.persistence.setAppConfigPatch({ tickerPriceSyncTickerCap: 1 });
@@ -314,6 +314,7 @@ describe("POST /portfolio/refresh-closes", () => {
     expect(body.items.filter((item: { status: string }) => item.status === "queued")).toHaveLength(1);
     expect(body.items.filter((item: { status: string }) => item.status !== "queued")).toHaveLength(1);
     expect(body.summary.queued).toBe(1);
+    expect(body.summary.failed).toBe(0);
     expect(sendCalls).toHaveLength(1);
   });
 });

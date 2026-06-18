@@ -239,7 +239,7 @@ function resolveSnapshotForPair(input: {
     : (change! / overlayPreviousClose) * 100;
   const delaySeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(overlay.asOfTimestamp)) / 1000));
 
-  if (displayContext.regularSessionOnly && !session.isOpen) {
+  if (!session.isOpen) {
     return {
       ticker: pair.ticker,
       marketCode: pair.marketCode,
