@@ -83,7 +83,7 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
     }
 
     const latest = latestByKey.get(quoteSnapshotKey(pair.ticker, pair.marketCode));
-    if (latest && latest.barDate >= closeDate) {
+    if (latest && isCurrentFullBar(latest, closeDate)) {
       items.push(buildItem(pair, "current", latest.barDate, latest.source, latest.quality));
       continue;
     }
@@ -126,6 +126,10 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
     "close_refresh_completed",
   );
   return result;
+}
+
+function isCurrentFullBar(latest: DailyBar, closeDate: string): boolean {
+  return latest.barDate > closeDate || (latest.barDate === closeDate && latest.quality === "full_bar");
 }
 
 async function fetchCloseRefreshBar(

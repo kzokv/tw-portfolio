@@ -343,6 +343,12 @@ superseded_by: null
   - Targeted ESLint passed for touched API source and regression-test files.
   - `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json` passed.
   - `git diff --check` passed.
+- Codex review follow-up after `8d6aff2a` on `2026-06-18`:
+  - Close-refresh now treats only same-date `full_bar` rows, or bars newer than the close-refresh date, as current. Same-date `close_only` rows keep trying the primary provider so they can upgrade to full OHLCV bars once available.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/market-data/closeRefreshService.test.ts apps/api/test/integration/refresh-closes.integration.test.ts` (`2` files / `8` tests).
+  - Targeted ESLint passed for touched close-refresh source and regression-test files.
+  - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
+  - `git diff --check` passed.
 
 ## References
 
