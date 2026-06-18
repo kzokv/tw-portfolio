@@ -1,3 +1,4 @@
+import type { IntradayPriceOverlay } from "@vakwen/domain";
 import { describe, expect, it } from "vitest";
 import { createEmptyTickerFundamentals } from "../../src/services/fundamentals/types.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../../src/services/store.js";
@@ -21,6 +22,7 @@ describe("buildTickerDetails", () => {
       historicalReads?: Array<{ ticker: string; marketCode: string; startDate: string; endDate: string }>;
       latestReads?: Array<{ pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>; limit: number }>;
     } = {},
+    overlays = new Map<string, IntradayPriceOverlay>(),
   ) {
     return {
       async getDailyBarsForTickerMarket(ticker: string, marketCode: string, startDate: string, endDate: string) {
@@ -81,8 +83,16 @@ describe("buildTickerDetails", () => {
             ingestedAt: "2026-06-01T00:00:00.000Z",
           }));
       },
-      async getLatestIntradayOverlays() {
-        return new Map();
+      async getLatestIntradayOverlays(
+        pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>,
+      ) {
+        const result = new Map<string, IntradayPriceOverlay>();
+        for (const pair of pairs) {
+          const key = `${pair.ticker}:${pair.marketCode}`;
+          const overlay = overlays.get(key);
+          if (overlay) result.set(key, overlay);
+        }
+        return result;
       },
       async getLatestBarDatesByTickerMarket() {
         const result = new Map<string, string>();
@@ -370,7 +380,7 @@ describe("buildTickerDetails", () => {
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async () => "2026-06-16",
-      isTradingDay: async () => true,
+      tradingCalendar: { isTradingDay: async () => true },
       now: new Date("2026-06-17T14:00:00.000Z"),
     });
 
@@ -685,6 +695,53 @@ describe("buildTickerDetails", () => {
       fxStatus: "missing",
       allocationBasisUsed: "cost_basis",
       allocationBasisFallbackReason: "missing_quote",
+    }));
+  });
+
+  it("uses same-day intraday overlay on ticker details when the full calendar falls back from known bar dates", async () => {
+    const overlays = new Map<string, IntradayPriceOverlay>([[
+      "BHP:AU",
+      {
+        ticker: "BHP",
+        marketCode: "AU",
+        price: 48,
+        previousClose: 45,
+        asOfDate: "2026-06-18",
+        asOfTimestamp: "2026-06-18T01:25:00.000Z",
+        observedAt: "2026-06-18T01:26:00.000Z",
+        sourceKind: "intraday_yahoo_chart",
+        source: "yahoo-finance-chart",
+        currency: "AUD",
+      },
+    ]]);
+    const persistence = createPersistence([
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-06-17", open: 44, high: 46, low: 43, close: 45, volume: 100, source: "daily" },
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-06-16", open: 42, high: 45, low: 41, close: 44, volume: 100, source: "daily" },
+    ], {}, overlays);
+
+    const { details } = await buildTickerDetails({
+      persistence,
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      reportingCurrency: "AUD",
+      loadChart: false,
+      fundamentalsRecord: null,
+      getSettledTradingDay: async () => "2026-06-17",
+      tradingCalendar: {
+        isTradingDay: async (_market, date) => date === "2026-06-17",
+        getTradingDates: async () => new Set(["2026-06-17"]),
+      },
+      now: new Date("2026-06-18T01:30:00.000Z"),
+    });
+
+    expect(details.quote.currentUnitPrice).toBe(48);
+    expect(details.quote.priceState).toEqual(expect.objectContaining({
+      basis: "intraday",
+      chipState: "open_fresh",
+      marketState: "open",
+      sourceKind: "intraday_yahoo_chart",
     }));
   });
 });
