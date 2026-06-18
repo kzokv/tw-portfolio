@@ -1000,7 +1000,6 @@ export function TickerHistoryClient({
                 </Badge>
                 {priceState ? (
                   <PriceStateChip
-                    disclosure="popover"
                     dict={dict}
                     locale={locale}
                     priceState={priceState}

@@ -1333,7 +1333,6 @@ function PricePreviewMetric({
       </Popover>
       {priceState ? (
         <PriceStateChip
-          disclosure="popover"
           dict={dict}
           locale={locale}
           priceState={priceState}

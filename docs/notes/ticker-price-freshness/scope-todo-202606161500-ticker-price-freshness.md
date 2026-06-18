@@ -381,6 +381,16 @@ superseded_by: null
   - Dev readiness passed after deploy: `/health/live` returned `200 {"status":"ok"}` and `/health/ready` returned `200 {"status":"ready","dependencies":{"backend":"postgres","postgres":true,"redis":true}}`.
   - Chrome live validation on Vakwen Dev after deploy: `/tickers/2330?marketCode=TW` rendered current price `NT$2,410`, previous close `NT$2,385`, and the `ticker-price-state-chip` as a `Closed` button. Hovering the chip opened the details popover with `Basis: Today close`, `Market: Closed`, `As of: 2026-06-18`, `Source: finmind`, `Quality: Full bar`, `Delay: Unknown`, and `Time zone: Asia/Taipei`.
   - Chrome dashboard/portfolio smoke after deploy: dashboard rendered held-market summary `TW Closed`, `US Closed`, `AU Closed`, `KR Closed`; current portfolio data had missing FX/quotes, so holdings rendered `Unavailable` price-state chips. Portfolio rendered visible desktop price-state chips only on grouped parent rows; account child rows did not render separate visible price-state chips.
+- Price chip monkey-test follow-up on `2026-06-19`:
+  - Chrome live monkey baseline on Vakwen Dev found `PriceStateChip` behavior was not fully centralized: ticker detail and mobile chip paths used Radix popovers, while dashboard desktop, portfolio desktop, and reports inherited the shared component's old tooltip default. Details were present, but the behavior differed by page/viewport.
+  - The shared `PriceStateChip` now has one interactive disclosure contract: Radix popover with mouse hover, touch/click support, viewport collision padding, and narrow-screen width cap. The unused tooltip disclosure mode and page-level `disclosure="popover"` overrides were removed, so dashboard, portfolio, ticker detail, and reports reuse the same behavior by default.
+  - SOLID check: page components now supply price-state data, locale, labels, alignment, and test ids only; `PriceStateChip` owns disclosure behavior and detail rendering. Non-interactive nested usage in holdings data-health remains a plain text chip via `interactive={false}` to avoid nested buttons.
+  - Live desktop monkey evidence before the fix: portfolio parent chip `holdings-price-state-000660-KR` and dashboard chip `dashboard-price-state-2330-TW` opened the factual detail rows on hover, but through tooltip semantics; ticker chip `ticker-price-state-chip` opened a popover/dialog with localized basis, market, as-of, observed, source, quality, delay, and timezone rows.
+  - Reports live layout note: reports can render duplicate ticker test ids across hidden mobile/detail and desktop report sections, and desktop table chips may be clipped until the horizontal table scroller is used. That is separate from the shared disclosure contract and was not changed in this follow-up.
+  - Focused web verification passed: `cd apps/web && npx vitest run test/components/holdings/PriceStateChip.test.tsx test/features/dashboard/components.test.tsx test/components/portfolio/HoldingsTable.test.tsx test/app/tickers/TickerHistoryClient.test.tsx test/components/reports/ReportsClient.test.tsx` (`5` files / `85` tests).
+  - Targeted ESLint passed for touched chip, dashboard, portfolio, ticker, and chip-test files.
+  - `npm run typecheck` passed.
+  - `git diff --check` passed.
 
 ## References
 
