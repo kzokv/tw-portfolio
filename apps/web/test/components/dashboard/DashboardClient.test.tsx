@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
       },
     },
   } as DashboardSnapshot,
+  dashboardRefreshPrices: vi.fn(async () => undefined),
   dashboardRefresh: vi.fn(async () => undefined),
   dashboardPerformanceCalls: [] as Array<{ cacheKey?: string; expectedReportingCurrency?: AccountDefaultCurrency | null }>,
   performanceRefresh: vi.fn(async () => undefined),
@@ -122,6 +123,7 @@ vi.mock("../../../features/dashboard/hooks/useDashboardData", () => ({
     isBootstrapping: false,
     isRefreshing: false,
     refresh: mocks.dashboardRefresh,
+    refreshPrices: mocks.dashboardRefreshPrices,
     restoredAt: null,
     restoredFromCache: false,
     setErrorMessage: vi.fn(),
@@ -182,16 +184,27 @@ describe("DashboardClient", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.dashboardRefresh.mockClear();
+    mocks.dashboardRefreshPrices.mockClear();
     mocks.dashboardPerformanceCalls.length = 0;
     mocks.performanceRefresh.mockClear();
     mocks.performanceIsLoading = false;
     mocks.shellReportingCurrency = "USD";
+    mocks.dashboardSnapshot.holdings = [];
+    mocks.dashboardSnapshot.marketStates = [{
+      marketCode: "TW",
+      marketState: "closed",
+      asOf: "2026-06-17T08:00:00.000Z",
+      marketTimeZone: "Asia/Taipei",
+      regularSessionOnly: true,
+    }];
+    mocks.dashboardSnapshot.settings = null;
     mocks.dashboardSnapshot.summary.reportingCurrency = "USD";
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   it("manual refresh refreshes both dashboard primary data and performance trend data", () => {
@@ -252,5 +265,69 @@ describe("DashboardClient", () => {
 
     const button = container.querySelector("[data-testid='dashboard-refresh-button']") as HTMLButtonElement | null;
     expect(button?.disabled).toBe(true);
+  });
+
+  it("polls price enrichment at the admin intraday interval without refreshing primary dashboard data", () => {
+    vi.useFakeTimers();
+    mocks.dashboardSnapshot.marketStates = [{
+      marketCode: "TW",
+      marketState: "open",
+      asOf: "2026-06-18T02:00:00.000Z",
+      marketTimeZone: "Asia/Taipei",
+      regularSessionOnly: true,
+    }];
+    mocks.dashboardSnapshot.settings = {
+      userId: "user-1",
+      locale: "en",
+      costBasisMethod: "WEIGHTED_AVERAGE",
+      quotePollIntervalSeconds: 10,
+      effectiveTickerPriceIntradayEnabled: true,
+      effectiveTickerPriceIntradayRefreshIntervalMinutes: 5,
+    };
+
+    act(() => {
+      root.render(<DashboardClient />);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(299_999);
+    });
+    expect(mocks.dashboardRefreshPrices).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(mocks.dashboardRefreshPrices).toHaveBeenCalledTimes(1);
+    expect(mocks.dashboardRefresh).not.toHaveBeenCalled();
+  });
+
+  it("does not poll price enrichment when admin disables intraday freshness", () => {
+    vi.useFakeTimers();
+    mocks.dashboardSnapshot.marketStates = [{
+      marketCode: "TW",
+      marketState: "open",
+      asOf: "2026-06-18T02:00:00.000Z",
+      marketTimeZone: "Asia/Taipei",
+      regularSessionOnly: true,
+    }];
+    mocks.dashboardSnapshot.settings = {
+      userId: "user-1",
+      locale: "en",
+      costBasisMethod: "WEIGHTED_AVERAGE",
+      quotePollIntervalSeconds: 10,
+      effectiveTickerPriceIntradayEnabled: false,
+      effectiveTickerPriceIntradayRefreshIntervalMinutes: 5,
+    };
+
+    act(() => {
+      root.render(<DashboardClient />);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(600_000);
+    });
+
+    expect(mocks.dashboardRefreshPrices).not.toHaveBeenCalled();
+    expect(mocks.dashboardRefresh).not.toHaveBeenCalled();
   });
 });

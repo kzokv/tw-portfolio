@@ -10,6 +10,7 @@ import type {
   DashboardOverviewUpcomingDividendDto,
   IntegrityIssueDto,
   InstrumentOptionDto,
+  UserSettings,
 } from "@vakwen/shared-types";
 import { currencyFor, MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
@@ -22,6 +23,7 @@ import {
   quoteSnapshotKey,
   type ResolvedQuoteSnapshot,
 } from "./market-data/quoteSnapshotService.js";
+import { getEffectiveTickerPriceFreshnessConfig } from "./appConfig/tickerPriceFreshness.js";
 import type { Store } from "../types/store.js";
 
 interface BuildDashboardOverviewOptions {
@@ -118,7 +120,7 @@ export function buildDashboardOverview(
   // The route handler pipes the summary through `translateOverviewSummary` to
   // produce the final wire shape with FX-translated KPIs.
   return {
-    settings: store.settings,
+    settings: withTickerPriceFreshnessSettings(store.settings),
     summary: {
       asOf: summaryAsOf ?? new Date().toISOString().slice(0, 10),
       accountCount: store.accounts.length,
@@ -146,6 +148,15 @@ export function buildDashboardOverview(
     accounts: store.accounts,
     feeProfiles: store.feeProfiles,
     feeProfileBindings: store.feeProfileBindings,
+  };
+}
+
+export function withTickerPriceFreshnessSettings(settings: UserSettings): UserSettings {
+  const config = getEffectiveTickerPriceFreshnessConfig();
+  return {
+    ...settings,
+    effectiveTickerPriceIntradayEnabled: config.intradayEnabled,
+    effectiveTickerPriceIntradayRefreshIntervalMinutes: config.intradayRefreshIntervalMinutes,
   };
 }
 

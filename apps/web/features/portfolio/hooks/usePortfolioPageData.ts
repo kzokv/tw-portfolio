@@ -111,6 +111,10 @@ export function usePortfolioPrimaryData(
     }
   }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
+  const refreshPrices = useCallback(async () => {
+    await refreshEnrichment(requestVersionRef.current);
+  }, [refreshEnrichment]);
+
   useEffect(() => {
     const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
     if (shouldUseInitialData) {
@@ -167,6 +171,7 @@ export function usePortfolioPrimaryData(
     isRefreshing,
     errorMessage,
     refresh,
+    refreshPrices,
     cacheStatus,
     restoredFromCache,
     restoredAt,

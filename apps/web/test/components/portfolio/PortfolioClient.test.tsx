@@ -10,6 +10,8 @@ import { testPriceState } from "../../fixtures/priceState";
 
 const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-holdings-table" />));
 const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
+const portfolioRefreshMock = vi.hoisted(() => vi.fn(async () => undefined));
+const portfolioRefreshPricesMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: vi.fn(),
@@ -139,7 +141,8 @@ describe("PortfolioClient", () => {
       isRefreshing: false,
       restoredFromCache: false,
       restoredAt: null,
-      refresh: vi.fn(),
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
     } as never);
 
     container = document.createElement("div");
@@ -152,6 +155,7 @@ describe("PortfolioClient", () => {
       act(() => root?.unmount());
     }
     container.remove();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -195,7 +199,8 @@ describe("PortfolioClient", () => {
       isRefreshing: false,
       restoredFromCache: false,
       restoredAt: null,
-      refresh: vi.fn(),
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
     } as never);
 
     act(() => {
@@ -228,7 +233,8 @@ describe("PortfolioClient", () => {
       isRefreshing: false,
       restoredFromCache: false,
       restoredAt: null,
-      refresh: vi.fn(),
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
     } as never);
 
     act(() => {
@@ -265,7 +271,8 @@ describe("PortfolioClient", () => {
       isRefreshing: false,
       restoredFromCache: false,
       restoredAt: null,
-      refresh: vi.fn(),
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
     } as never);
 
     act(() => {
@@ -306,5 +313,139 @@ describe("PortfolioClient", () => {
     expect(dashboardHoldingsPreviewMock.mock.calls[0]?.[0]).toMatchObject({
       settingsContextKey: "portfolio.topHoldings",
     });
+  });
+
+  it("polls price enrichment at the admin intraday interval without refreshing primary portfolio data", () => {
+    vi.useFakeTimers();
+    const openPortfolioData = {
+      ...portfolioData,
+      settings: {
+        userId: "user-1",
+        locale: "en",
+        costBasisMethod: "WEIGHTED_AVERAGE",
+        quotePollIntervalSeconds: 10,
+        effectiveTickerPriceIntradayEnabled: true,
+        effectiveTickerPriceIntradayRefreshIntervalMinutes: 5,
+      },
+      holdings: [{
+        accountId: "acct-1",
+        accountName: "Broker",
+        ticker: "2330",
+        instrumentName: "Taiwan Semiconductor",
+        marketCode: "TW",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+        averageCostPerShare: 100,
+        currentUnitPrice: 120,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        allocationPct: 100,
+        change: 1,
+        changePercent: 0.84,
+        previousClose: 119,
+        quoteStatus: "current",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        priceState: testPriceState({
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          sourceKind: "intraday_yahoo_chart",
+          asOfTimestamp: "2026-06-18T02:00:00.000Z",
+          quality: null,
+        }),
+      }],
+      integrityIssue: null,
+    } as PortfolioPageData;
+    vi.mocked(usePortfolioPrimaryData).mockReturnValue({
+      data: openPortfolioData,
+      isBootstrapping: false,
+      isRefreshing: false,
+      restoredFromCache: false,
+      restoredAt: null,
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
+    } as never);
+
+    act(() => {
+      root!.render(<PortfolioClient />);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(299_999);
+    });
+    expect(portfolioRefreshPricesMock).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(portfolioRefreshPricesMock).toHaveBeenCalledTimes(1);
+    expect(portfolioRefreshMock).not.toHaveBeenCalled();
+  });
+
+  it("does not poll price enrichment when admin disables intraday freshness", () => {
+    vi.useFakeTimers();
+    const openPortfolioData = {
+      ...portfolioData,
+      settings: {
+        userId: "user-1",
+        locale: "en",
+        costBasisMethod: "WEIGHTED_AVERAGE",
+        quotePollIntervalSeconds: 10,
+        effectiveTickerPriceIntradayEnabled: false,
+        effectiveTickerPriceIntradayRefreshIntervalMinutes: 5,
+      },
+      holdings: [{
+        accountId: "acct-1",
+        accountName: "Broker",
+        ticker: "2330",
+        instrumentName: "Taiwan Semiconductor",
+        marketCode: "TW",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+        averageCostPerShare: 100,
+        currentUnitPrice: 120,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        allocationPct: 100,
+        change: 1,
+        changePercent: 0.84,
+        previousClose: 119,
+        quoteStatus: "current",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        priceState: testPriceState({
+          basis: "intraday",
+          chipState: "open_fresh",
+          marketState: "open",
+          sourceKind: "intraday_yahoo_chart",
+          asOfTimestamp: "2026-06-18T02:00:00.000Z",
+          quality: null,
+        }),
+      }],
+      integrityIssue: null,
+    } as PortfolioPageData;
+    vi.mocked(usePortfolioPrimaryData).mockReturnValue({
+      data: openPortfolioData,
+      isBootstrapping: false,
+      isRefreshing: false,
+      restoredFromCache: false,
+      restoredAt: null,
+      refresh: portfolioRefreshMock,
+      refreshPrices: portfolioRefreshPricesMock,
+    } as never);
+
+    act(() => {
+      root!.render(<PortfolioClient />);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(600_000);
+    });
+
+    expect(portfolioRefreshPricesMock).not.toHaveBeenCalled();
+    expect(portfolioRefreshMock).not.toHaveBeenCalled();
   });
 });

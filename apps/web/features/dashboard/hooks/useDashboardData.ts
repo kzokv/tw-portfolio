@@ -33,6 +33,7 @@ interface UseDashboardDataResult extends DashboardSnapshot {
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;
   refresh: () => Promise<void>;
+  refreshPrices: () => Promise<void>;
   restoredFromCache: boolean;
   restoredAt: number | null;
   synchronizeTransactionDraft: (previous: TransactionInput) => TransactionInput;
@@ -169,6 +170,10 @@ export function useDashboardPrimaryData({
     }
   }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
+  const refreshPrices = useCallback(async () => {
+    await refreshEnrichment(requestVersionRef.current);
+  }, [refreshEnrichment]);
+
   useEffect(() => {
     const shouldUseInitialData = initialPrimaryData !== null && initialCacheKeyRef.current === cacheKey;
     if (shouldUseInitialData) {
@@ -251,6 +256,7 @@ export function useDashboardPrimaryData({
     showIntegrityDialog,
     setShowIntegrityDialog,
     refresh,
+    refreshPrices,
     restoredFromCache,
     restoredAt,
     synchronizeTransactionDraft: snapshot.accounts.length > 0
