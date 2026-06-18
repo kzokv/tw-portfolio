@@ -421,7 +421,7 @@ describe("TickerHistoryClient", () => {
     expect(element.textContent).toContain("Delayed");
   });
 
-  it("opens ticker price-state details from the header chip", async () => {
+  it("opens ticker price-state details from the header chip on hover", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
     const element = renderTickerHistoryClient({
       ...details,
@@ -435,7 +435,7 @@ describe("TickerHistoryClient", () => {
     expect(chip?.textContent).toContain("Closed");
 
     await act(async () => {
-      chip?.click();
+      chip?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
 
     expect(document.body.textContent).toContain("Basis: Today close");
