@@ -150,6 +150,27 @@ describe("HoldingsTable", () => {
     expect(row?.textContent).toContain("Apple Inc.");
   });
 
+  it("renders price-state chips only for ticker group rows and aligns them by viewport", () => {
+    const child = {
+      ...baseGroup,
+      accountId: "acc-1",
+      accountName: "Brokerage",
+      reportingAllocationPercent: 100,
+    } as DashboardOverviewHoldingGroupDto["children"][number];
+    const rendered = renderTable([{ ...baseGroup, accountCount: 1, children: [child] }]);
+    root = rendered.root;
+    container = rendered.container;
+
+    const desktopGroupChip = container.querySelector("[data-testid='holdings-price-state-AAPL-US']");
+    const mobileGroupChip = container.querySelector("[data-testid='holdings-mobile-price-state-AAPL-US']");
+    expect(desktopGroupChip).not.toBeNull();
+    expect(mobileGroupChip).not.toBeNull();
+    expect(container.querySelector("[data-testid='holdings-price-state-acc-1-AAPL']")).toBeNull();
+    expect(container.querySelector("[data-testid='holdings-mobile-price-state-acc-1-AAPL']")).toBeNull();
+    expect(desktopGroupChip?.parentElement?.className).toContain("justify-end");
+    expect(mobileGroupChip?.parentElement?.className).toContain("justify-start");
+  });
+
   it("keeps shadcn single-toggle controls selected when the active item is clicked again", () => {
     const rendered = renderTable([baseGroup], { controlledAllocationBasis: false });
     root = rendered.root;

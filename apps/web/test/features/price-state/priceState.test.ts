@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNonCurrentPrice, priceStateSortRank } from "../../../features/price-state/priceState";
+import { getPriceStateToneClassName, isNonCurrentPrice, priceStateSortRank } from "../../../features/price-state/priceState";
 import { testPriceState } from "../../fixtures/priceState";
 
 describe("priceState freshness helpers", () => {
@@ -25,5 +25,13 @@ describe("priceState freshness helpers", () => {
     expect(isNonCurrentPrice({
       priceState: testPriceState({ basis: "today_close", chipState: "closed", marketState: "closed" }),
     })).toBe(false);
+  });
+
+  it("maps chip states to the scoped freshness tones", () => {
+    expect(getPriceStateToneClassName(testPriceState({ chipState: "open_fresh" }))).toContain("success");
+    expect(getPriceStateToneClassName(testPriceState({ chipState: "open_delayed" }))).toBe("bg-warning");
+    expect(getPriceStateToneClassName(testPriceState({ chipState: "open_previous_close" }))).toBe("bg-warning");
+    expect(getPriceStateToneClassName(testPriceState({ chipState: "closed" }))).toBe("bg-slate-400");
+    expect(getPriceStateToneClassName(testPriceState({ chipState: "missing", basis: "missing" }))).toBe("bg-destructive");
   });
 });

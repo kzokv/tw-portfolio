@@ -21,8 +21,11 @@ import {
 import {
   type AiConnectorPolicySettingsDto,
   type AppConfigDto,
+  type MarketCode,
   type RouteCachePolicyMode,
   type TickerPriceFreshnessAppConfigDto,
+  type TickerPriceFreshnessYahooChartInterval,
+  type TickerPriceFreshnessYahooChartRange,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
@@ -408,31 +411,359 @@ type TickerPriceFreshnessPatchDto = Pick<
   | "syncTickerCap"
 >;
 
-function buildTickerPriceFreshnessPatch(
-  draft: TickerPriceFreshnessAppConfigDto,
-): TickerPriceFreshnessPatchDto {
-  return {
-    closeRefreshGraceMinutes: draft.closeRefreshGraceMinutes,
-    intradayEnabled: draft.intradayEnabled,
-    intradayRefreshIntervalMinutes: draft.intradayRefreshIntervalMinutes,
-    intradayFreshnessToleranceMinutes: draft.intradayFreshnessToleranceMinutes,
-    yahooChartRequestLimitPerMinute: draft.yahooChartRequestLimitPerMinute,
-    queueConcurrency: draft.queueConcurrency,
-    maxTickersPerRefreshCycle: draft.maxTickersPerRefreshCycle,
-    supportedMarkets: draft.supportedMarkets,
-    regularSessionOnly: draft.regularSessionOnly,
-    yahooChartRange: draft.yahooChartRange,
-    yahooChartInterval: draft.yahooChartInterval,
-    refreshCloseRateLimitWindowMs: draft.refreshCloseRateLimitWindowMs,
-    refreshCloseRateLimitMax: draft.refreshCloseRateLimitMax,
-    syncTickerCap: draft.syncTickerCap,
-  };
+function formatTickerBooleanValue(value: boolean, isZhTW: boolean): string {
+  if (isZhTW) return value ? "啟用" : "停用";
+  return value ? "Enabled" : "Disabled";
 }
 
-function parseNullableNumberInput(value: string): number | null {
-  if (value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+function formatTickerListValue(values: readonly string[]): string {
+  return values.length > 0 ? values.join(", ") : "-";
+}
+
+function TickerBooleanOverrideRow({
+  fieldKey,
+  label,
+  description,
+  override,
+  effective,
+  isZhTW,
+  onSave,
+}: {
+  fieldKey: string;
+  label: string;
+  description: string;
+  override: boolean | null;
+  effective: boolean;
+  isZhTW: boolean;
+  onSave: (value: boolean | null) => Promise<void>;
+}) {
+  const dict = useAdminI18n();
+  const [overrideEnabled, setOverrideEnabled] = useState(override !== null);
+  const [selected, setSelected] = useState(override ?? effective);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOverrideEnabled(override !== null);
+    setSelected(override ?? effective);
+  }, [effective, override]);
+
+  function handleToggle(next: boolean) {
+    setOverrideEnabled(next);
+    setError(null);
+    setSuccess(null);
+    if (next) setSelected(override ?? effective);
+  }
+
+  async function dispatchSave(next: boolean | null) {
+    setError(null);
+    setSuccess(null);
+    setSaving(true);
+    try {
+      await onSave(next);
+      setSuccess("Saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const testIdPrefix = `admin-settings-${fieldKey}`;
+
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4 first:border-t-0 first:pt-0" data-testid={`${testIdPrefix}-row`}>
+      <div>
+        <p className="text-sm font-medium text-slate-700">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={overrideEnabled}
+          onChange={(event) => handleToggle(event.target.checked)}
+          disabled={saving}
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+          data-testid={`${testIdPrefix}-toggle`}
+        />
+        <span className="text-sm font-medium text-slate-700">{dict.inputs.override}</span>
+      </label>
+      {overrideEnabled ? (
+        <div className="flex flex-wrap gap-2">
+          {[true, false].map((value) => (
+            <button
+              key={String(value)}
+              type="button"
+              aria-pressed={selected === value}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-sm font-medium",
+                selected === value ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-700",
+              )}
+              onClick={() => {
+                setSelected(value);
+                setError(null);
+                setSuccess(null);
+              }}
+              disabled={saving}
+              data-testid={`${testIdPrefix}-option-${String(value)}`}
+            >
+              {formatTickerBooleanValue(value, isZhTW)}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700" data-testid={`${testIdPrefix}-env-default-badge`}>
+          {dict.inputs.usingEnvDefault} {formatTickerBooleanValue(effective, isZhTW)}
+        </span>
+      )}
+      {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p> : null}
+      {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">{success}</p> : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {override !== null ? (
+          <Button variant="ghost" size="sm" onClick={() => void dispatchSave(null)} disabled={saving} data-testid={`${testIdPrefix}-reset-button`}>
+            {dict.inputs.resetToDefault}
+          </Button>
+        ) : null}
+        <Button size="sm" onClick={() => void dispatchSave(overrideEnabled ? selected : null)} disabled={saving} data-testid={`${testIdPrefix}-save-button`}>
+          {saving ? dict.common.saving : dict.common.save}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TickerSelectOverrideRow<T extends string>({
+  fieldKey,
+  label,
+  description,
+  allowedValuesLabel,
+  override,
+  effective,
+  options,
+  onSave,
+}: {
+  fieldKey: string;
+  label: string;
+  description: string;
+  allowedValuesLabel: string;
+  override: T | null;
+  effective: T;
+  options: readonly T[];
+  onSave: (value: T | null) => Promise<void>;
+}) {
+  const dict = useAdminI18n();
+  const [overrideEnabled, setOverrideEnabled] = useState(override !== null);
+  const [selected, setSelected] = useState<T>(override ?? effective);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOverrideEnabled(override !== null);
+    setSelected(override ?? effective);
+  }, [effective, override]);
+
+  async function dispatchSave(next: T | null) {
+    setError(null);
+    setSuccess(null);
+    setSaving(true);
+    try {
+      await onSave(next);
+      setSuccess("Saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const testIdPrefix = `admin-settings-${fieldKey}`;
+
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4 first:border-t-0 first:pt-0" data-testid={`${testIdPrefix}-row`}>
+      <div>
+        <p className="text-sm font-medium text-slate-700">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={overrideEnabled}
+          onChange={(event) => {
+            const next = event.target.checked;
+            setOverrideEnabled(next);
+            if (next) setSelected(override ?? effective);
+            setError(null);
+            setSuccess(null);
+          }}
+          disabled={saving}
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+          data-testid={`${testIdPrefix}-toggle`}
+        />
+        <span className="text-sm font-medium text-slate-700">{dict.inputs.override}</span>
+      </label>
+      {overrideEnabled ? (
+        <Select value={selected} onValueChange={(value) => {
+          setSelected(value as T);
+          setError(null);
+          setSuccess(null);
+        }}>
+          <SelectTrigger className="w-44" data-testid={`${testIdPrefix}-select`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>{option}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700" data-testid={`${testIdPrefix}-env-default-badge`}>
+          {dict.inputs.usingEnvDefault} {effective}
+        </span>
+      )}
+      <p className="text-xs text-slate-500">
+        {allowedValuesLabel} {options.join(", ")}.
+      </p>
+      {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p> : null}
+      {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">{success}</p> : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {override !== null ? (
+          <Button variant="ghost" size="sm" onClick={() => void dispatchSave(null)} disabled={saving} data-testid={`${testIdPrefix}-reset-button`}>
+            {dict.inputs.resetToDefault}
+          </Button>
+        ) : null}
+        <Button size="sm" onClick={() => void dispatchSave(overrideEnabled ? selected : null)} disabled={saving} data-testid={`${testIdPrefix}-save-button`}>
+          {saving ? dict.common.saving : dict.common.save}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TickerMarketListOverrideRow({
+  fieldKey,
+  label,
+  description,
+  allowedValuesLabel,
+  override,
+  effective,
+  options,
+  onSave,
+}: {
+  fieldKey: string;
+  label: string;
+  description: string;
+  allowedValuesLabel: string;
+  override: MarketCode[] | null;
+  effective: MarketCode[];
+  options: MarketCode[];
+  onSave: (value: MarketCode[] | null) => Promise<void>;
+}) {
+  const dict = useAdminI18n();
+  const [overrideEnabled, setOverrideEnabled] = useState(override !== null);
+  const [selected, setSelected] = useState<MarketCode[]>(override ?? effective);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOverrideEnabled(override !== null);
+    setSelected(override ?? effective);
+  }, [effective, override]);
+
+  async function dispatchSave(next: MarketCode[] | null) {
+    setError(null);
+    setSuccess(null);
+    if (next && next.length === 0) {
+      setError("Select at least one market.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(next);
+      setSuccess("Saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const testIdPrefix = `admin-settings-${fieldKey}`;
+
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4 first:border-t-0 first:pt-0" data-testid={`${testIdPrefix}-row`}>
+      <div>
+        <p className="text-sm font-medium text-slate-700">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={overrideEnabled}
+          onChange={(event) => {
+            const next = event.target.checked;
+            setOverrideEnabled(next);
+            if (next) setSelected(override ?? effective);
+            setError(null);
+            setSuccess(null);
+          }}
+          disabled={saving}
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+          data-testid={`${testIdPrefix}-toggle`}
+        />
+        <span className="text-sm font-medium text-slate-700">{dict.inputs.override}</span>
+      </label>
+      {overrideEnabled ? (
+        <div className="flex flex-wrap gap-2">
+          {options.map((market) => {
+            const active = selected.includes(market);
+            return (
+              <button
+                key={market}
+                type="button"
+                aria-pressed={active}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-sm font-medium",
+                  active ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-700",
+                )}
+                onClick={() => {
+                  setSelected((current) => active ? current.filter((item) => item !== market) : [...current, market]);
+                  setError(null);
+                  setSuccess(null);
+                }}
+                disabled={saving}
+                data-testid={`${testIdPrefix}-option-${market}`}
+              >
+                {market}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700" data-testid={`${testIdPrefix}-env-default-badge`}>
+          {dict.inputs.usingEnvDefault} {formatTickerListValue(effective)}
+        </span>
+      )}
+      <p className="text-xs text-slate-500">
+        {allowedValuesLabel} {options.join(", ")}.
+      </p>
+      {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p> : null}
+      {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">{success}</p> : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {override !== null ? (
+          <Button variant="ghost" size="sm" onClick={() => void dispatchSave(null)} disabled={saving} data-testid={`${testIdPrefix}-reset-button`}>
+            {dict.inputs.resetToDefault}
+          </Button>
+        ) : null}
+        <Button size="sm" onClick={() => void dispatchSave(overrideEnabled ? selected : null)} disabled={saving || (overrideEnabled && selected.length === 0)} data-testid={`${testIdPrefix}-save-button`}>
+          {saving ? dict.common.saving : dict.common.save}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function TickerPriceFreshnessSettingsCard({
@@ -444,31 +775,15 @@ function TickerPriceFreshnessSettingsCard({
   isZhTW: boolean;
   onUpdated: (next: AppConfigDto) => void;
 }) {
-  const [draft, setDraft] = useState<TickerPriceFreshnessAppConfigDto>(config.tickerPriceFreshness ?? DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const settings = config.tickerPriceFreshness ?? DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS;
 
-  useEffect(() => {
-    setDraft(config.tickerPriceFreshness ?? DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS);
-  }, [config]);
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const updated = await patchJson<AppConfigDto>(
-        "/admin/settings",
-        { tickerPriceFreshness: buildTickerPriceFreshnessPatch(draft) },
-      );
-      onUpdated(updated);
-      setSuccess(isZhTW ? "價格新鮮度設定已儲存。" : "Ticker price freshness settings saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : isZhTW ? "無法儲存價格新鮮度設定。" : "Failed to save ticker price freshness settings.");
-    } finally {
-      setSaving(false);
-    }
+  async function saveField<K extends keyof TickerPriceFreshnessPatchDto>(
+    field: K,
+    value: TickerPriceFreshnessPatchDto[K],
+  ): Promise<void> {
+    const patch = { [field]: value } as Partial<TickerPriceFreshnessPatchDto>;
+    const updated = await patchJson<AppConfigDto>("/admin/settings", { tickerPriceFreshness: patch });
+    onUpdated(updated);
   }
 
   return (
@@ -480,107 +795,154 @@ function TickerPriceFreshnessSettingsCard({
             {isZhTW ? "把收盤刷新與盤中輪詢設定集中在同一個群組。" : "Group close-refresh and intraday freshness controls in one operator surface."}
           </p>
         </div>
-        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-        {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "收盤寬限（分鐘）" : "Close grace minutes"}
-            <input data-testid="admin-settings-input-tickerPriceCloseRefreshGraceMinutes" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.closeRefreshGraceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, closeRefreshGraceMinutes: parseNullableNumberInput(event.target.value) }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "同步刷新上限" : "Sync ticker cap"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.syncTickerCap ?? ""} onChange={(event) => setDraft((current) => ({ ...current, syncTickerCap: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "盤中刷新間隔（分鐘）" : "Intraday refresh interval (minutes)"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.intradayRefreshIntervalMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, intradayRefreshIntervalMinutes: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "新鮮度容忍（分鐘）" : "Freshness tolerance (minutes)"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.intradayFreshnessToleranceMinutes ?? ""} onChange={(event) => setDraft((current) => ({ ...current, intradayFreshnessToleranceMinutes: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "Yahoo 每分鐘請求上限" : "Yahoo requests per minute"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.yahooChartRequestLimitPerMinute ?? ""} onChange={(event) => setDraft((current) => ({ ...current, yahooChartRequestLimitPerMinute: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "佇列並行數" : "Queue concurrency"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.queueConcurrency ?? ""} onChange={(event) => setDraft((current) => ({ ...current, queueConcurrency: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "每輪最大代號數" : "Max tickers per cycle"}
-            <input className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.maxTickersPerRefreshCycle ?? ""} onChange={(event) => setDraft((current) => ({ ...current, maxTickersPerRefreshCycle: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "刷新視窗（毫秒）" : "Refresh endpoint window (ms)"}
-            <input data-testid="admin-settings-input-tickerPriceRefreshCloseRateLimitWindowMs" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.refreshCloseRateLimitWindowMs ?? ""} onChange={(event) => setDraft((current) => ({ ...current, refreshCloseRateLimitWindowMs: Number(event.target.value) || null }))} />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "刷新請求上限" : "Refresh endpoint max requests"}
-            <input data-testid="admin-settings-input-tickerPriceRefreshCloseRateLimitMax" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2" type="number" value={draft.refreshCloseRateLimitMax ?? ""} onChange={(event) => setDraft((current) => ({ ...current, refreshCloseRateLimitMax: Number(event.target.value) || null }))} />
-          </label>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "Yahoo range" : "Yahoo chart range"}
-            <Select value={draft.yahooChartRange ?? draft.effectiveYahooChartRange} onValueChange={(value: "1d" | "5d") => setDraft((current) => ({ ...current, yahooChartRange: value }))}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1d">1d</SelectItem>
-                <SelectItem value="5d">5d</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            {isZhTW ? "Yahoo interval" : "Yahoo chart interval"}
-            <Select value={draft.yahooChartInterval ?? draft.effectiveYahooChartInterval} onValueChange={(value: "1m" | "2m" | "5m" | "15m") => setDraft((current) => ({ ...current, yahooChartInterval: value }))}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1m">1m</SelectItem>
-                <SelectItem value="2m">2m</SelectItem>
-                <SelectItem value="5m">5m</SelectItem>
-                <SelectItem value="15m">15m</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-            <span className="font-medium text-slate-800">{isZhTW ? "啟用盤中刷新" : "Enable intraday refresh"}</span>
-            <input type="checkbox" checked={draft.intradayEnabled ?? draft.effectiveIntradayEnabled} onChange={(event) => setDraft((current) => ({ ...current, intradayEnabled: event.target.checked }))} />
-          </label>
-          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-            <span className="font-medium text-slate-800">{isZhTW ? "僅常規時段" : "Regular session only"}</span>
-            <input type="checkbox" checked={draft.regularSessionOnly ?? draft.effectiveRegularSessionOnly} onChange={(event) => setDraft((current) => ({ ...current, regularSessionOnly: event.target.checked }))} />
-          </label>
-        </div>
-        <div>
-          <p className="text-sm font-medium text-slate-700">{isZhTW ? "支援市場" : "Supported markets"}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {(["TW", "US", "AU", "KR"] as const).map((market) => {
-              const selected = (draft.supportedMarkets ?? draft.effectiveSupportedMarkets).includes(market);
-              return (
-                <button
-                  key={market}
-                  type="button"
-                  className={cn("rounded-full border px-3 py-1.5 text-sm", selected ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-700")}
-                  onClick={() => setDraft((current) => ({
-                    ...current,
-                    supportedMarkets: selected
-                      ? (current.supportedMarkets ?? current.effectiveSupportedMarkets).filter((item) => item !== market)
-                      : [...(current.supportedMarkets ?? current.effectiveSupportedMarkets), market],
-                  }))}
-                >
-                  {market}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <Button type="button" onClick={() => void save()} disabled={saving} data-testid="admin-settings-save-ticker-price-freshness">
-            {saving ? (isZhTW ? "儲存中..." : "Saving...") : (isZhTW ? "儲存價格新鮮度設定" : "Save freshness settings")}
-          </Button>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <NumericOverrideRow
+            fieldKey="tickerPriceCloseRefreshGraceMinutes"
+            label={isZhTW ? "收盤寬限（分鐘）" : "Close grace minutes"}
+            description={isZhTW ? "市場收盤後等待多久才嘗試補齊當日收盤價。" : "Minutes to wait after market close before trying to fill the current daily close."}
+            override={settings.closeRefreshGraceMinutes}
+            effective={settings.effectiveCloseRefreshGraceMinutes}
+            bounds={settings.bounds.closeRefreshGraceMinutes}
+            unit="min"
+            inputTestId="admin-settings-input-tickerPriceCloseRefreshGraceMinutes"
+            onSave={(value) => saveField("closeRefreshGraceMinutes", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceSyncTickerCap"
+            label={isZhTW ? "同步刷新上限" : "Sync ticker cap"}
+            description={isZhTW ? "手動收盤刷新會同步處理的最大代號數，超出後排入背景佇列。" : "Maximum tickers a manual close refresh handles synchronously before queueing overflow."}
+            override={settings.syncTickerCap}
+            effective={settings.effectiveSyncTickerCap}
+            bounds={settings.bounds.syncTickerCap}
+            unit="tickers"
+            inputTestId="admin-settings-input-tickerPriceSyncTickerCap"
+            onSave={(value) => saveField("syncTickerCap", value)}
+          />
+          <TickerBooleanOverrideRow
+            fieldKey="tickerPriceIntradayEnabled"
+            label={isZhTW ? "啟用盤中刷新" : "Enable intraday refresh"}
+            description={isZhTW ? "市場開盤時允許持倉代號使用 Yahoo 盤中覆蓋價格。" : "Allow held tickers to use Yahoo intraday overlay prices while their market is open."}
+            override={settings.intradayEnabled}
+            effective={settings.effectiveIntradayEnabled}
+            isZhTW={isZhTW}
+            onSave={(value) => saveField("intradayEnabled", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceIntradayRefreshIntervalMinutes"
+            label={isZhTW ? "盤中刷新間隔（分鐘）" : "Intraday refresh interval"}
+            description={isZhTW ? "前端靜默輪詢 API 的目標間隔；也用於判斷覆蓋價格是否需要排程更新。" : "Target silent polling interval for API refreshes and stale-overlay enqueue decisions."}
+            override={settings.intradayRefreshIntervalMinutes}
+            effective={settings.effectiveIntradayRefreshIntervalMinutes}
+            bounds={settings.bounds.intradayRefreshIntervalMinutes}
+            unit="min"
+            inputTestId="admin-settings-input-tickerPriceIntradayRefreshIntervalMinutes"
+            onSave={(value) => saveField("intradayRefreshIntervalMinutes", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceIntradayFreshnessToleranceMinutes"
+            label={isZhTW ? "新鮮度容忍（分鐘）" : "Freshness tolerance"}
+            description={isZhTW ? "Yahoo 盤中 bar 可被標示為即時更新的最大延遲；超過後顯示延遲狀態。" : "Maximum Yahoo intraday bar age shown as updated; older same-day bars display delayed state."}
+            override={settings.intradayFreshnessToleranceMinutes}
+            effective={settings.effectiveIntradayFreshnessToleranceMinutes}
+            bounds={settings.bounds.intradayFreshnessToleranceMinutes}
+            unit="min"
+            inputTestId="admin-settings-input-tickerPriceIntradayFreshnessToleranceMinutes"
+            onSave={(value) => saveField("intradayFreshnessToleranceMinutes", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceYahooChartRequestLimitPerMinute"
+            label={isZhTW ? "Yahoo 每分鐘請求上限" : "Yahoo requests per minute"}
+            description={isZhTW ? "盤中刷新 worker 對 Yahoo chart endpoint 的每分鐘請求預算。" : "Per-minute request budget for the intraday worker's Yahoo chart endpoint calls."}
+            override={settings.yahooChartRequestLimitPerMinute}
+            effective={settings.effectiveYahooChartRequestLimitPerMinute}
+            bounds={settings.bounds.yahooChartRequestLimitPerMinute}
+            unit="/min"
+            inputTestId="admin-settings-input-tickerPriceYahooChartRequestLimitPerMinute"
+            onSave={(value) => saveField("yahooChartRequestLimitPerMinute", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceQueueConcurrency"
+            label={isZhTW ? "佇列並行數" : "Queue concurrency"}
+            description={isZhTW ? "盤中價格刷新 worker 可同時處理的工作數。" : "Number of intraday price refresh jobs the worker may process concurrently."}
+            override={settings.queueConcurrency}
+            effective={settings.effectiveQueueConcurrency}
+            bounds={settings.bounds.queueConcurrency}
+            unit="jobs"
+            inputTestId="admin-settings-input-tickerPriceQueueConcurrency"
+            onSave={(value) => saveField("queueConcurrency", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceMaxTickersPerRefreshCycle"
+            label={isZhTW ? "每輪最大代號數" : "Max tickers per cycle"}
+            description={isZhTW ? "每次頁面讀取最多排入盤中刷新的持倉代號數。" : "Maximum held ticker-market pairs a demand-triggered page read may enqueue."}
+            override={settings.maxTickersPerRefreshCycle}
+            effective={settings.effectiveMaxTickersPerRefreshCycle}
+            bounds={settings.bounds.maxTickersPerRefreshCycle}
+            unit="tickers"
+            inputTestId="admin-settings-input-tickerPriceMaxTickersPerRefreshCycle"
+            onSave={(value) => saveField("maxTickersPerRefreshCycle", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceRefreshCloseRateLimitWindowMs"
+            label={isZhTW ? "刷新視窗（毫秒）" : "Refresh endpoint window"}
+            description={isZhTW ? "手動收盤刷新 API 的使用者/IP 速率限制視窗。" : "User/IP rate-limit window for the manual close-refresh endpoint."}
+            override={settings.refreshCloseRateLimitWindowMs}
+            effective={settings.effectiveRefreshCloseRateLimitWindowMs}
+            bounds={settings.bounds.refreshCloseRateLimitWindowMs}
+            unit="ms"
+            inputTestId="admin-settings-input-tickerPriceRefreshCloseRateLimitWindowMs"
+            onSave={(value) => saveField("refreshCloseRateLimitWindowMs", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceRefreshCloseRateLimitMax"
+            label={isZhTW ? "刷新請求上限" : "Refresh endpoint max requests"}
+            description={isZhTW ? "每個速率限制視窗允許的手動收盤刷新請求數。" : "Maximum manual close-refresh requests allowed per rate-limit window."}
+            override={settings.refreshCloseRateLimitMax}
+            effective={settings.effectiveRefreshCloseRateLimitMax}
+            bounds={settings.bounds.refreshCloseRateLimitMax}
+            unit="requests"
+            inputTestId="admin-settings-input-tickerPriceRefreshCloseRateLimitMax"
+            onSave={(value) => saveField("refreshCloseRateLimitMax", value)}
+          />
+          <TickerBooleanOverrideRow
+            fieldKey="tickerPriceRegularSessionOnly"
+            label={isZhTW ? "僅常規時段" : "Regular session only"}
+            description={isZhTW ? "只在常規現貨交易時段使用盤中覆蓋價格；盤前、盤後與競價不納入 MVP。" : "Use intraday overlay prices only during regular cash-market sessions; pre/post-market stays out of scope."}
+            override={settings.regularSessionOnly}
+            effective={settings.effectiveRegularSessionOnly}
+            isZhTW={isZhTW}
+            onSave={(value) => saveField("regularSessionOnly", value)}
+          />
+          <TickerSelectOverrideRow<TickerPriceFreshnessYahooChartRange>
+            fieldKey="tickerPriceYahooChartRange"
+            label={isZhTW ? "Yahoo chart range" : "Yahoo chart range"}
+            description={isZhTW ? "Yahoo chart 查詢範圍；worker 會轉換成 SDK 支援的期間參數。" : "Yahoo chart lookup range; the worker translates this into SDK-compatible period options."}
+            allowedValuesLabel={isZhTW ? "允許值：" : "Allowed values:"}
+            override={settings.yahooChartRange}
+            effective={settings.effectiveYahooChartRange}
+            options={settings.options.yahooChartRanges}
+            onSave={(value) => saveField("yahooChartRange", value)}
+          />
+          <TickerSelectOverrideRow<TickerPriceFreshnessYahooChartInterval>
+            fieldKey="tickerPriceYahooChartInterval"
+            label={isZhTW ? "Yahoo chart interval" : "Yahoo chart interval"}
+            description={isZhTW ? "Yahoo chart bar 間隔；用於選取同一市場日期最新的非空 close。" : "Yahoo chart bar interval used to select the latest same-market-date non-null close."}
+            allowedValuesLabel={isZhTW ? "允許值：" : "Allowed values:"}
+            override={settings.yahooChartInterval}
+            effective={settings.effectiveYahooChartInterval}
+            options={settings.options.yahooChartIntervals}
+            onSave={(value) => saveField("yahooChartInterval", value)}
+          />
+          <TickerMarketListOverrideRow
+            fieldKey="tickerPriceSupportedMarkets"
+            label={isZhTW ? "支援市場" : "Supported markets"}
+            description={isZhTW ? "允許盤中覆蓋與收盤刷新規則作用的市場。" : "Markets eligible for intraday overlay and close-refresh freshness rules."}
+            allowedValuesLabel={isZhTW ? "允許值：" : "Allowed values:"}
+            override={settings.supportedMarkets}
+            effective={settings.effectiveSupportedMarkets}
+            options={settings.options.supportedMarkets}
+            onSave={(value) => saveField("supportedMarkets", value)}
+          />
         </div>
       </div>
     </Card>
