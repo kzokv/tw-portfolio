@@ -303,6 +303,13 @@ superseded_by: null
   - `git diff --check` passed.
   - `npm run typecheck` passed.
   - `npm run test --prefix apps/web` passed: first pass `48` files / `284` tests; second pass `58` files / `405` tests.
+- Codex review follow-up after `dae1eb51` on `2026-06-18`:
+  - Ticker details routes now pass the full trading-calendar cache into displayed quote resolution, preserving `getTradingDates` fallback behavior for same-day open-market sessions before a daily bar exists.
+  - Yahoo chart close fallback now uses the caller's same-day post-close `now`; when refreshing older requested dates, it queries a market-local after-close timestamp for the requested bar date instead of noon UTC.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/tickerDetails.test.ts apps/api/test/unit/market-data/yahooFinanceIntradayProvider.test.ts` (`2` files / `18` tests).
+  - Targeted ESLint passed for touched ticker-details, route, Yahoo close fallback, and unit test files.
+  - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
+  - `git diff --check` passed.
 
 ## References
 

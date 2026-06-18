@@ -25,6 +25,7 @@ import {
 import {
   getRegularSessionState,
   isRegularSessionMarketCode,
+  type RegularSessionClock,
 } from "./market-data/marketRegularSession.js";
 import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
@@ -46,7 +47,7 @@ interface BuildTickerDetailsInput {
   endDate?: string;
   loadChart?: boolean;
   getSettledTradingDay?: (marketCode: MarketCode) => Promise<string | null>;
-  isTradingDay?: (marketCode: MarketCode, date: string) => Promise<boolean>;
+  tradingCalendar?: RegularSessionClock;
   enqueueIntradayRefresh?: (input: { ticker: string; marketCode: MarketCode; now: Date }) => Promise<void>;
   fundamentalsRecord: PersistedTickerFundamentalsRecord | null;
   now?: Date;
@@ -112,14 +113,14 @@ export async function buildTickerDetails(
   const settledTradingDay = input.getSettledTradingDay
     ? await input.getSettledTradingDay(resolvedMarketCode)
     : null;
-  const quote = input.isTradingDay
+  const quote = input.tradingCalendar
     ? await buildQuoteForTicker({
         persistence: input.persistence,
         ticker: normalizedTicker,
         marketCode: resolvedMarketCode,
         settledTradingDay,
         hasHeldPosition: quantityForHoldings(filteredHoldings) > 0,
-        isTradingDay: { isTradingDay: input.isTradingDay },
+        tradingCalendar: input.tradingCalendar,
         enqueueIntradayRefresh: input.enqueueIntradayRefresh,
         now: input.now,
       })
@@ -527,11 +528,11 @@ async function buildQuoteForTicker(input: {
   marketCode: MarketCode;
   settledTradingDay: string | null;
   hasHeldPosition: boolean;
-  isTradingDay?: { isTradingDay(marketCode: MarketCode, date: string): Promise<boolean> };
+  tradingCalendar?: RegularSessionClock;
   enqueueIntradayRefresh?: (input: { ticker: string; marketCode: MarketCode; now: Date }) => Promise<void>;
   now?: Date;
 }): Promise<TickerDetailsDto["quote"]> {
-  if (!input.isTradingDay) {
+  if (!input.tradingCalendar) {
     return buildQuoteFromBars(
       (await loadTickerQuoteBars(input.persistence, input.ticker, input.marketCode)).quoteBars,
       input.settledTradingDay,
@@ -554,14 +555,14 @@ async function buildQuoteForTicker(input: {
     {
       mode: input.hasHeldPosition ? "displayed" : "daily_only",
       now,
-      tradingCalendar: input.isTradingDay,
+      tradingCalendar: input.tradingCalendar,
       heldPairs: input.hasHeldPosition ? new Set([`${input.ticker}:${input.marketCode}`]) : new Set<string>(),
     },
   );
   const snapshot = snapshotMap[`${input.ticker}:${input.marketCode}`];
   if (!snapshot) {
     const session = isRegularSessionMarketCode(input.marketCode)
-      ? await getRegularSessionState(input.marketCode, input.isTradingDay, now)
+      ? await getRegularSessionState(input.marketCode, input.tradingCalendar, now)
       : null;
     return {
       currentUnitPrice: null,
