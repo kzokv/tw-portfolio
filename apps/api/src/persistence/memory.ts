@@ -3038,11 +3038,23 @@ export class MemoryPersistence implements Persistence {
   }
 
   _seedDailyBars(bars: SeedDailyBar[]): void {
-    this.dailyBars.push(...bars.map((bar) => ({
-      ...bar,
-      marketCode: bar.marketCode ?? "TW",
-      quality: bar.quality ?? "full_bar",
-    })));
+    for (const bar of bars) {
+      const next = {
+        ...bar,
+        marketCode: bar.marketCode ?? "TW",
+        quality: bar.quality ?? "full_bar",
+      };
+      const existingIndex = this.dailyBars.findIndex((current) => (
+        current.ticker === next.ticker
+        && current.marketCode === next.marketCode
+        && current.barDate === next.barDate
+      ));
+      if (existingIndex >= 0) {
+        this.dailyBars[existingIndex] = next;
+      } else {
+        this.dailyBars.push(next);
+      }
+    }
   }
   _clearDailyBars(): void { this.dailyBars.length = 0; }
   _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
