@@ -113,4 +113,44 @@ describe("closeRefreshService", () => {
     expect(result.items[0]).toMatchObject({ status: "current", barDate: "2026-06-17" });
     expect(fetchBars).not.toHaveBeenCalled();
   });
+
+  it("refreshes an existing close-only row so it can upgrade to a full bar", async () => {
+    const fullBar = rawBar({ sourceId: "primary", volume: 54_321 });
+    const fetchBars = vi.fn().mockResolvedValue([fullBar]);
+    const upsertBars = vi.fn();
+    const result = await runCloseRefresh({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      persistence: {
+        getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([{
+          ...rawBar({ sourceId: "twse-stock-day-close", volume: 0 }),
+          marketCode: "TW",
+          source: "twse-stock-day-close",
+          quality: "close_only",
+          ingestedAt: "2026-06-17T06:00:00.000Z",
+        }]),
+      },
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["TW", provider(fetchBars)]]),
+      fallbackProviders: {
+        twseStockDay: { fetchCloseOnlyBar: vi.fn() },
+      },
+      upsertBars,
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T05:45:00.000Z"),
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(fetchBars).toHaveBeenCalledWith("2330", "2026-06-17", "2026-06-17");
+    expect(result.items[0]).toMatchObject({
+      status: "refreshed",
+      barDate: "2026-06-17",
+      quality: "full_bar",
+      source: "primary",
+    });
+    expect(upsertBars).toHaveBeenCalledWith(
+      [expect.objectContaining({ quality: "full_bar", volume: 54_321 })],
+      "TW",
+    );
+  });
 });
