@@ -5229,7 +5229,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
-      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      tradingCalendar: app.tradingCalendarCache,
       enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
     return {
@@ -5272,7 +5272,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
-      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      tradingCalendar: app.tradingCalendarCache,
       enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
     const latestFundamentals = preferredMarketCode === marketCode
@@ -5345,7 +5345,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       endDate: query.endDate,
       fundamentalsRecord,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
-      isTradingDay: async (resolvedMarket, date) => app.tradingCalendarCache.isTradingDay(resolvedMarket, date),
+      tradingCalendar: app.tradingCalendarCache,
       enqueueIntradayRefresh: (pair) => enqueueDisplayedTickerRefresh(app, pair),
     });
 
