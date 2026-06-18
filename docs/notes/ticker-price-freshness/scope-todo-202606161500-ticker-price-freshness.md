@@ -355,6 +355,14 @@ superseded_by: null
   - Targeted ESLint passed for touched memory persistence source and regression-test files.
   - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
   - `git diff --check` passed.
+- Final validation follow-up after `d2387c33` on `2026-06-18`:
+  - Public share auth guard now treats `/share` and `/share/*` as public routes, fixing the validation finding where an unauthenticated public read-only share URL redirected to login.
+  - Ticker detail now renders `ticker-price-state-chip` with the same popover disclosure as the dashboard/portfolio chips, so the ticker-page price-state chip exposes basis, market state, source, quality, delay, and time-zone details.
+  - Focused web verification passed: `cd apps/web && npx vitest run test/app/tickers/TickerHistoryClient.test.tsx test/proxy.test.ts` (`2` files / `25` tests).
+  - Codex review was requested for `d2387c33`; `chatgpt-codex-connector[bot]` responded at `2026-06-18T15:30:25Z` with no major issues for reviewed commit `d2387c33f5`.
+  - PR #225 checks at `d2387c33` were green for `lint`, `pr-gate`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `e2e-oauth`, and `docker-build-validation`; `e2e-bypass` remained pending in GitHub Actions while stuck in the runner dependency step `Run npx playwright install --with-deps`.
+  - Dev deploy attempts `27771484391` and `27772150948` did not reach QNAP deployment. Both stalled before SSH in GitHub Actions at `_deploy-reusable.yml` step `Install WARP`; run `27772150948` was cancelled after the repeated pre-SSH WARP stall. The QNAP dev stack stayed healthy with `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running.
+  - The temporary public read-only validation token `1b4eaecc-8f6f-4002-bc98-db1f9c1a4187` was revoked directly in the dev database after validation because the follow-up deploy was blocked before the public-share auth fix could be live-validated.
 
 ## References
 
