@@ -278,6 +278,31 @@ superseded_by: null
     - `npm run test:e2e:bypass:mem --prefix apps/web` passed: `280` tests passed, `12` skipped.
     - `npm run test:e2e:oauth:mem --prefix apps/web` passed: `120` tests passed.
     - `npm run test:http --prefix apps/api` passed: `291` tests passed, `2` skipped.
+- Dev deploy and non-Chrome live validation after `e3cd9e92` on `2026-06-18`:
+  - CI for PR #225 passed on `e3cd9e927a0ff3cefc650c5cc86d891640ff419a`: `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `docker-build-validation`, `deploy-config-validation`, `e2e-bypass`, `e2e-oauth`, and `pr-gate`.
+  - Dev deploy run `27735526987` succeeded for branch `codex/ticker-price-freshness` at `e3cd9e927a0ff3cefc650c5cc86d891640ff419a`.
+  - QNAP Dev containers were healthy after deploy: `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared`.
+  - Live readiness passed: `/health/live` returned `200 {"status":"ok"}` and `/health/ready` returned `200 {"status":"ready","dependencies":{"backend":"postgres","postgres":true,"redis":true}}`.
+  - Live dashboard enrichment logs showed `intraday_demand_refresh_enqueue_completed` with `considered=4`, `open=3`, `staleOrMissing=3`, `enqueued=3`, then completed Yahoo chart intraday jobs for `2330/TW`, `3714/TW`, and `000660/KR`.
+  - Redis intraday overlays confirmed Yahoo chart data was persisted:
+    - `intraday-overlay:TW:2330`: price `2390`, previous close `2385`, `asOfDate=2026-06-18`, `asOfTimestamp=2026-06-18T03:54:43.000Z`, source `yahoo-finance-chart`.
+    - `intraday-overlay:TW:3714`: price `67.9000015258789`, previous close `65.9`, `asOfDate=2026-06-18`, `asOfTimestamp=2026-06-18T03:54:45.000Z`, source `yahoo-finance-chart`.
+    - `intraday-overlay:KR:000660`: price `2667000`, previous close `2521000`, `asOfDate=2026-06-18`, `asOfTimestamp=2026-06-18T03:50:47.000Z`, source `yahoo-finance-chart`.
+    - `intraday-overlay:US:AVGO`: absent while US market was closed.
+  - Daily bars remained daily-bar sourced, proving intraday overlays were not stored as daily-bar rows: TW rows latest `2026-06-17` from `finmind`, KR row latest `2026-06-18` from `yahoo-finance-kr`, and US row latest `2026-06-17` from `finmind-us`.
+  - Live app-config row had null overrides for the grouped ticker freshness fields, so deployed defaults applied: intraday enabled, 5-minute refresh interval, 120 Yahoo chart requests/minute, queue concurrency 4, max 100 tickers/cycle, supported markets all market codes, regular-session only, Yahoo chart range `5d`, interval `1m`, close-refresh rate limit 10/minute, sync cap 25.
+  - A 90-second live log sample showed no old 15-second repeated `/dashboard/primary` polling pattern. Dashboard and portfolio startup/route loads hit `/dashboard/primary` or `/portfolio/primary`, while periodic price refresh used `/dashboard/enrichment` and `/portfolio/enrichment`.
+  - API logs for the post-deploy validation window showed no `yahooFinance.chart Invalid options`, `intraday_refresh_failed`, overlay write failure, `429`, or ticker-price rate-limit failures.
+  - Chrome UI validation remains pending because the Codex Chrome Extension session could list tabs but could not claim or create a tab. Chrome was running, the Codex Chrome Extension was installed/enabled, and the native host manifest was valid; extension recovery requires opening a fresh Chrome window for the selected profile before retrying.
+- Local ticker-page refresh fix after user report on `2026-06-18`:
+  - Ticker detail SSR now hydrates from `/tickers/:ticker/primary` instead of only dashboard-derived holdings, so the first client state carries the API-resolved quote, price state, and intraday source metadata needed to enter open-market polling.
+  - Ticker detail open-market polling now uses the effective ticker-price-freshness intraday interval from admin settings and keeps the details ref synchronized after each refresh, avoiding stale reference reuse on subsequent silent refreshes.
+  - Primary ticker mapping preserves chart and fundamentals fallback data while replacing quote, position, holding-group, account-breakdown, and dividend summary from the primary endpoint.
+  - Focused verification passed: `cd apps/web && npx vitest run test/features/portfolio/services/tickerDetailsService.test.ts test/app/tickers/tickerHistoryPage.test.tsx test/app/tickers/TickerHistoryClient.test.tsx` (`3` files / `30` tests).
+  - Targeted ESLint passed for touched ticker page/client/service and test files.
+  - `git diff --check` passed.
+  - `npm run typecheck` passed.
+  - `npm run test --prefix apps/web` passed: first pass `48` files / `284` tests; second pass `58` files / `405` tests.
 
 ## References
 
