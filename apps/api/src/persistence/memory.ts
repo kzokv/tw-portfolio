@@ -3050,6 +3050,8 @@ export class MemoryPersistence implements Persistence {
         && current.barDate === next.barDate
       ));
       if (existingIndex >= 0) {
+        const existing = this.dailyBars[existingIndex]!;
+        if (existing.quality === "full_bar" && next.quality === "close_only") continue;
         this.dailyBars[existingIndex] = next;
       } else {
         this.dailyBars.push(next);

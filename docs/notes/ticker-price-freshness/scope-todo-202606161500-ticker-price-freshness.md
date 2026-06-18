@@ -350,8 +350,8 @@ superseded_by: null
   - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
   - `git diff --check` passed.
 - Codex review follow-up after `6afe3586` on `2026-06-18`:
-  - Memory persistence now replaces matching `(ticker, marketCode, barDate)` daily-bar rows, mirroring Postgres upsert semantics so same-day `close_only` rows do not survive alongside later `full_bar` upgrades in memory-backed dev/E2E runs.
-  - Focused verification passed: `npx vitest run apps/api/test/unit/tradingCalendarPersistence.test.ts apps/api/test/unit/market-data/closeRefreshService.test.ts apps/api/test/integration/refresh-closes.integration.test.ts` (`3` files / `10` tests).
+  - Memory persistence now mirrors Postgres daily-bar conflict semantics: same-day `close_only` rows are replaced by later `full_bar` upgrades, while existing `full_bar` rows are preserved if a later `close_only` fallback arrives in memory-backed dev/E2E runs.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/tradingCalendarPersistence.test.ts apps/api/test/unit/market-data/closeRefreshService.test.ts apps/api/test/integration/refresh-closes.integration.test.ts` (`3` files / `11` tests).
   - Targeted ESLint passed for touched memory persistence source and regression-test files.
   - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
   - `git diff --check` passed.
