@@ -59,4 +59,42 @@ describe("trading calendar persistence helpers", () => {
       "2026-05-03",
     ]);
   });
+
+  it("MemoryPersistence._seedDailyBars replaces matching ticker-market-date rows", async () => {
+    const persistence = new MemoryPersistence();
+    persistence._seedDailyBars([{
+      ticker: "2330",
+      marketCode: "TW",
+      barDate: "2026-06-17",
+      open: 2385,
+      high: 2385,
+      low: 2385,
+      close: 2385,
+      volume: 0,
+      source: "twse-stock-day-close",
+      quality: "close_only",
+      ingestedAt: "2026-06-17T06:00:00.000Z",
+    }]);
+    persistence._seedDailyBars([{
+      ticker: "2330",
+      marketCode: "TW",
+      barDate: "2026-06-17",
+      open: 2390,
+      high: 2420,
+      low: 2380,
+      close: 2410,
+      volume: 123_456,
+      source: "finmind",
+      quality: "full_bar",
+      ingestedAt: "2026-06-17T07:00:00.000Z",
+    }]);
+
+    await expect(persistence.getDailyBarsForTickerMarket("2330", "TW", "2026-06-17", "2026-06-17"))
+      .resolves.toEqual([expect.objectContaining({
+        close: 2410,
+        volume: 123_456,
+        source: "finmind",
+        quality: "full_bar",
+      })]);
+  });
 });
