@@ -7,7 +7,7 @@ describe("priceState freshness helpers", () => {
     const pendingTodayClose = {
       priceState: testPriceState({
         basis: "pending_today_close",
-        chipState: "closed",
+        chipState: "closed_pending",
         marketState: "closed",
       }),
     };
@@ -31,6 +31,7 @@ describe("priceState freshness helpers", () => {
     expect(getPriceStateToneClassName(testPriceState({ chipState: "open_fresh" }))).toContain("success");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "open_delayed" }))).toBe("bg-warning");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "open_previous_close" }))).toBe("bg-warning");
+    expect(getPriceStateToneClassName(testPriceState({ basis: "pending_today_close", chipState: "closed_pending" }))).toBe("bg-warning");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "closed" }))).toBe("bg-slate-400");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "missing", basis: "missing" }))).toBe("bg-destructive");
   });

@@ -161,6 +161,35 @@ describe("PriceStateChip", () => {
     const closedChip = document.querySelector("[data-testid='price-state-chip']");
     expect(closedChip?.textContent).toContain("Closed");
     expect(closedChip?.querySelector("[aria-hidden='true']")?.className).toContain("bg-slate-400");
+
+    act(() => {
+      root.render(
+        <PriceStateChip
+          dict={dict}
+          locale="en"
+          testId="price-state-chip"
+          priceState={{
+            basis: "pending_today_close",
+            chipState: "closed_pending",
+            marketState: "closed",
+            source: "yahoo-finance-chart",
+            sourceKind: "intraday_yahoo_chart",
+            asOfDate: "2026-06-18",
+            asOfTimestamp: "2026-06-18T05:30:00.000Z",
+            observedAt: "2026-06-18T05:31:00.000Z",
+            delaySeconds: 1800,
+            marketTimeZone: "Asia/Taipei",
+            quality: null,
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const pendingCloseChip = document.querySelector("[data-testid='price-state-chip']");
+    expect(pendingCloseChip?.textContent).toContain("Pending today close");
+    expect(pendingCloseChip?.querySelector("[aria-hidden='true']")?.className).toContain("bg-warning");
   });
 
   it("can render as non-interactive text for use inside another button", async () => {

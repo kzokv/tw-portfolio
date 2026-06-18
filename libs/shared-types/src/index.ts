@@ -365,6 +365,7 @@ export type PriceStateChipStateDto =
   | "open_fresh"
   | "open_delayed"
   | "open_previous_close"
+  | "closed_pending"
   | "closed"
   | "stale"
   | "missing";

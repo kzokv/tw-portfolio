@@ -217,7 +217,6 @@ function resolveSnapshotForPair(input: {
 
   const session = displayContext.sessionByMarket.get(pair.marketCode);
   if (!session) return dailySnapshot;
-  if (displayContext.regularSessionOnly && !session.isOpen) return dailySnapshot;
 
   const overlay = displayContext.overlaysByKey.get(key);
   if (!overlay || overlay.asOfDate !== session.localDate) {
@@ -229,7 +228,9 @@ function resolveSnapshotForPair(input: {
     };
   }
 
-  const overlayPreviousClose = overlay.previousClose ?? previousClose;
+  if (latest.barDate >= overlay.asOfDate) return dailySnapshot;
+
+  const overlayPreviousClose = overlay.previousClose ?? latest.close;
   const change = overlayPreviousClose === null || overlayPreviousClose === 0
     ? null
     : overlay.price - overlayPreviousClose;
@@ -237,6 +238,35 @@ function resolveSnapshotForPair(input: {
     ? null
     : (change! / overlayPreviousClose) * 100;
   const delaySeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(overlay.asOfTimestamp)) / 1000));
+
+  if (displayContext.regularSessionOnly && !session.isOpen) {
+    return {
+      ticker: pair.ticker,
+      marketCode: pair.marketCode,
+      close: overlay.price,
+      previousClose: overlayPreviousClose,
+      change,
+      changePercent,
+      asOf: overlay.asOfTimestamp,
+      source: overlay.source,
+      isProvisional: false,
+      dailyCompatibleClose: latest.close,
+      priceState: {
+        basis: "pending_today_close",
+        chipState: "closed_pending",
+        marketState: "closed",
+        source: overlay.source,
+        sourceKind: overlay.sourceKind,
+        asOfDate: overlay.asOfDate,
+        asOfTimestamp: overlay.asOfTimestamp,
+        observedAt: overlay.observedAt,
+        delaySeconds,
+        marketTimeZone: session.marketTimeZone,
+        quality: null,
+      },
+    };
+  }
+
   const basis: PriceStateBasisDto = delaySeconds <= displayContext.freshnessToleranceSeconds
     ? "intraday"
     : "delayed_intraday";
@@ -313,7 +343,7 @@ function buildDailyPriceState(
 
   if (settled && latest.barDate < settled) {
     basis = session?.isTradingDay && session.localDate === settled ? "pending_today_close" : "stale_close";
-    chipState = basis === "stale_close" ? "stale" : "closed";
+    chipState = basis === "stale_close" ? "stale" : "closed_pending";
   } else if (marketState === "open") {
     basis = "previous_close";
     chipState = "open_previous_close";
