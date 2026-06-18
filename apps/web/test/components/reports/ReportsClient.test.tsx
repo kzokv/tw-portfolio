@@ -156,6 +156,34 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         freshnessCurrent: "Fresh",
         freshnessStale: "Stale",
         freshnessDelayed: "Delayed",
+        priceStateUpdated: "Updated {relative}",
+        priceStateDelayed: "Delayed {relative}",
+        priceStatePreviousClose: "Previous close",
+        priceStateClosed: "Closed",
+        priceStateStale: "Stale close",
+        priceStateUnavailable: "Unavailable",
+        priceStateBasisLabel: "Basis",
+        priceStateMarketStateLabel: "Market",
+        priceStateAsOfLabel: "As of",
+        priceStateObservedAtLabel: "Observed",
+        priceStateSourceLabel: "Source",
+        priceStateQualityLabel: "Quality",
+        priceStateDelayLabel: "Delay",
+        priceStateTimeZoneLabel: "Time zone",
+        priceStateUnknownValue: "Unknown",
+        priceStateBasisIntraday: "Intraday",
+        priceStateBasisDelayedIntraday: "Delayed intraday",
+        priceStateBasisPreviousClose: "Previous close",
+        priceStateBasisTodayClose: "Today close",
+        priceStateBasisPendingTodayClose: "Pending today close",
+        priceStateBasisStaleClose: "Stale close",
+        priceStateBasisMissing: "Missing",
+        priceStateMarketOpen: "Open",
+        priceStateMarketClosed: "Closed",
+        priceStateQualityFullBar: "Full bar",
+        priceStateQualityCloseOnly: "Close only",
+        priceStateDelaySeconds: "{count} seconds",
+        priceStateDelayMinutes: "{count} minutes",
         avgCostTerm: "Avg Cost",
         unitPnlTerm: "Unit P&L",
         columnSettingsButtonLabel: "Columns",
@@ -467,6 +495,21 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-today-severity-quotes']")?.textContent).toContain("Warning");
     expect(document.querySelector("[data-testid='reports-today-severity-fx']")?.className).toContain("text-destructive");
     expect(document.querySelector("[data-testid='reports-today-severity-fx']")?.textContent).toContain("Critical");
+  });
+
+  it("renders report price-state chips outside the price disclosure button", async () => {
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const chips = Array.from(document.querySelectorAll("[data-testid='reports-price-state-BHP-AU']"));
+    expect(chips.length).toBeGreaterThan(0);
+    for (const chip of chips) {
+      expect(chip.tagName).toBe("BUTTON");
+      expect(chip.parentElement?.closest("button")).toBeNull();
+    }
   });
 
   it("hydrates report holdings column order and widths from backend preferences", async () => {

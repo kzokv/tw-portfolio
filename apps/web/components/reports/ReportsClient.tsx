@@ -1868,42 +1868,44 @@ function PriceDisclosure({
   const hasNativeDisclosure = row.nativeCurrency !== row.reportingCurrency;
   const priceState = getPriceState(row);
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex max-w-full flex-col items-start rounded-md text-left font-mono tabular-nums text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[align=end]:items-end data-[align=end]:text-right"
-          data-align={align}
-          aria-label={`${dict.reports.priceTranslationTitle}: ${row.ticker}`}
-        >
-          <span className="font-semibold">
-            {formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)}
-          </span>
-          {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`reports-price-state-${row.ticker}-${row.marketCode}`} /> : null}
-          {hasNativeDisclosure ? (
-            <span className="text-xs text-muted-foreground">
-              {dict.reports.nativePrice} {formatOptionalNativePrice(row, locale)}
+    <div className="inline-flex max-w-full flex-col items-start data-[align=end]:items-end data-[align=end]:text-right" data-align={align}>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex max-w-full flex-col items-start rounded-md text-left font-mono tabular-nums text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[align=end]:items-end data-[align=end]:text-right"
+            data-align={align}
+            aria-label={`${dict.reports.priceTranslationTitle}: ${row.ticker}`}
+          >
+            <span className="font-semibold">
+              {formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)}
             </span>
-          ) : null}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align={align} className="w-80 p-3">
-        <div className="flex flex-col gap-3">
-          <div>
-            <p className="text-sm font-semibold text-foreground">{dict.reports.priceTranslationTitle}</p>
-            <p className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.reportingCurrencySentence, { currency: row.reportingCurrency })}</p>
+            {hasNativeDisclosure ? (
+              <span className="text-xs text-muted-foreground">
+                {dict.reports.nativePrice} {formatOptionalNativePrice(row, locale)}
+              </span>
+            ) : null}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align={align} className="w-80 p-3">
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{dict.reports.priceTranslationTitle}</p>
+              <p className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.reportingCurrencySentence, { currency: row.reportingCurrency })}</p>
+            </div>
+            <DetailRow label={formatReportMessage(dict.reports.reportingPriceWithCurrency, { currency: row.reportingCurrency })} value={formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)} />
+            {hasNativeDisclosure ? (
+              <>
+                <DetailRow label={formatReportMessage(dict.reports.nativePriceWithCurrency, { currency: row.nativeCurrency })} value={formatOptionalNativePrice(row, locale)} />
+                <DetailRow label={dict.reports.fxRate} value={formatOptionalFxRate(row)} />
+              </>
+            ) : null}
+            <DetailRow label={dict.reports.quoteStatus} value={getQuoteStatusLabel(dict, row.quoteStatus)} />
           </div>
-          <DetailRow label={formatReportMessage(dict.reports.reportingPriceWithCurrency, { currency: row.reportingCurrency })} value={formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)} />
-          {hasNativeDisclosure ? (
-            <>
-              <DetailRow label={formatReportMessage(dict.reports.nativePriceWithCurrency, { currency: row.nativeCurrency })} value={formatOptionalNativePrice(row, locale)} />
-              <DetailRow label={dict.reports.fxRate} value={formatOptionalFxRate(row)} />
-            </>
-          ) : null}
-          <DetailRow label={dict.reports.quoteStatus} value={getQuoteStatusLabel(dict, row.quoteStatus)} />
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+      {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`reports-price-state-${row.ticker}-${row.marketCode}`} /> : null}
+    </div>
   );
 }
 

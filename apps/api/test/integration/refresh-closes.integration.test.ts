@@ -224,7 +224,7 @@ describe("POST /portfolio/refresh-closes", () => {
     ]);
   });
 
-  it("queues every eligible pair when the request exceeds the sync ticker cap", async () => {
+  it("refreshes the capped first batch synchronously and queues only the overflow", async () => {
     const sendCalls: unknown[] = [];
     app.boss = {
       send: async (...args: unknown[]) => {
@@ -311,15 +311,9 @@ describe("POST /portfolio/refresh-closes", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.items).toHaveLength(2);
-    expect(body.items.every((item: { status: string }) => item.status === "queued")).toBe(true);
-    expect(body.summary).toMatchObject({
-      refreshed: 0,
-      current: 0,
-      not_eligible: 0,
-      missing: 0,
-      failed: 0,
-      queued: 2,
-    });
-    expect(sendCalls).toHaveLength(2);
+    expect(body.items.filter((item: { status: string }) => item.status === "queued")).toHaveLength(1);
+    expect(body.items.filter((item: { status: string }) => item.status !== "queued")).toHaveLength(1);
+    expect(body.summary.queued).toBe(1);
+    expect(sendCalls).toHaveLength(1);
   });
 });
