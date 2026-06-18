@@ -327,6 +327,14 @@ superseded_by: null
   - Targeted ESLint passed for touched API, web, and shared-types files.
   - `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json` passed after rebuilding `@vakwen/shared-types`.
   - `git diff --check` passed.
+- Codex review follow-up after `ef5e9c23` on `2026-06-18`:
+  - Closed-session overlays now report `chipState=closed_pending` / `marketState=closed` even when admin disables `regularSessionOnly`, avoiding misleading `open_*` state after market close.
+  - Manual close-refresh overflow queueing now treats pg-boss singleton de-dupe (`send()` returns `null` while a boss exists) as `queued` instead of `failed`; only missing queue infrastructure reports `close_refresh_queue_unavailable`.
+  - Ticker-price freshness E2E helpers no longer set explicit 10-second per-assertion timeouts and still avoid raw Playwright `expect` in AAA specs.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/quoteSnapshotService.test.ts apps/api/test/integration/refresh-closes.integration.test.ts` (`2` files / `23` tests).
+  - Focused E2E verification passed: `npx playwright test tests/e2e/specs/ticker-price-freshness-aaa.spec.ts --config=apps/web/tests/e2e/playwright.config.ts` (`2` tests).
+  - Targeted ESLint passed for touched API and E2E files.
+  - `git diff --check` passed.
 
 ## References
 

@@ -464,7 +464,7 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.sourceKind).toBe("primary_daily");
   });
 
-  it("uses after-hours intraday overlays when regular-session-only is disabled", async () => {
+  it("reports closed-session overlays as pending close when regular-session-only is disabled", async () => {
     await seedCache(
       { tickerPriceRegularSessionOnly: false },
       { _resetAppConfigCache, refresh, setAppConfigCachePersistence },
@@ -502,7 +502,9 @@ describe("resolveQuoteSnapshots", () => {
 
     expect(result["2330"]?.close).toBe(1015);
     expect(result["2330"]?.dailyCompatibleClose).toBe(998);
-    expect(result["2330"]?.priceState.marketState).toBe("open");
+    expect(result["2330"]?.priceState.marketState).toBe("closed");
+    expect(result["2330"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["2330"]?.priceState.chipState).toBe("closed_pending");
     expect(result["2330"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
   });
 });

@@ -83,14 +83,14 @@ test.describe("ticker price freshness", () => {
 });
 
 async function assertVisible(locator: Locator, description: string): Promise<void> {
-  await locator.waitFor({ state: "visible", timeout: 10_000 }).catch((error: unknown) => {
+  await locator.waitFor({ state: "visible" }).catch((error: unknown) => {
     throw new Error(`Expected ${description} to be visible: ${String(error)}`);
   });
 }
 
 async function assertContainsText(locator: Locator, pattern: RegExp, description: string): Promise<void> {
   await assertVisible(locator, description);
-  const text = await locator.textContent({ timeout: 10_000 });
+  const text = await locator.textContent();
   if (!pattern.test(text ?? "")) {
     throw new Error(`Expected ${description} to match ${pattern}, got ${JSON.stringify(text)}`);
   }
