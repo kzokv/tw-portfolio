@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
 import {
@@ -42,6 +42,8 @@ export function PriceStateChip({
   testId?: string;
 }) {
   const [clientNow, setClientNow] = useState<number | null>(null);
+  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+  const closePopoverTimerRef = useRef<number | null>(null);
   const label = formatPriceStateLabel(dict, locale, priceState, clientNow ?? getInitialPriceStateNow(priceState));
   useEffect(() => {
     if (!priceState || !priceState.chipState.startsWith("open_")) return;
@@ -49,6 +51,13 @@ export function PriceStateChip({
     const timer = window.setInterval(() => setClientNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [priceState]);
+  useEffect(() => {
+    return () => {
+      if (closePopoverTimerRef.current !== null) {
+        window.clearTimeout(closePopoverTimerRef.current);
+      }
+    };
+  }, []);
 
   if (!priceState || !label) return null;
   const tooltipRows = formatPriceStateTooltip(dict, locale, priceState);
@@ -62,6 +71,22 @@ export function PriceStateChip({
       className={`h-2 w-2 rounded-full ${getPriceStateToneClassName(priceState)}`}
     />
   );
+  const clearPopoverCloseTimer = () => {
+    if (closePopoverTimerRef.current === null) return;
+    window.clearTimeout(closePopoverTimerRef.current);
+    closePopoverTimerRef.current = null;
+  };
+  const openPopover = () => {
+    clearPopoverCloseTimer();
+    setIsPopoverOpen(true);
+  };
+  const closePopoverSoon = () => {
+    clearPopoverCloseTimer();
+    closePopoverTimerRef.current = window.setTimeout(() => {
+      setIsPopoverOpen(false);
+      closePopoverTimerRef.current = null;
+    }, 120);
+  };
 
   if (!interactive) {
     return (
@@ -78,13 +103,15 @@ export function PriceStateChip({
 
   if (disclosure === "popover") {
     return (
-      <Popover>
+      <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label={label}
             className={chipClassName}
             data-testid={testId}
+            onMouseEnter={openPopover}
+            onMouseLeave={closePopoverSoon}
           >
             {dot}
             <span>{label}</span>
@@ -96,6 +123,8 @@ export function PriceStateChip({
           sideOffset={8}
           collisionPadding={16}
           className="w-[min(20rem,calc(100vw-2rem))] p-3"
+          onMouseEnter={openPopover}
+          onMouseLeave={closePopoverSoon}
         >
           <PriceStateDetailsRows rows={tooltipRows} />
         </PopoverContent>
