@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyContextForwarding } from "../lib/proxyHeaders";
+import { isPublicPath } from "../lib/proxyPublicPaths";
 
 function makeCookieStore(
   entries: Record<string, string>,
@@ -54,5 +55,17 @@ describe("apps/web/lib/proxyHeaders.applyContextForwarding", () => {
     const headers = new Headers({ "x-context-user-id": "spoofed" });
     applyContextForwarding(headers, { cookies: makeCookieStore({}) });
     expect(headers.get("x-context-user-id")).toBeNull();
+  });
+});
+
+describe("apps/web/proxy.isPublicPath", () => {
+  it("treats anonymous public share pages as public routes", () => {
+    expect(isPublicPath("/share")).toBe(true);
+    expect(isPublicPath("/share/HLMBkgfW2a3rpp3b0BzU2m")).toBe(true);
+  });
+
+  it("does not treat authenticated portfolio routes as public", () => {
+    expect(isPublicPath("/dashboard")).toBe(false);
+    expect(isPublicPath("/portfolio")).toBe(false);
   });
 });
