@@ -195,24 +195,20 @@ test.describe("card reorder (KZO-161 F5)", () => {
     await appShell.assert.cardDragHandleIsVisible("portfolio-trend");
     await appShell.assert.cardDragHandleIsVisible("holdings-table");
 
-    // Actions — drag holdings-table to portfolio-trend's position.
-    // This moves holdings-table to index 0 in the rendered order.
+    // Actions — drag holdings-table to portfolio-trend's position. This moves
+    // holdings-table to index 0 in the rendered order; wait for the debounced
+    // persistence response as the deterministic readiness signal.
+    const cardOrderPatch = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname.endsWith("/user-preferences") && response.request().method() === "PATCH";
+    });
     await appShell.actions.dragCard("holdings-table", "portfolio-trend");
-
-    // Assert — wait for the debounced PATCH to land. The full OAuth suite can
-    // run this path under enough server load that the old 2s poll was flaky.
-    // Per `.claude/rules/e2e-aaa-guardrails.md`: probe-based waits.
-    await expect
-      .poll(
-        async () => {
-          const order = await getCardOrder(testUserCookieHeader);
-          // After moving holdings-table before portfolio-trend, holdings-table
-          // should appear at index 0 in the saved order.
-          return order?.[0] === "holdings-table";
-        },
-        { timeout: 6000, intervals: [300, 500, 700, 1000] },
-      )
-      .toBe(true);
+    const patchResponse = await cardOrderPatch;
+    await appShell.assert.mxAssertEqual(
+      patchResponse.ok(),
+      true,
+      "card order PATCH succeeds after drag",
+    );
 
     // Assert — the full saved order reflects the drag.
     const savedOrder = await getCardOrder(testUserCookieHeader);

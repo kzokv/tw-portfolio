@@ -246,6 +246,11 @@ superseded_by: null
   - Targeted ESLint passed for the touched reports, refresh-close route, and regression-test files.
   - `git diff --check` passed.
   - `npm run typecheck` passed.
+- Additional review-thread cleanup:
+  - OAuth card reorder E2E now waits for the debounced `PATCH /user-preferences` response before state read-back, avoiding a short fixed polling timeout under loaded OAuth-suite runs while preserving AAA assertion helpers.
+  - Targeted ESLint passed: `npx eslint apps/web/tests/e2e/specs-oauth/card-reorder-aaa.spec.ts`.
+  - Focused OAuth E2E passed: `npx playwright test apps/web/tests/e2e/specs-oauth/card-reorder-aaa.spec.ts --config=apps/web/tests/e2e/playwright.oauth.config.ts --grep "\[card-A\]"` (`1` test).
+  - `npm run typecheck` passed after the E2E stabilization.
 
 ## References
 
