@@ -86,9 +86,11 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
   const intradayDisplayedKeys = new Set(input.holdingGroups
     .filter((group) => isIntradayPriceState(group.priceState))
     .map((group) => `${group.ticker}:${group.marketCode}`));
-  const hasDisplayedIntradayPrices = intradayDisplayedKeys.size > 0;
   const materialRelevantAffectedHoldings = affectedHoldings.filter((row) =>
     row.status !== "awaiting_latest_bar" || !intradayDisplayedKeys.has(`${row.ticker}:${row.marketCode}`),
+  );
+  const hasSuppressedIntradayAwaitingRow = affectedHoldings.some((row) =>
+    row.status === "awaiting_latest_bar" && intradayDisplayedKeys.has(`${row.ticker}:${row.marketCode}`),
   );
 
   let status: ValuationHealthDto["status"] = "healthy";
@@ -107,7 +109,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     && relativeDeltaBps !== null
     && (deltaAmount >= absoluteThreshold || relativeDeltaBps >= thresholds.relativeBps)
   ) {
-    if (hasDisplayedIntradayPrices && materialRelevantAffectedHoldings.length === 0) {
+    if (hasSuppressedIntradayAwaitingRow && materialRelevantAffectedHoldings.length === 0) {
       status = "healthy";
       reason = "within_threshold";
     } else {

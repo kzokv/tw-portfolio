@@ -411,7 +411,7 @@ superseded_by: null
   - `git diff --check` passed.
 - Codex valuation-health follow-up on `2026-06-19`:
   - Valuation health now classifies intraday-displayed current-day missing daily bars as `awaiting_latest_bar` with no repair action, instead of `missing_latest_bar`.
-  - Material valuation status now ignores only `awaiting_latest_bar` rows for holdings that are themselves displaying intraday prices, so expected open-session daily-bar gaps do not create a false `material` status while unrelated newly opened awaiting-bar rows can still be material.
+  - Material valuation status now ignores only `awaiting_latest_bar` rows for holdings that are themselves displaying intraday prices, and only when at least one such affected row exists. Expected open-session daily-bar gaps do not create a false `material` status, while unrelated newly opened awaiting-bar rows and date-clean intraday discrepancies can still be material.
   - Focused API verification passed: `npm run test --prefix apps/api -- --run test/unit/valuationHealth.test.ts` (`1` file / `13` tests).
   - Targeted ESLint passed for touched valuation-health source and test files.
   - `npm run typecheck` passed.
