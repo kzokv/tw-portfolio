@@ -238,6 +238,14 @@ superseded_by: null
   - Chrome mobile live validation after resizing the authenticated Chrome window to `390x737`: dashboard loaded the mobile holdings card, tapping the `Open 2330 price details` trigger opened the price translation popover and did not render the old `Reporting and native price details` hover tooltip copy.
   - Chrome mobile live validation of the separate freshness chip: after closing the price-details popover, tapping `dashboard-mobile-price-state-2330-TW` opened the freshness popover with `Basis: Today close`, `Market: Closed`, `Source: finmind`, `Quality: Full bar`, and `Time zone: Asia/Taipei`; the old hover tooltip copy remained absent.
   - Chrome window bounds were restored to the original desktop bounds after mobile validation.
+- Final Codex-review thread closure after `f858d683`:
+  - Reports price-state chips now render as siblings of the report price disclosure button instead of nested interactive buttons, preserving the chip's own disclosure behavior without invalid button markup.
+  - `POST /portfolio/refresh-closes` now refreshes the first `syncTickerCap` pairs synchronously and queues only the overflow, so large portfolios still get immediate visible refresh work before background jobs finish.
+  - Focused web verification passed: `cd apps/web && npx vitest run test/components/reports/ReportsClient.test.tsx` (`1` file / `12` tests).
+  - Focused API verification passed: `npx vitest run apps/api/test/integration/refresh-closes.integration.test.ts` (`1` file / `4` tests).
+  - Targeted ESLint passed for the touched reports, refresh-close route, and regression-test files.
+  - `git diff --check` passed.
+  - `npm run typecheck` passed.
 
 ## References
 

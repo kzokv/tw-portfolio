@@ -5131,9 +5131,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const holdings = listHoldings(store, userId);
     const pairs = buildHeldTickerMarketPairsForCloseRefresh(store, holdings);
     const config = getEffectiveTickerPriceFreshnessConfig();
-    const shouldQueueAll = pairs.length > config.syncTickerCap;
-    const syncPairs = shouldQueueAll ? [] : pairs;
-    const queuedPairs = shouldQueueAll ? pairs : [];
+    const syncPairs = pairs.slice(0, config.syncTickerCap);
+    const queuedPairs = pairs.slice(config.syncTickerCap);
     const fallbackProviders = {
       twseStockDay: new TwseStockDayCloseProvider(),
       ...(app.tickerPriceChartRequestBudget
