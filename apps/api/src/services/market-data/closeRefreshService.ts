@@ -1,6 +1,6 @@
 import type { DailyBar, MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
-import type { MarketDataProvider, RawDailyBar } from "./types.js";
+import { RateLimitedError, type MarketDataProvider, type RawDailyBar } from "./types.js";
 import {
   getRegularSessionCloseRefreshDate,
   isRegularSessionMarketCode,
@@ -97,6 +97,7 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
       await input.upsertBars([bar], pair.marketCode);
       items.push(buildItem(pair, "refreshed", bar.barDate, bar.source, bar.quality));
     } catch (error) {
+      if (error instanceof RateLimitedError) throw error;
       input.log?.warn(
         {
           err: error instanceof Error ? error.message : String(error),
