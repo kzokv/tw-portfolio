@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
 import {
@@ -87,6 +87,14 @@ export function PriceStateChip({
       closePopoverTimerRef.current = null;
     }, 120);
   };
+  const openPopoverForMousePointer = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse") return;
+    openPopover();
+  };
+  const closePopoverForMousePointer = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse") return;
+    closePopoverSoon();
+  };
 
   if (!interactive) {
     return (
@@ -110,8 +118,8 @@ export function PriceStateChip({
             aria-label={label}
             className={chipClassName}
             data-testid={testId}
-            onMouseEnter={openPopover}
-            onMouseLeave={closePopoverSoon}
+            onPointerEnter={openPopoverForMousePointer}
+            onPointerLeave={closePopoverForMousePointer}
           >
             {dot}
             <span>{label}</span>
@@ -123,8 +131,8 @@ export function PriceStateChip({
           sideOffset={8}
           collisionPadding={16}
           className="w-[min(20rem,calc(100vw-2rem))] p-3"
-          onMouseEnter={openPopover}
-          onMouseLeave={closePopoverSoon}
+          onPointerEnter={openPopoverForMousePointer}
+          onPointerLeave={closePopoverForMousePointer}
         >
           <PriceStateDetailsRows rows={tooltipRows} />
         </PopoverContent>
