@@ -105,6 +105,7 @@ jobs:
   e2e-bypass:
     needs: [build-and-typecheck]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NODE_ENV: test
     steps:
@@ -117,7 +118,7 @@ jobs:
       - run: npm run build -w @vakwen/config
       - run: npm run build -w @vakwen/domain
       - run: npm run build -w @vakwen/shared-types
-      - run: npx playwright install --with-deps
+      - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:ci:bypass:mem --prefix apps/web
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -129,6 +130,7 @@ jobs:
   e2e-oauth:
     needs: [build-and-typecheck]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NODE_ENV: test
     steps:
@@ -141,7 +143,7 @@ jobs:
       - run: npm run build -w @vakwen/config
       - run: npm run build -w @vakwen/domain
       - run: npm run build -w @vakwen/shared-types
-      - run: npx playwright install --with-deps
+      - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:ci:oauth:mem --prefix apps/web
       - uses: actions/upload-artifact@v4
         if: failure()
