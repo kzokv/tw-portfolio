@@ -335,6 +335,14 @@ superseded_by: null
   - Focused E2E verification passed: `npx playwright test tests/e2e/specs/ticker-price-freshness-aaa.spec.ts --config=apps/web/tests/e2e/playwright.config.ts` (`2` tests).
   - Targeted ESLint passed for touched API and E2E files.
   - `git diff --check` passed.
+- Post-close transition edge-case follow-up after CI on `2026-06-18`:
+  - Stale daily bars without a same-day Yahoo/TWSE overlay now remain `basis=stale_close` / `chipState=stale`; only a same-day intraday overlay bridge can emit `basis=pending_today_close` / `chipState=closed_pending`.
+  - Ticker details use the same stale-daily classification, so old daily data is not mislabeled as a pending same-day close.
+  - Daily review report diagnostics now explicitly expect stale provisional quotes to include `provisional_quote` when report fixtures are older than the current expected valuation date.
+  - Focused verification passed: `npx vitest run apps/api/test/unit/quoteSnapshotService.test.ts apps/api/test/integration/reports.integration.test.ts` (`2` files / `39` tests).
+  - Targeted ESLint passed for touched API source and regression-test files.
+  - `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json` passed.
+  - `git diff --check` passed.
 
 ## References
 
