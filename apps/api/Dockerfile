@@ -35,7 +35,8 @@ COPY --from=build /app/libs/config/package.json libs/config/
 COPY --from=build /app/libs/domain/package.json libs/domain/
 COPY --from=build /app/libs/shared-types/package.json libs/shared-types/
 
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --cache /tmp/npm-cache-api-runtime \
+ && rm -rf /tmp/npm-cache-api-runtime
 
 COPY --from=build /app/apps/api/dist/ apps/api/dist/
 COPY --from=build /app/libs/config/dist/ libs/config/dist/
