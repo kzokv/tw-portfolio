@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCloseRefresh } from "../../../src/services/market-data/closeRefreshService.js";
-import type { MarketDataProvider, RawDailyBar } from "../../../src/services/market-data/types.js";
+import { RateLimitedError, type MarketDataProvider, type RawDailyBar } from "../../../src/services/market-data/types.js";
 
 function rawBar(input: Partial<RawDailyBar> = {}): RawDailyBar {
   return {
@@ -151,6 +151,30 @@ describe("closeRefreshService", () => {
     expect(upsertBars).toHaveBeenCalledWith(
       [expect.objectContaining({ quality: "full_bar", volume: 54_321 })],
       "TW",
+    );
+  });
+
+  it("rethrows provider rate limits so the close-refresh worker can retry the job", async () => {
+    const rateLimitError = new RateLimitedError({ msUntilAvailable: 30_000 });
+    const warn = vi.fn();
+    await expect(runCloseRefresh({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["TW", provider(vi.fn().mockRejectedValue(rateLimitError))]]),
+      fallbackProviders: {
+        twseStockDay: { fetchCloseOnlyBar: vi.fn() },
+      },
+      upsertBars: vi.fn(),
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T05:45:00.000Z"),
+      log: { info: vi.fn(), warn },
+    })).rejects.toBe(rateLimitError);
+
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "close_refresh_pair_failed",
     );
   });
 });
