@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
 import {
@@ -85,6 +85,10 @@ export function PriceStateChip({
     if (event.pointerType !== "mouse") return;
     closePopoverSoon();
   };
+  const openPopoverForClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    openPopover();
+  };
 
   if (!interactive) {
     return (
@@ -107,6 +111,7 @@ export function PriceStateChip({
           aria-label={label}
           className={chipClassName}
           data-testid={testId}
+          onClick={openPopoverForClick}
           onPointerEnter={openPopoverForMousePointer}
           onPointerLeave={closePopoverForMousePointer}
         >
