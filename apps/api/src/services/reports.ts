@@ -35,6 +35,7 @@ import {
   type QuoteSnapshotPair,
   type ResolvedQuoteSnapshot,
 } from "./market-data/quoteSnapshotService.js";
+import { enqueueDemandIntradayRefreshes } from "./market-data/intradayDemandRefresh.js";
 import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "./userPreferences.js";
 import { resolveReportContext } from "./reportContext.js";
@@ -258,10 +259,32 @@ async function prepareReportData(
       .filter((symbol) => quoteableTickers.has(symbol)),
   )];
   const { pairs, settledByMarket } = await buildQuoteInputs(app, scopedStore, symbols);
+  const now = new Date();
+  try {
+    await enqueueDemandIntradayRefreshes({
+      pairs,
+      boss: app.boss,
+      persistence: app.persistence,
+      tradingCalendar: app.tradingCalendarCache,
+      log: app.log,
+      now,
+    });
+  } catch (error) {
+    app.log.warn(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        pairCount: pairs.length,
+      },
+      "report_intraday_demand_refresh_failed_degrading_to_daily_bars",
+    );
+  }
   const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket, {
     mode: "displayed",
-    now: new Date(),
+    now,
     tradingCalendar: app.tradingCalendarCache,
+    heldPairs: new Set(pairs
+      .filter((pair): pair is { ticker: string; marketCode: MarketCode } => pair.marketCode !== undefined)
+      .map((pair) => `${pair.ticker}:${pair.marketCode}`)),
   });
   const quotes = Object.values(snapshotMap).filter((quote): quote is ResolvedQuoteSnapshot => quote !== null);
   const asOf = new Date().toISOString().slice(0, 10);

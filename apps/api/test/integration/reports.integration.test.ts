@@ -34,6 +34,7 @@ describe("report routes", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (app) await app.close();
   });
 
@@ -320,6 +321,49 @@ describe("report routes", () => {
         ],
       }),
     }));
+  });
+
+  it("enqueues displayed intraday refreshes before resolving report price states", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-18T02:00:00.000Z"));
+    const sendCalls: unknown[][] = [];
+    app.boss = {
+      send: async (...args: unknown[]) => {
+        sendCalls.push(args);
+        return "intraday-report-job";
+      },
+    } as never;
+
+    const store = await app.persistence.loadStore(userId);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    await app.persistence.saveStore(store);
+
+    const portfolioReport = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1Y",
+      headers: { cookie: cookieHeader },
+    });
+
+    expect(portfolioReport.statusCode, portfolioReport.body).toBe(200);
+    expect(sendCalls).toEqual(expect.arrayContaining([
+      [
+        "intraday-refresh",
+        expect.objectContaining({
+          ticker: "2330",
+          marketCode: "TW",
+          requestedAt: "2026-06-18T02:00:00.000Z",
+        }),
+        expect.objectContaining({
+          singletonKey: "intraday-refresh:TW:2330",
+        }),
+      ],
+    ]));
   });
 
   it("includes markets with missing snapshots in all-market report diagnostics", async () => {
