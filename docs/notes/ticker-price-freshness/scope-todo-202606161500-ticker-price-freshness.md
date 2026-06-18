@@ -363,6 +363,13 @@ superseded_by: null
   - PR #225 checks at `d2387c33` were green for `lint`, `pr-gate`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `e2e-oauth`, and `docker-build-validation`; `e2e-bypass` remained pending in GitHub Actions while stuck in the runner dependency step `Run npx playwright install --with-deps`.
   - Dev deploy attempts `27771484391` and `27772150948` did not reach QNAP deployment. Both stalled before SSH in GitHub Actions at `_deploy-reusable.yml` step `Install WARP`; run `27772150948` was cancelled after the repeated pre-SSH WARP stall. The QNAP dev stack stayed healthy with `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres`, `vakwen-dev-redis`, and `vakwen-dev-cloudflared` running.
   - The temporary public read-only validation token `1b4eaecc-8f6f-4002-bc98-db1f9c1a4187` was revoked directly in the dev database after validation because the follow-up deploy was blocked before the public-share auth fix could be live-validated.
+- Dev deploy build follow-up after `cf282e15` on `2026-06-19`:
+  - Deploy run `27773593432` reached QNAP but failed during API image build at the runtime-stage `npm ci --omit=dev` with an npm cache race under `/root/.npm/_cacache`.
+  - The API runtime Docker stage now uses an isolated temporary npm cache for production install and removes it after install, avoiding reuse of the corrupted/root npm cache path during deploy builds.
+  - Targeted local Docker verification passed: `docker build -f apps/api/Dockerfile -t vakwen-api-dockerfile-check:99b84286 --build-arg CACHE_BUST=99b84286 .`; the previously failing runtime-stage `npm ci --omit=dev` completed successfully.
+  - PR #225 checks at `cf282e15` were fully green: `lint`, `pr-gate`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `e2e-bypass`, `e2e-oauth`, and `docker-build-validation`.
+  - Codex review was requested twice for `cf282e15`, but the bot had not responded to the current-head requests as of the latest status check; the latest bot response remained the clean `d2387c33f5` review.
+  - Dev deploy retries `27774832337`, `27775298994`, and `27775874256` did not reach QNAP deployment. Each stalled before SSH at `_deploy-reusable.yml` step `Install WARP` and was cancelled. The QNAP dev stack stayed healthy, and live validation of `cf282e15` remains pending until the GitHub Actions WARP install path recovers.
 
 ## References
 
