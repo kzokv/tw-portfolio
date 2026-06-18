@@ -79,6 +79,32 @@ function isWeekdayIsoDate(date: string): boolean {
   return day >= 1 && day <= 5;
 }
 
+function marketLocalDateTimeToUtc(
+  marketCode: RegularSessionMarketCode,
+  localDate: string,
+  localHour: number,
+  localMinute: number,
+): Date {
+  const guess = new Date(`${localDate}T${String(localHour).padStart(2, "0")}:${String(localMinute).padStart(2, "0")}:00.000Z`);
+  const actual = getMarketLocalParts(marketCode, guess);
+  const desiredLocalMidnight = new Date(`${localDate}T00:00:00.000Z`).getTime();
+  const actualLocalMidnight = new Date(`${actual.localDate}T00:00:00.000Z`).getTime();
+  const actualMinutesFromDesiredDate = ((actualLocalMidnight - desiredLocalMidnight) / 60_000) + (actual.localHour * 60) + actual.localMinute;
+  const desiredMinutes = (localHour * 60) + localMinute;
+  return new Date(guess.getTime() + ((desiredMinutes - actualMinutesFromDesiredDate) * 60_000));
+}
+
+function isCloseRefreshDateEligible(
+  marketCode: RegularSessionMarketCode,
+  localDate: string,
+  at: Date,
+  graceMinutes: number,
+): boolean {
+  const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
+  const closeAt = marketLocalDateTimeToUtc(marketCode, localDate, close.hour, close.minute);
+  return at.getTime() >= closeAt.getTime() + (graceMinutes * 60_000);
+}
+
 async function isRegularSessionTradingDay(
   clock: RegularSessionClock,
   marketCode: RegularSessionMarketCode,
@@ -142,16 +168,18 @@ export async function getRegularSessionCloseRefreshDate(
   at: Date,
   graceMinutes: number,
 ): Promise<string | null> {
-  const { localDate, localHour, localMinute } = getMarketLocalParts(marketCode, at);
+  const { localDate } = getMarketLocalParts(marketCode, at);
   const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
-  const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
-  const localMinutes = localHour * 60 + localMinute;
-  const eligibleMinutes = close.hour * 60 + close.minute + graceMinutes;
-  if (isTradingDay && localMinutes >= eligibleMinutes) return localDate;
+  if (isTradingDay && isCloseRefreshDateEligible(marketCode, localDate, at, graceMinutes)) return localDate;
 
   for (let offset = 1; offset <= CLOSE_REFRESH_LOOKBACK_DAYS; offset += 1) {
     const candidate = addDaysIsoDate(localDate, -offset);
-    if (await isRegularSessionTradingDay(clock, marketCode, candidate)) return candidate;
+    if (
+      await isRegularSessionTradingDay(clock, marketCode, candidate)
+      && isCloseRefreshDateEligible(marketCode, candidate, at, graceMinutes)
+    ) {
+      return candidate;
+    }
   }
 
   return null;

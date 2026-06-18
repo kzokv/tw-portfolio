@@ -117,6 +117,20 @@ describe("marketRegularSession", () => {
     expect(closeDate).toBe("2026-06-15");
   });
 
+  it("skips a prior trading close when the configured grace has not elapsed across an overnight gap", async () => {
+    const tradingDays = new Set(["2026-06-12", "2026-06-15", "2026-06-16"]);
+    const isTradingDay = vi.fn(async (_market: string, date: string) => tradingDays.has(date));
+
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "TW",
+      { isTradingDay },
+      new Date("2026-06-16T02:00:00.000Z"),
+      1440,
+    );
+
+    expect(closeDate).toBe("2026-06-12");
+  });
+
   it("resolves the prior trading close on weekends", async () => {
     const tradingDays = new Set(["2026-06-19"]);
     const closeDate = await getRegularSessionCloseRefreshDate(
