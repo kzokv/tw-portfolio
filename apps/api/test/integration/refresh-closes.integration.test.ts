@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import { transactionPayload } from "../helpers/fixtures.js";
 import { refresh as refreshAppConfigCache } from "../../src/services/appConfig/cache.js";
+import { RateLimitedError } from "../../src/services/market-data/types.js";
 
 let app: AppInstance;
 
@@ -12,6 +13,7 @@ describe("POST /portfolio/refresh-closes", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (app) await app.close();
   });
 
@@ -62,6 +64,47 @@ describe("POST /portfolio/refresh-closes", () => {
       failed: expect.any(Number),
       queued: expect.any(Number),
     }));
+  });
+
+  it("returns retryable provider-rate-limit details when synchronous close refresh exhausts provider budget", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-18T08:00:00.000Z"));
+    (app.persistence as MemoryPersistence)._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    });
+    app.marketDataRegistry.marketData.set("TW", {
+      fetchBars: async () => {
+        throw new RateLimitedError({ msUntilAvailable: 30_000 });
+      },
+    } as never);
+    const trade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "refresh-closes-rate-limit" },
+      payload: transactionPayload({
+        ticker: "2330",
+        marketCode: "TW",
+        tradeDate: "2026-06-17",
+        quantity: 2,
+        unitPrice: 1000,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(trade.statusCode, trade.body).toBe(200);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/refresh-closes",
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("30");
+    expect(response.json()).toMatchObject({ error: "provider_rate_limited" });
   });
 
   it("uses the quoteable instrument market for refresh pairs instead of account currency", async () => {
