@@ -177,17 +177,21 @@ describe("report routes", () => {
         staleSinceDate: "2026-06-03",
         missingQuoteCount: expect.any(Number),
         provisionalQuoteCount: 0,
-        nonCurrentPriceCount: 0,
+        nonCurrentPriceCount: 1,
         missingFxCount: 0,
         missingProviderSourceCount: 1,
-        knownGapReasons: expect.arrayContaining(["missing_provider_source", "stale_snapshot"]),
+        knownGapReasons: expect.arrayContaining([
+          "missing_provider_source",
+          "non_current_price",
+          "stale_snapshot",
+        ]),
         markets: expect.arrayContaining([
           expect.objectContaining({
             marketCode: "TW",
             latestSnapshotDate: "2026-06-03",
             missingProviderSourceCount: 1,
             providerSources: [],
-            knownGapReasons: expect.arrayContaining(["missing_provider_source"]),
+            knownGapReasons: expect.arrayContaining(["missing_provider_source", "non_current_price"]),
           }),
         ]),
         rowCounts: expect.objectContaining({
@@ -235,7 +239,12 @@ describe("report routes", () => {
         expectedLatestValuationDate: expect.any(String),
         staleSinceDate: "2026-06-03",
         missingProviderSourceCount: 1,
-        knownGapReasons: expect.arrayContaining(["missing_provider_source", "stale_snapshot"]),
+        nonCurrentPriceCount: 1,
+        knownGapReasons: expect.arrayContaining([
+          "missing_provider_source",
+          "non_current_price",
+          "stale_snapshot",
+        ]),
         markets: expect.arrayContaining([
           expect.objectContaining({
             marketCode: "TW",
@@ -279,7 +288,12 @@ describe("report routes", () => {
         expectedLatestValuationDate: expect.any(String),
         staleSinceDate: "2026-06-03",
         missingProviderSourceCount: 1,
-        knownGapReasons: expect.arrayContaining(["missing_provider_source", "stale_snapshot"]),
+        nonCurrentPriceCount: 1,
+        knownGapReasons: expect.arrayContaining([
+          "missing_provider_source",
+          "non_current_price",
+          "stale_snapshot",
+        ]),
         markets: expect.arrayContaining([
           expect.objectContaining({
             marketCode: "TW",
