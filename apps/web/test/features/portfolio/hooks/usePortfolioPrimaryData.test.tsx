@@ -159,6 +159,25 @@ describe("usePortfolioPrimaryData", () => {
     expect(result.isBootstrapping).toBe(false);
   });
 
+  it("refreshPrices fetches enrichment without refreshing primary data", async () => {
+    const enriched = pageDataWithAccount("enriched-prices");
+    vi.mocked(fetchPortfolioEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+    await act(async () => {});
+    vi.mocked(fetchPortfolioEnrichmentData).mockClear();
+
+    await act(async () => {
+      await result.refreshPrices();
+    });
+
+    expect(fetchPortfolioPrimaryData).not.toHaveBeenCalled();
+    expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.data.accounts[0]?.id).toBe("enriched-prices");
+  });
+
   it("restores fresh enriched cached portfolio data without fetching again", async () => {
     const cached = pageDataWithHolding("cached", 1200);
     writeRouteDtoCache(buildRouteDtoCacheKey("portfolio-primary", "self"), cached);

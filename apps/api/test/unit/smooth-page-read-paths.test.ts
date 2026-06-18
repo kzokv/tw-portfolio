@@ -42,6 +42,8 @@ describe("smooth page read paths", () => {
     expect(response.headers["server-timing"]).toContain("build_portfolio_page_data;dur=");
     const body = response.json();
     expect(body.settings).toEqual(expect.objectContaining({
+      effectiveTickerPriceIntradayEnabled: expect.any(Boolean),
+      effectiveTickerPriceIntradayRefreshIntervalMinutes: expect.any(Number),
       quotePollIntervalSeconds: expect.any(Number),
     }));
     expect(body.summary).toBeUndefined();
@@ -307,6 +309,11 @@ describe("smooth page read paths", () => {
       fxStatus: "complete",
       totalCostAmount: 1000,
       marketValueAmount: null,
+    }));
+    expect(body.settings).toEqual(expect.objectContaining({
+      effectiveTickerPriceIntradayEnabled: expect.any(Boolean),
+      effectiveTickerPriceIntradayRefreshIntervalMinutes: expect.any(Number),
+      quotePollIntervalSeconds: expect.any(Number),
     }));
     expect(body.dividends).toEqual({ upcoming: [], recent: [] });
     expect(body.holdings[0]).toEqual(expect.objectContaining({

@@ -48,6 +48,13 @@ export interface YahooIntradayFetchInput {
   now?: Date;
 }
 
+interface YahooChartOptions extends Record<string, unknown> {
+  period1: Date;
+  period2: Date;
+  interval: YahooIntradayInterval;
+  includePrePost: false;
+}
+
 const SOURCE = "yahoo-finance-chart";
 const SOURCE_KIND: IntradaySourceKind = "intraday_yahoo_chart";
 
@@ -90,11 +97,7 @@ export class YahooFinanceIntradayProvider {
     ) => Promise<unknown>;
     const result = await chart(
       symbol,
-      {
-        range: this.range,
-        interval: this.interval,
-        includePrePost: false,
-      },
+      buildYahooChartOptions(this.range, this.interval, now),
       { validateResult: false },
     ) as YahooChartResult;
 
@@ -155,4 +158,18 @@ export function selectLatestSameMarketDateClose(
 function normalizePreviousClose(meta: YahooChartMeta | undefined): number | null {
   const value = meta?.previousClose ?? meta?.chartPreviousClose ?? null;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function buildYahooChartOptions(
+  range: YahooIntradayRange,
+  interval: YahooIntradayInterval,
+  now: Date,
+): YahooChartOptions {
+  const rangeDays = range === "1d" ? 1 : 5;
+  return {
+    period1: new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000),
+    period2: now,
+    interval,
+    includePrePost: false,
+  };
 }

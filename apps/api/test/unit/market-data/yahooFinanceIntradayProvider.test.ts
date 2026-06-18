@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   YahooFinanceIntradayProvider,
+  buildYahooChartOptions,
   selectLatestSameMarketDateClose,
 } from "../../../src/services/market-data/providers/yahooFinanceIntraday.js";
 import { YahooChartCloseProvider } from "../../../src/services/market-data/providers/yahooChartClose.js";
@@ -61,9 +62,26 @@ describe("yahooFinanceIntradayProvider", () => {
     });
     expect(activeSdkStub!.chart).toHaveBeenCalledWith(
       "AAPL",
-      expect.objectContaining({ includePrePost: false, range: "1d", interval: "1m" }),
+      expect.objectContaining({
+        includePrePost: false,
+        interval: "1m",
+        period1: new Date("2026-06-16T15:06:00.000Z"),
+        period2: new Date("2026-06-17T15:06:00.000Z"),
+      }),
       { validateResult: false },
     );
+    expect(activeSdkStub!.chart.mock.calls[0]?.[1]).not.toHaveProperty("range");
+  });
+
+  it("converts configured chart ranges to SDK period options", () => {
+    const now = new Date("2026-06-17T15:06:00.000Z");
+
+    expect(buildYahooChartOptions("5d", "15m", now)).toEqual({
+      period1: new Date("2026-06-12T15:06:00.000Z"),
+      period2: now,
+      interval: "15m",
+      includePrePost: false,
+    });
   });
 
   it("prefers KR durable symbol mappings over inferred suffixes", async () => {

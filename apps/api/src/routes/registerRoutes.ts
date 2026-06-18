@@ -88,7 +88,7 @@ import {
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
-import { buildDashboardOverview, buildOverviewHoldingGroups } from "../services/dashboard.js";
+import { buildDashboardOverview, buildOverviewHoldingGroups, withTickerPriceFreshnessSettings } from "../services/dashboard.js";
 import { buildValuationHealthSnapshotPerformance, buildValuationHealth } from "../services/valuationHealth.js";
 import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
@@ -2285,7 +2285,7 @@ async function buildDashboardPrimaryOverview(
   const integrityIssue = getStoreIntegrityIssue(store);
 
   return {
-    settings: store.settings,
+    settings: withTickerPriceFreshnessSettings(store.settings),
     summary: {
       asOf: new Date().toISOString(),
       accountCount: store.accounts.length,
@@ -5036,7 +5036,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return {
-        settings: store.settings,
+        settings: withTickerPriceFreshnessSettings(store.settings),
         holdings,
         holdingGroups: translatedHoldingGroups,
         fxRates,

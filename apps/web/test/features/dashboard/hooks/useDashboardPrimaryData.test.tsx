@@ -185,6 +185,25 @@ describe("useDashboardPrimaryData", () => {
     expect(result.summary.marketValueAmount).toBe(1500);
   });
 
+  it("refreshPrices fetches enrichment without refreshing primary data", async () => {
+    const enriched = snapshotWithMarketValue(2300);
+    vi.mocked(fetchDashboardEnrichmentData).mockResolvedValue(enriched);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+    await act(async () => {});
+    vi.mocked(fetchDashboardEnrichmentData).mockClear();
+
+    await act(async () => {
+      await result.refreshPrices();
+    });
+
+    expect(fetchDashboardPrimaryData).not.toHaveBeenCalled();
+    expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
+    expect(result.summary.marketValueAmount).toBe(2300);
+  });
+
   it("restores fresh cached primary data without fetching again", async () => {
     const cached = snapshotWithMarketValue(1750);
     writeRouteDtoCache(buildRouteDtoCacheKey("dashboard-primary", "self"), cached);
