@@ -342,8 +342,8 @@ function buildDailyPriceState(
   let chipState: PriceStateDto["chipState"] = "closed";
 
   if (settled && latest.barDate < settled) {
-    basis = session?.isTradingDay && session.localDate === settled ? "pending_today_close" : "stale_close";
-    chipState = basis === "stale_close" ? "stale" : "closed_pending";
+    basis = "stale_close";
+    chipState = "stale";
   } else if (marketState === "open") {
     basis = "previous_close";
     chipState = "open_previous_close";
