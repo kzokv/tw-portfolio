@@ -251,6 +251,11 @@ superseded_by: null
   - Targeted ESLint passed: `npx eslint apps/web/tests/e2e/specs-oauth/card-reorder-aaa.spec.ts`.
   - Focused OAuth E2E passed: `npx playwright test apps/web/tests/e2e/specs-oauth/card-reorder-aaa.spec.ts --config=apps/web/tests/e2e/playwright.oauth.config.ts --grep "\[card-A\]"` (`1` test).
   - `npm run typecheck` passed after the E2E stabilization.
+- CI failure follow-up after `43966036`:
+  - CI `integration-tests` and `unit-tests` failed only on `reports.integration.test.ts` because the fixture's stale `2026-06-03` report snapshot now correctly reports `nonCurrentPriceCount=1` and `non_current_price`; the test expectation was updated to assert that price-freshness data-health signal.
+  - Focused verification passed: `npx vitest run apps/api/test/integration/reports.integration.test.ts` (`1` file / `20` tests).
+  - Targeted ESLint passed: `npx eslint apps/api/test/integration/reports.integration.test.ts`.
+  - CI-equivalent local checks passed: `npm run test:integration` (`45` files passed, `44` skipped; `442` tests passed, `426` skipped) and `npm run test --prefix apps/api` (`167` files passed, `44` skipped; `1663` tests passed, `426` skipped).
 
 ## References
 
