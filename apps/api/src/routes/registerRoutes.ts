@@ -5124,6 +5124,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/portfolio/refresh-closes", async (req, reply): Promise<CloseRefreshResult> => {
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    if (identity.isDemo) {
+      throw routeError(403, "demo_restricted", "Close refresh is not available for demo users");
+    }
     const { store, userId } = await loadUserStore(app, req);
     assertTickerPriceRefreshCloseRateLimit(`user:${userId}`);
     assertTickerPriceRefreshCloseRateLimit(`ip:${req.ip}`);
