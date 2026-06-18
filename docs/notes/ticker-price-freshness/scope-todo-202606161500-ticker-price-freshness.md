@@ -310,6 +310,14 @@ superseded_by: null
   - Targeted ESLint passed for touched ticker-details, route, Yahoo close fallback, and unit test files.
   - `npx tsc --noEmit -p apps/api/tsconfig.json` passed.
   - `git diff --check` passed.
+- Local UI/admin follow-up after portfolio review on `2026-06-18`:
+  - Admin `Ticker price freshness` settings now use per-setting override rows: numeric rows bind API-provided bounds, boolean/select/list rows show constrained choices, and enabling an override prefills the current effective value before saving a strict partial grouped PATCH.
+  - Portfolio holdings now render price-state chips only on parent ticker rows; account child rows show the price only. Parent chips are right-aligned in desktop price cells and left-aligned in mobile price metrics.
+  - Price-state missing/unavailable now renders with the destructive dot tone, while open fresh remains green, delayed/previous-close remains amber, and closed/stale remains gray.
+  - Focused web verification passed: `cd apps/web && npx vitest run test/components/admin/AdminSettingsClient-tabs.test.tsx test/components/portfolio/HoldingsTable.test.tsx test/features/price-state/priceState.test.ts test/components/holdings/PriceStateChip.test.tsx` (`4` files / `27` tests).
+  - Targeted ESLint passed for touched admin settings, holdings table, price-state helper, and regression-test files.
+  - `npx tsc --noEmit -p apps/web/tsconfig.json` passed.
+  - `git diff --check` passed.
 
 ## References
 

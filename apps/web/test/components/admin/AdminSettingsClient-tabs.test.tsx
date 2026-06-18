@@ -102,45 +102,68 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
 
     expect(document.querySelector("[data-testid='admin-settings-ticker-price-freshness-section']")).not.toBeNull();
-    expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceRefreshCloseRateLimitWindowMs']")).not.toBeNull();
-    expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceRefreshCloseRateLimitMax']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-tickerPriceCloseRefreshGraceMinutes-row']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-tickerPriceRefreshCloseRateLimitWindowMs-row']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-tickerPriceRefreshCloseRateLimitMax-row']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-tickerPriceRefreshCloseRateLimitWindowMs-env-default-badge']")?.textContent).toContain("60000");
+    expect(document.body.textContent).toContain("Yahoo chart lookup range");
+    expect(document.body.textContent).toContain("Allowed values: TW, US, AU, KR.");
   });
 
-  it("saves only patchable ticker price freshness fields", async () => {
+  it("prefills the current effective value when enabling a ticker freshness override", async () => {
+    mockParams = new URLSearchParams();
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    const toggle = document.querySelector(
+      "[data-testid='admin-settings-tickerPriceCloseRefreshGraceMinutes-toggle']",
+    ) as HTMLInputElement | null;
+    expect(toggle).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-input-tickerPriceCloseRefreshGraceMinutes']")).toBeNull();
+
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const input = document.querySelector(
+      "[data-testid='admin-settings-input-tickerPriceCloseRefreshGraceMinutes']",
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    expect(input?.value).toBe("30");
+    expect(input?.min).toBe("0");
+    expect(input?.max).toBe("240");
+  });
+
+  it("saves only the edited ticker price freshness field", async () => {
     const updated = buildConfig();
     mockPatchJson.mockResolvedValueOnce(updated);
     mockParams = new URLSearchParams();
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
 
-    const saveButton = document.querySelector(
-      "[data-testid='admin-settings-save-ticker-price-freshness']",
-    ) as HTMLButtonElement | null;
-    expect(saveButton).not.toBeNull();
+    const toggle = document.querySelector(
+      "[data-testid='admin-settings-tickerPriceIntradayEnabled-toggle']",
+    ) as HTMLInputElement | null;
+    expect(toggle).not.toBeNull();
 
     await act(async () => {
-      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.querySelector("[data-testid='admin-settings-tickerPriceIntradayEnabled-option-false']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.querySelector("[data-testid='admin-settings-tickerPriceIntradayEnabled-save-button']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
     expect(mockPatchJson).toHaveBeenCalledTimes(1);
     const [path, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
     expect(path).toBe("/admin/settings");
-    expect(Object.keys(payload.tickerPriceFreshness).sort()).toEqual([
-      "closeRefreshGraceMinutes",
-      "intradayEnabled",
-      "intradayFreshnessToleranceMinutes",
-      "intradayRefreshIntervalMinutes",
-      "maxTickersPerRefreshCycle",
-      "queueConcurrency",
-      "refreshCloseRateLimitMax",
-      "refreshCloseRateLimitWindowMs",
-      "regularSessionOnly",
-      "supportedMarkets",
-      "syncTickerCap",
-      "yahooChartInterval",
-      "yahooChartRange",
-      "yahooChartRequestLimitPerMinute",
-    ].sort());
+    expect(payload.tickerPriceFreshness).toEqual({ intradayEnabled: false });
     expect(payload.tickerPriceFreshness).not.toHaveProperty("effectiveCloseRefreshGraceMinutes");
     expect(payload.tickerPriceFreshness).not.toHaveProperty("options");
     expect(payload.tickerPriceFreshness).not.toHaveProperty("bounds");
@@ -155,25 +178,69 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     const input = document.querySelector(
       "[data-testid='admin-settings-input-tickerPriceCloseRefreshGraceMinutes']",
     ) as HTMLInputElement | null;
-    expect(input).not.toBeNull();
+    expect(input).toBeNull();
+
+    await act(async () => {
+      document.querySelector("[data-testid='admin-settings-tickerPriceCloseRefreshGraceMinutes-toggle']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const overrideInput = document.querySelector(
+      "[data-testid='admin-settings-input-tickerPriceCloseRefreshGraceMinutes']",
+    ) as HTMLInputElement | null;
+    expect(overrideInput).not.toBeNull();
 
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-      setter?.call(input, "0");
-      input!.dispatchEvent(new Event("change", { bubbles: true }));
+      setter?.call(overrideInput, "0");
+      overrideInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      overrideInput!.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
 
     const saveButton = document.querySelector(
-      "[data-testid='admin-settings-save-ticker-price-freshness']",
+      "[data-testid='admin-settings-tickerPriceCloseRefreshGraceMinutes-save-button']",
     ) as HTMLButtonElement | null;
+    expect(saveButton).not.toBeNull();
+
     await act(async () => {
       saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
     const [, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
-    expect(payload.tickerPriceFreshness.closeRefreshGraceMinutes).toBe(0);
+    expect(payload.tickerPriceFreshness).toEqual({ closeRefreshGraceMinutes: 0 });
+  });
+
+  it("can override supported ticker freshness markets with a constrained list", async () => {
+    const updated = buildConfig();
+    mockPatchJson.mockResolvedValueOnce(updated);
+    mockParams = new URLSearchParams();
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    const input = document.querySelector(
+      "[data-testid='admin-settings-tickerPriceSupportedMarkets-toggle']",
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      input?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.querySelector("[data-testid='admin-settings-tickerPriceSupportedMarkets-option-AU']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.querySelector("[data-testid='admin-settings-tickerPriceSupportedMarkets-save-button']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const [, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
+    expect(payload.tickerPriceFreshness).toEqual({ supportedMarkets: ["TW", "US", "KR"] });
   });
 
   it("falls back to rate-limits when ?tab=<bogus-slug>", () => {

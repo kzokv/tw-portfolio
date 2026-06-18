@@ -606,7 +606,6 @@ export function HoldingsTable({
                       columnSettings={columnSettings}
                       allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                       allocationBasis={effectiveAllocationBasis}
-                      showFreshnessBadge={showFreshnessBadge}
                       isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
                     />
                   ))
@@ -644,7 +643,6 @@ export function HoldingsTable({
                               columnSettings={columnSettings}
                               allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                               allocationBasis={effectiveAllocationBasis}
-                              showFreshnessBadge={showFreshnessBadge}
                               isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
                               nested
                             />
@@ -933,23 +931,25 @@ function PortfolioMobileColumnMetric({
         />
       );
     case "price": {
-      const priceState = getPriceState(row);
-      const priceStateTestId = "accountId" in row
-        ? `holdings-mobile-price-state-${row.accountId}-${row.ticker}`
-        : `holdings-mobile-price-state-${row.ticker}-${row.marketCode}`;
+      const isChildRow = "accountId" in row;
+      const priceState = isChildRow ? null : getPriceState(row);
+      const priceStateTestId = `holdings-mobile-price-state-${row.ticker}-${row.marketCode}`;
       return (
         <MobileHoldingMetric
           label={dict.holdings.priceTerm}
           tone={row.currentUnitPrice == null ? null : row.currentUnitPrice - row.averageCostPerShare}
           value={row.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(row.currentUnitPrice, row.currency, locale)}
           detail={showFreshnessBadge && priceState ? (
-            <PriceStateChip
-              disclosure="popover"
-              dict={dict}
-              locale={locale}
-              priceState={priceState}
-              testId={priceStateTestId}
-            />
+            <div className="flex justify-start">
+              <PriceStateChip
+                className="mt-0"
+                disclosure="popover"
+                dict={dict}
+                locale={locale}
+                priceState={priceState}
+                testId={priceStateTestId}
+              />
+            </div>
           ) : undefined}
         />
       );
@@ -1067,7 +1067,6 @@ function HoldingChildRow({
   visibleColumns,
   allocationPercent,
   allocationBasis,
-  showFreshnessBadge,
   isRecomputing,
   nested = false,
 }: {
@@ -1078,7 +1077,6 @@ function HoldingChildRow({
   visibleColumns: HoldingsColumn[];
   allocationPercent: number | null;
   allocationBasis: HoldingAllocationBasis;
-  showFreshnessBadge: boolean;
   isRecomputing: boolean;
   nested?: boolean;
 }) {
@@ -1101,7 +1099,6 @@ function HoldingChildRow({
           marketValueAmount={child.reportingMarketValueAmount}
           nested={nested}
           reportingCurrency={reportingCurrency}
-          showFreshnessBadge={showFreshnessBadge}
           unrealizedPnlAmount={child.reportingUnrealizedPnlAmount}
         />
       ))}
@@ -1234,7 +1231,11 @@ function HoldingGroupCell({
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(group.currentUnitPrice, group.averageCostPerShare))} style={style}>
         {group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}
-        {showFreshnessBadge && priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} /> : null}
+        {showFreshnessBadge && priceState ? (
+          <div className="mt-1 flex justify-end">
+            <PriceStateChip className="mt-0" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
+          </div>
+        ) : null}
       </td>
     );
   }
@@ -1303,7 +1304,6 @@ function HoldingChildCell({
   marketValueAmount,
   nested,
   reportingCurrency,
-  showFreshnessBadge,
   unrealizedPnlAmount,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
@@ -1317,7 +1317,6 @@ function HoldingChildCell({
   marketValueAmount: number | null;
   nested: boolean;
   reportingCurrency: AccountDefaultCurrency;
-  showFreshnessBadge: boolean;
   unrealizedPnlAmount: number | null;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
@@ -1366,11 +1365,9 @@ function HoldingChildCell({
     );
   }
   if (column === "price") {
-    const priceState = getPriceState(child);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(child.currentUnitPrice, child.averageCostPerShare))} style={style}>
         {child.currentUnitPrice != null ? formatCurrencyAmount(child.currentUnitPrice, child.currency, locale) : dict.holdings.quoteMissing}
-        {showFreshnessBadge && priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${child.accountId}-${child.ticker}`} /> : null}
       </td>
     );
   }
