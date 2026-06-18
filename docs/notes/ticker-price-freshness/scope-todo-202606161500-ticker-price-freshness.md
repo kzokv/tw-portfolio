@@ -391,6 +391,16 @@ superseded_by: null
   - Targeted ESLint passed for touched chip, dashboard, portfolio, ticker, and chip-test files.
   - `npm run typecheck` passed.
   - `git diff --check` passed.
+- Codex review/ticker chip follow-up on `2026-06-19`:
+  - Live Chrome validation on Vakwen Dev confirmed the ticker detail `ticker-price-state-chip` is hydrated as a Radix popover trigger. A real click/tap opened details with `Basis`, `Market`, `As of`, `Observed`, `Source`, `Quality`, `Delay`, and `Time zone`; moving the mouse away and back opened the same detail popover on hover.
+  - Added an explicit ticker-page click regression test alongside the existing hover test so the header chip disclosure is covered at the page level, not only by the shared `PriceStateChip` unit test.
+  - Manual close-refresh now maps synchronous provider rate-limit failures to a retryable `503 provider_rate_limited` response with `Retry-After`, instead of letting the route fall through to a generic server error.
+  - Report data preparation now enqueues displayed intraday demand refreshes before resolving quote overlays, matching dashboard/portfolio/ticker freshness behavior for report price states.
+  - Focused API verification passed: `npm run test --prefix apps/api -- --run test/integration/refresh-closes.integration.test.ts test/integration/refresh-closes-demo-guard.integration.test.ts test/integration/reports.integration.test.ts test/unit/market-data/marketRegularSession.test.ts` (`4` files / `37` tests).
+  - Web verification passed through the repo web test script after adding the ticker click assertion: first batch `48` files / `289` tests, second batch `60` files / `432` tests.
+  - Targeted ESLint passed for touched API route/service/test files and ticker/chip web files.
+  - `npm run typecheck` passed.
+  - `git diff --check` passed.
 
 ## References
 

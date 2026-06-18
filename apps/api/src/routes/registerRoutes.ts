@@ -5151,17 +5151,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         : {}),
     };
 
-    const result = await runCloseRefresh({
-      pairs: syncPairs,
-      persistence: app.persistence,
-      tradingCalendar: app.tradingCalendarCache,
-      marketDataProviders: app.marketDataRegistry.marketData,
-      fallbackProviders,
-      upsertBars: (bars, marketCode) => opportunisticUpsertDailyBars(app, bars, marketCode),
-      closeRefreshGraceMinutes: config.closeRefreshGraceMinutes,
-      supportedMarkets: config.supportedMarkets,
-      log: app.log,
-    });
+    const result = await (async () => {
+      try {
+        return await runCloseRefresh({
+          pairs: syncPairs,
+          persistence: app.persistence,
+          tradingCalendar: app.tradingCalendarCache,
+          marketDataProviders: app.marketDataRegistry.marketData,
+          fallbackProviders,
+          upsertBars: (bars, marketCode) => opportunisticUpsertDailyBars(app, bars, marketCode),
+          closeRefreshGraceMinutes: config.closeRefreshGraceMinutes,
+          supportedMarkets: config.supportedMarkets,
+          log: app.log,
+        });
+      } catch (err) {
+        if (err instanceof RateLimitedError) {
+          reply.header("Retry-After", String(err.retryAfterSeconds));
+          throw routeError(503, "provider_rate_limited", "close refresh provider rate limit exceeded");
+        }
+        throw err;
+      }
+    })();
 
     for (const pair of queuedPairs) {
       if (!app.boss) {
