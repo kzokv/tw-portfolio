@@ -33,13 +33,13 @@ export default createPlaywrightConfig({
     {
       name: "chromium-mobile",
       testDir: "./specs-oauth",
-      use: { ...devices["iPhone SE"], viewport: { width: 375, height: 667 } },
+      use: { ...devices["iPhone SE"], browserName: "chromium", viewport: { width: 375, height: 667 } },
       testMatch: /mobile-.*-aaa\.spec\.ts/,
     },
     {
       name: "chromium-tablet",
       testDir: "./specs-oauth",
-      use: { ...devices["iPad Mini"], viewport: { width: 768, height: 1024 } },
+      use: { ...devices["iPad Mini"], browserName: "chromium", viewport: { width: 768, height: 1024 } },
       testMatch: /mobile-.*-aaa\.spec\.ts/,
     },
   ],
