@@ -421,6 +421,27 @@ describe("TickerHistoryClient", () => {
     expect(element.textContent).toContain("Delayed");
   });
 
+  it("opens ticker price-state details from the header chip", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
+    const element = renderTickerHistoryClient({
+      ...details,
+      quote: {
+        ...details.quote,
+        priceState: testPriceState({ basis: "today_close", chipState: "closed", marketState: "closed" }),
+      },
+    });
+    const chip = element.querySelector('[data-testid="ticker-price-state-chip"]') as HTMLButtonElement | null;
+    expect(chip?.tagName).toBe("BUTTON");
+    expect(chip?.textContent).toContain("Closed");
+
+    await act(async () => {
+      chip?.click();
+    });
+
+    expect(document.body.textContent).toContain("Basis: Today close");
+    expect(document.body.textContent).toContain("Market: Closed");
+  });
+
   it("restores cached ticker details before the silent refresh completes", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
     writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey(), {

@@ -998,7 +998,15 @@ export function TickerHistoryClient({
                 >
                   {getHoldingsQuoteStatusLabel(dict, detailsState.quote.quoteStatus)}
                 </Badge>
-                {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId="ticker-price-state-chip" /> : null}
+                {priceState ? (
+                  <PriceStateChip
+                    disclosure="popover"
+                    dict={dict}
+                    locale={locale}
+                    priceState={priceState}
+                    testId="ticker-price-state-chip"
+                  />
+                ) : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
