@@ -409,6 +409,13 @@ superseded_by: null
   - Targeted ESLint passed for the touched chip and ticker/chip test files.
   - `npm run typecheck` passed.
   - `git diff --check` passed.
+- Codex valuation-health follow-up on `2026-06-19`:
+  - Valuation health now classifies intraday-displayed current-day missing daily bars as `awaiting_latest_bar` with no repair action, instead of `missing_latest_bar`.
+  - Material valuation status now ignores `awaiting_latest_bar` rows when the delta is explained by displayed intraday prices, so expected open-session daily-bar gaps do not create a false `material` status.
+  - Focused API verification passed: `npm run test --prefix apps/api -- --run test/unit/valuationHealth.test.ts` (`1` file / `12` tests).
+  - Targeted ESLint passed for touched valuation-health source and test files.
+  - `npm run typecheck` passed.
+  - `git diff --check` passed.
 
 ## References
 
