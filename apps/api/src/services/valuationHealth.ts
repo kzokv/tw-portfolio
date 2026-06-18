@@ -83,8 +83,13 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
       ? (deltaAmount / Math.max(Math.abs(input.currentValueAmount ?? 0), Math.abs(snapshotValueAmount ?? 0), 1)) * 10_000
       : null;
   const absoluteThreshold = thresholdAmountForCurrency(thresholds, input.reportingCurrency);
-  const hasDisplayedIntradayPrices = input.holdingGroups.some((group) => isIntradayPriceState(group.priceState));
-  const materialRelevantAffectedHoldings = affectedHoldings.filter((row) => row.status !== "awaiting_latest_bar");
+  const intradayDisplayedKeys = new Set(input.holdingGroups
+    .filter((group) => isIntradayPriceState(group.priceState))
+    .map((group) => `${group.ticker}:${group.marketCode}`));
+  const hasDisplayedIntradayPrices = intradayDisplayedKeys.size > 0;
+  const materialRelevantAffectedHoldings = affectedHoldings.filter((row) =>
+    row.status !== "awaiting_latest_bar" || !intradayDisplayedKeys.has(`${row.ticker}:${row.marketCode}`),
+  );
 
   let status: ValuationHealthDto["status"] = "healthy";
   let reason: ValuationHealthDto["reason"] = "within_threshold";
