@@ -84,6 +84,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
       : null;
   const absoluteThreshold = thresholdAmountForCurrency(thresholds, input.reportingCurrency);
   const hasDisplayedIntradayPrices = input.holdingGroups.some((group) => isIntradayPriceState(group.priceState));
+  const materialRelevantAffectedHoldings = affectedHoldings.filter((row) => row.status !== "awaiting_latest_bar");
 
   let status: ValuationHealthDto["status"] = "healthy";
   let reason: ValuationHealthDto["reason"] = "within_threshold";
@@ -101,7 +102,7 @@ export async function buildValuationHealth(input: BuildValuationHealthInput): Pr
     && relativeDeltaBps !== null
     && (deltaAmount >= absoluteThreshold || relativeDeltaBps >= thresholds.relativeBps)
   ) {
-    if (hasDisplayedIntradayPrices && affectedHoldings.length === 0) {
+    if (hasDisplayedIntradayPrices && materialRelevantAffectedHoldings.length === 0) {
       status = "healthy";
       reason = "within_threshold";
     } else {
@@ -245,8 +246,13 @@ function buildHoldingHealthRow(
     status = "missing_latest_bar";
     recommendedAction = "run_backfill";
   } else if (expectedDateIsTradingDay && latestBarDate < input.repairTargetDate) {
-    status = "missing_latest_bar";
-    recommendedAction = "run_backfill";
+    if (isIntradayPriceState(group.priceState)) {
+      status = "awaiting_latest_bar";
+      recommendedAction = "none";
+    } else {
+      status = "missing_latest_bar";
+      recommendedAction = "run_backfill";
+    }
   } else if (latestSnapshotDate === null && hasSnapshotEligibleScope) {
     status = "missing_snapshot";
     recommendedAction = "run_snapshot_repair";

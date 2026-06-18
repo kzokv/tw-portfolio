@@ -148,6 +148,63 @@ describe("buildValuationHealth", () => {
     expect(dto.affectedHoldings).toEqual([]);
   });
 
+  it("keeps expected intraday current-day bar gaps from becoming material", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([["2330:TW", "2026-06-17"]])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([[scopeKey("acc-1", "2330", "TW"), "2026-06-17"]])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+        tradingCalendarCache: {
+          isTradingDay: vi.fn().mockResolvedValue(true),
+        },
+      } as never,
+      userId: "user-1",
+      store: {} as never,
+      reportingCurrency: "TWD",
+      currentValueAmount: 12_000,
+      asOf: "2026-06-18T02:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 12_000,
+          priceState: dailyPriceState({
+            basis: "intraday",
+            chipState: "open_fresh",
+            marketState: "open",
+            asOfDate: "2026-06-18",
+            sourceKind: "intraday_yahoo_chart",
+            quality: null,
+          }),
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 10_000 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-17",
+          latestSnapshotDate: "2026-06-17",
+          expectedLatestValuationDate: "2026-06-18",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("healthy");
+    expect(dto.reason).toBe("within_threshold");
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        latestBarDate: "2026-06-17",
+        latestSnapshotDate: "2026-06-17",
+        status: "awaiting_latest_bar",
+        recommendedAction: "none",
+      }),
+    ]);
+    expect(dto.recommendedActions).toEqual([]);
+  });
+
   it("does not let unrelated intraday movement escalate genuine stale snapshot diagnostics", async () => {
     const dto = await buildValuationHealth({
       app: {
