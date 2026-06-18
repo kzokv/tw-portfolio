@@ -386,7 +386,7 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
   });
 
-  it("falls back to the daily close after market close when no same-day overlay exists", async () => {
+  it("keeps stale daily close state after market close when no same-day overlay exists", async () => {
     persistence._seedDailyBars([
       { ticker: "2330", marketCode: "TW", barDate: "2026-06-17", open: 2355, high: 2385, low: 2350, close: 2385, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
       { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 2375, high: 2400, low: 2350, close: 2400, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
@@ -421,7 +421,8 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.close).toBe(2385);
     expect(result["2330"]?.dailyCompatibleClose).toBe(2385);
     expect(result["2330"]?.priceState.marketState).toBe("closed");
-    expect(result["2330"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["2330"]?.priceState.basis).toBe("stale_close");
+    expect(result["2330"]?.priceState.chipState).toBe("stale");
     expect(result["2330"]?.priceState.sourceKind).toBe("primary_daily");
   });
 
