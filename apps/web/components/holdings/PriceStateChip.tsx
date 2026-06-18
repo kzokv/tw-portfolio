@@ -4,12 +4,6 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/shadcn/tooltip";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -22,11 +16,8 @@ import {
   type PriceStateDtoLike,
 } from "../../features/price-state/priceState";
 
-type PriceStateDisclosure = "tooltip" | "popover";
-
 export function PriceStateChip({
   className,
-  disclosure = "tooltip",
   dict,
   interactive = true,
   locale,
@@ -34,7 +25,6 @@ export function PriceStateChip({
   testId,
 }: {
   className?: string;
-  disclosure?: PriceStateDisclosure;
   dict: AppDictionary;
   interactive?: boolean;
   locale: LocaleCode;
@@ -109,56 +99,33 @@ export function PriceStateChip({
     );
   }
 
-  if (disclosure === "popover") {
-    return (
-      <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            className={chipClassName}
-            data-testid={testId}
-            onPointerEnter={openPopoverForMousePointer}
-            onPointerLeave={closePopoverForMousePointer}
-          >
-            {dot}
-            <span>{label}</span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          side="top"
-          sideOffset={8}
-          collisionPadding={16}
-          className="w-[min(20rem,calc(100vw-2rem))] p-3"
+  return (
+    <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className={chipClassName}
+          data-testid={testId}
           onPointerEnter={openPopoverForMousePointer}
           onPointerLeave={closePopoverForMousePointer}
         >
-          <PriceStateDetailsRows rows={tooltipRows} />
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  return (
-    <TooltipProvider delayDuration={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            className={chipClassName}
-            data-testid={testId}
-          >
-            {dot}
-            <span>{label}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent sideOffset={6} collisionPadding={16} className="max-w-[calc(100vw-2rem)] sm:max-w-xs">
-          <PriceStateDetailsRows rows={tooltipRows} />
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+          {dot}
+          <span>{label}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        collisionPadding={16}
+        className="w-[min(20rem,calc(100vw-2rem))] p-3"
+        onPointerEnter={openPopoverForMousePointer}
+        onPointerLeave={closePopoverForMousePointer}
+      >
+        <PriceStateDetailsRows rows={tooltipRows} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
