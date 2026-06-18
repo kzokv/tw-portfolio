@@ -508,7 +508,7 @@ function buildQuoteFromBars(
     quoteStatus,
     priceState: {
       basis: settledTradingDay && latest.barDate < settledTradingDay ? "pending_today_close" : "today_close",
-      chipState: settledTradingDay && latest.barDate < settledTradingDay ? "closed" : "closed",
+      chipState: settledTradingDay && latest.barDate < settledTradingDay ? "closed_pending" : "closed",
       marketState: "closed",
       source: latest.source,
       sourceKind: "primary_daily",

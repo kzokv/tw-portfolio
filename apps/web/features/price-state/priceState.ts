@@ -68,6 +68,8 @@ export function priceStateSortRank(value: PriceStateCarrierLike | null | undefin
         return 4;
       case "open_previous_close":
         return 3;
+      case "closed_pending":
+        return 3;
       case "open_delayed":
         return 2;
       case "closed":
@@ -144,6 +146,8 @@ export function formatPriceStateLabel(
       return dict.holdings.priceStateDelayed.replace("{relative}", formatRelativeDate(priceState.asOfTimestamp ?? priceState.observedAt, locale, now, dict));
     case "open_previous_close":
       return dict.holdings.priceStatePreviousClose;
+    case "closed_pending":
+      return dict.holdings.priceStateBasisPendingTodayClose;
     case "closed":
       return dict.holdings.priceStateClosed;
     case "stale":
@@ -178,6 +182,7 @@ export function getPriceStateToneClassName(priceState: PriceStateDtoLike | null 
       return "bg-[hsl(var(--success))]";
     case "open_delayed":
     case "open_previous_close":
+    case "closed_pending":
       return "bg-warning";
     case "closed":
     case "stale":

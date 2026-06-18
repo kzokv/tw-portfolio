@@ -318,6 +318,15 @@ superseded_by: null
   - Targeted ESLint passed for touched admin settings, holdings table, price-state helper, and regression-test files.
   - `npx tsc --noEmit -p apps/web/tsconfig.json` passed.
   - `git diff --check` passed.
+- Local post-close pending-close follow-up after live `2330/TW` review on `2026-06-18`:
+  - Live Chrome validation found dashboard and ticker detail showing `2330/TW` at `NT$2,385` with a `Closed` chip after TW market close, even though the same-day regular-session overlay should bridge the delay before the official daily/close-only row lands.
+  - Quote resolution now keeps same-day regular-session Yahoo overlays usable after market close when the latest daily bar is older than the overlay date; the daily bar or close-only row still wins once present, and `dailyCompatibleClose` remains daily-bar based.
+  - Pending post-close bridge states now emit `chipState=closed_pending`, render as `Pending close` with the warning tone, and keep `basis=pending_today_close` so users can distinguish a transitional last market price from a finalized close.
+  - Focused API verification passed: `npx vitest run apps/api/test/unit/quoteSnapshotService.test.ts` (`1` file / `19` tests).
+  - Focused web verification passed: `cd apps/web && npx vitest run test/features/price-state/priceState.test.ts test/components/holdings/PriceStateChip.test.tsx` (`2` files / `9` tests).
+  - Targeted ESLint passed for touched API, web, and shared-types files.
+  - `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json` passed after rebuilding `@vakwen/shared-types`.
+  - `git diff --check` passed.
 
 ## References
 
