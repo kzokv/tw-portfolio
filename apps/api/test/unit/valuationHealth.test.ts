@@ -205,6 +205,87 @@ describe("buildValuationHealth", () => {
     expect(dto.recommendedActions).toEqual([]);
   });
 
+  it("does not suppress awaiting-bar material deltas for unrelated intraday holdings", async () => {
+    const dto = await buildValuationHealth({
+      app: {
+        persistence: {
+          getLatestBarDatesForReconciliation: vi.fn().mockResolvedValue(new Map([
+            ["2330:TW", "2026-06-17"],
+            ["VRT:US", "2026-06-17"],
+          ])),
+          getLatestHoldingSnapshotDatesByScope: vi.fn().mockResolvedValue(new Map([
+            [scopeKey("acc-1", "2330", "TW"), "2026-06-17"],
+            [scopeKey("acc-2", "VRT", "US"), "2026-06-17"],
+          ])),
+          getInstrument: vi.fn().mockResolvedValue({ barsBackfillStatus: "ready" }),
+        },
+      } as never,
+      userId: "user-1",
+      store: {
+        accounting: {
+          facts: {
+            tradeEvents: [
+              {
+                id: "trade-1",
+                accountId: "acc-2",
+                ticker: "VRT",
+                marketCode: "US",
+                type: "BUY",
+                quantity: 5,
+                tradeDate: "2026-06-18",
+                tradeTimestamp: "2026-06-18T14:00:00.000Z",
+                bookingSequence: 1,
+              },
+            ],
+          },
+        },
+      } as never,
+      reportingCurrency: "USD",
+      currentValueAmount: 600,
+      asOf: "2026-06-18T15:00:00.000Z",
+      holdingGroups: [
+        {
+          ticker: "2330",
+          marketCode: "TW",
+          reportingMarketValueAmount: 100,
+          priceState: dailyPriceState({
+            basis: "intraday",
+            chipState: "open_fresh",
+            marketState: "open",
+            asOfDate: "2026-06-18",
+            sourceKind: "intraday_yahoo_chart",
+            quality: null,
+          }),
+          children: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+        },
+        {
+          ticker: "VRT",
+          marketCode: "US",
+          reportingMarketValueAmount: 500,
+          priceState: dailyPriceState(),
+          children: [{ accountId: "acc-2", ticker: "VRT", marketCode: "US" }],
+        },
+      ] as never,
+      performance: {
+        points: [{ fxAvailable: true, marketValueAmount: 100 }],
+        diagnostics: {
+          latestReliableValuationDate: "2026-06-17",
+          latestSnapshotDate: "2026-06-17",
+          expectedLatestValuationDate: "2026-06-17",
+        },
+      } as never,
+    });
+
+    expect(dto.status).toBe("material");
+    expect(dto.affectedHoldings).toEqual([
+      expect.objectContaining({
+        ticker: "VRT",
+        status: "awaiting_latest_bar",
+        recommendedAction: "none",
+      }),
+    ]);
+  });
+
   it("does not let unrelated intraday movement escalate genuine stale snapshot diagnostics", async () => {
     const dto = await buildValuationHealth({
       app: {
