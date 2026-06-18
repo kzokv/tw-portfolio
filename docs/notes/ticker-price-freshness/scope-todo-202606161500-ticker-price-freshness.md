@@ -401,6 +401,14 @@ superseded_by: null
   - Targeted ESLint passed for touched API route/service/test files and ticker/chip web files.
   - `npm run typecheck` passed.
   - `git diff --check` passed.
+- Post-deploy ticker chip click follow-up on `2026-06-19`:
+  - Live Chrome validation after deploy `27793804484` found the ticker chip hover popover worked, but a desktop mouse click could close the details immediately because mouse hover opened the controlled popover before Radix trigger click toggled it closed.
+  - Shared `PriceStateChip` now treats trigger click as an explicit open action; details still close through outside click/Escape/popover state changes. This preserves hover details and makes click/tap monotonic for the chip.
+  - Added a shared-chip regression that dispatches mouse hover-open and then clicks the chip, asserting the dialog remains open.
+  - Focused web verification passed: `cd apps/web && npx vitest run test/components/holdings/PriceStateChip.test.tsx test/app/tickers/TickerHistoryClient.test.tsx` (`2` files / `25` tests).
+  - Targeted ESLint passed for the touched chip and ticker/chip test files.
+  - `npm run typecheck` passed.
+  - `git diff --check` passed.
 
 ## References
 
