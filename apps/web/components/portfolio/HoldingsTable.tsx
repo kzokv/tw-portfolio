@@ -943,7 +943,6 @@ function PortfolioMobileColumnMetric({
             <div className="flex justify-start">
               <PriceStateChip
                 className="mt-0"
-                disclosure="popover"
                 dict={dict}
                 locale={locale}
                 priceState={priceState}

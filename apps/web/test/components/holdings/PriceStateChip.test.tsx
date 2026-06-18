@@ -233,11 +233,10 @@ describe("PriceStateChip", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
-  it("can render as a popover disclosure for touch and narrow viewports", async () => {
+  it("uses a popover disclosure by default for mouse and touch interactions", async () => {
     act(() => {
       root.render(
         <PriceStateChip
-          disclosure="popover"
           dict={dict}
           locale="en"
           testId="price-state-chip"
@@ -276,6 +275,8 @@ describe("PriceStateChip", () => {
 
     expect(document.body.textContent).toContain("Basis: Today close");
     expect(document.body.textContent).toContain("Market: Closed");
+    expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 
   it("uses the bar timestamp for delayed relative labels even when observed recently", async () => {
