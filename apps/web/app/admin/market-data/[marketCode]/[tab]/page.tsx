@@ -3,10 +3,8 @@ import type {
   AdminMarketCode,
   AdminMarketDataActionsResponse,
   AdminMarketDataInstrumentsResponse,
-  AdminMarketDataLogsResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
-  AdminMarketWorkspaceTab,
   ProviderFixerDashboardOperationsResponse,
   ProviderOperationOutcomesResponse,
   ProviderResolutionMappingsResponse,
@@ -14,6 +12,13 @@ import type {
 } from "@vakwen/shared-types";
 import { getJson } from "../../../../../lib/api";
 import { AdminMarketDataWorkspaceClient } from "../../../../../components/admin/AdminMarketDataClient";
+import type {
+  AdminMarketDataActivityQuery,
+  AdminMarketDataActivityResponse,
+  AdminMarketDataCalendarResponse,
+  AdminMarketDataOverviewUiResponse,
+  AdminMarketWorkspaceUiTab,
+} from "../../../../../lib/adminMarketDataContracts";
 
 interface AdminMarketDataWorkspacePageProps {
   params: Promise<{ marketCode: string; tab: string }>;
@@ -64,12 +69,13 @@ interface SnapshotRepairRequest {
 const marketCodes = new Set(["TW", "US", "AU", "KR", "FX"]);
 const tabs = new Set([
   "overview",
+  "calendar",
   "instruments",
   "backfill",
   "mappings",
   "purge",
   "operations",
-  "logs",
+  "activity",
   "refresh-rates",
 ]);
 
@@ -182,6 +188,30 @@ function instrumentQueryString(filters: InstrumentQuery): string {
   return params.toString();
 }
 
+function activityQueryFromSearchParams(query: Record<string, string | string[] | undefined>): AdminMarketDataActivityQuery {
+  return {
+    page: positiveIntQueryValue(query.page, 1),
+    limit: positiveIntQueryValue(query.limit, 25),
+    search: firstOptionalQueryValue(query.search) ?? "",
+    source: firstOptionalQueryValue(query.source) ?? "",
+    category: firstOptionalQueryValue(query.category) ?? "",
+    result: firstOptionalQueryValue(query.result) ?? "warning,error",
+    timeRange: firstOptionalQueryValue(query.timeRange) ?? "24h",
+  };
+}
+
+function activityQueryString(query: AdminMarketDataActivityQuery): string {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page));
+  params.set("limit", String(query.limit));
+  if (query.search.trim()) params.set("search", query.search.trim());
+  if (query.source) params.set("source", query.source);
+  if (query.category) params.set("category", query.category);
+  if (query.result) params.set("result", query.result);
+  if (query.timeRange) params.set("timeRange", query.timeRange);
+  return params.toString();
+}
+
 export default async function AdminMarketDataWorkspacePage({
   params,
   searchParams,
@@ -193,11 +223,12 @@ export default async function AdminMarketDataWorkspacePage({
   }
 
   const marketCode = resolvedParams.marketCode as AdminMarketCode;
-  const tab = resolvedParams.tab as AdminMarketWorkspaceTab;
+  const tab = resolvedParams.tab as AdminMarketWorkspaceUiTab;
   const instrumentQuery = instrumentQueryFromSearchParams(
     query,
     tab === "backfill" ? { status: "listed", supportState: "supported" } : undefined,
   );
+  const activityQuery = activityQueryFromSearchParams(query);
   const krMappingQuery = krMappingQueryFromSearchParams(query);
   const krOperationsQuery = krOperationsQueryFromSearchParams(query);
   const page = instrumentQuery.page;
@@ -221,6 +252,12 @@ export default async function AdminMarketDataWorkspacePage({
     getJson<AdminMarketDataOverviewResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/overview`),
     getJson<AdminMarketDataActionsResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/actions`),
   ]);
+  const overviewTabs = new Set<AdminMarketWorkspaceUiTab>(overview.tabs as AdminMarketWorkspaceUiTab[]);
+  if (tab === "activity" || tab === "calendar") overviewTabs.add(tab);
+  const overviewWithUiTabs: AdminMarketDataOverviewUiResponse = {
+    ...overview,
+    tabs: [...overviewTabs],
+  };
 
   const instruments =
     (tab === "instruments" || tab === "backfill") && marketCode !== "FX"
@@ -234,10 +271,16 @@ export default async function AdminMarketDataWorkspacePage({
           `/admin/market-data/${encodeURIComponent(marketCode)}/operations?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}`,
         )
       : null;
-  const logs =
-    tab === "logs"
-      ? await getJson<AdminMarketDataLogsResponse>(
-          `/admin/market-data/${encodeURIComponent(marketCode)}/logs?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}${operationId ? `&operationId=${encodeURIComponent(operationId)}` : ""}`,
+  const activity =
+    tab === "activity"
+      ? await getJson<AdminMarketDataActivityResponse>(
+          `/admin/market-data/${encodeURIComponent(marketCode)}/activity?${activityQueryString(activityQuery)}`,
+        )
+      : null;
+  const calendar =
+    tab === "calendar" && marketCode !== "FX"
+      ? await getJson<AdminMarketDataCalendarResponse>(
+          `/admin/market-data/${encodeURIComponent(marketCode)}/calendar`,
         )
       : null;
   const krMappings =
@@ -297,12 +340,13 @@ export default async function AdminMarketDataWorkspacePage({
     <AdminMarketDataWorkspaceClient
       marketCode={marketCode}
       tab={tab}
-      overview={overview}
+      overview={overviewWithUiTabs}
       actions={actions.actions}
       instruments={instruments}
       instrumentQuery={instrumentQuery}
       operations={operations}
-      logs={logs}
+      activity={activity}
+      calendar={calendar}
       providerFilterId={providerId ?? ""}
       krMappings={krMappings}
       krOperations={krOperations}

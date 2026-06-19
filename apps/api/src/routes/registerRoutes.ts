@@ -5156,6 +5156,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return await runCloseRefresh({
           pairs: syncPairs,
           persistence: app.persistence,
+          activityPersistence: app.persistence,
           tradingCalendar: app.tradingCalendarCache,
           marketDataProviders: app.marketDataRegistry.marketData,
           fallbackProviders,

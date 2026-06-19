@@ -100,6 +100,12 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
       effectiveRefreshCloseRateLimitMax: 10,
       syncTickerCap: null,
       effectiveSyncTickerCap: 50,
+      activityDetailedRetentionDays: null,
+      effectiveActivityDetailedRetentionDays: 7,
+      activitySummaryRetentionDays: null,
+      effectiveActivitySummaryRetentionDays: 90,
+      calendarHistoryRetentionDays: null,
+      effectiveCalendarHistoryRetentionDays: 730,
       options: {
         supportedMarkets: ["TW", "US", "AU", "KR"],
         yahooChartRanges: ["1d", "5d"],
@@ -115,6 +121,9 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
         refreshCloseRateLimitWindowMs: { min: 1000, max: 600_000 },
         refreshCloseRateLimitMax: { min: 1, max: 1000 },
         syncTickerCap: { min: 1, max: 1000 },
+        activityDetailedRetentionDays: { min: 1, max: 365 },
+        activitySummaryRetentionDays: { min: 1, max: 730 },
+        calendarHistoryRetentionDays: { min: 30, max: 3650 },
       },
     },
 

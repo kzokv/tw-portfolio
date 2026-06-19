@@ -51,6 +51,22 @@ function expectedToolWidgetAccessible(toolName: string): boolean {
   return toolName === "get_account_manager_component" || toolName === "get_transaction_draft_batch_component";
 }
 
+function fullYearCalendarRows(year: number) {
+  const rows: Array<{ date: string; isOpen: boolean; evidence: string }> = [];
+  const current = new Date(`${year}-01-01T00:00:00.000Z`);
+  while (current.getUTCFullYear() === year) {
+    const date = current.toISOString().slice(0, 10);
+    const day = current.getUTCDay();
+    rows.push({
+      date,
+      isOpen: day >= 1 && day <= 5,
+      evidence: `official:${date}`,
+    });
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return rows;
+}
+
 async function initializeMcpSession(headers: Record<string, string>) {
   const initialize = await app.inject({
     method: "POST",
@@ -583,6 +599,82 @@ describe("mcp routes", () => {
       result: "denied",
       denialReason: "mcp_scope_denied",
     });
+  });
+
+  it("gates admin calendar MCP tools to admin users and supports preview-confirm imports", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+
+    const member = await app.persistence.resolveOrCreateUser(
+      "google",
+      "member-calendar-user",
+      { email: "member-calendar-user@example.com", name: "Member Calendar User" },
+      { role: "member" },
+    );
+    const memberHeaders = {
+      authorization: `Bearer ${devToken({ userId: member.userId, scopes: ["transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const memberSessionId = await initializeMcpSession(memberHeaders);
+    const denied = await callMcpTool(memberHeaders, memberSessionId, "get_admin_market_calendar_status", {
+      marketCode: "TW",
+    });
+    expect(denied.statusCode).toBe(200);
+    const deniedBody = parseMcpJson<{
+      result: { structuredContent: { code: string; statusCode: number } };
+    }>(denied.body);
+    expect(deniedBody.result.structuredContent).toMatchObject({
+      code: "admin_required",
+      statusCode: 403,
+    });
+
+    const adminHeaders = {
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const adminSessionId = await initializeMcpSession(adminHeaders);
+    const preview = await callMcpTool(adminHeaders, adminSessionId, "preview_admin_market_calendar_import", {
+      marketCode: "TW",
+      calendarYear: 2026,
+      retrievedAt: "2026-06-19T00:00:00.000Z",
+      rows: fullYearCalendarRows(2026),
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = parseMcpJson<{
+      result: {
+        structuredContent: {
+          previewToken: string;
+          source: { id: string } | null;
+          rowCount: number;
+          replaceConfirmedRequired: boolean;
+        };
+      };
+    }>(preview.body);
+    expect(previewBody.result.structuredContent.source?.id).toBe("official-tw");
+    expect(previewBody.result.structuredContent.rowCount).toBe(365);
+    expect(previewBody.result.structuredContent.replaceConfirmedRequired).toBe(false);
+
+    const confirmed = await callMcpTool(adminHeaders, adminSessionId, "confirm_admin_market_calendar_import", {
+      marketCode: "TW",
+      previewToken: previewBody.result.structuredContent.previewToken,
+    });
+    expect(confirmed.statusCode).toBe(200);
+    const confirmedBody = parseMcpJson<{
+      result: {
+        structuredContent: {
+          marketCode: string;
+          calendarYear: number;
+          versionId: string;
+        };
+      };
+    }>(confirmed.body);
+    expect(confirmedBody.result.structuredContent).toMatchObject({
+      marketCode: "TW",
+      calendarYear: 2026,
+    });
+    expect(confirmedBody.result.structuredContent.versionId).toBeTruthy();
+
+    const active = await app.persistence.getActiveMarketCalendarVersion("TW", 2026);
+    expect(active?.status).toBe("confirmed");
   });
 
   it("authenticates an active ChatGPT connector and records successful MCP tool access", async () => {

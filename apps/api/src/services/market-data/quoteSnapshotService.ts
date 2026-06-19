@@ -45,13 +45,17 @@ export function buildMissingPriceState(
   marketCode?: MarketCode,
   input: {
     marketState?: PriceStateDto["marketState"];
+    marketStateReason?: PriceStateDto["marketStateReason"];
     marketTimeZone?: string | null;
+    marketLocalDate?: string | null;
+    calendarStatus?: PriceStateDto["calendarStatus"] | null;
   } = {},
 ): PriceStateDto {
   return {
     basis: "missing",
     chipState: "missing",
     marketState: input.marketState ?? "closed",
+    marketStateReason: input.marketStateReason ?? "market_closed",
     source: null,
     sourceKind: "missing",
     asOfDate: null,
@@ -60,6 +64,9 @@ export function buildMissingPriceState(
     delaySeconds: null,
     marketTimeZone: input.marketTimeZone ?? null,
     quality: null,
+    marketLocalDate: input.marketLocalDate ?? null,
+    calendarStatus: input.calendarStatus ?? null,
+    latestIntradayAttempt: null,
   };
 }
 
@@ -255,6 +262,7 @@ function resolveSnapshotForPair(input: {
         basis: "pending_today_close",
         chipState: "closed_pending",
         marketState: "closed",
+        marketStateReason: "market_closed",
         source: overlay.source,
         sourceKind: overlay.sourceKind,
         asOfDate: overlay.asOfDate,
@@ -263,6 +271,9 @@ function resolveSnapshotForPair(input: {
         delaySeconds,
         marketTimeZone: session.marketTimeZone,
         quality: null,
+        marketLocalDate: session.localDate,
+        calendarStatus: session.calendarStatus,
+        latestIntradayAttempt: null,
       },
     };
   }
@@ -286,6 +297,7 @@ function resolveSnapshotForPair(input: {
       basis,
       chipState: basis === "intraday" ? "open_fresh" : "open_delayed",
       marketState: "open",
+      marketStateReason: "market_open",
       source: overlay.source,
       sourceKind: overlay.sourceKind,
       asOfDate: overlay.asOfDate,
@@ -294,6 +306,9 @@ function resolveSnapshotForPair(input: {
       delaySeconds,
       marketTimeZone: session.marketTimeZone,
       quality: null,
+      marketLocalDate: session.localDate,
+      calendarStatus: session.calendarStatus,
+      latestIntradayAttempt: null,
     },
   };
 }
@@ -335,6 +350,15 @@ function buildDailyPriceState(
 ): PriceStateDto {
   const settled = marketCode ? settledByMarket.get(marketCode) ?? null : null;
   const marketState: PriceStateDto["marketState"] = session?.isOpen ? "open" : "closed";
+  const marketStateReason: PriceStateDto["marketStateReason"] = session
+    ? session.marketStateReason === "market_open"
+      ? "market_open"
+      : session.marketStateReason === "calendar_unknown"
+        ? "calendar_unknown"
+        : session.marketStateReason === "outside_regular_session"
+          ? "outside_regular_session"
+          : "not_trading_day"
+    : "market_closed";
   const marketTimeZone = session?.marketTimeZone ?? null;
   const sourceKind = mapDailySourceKind(latest.source);
 
@@ -353,6 +377,7 @@ function buildDailyPriceState(
     basis,
     chipState,
     marketState,
+    marketStateReason,
     source: latest.source,
     sourceKind,
     asOfDate: latest.barDate,
@@ -361,6 +386,9 @@ function buildDailyPriceState(
     delaySeconds: null,
     marketTimeZone,
     quality: latest.quality,
+    marketLocalDate: session?.localDate ?? null,
+    calendarStatus: session?.calendarStatus ?? null,
+    latestIntradayAttempt: null,
   };
 }
 
@@ -373,6 +401,7 @@ function buildOpenPreviousCloseState(
     basis: "previous_close",
     chipState: "open_previous_close",
     marketState: "open",
+    marketStateReason: "market_open",
     source: latest.source,
     sourceKind: mapDailySourceKind(latest.source),
     asOfDate: latest.barDate,
@@ -381,6 +410,9 @@ function buildOpenPreviousCloseState(
     delaySeconds: null,
     marketTimeZone: session.marketTimeZone,
     quality: latest.quality,
+    marketLocalDate: session.localDate,
+    calendarStatus: session.calendarStatus,
+    latestIntradayAttempt: null,
   };
 }
 

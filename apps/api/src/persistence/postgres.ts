@@ -82,8 +82,10 @@ import type {
   AnonymousShareTokenRecord,
   AuditLogInput,
   AuthUserRecord,
+  ConfirmMarketCalendarPreviewInput,
   ConfirmAiTransactionDraftPostingInput,
   ConfirmAiTransactionDraftPostingResult,
+  CreateMarketCalendarActivityEventInput,
   CreateAnonymousShareTokenInput,
   CreateAnonymousShareTokenResult,
   CreateShareCoupledInviteInput,
@@ -147,6 +149,7 @@ import type {
   CreateProviderOperationInput,
   CreateProviderOperationLogInput,
   DeleteProviderResolutionMappingInput,
+  InvalidateMarketCalendarVersionInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
   ListProviderIncidentsOptions,
@@ -161,6 +164,14 @@ import type {
   ListProviderResolutionMappingsResult,
   ListProviderUnresolvedItemsOptions,
   ListProviderUnresolvedItemsResult,
+  ListMarketCalendarActivityOptions,
+  ListMarketCalendarActivityResult,
+  MarketCalendarActivityResult,
+  MarketCalendarActivitySource,
+  MarketCalendarActivityEventRecord,
+  MarketCalendarPreviewRecord,
+  MarketCalendarSourceConfigRecord,
+  MarketCalendarVersionRecord,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
@@ -180,6 +191,7 @@ import type {
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
+  SaveMarketCalendarSourceConfigInput,
   SaveMcpOAuthAuthorizationCodeInput,
   SaveMcpOAuthAuthorizationRequestInput,
   SaveAiTransactionDraftBatchInput,
@@ -11518,6 +11530,9 @@ export class PostgresPersistence implements Persistence {
     tickerPriceRefreshCloseRateLimitWindowMs: number | null;
     tickerPriceRefreshCloseRateLimitMax: number | null;
     tickerPriceSyncTickerCap: number | null;
+    tickerPriceActivityDetailedRetentionDays: number | null;
+    tickerPriceActivitySummaryRetentionDays: number | null;
+    tickerPriceCalendarHistoryRetentionDays: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -11601,6 +11616,9 @@ export class PostgresPersistence implements Persistence {
       ticker_price_refresh_close_rate_limit_window_ms: number | string | null;
       ticker_price_refresh_close_rate_limit_max: number | null;
       ticker_price_sync_ticker_cap: number | null;
+      ticker_price_activity_detailed_retention_days: number | null;
+      ticker_price_activity_summary_retention_days: number | null;
+      ticker_price_calendar_history_retention_days: number | null;
       daily_refresh_lookback_days: number | null;
       daily_refresh_priority: number | null;
       sse_heartbeat_interval_ms: number | null;
@@ -11657,6 +11675,8 @@ export class PostgresPersistence implements Persistence {
          ticker_price_regular_session_only, ticker_price_yahoo_chart_range, ticker_price_yahoo_chart_interval,
          ticker_price_refresh_close_rate_limit_window_ms, ticker_price_refresh_close_rate_limit_max,
          ticker_price_sync_ticker_cap,
+         ticker_price_activity_detailed_retention_days, ticker_price_activity_summary_retention_days,
+         ticker_price_calendar_history_retention_days,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
          catalog_absence_threshold, catalog_absence_guard_percent, catalog_absence_guard_floor,
@@ -11729,6 +11749,9 @@ export class PostgresPersistence implements Persistence {
         tickerPriceRefreshCloseRateLimitWindowMs: null,
         tickerPriceRefreshCloseRateLimitMax: null,
         tickerPriceSyncTickerCap: null,
+        tickerPriceActivityDetailedRetentionDays: null,
+        tickerPriceActivitySummaryRetentionDays: null,
+        tickerPriceCalendarHistoryRetentionDays: null,
         dailyRefreshLookbackDays: null,
         dailyRefreshPriority: null,
         sseHeartbeatIntervalMs: null,
@@ -11820,6 +11843,9 @@ export class PostgresPersistence implements Persistence {
       tickerPriceRefreshCloseRateLimitWindowMs: num(row.ticker_price_refresh_close_rate_limit_window_ms),
       tickerPriceRefreshCloseRateLimitMax: row.ticker_price_refresh_close_rate_limit_max,
       tickerPriceSyncTickerCap: row.ticker_price_sync_ticker_cap,
+      tickerPriceActivityDetailedRetentionDays: row.ticker_price_activity_detailed_retention_days,
+      tickerPriceActivitySummaryRetentionDays: row.ticker_price_activity_summary_retention_days,
+      tickerPriceCalendarHistoryRetentionDays: row.ticker_price_calendar_history_retention_days,
       dailyRefreshLookbackDays: row.daily_refresh_lookback_days,
       dailyRefreshPriority: row.daily_refresh_priority,
       sseHeartbeatIntervalMs: row.sse_heartbeat_interval_ms,
@@ -15106,7 +15132,27 @@ export class PostgresPersistence implements Persistence {
        RETURNING id, operation_id, phase, level, message, context, created_at`,
       [input.operationId, input.phase, input.level, input.message, input.context ? JSON.stringify(input.context) : null],
     );
-    return mapProviderOperationLogRow(result.rows[0]!);
+    const row = mapProviderOperationLogRow(result.rows[0]!);
+    const operation = await this.getProviderOperation(input.operationId);
+    if (operation && isMarketCalendarActivityMarket(operation.marketCode)) {
+      await this.createMarketCalendarActivityEvent({
+        marketCode: operation.marketCode,
+        category: "provider_operation",
+        result: providerOperationLogLevelToActivityResult(input.level),
+        source: providerIdToActivitySource(operation.providerId),
+        eventType: `provider_operation_${input.phase}`,
+        title: "Provider operation milestone",
+        message: input.message,
+        operationId: input.operationId,
+        detail: {
+          providerId: operation.providerId,
+          operationType: operation.operationType,
+          phase: input.phase,
+          context: input.context ?? null,
+        },
+      });
+    }
+    return row;
   }
 
   async listProviderOperationLogs(
@@ -15132,6 +15178,316 @@ export class PostgresPersistence implements Persistence {
     );
     return {
       items: rowsResult.rows.map(mapProviderOperationLogRow),
+      total: parseInt(countResult.rows[0]?.count ?? "0", 10),
+      page,
+      limit,
+    };
+  }
+
+  async listMarketCalendarSources(marketCode: MarketCode): Promise<MarketCalendarSourceConfigRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      market_code: MarketCode;
+      label: string;
+      source_type: MarketCalendarSourceConfigRecord["sourceType"];
+      url: string | null;
+      host: string | null;
+      allowed_hosts: string[] | null;
+      parser_id: string | null;
+      enabled: boolean;
+      is_default: boolean;
+      updated_at: string;
+    }>(
+      `SELECT id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default, updated_at
+         FROM market_data.market_calendar_sources
+        WHERE market_code = $1
+        ORDER BY is_default DESC, label ASC`,
+      [marketCode],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      marketCode: row.market_code,
+      label: row.label,
+      sourceType: row.source_type,
+      url: row.url,
+      host: row.host,
+      allowedHosts: row.allowed_hosts ?? [],
+      parserId: row.parser_id,
+      enabled: row.enabled,
+      isDefault: row.is_default,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async saveMarketCalendarSource(input: SaveMarketCalendarSourceConfigInput): Promise<MarketCalendarSourceConfigRecord> {
+    const id = input.sourceId ?? randomUUID();
+    if (input.isDefault) {
+      await this.pool.query(
+        `UPDATE market_data.market_calendar_sources
+            SET is_default = FALSE, updated_at = NOW()
+          WHERE market_code = $1`,
+        [input.marketCode],
+      );
+    }
+    const result = await this.pool.query<{
+      id: string;
+      market_code: MarketCode;
+      label: string;
+      source_type: MarketCalendarSourceConfigRecord["sourceType"];
+      url: string | null;
+      host: string | null;
+      allowed_hosts: string[] | null;
+      parser_id: string | null;
+      enabled: boolean;
+      is_default: boolean;
+      updated_at: string;
+    }>(
+      `INSERT INTO market_data.market_calendar_sources
+         (id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10)
+       ON CONFLICT (id) DO UPDATE
+       SET label = EXCLUDED.label,
+           source_type = EXCLUDED.source_type,
+           url = EXCLUDED.url,
+           host = EXCLUDED.host,
+           allowed_hosts = EXCLUDED.allowed_hosts,
+           parser_id = EXCLUDED.parser_id,
+           enabled = EXCLUDED.enabled,
+           is_default = EXCLUDED.is_default,
+           updated_at = NOW()
+       RETURNING id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default, updated_at`,
+      [id, input.marketCode, input.label, input.sourceType, input.url ?? null, input.host ?? null, input.allowedHosts ?? [], input.parserId ?? null, input.enabled ?? true, input.isDefault ?? false],
+    );
+    const row = result.rows[0]!;
+    return {
+      id: row.id,
+      marketCode: row.market_code,
+      label: row.label,
+      sourceType: row.source_type,
+      url: row.url,
+      host: row.host,
+      allowedHosts: row.allowed_hosts ?? [],
+      parserId: row.parser_id,
+      enabled: row.enabled,
+      isDefault: row.is_default,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async saveMarketCalendarPreview(preview: MarketCalendarPreviewRecord): Promise<MarketCalendarPreviewRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO market_data.market_calendar_previews
+         (preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
+          replace_confirmed_required, warnings, diff, rows, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13)
+       ON CONFLICT (preview_token) DO UPDATE
+       SET import_operation_id = EXCLUDED.import_operation_id,
+           source_id = EXCLUDED.source_id,
+           source_type = EXCLUDED.source_type,
+           label = EXCLUDED.label,
+           retrieved_at = EXCLUDED.retrieved_at,
+           replace_confirmed_required = EXCLUDED.replace_confirmed_required,
+           warnings = EXCLUDED.warnings,
+           diff = EXCLUDED.diff,
+           rows = EXCLUDED.rows
+       RETURNING preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
+                 replace_confirmed_required, warnings, diff, rows, created_at`,
+      [
+        preview.previewToken,
+        preview.importOperationId,
+        preview.marketCode,
+        preview.calendarYear,
+        preview.sourceId,
+        preview.sourceType,
+        preview.label,
+        preview.retrievedAt,
+        preview.replaceConfirmedRequired,
+        JSON.stringify(preview.warnings),
+        JSON.stringify(preview.diff),
+        JSON.stringify(preview.rows),
+        preview.createdAt,
+      ],
+    );
+    return mapMarketCalendarPreviewRow(result.rows[0]!);
+  }
+
+  async getMarketCalendarPreview(previewToken: string): Promise<MarketCalendarPreviewRecord | null> {
+    const result = await this.pool.query(
+      `SELECT preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
+              replace_confirmed_required, warnings, diff, rows, created_at
+         FROM market_data.market_calendar_previews
+        WHERE preview_token = $1`,
+      [previewToken],
+    );
+    return result.rows[0] ? mapMarketCalendarPreviewRow(result.rows[0]) : null;
+  }
+
+  async confirmMarketCalendarPreview(input: ConfirmMarketCalendarPreviewInput): Promise<MarketCalendarVersionRecord> {
+    const preview = await this.getMarketCalendarPreview(input.previewToken);
+    if (!preview) {
+      throw routeError(404, "market_calendar_preview_not_found", "Market calendar preview not found");
+    }
+    const active = await this.getActiveMarketCalendarVersion(preview.marketCode, preview.calendarYear);
+    if (active && preview.replaceConfirmedRequired && !input.replaceConfirmed) {
+      throw routeError(400, "market_calendar_replace_required", "Replacing the confirmed calendar requires explicit confirmation");
+    }
+    const versionId = randomUUID();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE market_data.market_calendar_versions
+            SET is_active = FALSE, updated_at = NOW()
+          WHERE market_code = $1 AND calendar_year = $2 AND is_active = TRUE`,
+        [preview.marketCode, preview.calendarYear],
+      );
+      const source = preview.sourceId
+        ? await client.query<{ label: string | null }>(
+          `SELECT label FROM market_data.market_calendar_sources WHERE id = $1`,
+          [preview.sourceId],
+        )
+        : { rows: [] };
+      const result = await client.query(
+        `INSERT INTO market_data.market_calendar_versions
+           (version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
+            confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NULL, $9, 'confirmed', TRUE, $10::jsonb, NOW(), NOW())
+         RETURNING version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
+                   confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at`,
+        [versionId, preview.importOperationId, preview.marketCode, preview.calendarYear, preview.sourceId, source.rows[0]?.label ?? preview.label, preview.sourceType, preview.retrievedAt, input.replacementReason ?? null, JSON.stringify(preview.rows)],
+      );
+      await client.query("COMMIT");
+      return mapMarketCalendarVersionRow(result.rows[0]!);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async invalidateMarketCalendarVersion(input: InvalidateMarketCalendarVersionInput): Promise<MarketCalendarVersionRecord | null> {
+    const result = await this.pool.query(
+      `UPDATE market_data.market_calendar_versions
+          SET status = 'invalidated',
+              is_active = FALSE,
+              invalidated_at = NOW(),
+              invalidation_reason = $3,
+              updated_at = NOW()
+        WHERE market_code = $1
+          AND calendar_year = $2
+          AND is_active = TRUE
+      RETURNING version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
+                confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at`,
+      [input.marketCode, input.calendarYear, input.reason],
+    );
+    return result.rows[0] ? mapMarketCalendarVersionRow(result.rows[0]) : null;
+  }
+
+  async getActiveMarketCalendarVersion(marketCode: MarketCode, calendarYear: number): Promise<MarketCalendarVersionRecord | null> {
+    const result = await this.pool.query(
+      `SELECT version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
+              confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at
+         FROM market_data.market_calendar_versions
+        WHERE market_code = $1
+          AND calendar_year = $2
+          AND is_active = TRUE
+        LIMIT 1`,
+      [marketCode, calendarYear],
+    );
+    return result.rows[0] ? mapMarketCalendarVersionRow(result.rows[0]) : null;
+  }
+
+  async listMarketCalendarHistory(marketCode: MarketCode, calendarYear?: number): Promise<MarketCalendarVersionRecord[]> {
+    const params: unknown[] = [marketCode];
+    const yearClause = calendarYear === undefined ? "" : "AND calendar_year = $2";
+    if (calendarYear !== undefined) params.push(calendarYear);
+    const result = await this.pool.query(
+      `SELECT version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
+              confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at
+         FROM market_data.market_calendar_versions
+        WHERE market_code = $1
+          ${yearClause}
+        ORDER BY updated_at DESC`,
+      params,
+    );
+    return result.rows.map(mapMarketCalendarVersionRow);
+  }
+
+  async createMarketCalendarActivityEvent(input: CreateMarketCalendarActivityEventInput): Promise<MarketCalendarActivityEventRecord> {
+    const id = randomUUID();
+    const result = await this.pool.query(
+      `INSERT INTO market_data.market_calendar_activity
+         (id, market_code, occurred_at, category, result, source, event_type, title, message,
+          ticker, provider_symbol, operation_id, job_id, calendar_year, detail)
+       VALUES ($1, $2, COALESCE($3, NOW()), $4, $5, $6, $7, $8, $9,
+               $10, $11, $12, $13, $14, $15::jsonb)
+       RETURNING id, market_code, occurred_at, category, result, source, event_type, title, message,
+                 ticker, provider_symbol, operation_id, job_id, calendar_year, detail`,
+      [id, input.marketCode, input.occurredAt ?? null, input.category, input.result, input.source, input.eventType, input.title, input.message, input.ticker ?? null, input.providerSymbol ?? null, input.operationId ?? null, input.jobId ?? null, input.calendarYear ?? null, JSON.stringify(input.detail ?? {})],
+    );
+    return mapMarketCalendarActivityRow(result.rows[0]!);
+  }
+
+  async listMarketCalendarActivity(options: ListMarketCalendarActivityOptions): Promise<ListMarketCalendarActivityResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const where = ["market_code = $1"];
+    const params: unknown[] = [options.marketCode];
+    let i = 2;
+    if (options.categories?.length) {
+      where.push(`category = ANY($${i++}::text[])`);
+      params.push(options.categories);
+    }
+    if (options.results?.length) {
+      where.push(`result = ANY($${i++}::text[])`);
+      params.push(options.results);
+    }
+    if (options.sources?.length) {
+      where.push(`source = ANY($${i++}::text[])`);
+      params.push(options.sources);
+    }
+    if (options.occurredAfter) {
+      where.push(`occurred_at >= $${i++}::timestamptz`);
+      params.push(options.occurredAfter);
+    }
+    if (options.search?.trim()) {
+      where.push(`(
+        COALESCE(ticker, '') ILIKE $${i}
+        OR COALESCE(provider_symbol, '') ILIKE $${i}
+        OR COALESCE(operation_id, '') ILIKE $${i}
+        OR COALESCE(job_id, '') ILIKE $${i}
+        OR COALESCE(calendar_year::text, '') ILIKE $${i}
+        OR source::text ILIKE $${i}
+        OR title ILIKE $${i}
+        OR message ILIKE $${i}
+        OR event_type ILIKE $${i}
+        OR COALESCE(detail->>'sourceHost', '') ILIKE $${i}
+        OR COALESCE(detail->>'host', '') ILIKE $${i}
+      )`);
+      params.push(`%${options.search.trim()}%`);
+      i += 1;
+    }
+    const whereClause = where.join(" AND ");
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.market_calendar_activity
+        WHERE ${whereClause}`,
+      params,
+    );
+    const rowsResult = await this.pool.query(
+      `SELECT id, market_code, occurred_at, category, result, source, event_type, title, message,
+              ticker, provider_symbol, operation_id, job_id, calendar_year, detail
+         FROM market_data.market_calendar_activity
+        WHERE ${whereClause}
+        ORDER BY occurred_at DESC
+        LIMIT $${i++}
+        OFFSET $${i++}`,
+      [...params, limit, offset],
+    );
+    return {
+      items: rowsResult.rows.map(mapMarketCalendarActivityRow),
       total: parseInt(countResult.rows[0]?.count ?? "0", 10),
       page,
       limit,
@@ -15680,6 +16036,129 @@ function mapProviderOperationLogRow(row: ProviderOperationLogRowSql): ProviderOp
     message: row.message,
     context: row.context,
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "KR" {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
+}
+
+function providerOperationLogLevelToActivityResult(level: ProviderOperationLogLevel): MarketCalendarActivityResult {
+  if (level === "error") return "error";
+  if (level === "warning") return "warning";
+  return "success";
+}
+
+function providerIdToActivitySource(providerId: string): MarketCalendarActivitySource {
+  if (providerId.includes("yahoo")) return "yahoo_chart";
+  if (providerId.includes("finmind")) return "finmind";
+  if (providerId.includes("twse")) return "twse_close";
+  return "system";
+}
+
+function mapMarketCalendarPreviewRow(row: {
+  preview_token: string;
+  import_operation_id: string;
+  market_code: MarketCode;
+  calendar_year: number;
+  source_id: string | null;
+  source_type: MarketCalendarPreviewRecord["sourceType"];
+  label: string | null;
+  retrieved_at: string;
+  replace_confirmed_required: boolean;
+  warnings: unknown;
+  diff: unknown;
+  rows: unknown;
+  created_at: string;
+}): MarketCalendarPreviewRecord {
+  return {
+    previewToken: row.preview_token,
+    importOperationId: row.import_operation_id,
+    marketCode: row.market_code,
+    calendarYear: Number(row.calendar_year),
+    sourceId: row.source_id,
+    sourceType: row.source_type,
+    label: row.label,
+    retrievedAt: new Date(row.retrieved_at).toISOString(),
+    replaceConfirmedRequired: row.replace_confirmed_required,
+    warnings: Array.isArray(row.warnings) ? row.warnings as string[] : [],
+    diff: (row.diff ?? { addedDates: [], removedDates: [], changedDates: [] }) as MarketCalendarPreviewRecord["diff"],
+    rows: Array.isArray(row.rows) ? row.rows as MarketCalendarPreviewRecord["rows"] : [],
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapMarketCalendarVersionRow(row: {
+  version_id: string;
+  import_operation_id: string;
+  market_code: MarketCode;
+  calendar_year: number;
+  source_id: string | null;
+  source_label: string | null;
+  source_type: MarketCalendarVersionRecord["sourceType"];
+  retrieved_at: string;
+  confirmed_at: string | null;
+  invalidated_at: string | null;
+  invalidation_reason: string | null;
+  status: MarketCalendarVersionRecord["status"];
+  is_active: boolean;
+  rows: unknown;
+  created_at: string;
+  updated_at: string;
+}): MarketCalendarVersionRecord {
+  return {
+    versionId: row.version_id,
+    importOperationId: row.import_operation_id,
+    marketCode: row.market_code,
+    calendarYear: Number(row.calendar_year),
+    sourceId: row.source_id,
+    sourceLabel: row.source_label,
+    sourceType: row.source_type,
+    retrievedAt: new Date(row.retrieved_at).toISOString(),
+    confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).toISOString() : null,
+    invalidatedAt: row.invalidated_at ? new Date(row.invalidated_at).toISOString() : null,
+    invalidationReason: row.invalidation_reason,
+    status: row.status,
+    isActive: row.is_active,
+    rows: Array.isArray(row.rows) ? row.rows as MarketCalendarVersionRecord["rows"] : [],
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketCalendarActivityRow(row: {
+  id: string;
+  market_code: MarketCode;
+  occurred_at: string;
+  category: MarketCalendarActivityEventRecord["category"];
+  result: MarketCalendarActivityEventRecord["result"];
+  source: MarketCalendarActivityEventRecord["source"];
+  event_type: string;
+  title: string;
+  message: string;
+  ticker: string | null;
+  provider_symbol: string | null;
+  operation_id: string | null;
+  job_id: string | null;
+  calendar_year: number | null;
+  detail: unknown;
+}): MarketCalendarActivityEventRecord {
+  return {
+    id: row.id,
+    marketCode: row.market_code,
+    occurredAt: new Date(row.occurred_at).toISOString(),
+    category: row.category,
+    result: row.result,
+    source: row.source,
+    eventType: row.event_type,
+    title: row.title,
+    message: row.message,
+    ticker: row.ticker,
+    providerSymbol: row.provider_symbol,
+    operationId: row.operation_id,
+    jobId: row.job_id,
+    calendarYear: row.calendar_year == null ? null : Number(row.calendar_year),
+    detail: (row.detail ?? {}) as Record<string, unknown>,
   };
 }
 

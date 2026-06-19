@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signSessionCookie } from "../../src/auth/googleOAuth.js";
 import { buildApp } from "../../src/app.js";
+import {
+  confirmAdminMarketCalendarImport,
+  previewAdminMarketCalendarImport,
+} from "../../src/services/market-data/marketCalendarService.js";
 import { buildPortfolioReport } from "../../src/services/reports.js";
 let app: Awaited<ReturnType<typeof buildApp>>;
 let cookieHeader: string;
@@ -18,6 +22,31 @@ function relativeIsoDate(daysFromToday: number): string {
   date.setUTCHours(0, 0, 0, 0);
   date.setUTCDate(date.getUTCDate() + daysFromToday);
   return date.toISOString().slice(0, 10);
+}
+
+function fullYearCalendarRows(year: number) {
+  const rows: Array<{ date: string; isOpen: boolean; evidence: string }> = [];
+  const current = new Date(`${year}-01-01T00:00:00.000Z`);
+  while (current.getUTCFullYear() === year) {
+    const date = current.toISOString().slice(0, 10);
+    const day = current.getUTCDay();
+    rows.push({
+      date,
+      isOpen: day >= 1 && day <= 5,
+      evidence: `official:${date}`,
+    });
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return rows;
+}
+
+async function seedOfficialMarketCalendar(marketCode: "TW", calendarYear: number): Promise<void> {
+  const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, {
+    calendarYear,
+    retrievedAt: "2026-06-18T00:00:00.000Z",
+    rows: fullYearCalendarRows(calendarYear),
+  });
+  await confirmAdminMarketCalendarImport(app.persistence, marketCode, preview.previewToken);
 }
 
 describe("report routes", () => {
@@ -326,6 +355,7 @@ describe("report routes", () => {
   it("enqueues displayed intraday refreshes before resolving report price states", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-18T02:00:00.000Z"));
+    await seedOfficialMarketCalendar("TW", 2026);
     const sendCalls: unknown[][] = [];
     app.boss = {
       send: async (...args: unknown[]) => {

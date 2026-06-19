@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketCode } from "@vakwen/domain";
 import { TradingCalendarCache, TTL_MS } from "../../src/services/market-data/tradingCalendar.js";
+import type { Persistence } from "../../src/persistence/types.js";
 
 const { PostgresPersistence } = await import("../../src/persistence/postgres.js");
 const { loadMigrationManifest } = await import("../../src/persistence/migrationManifest.js");
@@ -122,6 +123,15 @@ describePostgres("trading calendar persistence (Postgres)", () => {
 });
 
 describe("TradingCalendarCache behavior", () => {
+  function calendarPersistence(
+    getDistinctBarDates: Persistence["getDistinctBarDates"],
+  ): Pick<Persistence, "getDistinctBarDates" | "getActiveMarketCalendarVersion"> {
+    return {
+      getDistinctBarDates,
+      getActiveMarketCalendarVersion: vi.fn().mockResolvedValue(null),
+    };
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-06T00:00:00.000Z"));
@@ -133,7 +143,7 @@ describe("TradingCalendarCache behavior", () => {
 
   it("notifyBarsUpserted adds cached dates without triggering a DB refresh", async () => {
     const getDistinctBarDates = vi.fn().mockResolvedValue(["2026-05-04"]);
-    const cache = new TradingCalendarCache({ persistence: { getDistinctBarDates } });
+    const cache = new TradingCalendarCache({ persistence: calendarPersistence(getDistinctBarDates) });
 
     await expect(cache.getTradingDates("TW" as MarketCode)).resolves.toEqual(new Set(["2026-05-04"]));
     cache.notifyBarsUpserted("TW" as MarketCode, ["2026-05-05"]);
@@ -147,7 +157,7 @@ describe("TradingCalendarCache behavior", () => {
 
   it("notifyBarsUpserted drops dates outside the cache horizon", async () => {
     const cache = new TradingCalendarCache({
-      persistence: { getDistinctBarDates: vi.fn().mockResolvedValue(["2026-05-04"]) },
+      persistence: calendarPersistence(vi.fn().mockResolvedValue(["2026-05-04"])),
     });
 
     await cache.getTradingDates("TW" as MarketCode);
@@ -164,7 +174,7 @@ describe("TradingCalendarCache behavior", () => {
       .fn()
       .mockResolvedValueOnce(["2026-05-04"])
       .mockResolvedValueOnce(["2026-05-05"]);
-    const cache = new TradingCalendarCache({ persistence: { getDistinctBarDates } });
+    const cache = new TradingCalendarCache({ persistence: calendarPersistence(getDistinctBarDates) });
 
     await expect(cache.getTradingDates("TW" as MarketCode)).resolves.toEqual(new Set(["2026-05-04"]));
     vi.advanceTimersByTime(TTL_MS + 1);
@@ -179,7 +189,7 @@ describe("TradingCalendarCache behavior", () => {
       resolveDates = resolve;
     });
     const getDistinctBarDates = vi.fn().mockReturnValue(pendingDates);
-    const cache = new TradingCalendarCache({ persistence: { getDistinctBarDates } });
+    const cache = new TradingCalendarCache({ persistence: calendarPersistence(getDistinctBarDates) });
 
     const first = cache.getTradingDates("TW" as MarketCode);
     const second = cache.getTradingDates("TW" as MarketCode);
@@ -195,7 +205,7 @@ describe("TradingCalendarCache behavior", () => {
   it("logs and returns an empty set when refresh fails", async () => {
     const log = { error: vi.fn(), warn: vi.fn() };
     const cache = new TradingCalendarCache({
-      persistence: { getDistinctBarDates: vi.fn().mockRejectedValue(new Error("db unavailable")) },
+      persistence: calendarPersistence(vi.fn().mockRejectedValue(new Error("db unavailable"))),
       log,
     });
 

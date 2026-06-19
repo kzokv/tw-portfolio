@@ -76,6 +76,9 @@ describe("buildAppConfigDtoFromRow — ticker price freshness", () => {
       tickerPriceYahooChartRange: "5d",
       tickerPriceYahooChartInterval: "15m",
       tickerPriceSyncTickerCap: 40,
+      tickerPriceActivityDetailedRetentionDays: 14,
+      tickerPriceActivitySummaryRetentionDays: 120,
+      tickerPriceCalendarHistoryRetentionDays: 900,
     } as never);
 
     expect(dto.tickerPriceFreshness.effectiveIntradayEnabled).toBe(false);
@@ -83,7 +86,11 @@ describe("buildAppConfigDtoFromRow — ticker price freshness", () => {
     expect(dto.tickerPriceFreshness.effectiveYahooChartRange).toBe("5d");
     expect(dto.tickerPriceFreshness.effectiveYahooChartInterval).toBe("15m");
     expect(dto.tickerPriceFreshness.effectiveSyncTickerCap).toBe(40);
+    expect(dto.tickerPriceFreshness.effectiveActivityDetailedRetentionDays).toBe(14);
+    expect(dto.tickerPriceFreshness.effectiveActivitySummaryRetentionDays).toBe(120);
+    expect(dto.tickerPriceFreshness.effectiveCalendarHistoryRetentionDays).toBe(900);
     expect(dto.tickerPriceFreshness.options.supportedMarkets).toEqual(["TW", "US", "AU", "KR"]);
     expect(dto.tickerPriceFreshness.bounds.syncTickerCap).toEqual({ min: 1, max: 10000 });
+    expect(dto.tickerPriceFreshness.bounds.activityDetailedRetentionDays).toEqual({ min: 1, max: 365 });
   });
 });

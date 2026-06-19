@@ -85,6 +85,9 @@ export interface AppConfigCacheEntry {
   tickerPriceRefreshCloseRateLimitWindowMs?: number | null;
   tickerPriceRefreshCloseRateLimitMax?: number | null;
   tickerPriceSyncTickerCap?: number | null;
+  tickerPriceActivityDetailedRetentionDays?: number | null;
+  tickerPriceActivitySummaryRetentionDays?: number | null;
+  tickerPriceCalendarHistoryRetentionDays?: number | null;
   dailyRefreshLookbackDays: number | null;
   dailyRefreshPriority: number | null;
 

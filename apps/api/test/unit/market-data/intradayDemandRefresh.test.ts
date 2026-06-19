@@ -20,6 +20,9 @@ const effectiveConfig: IntradayDemandRefreshInput["config"] = {
   refreshCloseRateLimitWindowMs: 60_000,
   refreshCloseRateLimitMax: 10,
   syncTickerCap: 25,
+  activityDetailedRetentionDays: 7,
+  activitySummaryRetentionDays: 90,
+  calendarHistoryRetentionDays: 730,
 };
 
 function overlay(input: Partial<IntradayPriceOverlay> = {}): IntradayPriceOverlay {
@@ -44,6 +47,7 @@ function persistenceWithOverlays(overlays: Map<string, IntradayPriceOverlay>) {
     getLatestIntradayOverlays: vi.fn().mockResolvedValue(overlays),
     setLatestIntradayOverlay: vi.fn(),
     deleteLatestIntradayOverlay: vi.fn(),
+    createMarketCalendarActivityEvent: vi.fn(),
   };
 }
 
@@ -143,6 +147,44 @@ describe("intradayDemandRefresh", () => {
       "intraday-refresh",
       expect.objectContaining({ ticker: "2330", marketCode: "TW" }),
       expect.objectContaining({ singletonKey: "intraday-refresh:TW:2330" }),
+    );
+  });
+
+  it("does not enqueue when current-day calendar coverage is missing for the market year", async () => {
+    const send = vi.fn().mockResolvedValue("job-1");
+    const persistence = persistenceWithOverlays(new Map());
+    const result = await enqueueDemandIntradayRefreshes({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      boss: { send },
+      persistence,
+      tradingCalendar: {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getOfficialCalendarDayStatus: vi.fn().mockResolvedValue({
+          localDate: "2026-06-17",
+          calendarYear: 2026,
+          status: "calendar_unknown",
+          reason: "calendar_unknown",
+        }),
+      },
+      log: { info: vi.fn(), warn: vi.fn() },
+      now: new Date("2026-06-17T02:30:00.000Z"),
+      config: effectiveConfig,
+    });
+
+    expect(result).toMatchObject({
+      considered: 1,
+      open: 0,
+      staleOrMissing: 0,
+      enqueued: 0,
+      calendarUnknownSkips: 1,
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(persistence.createMarketCalendarActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marketCode: "TW",
+        eventType: "calendar_unknown_intraday_skip",
+        result: "skipped",
+      }),
     );
   });
 });
