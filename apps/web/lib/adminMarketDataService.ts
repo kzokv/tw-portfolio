@@ -129,10 +129,9 @@ export function previewMarketCalendarImport(
     `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/preview`,
     input,
   ).then((response) => {
-    const diff = response.diff as { addedDates?: string[]; changedDates?: string[]; removedDates?: string[] };
-    const addedDates = diff.addedDates ?? [];
-    const changedDates = diff.changedDates ?? [];
-    const removedDates = diff.removedDates ?? [];
+    const addedDates = response.diff.addedExceptions;
+    const changedDates = response.diff.changedExceptions;
+    const removedDates = response.diff.removedExceptions;
     return {
       marketCode: response.marketCode,
       preview: {

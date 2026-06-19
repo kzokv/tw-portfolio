@@ -2037,13 +2037,26 @@ function normalizeActivityFilterGroups(
   results: MarketActivityFilterOption[];
   timeRanges: MarketActivityFilterOption[];
 } {
-  const rawFilters = activity.availableFilters as AdminMarketDataActivityResponse["availableFilters"] | {
+  const rawFilters = (activity as AdminMarketDataActivityResponse & {
+    filters?: {
+      sourceKinds?: string[];
+      sources?: string[];
+      categories?: string[];
+      results?: string[];
+      timeRanges?: string[];
+    } | null;
+  }).filters ?? activity.availableFilters as AdminMarketDataActivityResponse["availableFilters"] | {
+    sourceKinds?: string[];
     sources?: string[];
     categories?: string[];
     results?: string[];
+    timeRanges?: string[];
   } | null | undefined;
-  const sources = Array.isArray(rawFilters?.sources) && typeof rawFilters.sources[0] === "string"
-    ? (rawFilters.sources as string[]).map((value) => ({ value, label: friendlySourceLabel(value, dict) }))
+  const rawSources = rawFilters && "sourceKinds" in rawFilters && Array.isArray(rawFilters.sourceKinds)
+    ? rawFilters.sourceKinds
+    : rawFilters?.sources;
+  const sources = Array.isArray(rawSources) && typeof rawSources[0] === "string"
+    ? (rawSources as string[]).map((value) => ({ value, label: friendlySourceLabel(value, dict) }))
     : activity.availableFilters?.sources;
   const categories = Array.isArray(rawFilters?.categories) && typeof rawFilters.categories[0] === "string"
     ? (rawFilters.categories as string[]).map((value) => ({ value, label: friendlyCategoryLabel(value, dict) }))
@@ -2051,11 +2064,14 @@ function normalizeActivityFilterGroups(
   const results = Array.isArray(rawFilters?.results) && typeof rawFilters.results[0] === "string"
     ? (rawFilters.results as string[]).map((value) => ({ value, label: friendlyResultLabel(value, dict) }))
     : activity.availableFilters?.results;
+  const timeRanges = Array.isArray(rawFilters?.timeRanges) && typeof rawFilters.timeRanges[0] === "string"
+    ? (rawFilters.timeRanges as string[]).map((value) => ({ value, label: value }))
+    : activity.availableFilters?.timeRanges;
   return {
     sources: normalizeFilterOptions(sources, rows.map((item) => item.sourceKind ?? item.source), (value) => friendlySourceLabel(value, dict)),
     categories: normalizeFilterOptions(categories, rows.map((item) => item.category), (value) => friendlyCategoryLabel(value, dict)),
     results: normalizeFilterOptions(results, ["all", "warning,error", "warning", "error", "success", "skipped", "rate_limited"], (value) => friendlyResultLabel(value, dict)),
-    timeRanges: normalizeFilterOptions(activity.availableFilters?.timeRanges, ["24h", "7d", "30d"]),
+    timeRanges: normalizeFilterOptions(timeRanges, ["24h", "7d", "30d"]),
   };
 }
 
