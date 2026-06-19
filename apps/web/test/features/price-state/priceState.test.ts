@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPriceStateToneClassName, hydrateDashboardMarketStates, isNonCurrentPrice, priceStateSortRank } from "../../../features/price-state/priceState";
+import { getPriceStateToneClassName, hydrateDashboardMarketStates, isNonCurrentPrice, priceStateSortRank, type DashboardMarketStateLike } from "../../../features/price-state/priceState";
 import { testMarketState, testPriceState } from "../../fixtures/priceState";
 
 describe("priceState freshness helpers", () => {
@@ -38,11 +38,15 @@ describe("priceState freshness helpers", () => {
 
   it("hydrates dashboard market-state payloads with derived holding counts and calendar warnings", () => {
     const states = hydrateDashboardMarketStates(
-      [testMarketState({
-        marketCode: "TW",
-        marketState: "open",
-        marketTimeZone: "Asia/Taipei",
-      })],
+      [{
+        ...testMarketState({
+          marketCode: "TW",
+          marketState: "open",
+          marketTimeZone: "Asia/Taipei",
+        }),
+        heldCount: 0,
+        openCount: 0,
+      } satisfies DashboardMarketStateLike],
       [
         {
           marketCode: "TW",
