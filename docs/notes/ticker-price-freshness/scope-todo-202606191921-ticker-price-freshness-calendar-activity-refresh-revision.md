@@ -137,7 +137,7 @@ superseded_by: null
 - [x] Add focused API/unit tests for calendar exception validation, replacement, version health, session resolution, calendar unknown behavior, close refresh eligibility, intraday enqueue skip, Activity taxonomy/query/dedupe, and Operations log visibility.
 - [x] Add focused web tests for Calendar JSON import UI, Market context card, Activity filters/details, Operations details, price-chip tooltip diagnostics/admin link, refresh-price no-reload behavior, in-place totals/row updates, animation classes, and alignment.
 - [x] Run `/aaa` or equivalent E2E updates for admin Calendar import, Activity filtering, Operations log drill-down, dashboard/portfolio refresh prices, calendar-unknown market context, and mobile price-chip popover.
-- [ ] During validation, manually mirror recent 48h provider logs into Activity from the dev DB container only if needed for live validation, marking them clearly as manual validation data.
+- [x] During validation, manually mirror recent 48h provider logs into Activity from the dev DB container only if needed for live validation, marking them clearly as manual validation data.
 - [x] Update this todo with implementation evidence, focused test commands, live validation notes, rate-limit/performance observations, skipped gates, and any remaining risks.
 
 ## Implementation Evidence
@@ -156,6 +156,19 @@ superseded_by: null
 - Admin Market Data Calendar/Activity fallback labels, retention text, Yahoo detail text, raw metadata labels, and source/category/result labels now use English and zh-TW admin dictionaries. Price-state reason/outcome facts now use localized holding dictionary entries while preserving English fallbacks for partial test dictionaries.
 - Added append-only migration `db/migrations/082_market_calendar_activity_schema_reconcile.sql` after dev live validation found an already-applied older calendar/activity migration without the current `source_url`/exceptions-only columns. The reconcile migration upgrades older dev/prod-like schemas to the current Calendar and Activity contract without rewriting migration history.
 - Applied migration 082 manually to the Vakwen Dev Postgres container during validation, then reran it successfully to verify idempotency. This fixed the live Admin Market Data Calendar/Activity `source_url` schema error before the branch deploy picks up the migration normally.
+- Added append-only migration `db/migrations/083_market_calendar_activity_legacy_source_nullable.sql` after QNAP live validation found an older dev table still carrying legacy `market_calendar_activity.source TEXT NOT NULL`. New code writes `source_kind`; the legacy column now becomes nullable with default `system` only when it exists, and fresh installs remain unchanged.
+- Applied migration 083 manually to the Vakwen Dev Postgres container and recorded it in `schema_migrations`. Afterward, Dashboard `Refresh prices` stayed on `/dashboard`, preserved scroll position, returned `5 blocked by calendar`, and wrote four fresh `official_calendar` skipped Activity rows instead of degrading with the prior `null value in column "source"` error.
+
+## Live Validation
+
+- PR head `7a9490e4` passed GitHub CI (`27839368443`) and PR Gate (`27839396020`) before the live pass; dev deploy `27839753130` completed successfully for that head.
+- QNAP dev containers were healthy after deploy: `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-redis`, and `vakwen-dev-postgres` all reported healthy/up.
+- Admin Calendar live validation on TW showed JSON-paste import UI, suggested official source URL, missing 2026/2027 calendar warnings with today's local reference date, Preview and Confirm import controls, and no alerts.
+- Admin Activity live validation showed TW market-scoped daily-close/calendar skip rows with all-results default filters and Problems-only quick filter. AU and KR Activity showed Yahoo chart summary cards, source-kind/source-id/category/result/time filters, and marked `codex-qnap-investigation-20260619` intraday validation rows from the recent 48h DB seed. No additional manual Activity rows were inserted in this pass.
+- Activity detail drawer live validation opened a KR row and showed typed Summary/Progress/Outcomes sections plus collapsed Raw metadata.
+- Admin Operations live validation showed KR resolver operation history with Operation inspector and Open activity link; AU generic Operations showed provider filters, operation rows, detail content, raw-log retention copy, and Related Activity link.
+- Dashboard live validation showed the Market context card for TW/US/AU/KR, `Refresh prices`, unchanged URL/scroll after manual refresh, calendar-blocked refresh status, and closed price chips. Earlier Chrome validation on this deployed SHA also verified Dashboard, Portfolio, and Ticker price-chip popovers include basis, market date, cadence, timezone/calendar facts, and admin Activity links.
+- QNAP API logs after migration 083 showed clean `/dashboard/enrichment` read-path timings and no fresh `market_calendar_activity.source` NOT NULL failures. QNAP Activity query for the last 10 minutes showed one `official_calendar`/`calendar`/`skipped` row each for TW, US, AU, and KR at `2026-06-19 17:51:27 UTC`.
 
 ## Focused Validation
 
@@ -190,17 +203,18 @@ superseded_by: null
 - Passed: `npx eslint apps/api/test/integration/postgres-migrations.integration.test.ts`
 - Passed: `VAKWEN_MANAGED_CI_STACK=1 RUN_POSTGRES_INTEGRATION=1 POSTGRES_CONNECTION_TIMEOUT_MS=10000 REDIS_CONNECTION_TIMEOUT_MS=10000 POSTGRES_PERSISTENCE_SKIP_REDIS_INIT=1 POSTGRES_TEST_DB_URL='postgres://app:app@192.168.64.1:15432/vakwen_ci?connect_timeout=10' POSTGRES_TEST_REDIS_URL='redis://192.168.64.1:16379' npm run test:integration:full -w apps/api -- test/integration/postgres-migrations.integration.test.ts -t 'keeps the baseline schema in parity with the numbered upgrade path'` (1 passed, 871 skipped) after adding calendar/activity schema assertions.
 - Passed: `npm run test:integration:full:host` after migration 082 and the parity assertion update (90 files passed; 871 tests passed, 1 skipped; duration 1278.16s).
+- Passed: `VAKWEN_MANAGED_CI_STACK=1 RUN_POSTGRES_INTEGRATION=1 POSTGRES_CONNECTION_TIMEOUT_MS=10000 REDIS_CONNECTION_TIMEOUT_MS=10000 POSTGRES_PERSISTENCE_SKIP_REDIS_INIT=1 POSTGRES_TEST_DB_URL='postgres://app:app@192.168.64.1:15432/vakwen_ci?connect_timeout=10' POSTGRES_TEST_REDIS_URL='redis://192.168.64.1:16379' npm run test:integration:full -w apps/api -- test/integration/postgres-migrations.integration.test.ts -t 'keeps the baseline schema in parity with the numbered upgrade path'` after migration 083 (1 passed, 871 skipped). The first selective attempt against `localhost:15432` failed with `ECONNREFUSED`; rerunning against the repo's detected Docker host `192.168.64.1` passed.
 - Fetched `origin/dev`; current branch already contains the fetched dev tip (`git rev-list --left-right --count HEAD...origin/dev` => `63 0`), so no rebase was required in this pass.
 - Ran SI memory review for durable lessons; no promotion was made because existing repo memory/rules already cover the reusable route-enrichment and market-data identity patterns, and the new notes are scope-specific implementation evidence.
-- Local AGENTS.md validation: all eight required suites have passed in this pass. Dev deployment, live Chrome validation, and optional recent-48h Activity mirroring remain post-PR readiness work.
+- Local AGENTS.md validation: all eight required suites passed before the migration-083 follow-up. After migration 083, focused migration parity and live QNAP validation passed; full-suite rerun remains for CI after push.
 
 ## Remaining Risks
 
-- Final browser/live validation after the next dev deploy is still pending for the migration-082 commit. Earlier live validation against Vakwen Dev found the schema drift, verified manual migration 082 fixed Admin Market Data Calendar/Activity rendering, and found existing AU Yahoo Activity rows plus a marked KR validation row, so no extra recent-48h manual Activity mirroring was needed at that time.
+- Final browser/live validation after the next dev deploy is still pending for the migration-083 commit. Migration 083 was manually applied on Vakwen Dev and validated against live Dashboard refresh/QNAP logs, but the branch still needs CI, deploy, and a post-deploy smoke pass at the new head.
 - Focused web suites pass with existing noisy React test-environment/chart sizing/key warnings; no focused test failures were observed.
 - Admin Market Data still contains English-heavy strings in legacy-adjacent Instruments/Backfill/Purge surfaces outside this refresh revision; the scoped Calendar, Activity, Operations, Market context, Refresh prices, refresh-pending, and price-chip tooltip copy now have English and zh-TW coverage.
 - Price-state admin Activity drill-down is render-gated by admin-aware web surfaces instead of embedded in shared quote DTOs; this avoids exposing admin URLs to non-admin/public contexts and passed local component/e2e coverage, with final browser validation still pending.
-- Activity emission now covers provider-operation, calendar, intraday, close-refresh, instrument mutation, and provider-error trail paths in focused tests/code paths; live Activity visibility still needs dev validation.
+- Activity emission now covers provider-operation, calendar, intraday, close-refresh, instrument mutation, and provider-error trail paths in focused tests/code paths. Live Activity visibility was validated for TW/AU/KR after the migration-082 deploy and for fresh calendar-skip Activity after applying migration 083 manually.
 
 ## Open Items
 
