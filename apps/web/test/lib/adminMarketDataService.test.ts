@@ -48,6 +48,7 @@ describe("adminMarketDataService", () => {
       previewToken: "preview-1",
       warnings: ["Review holiday source"],
       confirmable: true,
+      replaceConfirmedRequired: false,
     });
     expect(result.preview.rows).toEqual([
       { date: "2026-01-01", session: "added", evidence: "TWSE" },
