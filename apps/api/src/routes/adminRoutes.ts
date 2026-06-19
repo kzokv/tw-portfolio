@@ -7311,6 +7311,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       result: z.string().trim().optional(),
       results: z.string().trim().optional(),
       source: z.string().trim().optional(),
+      sourceId: z.string().trim().optional(),
+      sourceIds: z.string().trim().optional(),
       sourceKind: z.string().trim().optional(),
       sources: z.string().trim().optional(),
       timeRange: z.enum(["24h", "7d", "30d", "all"]).default("24h"),
@@ -7321,12 +7323,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const categories = parseCsv(query.categories ?? query.category) as AdminMarketDataActivityResponse["filters"]["categories"] | undefined;
     const results = parseCsv(query.results ?? query.result) as AdminMarketDataActivityResponse["filters"]["results"] | undefined;
     const sourceKinds = parseCsv(query.sourceKind ?? query.sources ?? query.source) as AdminMarketDataActivityResponse["filters"]["sourceKinds"] | undefined;
+    const sourceIds = parseCsv(query.sourceIds ?? query.sourceId);
     const occurredAfter = resolveActivityOccurredAfter(query.timeRange, new Date());
     const baseActivityQuery = {
       marketCode,
       search: query.search,
       categories,
       sourceKinds,
+      sourceIds,
       occurredAfter,
     };
     const activity = await app.persistence.listMarketCalendarActivity({

@@ -30,7 +30,7 @@ import { refreshPortfolioCloses } from "../../features/portfolio/services/portfo
 import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
 import type { TimelineMode } from "../../lib/timelineAxis";
-import { shouldPollForOpenMarket, sortDashboardMarketStates, summarizeDashboardMarketStates, type DashboardMarketStateLike } from "../../features/price-state/priceState";
+import { hydrateDashboardMarketStates, shouldPollForOpenMarket, type DashboardMarketStateLike } from "../../features/price-state/priceState";
 import {
   Card as ShadcnCard,
   CardContent,
@@ -185,9 +185,7 @@ export function DashboardClient({
   const marketStates = useMemo(
     () => {
       const payloadStates = (dashboard as DashboardSnapshot & { marketStates?: DashboardMarketStateLike[] | null }).marketStates;
-      return payloadStates && payloadStates.length > 0
-        ? sortDashboardMarketStates(payloadStates)
-        : summarizeDashboardMarketStates(holdingGroups);
+      return hydrateDashboardMarketStates(payloadStates, holdingGroups);
     },
     [dashboard, holdingGroups],
   );

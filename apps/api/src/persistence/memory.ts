@@ -7015,12 +7015,14 @@ export class MemoryPersistence implements Persistence {
     const categories = options.categories ? new Set(options.categories) : null;
     const results = options.results ? new Set(options.results) : null;
     const sourceKinds = options.sourceKinds ? new Set(options.sourceKinds) : null;
+    const sourceIds = options.sourceIds ? new Set(options.sourceIds) : null;
     const query = options.search?.trim().toLowerCase() ?? "";
     const filtered = this.marketCalendarActivityEvents
       .filter((row) => row.marketCode === options.marketCode)
       .filter((row) => (categories ? categories.has(row.category) : true))
       .filter((row) => (results ? results.has(row.result) : true))
       .filter((row) => (sourceKinds ? sourceKinds.has(row.sourceKind) : true))
+      .filter((row) => (sourceIds ? (row.sourceId ? sourceIds.has(row.sourceId) : false) : true))
       .filter((row) => (options.occurredAfter ? row.occurredAt >= options.occurredAfter : true))
       .filter((row) => {
         if (!query) return true;
