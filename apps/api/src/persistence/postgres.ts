@@ -15519,6 +15519,10 @@ export class PostgresPersistence implements Persistence {
       where.push(`source_kind = ANY($${i++}::text[])`);
       params.push(options.sourceKinds);
     }
+    if (options.sourceIds?.length) {
+      where.push(`source_id = ANY($${i++}::text[])`);
+      params.push(options.sourceIds);
+    }
     if (options.occurredAfter) {
       where.push(`occurred_at >= $${i++}::timestamptz`);
       params.push(options.occurredAfter);

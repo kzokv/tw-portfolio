@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getPriceStateToneClassName, isNonCurrentPrice, priceStateSortRank } from "../../../features/price-state/priceState";
-import { testPriceState } from "../../fixtures/priceState";
+import { getPriceStateToneClassName, hydrateDashboardMarketStates, isNonCurrentPrice, priceStateSortRank } from "../../../features/price-state/priceState";
+import { testMarketState, testPriceState } from "../../fixtures/priceState";
 
 describe("priceState freshness helpers", () => {
   it("treats pending today close as non-current even when rendered as a closed-market chip", () => {
@@ -34,5 +34,41 @@ describe("priceState freshness helpers", () => {
     expect(getPriceStateToneClassName(testPriceState({ basis: "pending_today_close", chipState: "closed_pending" }))).toBe("bg-warning");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "closed" }))).toBe("bg-slate-400");
     expect(getPriceStateToneClassName(testPriceState({ chipState: "missing", basis: "missing" }))).toBe("bg-destructive");
+  });
+
+  it("hydrates dashboard market-state payloads with derived holding counts and calendar warnings", () => {
+    const states = hydrateDashboardMarketStates(
+      [testMarketState({
+        marketCode: "TW",
+        marketState: "open",
+        marketTimeZone: "Asia/Taipei",
+      })],
+      [
+        {
+          marketCode: "TW",
+          priceState: testPriceState({
+            marketState: "closed",
+            marketStateReason: "calendar_unknown",
+            calendarStatus: "calendar_unknown",
+            marketLocalDate: "2026-06-19",
+          }),
+        },
+        {
+          marketCode: "TW",
+          priceState: testPriceState({ marketState: "open" }),
+        },
+      ],
+    );
+
+    expect(states).toEqual([expect.objectContaining({
+      marketCode: "TW",
+      marketState: "open",
+      heldCount: 2,
+      openCount: 1,
+      calendarStatus: "calendar_unknown",
+      marketStateReason: "calendar_unknown",
+      marketLocalDate: "2026-06-19",
+      marketTimeZone: "Asia/Taipei",
+    })]);
   });
 });
