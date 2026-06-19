@@ -140,7 +140,7 @@ superseded_by: null
 - [x] Add or update unit/API tests for calendar payload validation, version replacement, cache invalidation, market-state reason resolution, no weekday fallback, close-refresh eligibility, intraday enqueue skip, Activity query filters, taxonomy mapping, and retention.
 - [x] Add or update web component tests for Activity filters/table/drawer, Calendar panel preview/confirm/paste flows, calendar warnings, price-chip popover intraday fields, and Refresh prices behavior.
 - [x] Run `/aaa` or equivalent focused E2E updates for admin Calendar import, Activity filtering/Yahoo status, dashboard/portfolio refresh prices, and calendar-unknown warning/chip behavior.
-- [ ] Update docs/notes evidence after implementation, including exact focused test commands, live validation notes, and any skipped full-suite gates.
+- [x] Update docs/notes evidence after implementation, including exact focused test commands, live validation notes, and any skipped full-suite gates.
 
 ## Open Items
 
@@ -165,7 +165,23 @@ Decision: use `market_data.market_calendar_activity` as the Activity query model
 - Full gate 6: `npm run test:e2e:bypass:mem --prefix apps/web` passed: 281 tests, 13 skipped. This included ticker price freshness dashboard/portfolio/ticker coverage and `mobile-ticker-price-chip-popover-aaa`.
 - Full gate 7: `npm run test:e2e:oauth:mem --prefix apps/web` passed: 120 tests.
 - Full gate 8: `npm run test:http --prefix apps/api` passed: 291 tests, 2 skipped.
-- Full AGENTS.md gate pass is complete locally. Live Chrome validation on Vakwen Dev, final rebase/PR update, CI, and deployment remain pending for the main Codex phase.
+- Post-review fix commit: `f83ce626a5a608bf936fe0e28dc8ef688f653222`.
+- Post-review focused validation: `APP_CONFIG_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef npx vitest run apps/api/test/unit/market-data/marketRegularSession.test.ts` passed: 1 file, 13 tests.
+- Post-review route regression: `APP_CONFIG_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef npx vitest run apps/api/test/integration/refresh-closes.integration.test.ts` passed: 1 file, 5 tests.
+- Post-review hygiene: focused ESLint for touched API files passed; `npm run typecheck` passed; `git diff --check` passed.
+- Post-review full host integration: `APP_CONFIG_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef npm run test:integration:full:host` passed on `f83ce626`: 90 files, 871 tests, 1 skipped.
+- GitHub CI for `f83ce626` passed: lint, pr-gate, build-and-typecheck, unit-tests, integration-tests, deploy-config-validation, e2e-bypass, e2e-oauth, and docker-build-validation.
+- PR: https://github.com/kzokv/tw-portfolio/pull/225. All review threads were replied to and resolved after the post-review fix.
+- Dev deploy: `deploy-dev.yml` run `27813405459` succeeded for `f83ce626` at `2026-06-19T08:14:14Z`.
+- Live Chrome validation on Vakwen Dev (`mmckchuang@gmail.com` / `mmc_kchuang`) passed after deploy:
+  - Reports page showed 2330 at `NT$2,410.00` with `Closed` and current price health.
+  - Dashboard and Portfolio showed grouped market calendar warnings for AU/KR/TW/US 2026 with today's local market dates and the admin/MCP remediation instruction.
+  - Dashboard and Portfolio showed 2330 at `NT$2,410.00` / `NT$2,410`, `Current`, `Closed`; Dashboard retained `Refresh prices` and `Refresh closes` as separate actions.
+  - Portfolio parent 2330 price chip popover opened and showed `Basis: Today close`, `Market: Closed`, `As of: 2026-06-18`, observed timestamp, `Source: finmind`, `Quality: Full bar`, timezone, `Calendar: calendar_unknown`, and market date `2026-06-19`.
+  - Ticker page `/tickers/2330?marketCode=TW` showed `NT$2,410`, `Current`, `Closed`, and `Previous Close: NT$2,385`; its price-state popover opened with the same basis/source/calendar facts.
+  - Admin Market Data Activity route `/admin/market-data/TW/activity` rendered the Activity surface with summary strip, source/result filters, retention note, manual refresh, and empty-state.
+  - Admin Calendar route `/admin/market-data/TW/calendar` rendered missing 2026/2027 coverage with today `2026-06-19`, plus the seeded default `TW official calendar` source using parser `tw-official` and TWSE allowed hosts.
+- Rate-limit/performance evidence: CI E2E and local focused tests covered refresh-price and price-chip interactions; live Activity UI exposed retention (`Detailed intraday events: 7d; summaries: 90d; calendar history: 730d`) and rate-limited filtering. No live Yahoo/intraday refresh was forced during validation because all supported market calendars were unseeded and the deployed app correctly surfaced `calendar_unknown` instead of spending provider budget.
 
 ## References
 
