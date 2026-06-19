@@ -558,7 +558,7 @@ function KrMappingsPanel({
     || (preview.preview.confirmationText ? typedConfirmation.trim() !== preview.preview.confirmationText : false);
 
   return (
-    <div className="space-y-5" data-testid="market-data-mappings">
+    <div className="min-w-0 space-y-5" data-testid="market-data-mappings">
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -820,8 +820,8 @@ function KrMappingsPanel({
             </div>
           ) : null}
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="min-w-[56rem] divide-y divide-border text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3">
@@ -931,8 +931,8 @@ function KrMappingsPanel({
             <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Search mappings</button>
           </form>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="min-w-[56rem] divide-y divide-border text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3">Source</th>
@@ -1116,7 +1116,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   const summary = data.outcomes.summary;
 
   return (
-    <div className="space-y-5" data-testid="market-data-kr-operations">
+    <div className="min-w-0 space-y-5" data-testid="market-data-kr-operations">
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -1136,12 +1136,12 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
         {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
       </Card>
 
-      <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="provider-console-operations-table">
+      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="provider-console-operations-table">
         <div className="border-b border-border px-5 py-4">
           <h3 className="text-base font-semibold text-foreground">Operation history</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="min-w-[56rem] divide-y divide-border text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3">Operation</th>
@@ -1154,7 +1154,9 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
             <tbody className="divide-y divide-border">
               {operationRows.map((operation) => (
                 <tr key={operation.id}>
-                  <td className="px-5 py-4 font-mono text-xs font-semibold text-foreground">{operation.id}</td>
+                  <td className="px-5 py-4 font-mono text-xs font-semibold text-foreground">
+                    <span className="block break-all">{operation.id}</span>
+                  </td>
                   <td className="px-5 py-4">
                     <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>
                   </td>
@@ -1203,7 +1205,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
       </Card>
 
       {selectedOperation ? (
-        <Card className="space-y-4 px-5 py-4 hover:translate-y-0" data-testid="provider-console-operation-panel">
+        <Card className="min-w-0 space-y-4 px-5 py-4 hover:translate-y-0" data-testid="provider-console-operation-panel">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h3 className="text-base font-semibold text-foreground">Operation inspector</h3>
@@ -1304,14 +1306,14 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
                   value={outcomeActionInput}
                   onChange={(event) => setOutcomeActionInput(event.target.value)}
                   placeholder="Action filter"
-                  className="rounded border border-border bg-background px-3 py-2 text-sm"
+                  className="min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
                   data-testid="provider-console-operation-outcome-action"
                 />
                 <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Apply</button>
               </form>
             </div>
-            <div className="mt-4 overflow-x-auto rounded border border-border">
-              <table className="min-w-full divide-y divide-border text-sm">
+            <div className="mt-4 min-w-0 overflow-x-auto rounded border border-border">
+              <table className="min-w-[52rem] divide-y divide-border text-sm">
                 <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2">Source</th>
@@ -1327,7 +1329,9 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
                       <td className="px-3 py-2 font-mono">{outcome.sourceSymbol}</td>
                       <td className="px-3 py-2">{outcome.action}</td>
                       <td className="px-3 py-2">{outcome.state}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{outcome.message ?? outcome.errorCode ?? "-"}</td>
+                      <td className="max-w-[20rem] px-3 py-2 text-muted-foreground">
+                        <span className="block break-words">{outcome.message ?? outcome.errorCode ?? "-"}</span>
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground">{formatTimestamp(outcome.updatedAt)}</td>
                     </tr>
                   ))}

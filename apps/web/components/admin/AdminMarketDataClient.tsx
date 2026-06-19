@@ -45,6 +45,14 @@ import {
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/shadcn/select";
 import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
 import { Pagination } from "./Pagination";
 import { formatUtcTimestamp } from "./adminFormat";
@@ -265,6 +273,7 @@ export function AdminMarketDataWorkspaceClient({
   krOperations,
   snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
+  const router = useRouter();
   const tabSet = new Set<AdminMarketWorkspaceUiTab>(overview.tabs);
   if (calendar) tabSet.add("calendar");
   if (activity) tabSet.add("activity");
@@ -282,9 +291,9 @@ export function AdminMarketDataWorkspaceClient({
   ] as const).filter((item) => tabSet.has(item));
 
   return (
-    <div className="space-y-5" data-testid={`admin-market-data-${marketCode}`}>
+    <div className="min-w-0 space-y-5" data-testid={`admin-market-data-${marketCode}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Market data</p>
           <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">
             {marketCode} - {overview.label}
@@ -302,7 +311,32 @@ export function AdminMarketDataWorkspaceClient({
         </Link>
       </div>
 
-      <nav className="flex gap-2 overflow-x-auto border-b border-border pb-2" aria-label="Market data tabs">
+      <div className="rounded-xl border border-border bg-card p-3 md:hidden">
+        <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="admin-market-data-mobile-tabs">
+          Section
+        </label>
+        <Select
+          value={safeTab}
+          onValueChange={(next) => {
+            router.push(`/admin/market-data/${marketCode}/${next}`);
+          }}
+        >
+          <SelectTrigger id="admin-market-data-mobile-tabs" className="w-full" data-testid="admin-market-data-mobile-tabs">
+            <SelectValue placeholder={tabLabels[safeTab]} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {orderedTabs.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {tabLabels[item]}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <nav className="hidden gap-2 overflow-x-auto border-b border-border pb-2 md:flex" aria-label="Market data tabs">
         {orderedTabs.map((item) => (
           <Link
             key={item}
@@ -458,17 +492,17 @@ function InstrumentsPanel({
   }
 
   return (
-    <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-instruments">
+    <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-instruments">
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-base font-semibold text-foreground">Instruments</h2>
         <p className="mt-1 text-sm text-muted-foreground">Support state is separate from delisting, exclusion, purge, and holdings visibility.</p>
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(5,minmax(9rem,auto))_auto]">
-          <label className="text-sm font-medium text-foreground">
+        <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(5,minmax(9rem,auto))_auto]">
+          <label className="min-w-0 text-sm font-medium text-foreground">
             Search
             <input
               value={filters.search}
               onChange={(event) => updateFilter("search", event.target.value)}
-              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
               placeholder="Ticker or name"
             />
           </label>
@@ -487,8 +521,8 @@ function InstrumentsPanel({
           </div>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-border text-sm">
+      <div className="min-w-0 overflow-x-auto">
+        <table className="w-max min-w-[72rem] divide-y divide-border text-sm">
           <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-5 py-3">Ticker</th>
@@ -612,12 +646,12 @@ function FilterSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="text-sm font-medium text-foreground">
+    <label className="min-w-0 text-sm font-medium text-foreground">
       {label}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+        className="mt-1 w-full min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
       >
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
@@ -1532,8 +1566,8 @@ function OperationsPanel({
   const [selectedOperation, setSelectedOperation] = useState<AdminMarketDataOperationsResponse["items"][number] | null>(operations.items[0] ?? null);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]" data-testid="market-data-operations">
-      <Card className="overflow-hidden p-0 hover:translate-y-0">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]" data-testid="market-data-operations">
+      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
         <div className="border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">{adminDict.operationTitle}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{adminDict.operationDescription}</p>
@@ -1556,12 +1590,12 @@ function OperationsPanel({
                 onClick={() => setSelectedOperation(operation)}
                 data-testid={`market-data-operation-row-${operation.id}`}
               >
-                <div>
-                  <p className="font-medium text-foreground">{operation.id}</p>
+                <div className="min-w-0">
+                  <p className="break-all font-medium text-foreground">{operation.id}</p>
                   <p className="mt-1 text-muted-foreground">{operation.providerId} - {friendlyLabel(operation.phase)}</p>
                   <p className="mt-2 text-xs text-muted-foreground">{operation.preview.scopeSummary}</p>
                 </div>
-                <div className="text-right text-xs text-muted-foreground">
+                <div className="text-left text-xs text-muted-foreground sm:text-right">
                   <div>{adminDict.matches.replace("{count}", operation.matchCount.toLocaleString())}</div>
                   <div>{operation.progressPercent === null ? adminDict.queued : adminDict.progressPercent.replace("{percent}", String(operation.progressPercent))}</div>
                 </div>
@@ -1695,9 +1729,9 @@ function ActivityPanel({
   const timeRanges = filterOptions.timeRanges;
 
   return (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="market-data-activity">
-      <div className="space-y-4">
-        <Card className="overflow-hidden p-0 hover:translate-y-0">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="market-data-activity">
+      <div className="min-w-0 space-y-4">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-5 py-4">
             <div>
               <h2 className="text-base font-semibold text-foreground">{adminDict.activityTitle}</h2>
@@ -1772,12 +1806,12 @@ function ActivityPanel({
           </div>
         </Card>
 
-        <Card className="overflow-hidden p-0 hover:translate-y-0">
-          <div className="grid gap-3 border-b border-border px-5 py-4 lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(0,0.8fr))] xl:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(0,0.7fr))]">
-            <label className="space-y-1 text-sm">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
+          <div className="grid min-w-0 gap-3 border-b border-border px-5 py-4 lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(0,0.8fr))] xl:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(0,0.7fr))]">
+            <label className="min-w-0 space-y-1 text-sm">
               <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{adminDict.search}</span>
               <input
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 onBlur={() => pushQuery({ search })}
@@ -1791,8 +1825,8 @@ function ActivityPanel({
             <ActivityFilterSelect label={adminDict.result} options={results} value={result} onChange={(next) => { setResult(next); pushQuery({ result: next }); }} testId="activity-result-filter" />
             <ActivityFilterSelect label={adminDict.time} options={timeRanges} value={timeRange} onChange={(next) => { setTimeRange(next); pushQuery({ timeRange: next }); }} testId="activity-time-filter" />
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border text-sm">
+          <div className="min-w-0 overflow-x-auto">
+            <table className="w-max min-w-[64rem] divide-y divide-border text-sm">
               <thead className="bg-muted/30 text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-5 py-3">{adminDict.time}</th>
@@ -1822,7 +1856,9 @@ function ActivityPanel({
                       {item.subjectDetail ? <div className="text-xs text-muted-foreground">{item.subjectDetail}</div> : null}
                     </td>
                     <td className="px-5 py-3"><ActivityBadge tone={item.result}>{friendlyResultLabel(item.result, adminDict)}</ActivityBadge></td>
-                    <td className="px-5 py-3 text-muted-foreground">{item.facts}</td>
+                    <td className="max-w-[22rem] px-5 py-3 text-muted-foreground">
+                      <span className="block break-words">{item.facts}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1855,9 +1891,9 @@ function ActivityPanel({
                 <h3 className="text-sm font-semibold text-foreground">{adminDict.summary}</h3>
                 <dl className="grid gap-2">
                   {selectedItem.detailRows.map((row) => (
-                    <div key={`${selectedItem.id}:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                    <div key={`${selectedItem.id}:${row.label}`} className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                       <dt className="text-xs text-muted-foreground">{row.label}</dt>
-                      <dd className="text-sm text-foreground">{row.value}</dd>
+                      <dd className="break-words text-sm text-foreground">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1868,9 +1904,9 @@ function ActivityPanel({
                 <h3 className="text-sm font-semibold text-foreground">{adminDict.progress}</h3>
                 <dl className="grid gap-2">
                   {selectedItem.progressRows.map((row) => (
-                    <div key={`${selectedItem.id}:progress:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                    <div key={`${selectedItem.id}:progress:${row.label}`} className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                       <dt className="text-xs text-muted-foreground">{row.label}</dt>
-                      <dd className="text-sm text-foreground">{row.value}</dd>
+                      <dd className="break-words text-sm text-foreground">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1898,9 +1934,9 @@ function ActivityPanel({
                 <h3 className="text-sm font-semibold text-foreground">{adminDict.outcomes}</h3>
                 <dl className="grid gap-2">
                   {selectedItem.outcomeRows.map((row) => (
-                    <div key={`${selectedItem.id}:outcome:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                    <div key={`${selectedItem.id}:outcome:${row.label}`} className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                       <dt className="text-xs text-muted-foreground">{row.label}</dt>
-                      <dd className="text-sm text-foreground">{row.value}</dd>
+                      <dd className="break-words text-sm text-foreground">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1918,7 +1954,7 @@ function ActivityPanel({
                     ) : (
                       <div key={`${selectedItem.id}:related:${index}`} className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm">
                         <span className="text-muted-foreground">{entry.label}</span>
-                        {entry.value ? <span className="ml-2 text-foreground">{entry.value}</span> : null}
+                        {entry.value ? <span className="ml-2 break-words text-foreground">{entry.value}</span> : null}
                       </div>
                     )
                   ))}
@@ -1928,7 +1964,7 @@ function ActivityPanel({
             {selectedItem.metadata ? (
               <details className="rounded-md border border-border/70 bg-muted/20 p-3">
                 <summary className="cursor-pointer text-sm font-semibold text-foreground">{adminDict.activityRawMetadata}</summary>
-                <pre className="mt-3 overflow-x-auto text-xs text-foreground">{JSON.stringify(selectedItem.metadata, null, 2)}</pre>
+                <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs text-foreground">{JSON.stringify(selectedItem.metadata, null, 2)}</pre>
               </details>
             ) : null}
           </>
@@ -2319,8 +2355,8 @@ function CalendarPanel({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]" data-testid="market-data-calendar">
-      <Card className="overflow-hidden p-0 hover:translate-y-0">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]" data-testid="market-data-calendar">
+      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
         <div className="border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">{adminDict.calendarTitle}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -2329,14 +2365,14 @@ function CalendarPanel({
         </div>
         <div className="divide-y divide-border">
           {(calendar?.years ?? []).map((year) => (
-            <div key={`${marketCode}:${year.calendarYear}`} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-              <div>
+            <div key={`${marketCode}:${year.calendarYear}`} className="grid min-w-0 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+              <div className="min-w-0">
                 <p className="font-medium text-foreground">{marketCode} {year.calendarYear}</p>
-                <p className="text-sm text-muted-foreground">{year.note ?? year.sourceLabel ?? adminDict.calendarNoSourceDetail}</p>
+                <p className="break-words text-sm text-muted-foreground">{year.note ?? year.sourceLabel ?? adminDict.calendarNoSourceDetail}</p>
               </div>
-              <div className="text-sm text-muted-foreground">
+              <div className="min-w-0 text-sm text-muted-foreground">
                 <div>{adminDict.calendarStatus}: <span className="font-medium text-foreground">{year.status}</span></div>
-                <div>{adminDict.source}: <span className="font-medium text-foreground">{year.sourceLabel ?? adminDict.unknown}</span></div>
+                <div>{adminDict.source}: <span className="break-words font-medium text-foreground">{year.sourceLabel ?? adminDict.unknown}</span></div>
               </div>
               <Button type="button" size="sm" variant="secondary" onClick={() => void invalidateYear(year.calendarYear)}>
                 {adminDict.calendarInvalidate}
@@ -2346,8 +2382,8 @@ function CalendarPanel({
         </div>
       </Card>
 
-      <div className="space-y-4">
-        <Card className="overflow-hidden p-0 hover:translate-y-0">
+      <div className="min-w-0 space-y-4">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-base font-semibold text-foreground">{adminDict.calendarSourcesTitle}</h2>
           </div>
@@ -2358,15 +2394,15 @@ function CalendarPanel({
                 type="button"
                 onClick={() => void setDefaultSource(source.sourceId)}
                 className={cn(
-                  "flex w-full items-start justify-between rounded-md border px-3 py-3 text-left",
+                  "flex w-full min-w-0 items-start justify-between gap-3 rounded-md border px-3 py-3 text-left",
                   source.sourceId === selectedSourceId ? "border-primary bg-primary/5" : "border-border bg-background",
                 )}
               >
-                <span>
+                <span className="min-w-0">
                   <span className="block font-medium text-foreground">{source.label}</span>
-                  <span className="block text-xs text-muted-foreground">{source.suggestedSourceUrl ?? SUGGESTED_CALENDAR_SOURCE_URLS[marketCode]}</span>
+                  <span className="block break-all text-xs text-muted-foreground">{source.suggestedSourceUrl ?? SUGGESTED_CALENDAR_SOURCE_URLS[marketCode]}</span>
                 </span>
-                <span className="text-xs text-muted-foreground">{source.isDefault ? adminDict.calendarDefaultSource : adminDict.calendarAvailableSource}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{source.isDefault ? adminDict.calendarDefaultSource : adminDict.calendarAvailableSource}</span>
               </button>
             ))}
             {selectedSource ? (
@@ -2406,7 +2442,7 @@ function CalendarPanel({
                   <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-url">{adminDict.calendarSuggestedSourceUrl}</label>
                   <input
                     id="calendar-source-url"
-                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm"
                     value={sourceUrl}
                     onChange={(event) => setSourceUrl(event.target.value)}
                   />
@@ -2419,14 +2455,14 @@ function CalendarPanel({
           </div>
         </Card>
 
-        <Card className="overflow-hidden p-0 hover:translate-y-0">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-base font-semibold text-foreground">{adminDict.calendarPasteJsonTitle}</h2>
           </div>
           <div className="space-y-3 px-5 py-4">
             <p className="text-sm text-muted-foreground">{adminDict.calendarPasteJsonHelp}</p>
             <textarea
-              className="min-h-44 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
+              className="min-h-44 w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
               value={normalizedPayload}
               onChange={(event) => setNormalizedPayload(event.target.value)}
               placeholder={CALENDAR_JSON_EXAMPLE}
@@ -2474,22 +2510,22 @@ function CalendarPanel({
           </div>
         </Card>
 
-        <Card className="overflow-hidden p-0 hover:translate-y-0">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-base font-semibold text-foreground">{adminDict.calendarHistoryTitle}</h2>
           </div>
           <div className="space-y-3 px-5 py-4">
             {(calendar?.history ?? []).map((entry) => (
-              <div key={entry.id} className="rounded-md border border-border/70 px-3 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+              <div key={entry.id} className="min-w-0 rounded-md border border-border/70 px-3 py-3">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">{entry.calendarYear} · {entry.sourceLabel}</p>
                     <p className="text-xs text-muted-foreground">{formatUtcTimestamp(entry.importedAt)}</p>
-                    {entry.importOperationId ? <p className="text-xs text-muted-foreground">{adminDict.calendarImportOperation.replace("{operationId}", entry.importOperationId)}</p> : null}
+                    {entry.importOperationId ? <p className="break-all text-xs text-muted-foreground">{adminDict.calendarImportOperation.replace("{operationId}", entry.importOperationId)}</p> : null}
                   </div>
-                  <span className="text-xs text-muted-foreground">{entry.status}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{entry.status}</span>
                 </div>
-                {entry.note ? <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p> : null}
+                {entry.note ? <p className="mt-2 break-words text-xs text-muted-foreground">{entry.note}</p> : null}
               </div>
             ))}
           </div>
@@ -2513,10 +2549,10 @@ function ActivityFilterSelect({
   testId: string;
 }) {
   return (
-    <label className="space-y-1 text-sm">
+    <label className="min-w-0 space-y-1 text-sm">
       <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
       <select
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         data-testid={testId}

@@ -6,6 +6,9 @@ vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
     throw new Error("notFound");
   }),
+  redirect: vi.fn((path: string) => {
+    throw new Error(`redirect:${path}`);
+  }),
 }));
 
 vi.mock("../../../lib/api", () => ({
@@ -23,6 +26,7 @@ vi.mock("../../../components/admin/AdminMarketDataClient", () => ({
 
 import { getJson } from "../../../lib/api";
 import AdminMarketDataPage from "../../../app/admin/market-data/page";
+import AdminMarketDataMarketPage from "../../../app/admin/market-data/[marketCode]/page";
 import AdminMarketDataWorkspacePage from "../../../app/admin/market-data/[marketCode]/[tab]/page";
 
 const getJsonMock = vi.mocked(getJson);
@@ -43,6 +47,13 @@ describe("AdminMarketDataPage", () => {
 
     expect(html).toContain("admin-market-data-landing");
     expect(getJsonMock).toHaveBeenCalledWith("/admin/market-data");
+  });
+
+  it("redirects market roots to the overview tab", async () => {
+    await expect(AdminMarketDataMarketPage({
+      params: Promise.resolve({ marketCode: "tw" }),
+      searchParams: Promise.resolve({ providerId: "finmind", tag: ["a", "b"] }),
+    })).rejects.toThrow("redirect:/admin/market-data/TW/overview?providerId=finmind&tag=a&tag=b");
   });
 
   it("fetches market workspace instruments from the canonical route", async () => {
