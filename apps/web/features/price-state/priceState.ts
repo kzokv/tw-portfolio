@@ -224,10 +224,14 @@ export function hydrateDashboardMarketStates<T extends { marketCode: string } & 
   const merged = payloadStates.map((payloadState): DashboardMarketStateLike => {
     const payload = payloadState as DashboardMarketStateLike;
     const derivedState = derivedByMarket.get(payloadState.marketCode);
+    const payloadHeldCount = payload.heldCount ?? 0;
+    const payloadOpenCount = payload.openCount ?? 0;
+    const derivedHeldCount = derivedState?.heldCount ?? 0;
+    const derivedOpenCount = derivedState?.openCount ?? 0;
     return {
       ...payloadState,
-      heldCount: payload.heldCount ?? derivedState?.heldCount ?? 0,
-      openCount: payload.openCount ?? derivedState?.openCount ?? 0,
+      heldCount: Math.max(payloadHeldCount, derivedHeldCount),
+      openCount: Math.max(payloadOpenCount, derivedOpenCount),
       marketStateReason: payload.marketStateReason ?? derivedState?.marketStateReason ?? null,
       calendarStatus: payload.calendarStatus ?? derivedState?.calendarStatus ?? null,
       marketLocalDate: payload.marketLocalDate ?? derivedState?.marketLocalDate ?? null,
