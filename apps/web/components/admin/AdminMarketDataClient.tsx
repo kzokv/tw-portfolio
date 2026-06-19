@@ -2071,7 +2071,7 @@ function normalizeActivityFilterGroups(
     sources: normalizeFilterOptions(sources, rows.map((item) => item.sourceKind ?? item.source), (value) => friendlySourceLabel(value, dict)),
     categories: normalizeFilterOptions(categories, rows.map((item) => item.category), (value) => friendlyCategoryLabel(value, dict)),
     results: normalizeFilterOptions(results, ["all", "warning,error", "warning", "error", "success", "skipped", "rate_limited"], (value) => friendlyResultLabel(value, dict)),
-    timeRanges: normalizeFilterOptions(timeRanges, ["24h", "7d", "30d"]),
+    timeRanges: normalizeFilterOptions(timeRanges, ["24h", "48h", "7d", "30d", "all"]),
   };
 }
 
