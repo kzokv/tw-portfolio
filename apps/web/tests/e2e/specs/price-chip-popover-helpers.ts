@@ -1,5 +1,13 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+export async function resolveFirstVisibleByTestId(page: Page, testId: string, description: string): Promise<Locator> {
+  const matches = page.getByTestId(testId).filter({ visible: true });
+  await expect
+    .poll(async () => matches.count(), { message: `${description} ${testId} becomes visible` })
+    .toBeGreaterThan(0);
+  return matches.nth(0);
+}
+
 export async function assertPriceChipDetailsPopover(
   page: Page,
   chip: Locator,
