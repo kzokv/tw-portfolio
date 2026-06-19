@@ -447,6 +447,7 @@ function activityResponse(): AdminMarketDataActivityResponse {
       occurredAt: "2026-06-19T04:14:08.000Z",
       category: "intraday_price",
       source: "yahoo_chart",
+      sourceId: "yahoo-finance-chart",
       sourceLabel: "Yahoo chart",
       subject: "BHP.AX",
       subjectDetail: "job au:bhp",
@@ -459,7 +460,7 @@ function activityResponse(): AdminMarketDataActivityResponse {
     total: 1,
     page: 1,
     limit: 25,
-    query: { page: 1, limit: 25, search: "", source: "", category: "", result: "warning,error", timeRange: "24h" },
+    query: { page: 1, limit: 25, search: "", source: "", sourceKind: "yahoo_chart", sourceId: "yahoo-finance-chart", category: "intraday_price", result: "warning,error", timeRange: "24h" },
   };
   return response;
 }
@@ -1882,6 +1883,11 @@ describe("AdminMarketDataWorkspaceClient", () => {
       "yahoo_chart",
       "official_calendar",
     ]));
+    expect(sourceKindFilter?.value).toBe("yahoo_chart");
+    const sourceIdFilter = container.querySelector("[data-testid='activity-source-id-filter']") as HTMLSelectElement | null;
+    expect(sourceIdFilter?.value).toBe("yahoo-finance-chart");
+    const categoryFilter = container.querySelector("[data-testid='activity-category-filter']") as HTMLSelectElement | null;
+    expect(categoryFilter?.value).toBe("intraday_price");
 
     const yahooSummary = container.querySelector("[data-testid='activity-yahoo-summary']") as HTMLButtonElement | null;
     expect(yahooSummary).not.toBeNull();
@@ -1889,6 +1895,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
       yahooSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/admin/market-data/AU/activity?"));
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("sourceId=yahoo-finance-chart"));
 
     const row = container.querySelector("[data-testid='activity-row-act-1']") as HTMLTableRowElement | null;
     await act(async () => {

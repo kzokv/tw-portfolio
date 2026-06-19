@@ -925,8 +925,20 @@ describe("dashboard overview", () => {
         changePercent: null,
         previousClose: null,
         quoteStatus: "missing",
+        priceState: expect.objectContaining({
+          basis: "missing",
+          marketStateReason: "calendar_unknown",
+          calendarStatus: "calendar_unknown",
+          marketLocalDate: body.marketStates[0].marketLocalDate,
+          marketTimeZone: "Asia/Taipei",
+        }),
       }),
     );
+    expect(body.marketStates[0]).toEqual(expect.objectContaining({
+      marketStateReason: "calendar_unknown",
+      calendarStatus: "calendar_unknown",
+      marketLocalDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    }));
     expect(body.summary).toEqual(
       expect.objectContaining({
         marketValueAmount: null,
