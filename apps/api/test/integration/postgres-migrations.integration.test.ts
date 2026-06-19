@@ -541,6 +541,34 @@ describePostgres("postgres migrations", () => {
     expect(secondPass.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
   });
 
+  it("ignores blank legacy migration checksums when verifying applied migrations", async () => {
+    const manifest = await migrationManifestPromise;
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+    await persistence.close();
+    persistence = null;
+
+    await pool.query(
+      "UPDATE schema_migrations SET checksum = '' WHERE name = $1",
+      ["083_market_calendar_activity_legacy_source_nullable.sql"],
+    );
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const migrationLedger = await pool.query<{ name: string }>(
+      "SELECT name FROM schema_migrations ORDER BY name",
+    );
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+  });
+
   it("bootstraps clean databases from the baseline schema and records superseded history", async () => {
     const manifest = await migrationManifestPromise;
     await resetDatabase();
