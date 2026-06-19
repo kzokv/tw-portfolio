@@ -154,6 +154,41 @@ describePostgres("postgres migrations", () => {
     ]);
   }
 
+  async function expectMarketCalendarActivitySchema(): Promise<void> {
+    const columns = await pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'market_data'
+          AND table_name IN ('market_calendar_sources', 'market_calendar_previews', 'market_calendar_versions', 'market_calendar_activity')
+          AND column_name IN ('suggested_source_url', 'source_url', 'source_id', 'coverage', 'annual_counts', 'exceptions', 'source_kind', 'dedupe_key')
+        ORDER BY table_name, column_name`,
+    );
+    expect(columns.rows).toEqual([
+      { table_name: "market_calendar_activity", column_name: "dedupe_key" },
+      { table_name: "market_calendar_activity", column_name: "source_id" },
+      { table_name: "market_calendar_activity", column_name: "source_kind" },
+      { table_name: "market_calendar_previews", column_name: "annual_counts" },
+      { table_name: "market_calendar_previews", column_name: "coverage" },
+      { table_name: "market_calendar_previews", column_name: "exceptions" },
+      { table_name: "market_calendar_previews", column_name: "source_id" },
+      { table_name: "market_calendar_previews", column_name: "source_url" },
+      { table_name: "market_calendar_sources", column_name: "suggested_source_url" },
+      { table_name: "market_calendar_versions", column_name: "annual_counts" },
+      { table_name: "market_calendar_versions", column_name: "coverage" },
+      { table_name: "market_calendar_versions", column_name: "exceptions" },
+      { table_name: "market_calendar_versions", column_name: "source_id" },
+      { table_name: "market_calendar_versions", column_name: "source_url" },
+    ]);
+
+    const sourceTypes = await pool.query<{ source_type: string }>(
+      `SELECT DISTINCT source_type
+         FROM market_data.market_calendar_sources
+        WHERE id IN ('official-tw', 'official-us', 'official-au', 'official-kr')
+        ORDER BY source_type`,
+    );
+    expect(sourceTypes.rows).toEqual([{ source_type: "official_source" }]);
+  }
+
   async function applyBaselineMigration(): Promise<void> {
     const manifest = await migrationManifestPromise;
     if (!manifest.baselineMigration) {
@@ -718,12 +753,14 @@ describePostgres("postgres migrations", () => {
     persistence = null;
 
     await expectDefaultMarketCalendarSources();
+    await expectMarketCalendarActivitySchema();
     const baselineSignature = await captureSchemaSignature();
 
     await resetDatabase();
     await applyNumberedMigrations();
 
     await expectDefaultMarketCalendarSources();
+    await expectMarketCalendarActivitySchema();
     const upgradedSignature = await captureSchemaSignature();
     expect(baselineSignature).toEqual(upgradedSignature);
   }, 15_000);
