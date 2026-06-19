@@ -37,7 +37,7 @@ export interface PortfolioInstrumentIndexResponse {
 
 export type PortfolioPageData = Pick<
   DashboardOverviewDto,
-  "holdings" | "holdingGroups" | "dividends" | "instruments" | "fxRates"
+  "holdings" | "holdingGroups" | "dividends" | "instruments" | "fxRates" | "refreshPending"
 > & {
   settings?: UserSettings;
   accounts: AccountDto[];

@@ -31,6 +31,7 @@ export interface ResolveQuoteSnapshotsOptions {
   now?: Date;
   tradingCalendar?: RegularSessionClock;
   heldPairs?: ReadonlySet<string>;
+  refreshCadenceMinutes?: number | null;
 }
 
 type SnapshotBar = DailyBar & { marketCode?: MarketCode };
@@ -66,6 +67,7 @@ export function buildMissingPriceState(
     quality: null,
     marketLocalDate: input.marketLocalDate ?? null,
     calendarStatus: input.calendarStatus ?? null,
+    refreshCadenceMinutes: null,
     latestIntradayAttempt: null,
   };
 }
@@ -158,6 +160,7 @@ interface DisplayContext {
   regularSessionOnly: boolean;
   supportedMarkets: Set<MarketCode>;
   heldPairs: ReadonlySet<string> | null;
+  refreshCadenceMinutes: number | null;
 }
 
 async function buildDisplayContext(
@@ -195,6 +198,7 @@ async function buildDisplayContext(
     regularSessionOnly: freshnessConfig.effectiveRegularSessionOnly,
     supportedMarkets: new Set(freshnessConfig.effectiveSupportedMarkets),
     heldPairs: options.heldPairs ?? null,
+    refreshCadenceMinutes: options.refreshCadenceMinutes ?? freshnessConfig.effectiveIntradayRefreshIntervalMinutes ?? null,
   };
 }
 
@@ -231,7 +235,12 @@ function resolveSnapshotForPair(input: {
     if (dailySnapshot.priceState.basis === "stale_close") return dailySnapshot;
     return {
       ...dailySnapshot,
-      priceState: buildOpenPreviousCloseState(latest, pair.marketCode, session),
+      priceState: buildOpenPreviousCloseState(
+        latest,
+        pair.marketCode,
+        session,
+        displayContext.refreshCadenceMinutes,
+      ),
     };
   }
 
@@ -265,6 +274,9 @@ function resolveSnapshotForPair(input: {
         marketStateReason: "market_closed",
         source: overlay.source,
         sourceKind: overlay.sourceKind,
+        sourceId: overlay.source,
+        providerSymbol: overlay.providerSymbol ?? null,
+        yahooSymbol: overlay.providerSymbol ?? null,
         asOfDate: overlay.asOfDate,
         asOfTimestamp: overlay.asOfTimestamp,
         observedAt: overlay.observedAt,
@@ -273,7 +285,10 @@ function resolveSnapshotForPair(input: {
         quality: null,
         marketLocalDate: session.localDate,
         calendarStatus: session.calendarStatus,
+        refreshCadenceMinutes: displayContext.refreshCadenceMinutes,
         latestIntradayAttempt: null,
+        latestRefreshAttemptAt: overlay.observedAt,
+        latestRefreshOutcome: "success",
       },
     };
   }
@@ -300,6 +315,9 @@ function resolveSnapshotForPair(input: {
       marketStateReason: "market_open",
       source: overlay.source,
       sourceKind: overlay.sourceKind,
+      sourceId: overlay.source,
+      providerSymbol: overlay.providerSymbol ?? null,
+      yahooSymbol: overlay.providerSymbol ?? null,
       asOfDate: overlay.asOfDate,
       asOfTimestamp: overlay.asOfTimestamp,
       observedAt: overlay.observedAt,
@@ -308,7 +326,10 @@ function resolveSnapshotForPair(input: {
       quality: null,
       marketLocalDate: session.localDate,
       calendarStatus: session.calendarStatus,
+      refreshCadenceMinutes: displayContext.refreshCadenceMinutes,
       latestIntradayAttempt: null,
+      latestRefreshAttemptAt: overlay.observedAt,
+      latestRefreshOutcome: "success",
     },
   };
 }
@@ -338,7 +359,13 @@ function buildDailySnapshot(input: {
     source: latest.source,
     isProvisional: computeIsProvisional(latest.barDate, pair.marketCode, settledByMarket),
     dailyCompatibleClose: latest.close,
-    priceState: buildDailyPriceState(latest, pair.marketCode, settledByMarket, session),
+    priceState: buildDailyPriceState(
+      latest,
+      pair.marketCode,
+      settledByMarket,
+      session,
+      displayContext?.refreshCadenceMinutes ?? null,
+    ),
   };
 }
 
@@ -347,6 +374,7 @@ function buildDailyPriceState(
   marketCode: MarketCode | undefined,
   settledByMarket: ReadonlyMap<MarketCode, string>,
   session: RegularSessionState | undefined,
+  refreshCadenceMinutes: number | null,
 ): PriceStateDto {
   const settled = marketCode ? settledByMarket.get(marketCode) ?? null : null;
   const marketState: PriceStateDto["marketState"] = session?.isOpen ? "open" : "closed";
@@ -380,6 +408,9 @@ function buildDailyPriceState(
     marketStateReason,
     source: latest.source,
     sourceKind,
+    sourceId: latest.source,
+    providerSymbol: null,
+    yahooSymbol: null,
     asOfDate: latest.barDate,
     asOfTimestamp: null,
     observedAt: latest.ingestedAt,
@@ -388,6 +419,7 @@ function buildDailyPriceState(
     quality: latest.quality,
     marketLocalDate: session?.localDate ?? null,
     calendarStatus: session?.calendarStatus ?? null,
+    refreshCadenceMinutes,
     latestIntradayAttempt: null,
   };
 }
@@ -396,6 +428,7 @@ function buildOpenPreviousCloseState(
   latest: SnapshotBar,
   marketCode: MarketCode,
   session: RegularSessionState,
+  refreshCadenceMinutes: number | null,
 ): PriceStateDto {
   return {
     basis: "previous_close",
@@ -404,6 +437,9 @@ function buildOpenPreviousCloseState(
     marketStateReason: "market_open",
     source: latest.source,
     sourceKind: mapDailySourceKind(latest.source),
+    sourceId: latest.source,
+    providerSymbol: null,
+    yahooSymbol: null,
     asOfDate: latest.barDate,
     asOfTimestamp: null,
     observedAt: latest.ingestedAt,
@@ -412,6 +448,7 @@ function buildOpenPreviousCloseState(
     quality: latest.quality,
     marketLocalDate: session.localDate,
     calendarStatus: session.calendarStatus,
+    refreshCadenceMinutes,
     latestIntradayAttempt: null,
   };
 }

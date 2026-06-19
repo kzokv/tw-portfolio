@@ -56,8 +56,9 @@ describe("yahooFinanceIntradayProvider", () => {
       price: 212.45,
       previousClose: 210.11,
       asOfDate: "2026-06-17",
-      sourceKind: "intraday_yahoo_chart",
+      sourceKind: "yahoo_chart",
       source: "yahoo-finance-chart",
+      providerSymbol: "AAPL",
       currency: "USD",
     });
     expect(activeSdkStub!.chart).toHaveBeenCalledWith(

@@ -90,7 +90,7 @@ describe("AdminMarketDataPage", () => {
       if (path === "/admin/market-data/KR/actions") {
         return { marketCode: "KR", actions: [] };
       }
-      if (path === "/admin/market-data/KR/activity?page=2&limit=10&search=2330&source=yahoo_chart&category=intraday_price&result=warning%2Cerror&timeRange=24h") {
+      if (path === "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=24h") {
         return { marketCode: "KR", providers: [], summary: [], items: [], total: 0, page: 2, limit: 10 };
       }
       throw new Error(`Unexpected getJson path: ${path}`);
@@ -110,7 +110,33 @@ describe("AdminMarketDataPage", () => {
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
-      "/admin/market-data/KR/activity?page=2&limit=10&search=2330&source=yahoo_chart&category=intraday_price&result=warning%2Cerror&timeRange=24h",
+      "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=24h",
+    ]);
+  });
+
+  it("defaults activity filters to all results over the last 24 hours", async () => {
+    getJsonMock.mockImplementation((async (path: string) => {
+      if (path === "/admin/market-data/AU/overview") {
+        return { marketCode: "AU", label: "Australia", tabs: ["overview", "activity"], providers: [] };
+      }
+      if (path === "/admin/market-data/AU/actions") {
+        return { marketCode: "AU", actions: [] };
+      }
+      if (path === "/admin/market-data/AU/activity?page=1&limit=25&timeRange=24h") {
+        return { marketCode: "AU", providers: [], summary: [], items: [], total: 0, page: 1, limit: 25 };
+      }
+      throw new Error(`Unexpected getJson path: ${path}`);
+    }) as never);
+
+    await AdminMarketDataWorkspacePage({
+      params: Promise.resolve({ marketCode: "AU", tab: "activity" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/admin/market-data/AU/overview",
+      "/admin/market-data/AU/actions",
+      "/admin/market-data/AU/activity?page=1&limit=25&timeRange=24h",
     ]);
   });
 

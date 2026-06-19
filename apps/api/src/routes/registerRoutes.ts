@@ -1896,10 +1896,13 @@ async function resolveDisplayedQuoteSnapshotsForHeldPairs(
   store: Store,
   tickers: ReadonlyArray<string>,
   now: Date = new Date(),
+  options: { skipEnqueue?: boolean } = {},
 ): Promise<Record<string, ResolvedQuoteSnapshot | null>> {
   const pairs = buildHeldTickerMarketPairsForDisplayedQuotes(store, tickers);
   const settledByMarket = await buildSettledTradingDayMap(app, pairs, now);
-  await enqueueDisplayedQuoteRefreshes(app, pairs, now);
+  if (!options.skipEnqueue) {
+    await enqueueDisplayedQuoteRefreshes(app, pairs, now);
+  }
   return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket, {
     mode: "displayed",
     now,
@@ -1907,6 +1910,7 @@ async function resolveDisplayedQuoteSnapshotsForHeldPairs(
     heldPairs: new Set(pairs
       .filter((pair): pair is { ticker: string; marketCode: MarketCode } => pair.marketCode !== undefined)
       .map((pair) => `${pair.ticker}:${pair.marketCode}`)),
+    refreshCadenceMinutes: store.settings.effectiveTickerPriceIntradayRefreshIntervalMinutes ?? undefined,
   });
 }
 
@@ -1950,9 +1954,20 @@ async function enqueueDisplayedQuoteRefreshes(
   app: FastifyInstance,
   pairs: ReadonlyArray<QuoteSnapshotPair>,
   now: Date = new Date(),
-): Promise<void> {
+): Promise<{
+  requestedAt: string;
+  consideredPairs: number;
+  openPairs: number;
+  staleOrMissingPairs: number;
+  enqueuedPairs: number;
+  cappedPairs: number;
+  queueUnavailablePairs: number;
+  failedPairs: number;
+  calendarUnknownPairs: number;
+  pending: boolean;
+}> {
   try {
-    await enqueueDemandIntradayRefreshes({
+    const result = await enqueueDemandIntradayRefreshes({
       pairs,
       boss: app.boss,
       persistence: app.persistence,
@@ -1960,6 +1975,18 @@ async function enqueueDisplayedQuoteRefreshes(
       log: app.log,
       now,
     });
+    return {
+      requestedAt: now.toISOString(),
+      consideredPairs: result.considered,
+      openPairs: result.open,
+      staleOrMissingPairs: result.staleOrMissing,
+      enqueuedPairs: result.enqueued,
+      cappedPairs: result.capped,
+      queueUnavailablePairs: result.queueUnavailable,
+      failedPairs: result.failed,
+      calendarUnknownPairs: result.calendarUnknownSkips,
+      pending: result.enqueued > 0 || result.capped > 0,
+    };
   } catch (error) {
     app.log.warn(
       {
@@ -1968,6 +1995,18 @@ async function enqueueDisplayedQuoteRefreshes(
       },
       "intraday_demand_refresh_failed_degrading_to_daily_bars",
     );
+    return {
+      requestedAt: now.toISOString(),
+      consideredPairs: pairs.length,
+      openPairs: 0,
+      staleOrMissingPairs: 0,
+      enqueuedPairs: 0,
+      cappedPairs: 0,
+      queueUnavailablePairs: 0,
+      failedPairs: pairs.length,
+      calendarUnknownPairs: 0,
+      pending: false,
+    };
   }
 }
 
@@ -5063,8 +5102,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker)
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
-      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
+      const [refreshPending, snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        enqueueDisplayedQuoteRefreshes(app, buildHeldTickerMarketPairsForDisplayedQuotes(store, symbols)),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols, new Date(), { skipEnqueue: true }),
         app.persistence.getUserPreferences(userId),
       ]));
       const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
@@ -5109,6 +5149,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
       return {
         settings: overview.settings,
+        refreshPending,
         holdings: overview.holdings,
         holdingGroups: translatedHoldingGroups,
         fxRates,
@@ -5411,8 +5452,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker)
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
-      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
+      const [refreshPending, snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        enqueueDisplayedQuoteRefreshes(app, buildHeldTickerMarketPairsForDisplayedQuotes(store, symbols)),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols, new Date(), { skipEnqueue: true }),
         app.persistence.getUserPreferences(userId),
       ]));
       const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
@@ -5485,6 +5527,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         ...overview,
         marketStates,
+        refreshPending,
         summary: translatedSummary,
         fxRates,
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
@@ -5514,8 +5557,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker)
           .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
       )];
-      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
-        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols),
+      const now = new Date();
+      const heldPairs = buildHeldTickerMarketPairsForDisplayedQuotes(store, symbols);
+      const [refreshPending, snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        enqueueDisplayedQuoteRefreshes(app, heldPairs, now),
+        resolveDisplayedQuoteSnapshotsForHeldPairs(app, store, symbols, now, { skipEnqueue: true }),
         app.persistence.getUserPreferences(userId),
       ]));
       const quotes = Object.values(snapshotMap).filter((s): s is ResolvedQuoteSnapshot => s !== null);
@@ -5593,6 +5639,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         marketValues: buildOverviewMarketValues(translatedHoldingGroups, reportingCurrency),
         holdingGroups: translatedHoldingGroups,
         ...(valuationHealth ? { valuationHealth } : {}),
+        refreshPending,
       };
     });
   });

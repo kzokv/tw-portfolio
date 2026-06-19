@@ -55,7 +55,7 @@ import {
 import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import { holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
-import { getPriceState } from "../../features/price-state/priceState";
+import { buildPriceStateActivityPath, getPriceState } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
 type HoldingsColumn =
@@ -83,6 +83,7 @@ interface HoldingsTableProps {
   locale: LocaleCode;
   recomputingSymbols?: Set<string>;
   showFreshnessBadge?: boolean;
+  showAdminActivityLinks?: boolean;
   variant?: "default" | "compact";
   allocationBasis?: HoldingAllocationBasis;
   onAllocationBasisChange?: (basis: HoldingAllocationBasis) => void;
@@ -183,6 +184,7 @@ export function HoldingsTable({
   locale,
   recomputingSymbols,
   showFreshnessBadge = true,
+  showAdminActivityLinks = false,
   variant = "default",
   allocationBasis,
   onAllocationBasisChange,
@@ -545,10 +547,11 @@ export function HoldingsTable({
                         allocationPercent={groupAllocationMap.get(groupKey) ?? null}
                         allocationBasis={effectiveAllocationBasis}
                         detailColumns={mobileColumnSplit.detailColumns}
-                        expanded={showChildren}
-                        showFreshnessBadge={showFreshnessBadge}
-                        summaryColumns={mobileColumnSplit.summaryColumns}
-                        onToggle={() => toggleGroup(groupKey)}
+                      expanded={showChildren}
+                      showFreshnessBadge={showFreshnessBadge}
+                      showAdminActivityLinks={showAdminActivityLinks}
+                      summaryColumns={mobileColumnSplit.summaryColumns}
+                      onToggle={() => toggleGroup(groupKey)}
                       />
                       {showChildren
                         ? visibleChildren.map((child) => (
@@ -632,6 +635,7 @@ export function HoldingsTable({
                           expanded={showChildren}
                           onToggle={() => toggleGroup(groupKey)}
                           showFreshnessBadge={showFreshnessBadge}
+                          showAdminActivityLinks={showAdminActivityLinks}
                           isRecomputing={hasRecomputingChild(group, recomputingSymbols)}
                         />
                         {showChildren
@@ -672,6 +676,7 @@ function HoldingGroupMobileCard({
   detailColumns,
   expanded,
   showFreshnessBadge,
+  showAdminActivityLinks,
   summaryColumns,
   onToggle,
 }: {
@@ -683,6 +688,7 @@ function HoldingGroupMobileCard({
   detailColumns: HoldingsColumn[];
   expanded: boolean;
   showFreshnessBadge: boolean;
+  showAdminActivityLinks: boolean;
   summaryColumns: HoldingsColumn[];
   onToggle: () => void;
 }) {
@@ -727,6 +733,7 @@ function HoldingGroupMobileCard({
             locale={locale}
             row={group}
             showFreshnessBadge={showFreshnessBadge}
+            showAdminActivityLinks={showAdminActivityLinks}
           />
         ))}
       </div>
@@ -749,6 +756,7 @@ function HoldingGroupMobileCard({
                   locale={locale}
                   row={group}
                   showFreshnessBadge={showFreshnessBadge}
+                  showAdminActivityLinks={showAdminActivityLinks}
                 />
               ))}
             </div>
@@ -893,6 +901,7 @@ function PortfolioMobileColumnMetric({
   locale,
   row,
   showFreshnessBadge,
+  showAdminActivityLinks = false,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
   allocationBasis: HoldingAllocationBasis;
@@ -902,6 +911,7 @@ function PortfolioMobileColumnMetric({
   locale: LocaleCode;
   row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
   showFreshnessBadge: boolean;
+  showAdminActivityLinks?: boolean;
 }) {
   const reportingCurrency = row.reportingCurrency;
   const avgCost = getDashboardReportingAverageCost(row, reportingCurrency);
@@ -944,7 +954,8 @@ function PortfolioMobileColumnMetric({
           detail={showFreshnessBadge && priceState ? (
             <div className="flex justify-start">
               <PriceStateChip
-                className="mt-0"
+                className="mt-0 w-full justify-start text-left"
+                activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: row.marketCode, priceState, ticker: row.ticker }) : null}
                 dict={dict}
                 locale={locale}
                 priceState={priceState}
@@ -1018,6 +1029,7 @@ function HoldingGroupRow({
   expanded,
   onToggle,
   showFreshnessBadge,
+  showAdminActivityLinks,
   isRecomputing,
 }: {
   columnSettings: HoldingsColumnSettingsState<HoldingsColumn>;
@@ -1030,6 +1042,7 @@ function HoldingGroupRow({
   expanded: boolean;
   onToggle: () => void;
   showFreshnessBadge: boolean;
+  showAdminActivityLinks: boolean;
   isRecomputing: boolean;
 }) {
   const allocation = getAmountForAllocationBasis(group, allocationBasis);
@@ -1053,6 +1066,7 @@ function HoldingGroupRow({
           onToggle={onToggle}
           reportingCurrency={reportingCurrency}
           showFreshnessBadge={showFreshnessBadge}
+          showAdminActivityLinks={showAdminActivityLinks}
           unrealizedPnlAmount={group.reportingUnrealizedPnlAmount}
         />
       ))}
@@ -1154,6 +1168,7 @@ function HoldingGroupCell({
   onToggle,
   reportingCurrency,
   showFreshnessBadge,
+  showAdminActivityLinks,
   unrealizedPnlAmount,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
@@ -1169,6 +1184,7 @@ function HoldingGroupCell({
   onToggle: () => void;
   reportingCurrency: AccountDefaultCurrency;
   showFreshnessBadge: boolean;
+  showAdminActivityLinks: boolean;
   unrealizedPnlAmount: number | null;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
@@ -1235,7 +1251,7 @@ function HoldingGroupCell({
           <span>{group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}</span>
           {showFreshnessBadge && priceState ? (
             <div className="mt-1 flex w-full justify-end">
-              <PriceStateChip className="mt-0 max-w-full justify-end text-right" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
+              <PriceStateChip activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: group.marketCode, priceState, ticker: group.ticker }) : null} className="mt-0 w-full max-w-full justify-start text-left md:justify-end md:text-right" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
             </div>
           ) : null}
         </div>

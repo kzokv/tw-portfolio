@@ -167,7 +167,7 @@ import type {
   ListMarketCalendarActivityOptions,
   ListMarketCalendarActivityResult,
   MarketCalendarActivityResult,
-  MarketCalendarActivitySource,
+  MarketCalendarActivitySourceKind,
   MarketCalendarActivityEventRecord,
   MarketCalendarPreviewRecord,
   MarketCalendarSourceConfigRecord,
@@ -14507,6 +14507,26 @@ export class PostgresPersistence implements Persistence {
     if (unresolvedItem) {
       await this.upsertProviderUnresolvedItem(unresolvedItem);
     }
+    const marketCode = typeof row.context?.marketCode === "string" ? row.context.marketCode : null;
+    if (marketCode && isMarketCalendarActivityMarket(marketCode)) {
+      await this.createMarketCalendarActivityEvent({
+        marketCode,
+        category: "provider_error",
+        result: row.errorClass === "rate_limit" ? "rate_limited" : "error",
+        sourceKind: providerIdToActivitySourceKind(row.providerId),
+        sourceId: row.providerId,
+        eventType: "provider_error_recorded",
+        title: "Provider error recorded",
+        message: row.errorMessage ?? `${row.providerId} recorded ${row.errorClass}.`,
+        ticker: typeof row.context?.ticker === "string" ? row.context.ticker : null,
+        providerSymbol: typeof row.context?.providerSymbol === "string" ? row.context.providerSymbol : null,
+        dedupeKey: `provider-error:${row.id}`,
+        detail: {
+          errorClass: row.errorClass,
+          context: row.context ?? {},
+        },
+      });
+    }
     return row;
   }
 
@@ -15125,25 +15145,54 @@ export class PostgresPersistence implements Persistence {
   }
 
   async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {
+    const operation = await this.getProviderOperation(input.operationId);
+    const rawContext = input.rawContext ?? input.context ?? null;
+    const providerId = input.providerId ?? operation?.providerId ?? null;
+    const marketCode = input.marketCode ?? operation?.marketCode ?? null;
+    const eventKind = input.eventKind ?? getStringContextValue(rawContext, ["eventKind", "action", "kind"]);
+    const batchId = input.batchId ?? getStringContextValue(rawContext, ["batchId", "legacyBatchId"]);
+    const jobId = input.jobId ?? getStringContextValue(rawContext, ["jobId"]);
+    const successCount = input.successCount ?? getNumberContextValue(rawContext, ["successCount", "processedCount"]);
+    const warningCount = input.warningCount ?? getNumberContextValue(rawContext, ["warningCount"]);
+    const errorCount = input.errorCount ?? getNumberContextValue(rawContext, ["errorCount", "failedCount"]);
+    const detail = input.detail ?? getStringContextValue(rawContext, ["detail", "summary"]);
     const result = await this.pool.query<ProviderOperationLogRowSql>(
       `INSERT INTO market_data.provider_operation_logs
-         (operation_id, phase, level, message, context)
-       VALUES ($1, $2, $3, $4, $5::jsonb)
-       RETURNING id, operation_id, phase, level, message, context, created_at`,
-      [input.operationId, input.phase, input.level, input.message, input.context ? JSON.stringify(input.context) : null],
+         (operation_id, provider_id, market_code, phase, level, event_kind, batch_id, job_id, success_count, warning_count, error_count, detail, raw_context, message, context)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)
+       RETURNING id, operation_id, provider_id, market_code, phase, level, event_kind, batch_id, job_id,
+                 success_count, warning_count, error_count, detail, raw_context, message, context, created_at`,
+      [
+        input.operationId,
+        providerId,
+        marketCode,
+        input.phase,
+        input.level,
+        eventKind,
+        batchId,
+        jobId,
+        successCount,
+        warningCount,
+        errorCount,
+        detail,
+        rawContext ? JSON.stringify(rawContext) : null,
+        input.message,
+        input.context ? JSON.stringify(input.context) : null,
+      ],
     );
     const row = mapProviderOperationLogRow(result.rows[0]!);
-    const operation = await this.getProviderOperation(input.operationId);
     if (operation && isMarketCalendarActivityMarket(operation.marketCode)) {
       await this.createMarketCalendarActivityEvent({
         marketCode: operation.marketCode,
         category: "provider_operation",
         result: providerOperationLogLevelToActivityResult(input.level),
-        source: providerIdToActivitySource(operation.providerId),
+        sourceKind: providerIdToActivitySourceKind(operation.providerId),
+        sourceId: operation.providerId,
         eventType: `provider_operation_${input.phase}`,
         title: "Provider operation milestone",
         message: input.message,
         operationId: input.operationId,
+        dedupeKey: `provider-log:${row.id}`,
         detail: {
           providerId: operation.providerId,
           operationType: operation.operationType,
@@ -15168,7 +15217,8 @@ export class PostgresPersistence implements Persistence {
       [options.operationId],
     );
     const rowsResult = await this.pool.query<ProviderOperationLogRowSql>(
-      `SELECT id, operation_id, phase, level, message, context, created_at
+      `SELECT id, operation_id, provider_id, market_code, phase, level, event_kind, batch_id, job_id,
+              success_count, warning_count, error_count, detail, raw_context, message, context, created_at
          FROM market_data.provider_operation_logs
         WHERE operation_id = $1
         ORDER BY created_at DESC
@@ -15190,15 +15240,12 @@ export class PostgresPersistence implements Persistence {
       market_code: MarketCode;
       label: string;
       source_type: MarketCalendarSourceConfigRecord["sourceType"];
-      url: string | null;
-      host: string | null;
-      allowed_hosts: string[] | null;
-      parser_id: string | null;
+      suggested_source_url: string | null;
       enabled: boolean;
       is_default: boolean;
       updated_at: string;
     }>(
-      `SELECT id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default, updated_at
+      `SELECT id, market_code, label, source_type, suggested_source_url, enabled, is_default, updated_at
          FROM market_data.market_calendar_sources
         WHERE market_code = $1
         ORDER BY is_default DESC, label ASC`,
@@ -15209,10 +15256,7 @@ export class PostgresPersistence implements Persistence {
       marketCode: row.market_code,
       label: row.label,
       sourceType: row.source_type,
-      url: row.url,
-      host: row.host,
-      allowedHosts: row.allowed_hosts ?? [],
-      parserId: row.parser_id,
+      suggestedSourceUrl: row.suggested_source_url,
       enabled: row.enabled,
       isDefault: row.is_default,
       updatedAt: row.updated_at,
@@ -15234,29 +15278,23 @@ export class PostgresPersistence implements Persistence {
       market_code: MarketCode;
       label: string;
       source_type: MarketCalendarSourceConfigRecord["sourceType"];
-      url: string | null;
-      host: string | null;
-      allowed_hosts: string[] | null;
-      parser_id: string | null;
+      suggested_source_url: string | null;
       enabled: boolean;
       is_default: boolean;
       updated_at: string;
     }>(
       `INSERT INTO market_data.market_calendar_sources
-         (id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10)
+         (id, market_code, label, source_type, suggested_source_url, enabled, is_default)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE
        SET label = EXCLUDED.label,
            source_type = EXCLUDED.source_type,
-           url = EXCLUDED.url,
-           host = EXCLUDED.host,
-           allowed_hosts = EXCLUDED.allowed_hosts,
-           parser_id = EXCLUDED.parser_id,
+           suggested_source_url = EXCLUDED.suggested_source_url,
            enabled = EXCLUDED.enabled,
            is_default = EXCLUDED.is_default,
            updated_at = NOW()
-       RETURNING id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default, updated_at`,
-      [id, input.marketCode, input.label, input.sourceType, input.url ?? null, input.host ?? null, input.allowedHosts ?? [], input.parserId ?? null, input.enabled ?? true, input.isDefault ?? false],
+       RETURNING id, market_code, label, source_type, suggested_source_url, enabled, is_default, updated_at`,
+      [id, input.marketCode, input.label, input.sourceType, input.suggestedSourceUrl ?? null, input.enabled ?? true, input.isDefault ?? false],
     );
     const row = result.rows[0]!;
     return {
@@ -15264,10 +15302,7 @@ export class PostgresPersistence implements Persistence {
       marketCode: row.market_code,
       label: row.label,
       sourceType: row.source_type,
-      url: row.url,
-      host: row.host,
-      allowedHosts: row.allowed_hosts ?? [],
-      parserId: row.parser_id,
+      suggestedSourceUrl: row.suggested_source_url,
       enabled: row.enabled,
       isDefault: row.is_default,
       updatedAt: row.updated_at,
@@ -15278,20 +15313,23 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query(
       `INSERT INTO market_data.market_calendar_previews
          (preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
-          replace_confirmed_required, warnings, diff, rows, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13)
+          source_url, coverage, replace_confirmed_required, warnings, diff, annual_counts, exceptions, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16)
        ON CONFLICT (preview_token) DO UPDATE
        SET import_operation_id = EXCLUDED.import_operation_id,
            source_id = EXCLUDED.source_id,
            source_type = EXCLUDED.source_type,
            label = EXCLUDED.label,
            retrieved_at = EXCLUDED.retrieved_at,
+           source_url = EXCLUDED.source_url,
+           coverage = EXCLUDED.coverage,
            replace_confirmed_required = EXCLUDED.replace_confirmed_required,
            warnings = EXCLUDED.warnings,
            diff = EXCLUDED.diff,
-           rows = EXCLUDED.rows
+           annual_counts = EXCLUDED.annual_counts,
+           exceptions = EXCLUDED.exceptions
        RETURNING preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
-                 replace_confirmed_required, warnings, diff, rows, created_at`,
+                 source_url, coverage, replace_confirmed_required, warnings, diff, annual_counts, exceptions, created_at`,
       [
         preview.previewToken,
         preview.importOperationId,
@@ -15301,10 +15339,13 @@ export class PostgresPersistence implements Persistence {
         preview.sourceType,
         preview.label,
         preview.retrievedAt,
+        preview.sourceUrl,
+        JSON.stringify(preview.coverage),
         preview.replaceConfirmedRequired,
         JSON.stringify(preview.warnings),
         JSON.stringify(preview.diff),
-        JSON.stringify(preview.rows),
+        JSON.stringify(preview.annualCounts),
+        JSON.stringify(preview.exceptions),
         preview.createdAt,
       ],
     );
@@ -15314,7 +15355,7 @@ export class PostgresPersistence implements Persistence {
   async getMarketCalendarPreview(previewToken: string): Promise<MarketCalendarPreviewRecord | null> {
     const result = await this.pool.query(
       `SELECT preview_token, import_operation_id, market_code, calendar_year, source_id, source_type, label, retrieved_at,
-              replace_confirmed_required, warnings, diff, rows, created_at
+              source_url, coverage, replace_confirmed_required, warnings, diff, annual_counts, exceptions, created_at
          FROM market_data.market_calendar_previews
         WHERE preview_token = $1`,
       [previewToken],
@@ -15349,12 +15390,26 @@ export class PostgresPersistence implements Persistence {
         : { rows: [] };
       const result = await client.query(
         `INSERT INTO market_data.market_calendar_versions
-           (version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
-            confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NULL, $9, 'confirmed', TRUE, $10::jsonb, NOW(), NOW())
+           (version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, source_url, retrieved_at,
+            coverage, confirmed_at, invalidated_at, invalidation_reason, status, is_active, annual_counts, exceptions, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NULL, $11, 'confirmed', TRUE, $12::jsonb, $13::jsonb, NOW(), NOW())
          RETURNING version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
-                   confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at`,
-        [versionId, preview.importOperationId, preview.marketCode, preview.calendarYear, preview.sourceId, source.rows[0]?.label ?? preview.label, preview.sourceType, preview.retrievedAt, input.replacementReason ?? null, JSON.stringify(preview.rows)],
+                   source_url, coverage, confirmed_at, invalidated_at, invalidation_reason, status, is_active, annual_counts, exceptions, created_at, updated_at`,
+        [
+          versionId,
+          preview.importOperationId,
+          preview.marketCode,
+          preview.calendarYear,
+          preview.sourceId,
+          source.rows[0]?.label ?? preview.label,
+          preview.sourceType,
+          preview.sourceUrl,
+          preview.retrievedAt,
+          JSON.stringify(preview.coverage),
+          input.replacementReason ?? null,
+          JSON.stringify(preview.annualCounts),
+          JSON.stringify(preview.exceptions),
+        ],
       );
       await client.query("COMMIT");
       return mapMarketCalendarVersionRow(result.rows[0]!);
@@ -15378,7 +15433,7 @@ export class PostgresPersistence implements Persistence {
           AND calendar_year = $2
           AND is_active = TRUE
       RETURNING version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
-                confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at`,
+                source_url, coverage, confirmed_at, invalidated_at, invalidation_reason, status, is_active, annual_counts, exceptions, created_at, updated_at`,
       [input.marketCode, input.calendarYear, input.reason],
     );
     return result.rows[0] ? mapMarketCalendarVersionRow(result.rows[0]) : null;
@@ -15387,7 +15442,7 @@ export class PostgresPersistence implements Persistence {
   async getActiveMarketCalendarVersion(marketCode: MarketCode, calendarYear: number): Promise<MarketCalendarVersionRecord | null> {
     const result = await this.pool.query(
       `SELECT version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
-              confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at
+              source_url, coverage, confirmed_at, invalidated_at, invalidation_reason, status, is_active, annual_counts, exceptions, created_at, updated_at
          FROM market_data.market_calendar_versions
         WHERE market_code = $1
           AND calendar_year = $2
@@ -15404,7 +15459,7 @@ export class PostgresPersistence implements Persistence {
     if (calendarYear !== undefined) params.push(calendarYear);
     const result = await this.pool.query(
       `SELECT version_id, import_operation_id, market_code, calendar_year, source_id, source_label, source_type, retrieved_at,
-              confirmed_at, invalidated_at, invalidation_reason, status, is_active, rows, created_at, updated_at
+              source_url, coverage, confirmed_at, invalidated_at, invalidation_reason, status, is_active, annual_counts, exceptions, created_at, updated_at
          FROM market_data.market_calendar_versions
         WHERE market_code = $1
           ${yearClause}
@@ -15418,13 +15473,29 @@ export class PostgresPersistence implements Persistence {
     const id = randomUUID();
     const result = await this.pool.query(
       `INSERT INTO market_data.market_calendar_activity
-         (id, market_code, occurred_at, category, result, source, event_type, title, message,
-          ticker, provider_symbol, operation_id, job_id, calendar_year, detail)
+         (id, market_code, occurred_at, category, result, source_kind, source_id, event_type, title, message,
+          ticker, provider_symbol, operation_id, job_id, calendar_year, dedupe_key, detail)
        VALUES ($1, $2, COALESCE($3, NOW()), $4, $5, $6, $7, $8, $9,
-               $10, $11, $12, $13, $14, $15::jsonb)
-       RETURNING id, market_code, occurred_at, category, result, source, event_type, title, message,
-                 ticker, provider_symbol, operation_id, job_id, calendar_year, detail`,
-      [id, input.marketCode, input.occurredAt ?? null, input.category, input.result, input.source, input.eventType, input.title, input.message, input.ticker ?? null, input.providerSymbol ?? null, input.operationId ?? null, input.jobId ?? null, input.calendarYear ?? null, JSON.stringify(input.detail ?? {})],
+               $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
+       ON CONFLICT (market_code, dedupe_key) WHERE dedupe_key IS NOT NULL
+       DO UPDATE SET
+         occurred_at = EXCLUDED.occurred_at,
+         category = EXCLUDED.category,
+         result = EXCLUDED.result,
+         source_kind = EXCLUDED.source_kind,
+         source_id = EXCLUDED.source_id,
+         event_type = EXCLUDED.event_type,
+         title = EXCLUDED.title,
+         message = EXCLUDED.message,
+         ticker = EXCLUDED.ticker,
+         provider_symbol = EXCLUDED.provider_symbol,
+         operation_id = EXCLUDED.operation_id,
+         job_id = EXCLUDED.job_id,
+         calendar_year = EXCLUDED.calendar_year,
+         detail = EXCLUDED.detail
+       RETURNING id, market_code, occurred_at, category, result, source_kind, source_id, event_type, title, message,
+                 ticker, provider_symbol, operation_id, job_id, calendar_year, dedupe_key, detail`,
+      [id, input.marketCode, input.occurredAt ?? null, input.category, input.result, input.sourceKind, input.sourceId ?? null, input.eventType, input.title, input.message, input.ticker ?? null, input.providerSymbol ?? null, input.operationId ?? null, input.jobId ?? null, input.calendarYear ?? null, input.dedupeKey ?? null, JSON.stringify(input.detail ?? {})],
     );
     return mapMarketCalendarActivityRow(result.rows[0]!);
   }
@@ -15444,9 +15515,9 @@ export class PostgresPersistence implements Persistence {
       where.push(`result = ANY($${i++}::text[])`);
       params.push(options.results);
     }
-    if (options.sources?.length) {
-      where.push(`source = ANY($${i++}::text[])`);
-      params.push(options.sources);
+    if (options.sourceKinds?.length) {
+      where.push(`source_kind = ANY($${i++}::text[])`);
+      params.push(options.sourceKinds);
     }
     if (options.occurredAfter) {
       where.push(`occurred_at >= $${i++}::timestamptz`);
@@ -15459,7 +15530,8 @@ export class PostgresPersistence implements Persistence {
         OR COALESCE(operation_id, '') ILIKE $${i}
         OR COALESCE(job_id, '') ILIKE $${i}
         OR COALESCE(calendar_year::text, '') ILIKE $${i}
-        OR source::text ILIKE $${i}
+        OR source_kind::text ILIKE $${i}
+        OR COALESCE(source_id, '') ILIKE $${i}
         OR title ILIKE $${i}
         OR message ILIKE $${i}
         OR event_type ILIKE $${i}
@@ -15477,8 +15549,8 @@ export class PostgresPersistence implements Persistence {
       params,
     );
     const rowsResult = await this.pool.query(
-      `SELECT id, market_code, occurred_at, category, result, source, event_type, title, message,
-              ticker, provider_symbol, operation_id, job_id, calendar_year, detail
+      `SELECT id, market_code, occurred_at, category, result, source_kind, source_id, event_type, title, message,
+              ticker, provider_symbol, operation_id, job_id, calendar_year, dedupe_key, detail
          FROM market_data.market_calendar_activity
         WHERE ${whereClause}
         ORDER BY occurred_at DESC
@@ -15866,8 +15938,18 @@ interface ProviderOperationRowSql {
 interface ProviderOperationLogRowSql {
   id: string | number;
   operation_id: string;
+  provider_id: string | null;
+  market_code: string | null;
   phase: string;
   level: string;
+  event_kind: string | null;
+  batch_id: string | null;
+  job_id: string | null;
+  success_count: number | string | null;
+  warning_count: number | string | null;
+  error_count: number | string | null;
+  detail: string | null;
+  raw_context: Record<string, unknown> | null;
   message: string;
   context: Record<string, unknown> | null;
   created_at: string;
@@ -16031,8 +16113,18 @@ function mapProviderOperationLogRow(row: ProviderOperationLogRowSql): ProviderOp
   return {
     id: typeof row.id === "string" ? parseInt(row.id, 10) : row.id,
     operationId: row.operation_id,
+    providerId: row.provider_id,
+    marketCode: row.market_code as ProviderOperationLogRecord["marketCode"],
     phase: row.phase as ProviderOperationPhase,
     level: row.level as ProviderOperationLogLevel,
+    eventKind: row.event_kind,
+    batchId: row.batch_id,
+    jobId: row.job_id,
+    successCount: row.success_count == null ? null : Number(row.success_count),
+    warningCount: row.warning_count == null ? null : Number(row.warning_count),
+    errorCount: row.error_count == null ? null : Number(row.error_count),
+    detail: row.detail,
+    rawContext: row.raw_context,
     message: row.message,
     context: row.context,
     createdAt: new Date(row.created_at).toISOString(),
@@ -16049,11 +16141,35 @@ function providerOperationLogLevelToActivityResult(level: ProviderOperationLogLe
   return "success";
 }
 
-function providerIdToActivitySource(providerId: string): MarketCalendarActivitySource {
+function providerIdToActivitySourceKind(providerId: string): MarketCalendarActivitySourceKind {
   if (providerId.includes("yahoo")) return "yahoo_chart";
   if (providerId.includes("finmind")) return "finmind";
   if (providerId.includes("twse")) return "twse_close";
-  return "system";
+  return "provider";
+}
+
+function getStringContextValue(
+  context: Record<string, unknown> | null,
+  keys: string[],
+): string | null {
+  if (!context) return null;
+  for (const key of keys) {
+    const value = context[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+}
+
+function getNumberContextValue(
+  context: Record<string, unknown> | null,
+  keys: string[],
+): number | null {
+  if (!context) return null;
+  for (const key of keys) {
+    const value = context[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function mapMarketCalendarPreviewRow(row: {
@@ -16064,11 +16180,14 @@ function mapMarketCalendarPreviewRow(row: {
   source_id: string | null;
   source_type: MarketCalendarPreviewRecord["sourceType"];
   label: string | null;
+  source_url: string | null;
   retrieved_at: string;
+  coverage: unknown;
   replace_confirmed_required: boolean;
   warnings: unknown;
   diff: unknown;
-  rows: unknown;
+  annual_counts: unknown;
+  exceptions: unknown;
   created_at: string;
 }): MarketCalendarPreviewRecord {
   return {
@@ -16079,11 +16198,14 @@ function mapMarketCalendarPreviewRow(row: {
     sourceId: row.source_id,
     sourceType: row.source_type,
     label: row.label,
+    sourceUrl: row.source_url,
     retrievedAt: new Date(row.retrieved_at).toISOString(),
+    coverage: (row.coverage ?? { scope: "full_year", evidence: "" }) as MarketCalendarPreviewRecord["coverage"],
     replaceConfirmedRequired: row.replace_confirmed_required,
     warnings: Array.isArray(row.warnings) ? row.warnings as string[] : [],
-    diff: (row.diff ?? { addedDates: [], removedDates: [], changedDates: [] }) as MarketCalendarPreviewRecord["diff"],
-    rows: Array.isArray(row.rows) ? row.rows as MarketCalendarPreviewRecord["rows"] : [],
+    diff: (row.diff ?? { addedExceptions: [], removedExceptions: [], changedExceptions: [] }) as MarketCalendarPreviewRecord["diff"],
+    annualCounts: (row.annual_counts ?? { tradingDayCount: 0, nonTradingDayCount: 0, weekdayClosedCount: 0, weekendOpenCount: 0 }) as MarketCalendarPreviewRecord["annualCounts"],
+    exceptions: Array.isArray(row.exceptions) ? row.exceptions as MarketCalendarPreviewRecord["exceptions"] : [],
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -16096,13 +16218,16 @@ function mapMarketCalendarVersionRow(row: {
   source_id: string | null;
   source_label: string | null;
   source_type: MarketCalendarVersionRecord["sourceType"];
+  source_url: string | null;
   retrieved_at: string;
+  coverage: unknown;
   confirmed_at: string | null;
   invalidated_at: string | null;
   invalidation_reason: string | null;
   status: MarketCalendarVersionRecord["status"];
   is_active: boolean;
-  rows: unknown;
+  annual_counts: unknown;
+  exceptions: unknown;
   created_at: string;
   updated_at: string;
 }): MarketCalendarVersionRecord {
@@ -16114,13 +16239,16 @@ function mapMarketCalendarVersionRow(row: {
     sourceId: row.source_id,
     sourceLabel: row.source_label,
     sourceType: row.source_type,
+    sourceUrl: row.source_url,
     retrievedAt: new Date(row.retrieved_at).toISOString(),
+    coverage: (row.coverage ?? { scope: "full_year", evidence: "" }) as MarketCalendarVersionRecord["coverage"],
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).toISOString() : null,
     invalidatedAt: row.invalidated_at ? new Date(row.invalidated_at).toISOString() : null,
     invalidationReason: row.invalidation_reason,
     status: row.status,
     isActive: row.is_active,
-    rows: Array.isArray(row.rows) ? row.rows as MarketCalendarVersionRecord["rows"] : [],
+    annualCounts: (row.annual_counts ?? { tradingDayCount: 0, nonTradingDayCount: 0, weekdayClosedCount: 0, weekendOpenCount: 0 }) as MarketCalendarVersionRecord["annualCounts"],
+    exceptions: Array.isArray(row.exceptions) ? row.exceptions as MarketCalendarVersionRecord["exceptions"] : [],
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -16132,7 +16260,8 @@ function mapMarketCalendarActivityRow(row: {
   occurred_at: string;
   category: MarketCalendarActivityEventRecord["category"];
   result: MarketCalendarActivityEventRecord["result"];
-  source: MarketCalendarActivityEventRecord["source"];
+  source_kind: MarketCalendarActivityEventRecord["sourceKind"];
+  source_id: string | null;
   event_type: string;
   title: string;
   message: string;
@@ -16141,6 +16270,7 @@ function mapMarketCalendarActivityRow(row: {
   operation_id: string | null;
   job_id: string | null;
   calendar_year: number | null;
+  dedupe_key: string | null;
   detail: unknown;
 }): MarketCalendarActivityEventRecord {
   return {
@@ -16149,7 +16279,8 @@ function mapMarketCalendarActivityRow(row: {
     occurredAt: new Date(row.occurred_at).toISOString(),
     category: row.category,
     result: row.result,
-    source: row.source,
+    sourceKind: row.source_kind,
+    sourceId: row.source_id,
     eventType: row.event_type,
     title: row.title,
     message: row.message,
@@ -16158,6 +16289,7 @@ function mapMarketCalendarActivityRow(row: {
     operationId: row.operation_id,
     jobId: row.job_id,
     calendarYear: row.calendar_year == null ? null : Number(row.calendar_year),
+    dedupeKey: row.dedupe_key,
     detail: (row.detail ?? {}) as Record<string, unknown>,
   };
 }

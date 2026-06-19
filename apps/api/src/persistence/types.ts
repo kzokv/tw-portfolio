@@ -1437,8 +1437,18 @@ export interface ListProviderOperationsResult {
 export interface ProviderOperationLogRecord {
   id: number;
   operationId: string;
+  providerId: string | null;
+  marketCode: ProviderOperationMarketCode | null;
   phase: ProviderOperationPhase;
   level: ProviderOperationLogLevel;
+  eventKind: string | null;
+  batchId: string | null;
+  jobId: string | null;
+  successCount: number | null;
+  warningCount: number | null;
+  errorCount: number | null;
+  detail: string | null;
+  rawContext: Record<string, unknown> | null;
   message: string;
   context: Record<string, unknown> | null;
   createdAt: string;
@@ -1446,8 +1456,18 @@ export interface ProviderOperationLogRecord {
 
 export interface CreateProviderOperationLogInput {
   operationId: string;
+  providerId?: string | null;
+  marketCode?: ProviderOperationMarketCode | null;
   phase: ProviderOperationPhase;
   level: ProviderOperationLogLevel;
+  eventKind?: string | null;
+  batchId?: string | null;
+  jobId?: string | null;
+  successCount?: number | null;
+  warningCount?: number | null;
+  errorCount?: number | null;
+  detail?: string | null;
+  rawContext?: Record<string, unknown> | null;
   message: string;
   context?: Record<string, unknown> | null;
 }
@@ -1471,13 +1491,15 @@ export interface ProviderLogPurgeCounts {
   operationLogCount: number;
 }
 
-export type MarketCalendarSourceType = "official_parser" | "manual_ai_assisted";
+export type MarketCalendarSourceType = "official_source" | "manual_ai_assisted";
 export type MarketCalendarVersionStatus = "confirmed" | "invalidated";
 export type MarketCalendarActivityCategory =
   | "intraday_price"
   | "daily_close"
   | "calendar"
   | "provider_operation"
+  | "provider_error"
+  | "instrument"
   | "system";
 export type MarketCalendarActivityResult =
   | "success"
@@ -1485,11 +1507,12 @@ export type MarketCalendarActivityResult =
   | "error"
   | "skipped"
   | "rate_limited";
-export type MarketCalendarActivitySource =
+export type MarketCalendarActivitySourceKind =
   | "yahoo_chart"
   | "official_calendar"
   | "twse_close"
   | "finmind"
+  | "provider"
   | "system";
 
 export interface MarketCalendarSourceConfigRecord {
@@ -1497,10 +1520,7 @@ export interface MarketCalendarSourceConfigRecord {
   marketCode: MarketCode;
   label: string;
   sourceType: MarketCalendarSourceType;
-  url: string | null;
-  host: string | null;
-  allowedHosts: string[];
-  parserId: string | null;
+  suggestedSourceUrl: string | null;
   enabled: boolean;
   isDefault: boolean;
   updatedAt: string;
@@ -1511,18 +1531,23 @@ export interface SaveMarketCalendarSourceConfigInput {
   sourceId?: string;
   label: string;
   sourceType: MarketCalendarSourceType;
-  url?: string | null;
-  host?: string | null;
-  allowedHosts?: string[];
-  parserId?: string | null;
+  suggestedSourceUrl?: string | null;
   enabled?: boolean;
   isDefault?: boolean;
 }
 
-export interface MarketCalendarRowInput {
-  date: string;
-  isOpen: boolean;
+export interface MarketCalendarCoverageAssertionRecord {
+  scope: "full_year";
   evidence: string;
+  notes?: string | null;
+}
+
+export interface MarketCalendarExceptionInput {
+  date: string;
+  status: "open" | "closed";
+  name: string;
+  evidence: string;
+  overrideReason: string;
   notes?: string | null;
 }
 
@@ -1534,15 +1559,23 @@ export interface MarketCalendarPreviewRecord {
   sourceId: string | null;
   sourceType: MarketCalendarSourceType;
   label: string | null;
+  sourceUrl: string | null;
   retrievedAt: string;
+  coverage: MarketCalendarCoverageAssertionRecord;
   replaceConfirmedRequired: boolean;
   warnings: string[];
   diff: {
-    addedDates: string[];
-    removedDates: string[];
-    changedDates: string[];
+    addedExceptions: string[];
+    removedExceptions: string[];
+    changedExceptions: string[];
   };
-  rows: MarketCalendarRowInput[];
+  annualCounts: {
+    tradingDayCount: number;
+    nonTradingDayCount: number;
+    weekdayClosedCount: number;
+    weekendOpenCount: number;
+  };
+  exceptions: MarketCalendarExceptionInput[];
   createdAt: string;
 }
 
@@ -1554,13 +1587,21 @@ export interface MarketCalendarVersionRecord {
   sourceId: string | null;
   sourceLabel: string | null;
   sourceType: MarketCalendarSourceType;
+  sourceUrl: string | null;
   retrievedAt: string;
+  coverage: MarketCalendarCoverageAssertionRecord;
   confirmedAt: string | null;
   invalidatedAt: string | null;
   invalidationReason: string | null;
   status: MarketCalendarVersionStatus;
   isActive: boolean;
-  rows: MarketCalendarRowInput[];
+  annualCounts: {
+    tradingDayCount: number;
+    nonTradingDayCount: number;
+    weekdayClosedCount: number;
+    weekendOpenCount: number;
+  };
+  exceptions: MarketCalendarExceptionInput[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1583,7 +1624,8 @@ export interface MarketCalendarActivityEventRecord {
   occurredAt: string;
   category: MarketCalendarActivityCategory;
   result: MarketCalendarActivityResult;
-  source: MarketCalendarActivitySource;
+  sourceKind: MarketCalendarActivitySourceKind;
+  sourceId: string | null;
   eventType: string;
   title: string;
   message: string;
@@ -1592,6 +1634,7 @@ export interface MarketCalendarActivityEventRecord {
   operationId: string | null;
   jobId: string | null;
   calendarYear: number | null;
+  dedupeKey: string | null;
   detail: Record<string, unknown>;
 }
 
@@ -1600,7 +1643,8 @@ export interface CreateMarketCalendarActivityEventInput {
   occurredAt?: string;
   category: MarketCalendarActivityCategory;
   result: MarketCalendarActivityResult;
-  source: MarketCalendarActivitySource;
+  sourceKind: MarketCalendarActivitySourceKind;
+  sourceId?: string | null;
   eventType: string;
   title: string;
   message: string;
@@ -1609,6 +1653,7 @@ export interface CreateMarketCalendarActivityEventInput {
   operationId?: string | null;
   jobId?: string | null;
   calendarYear?: number | null;
+  dedupeKey?: string | null;
   detail?: Record<string, unknown>;
 }
 
@@ -1619,7 +1664,7 @@ export interface ListMarketCalendarActivityOptions {
   search?: string;
   categories?: MarketCalendarActivityCategory[];
   results?: MarketCalendarActivityResult[];
-  sources?: MarketCalendarActivitySource[];
+  sourceKinds?: MarketCalendarActivitySourceKind[];
   occurredAfter?: string;
 }
 

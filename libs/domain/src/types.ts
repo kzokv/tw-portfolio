@@ -19,7 +19,7 @@ export type TaxCalculationMethod = "RATE_BPS";
 export type BackfillStatus = "pending" | "backfilling" | "ready" | "failed";
 export type VerificationStatus = "unverified" | "verified" | "mismatch";
 export type DailyBarQuality = "full_bar" | "close_only";
-export type IntradaySourceKind = "intraday_yahoo_chart";
+export type IntradaySourceKind = "yahoo_chart" | "intraday_yahoo_chart";
 
 export interface InstrumentRef {
   ticker: string;
@@ -69,6 +69,7 @@ export interface IntradayPriceOverlay {
   observedAt: string;
   sourceKind: IntradaySourceKind;
   source: string;
+  providerSymbol?: string | null;
   currency: CurrencyCode;
 }
 

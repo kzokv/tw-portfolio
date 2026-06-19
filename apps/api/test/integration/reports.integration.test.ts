@@ -24,27 +24,12 @@ function relativeIsoDate(daysFromToday: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function fullYearCalendarRows(year: number) {
-  const rows: Array<{ date: string; isOpen: boolean; evidence: string }> = [];
-  const current = new Date(`${year}-01-01T00:00:00.000Z`);
-  while (current.getUTCFullYear() === year) {
-    const date = current.toISOString().slice(0, 10);
-    const day = current.getUTCDay();
-    rows.push({
-      date,
-      isOpen: day >= 1 && day <= 5,
-      evidence: `official:${date}`,
-    });
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return rows;
-}
-
 async function seedOfficialMarketCalendar(marketCode: "TW", calendarYear: number): Promise<void> {
   const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, {
     calendarYear,
     retrievedAt: "2026-06-18T00:00:00.000Z",
-    rows: fullYearCalendarRows(calendarYear),
+    coverage: { scope: "full_year", evidence: "Integration test confirmed full-year calendar coverage." },
+    exceptions: [],
   });
   await confirmAdminMarketCalendarImport(app.persistence, marketCode, preview.previewToken);
 }

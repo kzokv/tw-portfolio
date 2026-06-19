@@ -95,10 +95,9 @@ import {
 import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import type { BuildReportInput } from "../services/reports.js";
 import {
-  confirmAdminMarketCalendarImportTool,
   getAdminMarketCalendarStatusTool,
   listAdminMarketCalendarSourcesTool,
-  previewAdminMarketCalendarImportTool,
+  manageAdminMarketCalendarImportTool,
   updateAdminMarketCalendarSourceTool,
 } from "./adminCalendarTools.js";
 
@@ -420,11 +419,8 @@ export async function registerMcpRoutes(
         case "update_admin_market_calendar_source":
           result = await updateAdminMarketCalendarSourceTool({ app, requestContext }, args);
           break;
-        case "preview_admin_market_calendar_import":
-          result = await previewAdminMarketCalendarImportTool({ app, requestContext }, args);
-          break;
-        case "confirm_admin_market_calendar_import":
-          result = await confirmAdminMarketCalendarImportTool({ app, requestContext }, args);
+        case "manage_admin_market_calendar_import":
+          result = await manageAdminMarketCalendarImportTool({ app, requestContext }, args);
           break;
         case "get_cash_balance_summary":
           result = await getCashBalanceSummary(

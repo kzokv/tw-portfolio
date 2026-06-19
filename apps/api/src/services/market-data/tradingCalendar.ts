@@ -366,14 +366,14 @@ export class TradingCalendarCache {
     if (!version) {
       return { localDate, calendarYear, status: "calendar_unknown", reason: "calendar_unknown" };
     }
-    const row = version.rows.find((candidate) => candidate.date === localDate);
-    if (!row) {
-      return { localDate, calendarYear, status: "calendar_unknown", reason: "calendar_unknown" };
-    }
+    const exception = version.exceptions.find((candidate) => candidate.date === localDate);
+    const day = new Date(`${localDate}T00:00:00.000Z`).getUTCDay();
+    const isWeekday = day >= 1 && day <= 5;
+    const isOpen = exception ? exception.status === "open" : isWeekday;
     return {
       localDate,
       calendarYear,
-      status: row.isOpen ? "open" : "closed",
+      status: isOpen ? "open" : "closed",
       reason: "not_trading_day",
     };
   }

@@ -51,20 +51,16 @@ function expectedToolWidgetAccessible(toolName: string): boolean {
   return toolName === "get_account_manager_component" || toolName === "get_transaction_draft_batch_component";
 }
 
-function fullYearCalendarRows(year: number) {
-  const rows: Array<{ date: string; isOpen: boolean; evidence: string }> = [];
-  const current = new Date(`${year}-01-01T00:00:00.000Z`);
-  while (current.getUTCFullYear() === year) {
-    const date = current.toISOString().slice(0, 10);
-    const day = current.getUTCDay();
-    rows.push({
-      date,
-      isOpen: day >= 1 && day <= 5,
-      evidence: `official:${date}`,
-    });
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return rows;
+function calendarImportPayload(year: number) {
+  return {
+    calendarYear: year,
+    retrievedAt: `${year}-01-01T00:00:00.000Z`,
+    coverage: {
+      scope: "full_year" as const,
+      evidence: `official calendar ${year}`,
+    },
+    exceptions: [],
+  };
 }
 
 async function initializeMcpSession(headers: Record<string, string>) {
@@ -632,11 +628,10 @@ describe("mcp routes", () => {
       accept: "application/json, text/event-stream",
     };
     const adminSessionId = await initializeMcpSession(adminHeaders);
-    const preview = await callMcpTool(adminHeaders, adminSessionId, "preview_admin_market_calendar_import", {
+    const preview = await callMcpTool(adminHeaders, adminSessionId, "manage_admin_market_calendar_import", {
+      mode: "preview",
       marketCode: "TW",
-      calendarYear: 2026,
-      retrievedAt: "2026-06-19T00:00:00.000Z",
-      rows: fullYearCalendarRows(2026),
+      payload: calendarImportPayload(2026),
     });
     expect(preview.statusCode).toBe(200);
     const previewBody = parseMcpJson<{
@@ -644,16 +639,17 @@ describe("mcp routes", () => {
         structuredContent: {
           previewToken: string;
           source: { id: string } | null;
-          rowCount: number;
+          exceptionCount: number;
           replaceConfirmedRequired: boolean;
         };
       };
     }>(preview.body);
     expect(previewBody.result.structuredContent.source?.id).toBe("official-tw");
-    expect(previewBody.result.structuredContent.rowCount).toBe(365);
+    expect(previewBody.result.structuredContent.exceptionCount).toBe(0);
     expect(previewBody.result.structuredContent.replaceConfirmedRequired).toBe(false);
 
-    const confirmed = await callMcpTool(adminHeaders, adminSessionId, "confirm_admin_market_calendar_import", {
+    const confirmed = await callMcpTool(adminHeaders, adminSessionId, "manage_admin_market_calendar_import", {
+      mode: "confirm",
       marketCode: "TW",
       previewToken: previewBody.result.structuredContent.previewToken,
     });

@@ -10,7 +10,8 @@ describe("market calendar activity persistence", () => {
       marketCode: "TW",
       category: "calendar",
       result: "skipped",
-      source: "official_calendar",
+      sourceKind: "official_calendar",
+      sourceId: "market-calendar",
       eventType: "calendar_unknown_intraday_skip",
       title: "Calendar unknown",
       message: "TW intraday enqueue skipped because the official calendar is unknown.",
@@ -23,7 +24,8 @@ describe("market calendar activity persistence", () => {
       marketCode: "TW",
       category: "intraday_price",
       result: "success",
-      source: "yahoo_chart",
+      sourceKind: "yahoo_chart",
+      sourceId: "yahoo-finance-chart",
       eventType: "intraday_refresh_completed",
       title: "Intraday refresh completed",
       message: "2330 intraday refresh completed.",
@@ -106,9 +108,56 @@ describe("market calendar activity persistence", () => {
     expect(activity.items[0]).toMatchObject({
       category: "provider_operation",
       result: "warning",
-      source: "finmind",
+      sourceKind: "finmind",
+      sourceId: "finmind-tw",
       operationId: operation.id,
       eventType: "provider_operation_running",
+    });
+    expect(activity.items[0]?.dedupeKey).toMatch(/^provider-log:/);
+  });
+
+  it("mirrors market-scoped provider errors into provider-error activity", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+
+    await persistence.insertProviderErrorTrailEntry({
+      providerId: "yahoo-finance-au",
+      errorClass: "rate_limit",
+      errorMessage: "Yahoo returned HTTP 429 for QAU.AX",
+      context: {
+        marketCode: "AU",
+        ticker: "QAU",
+        providerSymbol: "QAU.AX",
+        statusCode: 429,
+      },
+    });
+
+    const activity = await persistence.listMarketCalendarActivity({
+      marketCode: "AU",
+      page: 1,
+      limit: 25,
+      categories: ["provider_error"],
+      results: ["rate_limited"],
+      search: "QAU.AX",
+    });
+
+    expect(activity.total).toBe(1);
+    expect(activity.items[0]).toMatchObject({
+      marketCode: "AU",
+      category: "provider_error",
+      result: "rate_limited",
+      sourceKind: "yahoo_chart",
+      sourceId: "yahoo-finance-au",
+      eventType: "provider_error_recorded",
+      ticker: "QAU",
+      providerSymbol: "QAU.AX",
+    });
+    expect(activity.items[0]?.dedupeKey).toMatch(/^provider-error:/);
+    expect(activity.items[0]?.detail).toMatchObject({
+      errorClass: "rate_limit",
+      context: {
+        statusCode: 429,
+      },
     });
   });
 });

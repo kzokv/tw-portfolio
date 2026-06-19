@@ -362,6 +362,11 @@ describe("smooth page read paths", () => {
     expect(response.headers["server-timing"]).toContain("build_overview;dur=");
     expect(response.headers["server-timing"]).toContain("valuation_health;dur=");
     expect(response.json()).toEqual(expect.objectContaining({
+      refreshPending: expect.objectContaining({
+        pending: expect.any(Boolean),
+        consideredPairs: expect.any(Number),
+        enqueuedPairs: expect.any(Number),
+      }),
       summary: expect.objectContaining({
         reportingCurrency: "TWD",
         holdingCount: 1,

@@ -1,9 +1,5 @@
 import { z } from "zod";
-import type {
-  AdminMarketCalendarConfirmRequest,
-  AdminMarketCalendarPreviewRequest,
-  AdminMarketCalendarSourceConfigDto,
-} from "@vakwen/shared-types";
+import type { AdminMarketCalendarPreviewRequest } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import type { McpToolHandlerContext } from "./types.js";
 import {
@@ -20,35 +16,41 @@ const sourceUpdateInputSchema = z.object({
   marketCode: marketCodeSchema,
   sourceId: z.string().trim().min(1).max(120),
   label: z.string().trim().min(1).max(200).optional(),
-  sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
-  url: z.string().trim().url().nullable().optional(),
-  host: z.string().trim().min(1).max(200).nullable().optional(),
-  allowedHosts: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
-  parserId: z.string().trim().min(1).max(120).nullable().optional(),
+  sourceType: z.enum(["official_source", "manual_ai_assisted"]).optional(),
+  suggestedSourceUrl: z.string().trim().url().nullable().optional(),
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
 }).strict();
 
-const previewInputSchema = z.object({
-  marketCode: marketCodeSchema,
+const previewPayloadSchema = z.object({
   calendarYear: z.number().int().min(2000).max(2100),
   sourceId: z.string().trim().min(1).max(120).nullable().optional(),
-  sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
+  sourceType: z.enum(["official_source", "manual_ai_assisted"]).optional(),
   label: z.string().trim().min(1).max(200).nullable().optional(),
+  sourceUrl: z.string().trim().url().nullable().optional(),
   retrievedAt: z.string().datetime({ offset: true }),
-  rows: z.array(z.object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    isOpen: z.boolean(),
+  coverage: z.object({
+    scope: z.literal("full_year"),
     evidence: z.string().trim().min(1).max(500),
     notes: z.string().trim().max(1_000).nullable().optional(),
-  }).strict()).min(1),
+  }).strict(),
+  exceptions: z.array(z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    status: z.enum(["open", "closed"]),
+    name: z.string().trim().min(1).max(200),
+    evidence: z.string().trim().min(1).max(500),
+    overrideReason: z.string().trim().min(1).max(500),
+    notes: z.string().trim().max(1_000).nullable().optional(),
+  }).strict()).max(366),
   replaceConfirmed: z.boolean().optional(),
   replacementReason: z.string().trim().max(500).nullable().optional(),
 }).strict();
 
-const confirmInputSchema = z.object({
+const manageImportInputSchema = z.object({
+  mode: z.enum(["preview", "confirm"]),
   marketCode: marketCodeSchema,
-  previewToken: z.string().trim().min(1).max(120),
+  payload: previewPayloadSchema.optional(),
+  previewToken: z.string().trim().min(1).max(120).optional(),
   replaceConfirmed: z.boolean().optional(),
   replacementReason: z.string().trim().max(500).nullable().optional(),
 }).strict();
@@ -89,10 +91,7 @@ export async function listAdminMarketCalendarSourcesTool(
   const sources = await context.app.persistence.listMarketCalendarSources(args.marketCode);
   return {
     marketCode: args.marketCode,
-    sources: sources.map((source): AdminMarketCalendarSourceConfigDto => ({
-      ...source,
-      marketCode: args.marketCode,
-    })),
+    sources: sources.map((source) => ({ ...source, marketCode: args.marketCode })),
   };
 }
 
@@ -119,10 +118,12 @@ export async function updateAdminMarketCalendarSourceTool(
     marketCode: args.marketCode,
     category: "calendar",
     result: "success",
-    source: "official_calendar",
+    sourceKind: "official_calendar",
+    sourceId: saved.id,
     eventType: "calendar_source_updated",
     title: "Calendar source updated",
     message: `${saved.label} source updated for ${args.marketCode}.`,
+    dedupeKey: `calendar_source_updated:${args.marketCode}:${saved.id}:${saved.updatedAt}`,
     detail: { sourceId: saved.id, previous, next: saved, source: "mcp_tool" },
   });
   return {
@@ -131,37 +132,41 @@ export async function updateAdminMarketCalendarSourceTool(
   };
 }
 
-export async function previewAdminMarketCalendarImportTool(
+export async function manageAdminMarketCalendarImportTool(
   context: McpToolHandlerContext,
   rawArgs: unknown,
 ) {
   const { sessionUserId, ipAddress } = await assertMcpAdminCalendarAccess(context);
-  const args = previewInputSchema.parse(rawArgs) satisfies { marketCode: "TW" | "US" | "AU" | "KR" } & AdminMarketCalendarPreviewRequest;
-  const preview = await previewAdminMarketCalendarImport(context.app.persistence, args.marketCode, args);
-  await context.app.persistence.appendAuditLog({
-    actorUserId: sessionUserId,
-    action: "market_calendar_previewed",
-    ipAddress,
-    metadata: {
-      marketCode: args.marketCode,
-      calendarYear: args.calendarYear,
-      previewToken: preview.previewToken,
-      source: "mcp_tool",
-    },
-  });
-  return preview;
-}
+  const args = manageImportInputSchema.parse(rawArgs);
 
-export async function confirmAdminMarketCalendarImportTool(
-  context: McpToolHandlerContext,
-  rawArgs: unknown,
-) {
-  const { sessionUserId, ipAddress } = await assertMcpAdminCalendarAccess(context);
-  const args = confirmInputSchema.parse(rawArgs) satisfies { marketCode: "TW" | "US" | "AU" | "KR" } & AdminMarketCalendarConfirmRequest;
+  if (args.mode === "preview") {
+    if (!args.payload) {
+      throw routeError(400, "market_calendar_preview_payload_required", "Preview mode requires a normalized calendar payload");
+    }
+    const previewArgs = args.payload satisfies AdminMarketCalendarPreviewRequest;
+    const preview = await previewAdminMarketCalendarImport(context.app.persistence, args.marketCode, previewArgs);
+    await context.app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_previewed",
+      ipAddress,
+      metadata: {
+        marketCode: args.marketCode,
+        calendarYear: preview.calendarYear,
+        previewToken: preview.previewToken,
+        source: "mcp_tool",
+      },
+    });
+    return preview;
+  }
+
+  if (!args.previewToken) {
+    throw routeError(400, "market_calendar_preview_token_required", "Confirm mode requires a preview token");
+  }
+  const previewToken = args.previewToken;
   const confirmed = await confirmAdminMarketCalendarImport(
     context.app.persistence,
     args.marketCode,
-    args.previewToken,
+    previewToken,
     args.replaceConfirmed,
     args.replacementReason,
   );
@@ -180,11 +185,12 @@ export async function confirmAdminMarketCalendarImportTool(
     marketCode: args.marketCode,
     category: "calendar",
     result: "success",
-    source: "official_calendar",
+    sourceKind: "official_calendar",
     eventType: "calendar_confirmed",
     title: "Calendar confirmed",
     message: `${args.marketCode} ${confirmed.calendarYear} calendar confirmed.`,
     calendarYear: confirmed.calendarYear,
+    dedupeKey: `calendar_confirmed:${args.marketCode}:${confirmed.versionId}`,
     detail: { versionId: confirmed.versionId, source: "mcp_tool" },
   });
   return confirmed;

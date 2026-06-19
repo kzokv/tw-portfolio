@@ -378,6 +378,7 @@ export type PriceStateMarketStateReasonDto =
   | "market_closed";
 export type PriceStateSourceKindDto =
   | "primary_daily"
+  | "yahoo_chart"
   | "intraday_yahoo_chart"
   | "twse_stock_day_close"
   | "yahoo_chart_close"
@@ -407,6 +408,9 @@ export interface PriceStateDto {
   marketStateReason?: PriceStateMarketStateReasonDto;
   source: string | null;
   sourceKind: PriceStateSourceKindDto;
+  sourceId?: string | null;
+  providerSymbol?: string | null;
+  yahooSymbol?: string | null;
   asOfDate: string | null;
   asOfTimestamp: string | null;
   observedAt: string | null;
@@ -416,9 +420,23 @@ export interface PriceStateDto {
   marketLocalDate?: string | null;
   localMarketDate?: string | null;
   calendarStatus?: PriceStateCalendarStatusDto | null;
+  refreshCadenceMinutes?: number | null;
   latestIntradayAttempt?: PriceStateIntradayAttemptDto | null;
   latestRefreshAttemptAt?: string | null;
   latestRefreshOutcome?: PriceStateIntradayAttemptOutcomeDto | null;
+}
+
+export interface PriceRefreshPendingDto {
+  requestedAt: string;
+  consideredPairs: number;
+  openPairs: number;
+  staleOrMissingPairs: number;
+  enqueuedPairs: number;
+  cappedPairs: number;
+  queueUnavailablePairs: number;
+  failedPairs: number;
+  calendarUnknownPairs: number;
+  pending: boolean;
 }
 
 export interface DashboardMarketStateDto {
@@ -707,6 +725,7 @@ export interface DashboardOverviewDto {
   settings: UserSettings;
   summary: DashboardOverviewSummaryDto;
   marketStates: DashboardMarketStateDto[];
+  refreshPending?: PriceRefreshPendingDto | null;
   fxRates?: FxConversionRateDto[];
   marketValues: DashboardOverviewMarketValueDto[];
   holdings: DashboardOverviewHoldingDto[];
@@ -3154,12 +3173,14 @@ export interface AdminMarketDataLogsResponse {
 }
 
 export type AdminMarketCalendarYearStatus = "confirmed" | "draft" | "invalidated" | "missing";
-export type AdminMarketCalendarSourceType = "official_parser" | "manual_ai_assisted";
+export type AdminMarketCalendarSourceType = "official_source" | "manual_ai_assisted";
 export type AdminMarketDataActivityCategory =
   | "intraday_price"
   | "daily_close"
   | "calendar"
   | "provider_operation"
+  | "provider_error"
+  | "instrument"
   | "system";
 export type AdminMarketDataActivityResult =
   | "success"
@@ -3167,11 +3188,12 @@ export type AdminMarketDataActivityResult =
   | "error"
   | "skipped"
   | "rate_limited";
-export type AdminMarketDataActivitySource =
+export type AdminMarketDataActivitySourceKind =
   | "yahoo_chart"
   | "official_calendar"
   | "twse_close"
   | "finmind"
+  | "provider"
   | "system";
 
 export interface AdminMarketCalendarSourceConfigDto {
@@ -3179,10 +3201,7 @@ export interface AdminMarketCalendarSourceConfigDto {
   marketCode: Exclude<AdminMarketCode, "FX">;
   label: string;
   sourceType: AdminMarketCalendarSourceType;
-  url: string | null;
-  host: string | null;
-  allowedHosts: string[];
-  parserId: string | null;
+  suggestedSourceUrl: string | null;
   enabled: boolean;
   isDefault: boolean;
   updatedAt: string;
@@ -3210,10 +3229,18 @@ export interface AdminMarketCalendarStatusResponse {
   sources: AdminMarketCalendarSourceConfigDto[];
 }
 
-export interface AdminMarketCalendarImportRowDto {
-  date: string;
-  isOpen: boolean;
+export interface AdminMarketCalendarCoverageAssertionDto {
+  scope: "full_year";
   evidence: string;
+  notes?: string | null;
+}
+
+export interface AdminMarketCalendarImportExceptionDto {
+  date: string;
+  status: "open" | "closed";
+  name: string;
+  evidence: string;
+  overrideReason: string;
   notes?: string | null;
 }
 
@@ -3222,16 +3249,25 @@ export interface AdminMarketCalendarPreviewRequest {
   sourceId?: string | null;
   sourceType?: AdminMarketCalendarSourceType;
   label?: string | null;
+  sourceUrl?: string | null;
   retrievedAt: string;
-  rows: AdminMarketCalendarImportRowDto[];
+  coverage: AdminMarketCalendarCoverageAssertionDto;
+  exceptions: AdminMarketCalendarImportExceptionDto[];
   replaceConfirmed?: boolean;
   replacementReason?: string | null;
 }
 
 export interface AdminMarketCalendarPreviewDiffDto {
-  addedDates: string[];
-  removedDates: string[];
-  changedDates: string[];
+  addedExceptions: string[];
+  removedExceptions: string[];
+  changedExceptions: string[];
+}
+
+export interface AdminMarketCalendarAnnualCountsDto {
+  tradingDayCount: number;
+  nonTradingDayCount: number;
+  weekdayClosedCount: number;
+  weekendOpenCount: number;
 }
 
 export interface AdminMarketCalendarPreviewResponse {
@@ -3239,10 +3275,10 @@ export interface AdminMarketCalendarPreviewResponse {
   calendarYear: number;
   source: AdminMarketCalendarSourceConfigDto | null;
   sourceType: AdminMarketCalendarSourceType;
+  sourceUrl: string | null;
   retrievedAt: string;
-  rowCount: number;
-  openDayCount: number;
-  closedDayCount: number;
+  exceptionCount: number;
+  annualCounts: AdminMarketCalendarAnnualCountsDto;
   replaceConfirmedRequired: boolean;
   warnings: string[];
   diff: AdminMarketCalendarPreviewDiffDto;
@@ -3277,9 +3313,8 @@ export interface AdminMarketCalendarHistoryItemDto {
   retrievedAt: string;
   confirmedAt: string | null;
   invalidatedAt: string | null;
-  rowCount: number;
-  openDayCount: number;
-  closedDayCount: number;
+  exceptionCount: number;
+  annualCounts: AdminMarketCalendarAnnualCountsDto;
   invalidationReason: string | null;
 }
 
@@ -3301,7 +3336,7 @@ export interface AdminMarketDataActivitySummaryDto {
 export interface AdminMarketDataActivityFiltersDto {
   categories: AdminMarketDataActivityCategory[];
   results: AdminMarketDataActivityResult[];
-  sources: AdminMarketDataActivitySource[];
+  sourceKinds: AdminMarketDataActivitySourceKind[];
 }
 
 export interface AdminMarketDataActivityItemDto {
@@ -3310,7 +3345,8 @@ export interface AdminMarketDataActivityItemDto {
   occurredAt: string;
   category: AdminMarketDataActivityCategory;
   result: AdminMarketDataActivityResult;
-  source: AdminMarketDataActivitySource;
+  sourceKind: AdminMarketDataActivitySourceKind;
+  sourceId: string | null;
   eventType: string;
   title: string;
   message: string;
@@ -3319,6 +3355,7 @@ export interface AdminMarketDataActivityItemDto {
   operationId: string | null;
   jobId: string | null;
   calendarYear: number | null;
+  dedupeKey: string | null;
   detail: Record<string, unknown>;
 }
 
