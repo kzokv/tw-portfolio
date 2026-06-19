@@ -442,6 +442,9 @@ export interface PriceRefreshPendingDto {
 export interface DashboardMarketStateDto {
   marketCode: MarketCode;
   marketState: PriceStateMarketStateDto;
+  marketStateReason?: PriceStateMarketStateReasonDto | null;
+  calendarStatus?: PriceStateCalendarStatusDto | null;
+  marketLocalDate?: string | null;
   asOf: string;
   marketTimeZone: string;
   regularSessionOnly: boolean;

@@ -277,9 +277,12 @@ export default async function AdminMarketDataWorkspacePage({
       : null;
   const activity =
     tab === "activity"
-      ? await getJson<AdminMarketDataActivityResponse>(
-          `/admin/market-data/${encodeURIComponent(marketCode)}/activity?${activityQueryString(activityQuery)}`,
-        )
+      ? {
+          ...(await getJson<AdminMarketDataActivityResponse>(
+            `/admin/market-data/${encodeURIComponent(marketCode)}/activity?${activityQueryString(activityQuery)}`,
+          )),
+          query: activityQuery,
+        }
       : null;
   const calendar =
     tab === "calendar" && marketCode !== "FX"

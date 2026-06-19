@@ -434,6 +434,9 @@ function resolvePriceState(
   if (quote && "priceState" in quote) return quote.priceState;
   return buildMissingPriceState(marketCode, {
     marketState: marketState?.marketState,
+    marketStateReason: marketState?.marketStateReason ?? undefined,
+    calendarStatus: marketState?.calendarStatus ?? null,
+    marketLocalDate: marketState?.marketLocalDate ?? null,
     marketTimeZone: marketState?.marketTimeZone ?? null,
   });
 }

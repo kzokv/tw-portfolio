@@ -2033,6 +2033,9 @@ async function buildDashboardHeldMarketStates(
     return {
       marketCode,
       marketState: state.isOpen ? "open" as const : "closed" as const,
+      marketStateReason: state.marketStateReason,
+      calendarStatus: state.calendarStatus,
+      marketLocalDate: state.localDate,
       asOf: now.toISOString(),
       marketTimeZone: state.marketTimeZone,
       regularSessionOnly,
