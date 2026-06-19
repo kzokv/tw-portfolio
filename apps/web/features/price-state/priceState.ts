@@ -8,6 +8,7 @@ import type {
   PriceStateBasisDto as PriceStateBasis,
   PriceStateDto as PriceStateDtoLike,
   PriceStateMarketStateDto as PriceStateMarketState,
+  PriceStateMarketStateReasonDto as PriceStateMarketStateReason,
 } from "@vakwen/shared-types";
 
 export type { PriceStateDtoLike };
@@ -20,8 +21,18 @@ export interface PriceStateCarrierLike {
 export interface DashboardMarketStateLike {
   marketCode: string;
   marketState: PriceStateMarketState | null;
+  marketStateReason?: PriceStateMarketStateReason | string | null;
+  calendarStatus?: string | null;
+  marketLocalDate?: string | null;
   heldCount?: number | null;
   openCount?: number | null;
+}
+
+export interface CalendarUnknownWarning {
+  marketCode: string;
+  calendarYear: string;
+  localDate: string;
+  locationLabel: string;
 }
 
 export function buildMissingPriceState(marketState: PriceStateMarketState = "closed"): PriceStateDtoLike {
@@ -37,6 +48,10 @@ export function buildMissingPriceState(marketState: PriceStateMarketState = "clo
     delaySeconds: null,
     marketTimeZone: null,
     quality: null,
+    marketStateReason: "market_closed",
+    marketLocalDate: null,
+    calendarStatus: null,
+    latestIntradayAttempt: null,
   };
 }
 
@@ -119,17 +134,77 @@ export function summarizeDashboardMarketStates<T extends { marketCode: string } 
     const current = grouped.get(row.marketCode) ?? {
       marketCode: row.marketCode,
       marketState: priceState.marketState,
+      marketStateReason: priceState.marketStateReason ?? null,
+      calendarStatus: priceState.calendarStatus ?? null,
+      marketLocalDate: priceState.marketLocalDate ?? null,
       heldCount: 0,
       openCount: 0,
     };
     current.heldCount = (current.heldCount ?? 0) + 1;
     if (priceState.marketState === "open") {
       current.marketState = "open";
+      current.marketStateReason = priceState.marketStateReason ?? current.marketStateReason ?? null;
+      current.calendarStatus = priceState.calendarStatus ?? current.calendarStatus ?? null;
+      current.marketLocalDate = priceState.marketLocalDate ?? current.marketLocalDate ?? null;
       current.openCount = (current.openCount ?? 0) + 1;
+    } else if (priceState.marketStateReason === "calendar_unknown" || priceState.calendarStatus === "calendar_unknown") {
+      current.marketStateReason = "calendar_unknown";
+      current.calendarStatus = priceState.calendarStatus ?? current.calendarStatus ?? null;
+      current.marketLocalDate = priceState.marketLocalDate ?? current.marketLocalDate ?? null;
     }
     grouped.set(row.marketCode, current);
   }
   return sortDashboardMarketStates([...grouped.values()]);
+}
+
+export function collectCalendarUnknownWarnings<T extends { marketCode: string } & PriceStateCarrierLike>(
+  rows: T[] | null | undefined,
+  marketStates?: DashboardMarketStateLike[] | null,
+): CalendarUnknownWarning[] {
+  const warnings = new Map<string, CalendarUnknownWarning>();
+  const addWarning = (marketCode: string, localDate: string | null | undefined) => {
+    const normalizedDate = localDate && /^\d{4}-\d{2}-\d{2}$/.test(localDate) ? localDate : "";
+    const calendarYear = normalizedDate ? normalizedDate.slice(0, 4) : "";
+    const key = `${marketCode}:${calendarYear || "unknown"}`;
+    if (warnings.has(key)) return;
+    warnings.set(key, {
+      marketCode,
+      calendarYear,
+      localDate: normalizedDate,
+      locationLabel: marketLocationLabel(marketCode),
+    });
+  };
+
+  for (const state of marketStates ?? []) {
+    if (state.marketStateReason === "calendar_unknown" || state.calendarStatus === "calendar_unknown") {
+      addWarning(state.marketCode, state.marketLocalDate);
+    }
+  }
+
+  for (const row of rows ?? []) {
+    const priceState = getPriceState(row);
+    if (!priceState) continue;
+    if (priceState.marketStateReason === "calendar_unknown" || priceState.calendarStatus === "calendar_unknown") {
+      addWarning(row.marketCode, priceState.marketLocalDate);
+    }
+  }
+
+  return [...warnings.values()].sort((left, right) => left.marketCode.localeCompare(right.marketCode));
+}
+
+function marketLocationLabel(marketCode: string): string {
+  switch (marketCode) {
+    case "TW":
+      return "Taipei";
+    case "US":
+      return "New York";
+    case "AU":
+      return "Sydney";
+    case "KR":
+      return "Seoul";
+    default:
+      return `${marketCode} local time`;
+  }
 }
 
 export function formatPriceStateLabel(
@@ -164,7 +239,7 @@ export function formatPriceStateTooltip(
   priceState: PriceStateDtoLike | null | undefined,
 ): string[] {
   if (!priceState) return [];
-  return [
+  const rows = [
     `${dict.holdings.priceStateBasisLabel}: ${formatBasisLabel(dict, priceState.basis)}`,
     `${dict.holdings.priceStateMarketStateLabel}: ${formatMarketStateLabel(dict, priceState.marketState)}`,
     `${dict.holdings.priceStateAsOfLabel}: ${formatTimestampValue(priceState.asOfTimestamp, priceState.asOfDate, locale, priceState.marketTimeZone, dict)}`,
@@ -174,6 +249,27 @@ export function formatPriceStateTooltip(
     `${dict.holdings.priceStateDelayLabel}: ${formatDelayLabel(dict, priceState.delaySeconds)}`,
     `${dict.holdings.priceStateTimeZoneLabel}: ${priceState.marketTimeZone ?? dict.holdings.priceStateUnknownValue}`,
   ];
+  const calendarStatus = readStringFact(priceState, "calendarStatus");
+  const calendarReason = readStringFact(priceState, "calendarReason") ?? readStringFact(priceState, "marketStateReason");
+  const marketLocalDate = readStringFact(priceState, "marketLocalDate") ?? readStringFact(priceState, "localMarketDate");
+  const yahooSymbol = readStringFact(priceState, "yahooSymbol");
+  const cadenceMinutes = readNumberFact(priceState, "refreshCadenceMinutes");
+  const latestAttemptAt = readStringFact(priceState, "latestAttemptAt")
+    ?? readStringFact(priceState, "latestRefreshAttemptAt")
+    ?? readNestedStringFact(priceState, "latestIntradayAttempt", "requestedAt");
+  const latestOutcome = readStringFact(priceState, "latestAttemptOutcome")
+    ?? readStringFact(priceState, "latestRefreshOutcome")
+    ?? readNestedStringFact(priceState, "latestIntradayAttempt", "outcome");
+  const activityPath = readStringFact(priceState, "activityPath");
+  if (calendarReason) rows.push(`${holdingLabel(dict, "priceStateMarketReasonLabel", "priceStateCalendarReasonLabel", "Market reason")}: ${formatReasonFact(calendarReason)}`);
+  if (calendarStatus) rows.push(`${holdingLabel(dict, "priceStateCalendarStatusLabel", "priceStateCalendarLabel", "Calendar status")}: ${calendarStatus}`);
+  if (marketLocalDate) rows.push(`${holdingLabel(dict, "priceStateLocalMarketDateLabel", "priceStateMarketLocalDateLabel", "Local market date")}: ${marketLocalDate}`);
+  if (yahooSymbol) rows.push(`${dict.holdings.priceStateYahooSymbolLabel}: ${yahooSymbol}`);
+  if (cadenceMinutes !== null) rows.push(`${dict.holdings.priceStateCadenceLabel}: ${cadenceMinutes}m`);
+  if (latestAttemptAt) rows.push(`${holdingLabel(dict, "priceStateLatestRefreshAttemptLabel", "priceStateLatestAttemptLabel", "Latest refresh attempt")}: ${formatTimestampValue(latestAttemptAt, null, locale, priceState.marketTimeZone, dict)}`);
+  if (latestOutcome) rows.push(`${holdingLabel(dict, "priceStateLatestRefreshOutcomeLabel", "priceStateLatestOutcomeLabel", "Latest refresh outcome")}: ${latestOutcome}`);
+  if (activityPath) rows.push(`${dict.holdings.priceStateActivityHintLabel}: ${activityPath}`);
+  return rows;
 }
 
 export function getPriceStateToneClassName(priceState: PriceStateDtoLike | null | undefined): string {
@@ -270,4 +366,39 @@ function formatDelayLabel(dict: AppDictionary, delaySeconds: number | null): str
   if (delaySeconds < 60) return dict.holdings.priceStateDelaySeconds.replace("{count}", String(delaySeconds));
   const minutes = Math.round(delaySeconds / 60);
   return dict.holdings.priceStateDelayMinutes.replace("{count}", String(minutes));
+}
+
+function readStringFact(priceState: PriceStateDtoLike, key: string): string | null {
+  const value = (priceState as unknown as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readNestedStringFact(priceState: PriceStateDtoLike, objectKey: string, valueKey: string): string | null {
+  const object = (priceState as unknown as Record<string, unknown>)[objectKey];
+  if (!object || typeof object !== "object") return null;
+  const value = (object as Record<string, unknown>)[valueKey];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readNumberFact(priceState: PriceStateDtoLike, key: string): number | null {
+  const value = (priceState as unknown as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function holdingLabel(
+  dict: AppDictionary,
+  preferredKey: string,
+  fallbackKey: string,
+  fallback: string,
+): string {
+  const holdings = dict.holdings as unknown as Record<string, unknown>;
+  const preferred = holdings[preferredKey];
+  if (typeof preferred === "string" && preferred.length > 0) return preferred;
+  const next = holdings[fallbackKey];
+  return typeof next === "string" && next.length > 0 ? next : fallback;
+}
+
+function formatReasonFact(value: string): string {
+  if (value === "calendar_unknown") return "Calendar unknown";
+  return value.replace(/_/g, " ");
 }

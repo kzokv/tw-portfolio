@@ -331,6 +331,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
         await upsertDailyBars(pool, toDailyBarUpsertRows(bars, marketCode));
         app.tradingCalendarCache.notifyBarsUpserted(marketCode, [...new Set(bars.map((bar) => bar.barDate))]);
       },
+      activityPersistence: app.persistence,
       closeRefreshGraceMinutes: tickerPriceFreshness.closeRefreshGraceMinutes,
       supportedMarkets: tickerPriceFreshness.supportedMarkets,
       resolveRuntimeConfig: () => {
@@ -377,6 +378,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
             });
           },
           requestBudget: chartRequestBudget,
+          persistence: app.persistence,
           resolveRuntimeConfig: () => {
             const currentConfig = getEffectiveTickerPriceFreshnessConfig();
             return {

@@ -45,7 +45,7 @@ describe("marketRegularSession", () => {
     expect(state.isOpen).toBe(false);
   });
 
-  it("falls back to weekday trading for current-day regular sessions missing from daily bars", async () => {
+  it("treats missing current-day calendar coverage as non-trading instead of falling back to weekday", async () => {
     const tradingDates = new Set(["2026-06-16"]);
     const state = await getRegularSessionState(
       "TW",
@@ -56,8 +56,8 @@ describe("marketRegularSession", () => {
       new Date("2026-06-17T02:15:00.000Z"),
     );
 
-    expect(state.isTradingDay).toBe(true);
-    expect(state.isOpen).toBe(true);
+    expect(state.isTradingDay).toBe(false);
+    expect(state.isOpen).toBe(false);
   });
 
   it("preserves populated calendar weekday holiday closures", async () => {
@@ -75,7 +75,7 @@ describe("marketRegularSession", () => {
     expect(state.isOpen).toBe(false);
   });
 
-  it("uses weekday fallback when the calendar is empty during bootstrap", async () => {
+  it("treats an empty calendar as unknown instead of assuming weekday trading", async () => {
     const state = await getRegularSessionState(
       "TW",
       {
@@ -85,11 +85,32 @@ describe("marketRegularSession", () => {
       new Date("2026-06-17T02:15:00.000Z"),
     );
 
-    expect(state.isTradingDay).toBe(true);
-    expect(state.isOpen).toBe(true);
+    expect(state.isTradingDay).toBe(false);
+    expect(state.isOpen).toBe(false);
   });
 
-  it("uses the weekday fallback for same-day close-refresh eligibility", async () => {
+  it("surfaces calendar_unknown when the official market-year calendar is missing", async () => {
+    const state = await getRegularSessionState(
+      "TW",
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getOfficialCalendarDayStatus: vi.fn().mockResolvedValue({
+          localDate: "2026-06-17",
+          calendarYear: 2026,
+          status: "calendar_unknown",
+          reason: "calendar_unknown",
+        }),
+      },
+      new Date("2026-06-17T02:15:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(false);
+    expect(state.isOpen).toBe(false);
+    expect(state.marketStateReason).toBe("calendar_unknown");
+    expect(state.calendarStatus).toBe("calendar_unknown");
+  });
+
+  it("uses the latest confirmed prior trading close when today is missing from the calendar", async () => {
     const closeDate = await getRegularSessionCloseRefreshDate(
       "TW",
       {
@@ -100,7 +121,21 @@ describe("marketRegularSession", () => {
       10,
     );
 
-    expect(closeDate).toBe("2026-06-17");
+    expect(closeDate).toBe("2026-06-16");
+  });
+
+  it("returns no eligible close when the calendar has no confirmed dates", async () => {
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "TW",
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(new Set()),
+      },
+      new Date("2026-06-17T06:00:00.000Z"),
+      10,
+    );
+
+    expect(closeDate).toBeNull();
   });
 
   it("resolves the latest eligible close when today's close is not yet eligible", async () => {

@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ticker Price Freshness Calendar And Activity Mockups</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --card: #ffffff;
+      --ink: #111827;
+      --muted: #667085;
+      --soft: #eef2f7;
+      --line: #dbe3ef;
+      --primary: #4f46e5;
+      --primary-soft: #eef2ff;
+      --ok: #15803d;
+      --ok-soft: #e8f7ee;
+      --warn: #b45309;
+      --warn-soft: #fff7e6;
+      --danger: #b42318;
+      --danger-soft: #fff0ed;
+      --info: #075985;
+      --info-soft: #e8f4ff;
+      --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #e8edf5;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+      padding: 32px;
+    }
+
+    .artboard {
+      overflow: hidden;
+      border: 1px solid #cfd8e6;
+      background: var(--bg);
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
+    }
+
+    .desktop {
+      width: 1440px;
+      min-height: 1040px;
+    }
+
+    .mobile {
+      width: 390px;
+      min-height: 844px;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: inherit;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: #fbfcff;
+      padding: 24px 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .nav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 26px;
+    }
+
+    .nav-label {
+      margin: 0 0 6px;
+      color: #98a2b3;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: #475467;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .nav-item.active {
+      background: var(--primary-soft);
+      color: #3730a3;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 28px 34px 40px;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 7px;
+      font-size: 30px;
+      line-height: 1.18;
+    }
+
+    h2 {
+      margin-bottom: 6px;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    h3 {
+      margin-bottom: 6px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .desc {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .button-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: #344054;
+      padding: 8px 13px;
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .btn.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn.ghost {
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .tab {
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: #667085;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: white;
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--line);
+      padding: 18px 20px;
+    }
+
+    .card-body {
+      padding: 18px 20px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: white;
+      padding: 13px 14px;
+    }
+
+    .summary-card.clickable {
+      border-color: #c7d2fe;
+      background: #fbfbff;
+    }
+
+    .summary-label {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .summary-detail {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .filter-card {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
+      gap: 10px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: white;
+      padding: 12px;
+    }
+
+    .input,
+    .select {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: #344054;
+      padding: 8px 11px;
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .input {
+      color: #98a2b3;
+      justify-content: flex-start;
+    }
+
+    .segmented {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .segment {
+      border-right: 1px solid var(--line);
+      padding: 8px 11px;
+      color: #667085;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .segment:last-child {
+      border-right: 0;
+    }
+
+    .segment.active {
+      background: white;
+      color: #111827;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      color: #475467;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .chip.active {
+      border-color: #c7d2fe;
+      background: var(--primary-soft);
+      color: #3730a3;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .badge.ok {
+      background: var(--ok-soft);
+      color: var(--ok);
+    }
+
+    .badge.warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .badge.danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .badge.info {
+      background: var(--info-soft);
+      color: var(--info);
+    }
+
+    .badge.neutral {
+      background: var(--soft);
+      color: #475467;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .table-wrap {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: white;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 13px 14px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      background: #fbfcff;
+      color: #667085;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      letter-spacing: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .strong {
+      font-weight: 800;
+    }
+
+    .drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 392px;
+      height: 100%;
+      border-left: 1px solid var(--line);
+      background: white;
+      box-shadow: -18px 0 36px rgba(15, 23, 42, 0.12);
+    }
+
+    .relative {
+      position: relative;
+    }
+
+    .drawer-header {
+      border-bottom: 1px solid var(--line);
+      padding: 20px;
+    }
+
+    .drawer-body {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 18px 20px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 126px minmax(0, 1fr);
+      gap: 9px;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .kv dt {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .kv dd {
+      margin: 0;
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      border-left: 2px solid var(--line);
+      padding-left: 13px;
+    }
+
+    .timeline-item {
+      position: relative;
+      font-size: 13px;
+    }
+
+    .timeline-item::before {
+      position: absolute;
+      left: -19px;
+      top: 5px;
+      width: 8px;
+      height: 8px;
+      content: "";
+      border-radius: 999px;
+      background: var(--primary);
+    }
+
+    .codebox {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0f172a;
+      color: #dbeafe;
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .year-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: white;
+      padding: 15px;
+    }
+
+    .year-card.missing {
+      border-color: #f5c971;
+      background: #fffbeb;
+    }
+
+    .diff-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 16px;
+    }
+
+    .textarea {
+      height: 220px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 14px;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .alert {
+      display: flex;
+      gap: 12px;
+      border: 1px solid #f6c768;
+      border-radius: var(--radius);
+      background: var(--warn-soft);
+      color: #7c2d12;
+      padding: 13px 14px;
+    }
+
+    .dashboard-shell {
+      min-height: inherit;
+      padding: 34px;
+    }
+
+    .dashboard-card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: white;
+      box-shadow: var(--shadow);
+    }
+
+    .dashboard-inner {
+      padding: 28px 32px 34px;
+    }
+
+    .holdings-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .price-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      text-align: right;
+    }
+
+    .price-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      color: #667085;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .price-chip.ok {
+      border-color: #b8e5c6;
+      background: var(--ok-soft);
+      color: var(--ok);
+    }
+
+    .price-chip.warn {
+      border-color: #f5c971;
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .price-chip.gray {
+      background: #f8fafc;
+      color: #667085;
+    }
+
+    .price-chip.calendar {
+      border-color: #f5c971;
+      background: var(--warn-soft);
+      color: #92400e;
+    }
+
+    .mobile-page {
+      min-height: inherit;
+      background: var(--bg);
+      padding: 18px;
+    }
+
+    .phone-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: white;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .phone-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+      padding: 13px;
+    }
+
+    .phone-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .popover {
+      border-radius: 10px;
+      background: #4338ca;
+      color: white;
+      padding: 15px;
+      box-shadow: 0 18px 34px rgba(67, 56, 202, 0.28);
+      font-size: 13px;
+    }
+
+    .popover .kv {
+      grid-template-columns: 116px minmax(0, 1fr);
+      color: white;
+    }
+
+    .popover dt {
+      color: #c7d2fe;
+    }
+
+    .popover dd {
+      color: white;
+      font-weight: 700;
+    }
+
+    .mobile-list-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+      padding: 13px;
+    }
+
+    .mobile-filter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .mobile-summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .mobile .summary-card {
+      padding: 11px;
+    }
+
+    .mobile .summary-value {
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section id="admin-activity-desktop" class="artboard desktop relative" data-shot="admin-activity-desktop">
+      <div class="app-shell">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark">V</span> Vakwen Admin</div>
+          <div class="nav-group">
+            <p class="nav-label">Operations</p>
+            <div class="nav-item">Overview</div>
+            <div class="nav-item active">Market Data</div>
+            <div class="nav-item">Audit Log</div>
+          </div>
+          <div class="nav-group">
+            <p class="nav-label">Settings</p>
+            <div class="nav-item">Runtime Config</div>
+            <div class="nav-item">MCP</div>
+          </div>
+        </aside>
+        <section class="main">
+          <div class="topline">
+            <div>
+              <p class="eyebrow">Admin / Market Data / TW</p>
+              <h1>TW Data Activity</h1>
+              <p class="desc">Market data, intraday price, calendar, and fallback events for Taiwan holdings.</p>
+            </div>
+            <div class="button-row">
+              <button class="btn">Refresh</button>
+              <button class="btn ghost">Open settings</button>
+            </div>
+          </div>
+
+          <nav class="tabs">
+            <span class="tab">Overview</span>
+            <span class="tab">Calendar</span>
+            <span class="tab">Instruments</span>
+            <span class="tab">Backfill</span>
+            <span class="tab">Operations</span>
+            <span class="tab active">Activity</span>
+            <span class="tab">Purge data</span>
+          </nav>
+
+          <div class="summary-grid">
+            <div class="summary-card clickable">
+              <p class="summary-label">Yahoo chart</p>
+              <div class="summary-value">42 <span class="badge ok">ok</span></div>
+              <p class="summary-detail">Last request 2m ago. Budget 38 / 120.</p>
+            </div>
+            <div class="summary-card">
+              <p class="summary-label">Warnings</p>
+              <div class="summary-value">5 <span class="badge warn">review</span></div>
+              <p class="summary-detail">3 delayed bars, 2 calendar skips.</p>
+            </div>
+            <div class="summary-card">
+              <p class="summary-label">Errors</p>
+              <div class="summary-value">1 <span class="badge danger">failed</span></div>
+              <p class="summary-detail">1 provider timeout in 24h.</p>
+            </div>
+            <div class="summary-card">
+              <p class="summary-label">Calendar</p>
+              <div class="summary-value">2026 <span class="badge ok">confirmed</span></div>
+              <p class="summary-detail">2027 missing warning active.</p>
+            </div>
+            <div class="summary-card">
+              <p class="summary-label">Visible filter</p>
+              <div class="summary-value">24h</div>
+              <p class="summary-detail">Warnings and errors. 42 successes hidden.</p>
+            </div>
+          </div>
+
+          <div class="filter-card">
+            <div class="input">Search ticker, operation id, job id, source...</div>
+            <div class="select">Category: All</div>
+            <div class="select">Source: All sources</div>
+            <div class="select">Time: Last 24h</div>
+            <div class="segmented">
+              <span class="segment">All</span>
+              <span class="segment active">Warnings</span>
+              <span class="segment">Errors</span>
+            </div>
+          </div>
+
+          <div class="chips" style="margin-bottom: 14px;">
+            <span class="chip active">All sources</span>
+            <span class="chip">Yahoo chart</span>
+            <span class="chip">Official calendar</span>
+            <span class="chip">TWSE close</span>
+            <span class="chip">FinMind</span>
+            <span class="chip">System</span>
+          </div>
+
+          <div class="table-wrap" style="width: calc(100% - 408px);">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Category</th>
+                  <th>Source</th>
+                  <th>Subject</th>
+                  <th>Result</th>
+                  <th>Facts</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mono">12:14:08</td>
+                  <td><span class="badge info">Intraday price</span></td>
+                  <td>Yahoo chart</td>
+                  <td><span class="strong">2330.TW</span><br><span class="muted mono">job tw:2330</span></td>
+                  <td><span class="badge warn">Delayed</span></td>
+                  <td>bar 12:01 Asia/Taipei - delay 13m - chip open_delayed</td>
+                </tr>
+                <tr>
+                  <td class="mono">12:12:44</td>
+                  <td><span class="badge info">Intraday price</span></td>
+                  <td>Yahoo chart</td>
+                  <td><span class="strong">3714.TW</span><br><span class="muted mono">3714.TW</span></td>
+                  <td><span class="badge ok">Success</span></td>
+                  <td>bar 12:12 Asia/Taipei - delay 44s - chip open_fresh</td>
+                </tr>
+                <tr>
+                  <td class="mono">12:09:10</td>
+                  <td><span class="badge warn">Calendar</span></td>
+                  <td>Official calendar</td>
+                  <td><span class="strong">TW 2027</span><br><span class="muted">current + next year</span></td>
+                  <td><span class="badge warn">Warning</span></td>
+                  <td>next-year calendar missing after lead date</td>
+                </tr>
+                <tr>
+                  <td class="mono">12:05:03</td>
+                  <td><span class="badge neutral">Provider operation</span></td>
+                  <td>FinMind</td>
+                  <td><span class="strong">daily refresh</span><br><span class="muted mono">OP-TW-2861</span></td>
+                  <td><span class="badge ok">Success</span></td>
+                  <td>operation completed - 188 bars written</td>
+                </tr>
+                <tr>
+                  <td class="mono">11:58:19</td>
+                  <td><span class="badge info">Daily close</span></td>
+                  <td>TWSE close</td>
+                  <td><span class="strong">2330</span><br><span class="muted">close fallback</span></td>
+                  <td><span class="badge ok">Success</span></td>
+                  <td>close_only row inserted for 2026-06-18</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="desc" style="margin-top: 12px;">Detailed intraday events retained 7 days. Aggregates retained 90 days. Calendar imports retained 2 years.</p>
+        </section>
+      </div>
+
+      <aside class="drawer">
+        <div class="drawer-header">
+          <div class="button-row" style="justify-content: space-between;">
+            <span class="badge warn">Delayed intraday</span>
+            <button class="btn">Copy id</button>
+          </div>
+          <h2 style="margin-top: 12px;">Yahoo chart request for 2330.TW</h2>
+          <p class="desc">Intraday price event details for TW.</p>
+        </div>
+        <div class="drawer-body">
+          <section>
+            <h3>Summary</h3>
+            <dl class="kv">
+              <dt>Event id</dt><dd class="mono">act_01jz_tw_2330</dd>
+              <dt>Provider symbol</dt><dd class="mono">2330.TW</dd>
+              <dt>Result</dt><dd>Delayed bar</dd>
+              <dt>Activity link</dt><dd class="mono">/activity?source=yahoo</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Price facts</h3>
+            <dl class="kv">
+              <dt>Bar timestamp</dt><dd>2026-06-19 12:01 Asia/Taipei</dd>
+              <dt>Observed</dt><dd>2026-06-19 12:14:08 Asia/Taipei</dd>
+              <dt>Delay</dt><dd>13m 8s</dd>
+              <dt>Chip state</dt><dd>open_delayed</dd>
+              <dt>Calendar</dt><dd>TW 2026 confirmed</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Timeline</h3>
+            <div class="timeline">
+              <div class="timeline-item"><span class="mono">12:13:58</span> queued by dashboard enrichment read</div>
+              <div class="timeline-item"><span class="mono">12:14:03</span> Yahoo chart request started</div>
+              <div class="timeline-item"><span class="mono">12:14:08</span> latest same-day bar was stale</div>
+            </div>
+          </section>
+          <section>
+            <h3>Metadata</h3>
+            <div class="codebox">{
+  "category": "intraday_price",
+  "eventType": "stale_bar",
+  "range": "1d",
+  "interval": "1m",
+  "budgetRemaining": 38
+}</div>
+          </section>
+        </div>
+      </aside>
+    </section>
+
+    <section id="admin-calendar-desktop" class="artboard desktop" data-shot="admin-calendar-desktop">
+      <div class="app-shell">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark">V</span> Vakwen Admin</div>
+          <div class="nav-group">
+            <p class="nav-label">Operations</p>
+            <div class="nav-item">Overview</div>
+            <div class="nav-item active">Market Data</div>
+            <div class="nav-item">Audit Log</div>
+          </div>
+        </aside>
+        <section class="main">
+          <div class="topline">
+            <div>
+              <p class="eyebrow">Admin / Market Data / TW</p>
+              <h1>TW Market Calendar</h1>
+              <p class="desc">Official calendar coverage is market-year based and drives market-open truth.</p>
+            </div>
+            <div class="button-row">
+              <button class="btn">Open Activity</button>
+              <button class="btn primary">Preview import</button>
+            </div>
+          </div>
+
+          <nav class="tabs">
+            <span class="tab">Overview</span>
+            <span class="tab active">Calendar</span>
+            <span class="tab">Instruments</span>
+            <span class="tab">Backfill</span>
+            <span class="tab">Operations</span>
+            <span class="tab">Activity</span>
+          </nav>
+
+          <div class="alert" style="margin-bottom: 18px;">
+            <span class="badge warn">Warning</span>
+            <div>
+              <p class="strong" style="margin-bottom: 3px;">TW market calendar for 2027 is missing.</p>
+              <p class="desc">Today in Taipei is 2026-06-19. Seed next year before the October 1 readiness date.</p>
+            </div>
+          </div>
+
+          <div class="three-col" style="margin-bottom: 18px;">
+            <div class="year-card">
+              <div class="button-row" style="justify-content: space-between;">
+                <h2>2025</h2>
+                <span class="badge ok">confirmed</span>
+              </div>
+              <p class="desc">TWSE official source. Imported 2025-01-02.</p>
+            </div>
+            <div class="year-card">
+              <div class="button-row" style="justify-content: space-between;">
+                <h2>2026</h2>
+                <span class="badge ok">confirmed</span>
+              </div>
+              <p class="desc">17 closure rows, 0 early-close rows. Active version v3.</p>
+            </div>
+            <div class="year-card missing">
+              <div class="button-row" style="justify-content: space-between;">
+                <h2>2027</h2>
+                <span class="badge warn">missing</span>
+              </div>
+              <p class="desc">Required for next-year readiness. MCP or admin JSON import can seed it.</p>
+            </div>
+          </div>
+
+          <div class="diff-grid">
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Source configuration</h2>
+                  <p class="desc">Editable by admin UI or admin-only MCP. Activation requires a successful preview.</p>
+                </div>
+                <button class="btn">Edit source</button>
+              </div>
+              <div class="card-body">
+                <dl class="kv" style="grid-template-columns: 148px minmax(0, 1fr);">
+                  <dt>Default source</dt><dd>TWSE Holiday Schedule</dd>
+                  <dt>URL host</dt><dd class="mono">www.twse.com.tw</dd>
+                  <dt>Parser</dt><dd>twse_holiday_page_v1</dd>
+                  <dt>MCP source mode</dt><dd>Default source when omitted</dd>
+                  <dt>Current status</dt><dd><span class="badge ok">allowlisted</span></dd>
+                </dl>
+                <div class="button-row" style="margin-top: 18px;">
+                  <button class="btn primary">Preview from source</button>
+                  <button class="btn">Invalidate active year</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Paste normalized calendar JSON</h2>
+                  <p class="desc">Same annual schema as the admin MCP tool.</p>
+                </div>
+                <button class="btn">Schema</button>
+              </div>
+              <div class="card-body">
+                <div class="textarea">{
+  "marketCode": "TW",
+  "calendarYear": 2027,
+  "source": {
+    "name": "TWSE Holiday Schedule",
+    "retrievedAt": "2026-06-19T04:10:00Z",
+    "sourceType": "manual_ai_assisted"
+  },
+  "rows": [
+    { "date": "2027-01-01", "sessionState": "closed", "name": "New Year" }
+  ]
+}</div>
+                <div class="button-row" style="margin-top: 14px;">
+                  <button class="btn primary">Preview pasted calendar</button>
+                  <button class="btn">Clear</button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="card" style="margin-top: 18px;">
+            <div class="card-header">
+              <div>
+                <h2>Preview diff for TW 2027</h2>
+                <p class="desc">Confirming activates a new calendar version and writes Activity/audit events.</p>
+              </div>
+              <div class="button-row">
+                <span class="badge warn">manual_ai_assisted</span>
+                <button class="btn primary">Confirm import</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="summary-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+                <div class="summary-card"><p class="summary-label">Added</p><div class="summary-value">18</div></div>
+                <div class="summary-card"><p class="summary-label">Changed</p><div class="summary-value">0</div></div>
+                <div class="summary-card"><p class="summary-label">Removed</p><div class="summary-value">0</div></div>
+                <div class="summary-card"><p class="summary-label">Confirmable</p><div class="summary-value"><span class="badge ok">yes</span></div></div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Date</th><th>Session</th><th>Name</th><th>Evidence</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td class="mono">2027-01-01</td><td><span class="badge warn">closed</span></td><td>New Year</td><td>Listed on TWSE source page</td></tr>
+                    <tr><td class="mono">2027-02-05</td><td><span class="badge warn">closed</span></td><td>Lunar New Year</td><td>AI-assisted normalized row with source evidence</td></tr>
+                    <tr><td class="mono">2027-06-09</td><td><span class="badge warn">closed</span></td><td>Dragon Boat Festival</td><td>Listed on TWSE source page</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </section>
+
+    <section id="dashboard-holdings-calendar-warning-desktop" class="artboard desktop" data-shot="dashboard-holdings-calendar-warning-desktop">
+      <div class="dashboard-shell">
+        <div class="dashboard-card">
+          <div class="dashboard-inner">
+            <div class="topline">
+              <div>
+                <p class="eyebrow">Dashboard / Reporting TWD</p>
+                <h1>Top holdings</h1>
+                <p class="desc">Prices and values are shown in TWD. Use Refresh prices for silent enrichment refresh.</p>
+              </div>
+              <div class="button-row">
+                <button class="btn">Columns</button>
+                <button class="btn">Chips</button>
+              </div>
+            </div>
+
+            <div class="button-row" style="margin-bottom: 12px;">
+              <span class="chip active">TW <span class="dot" style="color: #92400e;"></span> calendar unknown</span>
+              <span class="chip">US <span class="dot" style="color: #98a2b3;"></span> closed</span>
+              <span class="chip">AU <span class="dot" style="color: #15803d;"></span> open</span>
+              <span class="chip">KR <span class="dot" style="color: #15803d;"></span> open</span>
+            </div>
+
+            <div class="alert" style="margin-bottom: 18px;">
+              <span class="badge warn">Calendar unknown</span>
+              <div>
+                <p class="strong" style="margin-bottom: 3px;">TW market calendar for 2026 is missing or not confirmed.</p>
+                <p class="desc">Today in Taipei is 2026-06-19. Seed the market calendar in Admin Market Data or with the admin MCP calendar tool before intraday refresh can run.</p>
+              </div>
+            </div>
+
+            <section class="card" style="box-shadow: none;">
+              <div class="card-header">
+                <div>
+                  <h2>Holdings</h2>
+                  <p class="desc">Row prices update through enrichment polling without reloading the page.</p>
+                </div>
+                <div class="button-row">
+                  <button class="btn">Refresh closes</button>
+                  <button class="btn primary">Refresh prices</button>
+                </div>
+              </div>
+              <div class="table-wrap" style="border: 0; border-radius: 0;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Position</th>
+                      <th>Market value (TWD)</th>
+                      <th style="text-align: right;">Price</th>
+                      <th style="text-align: right;">Daily change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span class="strong">2330</span><br><span class="muted">Taiwan Semiconductor</span><br><span class="badge neutral">TW</span></td>
+                      <td><span class="mono">5,000 units</span><br><span class="muted">2 accounts</span></td>
+                      <td><span class="mono strong">NT$11,925,000</span><br><span class="muted">54.5% of visible holdings</span></td>
+                      <td>
+                        <div class="price-cell">
+                          <span class="mono strong">NT$2,385.00</span>
+                          <span class="price-chip calendar"><span class="dot"></span> Calendar unknown</span>
+                        </div>
+                      </td>
+                      <td style="text-align: right;"><span class="muted">Unavailable</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="strong">BHP</span><br><span class="muted">BHP Group Limited</span><br><span class="badge neutral">AU</span></td>
+                      <td><span class="mono">300 units</span><br><span class="muted">1 account</span></td>
+                      <td><span class="mono strong">NT$275,401</span><br><span class="muted">1.3% of visible holdings</span></td>
+                      <td>
+                        <div class="price-cell">
+                          <span class="mono strong">A$45.28</span>
+                          <span class="price-chip ok"><span class="dot"></span> Updated 3m ago</span>
+                        </div>
+                      </td>
+                      <td style="text-align: right;"><span class="badge ok">+0.8%</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="strong">000660</span><br><span class="muted">SK hynix</span><br><span class="badge neutral">KR</span></td>
+                      <td><span class="mono">12 units</span><br><span class="muted">1 account</span></td>
+                      <td><span class="mono strong">NT$95,200</span><br><span class="muted">0.4% of visible holdings</span></td>
+                      <td>
+                        <div class="price-cell">
+                          <span class="mono strong">KRW 328,000</span>
+                          <span class="price-chip warn"><span class="dot"></span> Delayed 21m</span>
+                        </div>
+                      </td>
+                      <td style="text-align: right;"><span class="badge warn">stale</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="admin-activity-mobile" class="artboard mobile" data-shot="admin-activity-mobile">
+      <div class="mobile-page">
+        <div class="phone-stack">
+          <div>
+            <p class="eyebrow">Admin / Market Data / TW</p>
+            <h1 style="font-size: 25px;">Data Activity</h1>
+            <p class="desc">Warnings and errors for the last 24h.</p>
+          </div>
+          <div class="segmented" style="width: 100%;">
+            <span class="segment">Calendar</span>
+            <span class="segment active">Activity</span>
+            <span class="segment">Ops</span>
+          </div>
+          <div class="mobile-summary-grid">
+            <div class="summary-card clickable">
+              <p class="summary-label">Yahoo chart</p>
+              <div class="summary-value">42 <span class="badge ok">ok</span></div>
+              <p class="summary-detail">Last request 2m ago</p>
+            </div>
+            <div class="summary-card">
+              <p class="summary-label">Needs review</p>
+              <div class="summary-value">6</div>
+              <p class="summary-detail">5 warnings, 1 error</p>
+            </div>
+          </div>
+          <div class="phone-card">
+            <div class="input">Search ticker or source</div>
+            <div class="mobile-filter-grid">
+              <div class="select">Category: All</div>
+              <div class="select">Source: All</div>
+              <div class="select">Result: Warnings</div>
+              <div class="select">Time: 24h</div>
+            </div>
+            <div class="chips">
+              <span class="chip active">All</span>
+              <span class="chip">Yahoo chart</span>
+              <span class="chip">Calendar</span>
+            </div>
+          </div>
+          <div class="mobile-list-row">
+            <div class="button-row" style="justify-content: space-between;">
+              <span class="mono muted">12:14:08</span>
+              <span class="badge warn">Delayed</span>
+            </div>
+            <p class="strong" style="margin: 9px 0 3px;">Yahoo chart - 2330.TW</p>
+            <p class="desc">bar 12:01 - delay 13m - chip open_delayed</p>
+          </div>
+          <div class="mobile-list-row">
+            <div class="button-row" style="justify-content: space-between;">
+              <span class="mono muted">12:09:10</span>
+              <span class="badge warn">Warning</span>
+            </div>
+            <p class="strong" style="margin: 9px 0 3px;">Official calendar - TW 2027</p>
+            <p class="desc">next-year calendar missing after readiness lead date</p>
+          </div>
+          <div class="mobile-list-row">
+            <div class="button-row" style="justify-content: space-between;">
+              <span class="mono muted">11:58:19</span>
+              <span class="badge ok">Success</span>
+            </div>
+            <p class="strong" style="margin: 9px 0 3px;">TWSE close - 2330</p>
+            <p class="desc">close_only row inserted for 2026-06-18</p>
+          </div>
+          <button class="btn" style="width: 100%;">Refresh Activity</button>
+          <p class="desc">Detailed intraday events retained 7 days.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="price-chip-popover-intraday-mobile" class="artboard mobile" data-shot="price-chip-popover-intraday-mobile">
+      <div class="mobile-page">
+        <div class="phone-stack">
+          <div>
+            <p class="eyebrow">Portfolio / Holdings</p>
+            <h1 style="font-size: 25px;">2330</h1>
+            <p class="desc">Taiwan Semiconductor - TW</p>
+          </div>
+          <div class="phone-card">
+            <p class="muted" style="margin-bottom: 8px;">Position</p>
+            <p class="mono strong" style="font-size: 24px; margin-bottom: 4px;">5,000 units</p>
+            <p class="desc">2 accounts</p>
+          </div>
+          <div class="phone-card">
+            <p class="muted" style="margin-bottom: 8px;">Price (TWD)</p>
+            <p class="mono strong" style="font-size: 25px; margin-bottom: 8px;">NT$2,410.00</p>
+            <span class="price-chip ok"><span class="dot"></span> Updated 7m ago</span>
+          </div>
+          <div class="popover">
+            <h2 style="color: white; font-size: 16px; margin-bottom: 12px;">Intraday price details</h2>
+            <dl class="kv">
+              <dt>Basis</dt><dd>Intraday</dd>
+              <dt>Market</dt><dd>Open</dd>
+              <dt>As of</dt><dd>Jun 19, 2026, 12:10 PM</dd>
+              <dt>Observed</dt><dd>Jun 19, 2026, 12:17 PM</dd>
+              <dt>Source</dt><dd>Yahoo chart</dd>
+              <dt>Yahoo symbol</dt><dd class="mono">2330.TW</dd>
+              <dt>Delay</dt><dd>7m 12s</dd>
+              <dt>Cadence</dt><dd>5m</dd>
+              <dt>Latest outcome</dt><dd>Success</dd>
+              <dt>Calendar</dt><dd>TW 2026 confirmed</dd>
+              <dt>Time zone</dt><dd>Asia/Taipei</dd>
+            </dl>
+            <div style="margin-top: 13px; border-top: 1px solid rgba(255,255,255,0.24); padding-top: 12px;">
+              <p style="margin: 0; color: #e0e7ff; font-size: 12px;">Open Activity for Yahoo request history. No hover-time network call is needed.</p>
+            </div>
+          </div>
+          <div class="phone-card">
+            <p class="muted" style="margin-bottom: 8px;">Market value</p>
+            <p class="mono strong" style="font-size: 22px; margin-bottom: 0;">NT$12,050,000</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

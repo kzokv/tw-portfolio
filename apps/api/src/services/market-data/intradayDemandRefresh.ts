@@ -22,7 +22,11 @@ export interface IntradayDemandRefreshInput {
   boss: Pick<PgBoss, "send"> | null;
   persistence: Pick<
     Persistence,
-    "getLatestIntradayOverlay" | "getLatestIntradayOverlays" | "setLatestIntradayOverlay" | "deleteLatestIntradayOverlay"
+    | "getLatestIntradayOverlay"
+    | "getLatestIntradayOverlays"
+    | "setLatestIntradayOverlay"
+    | "deleteLatestIntradayOverlay"
+    | "createMarketCalendarActivityEvent"
   >;
   tradingCalendar: RegularSessionClock;
   log?: IntradayDemandRefreshLog;
@@ -38,6 +42,7 @@ export interface IntradayDemandRefreshResult {
   enqueued: number;
   queueUnavailable: number;
   failed: number;
+  calendarUnknownSkips: number;
 }
 
 interface MarketPair {
@@ -58,6 +63,7 @@ export async function enqueueDemandIntradayRefreshes(
     enqueued: 0,
     queueUnavailable: 0,
     failed: 0,
+    calendarUnknownSkips: 0,
   };
 
   if (!config.intradayEnabled || input.pairs.length === 0) return initialResult;
@@ -68,8 +74,16 @@ export async function enqueueDemandIntradayRefreshes(
   initialResult.considered = dedupedPairs.length;
   if (dedupedPairs.length === 0) return initialResult;
 
-  const openPairs = await filterOpenMarketPairs(dedupedPairs, input.tradingCalendar, now, config.regularSessionOnly);
+  const marketFilter = await filterOpenMarketPairs(
+    dedupedPairs,
+    input.tradingCalendar,
+    input.persistence,
+    now,
+    config.regularSessionOnly,
+  );
+  const openPairs = marketFilter.openPairs;
   initialResult.open = openPairs.length;
+  initialResult.calendarUnknownSkips = marketFilter.calendarUnknownSkips;
   if (openPairs.length === 0) return initialResult;
 
   const overlaysByKey = await createIntradayOverlayCache(input.persistence, input.log).getLatestMany(openPairs);
@@ -145,19 +159,42 @@ function dedupeRegularSessionPairs(
 async function filterOpenMarketPairs(
   pairs: ReadonlyArray<MarketPair>,
   tradingCalendar: RegularSessionClock,
+  persistence: Pick<Persistence, "createMarketCalendarActivityEvent">,
   now: Date,
   regularSessionOnly: boolean,
-): Promise<MarketPair[]> {
+): Promise<{ openPairs: MarketPair[]; calendarUnknownSkips: number }> {
   const distinctMarkets = [...new Set(pairs.map((pair) => pair.marketCode))]
     .filter(isRegularSessionMarketCode);
   const sessionEntries = await Promise.all(distinctMarkets.map(async (marketCode) => [
     marketCode,
     await getRegularSessionState(marketCode, tradingCalendar, now),
   ] as const));
-  const openMarkets = new Set(sessionEntries
-    .filter(([, state]) => regularSessionOnly ? state.isOpen : state.isTradingDay)
-    .map(([marketCode]) => marketCode));
-  return pairs.filter((pair) => openMarkets.has(pair.marketCode));
+  const openMarkets = new Set<RegularSessionMarketCode>();
+  const calendarUnknownMarkets = new Set<RegularSessionMarketCode>();
+  for (const [marketCode, state] of sessionEntries) {
+    if (state.marketStateReason === "calendar_unknown") {
+      calendarUnknownMarkets.add(marketCode);
+      await persistence.createMarketCalendarActivityEvent({
+        marketCode,
+        category: "calendar",
+        result: "skipped",
+        source: "official_calendar",
+        eventType: "calendar_unknown_intraday_skip",
+        title: "Calendar unknown",
+        message: `${marketCode} intraday enqueue skipped because the official calendar is unknown.`,
+        calendarYear: Number(state.localDate.slice(0, 4)),
+        detail: { localDate: state.localDate, marketStateReason: state.marketStateReason },
+      });
+      continue;
+    }
+    if (regularSessionOnly ? state.isOpen : state.isTradingDay) {
+      openMarkets.add(marketCode);
+    }
+  }
+  return {
+    openPairs: pairs.filter((pair) => openMarkets.has(pair.marketCode)),
+    calendarUnknownSkips: pairs.filter((pair) => calendarUnknownMarkets.has(pair.marketCode)).length,
+  };
 }
 
 function isOverlayMissingOrStale(

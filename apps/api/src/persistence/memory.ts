@@ -115,9 +115,12 @@ import type {
   AiTransactionDraftUnsupportedItemRecord,
   AppendAiConnectorAccessLogInput,
   AppendAiTransactionDraftEventInput,
+  ConfirmMarketCalendarPreviewInput,
+  CreateMarketCalendarActivityEventInput,
   CreateProviderOperationInput,
   CreateProviderOperationLogInput,
   DeleteProviderResolutionMappingInput,
+  InvalidateMarketCalendarVersionInput,
   ListProviderErrorTrailOptions,
   ListProviderErrorTrailResult,
   ListProviderIncidentsOptions,
@@ -132,6 +135,14 @@ import type {
   ListProviderResolutionMappingsResult,
   ListProviderUnresolvedItemsOptions,
   ListProviderUnresolvedItemsResult,
+  ListMarketCalendarActivityOptions,
+  ListMarketCalendarActivityResult,
+  MarketCalendarActivityResult,
+  MarketCalendarActivitySource,
+  MarketCalendarActivityEventRecord,
+  MarketCalendarPreviewRecord,
+  MarketCalendarSourceConfigRecord,
+  MarketCalendarVersionRecord,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
@@ -139,6 +150,7 @@ import type {
   ProviderIncidentRecord,
   ProviderLogPurgeCounts,
   ProviderOperationLogRecord,
+  ProviderOperationLogLevel,
   ProviderOperationOutcomeRecord,
   ProviderOperationOutcomeState,
   ProviderOperationRecord,
@@ -148,6 +160,7 @@ import type {
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
+  SaveMarketCalendarSourceConfigInput,
   SaveMcpOAuthAuthorizationCodeInput,
   SaveMcpOAuthAuthorizationRequestInput,
   SaveAiTransactionDraftBatchInput,
@@ -392,6 +405,23 @@ function providerOperationOutcomeKey(operationId: string, action: string, source
   return `${operationId}:${action}:${sourceSymbol.toUpperCase()}`;
 }
 
+function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "KR" {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
+}
+
+function providerOperationLogLevelToActivityResult(level: ProviderOperationLogLevel): MarketCalendarActivityResult {
+  if (level === "error") return "error";
+  if (level === "warning") return "warning";
+  return "success";
+}
+
+function providerIdToActivitySource(providerId: string): MarketCalendarActivitySource {
+  if (providerId.includes("yahoo")) return "yahoo_chart";
+  if (providerId.includes("finmind")) return "finmind";
+  if (providerId.includes("twse")) return "twse_close";
+  return "system";
+}
+
 function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord[]): ListProviderOperationOutcomesResult["summary"] {
   const counts: Record<ProviderOperationOutcomeState, number> = {
     pending: 0,
@@ -570,6 +600,10 @@ export class MemoryPersistence implements Persistence {
   private readonly providerUnresolvedItems = new Map<string, ProviderUnresolvedItemRecord>();
   private readonly providerOperations = new Map<string, ProviderOperationRecord>();
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
+  private readonly marketCalendarSources = new Map<string, MarketCalendarSourceConfigRecord>();
+  private readonly marketCalendarPreviews = new Map<string, MarketCalendarPreviewRecord>();
+  private readonly marketCalendarVersions = new Map<string, MarketCalendarVersionRecord>();
+  private readonly marketCalendarActivityEvents: MarketCalendarActivityEventRecord[] = [];
   private _providerOperationLogNextId = 1;
   private readonly providerOperationOutcomes = new Map<string, ProviderOperationOutcomeRecord>();
   private readonly providerResolutionMappings = new Map<string, ProviderResolutionMappingRecord>();
@@ -4281,6 +4315,9 @@ export class MemoryPersistence implements Persistence {
     tickerPriceRefreshCloseRateLimitWindowMs: number | null;
     tickerPriceRefreshCloseRateLimitMax: number | null;
     tickerPriceSyncTickerCap: number | null;
+    tickerPriceActivityDetailedRetentionDays: number | null;
+    tickerPriceActivitySummaryRetentionDays: number | null;
+    tickerPriceCalendarHistoryRetentionDays: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -4378,6 +4415,9 @@ export class MemoryPersistence implements Persistence {
       tickerPriceRefreshCloseRateLimitWindowMs: numberOrNull(p.tickerPriceRefreshCloseRateLimitWindowMs),
       tickerPriceRefreshCloseRateLimitMax: numberOrNull(p.tickerPriceRefreshCloseRateLimitMax),
       tickerPriceSyncTickerCap: numberOrNull(p.tickerPriceSyncTickerCap),
+      tickerPriceActivityDetailedRetentionDays: numberOrNull(p.tickerPriceActivityDetailedRetentionDays),
+      tickerPriceActivitySummaryRetentionDays: numberOrNull(p.tickerPriceActivitySummaryRetentionDays),
+      tickerPriceCalendarHistoryRetentionDays: numberOrNull(p.tickerPriceCalendarHistoryRetentionDays),
       dailyRefreshLookbackDays: numberOrNull(p.dailyRefreshLookbackDays),
       dailyRefreshPriority: numberOrNull(p.dailyRefreshPriority),
       sseHeartbeatIntervalMs: numberOrNull(p.sseHeartbeatIntervalMs),
@@ -6699,6 +6739,25 @@ export class MemoryPersistence implements Persistence {
       createdAt: new Date().toISOString(),
     };
     this.providerOperationLogs.push(row);
+    const operation = this.providerOperations.get(input.operationId);
+    if (operation && isMarketCalendarActivityMarket(operation.marketCode)) {
+      await this.createMarketCalendarActivityEvent({
+        marketCode: operation.marketCode,
+        category: "provider_operation",
+        result: providerOperationLogLevelToActivityResult(input.level),
+        source: providerIdToActivitySource(operation.providerId),
+        eventType: `provider_operation_${input.phase}`,
+        title: "Provider operation milestone",
+        message: input.message,
+        operationId: input.operationId,
+        detail: {
+          providerId: operation.providerId,
+          operationType: operation.operationType,
+          phase: input.phase,
+          context: input.context ?? null,
+        },
+      });
+    }
     return { ...row };
   }
 
@@ -6713,6 +6772,209 @@ export class MemoryPersistence implements Persistence {
     const offset = (page - 1) * limit;
     return {
       items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async listMarketCalendarSources(marketCode: MarketCode): Promise<MarketCalendarSourceConfigRecord[]> {
+    this.seedDefaultMarketCalendarSource(marketCode);
+    return [...this.marketCalendarSources.values()]
+      .filter((row) => row.marketCode === marketCode)
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((row) => ({ ...row, allowedHosts: [...row.allowedHosts] }));
+  }
+
+  async saveMarketCalendarSource(input: SaveMarketCalendarSourceConfigInput): Promise<MarketCalendarSourceConfigRecord> {
+    const now = new Date().toISOString();
+    const sourceId = input.sourceId ?? randomUUID();
+    const next: MarketCalendarSourceConfigRecord = {
+      id: sourceId,
+      marketCode: input.marketCode,
+      label: input.label,
+      sourceType: input.sourceType,
+      url: input.url ?? null,
+      host: input.host ?? null,
+      allowedHosts: [...(input.allowedHosts ?? [])],
+      parserId: input.parserId ?? null,
+      enabled: input.enabled ?? true,
+      isDefault: input.isDefault ?? false,
+      updatedAt: now,
+    };
+    if (next.isDefault) {
+      for (const [key, row] of this.marketCalendarSources.entries()) {
+        if (row.marketCode === input.marketCode) {
+          this.marketCalendarSources.set(key, { ...row, isDefault: false, updatedAt: now });
+        }
+      }
+    }
+    this.marketCalendarSources.set(sourceId, next);
+    return { ...next, allowedHosts: [...next.allowedHosts] };
+  }
+
+  async saveMarketCalendarPreview(preview: MarketCalendarPreviewRecord): Promise<MarketCalendarPreviewRecord> {
+    const copy: MarketCalendarPreviewRecord = {
+      ...preview,
+      warnings: [...preview.warnings],
+      diff: {
+        addedDates: [...preview.diff.addedDates],
+        removedDates: [...preview.diff.removedDates],
+        changedDates: [...preview.diff.changedDates],
+      },
+      rows: preview.rows.map((row) => ({ ...row })),
+    };
+    this.marketCalendarPreviews.set(preview.previewToken, copy);
+    return {
+      ...copy,
+      warnings: [...copy.warnings],
+      diff: {
+        addedDates: [...copy.diff.addedDates],
+        removedDates: [...copy.diff.removedDates],
+        changedDates: [...copy.diff.changedDates],
+      },
+      rows: copy.rows.map((row) => ({ ...row })),
+    };
+  }
+
+  async getMarketCalendarPreview(previewToken: string): Promise<MarketCalendarPreviewRecord | null> {
+    const preview = this.marketCalendarPreviews.get(previewToken);
+    if (!preview) return null;
+    return {
+      ...preview,
+      warnings: [...preview.warnings],
+      diff: {
+        addedDates: [...preview.diff.addedDates],
+        removedDates: [...preview.diff.removedDates],
+        changedDates: [...preview.diff.changedDates],
+      },
+      rows: preview.rows.map((row) => ({ ...row })),
+    };
+  }
+
+  async confirmMarketCalendarPreview(input: ConfirmMarketCalendarPreviewInput): Promise<MarketCalendarVersionRecord> {
+    const preview = this.marketCalendarPreviews.get(input.previewToken);
+    if (!preview) {
+      throw routeError(404, "market_calendar_preview_not_found", "Market calendar preview not found");
+    }
+    const active = await this.getActiveMarketCalendarVersion(preview.marketCode, preview.calendarYear);
+    if (active && preview.replaceConfirmedRequired && !input.replaceConfirmed) {
+      throw routeError(400, "market_calendar_replace_required", "Replacing the confirmed calendar requires explicit confirmation");
+    }
+    const now = new Date().toISOString();
+    if (active) {
+      this.marketCalendarVersions.set(active.versionId, {
+        ...active,
+        isActive: false,
+        updatedAt: now,
+      });
+    }
+    const source = preview.sourceId ? this.marketCalendarSources.get(preview.sourceId) ?? null : null;
+    const version: MarketCalendarVersionRecord = {
+      versionId: randomUUID(),
+      importOperationId: preview.importOperationId,
+      marketCode: preview.marketCode,
+      calendarYear: preview.calendarYear,
+      sourceId: preview.sourceId,
+      sourceLabel: source?.label ?? preview.label ?? null,
+      sourceType: preview.sourceType,
+      retrievedAt: preview.retrievedAt,
+      confirmedAt: now,
+      invalidatedAt: null,
+      invalidationReason: input.replacementReason ?? null,
+      status: "confirmed",
+      isActive: true,
+      rows: preview.rows.map((row) => ({ ...row })),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.marketCalendarVersions.set(version.versionId, version);
+    return { ...version, rows: version.rows.map((row) => ({ ...row })) };
+  }
+
+  async invalidateMarketCalendarVersion(input: InvalidateMarketCalendarVersionInput): Promise<MarketCalendarVersionRecord | null> {
+    const active = await this.getActiveMarketCalendarVersion(input.marketCode, input.calendarYear);
+    if (!active) return null;
+    const next: MarketCalendarVersionRecord = {
+      ...active,
+      status: "invalidated",
+      isActive: false,
+      invalidatedAt: new Date().toISOString(),
+      invalidationReason: input.reason,
+      updatedAt: new Date().toISOString(),
+    };
+    this.marketCalendarVersions.set(next.versionId, next);
+    return { ...next, rows: next.rows.map((row) => ({ ...row })) };
+  }
+
+  async getActiveMarketCalendarVersion(marketCode: MarketCode, calendarYear: number): Promise<MarketCalendarVersionRecord | null> {
+    const active = [...this.marketCalendarVersions.values()].find((row) =>
+      row.marketCode === marketCode && row.calendarYear === calendarYear && row.isActive && row.status === "confirmed");
+    return active ? { ...active, rows: active.rows.map((row) => ({ ...row })) } : null;
+  }
+
+  async listMarketCalendarHistory(marketCode: MarketCode, calendarYear?: number): Promise<MarketCalendarVersionRecord[]> {
+    return [...this.marketCalendarVersions.values()]
+      .filter((row) => row.marketCode === marketCode && (calendarYear === undefined || row.calendarYear === calendarYear))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((row) => ({ ...row, rows: row.rows.map((calendarRow) => ({ ...calendarRow })) }));
+  }
+
+  async createMarketCalendarActivityEvent(input: CreateMarketCalendarActivityEventInput): Promise<MarketCalendarActivityEventRecord> {
+    const row: MarketCalendarActivityEventRecord = {
+      id: randomUUID(),
+      marketCode: input.marketCode,
+      occurredAt: input.occurredAt ?? new Date().toISOString(),
+      category: input.category,
+      result: input.result,
+      source: input.source,
+      eventType: input.eventType,
+      title: input.title,
+      message: input.message,
+      ticker: input.ticker ?? null,
+      providerSymbol: input.providerSymbol ?? null,
+      operationId: input.operationId ?? null,
+      jobId: input.jobId ?? null,
+      calendarYear: input.calendarYear ?? null,
+      detail: { ...(input.detail ?? {}) },
+    };
+    this.marketCalendarActivityEvents.push(row);
+    return { ...row, detail: { ...row.detail } };
+  }
+
+  async listMarketCalendarActivity(options: ListMarketCalendarActivityOptions): Promise<ListMarketCalendarActivityResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const categories = options.categories ? new Set(options.categories) : null;
+    const results = options.results ? new Set(options.results) : null;
+    const sources = options.sources ? new Set(options.sources) : null;
+    const query = options.search?.trim().toLowerCase() ?? "";
+    const filtered = this.marketCalendarActivityEvents
+      .filter((row) => row.marketCode === options.marketCode)
+      .filter((row) => (categories ? categories.has(row.category) : true))
+      .filter((row) => (results ? results.has(row.result) : true))
+      .filter((row) => (sources ? sources.has(row.source) : true))
+      .filter((row) => (options.occurredAfter ? row.occurredAt >= options.occurredAfter : true))
+      .filter((row) => {
+        if (!query) return true;
+        return [
+          row.ticker,
+          row.providerSymbol,
+          row.operationId,
+          row.jobId,
+          row.source,
+          row.title,
+          row.message,
+          row.eventType,
+          row.calendarYear?.toString() ?? null,
+          typeof row.detail.sourceHost === "string" ? row.detail.sourceHost : null,
+          typeof row.detail.host === "string" ? row.detail.host : null,
+        ].some((value) => value?.toLowerCase().includes(query));
+      })
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row, detail: { ...row.detail } })),
       total: filtered.length,
       page,
       limit,
@@ -6766,6 +7028,25 @@ export class MemoryPersistence implements Persistence {
       }
     }
     return { providerId, errorTrailCount, operationLogCount };
+  }
+
+  private seedDefaultMarketCalendarSource(marketCode: MarketCode): void {
+    const hasSource = [...this.marketCalendarSources.values()].some((row) => row.marketCode === marketCode);
+    if (hasSource) return;
+    const sourceId = `official-${marketCode.toLowerCase()}`;
+    this.marketCalendarSources.set(sourceId, {
+      id: sourceId,
+      marketCode,
+      label: `${marketCode} official calendar`,
+      sourceType: "official_parser",
+      url: null,
+      host: null,
+      allowedHosts: [],
+      parserId: `${marketCode.toLowerCase()}-official`,
+      enabled: true,
+      isDefault: true,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async upsertProviderOperationOutcome(

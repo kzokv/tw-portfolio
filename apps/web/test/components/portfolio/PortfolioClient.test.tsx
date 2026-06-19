@@ -12,6 +12,7 @@ const holdingsTableMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-
 const dashboardHoldingsPreviewMock = vi.hoisted(() => vi.fn((_props: unknown) => <div data-testid="mock-dashboard-holdings-preview" />));
 const portfolioRefreshMock = vi.hoisted(() => vi.fn(async () => undefined));
 const portfolioRefreshPricesMock = vi.hoisted(() => vi.fn(async () => undefined));
+const refreshPortfolioClosesMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../../../components/layout/AppShellDataContext", () => ({
   useAppShellData: vi.fn(),
@@ -49,6 +50,14 @@ vi.mock("../../../features/portfolio/hooks/useHoldingAllocationBasis", () => ({
 vi.mock("../../../features/portfolio/hooks/usePortfolioPageData", () => ({
   usePortfolioPrimaryData: vi.fn(),
 }));
+
+vi.mock("../../../features/portfolio/services/portfolioService", async () => {
+  const actual = await vi.importActual<typeof import("../../../features/portfolio/services/portfolioService")>("../../../features/portfolio/services/portfolioService");
+  return {
+    ...actual,
+    refreshPortfolioCloses: refreshPortfolioClosesMock,
+  };
+});
 
 import { useAppShellData } from "../../../components/layout/AppShellDataContext";
 import { usePortfolioPrimaryData } from "../../../features/portfolio/hooks/usePortfolioPageData";
@@ -124,6 +133,7 @@ describe("PortfolioClient", () => {
     openQuickActions.mockReset();
     holdingsTableMock.mockClear();
     dashboardHoldingsPreviewMock.mockClear();
+    refreshPortfolioClosesMock.mockClear();
     vi.mocked(useAppShellData).mockReturnValue({
       uiDict: dict,
       locale: "en",
@@ -178,6 +188,23 @@ describe("PortfolioClient", () => {
       button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(openQuickActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a separate refresh prices action that only refreshes enrichment data", () => {
+    act(() => {
+      root!.render(<PortfolioClient />);
+    });
+
+    const button = container.querySelector("[data-testid='portfolio-refresh-prices-button']");
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(portfolioRefreshPricesMock).toHaveBeenCalledTimes(1);
+    expect(portfolioRefreshMock).not.toHaveBeenCalled();
+    expect(refreshPortfolioClosesMock).not.toHaveBeenCalled();
   });
 
   it("keys portfolio cache by the shell reporting currency when server seed matches", () => {

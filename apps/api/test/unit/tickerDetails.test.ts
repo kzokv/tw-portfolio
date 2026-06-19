@@ -698,7 +698,7 @@ describe("buildTickerDetails", () => {
     }));
   });
 
-  it("uses same-day intraday overlay on ticker details when the full calendar falls back from known bar dates", async () => {
+  it("uses same-day intraday overlay as pending today close on ticker details after the official session closes", async () => {
     const overlays = new Map<string, IntradayPriceOverlay>([[
       "BHP:AU",
       {
@@ -738,9 +738,10 @@ describe("buildTickerDetails", () => {
 
     expect(details.quote.currentUnitPrice).toBe(48);
     expect(details.quote.priceState).toEqual(expect.objectContaining({
-      basis: "intraday",
-      chipState: "open_fresh",
-      marketState: "open",
+      basis: "pending_today_close",
+      chipState: "closed_pending",
+      marketState: "closed",
+      marketStateReason: "market_closed",
       sourceKind: "intraday_yahoo_chart",
     }));
   });

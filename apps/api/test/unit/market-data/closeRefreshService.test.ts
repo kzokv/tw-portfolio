@@ -177,4 +177,52 @@ describe("closeRefreshService", () => {
       "close_refresh_pair_failed",
     );
   });
+
+  it("emits activity rows for refreshed and missing close-refresh outcomes", async () => {
+    const activity = { createMarketCalendarActivityEvent: vi.fn().mockResolvedValue({}) };
+
+    const refreshed = await runCloseRefresh({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
+      activityPersistence: activity as never,
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["TW", provider()]]),
+      upsertBars: vi.fn(),
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T05:45:00.000Z"),
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+    expect(refreshed.items[0]?.status).toBe("refreshed");
+    expect(activity.createMarketCalendarActivityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "close_refresh_refreshed",
+      category: "daily_close",
+      result: "success",
+      source: "system",
+    }));
+
+    activity.createMarketCalendarActivityEvent.mockClear();
+    const missing = await runCloseRefresh({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
+      activityPersistence: activity as never,
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["TW", provider(vi.fn().mockResolvedValue([]))]]),
+      fallbackProviders: {
+        twseStockDay: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(null) },
+        yahooChartClose: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(null) },
+      },
+      upsertBars: vi.fn(),
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T05:45:00.000Z"),
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+    expect(missing.items[0]?.status).toBe("missing");
+    expect(activity.createMarketCalendarActivityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "close_refresh_missing",
+      category: "daily_close",
+      result: "warning",
+    }));
+  });
 });

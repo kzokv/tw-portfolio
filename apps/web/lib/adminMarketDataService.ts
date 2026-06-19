@@ -17,6 +17,9 @@ import type {
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
+  AdminMarketCalendarConfirmResponse,
+  AdminMarketCalendarPreviewResponse,
+  AdminMarketCalendarSourceConfigDto,
   AdminMarketDataSupportStateRequest,
   AdminMarketDataSupportStateResponse,
   ProviderFixerDashboardOperationDto,
@@ -24,7 +27,20 @@ import type {
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemState,
 } from "@vakwen/shared-types";
-import { getJson, postJson } from "./api";
+import { getJson, patchJson, postJson } from "./api";
+import type {
+  AdminMarketDataActivityResponse,
+  AdminMarketDataActivityQuery,
+  AdminMarketDataCalendarResponse,
+  MarketCalendarConfirmRequest,
+  MarketCalendarConfirmResponse,
+  MarketCalendarInvalidateRequest,
+  MarketCalendarInvalidateResponse,
+  MarketCalendarPreviewRequest,
+  MarketCalendarPreviewResponse,
+  MarketCalendarSourceConfigUpdateRequest,
+  MarketCalendarSourceUpdateRequest,
+} from "./adminMarketDataContracts";
 
 export function executeMarketAction(
   marketCode: AdminMarketCode,
@@ -77,6 +93,98 @@ export function executeMarketPurge(
   input: AdminMarketDataPurgeExecuteRequest,
 ): Promise<AdminMarketDataPurgeExecuteResponse> {
   return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/purge/execute`, input);
+}
+
+export function fetchMarketActivity(
+  marketCode: AdminMarketCode,
+  query: Partial<AdminMarketDataActivityQuery>,
+): Promise<AdminMarketDataActivityResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return getJson(`/admin/market-data/${encodeURIComponent(marketCode)}/activity${suffix}`);
+}
+
+export function fetchMarketCalendar(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+): Promise<AdminMarketDataCalendarResponse> {
+  return getJson(`/admin/market-data/${encodeURIComponent(marketCode)}/calendar`);
+}
+
+export function updateMarketCalendarSource(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: MarketCalendarSourceUpdateRequest,
+): Promise<AdminMarketDataCalendarResponse> {
+  return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/calendar/source`, input);
+}
+
+export function previewMarketCalendarImport(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: Omit<MarketCalendarPreviewRequest, "marketCode">,
+): Promise<MarketCalendarPreviewResponse> {
+  return postJson<AdminMarketCalendarPreviewResponse>(
+    `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/preview`,
+    input,
+  ).then((response) => ({
+    marketCode: response.marketCode,
+    preview: {
+      added: response.diff.addedDates.length,
+      changed: response.diff.changedDates.length,
+      removed: response.diff.removedDates.length,
+      confirmable: true,
+      rows: [
+        ...response.diff.addedDates.map((date) => ({ date, session: "added", evidence: response.source?.label ?? null })),
+        ...response.diff.changedDates.map((date) => ({ date, session: "changed", evidence: response.source?.label ?? null })),
+        ...response.diff.removedDates.map((date) => ({ date, session: "removed", evidence: response.source?.label ?? null })),
+      ],
+    },
+  }));
+}
+
+export function confirmMarketCalendarImport(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: Omit<MarketCalendarConfirmRequest, "marketCode">,
+): Promise<MarketCalendarConfirmResponse> {
+  const body = {
+    ...input,
+    replacementReason: input.replacementReason ?? input.reason,
+  };
+  return postJson<AdminMarketCalendarConfirmResponse>(
+    `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/confirm`,
+    body,
+  ).then((response) => ({
+    marketCode: response.marketCode,
+    status: "confirmed",
+    versionId: response.versionId,
+  }));
+}
+
+export function invalidateMarketCalendar(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: MarketCalendarInvalidateRequest,
+): Promise<MarketCalendarInvalidateResponse> {
+  return postJson<AdminMarketCalendarConfirmResponse>(
+    `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/invalidate`,
+    input,
+  ).then((response) => ({
+    marketCode: response.marketCode,
+    calendarYear: response.calendarYear,
+    status: "invalidated",
+  }));
+}
+
+export function updateMarketCalendarSourceConfig(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  sourceId: string,
+  input: MarketCalendarSourceConfigUpdateRequest,
+): Promise<AdminMarketCalendarSourceConfigDto> {
+  return patchJson(
+    `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/sources/${encodeURIComponent(sourceId)}`,
+    input,
+  );
 }
 
 export function updateMarketInstrumentSupportState(input: {

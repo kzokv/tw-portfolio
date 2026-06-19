@@ -439,6 +439,7 @@ export interface AppDictionary {
     fxStatusMissingDescription: string;
     fxPairLabel: string;
     refreshLabel: string;
+    refreshPricesLabel: string;
     refreshingLabel: string;
     refreshClosesLabel: string;
     refreshClosesRunningLabel: string;
@@ -1442,6 +1443,16 @@ export interface AppDictionary {
     priceStateQualityLabel: string;
     priceStateDelayLabel: string;
     priceStateTimeZoneLabel: string;
+    priceStateCalendarLabel: string;
+    priceStateCalendarReasonLabel: string;
+    priceStateMarketLocalDateLabel: string;
+    priceStateYahooSymbolLabel: string;
+    priceStateCadenceLabel: string;
+    priceStateLatestAttemptLabel: string;
+    priceStateLatestOutcomeLabel: string;
+    priceStateActivityHintLabel: string;
+    calendarUnknownWarningTitle: string;
+    calendarUnknownWarningMessage: string;
     priceStateUnknownValue: string;
     priceStateMarketOpen: string;
     priceStateMarketClosed: string;

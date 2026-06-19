@@ -375,6 +375,12 @@ const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto 
   effectiveRefreshCloseRateLimitMax: 10,
   syncTickerCap: null,
   effectiveSyncTickerCap: 50,
+  activityDetailedRetentionDays: null,
+  effectiveActivityDetailedRetentionDays: 7,
+  activitySummaryRetentionDays: null,
+  effectiveActivitySummaryRetentionDays: 90,
+  calendarHistoryRetentionDays: null,
+  effectiveCalendarHistoryRetentionDays: 730,
   options: {
     supportedMarkets: ["TW", "US", "AU", "KR"],
     yahooChartRanges: ["1d", "5d"],
@@ -390,6 +396,9 @@ const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto 
     refreshCloseRateLimitWindowMs: { min: 1000, max: 600000 },
     refreshCloseRateLimitMax: { min: 1, max: 1000 },
     syncTickerCap: { min: 1, max: 1000 },
+    activityDetailedRetentionDays: { min: 1, max: 365 },
+    activitySummaryRetentionDays: { min: 1, max: 730 },
+    calendarHistoryRetentionDays: { min: 30, max: 3650 },
   },
 };
 
@@ -409,6 +418,9 @@ type TickerPriceFreshnessPatchDto = Pick<
   | "refreshCloseRateLimitWindowMs"
   | "refreshCloseRateLimitMax"
   | "syncTickerCap"
+  | "activityDetailedRetentionDays"
+  | "activitySummaryRetentionDays"
+  | "calendarHistoryRetentionDays"
 >;
 
 function formatTickerBooleanValue(value: boolean, isZhTW: boolean): string {
@@ -881,6 +893,39 @@ function TickerPriceFreshnessSettingsCard({
             unit="tickers"
             inputTestId="admin-settings-input-tickerPriceMaxTickersPerRefreshCycle"
             onSave={(value) => saveField("maxTickersPerRefreshCycle", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceActivityDetailedRetentionDays"
+            label={isZhTW ? "活動詳細保留天數" : "Activity detail retention"}
+            description={isZhTW ? "保留盤中請求、延遲、錯誤與跳過事件明細的天數。" : "Days to keep detailed intraday request, delay, error, and skip Activity events."}
+            override={settings.activityDetailedRetentionDays}
+            effective={settings.effectiveActivityDetailedRetentionDays}
+            bounds={settings.bounds.activityDetailedRetentionDays}
+            unit="days"
+            inputTestId="admin-settings-input-tickerPriceActivityDetailedRetentionDays"
+            onSave={(value) => saveField("activityDetailedRetentionDays", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceActivitySummaryRetentionDays"
+            label={isZhTW ? "活動摘要保留天數" : "Activity summary retention"}
+            description={isZhTW ? "保留活動摘要與趨勢查詢可用資料的天數。" : "Days to keep Activity summaries and longer-window diagnostic counts."}
+            override={settings.activitySummaryRetentionDays}
+            effective={settings.effectiveActivitySummaryRetentionDays}
+            bounds={settings.bounds.activitySummaryRetentionDays}
+            unit="days"
+            inputTestId="admin-settings-input-tickerPriceActivitySummaryRetentionDays"
+            onSave={(value) => saveField("activitySummaryRetentionDays", value)}
+          />
+          <NumericOverrideRow
+            fieldKey="tickerPriceCalendarHistoryRetentionDays"
+            label={isZhTW ? "日曆歷史保留天數" : "Calendar history retention"}
+            description={isZhTW ? "保留市場日曆匯入、替換與失效歷史的天數。" : "Days to keep calendar import, replacement, and invalidation history."}
+            override={settings.calendarHistoryRetentionDays}
+            effective={settings.effectiveCalendarHistoryRetentionDays}
+            bounds={settings.bounds.calendarHistoryRetentionDays}
+            unit="days"
+            inputTestId="admin-settings-input-tickerPriceCalendarHistoryRetentionDays"
+            onSave={(value) => saveField("calendarHistoryRetentionDays", value)}
           />
           <NumericOverrideRow
             fieldKey="tickerPriceRefreshCloseRateLimitWindowMs"

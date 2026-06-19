@@ -91,6 +91,10 @@ export function PortfolioClient({
     }
   }
 
+  function refreshPrices() {
+    void portfolio.refreshPrices();
+  }
+
   if (portfolio.isBootstrapping) {
     return (
       <>
@@ -230,6 +234,18 @@ export function PortfolioClient({
               data-testid="portfolio-refresh-closes-button"
             >
               {dict.dashboardHome.refreshClosesLabel}
+            </Button>
+          ) : null}
+          {!isSharedContext ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={refreshPrices}
+              disabled={portfolio.isRefreshing || isRefreshingCloses}
+              data-testid="portfolio-refresh-prices-button"
+            >
+              {dict.dashboardHome.refreshPricesLabel}
             </Button>
           ) : null}
           <Button

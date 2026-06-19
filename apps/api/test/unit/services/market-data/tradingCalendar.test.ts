@@ -183,6 +183,7 @@ describe("trading calendar helpers", () => {
     const cache = new TradingCalendarCache({
       persistence: {
         getDistinctBarDates: vi.fn().mockResolvedValue([]),
+        getActiveMarketCalendarVersion: vi.fn().mockResolvedValue(null),
       },
       log,
     });

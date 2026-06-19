@@ -94,6 +94,13 @@ import {
 } from "../services/mcpPortfolioRead.js";
 import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import type { BuildReportInput } from "../services/reports.js";
+import {
+  confirmAdminMarketCalendarImportTool,
+  getAdminMarketCalendarStatusTool,
+  listAdminMarketCalendarSourcesTool,
+  previewAdminMarketCalendarImportTool,
+  updateAdminMarketCalendarSourceTool,
+} from "./adminCalendarTools.js";
 
 interface RegisterMcpRoutesOptions {
   authService?: McpAuthService;
@@ -397,6 +404,27 @@ export async function registerMcpRoutes(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
             args as { tickers?: string[]; reportingCurrency?: never; locale?: string },
           );
+          break;
+        case "get_admin_market_calendar_status":
+          result = await getAdminMarketCalendarStatusTool(
+            { app, requestContext },
+            args as Parameters<typeof getAdminMarketCalendarStatusTool>[1],
+          );
+          break;
+        case "list_admin_market_calendar_sources":
+          result = await listAdminMarketCalendarSourcesTool(
+            { app, requestContext },
+            args as Parameters<typeof listAdminMarketCalendarSourcesTool>[1],
+          );
+          break;
+        case "update_admin_market_calendar_source":
+          result = await updateAdminMarketCalendarSourceTool({ app, requestContext }, args);
+          break;
+        case "preview_admin_market_calendar_import":
+          result = await previewAdminMarketCalendarImportTool({ app, requestContext }, args);
+          break;
+        case "confirm_admin_market_calendar_import":
+          result = await confirmAdminMarketCalendarImportTool({ app, requestContext }, args);
           break;
         case "get_cash_balance_summary":
           result = await getCashBalanceSummary(

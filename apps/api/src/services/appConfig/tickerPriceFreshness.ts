@@ -26,6 +26,9 @@ export interface TickerPriceFreshnessRowFields {
   tickerPriceRefreshCloseRateLimitWindowMs?: number | null;
   tickerPriceRefreshCloseRateLimitMax?: number | null;
   tickerPriceSyncTickerCap?: number | null;
+  tickerPriceActivityDetailedRetentionDays?: number | null;
+  tickerPriceActivitySummaryRetentionDays?: number | null;
+  tickerPriceCalendarHistoryRetentionDays?: number | null;
 }
 
 export interface TickerPriceFreshnessDefaults {
@@ -42,6 +45,9 @@ export interface TickerPriceFreshnessDefaults {
   refreshCloseRateLimitWindowMs: number;
   refreshCloseRateLimitMax: number;
   syncTickerCap: number;
+  activityDetailedRetentionDays: number;
+  activitySummaryRetentionDays: number;
+  calendarHistoryRetentionDays: number;
 }
 
 export const DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG: TickerPriceFreshnessDefaults = {
@@ -58,6 +64,9 @@ export const DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG: TickerPriceFreshnessDefaults
   refreshCloseRateLimitWindowMs: 60_000,
   refreshCloseRateLimitMax: 10,
   syncTickerCap: 25,
+  activityDetailedRetentionDays: 7,
+  activitySummaryRetentionDays: 90,
+  calendarHistoryRetentionDays: 730,
 };
 
 export function resolveTickerPriceFreshnessConfig(
@@ -113,6 +122,15 @@ export function resolveTickerPriceFreshnessConfig(
     syncTickerCap: row.tickerPriceSyncTickerCap ?? null,
     effectiveSyncTickerCap:
       row.tickerPriceSyncTickerCap ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.syncTickerCap,
+    activityDetailedRetentionDays: row.tickerPriceActivityDetailedRetentionDays ?? null,
+    effectiveActivityDetailedRetentionDays:
+      row.tickerPriceActivityDetailedRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.activityDetailedRetentionDays,
+    activitySummaryRetentionDays: row.tickerPriceActivitySummaryRetentionDays ?? null,
+    effectiveActivitySummaryRetentionDays:
+      row.tickerPriceActivitySummaryRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.activitySummaryRetentionDays,
+    calendarHistoryRetentionDays: row.tickerPriceCalendarHistoryRetentionDays ?? null,
+    effectiveCalendarHistoryRetentionDays:
+      row.tickerPriceCalendarHistoryRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.calendarHistoryRetentionDays,
     options: {
       supportedMarkets: [...MARKET_CODES],
       yahooChartRanges: [...TICKER_PRICE_FRESHNESS_YAHOO_CHART_RANGES],
@@ -128,6 +146,9 @@ export function resolveTickerPriceFreshnessConfig(
       refreshCloseRateLimitWindowMs: bounds.tickerPriceRefreshCloseRateLimitWindowMs,
       refreshCloseRateLimitMax: bounds.tickerPriceRefreshCloseRateLimitMax,
       syncTickerCap: bounds.tickerPriceSyncTickerCap,
+      activityDetailedRetentionDays: bounds.tickerPriceActivityDetailedRetentionDays,
+      activitySummaryRetentionDays: bounds.tickerPriceActivitySummaryRetentionDays,
+      calendarHistoryRetentionDays: bounds.tickerPriceCalendarHistoryRetentionDays,
     },
   };
 }
@@ -147,6 +168,9 @@ export interface EffectiveTickerPriceFreshnessConfig {
   refreshCloseRateLimitWindowMs: number;
   refreshCloseRateLimitMax: number;
   syncTickerCap: number;
+  activityDetailedRetentionDays: number;
+  activitySummaryRetentionDays: number;
+  calendarHistoryRetentionDays: number;
 }
 
 export function getEffectiveTickerPriceFreshnessConfig(): EffectiveTickerPriceFreshnessConfig {
@@ -184,5 +208,11 @@ export function getEffectiveTickerPriceFreshnessConfig(): EffectiveTickerPriceFr
       row?.tickerPriceRefreshCloseRateLimitMax ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.refreshCloseRateLimitMax,
     syncTickerCap:
       row?.tickerPriceSyncTickerCap ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.syncTickerCap,
+    activityDetailedRetentionDays:
+      row?.tickerPriceActivityDetailedRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.activityDetailedRetentionDays,
+    activitySummaryRetentionDays:
+      row?.tickerPriceActivitySummaryRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.activitySummaryRetentionDays,
+    calendarHistoryRetentionDays:
+      row?.tickerPriceCalendarHistoryRetentionDays ?? DEFAULT_TICKER_PRICE_FRESHNESS_CONFIG.calendarHistoryRetentionDays,
   };
 }
