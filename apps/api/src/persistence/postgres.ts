@@ -10027,8 +10027,8 @@ export class PostgresPersistence implements Persistence {
       const applied = new Set(appliedResult.rows.map((row) => row.name));
       const appliedChecksums = new Map(
         appliedResult.rows
-          .filter((row) => row.checksum !== null)
-          .map((row) => [row.name, row.checksum!]),
+          .filter((row) => typeof row.checksum === "string" && row.checksum.trim().length > 0)
+          .map((row) => [row.name, row.checksum!.trim()]),
       );
 
       // Verify checksums of already-applied migrations against files on disk
