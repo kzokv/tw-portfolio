@@ -15,6 +15,15 @@ CREATE TABLE IF NOT EXISTS market_data.market_calendar_sources (
 CREATE INDEX IF NOT EXISTS idx_market_calendar_sources_market
   ON market_data.market_calendar_sources (market_code, is_default DESC);
 
+INSERT INTO market_data.market_calendar_sources
+  (id, market_code, label, source_type, url, host, allowed_hosts, parser_id, enabled, is_default)
+VALUES
+  ('official-tw', 'TW', 'TW official calendar', 'official_parser', NULL, NULL, ARRAY['twse.com.tw', 'www.twse.com.tw'], 'tw-official', TRUE, TRUE),
+  ('official-us', 'US', 'US official calendar', 'official_parser', NULL, NULL, ARRAY['nasdaqtrader.com', 'www.nasdaqtrader.com', 'nyse.com', 'www.nyse.com'], 'us-official', TRUE, TRUE),
+  ('official-au', 'AU', 'AU official calendar', 'official_parser', NULL, NULL, ARRAY['asx.com.au', 'www.asx.com.au'], 'au-official', TRUE, TRUE),
+  ('official-kr', 'KR', 'KR official calendar', 'official_parser', NULL, NULL, ARRAY['krx.co.kr', 'global.krx.co.kr', 'kind.krx.co.kr'], 'kr-official', TRUE, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS market_data.market_calendar_previews (
   preview_token TEXT PRIMARY KEY,
   import_operation_id TEXT NOT NULL,

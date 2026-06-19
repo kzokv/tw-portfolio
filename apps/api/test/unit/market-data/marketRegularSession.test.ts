@@ -124,6 +124,31 @@ describe("marketRegularSession", () => {
     expect(closeDate).toBe("2026-06-16");
   });
 
+  it("uses the official calendar for today's post-close refresh even before daily bars exist", async () => {
+    const closeDate = await getRegularSessionCloseRefreshDate(
+      "TW",
+      {
+        isTradingDay: vi.fn().mockResolvedValue(false),
+        getTradingDates: vi.fn().mockResolvedValue(new Set(["2026-06-16"])),
+        getOfficialCalendarDayStatus: vi.fn(async (_market, at) => ({
+          localDate: new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Taipei",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(at),
+          calendarYear: 2026,
+          status: "open" as const,
+          reason: "not_trading_day" as const,
+        })),
+      },
+      new Date("2026-06-17T06:00:00.000Z"),
+      10,
+    );
+
+    expect(closeDate).toBe("2026-06-17");
+  });
+
   it("returns no eligible close when the calendar has no confirmed dates", async () => {
     const closeDate = await getRegularSessionCloseRefreshDate(
       "TW",

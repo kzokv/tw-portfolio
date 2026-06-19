@@ -134,6 +134,26 @@ describePostgres("postgres migrations", () => {
     await applyMigrationFiles(manifest.numberedMigrations);
   }
 
+  async function expectDefaultMarketCalendarSources(): Promise<void> {
+    const result = await pool.query<{
+      id: string;
+      market_code: string;
+      parser_id: string | null;
+      is_default: boolean;
+    }>(
+      `SELECT id, market_code, parser_id, is_default
+         FROM market_data.market_calendar_sources
+        WHERE id IN ('official-tw', 'official-us', 'official-au', 'official-kr')
+        ORDER BY id`,
+    );
+    expect(result.rows).toEqual([
+      { id: "official-au", market_code: "AU", parser_id: "au-official", is_default: true },
+      { id: "official-kr", market_code: "KR", parser_id: "kr-official", is_default: true },
+      { id: "official-tw", market_code: "TW", parser_id: "tw-official", is_default: true },
+      { id: "official-us", market_code: "US", parser_id: "us-official", is_default: true },
+    ]);
+  }
+
   async function applyBaselineMigration(): Promise<void> {
     const manifest = await migrationManifestPromise;
     if (!manifest.baselineMigration) {
@@ -697,11 +717,13 @@ describePostgres("postgres migrations", () => {
     await persistence.close();
     persistence = null;
 
+    await expectDefaultMarketCalendarSources();
     const baselineSignature = await captureSchemaSignature();
 
     await resetDatabase();
     await applyNumberedMigrations();
 
+    await expectDefaultMarketCalendarSources();
     const upgradedSignature = await captureSchemaSignature();
     expect(baselineSignature).toEqual(upgradedSignature);
   }, 15_000);
