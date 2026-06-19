@@ -198,7 +198,8 @@ describe("closeRefreshService", () => {
       eventType: "close_refresh_refreshed",
       category: "daily_close",
       result: "success",
-      source: "system",
+      sourceKind: "system",
+      sourceId: "primary",
     }));
 
     activity.createMarketCalendarActivityEvent.mockClear();

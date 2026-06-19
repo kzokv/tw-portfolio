@@ -271,11 +271,13 @@ async function emitCloseRefreshActivity(
       marketCode: item.marketCode,
       category: "daily_close",
       result: resultByStatus[item.status],
-      source: activitySourceForCloseRefresh(item.source),
+      sourceKind: activitySourceKindForCloseRefresh(item.source),
+      sourceId: item.source,
       eventType: eventTypeByStatus[item.status],
       title: titleByStatus[item.status],
       message: buildCloseRefreshMessage(item),
       ticker: item.ticker,
+      dedupeKey: `close-refresh:${item.marketCode}:${item.ticker}:${item.barDate ?? "none"}:${item.status}`,
       detail: {
         barDate: item.barDate,
         source: item.source,
@@ -296,7 +298,7 @@ async function emitCloseRefreshActivity(
   }
 }
 
-function activitySourceForCloseRefresh(source: string | null) {
+function activitySourceKindForCloseRefresh(source: string | null) {
   const normalized = source?.toLowerCase() ?? "";
   if (normalized.includes("twse")) return "twse_close" as const;
   if (normalized.includes("yahoo")) return "yahoo_chart" as const;

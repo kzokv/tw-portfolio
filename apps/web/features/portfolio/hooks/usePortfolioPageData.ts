@@ -30,6 +30,7 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
   feeProfiles: [],
   feeProfileBindings: [],
   integrityIssue: null,
+  refreshPending: null,
 };
 
 const PORTFOLIO_PRIMARY_CACHE_TAGS = [buildRouteDtoCacheTag("route", "portfolio-primary")];

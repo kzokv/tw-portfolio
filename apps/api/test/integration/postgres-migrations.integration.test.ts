@@ -138,19 +138,19 @@ describePostgres("postgres migrations", () => {
     const result = await pool.query<{
       id: string;
       market_code: string;
-      parser_id: string | null;
+      suggested_source_url: string | null;
       is_default: boolean;
     }>(
-      `SELECT id, market_code, parser_id, is_default
+      `SELECT id, market_code, suggested_source_url, is_default
          FROM market_data.market_calendar_sources
         WHERE id IN ('official-tw', 'official-us', 'official-au', 'official-kr')
         ORDER BY id`,
     );
     expect(result.rows).toEqual([
-      { id: "official-au", market_code: "AU", parser_id: "au-official", is_default: true },
-      { id: "official-kr", market_code: "KR", parser_id: "kr-official", is_default: true },
-      { id: "official-tw", market_code: "TW", parser_id: "tw-official", is_default: true },
-      { id: "official-us", market_code: "US", parser_id: "us-official", is_default: true },
+      { id: "official-au", market_code: "AU", suggested_source_url: "https://www.asx.com.au/markets/market-resources/trading-hours-calendar/cash-market-trading-hours/trading-calendar", is_default: true },
+      { id: "official-kr", market_code: "KR", suggested_source_url: "https://global.krx.co.kr/contents/GLB/05/0501/0501110000/GLB0501110000.jsp", is_default: true },
+      { id: "official-tw", market_code: "TW", suggested_source_url: "https://www.twse.com.tw/en/trading/holiday.html", is_default: true },
+      { id: "official-us", market_code: "US", suggested_source_url: "https://www.nasdaqtrader.com/trader.aspx?id=Calendar", is_default: true },
     ]);
   }
 

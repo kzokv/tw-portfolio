@@ -178,11 +178,13 @@ async function filterOpenMarketPairs(
         marketCode,
         category: "calendar",
         result: "skipped",
-        source: "official_calendar",
+        sourceKind: "official_calendar",
+        sourceId: "market-calendar",
         eventType: "calendar_unknown_intraday_skip",
         title: "Calendar unknown",
         message: `${marketCode} intraday enqueue skipped because the official calendar is unknown.`,
         calendarYear: Number(state.localDate.slice(0, 4)),
+        dedupeKey: `calendar-unknown-intraday-skip:${marketCode}:${state.localDate}`,
         detail: { localDate: state.localDate, marketStateReason: state.marketStateReason },
       });
       continue;

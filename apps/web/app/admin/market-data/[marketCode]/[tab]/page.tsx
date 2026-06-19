@@ -194,8 +194,10 @@ function activityQueryFromSearchParams(query: Record<string, string | string[] |
     limit: positiveIntQueryValue(query.limit, 25),
     search: firstOptionalQueryValue(query.search) ?? "",
     source: firstOptionalQueryValue(query.source) ?? "",
+    sourceKind: firstOptionalQueryValue(query.sourceKind) ?? firstOptionalQueryValue(query.source) ?? "",
+    sourceId: firstOptionalQueryValue(query.sourceId) ?? "",
     category: firstOptionalQueryValue(query.category) ?? "",
-    result: firstOptionalQueryValue(query.result) ?? "warning,error",
+    result: firstOptionalQueryValue(query.result) ?? "all",
     timeRange: firstOptionalQueryValue(query.timeRange) ?? "24h",
   };
 }
@@ -205,9 +207,11 @@ function activityQueryString(query: AdminMarketDataActivityQuery): string {
   params.set("page", String(query.page));
   params.set("limit", String(query.limit));
   if (query.search.trim()) params.set("search", query.search.trim());
-  if (query.source) params.set("source", query.source);
+  if (query.sourceKind) params.set("sourceKind", query.sourceKind);
+  else if (query.source) params.set("source", query.source);
+  if (query.sourceId) params.set("sourceId", query.sourceId);
   if (query.category) params.set("category", query.category);
-  if (query.result) params.set("result", query.result);
+  if (query.result && query.result !== "all") params.set("result", query.result);
   if (query.timeRange) params.set("timeRange", query.timeRange);
   return params.toString();
 }

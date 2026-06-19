@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AccountDefaultCurrency, DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
-import { formatCompactCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+import type { AccountDefaultCurrency, DashboardPerformanceRange, LocaleCode, PriceRefreshPendingDto } from "@vakwen/shared-types";
+import { cn, formatCompactCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
@@ -194,6 +194,7 @@ export function DashboardClient({
   const dashboardPollMs = resolveTickerPricePollMs(dashboard.settings, initialPrimaryData?.settings);
   const shouldPollDashboardPrices = shouldPollForOpenMarket(dashboard.holdings, marketStates)
     && isTickerPriceIntradayEnabled(dashboard.settings, initialPrimaryData?.settings);
+  const refreshPricesStatus = formatRefreshPricesPending(dict, dashboard.refreshPending ?? null);
 
   useEffect(() => {
     if (!shouldPollDashboardPrices) return;
@@ -306,6 +307,11 @@ export function DashboardClient({
               {dict.dashboardHome.refreshPricesLabel}
             </Button>
           ) : null}
+          {refreshPricesStatus ? (
+            <span className="text-xs font-medium text-muted-foreground" data-testid="dashboard-refresh-prices-status">
+              {refreshPricesStatus}
+            </span>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -401,6 +407,7 @@ export function DashboardClient({
                   groups={holdingGroups}
                   locale={locale}
                   reportingCurrency={dashboard.summary.reportingCurrency}
+                  showAdminActivityLinks={sessionUserRole === "admin"}
                 />
               );
             case "dividends-section":
@@ -457,28 +464,112 @@ function DashboardMarketStateSummary({
   dict: AppDictionary;
   marketStates: DashboardMarketStateLike[];
 }) {
+  const describeState = (state: DashboardMarketStateLike) => {
+    if (state.marketStateReason === "calendar_unknown" || state.calendarStatus === "calendar_unknown") {
+      return dict.holdings.calendarUnknownWarningTitle;
+    }
+    return state.marketState === "open" ? dict.dashboardHome.heldMarketsOpen : dict.dashboardHome.heldMarketsClosed;
+  };
+
   return (
     <ShadcnCard data-testid="dashboard-market-state-summary">
       <CardHeader className="pb-3">
         <CardTitle>{dict.dashboardHome.heldMarketsTitle}</CardTitle>
         <CardDescription>{dict.dashboardHome.heldMarketsDescription}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
+      <CardContent className="grid gap-3">
         {marketStates.map((state) => (
           <div
             key={state.marketCode}
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+            className="rounded-xl border border-border/70 bg-muted/15 px-4 py-3"
             data-testid={`dashboard-market-state-${state.marketCode}`}
           >
-            <span className="font-semibold text-foreground">{state.marketCode}</span>
-            <span className={state.marketState === "open" ? "text-[hsl(var(--success))]" : "text-muted-foreground"}>
-              {state.marketState === "open" ? dict.dashboardHome.heldMarketsOpen : dict.dashboardHome.heldMarketsClosed}
-            </span>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-foreground">{state.marketCode}</span>
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                      state.marketStateReason === "calendar_unknown" || state.calendarStatus === "calendar_unknown"
+                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                        : state.marketState === "open"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-border bg-background text-muted-foreground",
+                    )}
+                  >
+                    {describeState(state)}
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span>{formatDashboardTemplate(dict.dashboardHome.heldMarketsHeldCount, "{count} held", { count: String(state.heldCount ?? 0) })}</span>
+                  {state.marketLocalDate ? <span>{formatDashboardTemplate(dict.dashboardHome.heldMarketsLocalDate, "Local date {date}", { date: state.marketLocalDate })}</span> : null}
+                  <span>{formatDashboardTemplate(dict.dashboardHome.heldMarketsTimeZone, "Time zone {timezone}", { timezone: marketStateTimeZone(state) })}</span>
+                </div>
+                {state.marketStateReason === "calendar_unknown" || state.calendarStatus === "calendar_unknown" ? (
+                  <p className="mt-3 text-sm text-amber-900">
+                    {formatDashboardMessage(dict.holdings.calendarUnknownWarningMessage, {
+                      market: state.marketCode,
+                      year: state.marketLocalDate?.slice(0, 4) ?? "current",
+                      location: marketLocationLabel(state.marketCode),
+                      date: state.marketLocalDate ?? dict.holdings.priceStateUnknownValue,
+                    })}
+                  </p>
+                ) : null}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {formatDashboardTemplate(
+                  dict.dashboardHome.heldMarketsSessionLabel,
+                  "Session {state}",
+                  { state: state.marketState === "open" ? dict.dashboardHome.heldMarketsOpen : dict.dashboardHome.heldMarketsClosed },
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </CardContent>
     </ShadcnCard>
   );
+}
+
+function marketLocationLabel(marketCode: string): string {
+  switch (marketCode) {
+    case "TW":
+      return "Taipei";
+    case "US":
+      return "New York";
+    case "AU":
+      return "Sydney";
+    case "KR":
+      return "Seoul";
+    default:
+      return marketCode;
+  }
+}
+
+function marketStateTimeZone(state: DashboardMarketStateLike): string {
+  const record = state as DashboardMarketStateLike & { marketTimeZone?: string | null };
+  if (record.marketTimeZone) return record.marketTimeZone;
+  switch (state.marketCode) {
+    case "TW":
+      return "Asia/Taipei";
+    case "US":
+      return "America/New_York";
+    case "AU":
+      return "Australia/Sydney";
+    case "KR":
+      return "Asia/Seoul";
+    default:
+      return "Local market time";
+  }
+}
+
+function formatDashboardTemplate(template: string | undefined, fallback: string, values: Record<string, string>): string {
+  let output = template ?? fallback;
+  for (const [key, value] of Object.entries(values)) {
+    output = output.replace(`{${key}}`, value);
+  }
+  return output;
 }
 
 export function DashboardCommandModules({
@@ -617,4 +708,19 @@ function isTickerPriceIntradayEnabled(
   return currentSettings?.effectiveTickerPriceIntradayEnabled
     ?? initialSettings?.effectiveTickerPriceIntradayEnabled
     ?? true;
+}
+
+function formatRefreshPricesPending(dict: AppDictionary, pending: PriceRefreshPendingDto | null | undefined): string | null {
+  if (!pending) return null;
+  if (pending.enqueuedPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingQueued.replace("{count}", String(pending.enqueuedPairs));
+  }
+  if (pending.cappedPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingCapped.replace("{count}", String(pending.cappedPairs));
+  }
+  if (pending.calendarUnknownPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingCalendarUnknown.replace("{count}", String(pending.calendarUnknownPairs));
+  }
+  if (pending.consideredPairs > 0) return dict.dashboardHome.refreshPricesPendingIdle;
+  return null;
 }

@@ -56,7 +56,7 @@ interface YahooChartOptions extends Record<string, unknown> {
 }
 
 const SOURCE = "yahoo-finance-chart";
-const SOURCE_KIND: IntradaySourceKind = "intraday_yahoo_chart";
+const SOURCE_KIND: IntradaySourceKind = "yahoo_chart";
 
 const KR_SUFFIXES = [".KS", ".KQ"] as const;
 
@@ -114,6 +114,7 @@ export class YahooFinanceIntradayProvider {
       observedAt: now.toISOString(),
       sourceKind: SOURCE_KIND,
       source: SOURCE,
+      providerSymbol: symbol,
       currency: result.meta?.currency?.trim().toUpperCase() || currencyFor(input.marketCode),
     };
   }

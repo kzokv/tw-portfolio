@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ticker Price Freshness Refresh Revision Mockups</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --panel-soft: #f9fbfd;
+      --text: #111827;
+      --muted: #64748b;
+      --border: #dbe3ee;
+      --border-strong: #cbd5e1;
+      --accent: #2457d6;
+      --accent-soft: #e8efff;
+      --success: #147a46;
+      --success-soft: #e8f7ef;
+      --warning: #a85e00;
+      --warning-soft: #fff4df;
+      --danger: #b42318;
+      --danger-soft: #fff0ed;
+      --teal: #0f766e;
+      --teal-soft: #e4f7f4;
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    .artboard { min-height: 100vh; padding: 28px; }
+    .artboard[hidden] { display: none; }
+    .desktop-frame { max-width: 1360px; margin: 0 auto; }
+    .mobile-frame { width: 390px; min-height: 100vh; margin: 0 auto; background: var(--bg); }
+    .shell {
+      display: grid;
+      grid-template-columns: 216px minmax(0, 1fr);
+      min-height: calc(100vh - 56px);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: #fbfcfe;
+      padding: 22px 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      font-weight: 800;
+    }
+    .mark {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+    }
+    .nav-title {
+      margin: 18px 10px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .nav-item {
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: #334155;
+      font-weight: 650;
+    }
+    .nav-item.active { background: var(--accent-soft); color: #173b91; }
+    .main { padding: 26px; overflow: hidden; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 4px; font-size: 30px; line-height: 1.1; letter-spacing: 0; }
+    h2 { margin-bottom: 6px; font-size: 18px; line-height: 1.2; letter-spacing: 0; }
+    h3 { margin-bottom: 6px; font-size: 15px; line-height: 1.2; letter-spacing: 0; }
+    .desc { margin-bottom: 0; color: var(--muted); }
+    .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .btn {
+      min-height: 40px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: #172033;
+      padding: 8px 12px;
+      font: inherit;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .btn.ghost { background: var(--panel-soft); }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow: hidden;
+      margin: 0 0 16px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+    .tab {
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .tab.active { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: 1.2fr 0.8fr; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 16px;
+    }
+    .soft { background: var(--panel-soft); }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .badge.success { background: var(--success-soft); color: var(--success); }
+    .badge.warn { background: var(--warning-soft); color: var(--warning); }
+    .badge.danger { background: var(--danger-soft); color: var(--danger); }
+    .badge.info { background: var(--accent-soft); color: #173b91; }
+    .badge.teal { background: var(--teal-soft); color: var(--teal); }
+    .badge.neutral { background: #eef2f7; color: #475569; }
+    .metric {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .metric-value { font-size: 24px; font-weight: 850; letter-spacing: 0; }
+    .metric-label { margin-bottom: 3px; color: var(--muted); font-weight: 700; }
+    .market-list { display: grid; gap: 10px; }
+    .market-row {
+      display: grid;
+      grid-template-columns: 84px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .market-code { font-size: 19px; font-weight: 850; }
+    .market-facts { color: var(--muted); font-size: 14px; }
+    .warning-line {
+      margin-top: 8px;
+      border-left: 3px solid var(--warning);
+      padding-left: 10px;
+      color: #6b3c00;
+      font-size: 14px;
+    }
+    .table-wrap {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    th { color: var(--muted); font-size: 13px; font-weight: 800; background: #fbfcfe; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .right { text-align: right; }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      letter-spacing: 0;
+    }
+    .ticker { font-size: 19px; font-weight: 850; }
+    .sub { color: var(--muted); font-size: 14px; }
+    .price-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .chipline { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-weight: 750; }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: #94a3b8; }
+    .dot.green { background: var(--success); }
+    .dot.warn { background: var(--warning); }
+    .flash {
+      position: relative;
+      border-radius: 6px;
+      padding: 1px 4px;
+      background: #fff7cc;
+      box-shadow: 0 0 0 1px rgba(168, 94, 0, 0.18) inset;
+    }
+    .refresh-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: #eff6ff;
+      padding: 12px 14px;
+      color: #1e3a8a;
+    }
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1.5fr repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .filter-row.activity-filters {
+      grid-template-columns: minmax(260px, 1.4fr) minmax(145px, 0.8fr) minmax(145px, 0.8fr);
+    }
+    .input, .select {
+      min-height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+      color: #334155;
+      font-weight: 700;
+    }
+    .quick-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .pill {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      padding: 7px 10px;
+      color: #334155;
+      font-weight: 750;
+    }
+    .pill.active { border-color: var(--accent); background: var(--accent-soft); color: #173b91; }
+    .drawer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+    .drawer {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .drawer-head { padding: 16px; border-bottom: 1px solid var(--border); background: #fbfcfe; }
+    .drawer-body { padding: 16px; display: grid; gap: 14px; }
+    .kv {
+      display: grid;
+      grid-template-columns: 145px minmax(0, 1fr);
+      gap: 8px 12px;
+      margin: 0;
+      font-size: 14px;
+    }
+    .kv dt { color: var(--muted); font-weight: 750; }
+    .kv dd { margin: 0; min-width: 0; word-break: break-word; }
+    .codebox {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #111827;
+      color: #dbeafe;
+      padding: 12px;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+    .jsonbox {
+      min-height: 270px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 14px;
+      font-size: 13px;
+      overflow: hidden;
+      white-space: pre-wrap;
+    }
+    .mobile-shell {
+      min-height: 100vh;
+      padding: 18px;
+      background: var(--bg);
+    }
+    .mobile-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .mobile-title { font-size: 22px; font-weight: 850; }
+    .mobile-card {
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+    }
+    .mobile-metric {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .mobile-metric:last-child { border-bottom: 0; }
+    .tooltip {
+      position: relative;
+      margin: -4px auto 14px;
+      border-radius: 8px;
+      background: #2631d9;
+      color: #fff;
+      padding: 14px;
+      box-shadow: 0 18px 44px rgba(38, 49, 217, 0.28);
+    }
+    .tooltip:after {
+      content: "";
+      position: absolute;
+      bottom: -8px;
+      left: 60px;
+      border-width: 8px 8px 0 8px;
+      border-style: solid;
+      border-color: #2631d9 transparent transparent transparent;
+    }
+    .tooltip dl { grid-template-columns: 92px minmax(0, 1fr); }
+    .tooltip dt { color: #c7d2fe; }
+    .tooltip a, .tooltip dd { color: #fff; }
+    .zh body, .zh .artboard { font-family: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", ui-sans-serif, system-ui, sans-serif; }
+    @media (prefers-reduced-motion: reduce) {
+      .flash { background: #fff7cc; box-shadow: 0 0 0 1px rgba(168, 94, 0, 0.18) inset; }
+    }
+  </style>
+</head>
+<body>
+  <section id="dashboard-en" class="artboard">
+    <div class="desktop-frame shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark">V</span> Vakwen</div>
+        <div class="nav-title">Portfolio</div>
+        <div class="nav-item active">Dashboard</div>
+        <div class="nav-item">Portfolio</div>
+        <div class="nav-item">Reports</div>
+        <div class="nav-title">Admin</div>
+        <div class="nav-item">Market Data</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h1>Holdings</h1>
+            <p class="desc">Reporting values and prices are shown in TWD.</p>
+          </div>
+          <div class="actions">
+            <button class="btn primary">Refresh prices</button>
+            <button class="btn">Refresh closes</button>
+          </div>
+        </div>
+        <div class="refresh-banner">
+          <div><strong>Refreshing prices silently.</strong> 14 holdings in scope, 4 queued this cycle. Layout and sort stay fixed.</div>
+          <span class="badge info">No page reload</span>
+        </div>
+        <div class="grid two">
+          <section class="panel">
+            <div class="section-title">
+              <div>
+                <h2>Market context</h2>
+                <p class="desc">Today is shown in each market's local time.</p>
+              </div>
+              <span class="badge neutral">All held markets</span>
+            </div>
+            <div class="market-list">
+              <div class="market-row">
+                <div class="market-code">TW</div>
+                <div>
+                  <strong>Calendar unknown</strong>
+                  <div class="market-facts">Taipei · Today 2026-06-19 · 2 holdings</div>
+                  <div class="warning-line">2026 calendar seed is missing. Seed it in Admin Market Data or with the admin MCP calendar tool.</div>
+                </div>
+                <span class="badge warn">Needs calendar</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">US</div>
+                <div><strong>Closed</strong><div class="market-facts">New York · Today 2026-06-18 · 3 holdings</div></div>
+                <span class="badge neutral">Closed</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">AU</div>
+                <div><strong>Open</strong><div class="market-facts">Sydney · Today 2026-06-19 · 5 holdings</div></div>
+                <span class="badge success">Open</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">KR</div>
+                <div><strong>Open</strong><div class="market-facts">Seoul · Today 2026-06-19 · 4 holdings</div></div>
+                <span class="badge success">Open</span>
+              </div>
+            </div>
+          </section>
+          <section class="panel soft">
+            <h2>Current valuation</h2>
+            <p class="desc">Totals update in place when quote state changes. Trend charts stay snapshot-backed.</p>
+            <div class="grid" style="margin-top: 14px;">
+              <div class="metric"><div><div class="metric-label">Market value</div><div class="metric-value flash">TWD 25.4M</div></div><span class="badge success">+0.8%</span></div>
+              <div class="metric"><div><div class="metric-label">Price freshness</div><div class="metric-value">10 current</div></div><span class="badge warn">4 pending</span></div>
+              <div class="metric"><div><div class="metric-label">Last quote refresh</div><div class="metric-value">Just now</div></div><span class="badge info">Async</span></div>
+            </div>
+          </section>
+        </div>
+        <section class="panel" style="margin-top: 14px;">
+          <div class="section-title">
+            <div><h2>Top holdings</h2><p class="desc">Rows stay in place while price cells, chips, totals, and rollups update.</p></div>
+            <span class="badge info">All-scope refresh</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Ticker</th><th>Position</th><th class="right">Market value</th><th class="right">Price</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><div class="ticker">2330</div><div class="sub">TSMC · TW</div></td>
+                  <td><strong class="mono">5,000 units</strong><div class="sub">2 accounts</div></td>
+                  <td class="right"><strong class="mono flash">TWD 12.1M</strong><div class="sub">+195,000 since last refresh</div></td>
+                  <td><div class="price-cell"><strong class="mono flash">NT$2,410.00</strong><span class="chipline"><span class="dot warn"></span>Calendar unknown</span></div></td>
+                </tr>
+                <tr>
+                  <td><div class="ticker">QAU</div><div class="sub">BetaShares Gold · AU</div></td>
+                  <td><strong class="mono">840 units</strong><div class="sub">1 account</div></td>
+                  <td class="right"><strong class="mono flash">TWD 1.23M</strong><div class="sub">native AUD available</div></td>
+                  <td><div class="price-cell"><strong class="mono flash">A$18.42</strong><span class="chipline"><span class="dot green"></span>Updated 2m ago</span></div></td>
+                </tr>
+                <tr>
+                  <td><div class="ticker">000660</div><div class="sub">SK hynix · KR</div></td>
+                  <td><strong class="mono">17 units</strong><div class="sub">1 account</div></td>
+                  <td class="right"><strong class="mono">TWD 100K</strong><div class="sub">native KRW available</div></td>
+                  <td><div class="price-cell"><strong class="mono">KRW 292,000</strong><span class="chipline"><span class="dot green"></span>Refresh pending</span></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <section id="dashboard-zh" class="artboard zh">
+    <div class="desktop-frame shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark">V</span> Vakwen</div>
+        <div class="nav-title">投資組合</div>
+        <div class="nav-item active">儀表板</div>
+        <div class="nav-item">持股</div>
+        <div class="nav-item">報表</div>
+        <div class="nav-title">管理</div>
+        <div class="nav-item">市場資料</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">儀表板</p>
+            <h1>持股</h1>
+            <p class="desc">申報價值與價格以 TWD 顯示。</p>
+          </div>
+          <div class="actions">
+            <button class="btn primary">更新價格</button>
+            <button class="btn">更新收盤價</button>
+          </div>
+        </div>
+        <div class="refresh-banner">
+          <div><strong>正在靜默更新價格。</strong> 此範圍共有 14 檔持股，本輪已排入 4 檔。版面與排序維持不變。</div>
+          <span class="badge info">不重新載入頁面</span>
+        </div>
+        <div class="grid two">
+          <section class="panel">
+            <div class="section-title">
+              <div>
+                <h2>市場脈絡</h2>
+                <p class="desc">每個市場都以當地時區顯示今日日期。</p>
+              </div>
+              <span class="badge neutral">所有持有市場</span>
+            </div>
+            <div class="market-list">
+              <div class="market-row">
+                <div class="market-code">TW</div>
+                <div>
+                  <strong>交易日曆未知</strong>
+                  <div class="market-facts">台北 · 今日 2026-06-19 · 2 檔持股</div>
+                  <div class="warning-line">缺少 2026 年市場日曆。請在管理後台市場資料或透過管理員 MCP 工具匯入。</div>
+                </div>
+                <span class="badge warn">需要日曆</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">US</div>
+                <div><strong>已收盤</strong><div class="market-facts">紐約 · 今日 2026-06-18 · 3 檔持股</div></div>
+                <span class="badge neutral">已收盤</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">AU</div>
+                <div><strong>開盤中</strong><div class="market-facts">雪梨 · 今日 2026-06-19 · 5 檔持股</div></div>
+                <span class="badge success">開盤中</span>
+              </div>
+              <div class="market-row">
+                <div class="market-code">KR</div>
+                <div><strong>開盤中</strong><div class="market-facts">首爾 · 今日 2026-06-19 · 4 檔持股</div></div>
+                <span class="badge success">開盤中</span>
+              </div>
+            </div>
+          </section>
+          <section class="panel soft">
+            <h2>目前估值</h2>
+            <p class="desc">報價狀態改變時，總額會在原地更新；趨勢圖仍以快照資料為準。</p>
+            <div class="grid" style="margin-top: 14px;">
+              <div class="metric"><div><div class="metric-label">市值</div><div class="metric-value flash">TWD 25.4M</div></div><span class="badge success">+0.8%</span></div>
+              <div class="metric"><div><div class="metric-label">價格狀態</div><div class="metric-value">10 檔最新</div></div><span class="badge warn">4 檔待更新</span></div>
+              <div class="metric"><div><div class="metric-label">上次報價更新</div><div class="metric-value">剛剛</div></div><span class="badge info">非同步</span></div>
+            </div>
+          </section>
+        </div>
+        <section class="panel" style="margin-top: 14px;">
+          <div class="section-title">
+            <div><h2>主要持股</h2><p class="desc">價格、狀態、列指標與總額更新時，資料列仍維持原位。</p></div>
+            <span class="badge info">全範圍更新</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>股票</th><th>部位</th><th class="right">市值</th><th class="right">價格</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><div class="ticker">2330</div><div class="sub">台積電 · TW</div></td>
+                  <td><strong class="mono">5,000 股</strong><div class="sub">2 個帳戶</div></td>
+                  <td class="right"><strong class="mono flash">TWD 12.1M</strong><div class="sub">本次更新增加 195,000</div></td>
+                  <td><div class="price-cell"><strong class="mono flash">NT$2,410.00</strong><span class="chipline"><span class="dot warn"></span>交易日曆未知</span></div></td>
+                </tr>
+                <tr>
+                  <td><div class="ticker">QAU</div><div class="sub">BetaShares Gold · AU</div></td>
+                  <td><strong class="mono">840 單位</strong><div class="sub">1 個帳戶</div></td>
+                  <td class="right"><strong class="mono flash">TWD 1.23M</strong><div class="sub">可查看 AUD 原幣</div></td>
+                  <td><div class="price-cell"><strong class="mono flash">A$18.42</strong><span class="chipline"><span class="dot green"></span>2 分鐘前更新</span></div></td>
+                </tr>
+                <tr>
+                  <td><div class="ticker">000660</div><div class="sub">SK hynix · KR</div></td>
+                  <td><strong class="mono">17 股</strong><div class="sub">1 個帳戶</div></td>
+                  <td class="right"><strong class="mono">TWD 100K</strong><div class="sub">可查看 KRW 原幣</div></td>
+                  <td><div class="price-cell"><strong class="mono">KRW 292,000</strong><span class="chipline"><span class="dot green"></span>更新排程中</span></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <section id="admin-calendar-en" class="artboard">
+    <div class="desktop-frame shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark">V</span> Vakwen Admin</div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item">Overview</div>
+        <div class="nav-item active">Market Data</div>
+        <div class="nav-item">Audit</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Admin / Market Data / TW</p>
+            <h1>Calendar import</h1>
+            <p class="desc">Paste normalized JSON. The app computes weekdays/weekends and stores only exceptions.</p>
+          </div>
+          <div class="actions"><button class="btn">Copy schema</button><button class="btn primary">Preview import</button></div>
+        </div>
+        <nav class="tabs"><span class="tab">Overview</span><span class="tab active">Calendar</span><span class="tab">Instruments</span><span class="tab">Backfill</span><span class="tab">Operations</span><span class="tab">Activity</span><span class="tab">Purge</span></nav>
+        <div class="grid two">
+          <section class="panel">
+            <div class="section-title">
+              <div><h2>Normalized exceptions JSON</h2><p class="desc">Recommended: ask the admin MCP tool to parse the official source into this shape.</p></div>
+              <span class="badge teal">Exceptions only</span>
+            </div>
+            <div class="jsonbox">{
+  "marketCode": "TW",
+  "calendarYear": 2027,
+  "coverage": {
+    "scope": "full_year",
+    "evidence": "Reviewed TWSE holiday schedule for 2027"
+  },
+  "source": {
+    "sourceType": "official_source",
+    "sourceUrl": "https://www.twse.com.tw/en/trading/holiday.html",
+    "retrievedAt": "2026-06-19T11:21:00.000Z"
+  },
+  "exceptions": [
+    {
+      "date": "2027-01-01",
+      "status": "closed",
+      "name": "Republic Day observed",
+      "evidence": "TWSE holiday table",
+      "overrideReason": "weekday_closure"
+    },
+    {
+      "date": "2027-02-20",
+      "status": "open",
+      "name": "Make-up trading day",
+      "evidence": "TWSE holiday table",
+      "overrideReason": "weekend_open"
+    }
+  ]
+}</div>
+          </section>
+          <section class="panel soft">
+            <h2>Default source</h2>
+            <dl class="kv" style="margin-top: 12px;">
+              <dt>Label</dt><dd>TWSE Holiday Schedule</dd>
+              <dt>Source type</dt><dd>official_source</dd>
+              <dt>Suggested URL</dt><dd class="mono">https://www.twse.com.tw/en/trading/holiday.html</dd>
+              <dt>Server fetch</dt><dd><span class="badge neutral">Not allowed</span></dd>
+              <dt>Parser</dt><dd><span class="badge neutral">Removed</span></dd>
+            </dl>
+            <div class="panel" style="margin-top: 14px;">
+              <h3>Preview summary</h3>
+              <div class="grid" style="margin-top: 10px;">
+                <div class="metric"><span>Trading days</span><strong>247</strong></div>
+                <div class="metric"><span>Weekday closures</span><strong>17</strong></div>
+                <div class="metric"><span>Weekend opens</span><strong>1</strong></div>
+                <div class="metric"><span>Warnings</span><strong>2</strong></div>
+              </div>
+            </div>
+            <div class="panel" style="margin-top: 14px;">
+              <h3>Diff against active version</h3>
+              <p class="desc">3 added exceptions, 1 changed exception, 0 removed exceptions. Confirming writes a calendar Activity event and preserves the old version.</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section id="admin-activity-ops-en" class="artboard">
+    <div class="desktop-frame shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark">V</span> Vakwen Admin</div>
+        <div class="nav-title">Operations</div>
+        <div class="nav-item">Overview</div>
+        <div class="nav-item active">Market Data</div>
+        <div class="nav-item">Runtime Config</div>
+      </aside>
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Admin / Market Data / AU</p>
+            <h1>Activity and operations</h1>
+            <p class="desc">Activity is the market event stream. Operations keeps detailed provider-operation logs.</p>
+          </div>
+          <div class="actions"><button class="btn">Refresh</button><button class="btn">Open settings</button></div>
+        </div>
+        <nav class="tabs"><span class="tab">Overview</span><span class="tab">Calendar</span><span class="tab">Instruments</span><span class="tab">Backfill</span><span class="tab active">Operations</span><span class="tab">Activity</span><span class="tab">Purge</span></nav>
+        <div class="drawer-layout">
+          <section>
+            <div class="grid four" style="margin-bottom: 14px;">
+              <div class="panel"><div class="metric"><div><div class="metric-label">Activity</div><div class="metric-value">128</div></div><span class="badge info">24h</span></div></div>
+              <div class="panel"><div class="metric"><div><div class="metric-label">Yahoo chart</div><div class="metric-value">42</div></div><span class="badge success">ok</span></div></div>
+              <div class="panel"><div class="metric"><div><div class="metric-label">Warnings</div><div class="metric-value">6</div></div><span class="badge warn">review</span></div></div>
+              <div class="panel"><div class="metric"><div><div class="metric-label">Errors</div><div class="metric-value">1</div></div><span class="badge danger">failed</span></div></div>
+            </div>
+            <div class="filter-row activity-filters">
+              <div class="input">Search ticker, provider symbol, operation id...</div>
+              <div class="select">Category: All</div>
+              <div class="select">Result: All</div>
+              <div class="select">Source kind: All</div>
+              <div class="select">Time: Last 24h</div>
+            </div>
+            <div class="quick-filters"><span class="pill active">All results</span><span class="pill">Problems only</span><span class="pill">Yahoo chart</span><span class="pill">Provider errors</span><span class="pill">Related to OP-AU-1092</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Category</th><th>Source</th><th>Subject</th><th>Result</th><th>Facts</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">13:04:11</td><td><span class="badge info">Intraday</span></td><td>Yahoo chart<br><span class="sub">yahoo-finance-au</span></td><td><strong>QAU</strong><div class="sub mono">QAU.AX</div></td><td><span class="badge success">Success</span></td><td>bar 13:03 Sydney · delay 1m · dedupe intraday:job-884:completed</td></tr>
+                  <tr><td class="mono">13:01:44</td><td><span class="badge warn">Provider error</span></td><td>Twelve Data<br><span class="sub">twelve-data-au</span></td><td><strong>catalog sync</strong><div class="sub mono">OP-AU-1092</div></td><td><span class="badge warn">Warning</span></td><td>10 rows skipped · detailed logs retained 7d</td></tr>
+                  <tr><td class="mono">12:58:02</td><td><span class="badge teal">Instrument</span></td><td>ASX GICS CSV</td><td><strong>instrument merge</strong><div class="sub mono">batch-au-882</div></td><td><span class="badge success">Success</span></td><td>322 rows matched · 4 delisting candidates</td></tr>
+                  <tr><td class="mono">12:52:16</td><td><span class="badge neutral">Provider operation</span></td><td>Twelve Data</td><td><strong>backfill catalog rows</strong><div class="sub mono">OP-AU-1092</div></td><td><span class="badge success">Success</span></td><td>operation completed · see Operations logs</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <aside class="drawer">
+            <div class="drawer-head">
+              <span class="badge neutral">Operation OP-AU-1092</span>
+              <h2 style="margin-top: 10px;">Twelve Data catalog sync</h2>
+              <p class="desc">Raw logs remain in Operations. Related Activity is linked below.</p>
+            </div>
+            <div class="drawer-body">
+              <section><h3>Summary</h3><dl class="kv"><dt>Provider</dt><dd>twelve-data-au</dd><dt>Market</dt><dd>AU</dd><dt>Action</dt><dd>catalog_sync</dd><dt>Batch</dt><dd class="mono">batch-au-882</dd></dl></section>
+              <section><h3>Progress</h3><dl class="kv"><dt>Phase</dt><dd>completed_with_warnings</dd><dt>Matched</dt><dd>322</dd><dt>Skipped</dt><dd>10</dd><dt>Warnings</dt><dd>1 provider warning</dd></dl></section>
+              <section><h3>Logs</h3><div class="codebox">13:01:44 warn provider_timeout retryable=true
+13:01:47 info resumed_after_backoff
+13:02:18 info rows_written count=322</div></section>
+              <section><h3>Related Activity</h3><p class="desc">3 Activity events linked by operation id. If logs are purged, this panel shows the configured retention message.</p></section>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section id="mobile-zh" class="artboard zh">
+    <div class="mobile-frame mobile-shell">
+      <div class="mobile-top">
+        <div>
+          <div class="mobile-title">持股</div>
+          <p class="desc">價格在原地更新，不重整頁面。</p>
+        </div>
+        <button class="btn primary">更新價格</button>
+      </div>
+      <div class="refresh-banner" style="align-items: flex-start;">
+        <div><strong>靜默更新中</strong><br>全範圍 14 檔持股，本輪 4 檔已排入。排序與捲動位置不變。</div>
+      </div>
+      <section class="mobile-card">
+        <h2>市場脈絡</h2>
+        <div class="mobile-metric"><div><strong>TW 交易日曆未知</strong><div class="sub">台北今日 2026-06-19</div></div><span class="badge warn">需要日曆</span></div>
+        <div class="mobile-metric"><div><strong>AU 開盤中</strong><div class="sub">雪梨今日 2026-06-19</div></div><span class="badge success">開盤中</span></div>
+        <div class="mobile-metric"><div><strong>KR 開盤中</strong><div class="sub">首爾今日 2026-06-19</div></div><span class="badge success">開盤中</span></div>
+      </section>
+      <section class="mobile-card">
+        <div class="ticker">QAU</div>
+        <div class="sub">BetaShares Gold · AU</div>
+        <div class="mobile-metric"><div><div class="metric-label">市值</div><strong class="mono flash">TWD 1.23M</strong></div><span class="badge success">已更新</span></div>
+        <div class="mobile-metric"><div><div class="metric-label">價格</div><strong class="mono flash">A$18.42</strong></div><span class="chipline"><span class="dot green"></span>2 分鐘前更新</span></div>
+      </section>
+      <div class="tooltip">
+        <h2>價格狀態</h2>
+        <dl class="kv">
+          <dt>依據</dt><dd>盤中價格</dd>
+          <dt>市場</dt><dd>開盤中 · 2026-06-19</dd>
+          <dt>來源</dt><dd>Yahoo chart · QAU.AX</dd>
+          <dt>Bar 時間</dt><dd>2026/6/19 下午 1:03:00</dd>
+          <dt>觀測時間</dt><dd>2026/6/19 下午 1:04:11</dd>
+          <dt>延遲</dt><dd>1 分鐘</dd>
+          <dt>更新週期</dt><dd>5 分鐘</dd>
+          <dt>最新結果</dt><dd>成功</dd>
+          <dt>管理員</dt><dd>開啟 AU Activity</dd>
+        </dl>
+      </div>
+      <section class="mobile-card">
+        <div class="mobile-metric"><div><div class="metric-label">目前估值</div><strong class="mono flash">TWD 25.4M</strong></div><span class="badge info">非同步</span></div>
+        <p class="desc">趨勢圖仍使用快照資料，不會因盤中價格更新而改寫歷史點。</p>
+      </section>
+    </div>
+  </section>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const screen = params.get("screen") || "dashboard-en";
+    document.documentElement.lang = screen.endsWith("zh") || screen.includes("-zh") ? "zh-TW" : "en";
+    for (const artboard of document.querySelectorAll(".artboard")) {
+      artboard.hidden = screen !== "all" && artboard.id !== screen;
+    }
+  </script>
+</body>
+</html>

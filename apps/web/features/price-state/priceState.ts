@@ -35,6 +35,62 @@ export interface CalendarUnknownWarning {
   locationLabel: string;
 }
 
+export interface PriceStateTooltipRow {
+  label: string;
+  value: string;
+}
+
+export interface PriceStateTooltipDetails {
+  rows: PriceStateTooltipRow[];
+  activityPath: string | null;
+}
+
+export function buildPriceStateActivityPath({
+  marketCode,
+  priceState,
+  ticker,
+}: {
+  marketCode: string | null | undefined;
+  priceState: PriceStateDtoLike | null | undefined;
+  ticker?: string | null;
+}): string | null {
+  if (!marketCode || !["TW", "US", "AU", "KR"].includes(marketCode)) return null;
+  if (!priceState || priceState.sourceKind === "missing") return null;
+
+  const params = new URLSearchParams();
+  params.set("page", "1");
+  params.set("limit", "25");
+  params.set("timeRange", "24h");
+  if (ticker?.trim()) params.set("search", ticker.trim());
+  const activitySourceKind = priceStateActivitySourceKind(priceState.sourceKind);
+  if (activitySourceKind) params.set("sourceKind", activitySourceKind);
+  const category = activitySourceKind === "yahoo_chart"
+    ? "intraday_price"
+    : activitySourceKind === "twse_close" || activitySourceKind === "finmind"
+      ? "daily_close"
+      : null;
+  if (category) params.set("category", category);
+
+  return `/admin/market-data/${encodeURIComponent(marketCode)}/activity?${params.toString()}`;
+}
+
+function priceStateActivitySourceKind(sourceKind: PriceStateDtoLike["sourceKind"]): string | null {
+  switch (sourceKind) {
+    case "yahoo_chart":
+    case "intraday_yahoo_chart":
+      return "yahoo_chart";
+    case "twse_stock_day_close":
+      return "twse_close";
+    case "primary_daily":
+      return "finmind";
+    case "yahoo_chart_close":
+      return "yahoo_chart";
+    case "missing":
+    default:
+      return null;
+  }
+}
+
 export function buildMissingPriceState(marketState: PriceStateMarketState = "closed"): PriceStateDtoLike {
   return {
     basis: "missing",
@@ -238,16 +294,24 @@ export function formatPriceStateTooltip(
   locale: LocaleCode,
   priceState: PriceStateDtoLike | null | undefined,
 ): string[] {
-  if (!priceState) return [];
-  const rows = [
-    `${dict.holdings.priceStateBasisLabel}: ${formatBasisLabel(dict, priceState.basis)}`,
-    `${dict.holdings.priceStateMarketStateLabel}: ${formatMarketStateLabel(dict, priceState.marketState)}`,
-    `${dict.holdings.priceStateAsOfLabel}: ${formatTimestampValue(priceState.asOfTimestamp, priceState.asOfDate, locale, priceState.marketTimeZone, dict)}`,
-    `${dict.holdings.priceStateObservedAtLabel}: ${formatTimestampValue(priceState.observedAt, null, locale, priceState.marketTimeZone, dict)}`,
-    `${dict.holdings.priceStateSourceLabel}: ${priceState.source ?? dict.holdings.priceStateUnknownValue}`,
-    `${dict.holdings.priceStateQualityLabel}: ${formatQualityLabel(dict, priceState.quality)}`,
-    `${dict.holdings.priceStateDelayLabel}: ${formatDelayLabel(dict, priceState.delaySeconds)}`,
-    `${dict.holdings.priceStateTimeZoneLabel}: ${priceState.marketTimeZone ?? dict.holdings.priceStateUnknownValue}`,
+  return describePriceStateTooltip(dict, locale, priceState).rows.map((row) => `${row.label}: ${row.value}`);
+}
+
+export function describePriceStateTooltip(
+  dict: AppDictionary,
+  locale: LocaleCode,
+  priceState: PriceStateDtoLike | null | undefined,
+): PriceStateTooltipDetails {
+  if (!priceState) return { rows: [], activityPath: null };
+  const rows: PriceStateTooltipRow[] = [
+    { label: dict.holdings.priceStateBasisLabel, value: formatBasisLabel(dict, priceState.basis) },
+    { label: dict.holdings.priceStateMarketStateLabel, value: formatMarketStateLabel(dict, priceState.marketState) },
+    { label: dict.holdings.priceStateAsOfLabel, value: formatTimestampValue(priceState.asOfTimestamp, priceState.asOfDate, locale, priceState.marketTimeZone, dict) },
+    { label: dict.holdings.priceStateObservedAtLabel, value: formatTimestampValue(priceState.observedAt, null, locale, priceState.marketTimeZone, dict) },
+    { label: dict.holdings.priceStateSourceLabel, value: priceState.source ?? dict.holdings.priceStateUnknownValue },
+    { label: dict.holdings.priceStateQualityLabel, value: formatQualityLabel(dict, priceState.quality) },
+    { label: dict.holdings.priceStateDelayLabel, value: formatDelayLabel(dict, priceState.delaySeconds) },
+    { label: dict.holdings.priceStateTimeZoneLabel, value: priceState.marketTimeZone ?? dict.holdings.priceStateUnknownValue },
   ];
   const calendarStatus = readStringFact(priceState, "calendarStatus");
   const calendarReason = readStringFact(priceState, "calendarReason") ?? readStringFact(priceState, "marketStateReason");
@@ -261,15 +325,20 @@ export function formatPriceStateTooltip(
     ?? readStringFact(priceState, "latestRefreshOutcome")
     ?? readNestedStringFact(priceState, "latestIntradayAttempt", "outcome");
   const activityPath = readStringFact(priceState, "activityPath");
-  if (calendarReason) rows.push(`${holdingLabel(dict, "priceStateMarketReasonLabel", "priceStateCalendarReasonLabel", "Market reason")}: ${formatReasonFact(calendarReason)}`);
-  if (calendarStatus) rows.push(`${holdingLabel(dict, "priceStateCalendarStatusLabel", "priceStateCalendarLabel", "Calendar status")}: ${calendarStatus}`);
-  if (marketLocalDate) rows.push(`${holdingLabel(dict, "priceStateLocalMarketDateLabel", "priceStateMarketLocalDateLabel", "Local market date")}: ${marketLocalDate}`);
-  if (yahooSymbol) rows.push(`${dict.holdings.priceStateYahooSymbolLabel}: ${yahooSymbol}`);
-  if (cadenceMinutes !== null) rows.push(`${dict.holdings.priceStateCadenceLabel}: ${cadenceMinutes}m`);
-  if (latestAttemptAt) rows.push(`${holdingLabel(dict, "priceStateLatestRefreshAttemptLabel", "priceStateLatestAttemptLabel", "Latest refresh attempt")}: ${formatTimestampValue(latestAttemptAt, null, locale, priceState.marketTimeZone, dict)}`);
-  if (latestOutcome) rows.push(`${holdingLabel(dict, "priceStateLatestRefreshOutcomeLabel", "priceStateLatestOutcomeLabel", "Latest refresh outcome")}: ${latestOutcome}`);
-  if (activityPath) rows.push(`${dict.holdings.priceStateActivityHintLabel}: ${activityPath}`);
-  return rows;
+  if (calendarReason) rows.push({ label: holdingLabel(dict, "priceStateMarketReasonLabel", "priceStateCalendarReasonLabel", "Market reason"), value: formatReasonFact(calendarReason, dict) });
+  if (calendarStatus) rows.push({ label: holdingLabel(dict, "priceStateCalendarStatusLabel", "priceStateCalendarLabel", "Calendar status"), value: formatReasonFact(calendarStatus, dict) });
+  if (marketLocalDate) rows.push({ label: holdingLabel(dict, "priceStateLocalMarketDateLabel", "priceStateMarketLocalDateLabel", "Local market date"), value: marketLocalDate });
+  if (yahooSymbol) rows.push({ label: dict.holdings.priceStateYahooSymbolLabel, value: yahooSymbol });
+  if (cadenceMinutes !== null) rows.push({ label: dict.holdings.priceStateCadenceLabel, value: `${cadenceMinutes}m` });
+  if (latestAttemptAt) rows.push({
+    label: holdingLabel(dict, "priceStateLatestRefreshAttemptLabel", "priceStateLatestAttemptLabel", "Latest refresh attempt"),
+    value: formatTimestampValue(latestAttemptAt, null, locale, priceState.marketTimeZone, dict),
+  });
+  if (latestOutcome) rows.push({
+    label: holdingLabel(dict, "priceStateLatestRefreshOutcomeLabel", "priceStateLatestOutcomeLabel", "Latest refresh outcome"),
+    value: formatReasonFact(latestOutcome, dict),
+  });
+  return { rows, activityPath };
 }
 
 export function getPriceStateToneClassName(priceState: PriceStateDtoLike | null | undefined): string {
@@ -398,7 +467,39 @@ function holdingLabel(
   return typeof next === "string" && next.length > 0 ? next : fallback;
 }
 
-function formatReasonFact(value: string): string {
-  if (value === "calendar_unknown") return "Calendar unknown";
+function formatReasonFact(value: string, dict: AppDictionary): string {
+  const holdings = dict.holdings as unknown as Record<string, unknown>;
+  const key = `priceStateFact${value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("")}`;
+  const localized = holdings[key];
+  if (typeof localized === "string" && localized.length > 0) return localized;
+  switch (value) {
+    case "calendar_unknown":
+      return "Calendar unknown";
+    case "market_open":
+      return "Market open";
+    case "market_closed":
+      return "Market closed";
+    case "not_trading_day":
+      return "Not a trading day";
+    case "outside_regular_session":
+      return "Outside regular session";
+    case "rate_limited":
+      return "Rate limited";
+    case "no_data":
+      return "No data";
+    case "success":
+      return "Success";
+    case "delayed":
+      return "Delayed";
+    case "error":
+      return "Error";
+    case "skipped":
+      return "Skipped";
+    default:
+      break;
+  }
   return value.replace(/_/g, " ");
 }
