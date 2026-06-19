@@ -131,6 +131,19 @@ async function isRegularSessionTradingDay(
   return false;
 }
 
+async function isOfficialOrFallbackTradingDay(
+  clock: RegularSessionClock,
+  marketCode: RegularSessionMarketCode,
+  date: string,
+): Promise<boolean> {
+  if (clock.getOfficialCalendarDayStatus) {
+    const statusAt = marketLocalDateTimeToUtc(marketCode, date, 12, 0);
+    const official = await clock.getOfficialCalendarDayStatus(marketCode, statusAt);
+    return official.status === "open";
+  }
+  return isRegularSessionTradingDay(clock, marketCode, date);
+}
+
 async function resolveRegularSessionCalendar(
   clock: RegularSessionClock,
   marketCode: RegularSessionMarketCode,
@@ -230,13 +243,13 @@ export async function getRegularSessionCloseRefreshDate(
   graceMinutes: number,
 ): Promise<string | null> {
   const { localDate } = getMarketLocalParts(marketCode, at);
-  const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
+  const isTradingDay = await isOfficialOrFallbackTradingDay(clock, marketCode, localDate);
   if (isTradingDay && isCloseRefreshDateEligible(marketCode, localDate, at, graceMinutes)) return localDate;
 
   for (let offset = 1; offset <= CLOSE_REFRESH_LOOKBACK_DAYS; offset += 1) {
     const candidate = addDaysIsoDate(localDate, -offset);
     if (
-      await isRegularSessionTradingDay(clock, marketCode, candidate)
+      await isOfficialOrFallbackTradingDay(clock, marketCode, candidate)
       && isCloseRefreshDateEligible(marketCode, candidate, at, graceMinutes)
     ) {
       return candidate;

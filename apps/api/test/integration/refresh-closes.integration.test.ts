@@ -3,9 +3,38 @@ import { buildApp, type AppInstance } from "../../src/app.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import { transactionPayload } from "../helpers/fixtures.js";
 import { refresh as refreshAppConfigCache } from "../../src/services/appConfig/cache.js";
+import {
+  confirmAdminMarketCalendarImport,
+  previewAdminMarketCalendarImport,
+} from "../../src/services/market-data/marketCalendarService.js";
 import { RateLimitedError } from "../../src/services/market-data/types.js";
 
 let app: AppInstance;
+
+function fullYearCalendarRows(year: number) {
+  const rows: Array<{ date: string; isOpen: boolean; evidence: string }> = [];
+  const current = new Date(`${year}-01-01T00:00:00.000Z`);
+  while (current.getUTCFullYear() === year) {
+    const date = current.toISOString().slice(0, 10);
+    const day = current.getUTCDay();
+    rows.push({
+      date,
+      isOpen: day >= 1 && day <= 5,
+      evidence: `official:${date}`,
+    });
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return rows;
+}
+
+async function seedOfficialMarketCalendar(marketCode: "TW", calendarYear: number): Promise<void> {
+  const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, {
+    calendarYear,
+    retrievedAt: "2026-06-18T00:00:00.000Z",
+    rows: fullYearCalendarRows(calendarYear),
+  });
+  await confirmAdminMarketCalendarImport(app.persistence, marketCode, preview.previewToken);
+}
 
 describe("POST /portfolio/refresh-closes", () => {
   beforeEach(async () => {
@@ -69,6 +98,7 @@ describe("POST /portfolio/refresh-closes", () => {
   it("returns retryable provider-rate-limit details when synchronous close refresh exhausts provider budget", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-18T08:00:00.000Z"));
+    await seedOfficialMarketCalendar("TW", 2026);
     (app.persistence as MemoryPersistence)._seedInstrument({
       ticker: "2330",
       name: "TSMC",
