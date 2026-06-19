@@ -228,8 +228,6 @@ function resolveSnapshotForPair(input: {
     };
   }
 
-  if (latest.barDate >= overlay.asOfDate) return dailySnapshot;
-
   const overlayPreviousClose = overlay.previousClose ?? latest.close;
   const change = overlayPreviousClose === null || overlayPreviousClose === 0
     ? null
@@ -240,6 +238,8 @@ function resolveSnapshotForPair(input: {
   const delaySeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(overlay.asOfTimestamp)) / 1000));
 
   if (!session.isOpen) {
+    if (latest.barDate >= overlay.asOfDate) return dailySnapshot;
+
     return {
       ticker: pair.ticker,
       marketCode: pair.marketCode,
