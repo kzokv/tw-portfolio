@@ -277,6 +277,47 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.chipState).toBe("open_fresh");
   });
 
+  it("keeps same-day provisional daily bars from masking open-session intraday state", async () => {
+    persistence._seedDailyBars([
+      { ticker: "QAU", marketCode: "AU", barDate: "2026-06-19", open: 34.1, high: 34.2, low: 33.2, close: 33.27, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-19T01:00:00.000Z" },
+      { ticker: "QAU", marketCode: "AU", barDate: "2026-06-18", open: 34, high: 34.3, low: 33.9, close: 34.17, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-18T07:00:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "QAU",
+      marketCode: "AU",
+      price: 33.25,
+      previousClose: 34.17,
+      asOfDate: "2026-06-19",
+      asOfTimestamp: "2026-06-19T01:00:42.000Z",
+      observedAt: "2026-06-19T01:01:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "AUD",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "QAU", marketCode: "AU" }],
+      persistence,
+      new Map([["AU", "2026-06-18"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-19T01:05:00.000Z"),
+        heldPairs: new Set(["QAU:AU"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["QAU"]?.close).toBe(33.25);
+    expect(result["QAU"]?.dailyCompatibleClose).toBe(33.27);
+    expect(result["QAU"]?.previousClose).toBe(34.17);
+    expect(result["QAU"]?.priceState.marketState).toBe("open");
+    expect(result["QAU"]?.priceState.basis).toBe("intraday");
+    expect(result["QAU"]?.priceState.chipState).toBe("open_fresh");
+    expect(result["QAU"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
+  });
+
   it("keeps stale close state while the market is open when the latest bar is older than settled", async () => {
     persistence._seedDailyBars([
       { ticker: "AAPL", marketCode: "US", barDate: "2026-06-18", open: 195, high: 198, low: 194, close: 197, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T22:00:00.000Z" },
