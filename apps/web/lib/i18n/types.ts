@@ -1459,6 +1459,7 @@ export interface AppDictionary {
     priceStateLatestAttemptLabel: string;
     priceStateLatestOutcomeLabel: string;
     priceStateActivityHintLabel: string;
+    priceStateCloseDetailsLabel: string;
     calendarUnknownWarningTitle: string;
     calendarUnknownWarningMessage: string;
     priceStateUnknownValue: string;

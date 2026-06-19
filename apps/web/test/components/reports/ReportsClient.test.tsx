@@ -184,6 +184,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         priceStateQualityCloseOnly: "Close only",
         priceStateDelaySeconds: "{count} seconds",
         priceStateDelayMinutes: "{count} minutes",
+        priceStateCloseDetailsLabel: "Close",
         avgCostTerm: "Avg Cost",
         unitPnlTerm: "Unit P&L",
         columnSettingsButtonLabel: "Columns",
