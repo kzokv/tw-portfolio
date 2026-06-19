@@ -93,7 +93,7 @@ import {
   holdingsFinanceToneClass,
   holdingsStickyFirstColumnClassName,
 } from "../holdings/holdingsStyle";
-import { buildMissingPriceState, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
+import { buildMissingPriceState, buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
@@ -134,6 +134,7 @@ interface DashboardHoldingsPreviewProps {
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
   settingsContextKey?: string;
+  showAdminActivityLinks?: boolean;
 }
 
 export function DashboardHoldingsPreview({
@@ -142,6 +143,7 @@ export function DashboardHoldingsPreview({
   locale,
   reportingCurrency,
   settingsContextKey = "dashboard.topHoldings",
+  showAdminActivityLinks = false,
 }: DashboardHoldingsPreviewProps) {
   const dict = getDictionary(locale);
   const [accountFilter, setAccountFilter] = useState("ALL");
@@ -553,6 +555,7 @@ export function DashboardHoldingsPreview({
                       visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
                       onOpen={() => setSelected(group)}
                       reportingCurrency={reportingCurrency}
+                      showAdminActivityLinks={showAdminActivityLinks}
                     />
                   ))}
                 </HoldingsGridMobileList>
@@ -567,6 +570,7 @@ export function DashboardHoldingsPreview({
                   columnSettings={columnSettings}
                   onToggleExpanded={toggleExpandedRow}
                   reportingCurrency={reportingCurrency}
+                  showAdminActivityLinks={showAdminActivityLinks}
                 />
                 </>
               )}
@@ -617,6 +621,7 @@ function DashboardHoldingRow({
   visibleColumns,
   onOpen,
   reportingCurrency,
+  showAdminActivityLinks,
 }: {
   dict: ReturnType<typeof getDictionary>;
   fxRate: number | null;
@@ -626,6 +631,7 @@ function DashboardHoldingRow({
   visibleColumns: DashboardHoldingsColumn[];
   onOpen: () => void;
   reportingCurrency: AccountDefaultCurrency;
+  showAdminActivityLinks: boolean;
 }) {
   const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
   const reportingAvgCost = getDashboardReportingAverageCost(group, reportingCurrency);
@@ -668,6 +674,7 @@ function DashboardHoldingRow({
             reportingAvgCost={reportingAvgCost}
             reportingCurrency={reportingCurrency}
             reportingPrice={reportingPrice}
+            showAdminActivityLinks={showAdminActivityLinks}
             unitPnl={unitPnl}
           />
         ))}
@@ -699,6 +706,7 @@ function DashboardHoldingsTable({
   onOpen,
   onToggleExpanded,
   reportingCurrency,
+  showAdminActivityLinks,
 }: {
   accountFilter: string;
   columnSettings: HoldingsColumnSettingsState<DashboardHoldingsColumn>;
@@ -710,6 +718,7 @@ function DashboardHoldingsTable({
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
   onToggleExpanded: (key: string) => void;
   reportingCurrency: AccountDefaultCurrency;
+  showAdminActivityLinks: boolean;
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   return (
@@ -763,6 +772,7 @@ function DashboardHoldingsTable({
                     reportingCurrency,
                     reportingDailyMove,
                     reportingPrice,
+                    showAdminActivityLinks,
                     visibleChildren,
                   }))}
                 </TableRow>
@@ -837,6 +847,7 @@ function renderDashboardGroupCell({
   reportingCurrency,
   reportingDailyMove,
   reportingPrice,
+  showAdminActivityLinks,
   visibleChildren,
 }: {
   column: DashboardHoldingsColumn;
@@ -851,6 +862,7 @@ function renderDashboardGroupCell({
   reportingCurrency: AccountDefaultCurrency;
   reportingDailyMove: number | null;
   reportingPrice: number | null;
+  showAdminActivityLinks: boolean;
   visibleChildren: DashboardOverviewHoldingChildDto[];
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
@@ -912,6 +924,7 @@ function renderDashboardGroupCell({
           locale={locale}
           reportingCurrency={reportingCurrency}
           reportingPrice={reportingPrice}
+          showAdminActivityLinks={showAdminActivityLinks}
         />
       </TableCell>
     );
@@ -1230,6 +1243,7 @@ function PriceTextButton({
   locale,
   reportingCurrency,
   reportingPrice,
+  showAdminActivityLinks,
 }: {
   dict: ReturnType<typeof getDictionary>;
   fxRate: number | null;
@@ -1237,6 +1251,7 @@ function PriceTextButton({
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
+  showAdminActivityLinks: boolean;
 }) {
   const priceState = getPriceState(group);
   const tooltip = group.currentUnitPrice !== null && group.currency !== reportingCurrency
@@ -1277,6 +1292,8 @@ function PriceTextButton({
       </Tooltip>
       {priceState ? (
         <PriceStateChip
+          className="w-full justify-start text-left md:justify-end md:text-right"
+          activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: group.marketCode, priceState, ticker: group.ticker }) : null}
           dict={dict}
           locale={locale}
           priceState={priceState}
@@ -1294,6 +1311,7 @@ function PricePreviewMetric({
   locale,
   reportingCurrency,
   reportingPrice,
+  showAdminActivityLinks,
 }: {
   dict: ReturnType<typeof getDictionary>;
   fxRate: number | null;
@@ -1301,6 +1319,7 @@ function PricePreviewMetric({
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
+  showAdminActivityLinks: boolean;
 }) {
   const priceState = getPriceState(group);
 
@@ -1335,6 +1354,8 @@ function PricePreviewMetric({
       </Popover>
       {priceState ? (
         <PriceStateChip
+          className="w-full justify-start text-left"
+          activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: group.marketCode, priceState, ticker: group.ticker }) : null}
           dict={dict}
           locale={locale}
           priceState={priceState}
@@ -1597,6 +1618,7 @@ function DashboardMobileColumnMetric({
   reportingAvgCost,
   reportingCurrency,
   reportingPrice,
+  showAdminActivityLinks,
   unitPnl,
 }: {
   column: DashboardHoldingsColumn;
@@ -1608,6 +1630,7 @@ function DashboardMobileColumnMetric({
   reportingAvgCost: number | null;
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
+  showAdminActivityLinks: boolean;
   unitPnl: ReturnType<typeof getDashboardUnitPnl>;
 }) {
   switch (column) {
@@ -1630,6 +1653,7 @@ function DashboardMobileColumnMetric({
           locale={locale}
           reportingCurrency={reportingCurrency}
           reportingPrice={reportingPrice}
+          showAdminActivityLinks={showAdminActivityLinks}
         />
       );
     case "unitPnl":

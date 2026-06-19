@@ -19,7 +19,7 @@ required_reading:
   - apps/web/features/price-state/priceState.ts
   - apps/web/components/dashboard/DashboardClient.tsx
   - apps/web/components/portfolio/PortfolioClient.tsx
-superseded_by: null
+superseded_by: docs/notes/ticker-price-freshness/scope-todo-202606191921-ticker-price-freshness-calendar-activity-refresh-revision.md
 ---
 
 # Todo: Ticker Price Freshness Calendar And Activity Revision

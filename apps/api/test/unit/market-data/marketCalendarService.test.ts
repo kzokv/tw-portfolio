@@ -7,54 +7,50 @@ import {
   updateAdminMarketCalendarSource,
 } from "../../../src/services/market-data/marketCalendarService.js";
 
-function fullYearRows(year: number) {
-  const rows: Array<{ date: string; isOpen: boolean; evidence: string; notes?: string | null }> = [];
-  const current = new Date(`${year}-01-01T00:00:00.000Z`);
-  while (current.getUTCFullYear() === year) {
-    const date = current.toISOString().slice(0, 10);
-    const day = current.getUTCDay();
-    rows.push({
-      date,
-      isOpen: day >= 1 && day <= 5,
-      evidence: `official:${date}`,
-    });
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return rows;
-}
+const coverage = {
+  scope: "full_year" as const,
+  evidence: "Reviewed the official full-year exchange calendar",
+};
 
 describe("marketCalendarService", () => {
-  it("rejects official source updates when the host is outside the allowlist", async () => {
+  it("updates official source provenance without parser or host allowlist fields", async () => {
     const persistence = new MemoryPersistence();
     await persistence.init();
 
-    await expect(updateAdminMarketCalendarSource(persistence, "TW", "official-tw", {
+    const { saved } = await updateAdminMarketCalendarSource(persistence, "TW", "official-tw", {
       label: "TW official calendar",
-      sourceType: "official_parser",
-      parserId: "tw-official",
-      url: "https://example.com/calendar.csv",
-    })).rejects.toMatchObject({ code: "market_calendar_host_not_allowlisted" });
+      sourceType: "official_source",
+      suggestedSourceUrl: "https://example.com/calendar.csv",
+    });
+
+    expect(saved).toMatchObject({
+      sourceType: "official_source",
+      suggestedSourceUrl: "https://example.com/calendar.csv",
+    });
   });
 
-  it("requires full-year normalized payload coverage and resolves the default source when omitted", async () => {
+  it("requires full-year coverage evidence and accepts empty exception calendars", async () => {
     const persistence = new MemoryPersistence();
     await persistence.init();
 
     await expect(previewAdminMarketCalendarImport(persistence, "TW", {
       calendarYear: 2026,
       retrievedAt: "2026-06-19T00:00:00.000Z",
-      rows: fullYearRows(2026).slice(1),
-    })).rejects.toMatchObject({ code: "market_calendar_full_year_required" });
+      coverage: { scope: "full_year", evidence: "" },
+      exceptions: [],
+    })).rejects.toMatchObject({ code: "market_calendar_coverage_evidence_required" });
 
     const preview = await previewAdminMarketCalendarImport(persistence, "TW", {
       calendarYear: 2026,
       retrievedAt: "2026-06-19T00:00:00.000Z",
-      rows: fullYearRows(2026),
+      coverage,
+      exceptions: [],
     });
 
     expect(preview.source?.id).toBe("official-tw");
-    expect(preview.sourceType).toBe("official_parser");
-    expect(preview.rowCount).toBe(365);
+    expect(preview.sourceType).toBe("official_source");
+    expect(preview.exceptionCount).toBe(0);
+    expect(preview.annualCounts.tradingDayCount).toBeGreaterThan(250);
   });
 
   it("requires a replacement reason when a manual AI-assisted import replaces an official confirmed calendar", async () => {
@@ -64,7 +60,8 @@ describe("marketCalendarService", () => {
     const initial = await previewAdminMarketCalendarImport(persistence, "TW", {
       calendarYear: 2026,
       retrievedAt: "2026-06-19T00:00:00.000Z",
-      rows: fullYearRows(2026),
+      coverage,
+      exceptions: [],
     });
     await confirmAdminMarketCalendarImport(persistence, "TW", initial.previewToken);
     const history = await buildAdminMarketCalendarHistory(persistence, "TW", 2026);
@@ -84,7 +81,8 @@ describe("marketCalendarService", () => {
       sourceType: "manual_ai_assisted",
       label: "Manual import",
       retrievedAt: "2026-06-20T00:00:00.000Z",
-      rows: fullYearRows(2026),
+      coverage,
+      exceptions: [],
       replaceConfirmed: true,
     })).rejects.toMatchObject({ code: "market_calendar_replacement_reason_required" });
 
@@ -94,7 +92,8 @@ describe("marketCalendarService", () => {
       sourceType: "manual_ai_assisted",
       label: "Manual import",
       retrievedAt: "2026-06-20T00:00:00.000Z",
-      rows: fullYearRows(2026),
+      coverage,
+      exceptions: [],
       replaceConfirmed: true,
       replacementReason: "operator override",
     });

@@ -1049,18 +1049,26 @@ const marketDataWorkspaceParamSchema = z.object({
 
 const calendarImportRowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  isOpen: z.boolean(),
+  status: z.enum(["open", "closed"]),
+  name: z.string().trim().min(1),
   evidence: z.string().trim().min(1),
+  overrideReason: z.string().trim().min(1),
   notes: z.string().trim().nullable().optional(),
 });
 
 const calendarImportPayloadSchema = z.object({
   calendarYear: z.number().int().min(2000).max(2100),
   sourceId: z.string().trim().min(1).nullable().optional(),
-  sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
+  sourceType: z.enum(["official_source", "manual_ai_assisted"]).optional(),
   label: z.string().trim().min(1).nullable().optional(),
+  sourceUrl: z.string().trim().url().nullable().optional(),
   retrievedAt: z.string().datetime({ offset: true }).optional(),
-  rows: z.array(calendarImportRowSchema).min(1),
+  coverage: z.object({
+    scope: z.literal("full_year"),
+    evidence: z.string().trim().min(1),
+    notes: z.string().trim().nullable().optional(),
+  }).strict(),
+  exceptions: z.array(calendarImportRowSchema).default([]),
   replaceConfirmed: z.boolean().optional(),
   replacementReason: z.string().trim().nullable().optional(),
 });
@@ -7182,6 +7190,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       body.supportState as AdminInstrumentSupportState,
       sessionUserId,
     );
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "instrument",
+      result: "success",
+      sourceKind: "system",
+      sourceId: "admin-market-data",
+      eventType: "instrument_support_state_updated",
+      title: "Instrument support state updated",
+      message: `${body.ticker} support state set to ${body.supportState}.`,
+      ticker: body.ticker,
+      dedupeKey: `instrument-support-state:${marketCode}:${body.ticker}:${body.supportState}:${Date.now()}`,
+      detail: { actorUserId: sessionUserId, supportState: body.supportState },
+    });
     return { instrument: adminInstrumentRowToMarketDataDto(row) };
   });
 
@@ -7216,6 +7237,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
             body.action === "exclude_from_delisting_detection",
             sessionUserId,
           );
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "instrument",
+      result: "success",
+      sourceKind: "system",
+      sourceId: "admin-market-data",
+      eventType: "instrument_delisting_override_updated",
+      title: "Instrument delisting override updated",
+      message: `${body.ticker} delisting override action ${body.action}.`,
+      ticker: body.ticker,
+      dedupeKey: `instrument-delisting-override:${marketCode}:${body.ticker}:${body.action}:${Date.now()}`,
+      detail: { actorUserId: sessionUserId, action: body.action },
+    });
     return { instrument: adminInstrumentRowToMarketDataDto(row) };
   });
 
@@ -7277,6 +7311,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       result: z.string().trim().optional(),
       results: z.string().trim().optional(),
       source: z.string().trim().optional(),
+      sourceKind: z.string().trim().optional(),
       sources: z.string().trim().optional(),
       timeRange: z.enum(["24h", "7d", "30d", "all"]).default("24h"),
     }).parse(req.query ?? {});
@@ -7285,13 +7320,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       : undefined;
     const categories = parseCsv(query.categories ?? query.category) as AdminMarketDataActivityResponse["filters"]["categories"] | undefined;
     const results = parseCsv(query.results ?? query.result) as AdminMarketDataActivityResponse["filters"]["results"] | undefined;
-    const sources = parseCsv(query.sources ?? query.source) as AdminMarketDataActivityResponse["filters"]["sources"] | undefined;
+    const sourceKinds = parseCsv(query.sourceKind ?? query.sources ?? query.source) as AdminMarketDataActivityResponse["filters"]["sourceKinds"] | undefined;
     const occurredAfter = resolveActivityOccurredAfter(query.timeRange, new Date());
     const baseActivityQuery = {
       marketCode,
       search: query.search,
       categories,
-      sources,
+      sourceKinds,
       occurredAfter,
     };
     const activity = await app.persistence.listMarketCalendarActivity({
@@ -7324,9 +7359,9 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     return {
       marketCode,
       filters: {
-        categories: ["intraday_price", "daily_close", "calendar", "provider_operation", "system"],
+        categories: ["intraday_price", "daily_close", "calendar", "provider_operation", "provider_error", "instrument", "system"],
         results: ["success", "warning", "error", "skipped", "rate_limited"],
-        sources: ["yahoo_chart", "official_calendar", "twse_close", "finmind", "system"],
+        sourceKinds: ["yahoo_chart", "official_calendar", "twse_close", "finmind", "provider", "system"],
       },
       summary,
       retention: {
@@ -7369,12 +7404,12 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       marketLabel: MARKET_DATA_WORKSPACES[marketCode].label,
       defaultSourceLabel: defaultSource?.label ?? null,
-      defaultSourceHost: defaultSource?.host ?? null,
+      defaultSourceUrl: defaultSource?.suggestedSourceUrl ?? null,
       years: status.years.map((year) => ({
         calendarYear: year.calendarYear,
         status: year.status,
         sourceLabel: year.sourceLabel,
-        sourceUrlHost: year.sourceLabel ? defaultSource?.host ?? null : null,
+        sourceUrl: year.sourceLabel ? defaultSource?.suggestedSourceUrl ?? null : null,
         versionLabel: year.activeVersionId,
         updatedAt: year.updatedAt,
         note: year.status === "missing"
@@ -7385,10 +7420,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         sourceId: source.id,
         label: source.label,
         sourceType: source.sourceType,
-        parserType: source.parserId,
-        url: source.url,
-        host: source.host,
-        allowedHosts: source.allowedHosts,
+        suggestedSourceUrl: source.suggestedSourceUrl,
         isDefault: source.isDefault,
         isActive: source.enabled,
         years: status.years
@@ -7437,10 +7469,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const { previous, saved } = await updateAdminMarketCalendarSource(app.persistence, marketCode, source.id, {
       label: source.label,
       sourceType: source.sourceType,
-      url: source.url,
-      host: source.host,
-      allowedHosts: source.allowedHosts,
-      parserId: source.parserId,
+      suggestedSourceUrl: source.suggestedSourceUrl,
       enabled: source.enabled,
       isDefault: true,
     });
@@ -7454,11 +7483,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       category: "calendar",
       result: "success",
-      source: "official_calendar",
+      sourceKind: "official_calendar",
+      sourceId: saved.id,
       eventType: "calendar_default_source_updated",
       title: "Default calendar source updated",
       message: `${saved.label} set as default source for ${marketCode}.`,
       calendarYear: null,
+      dedupeKey: `calendar-default-source:${marketCode}:${saved.id}:${Date.now()}`,
       detail: { sourceId: saved.id },
     });
     const status = await buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date());
@@ -7468,12 +7499,12 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       marketLabel: MARKET_DATA_WORKSPACES[marketCode].label,
       defaultSourceLabel: defaultSource?.label ?? null,
-      defaultSourceHost: defaultSource?.host ?? null,
+      defaultSourceUrl: defaultSource?.suggestedSourceUrl ?? null,
       years: status.years.map((year) => ({
         calendarYear: year.calendarYear,
         status: year.status,
         sourceLabel: year.sourceLabel,
-        sourceUrlHost: defaultSource?.host ?? null,
+        sourceUrl: defaultSource?.suggestedSourceUrl ?? null,
         versionLabel: year.activeVersionId,
         updatedAt: year.updatedAt,
         note: year.status === "missing"
@@ -7484,10 +7515,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         sourceId: item.id,
         label: item.label,
         sourceType: item.sourceType,
-        parserType: item.parserId,
-        url: item.url,
-        host: item.host,
-        allowedHosts: item.allowedHosts,
+        suggestedSourceUrl: item.suggestedSourceUrl,
         isDefault: item.isDefault,
         isActive: item.enabled,
         years: status.years.filter((year) => year.sourceLabel === item.label).map((year) => year.calendarYear),
@@ -7516,11 +7544,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     }).parse(req.params);
     const body = z.object({
       label: z.string().trim().min(1),
-      sourceType: z.enum(["official_parser", "manual_ai_assisted"]),
-      url: z.string().trim().url().nullable().optional(),
-      host: z.string().trim().min(1).nullable().optional(),
-      allowedHosts: z.array(z.string().trim().min(1)).default([]),
-      parserId: z.string().trim().min(1).nullable().optional(),
+      sourceType: z.enum(["official_source", "manual_ai_assisted"]),
+      suggestedSourceUrl: z.string().trim().url().nullable().optional(),
       enabled: z.boolean().optional(),
       isDefault: z.boolean().optional(),
     }).parse(req.body ?? {});
@@ -7540,11 +7565,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       category: "calendar",
       result: "success",
-      source: "official_calendar",
+      sourceKind: "official_calendar",
+      sourceId: saved.id,
       eventType: "calendar_source_updated",
       title: "Calendar source updated",
       message: `${saved.label} source updated for ${marketCode}.`,
       calendarYear: null,
+      dedupeKey: `calendar-source-updated:${saved.id}:${Date.now()}`,
       detail: {
         sourceId: saved.id,
         previous,
@@ -7610,11 +7637,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       category: "calendar",
       result: "success",
-      source: "official_calendar",
+      sourceKind: "official_calendar",
+      sourceId: "market-calendar",
       eventType: "calendar_confirmed",
       title: "Calendar confirmed",
       message: `${marketCode} ${confirmed.calendarYear} calendar confirmed.`,
       calendarYear: confirmed.calendarYear,
+      dedupeKey: `calendar-confirmed:${confirmed.versionId}`,
       detail: { versionId: confirmed.versionId },
     });
     return confirmed;
@@ -7646,11 +7675,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       marketCode,
       category: "calendar",
       result: "warning",
-      source: "official_calendar",
+      sourceKind: "official_calendar",
+      sourceId: "market-calendar",
       eventType: "calendar_invalidated",
       title: "Calendar invalidated",
       message: `${marketCode} ${body.calendarYear} calendar invalidated.`,
       calendarYear: body.calendarYear,
+      dedupeKey: `calendar-invalidated:${invalidated.versionId}`,
       detail: { versionId: invalidated.versionId, reason: body.reason },
     });
     return {

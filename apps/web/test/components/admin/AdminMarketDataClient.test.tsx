@@ -465,11 +465,8 @@ function calendarResponse(): AdminMarketDataCalendarResponse {
     sources: [{
       sourceId: "asx-official",
       label: "ASX official calendar",
-      sourceType: "official_parser",
-      url: "https://www.asx.com.au/markets/trade-our-cash-market/directory",
-      host: "www.asx.com.au",
-      allowedHosts: ["www.asx.com.au"],
-      parserType: "au-official",
+      sourceType: "official_source",
+      suggestedSourceUrl: "https://www.asx.com.au/markets/trade-our-cash-market/directory",
       isDefault: true,
     }],
     history: [{
@@ -1905,7 +1902,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.textContent).toContain("History");
     expect(container.textContent).toContain("Import operation: import-op-1");
     expect(container.querySelector("[data-testid='calendar-source-editor']")).not.toBeNull();
-    expect(container.textContent).toContain("Allowed hosts");
+    expect(container.textContent).toContain("Suggested source URL");
     expect(container.querySelector("[data-testid='calendar-preview-button']")).not.toBeNull();
   });
 });

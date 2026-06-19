@@ -51,6 +51,8 @@ export interface MarketActivityTableItemDto {
   occurredAt: string;
   category: MarketActivityCategory | string;
   source: string;
+  sourceKind?: string | null;
+  sourceId?: string | null;
   sourceLabel?: string | null;
   subject: string;
   subjectDetail?: string | null;
@@ -60,6 +62,10 @@ export interface MarketActivityTableItemDto {
   detailDescription?: string | null;
   detailRows?: Array<{ label: string; value: string }>;
   timeline?: Array<{ at?: string | null; message: string }>;
+  progressRows?: Array<{ label: string; value: string }>;
+  outcomeRows?: Array<{ label: string; value: string }>;
+  logRows?: Array<{ at?: string | null; message: string }>;
+  relatedActivity?: Array<{ label: string; href?: string | null; value?: string | null }>;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -68,6 +74,8 @@ export interface AdminMarketDataActivityQuery {
   limit: number;
   search: string;
   source: string;
+  sourceKind: string;
+  sourceId: string;
   category: string;
   result: string;
   timeRange: string;
@@ -107,10 +115,7 @@ export interface MarketCalendarSourceDto {
   sourceId: string;
   label: string;
   sourceType: string;
-  parserType?: string | null;
-  url?: string | null;
-  host?: string | null;
-  allowedHosts?: string[] | null;
+  suggestedSourceUrl?: string | null;
   isDefault?: boolean | null;
   isActive?: boolean | null;
   years?: number[] | null;
@@ -120,6 +125,8 @@ export interface MarketCalendarPreviewDiffDto {
   added: number;
   changed: number;
   removed: number;
+  previewToken?: string | null;
+  warnings?: string[] | null;
   confirmable: boolean;
   rows: Array<{
     date: string;
@@ -158,11 +165,8 @@ export interface MarketCalendarSourceUpdateRequest {
 
 export interface MarketCalendarSourceConfigUpdateRequest {
   label: string;
-  sourceType: "official_parser" | "manual_ai_assisted";
-  url?: string | null;
-  host?: string | null;
-  allowedHosts?: string[];
-  parserId?: string | null;
+  sourceType: "official_source" | "manual_ai_assisted";
+  suggestedSourceUrl?: string | null;
   enabled?: boolean;
   isDefault?: boolean;
 }
@@ -179,6 +183,7 @@ export interface MarketCalendarPreviewResponse {
 }
 
 export interface MarketCalendarConfirmRequest {
+  previewToken: string;
   marketCode: AdminMarketCode;
   sourceId?: string;
   normalizedPayload?: string;

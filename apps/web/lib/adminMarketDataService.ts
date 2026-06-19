@@ -128,33 +128,40 @@ export function previewMarketCalendarImport(
   return postJson<AdminMarketCalendarPreviewResponse>(
     `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/preview`,
     input,
-  ).then((response) => ({
-    marketCode: response.marketCode,
-    preview: {
-      added: response.diff.addedDates.length,
-      changed: response.diff.changedDates.length,
-      removed: response.diff.removedDates.length,
-      confirmable: true,
-      rows: [
-        ...response.diff.addedDates.map((date) => ({ date, session: "added", evidence: response.source?.label ?? null })),
-        ...response.diff.changedDates.map((date) => ({ date, session: "changed", evidence: response.source?.label ?? null })),
-        ...response.diff.removedDates.map((date) => ({ date, session: "removed", evidence: response.source?.label ?? null })),
-      ],
-    },
-  }));
+  ).then((response) => {
+    const diff = response.diff as { addedDates?: string[]; changedDates?: string[]; removedDates?: string[] };
+    const addedDates = diff.addedDates ?? [];
+    const changedDates = diff.changedDates ?? [];
+    const removedDates = diff.removedDates ?? [];
+    return {
+      marketCode: response.marketCode,
+      preview: {
+        added: addedDates.length,
+        changed: changedDates.length,
+        removed: removedDates.length,
+        previewToken: response.previewToken,
+        warnings: response.warnings,
+        confirmable: true,
+        rows: [
+          ...addedDates.map((date: string) => ({ date, session: "added", evidence: response.source?.label ?? null })),
+          ...changedDates.map((date: string) => ({ date, session: "changed", evidence: response.source?.label ?? null })),
+          ...removedDates.map((date: string) => ({ date, session: "removed", evidence: response.source?.label ?? null })),
+        ],
+      },
+    };
+  });
 }
 
 export function confirmMarketCalendarImport(
   marketCode: Exclude<AdminMarketCode, "FX">,
   input: Omit<MarketCalendarConfirmRequest, "marketCode">,
 ): Promise<MarketCalendarConfirmResponse> {
-  const body = {
-    ...input,
-    replacementReason: input.replacementReason ?? input.reason,
-  };
   return postJson<AdminMarketCalendarConfirmResponse>(
     `/admin/market-data/${encodeURIComponent(marketCode)}/calendar/confirm`,
-    body,
+    {
+      ...input,
+      replacementReason: input.replacementReason ?? input.reason,
+    },
   ).then((response) => ({
     marketCode: response.marketCode,
     status: "confirmed",

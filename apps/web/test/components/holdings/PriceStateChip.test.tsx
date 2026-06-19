@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppDictionary } from "../../../lib/i18n/types";
+import { getDictionary } from "../../../lib/i18n";
 import { CalendarUnknownWarnings } from "../../../components/holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
 
@@ -49,6 +50,7 @@ const dict = {
     priceStateDelayMinutes: "{count} minutes",
   },
 } as unknown as AppDictionary;
+const zhDict = getDictionary("zh-TW");
 
 function createPointerEvent(type: string, pointerType: "mouse" | "touch"): Event {
   const event = new Event(type, { bubbles: true });
@@ -378,7 +380,47 @@ describe("PriceStateChip", () => {
     expect(dialogText).toContain("Calendar reason: Calendar unknown");
     expect(dialogText).toContain("Market date: 2026-06-19");
     expect(dialogText).toContain("Latest attempt:");
-    expect(dialogText).toContain("Latest outcome: skipped");
+    expect(dialogText).toContain("Latest outcome: Skipped");
+  });
+
+  it("renders zh-TW tooltip diagnostics for yahoo symbol, cadence, and activity hint facts", async () => {
+    act(() => {
+      root.render(
+        <PriceStateChip
+          dict={zhDict}
+          locale="zh-TW"
+          testId="price-state-chip"
+          priceState={{
+            basis: "delayed_intraday",
+            chipState: "open_delayed",
+            marketState: "open",
+            source: "yahoo-chart",
+            sourceKind: "intraday_yahoo_chart",
+            asOfDate: "2026-06-19",
+            asOfTimestamp: "2026-06-19T01:20:00.000Z",
+            observedAt: "2026-06-19T01:33:00.000Z",
+            delaySeconds: 780,
+            marketTimeZone: "Asia/Taipei",
+            quality: null,
+            yahooSymbol: "2330.TW",
+            refreshCadenceMinutes: 5,
+            activityPath: "/admin/market-data/TW/activity?source=yahoo_chart",
+          } as never}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+
+    const dialogText = document.querySelector("[role='dialog']")?.textContent ?? "";
+    expect(dialogText).toContain("Yahoo 代號: 2330.TW");
+    expect(dialogText).toContain("頻率: 5m");
+    expect(dialogText).toContain("活動: /admin/market-data/TW/activity?source=yahoo_chart");
   });
 
   it("groups calendar-unknown warnings by affected market year", async () => {

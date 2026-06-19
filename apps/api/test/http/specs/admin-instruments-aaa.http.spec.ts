@@ -69,6 +69,22 @@ test.describe("admin market-data instruments", () => {
     assertEqual(instrument.marketCode, "AU", "instrument.marketCode");
     assertEqual(instrument.supportState, "retired_by_admin", "instrument.supportState");
     assertEqual(instrument.delistingDetectionExcluded, false, "instrument.delistingDetectionExcluded");
+
+    const activityResponse = await request.get("/admin/market-data/AU/activity", {
+      headers: { cookie: admin.cookieHeader },
+      params: {
+        category: "instrument",
+        search: "AUDEL41",
+        timeRange: "all",
+      },
+    });
+    await assertStatus(activityResponse, 200);
+    const activityBody = assertRecord(await activityResponse.json(), "support-state activity body");
+    const activityItems = assertArray(activityBody.items, "support-state activity body.items");
+    const activity = assertRecord(activityItems[0], "support-state activity item");
+    assertEqual(activity.eventType, "instrument_support_state_updated", "support-state activity.eventType");
+    assertEqual(activity.category, "instrument", "support-state activity.category");
+    assertEqual(activity.ticker, "AUDEL41", "support-state activity.ticker");
   });
 
   test("[auth]: member cannot mutate support state", async ({ request }) => {
@@ -138,6 +154,22 @@ test.describe("admin market-data instruments", () => {
     assertEqual(excluded.status, "excluded", "excluded.status");
     assertEqual(excluded.supportState, "supported", "excluded.supportState");
     assertEqual(excluded.delistingDetectionExcluded, true, "excluded.delistingDetectionExcluded");
+
+    const activityResponse = await request.get("/admin/market-data/AU/activity", {
+      headers: { cookie: admin.cookieHeader },
+      params: {
+        category: "instrument",
+        search: "AUOVR1",
+        timeRange: "all",
+      },
+    });
+    await assertStatus(activityResponse, 200);
+    const activityBody = assertRecord(await activityResponse.json(), "delisting activity body");
+    const activityItems = assertArray(activityBody.items, "delisting activity body.items");
+    const activity = assertRecord(activityItems[0], "delisting activity item");
+    assertEqual(activity.eventType, "instrument_delisting_override_updated", "delisting activity.eventType");
+    assertEqual(activity.category, "instrument", "delisting activity.category");
+    assertEqual(activity.ticker, "AUOVR1", "delisting activity.ticker");
 
     const include = await request.post("/admin/market-data/AU/instruments/delisting-override", {
       headers: { cookie: admin.cookieHeader },

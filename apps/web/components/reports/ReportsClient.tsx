@@ -80,7 +80,7 @@ import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
-import { getPriceState, isNonCurrentPrice, priceStateSortRank } from "../../features/price-state/priceState";
+import { buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank } from "../../features/price-state/priceState";
 import {
   REPORT_TABS,
   parseReportRouteState,
@@ -532,7 +532,7 @@ function ReportBody({
         <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
         <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
       </div>
-      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} /> : null}
+      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
       {tab === "portfolio" ? (
         <PortfolioReportView
           data={data as PortfolioReportDto}
@@ -722,12 +722,14 @@ function DailyReviewView({
   isRefreshing,
   locale,
   onRefresh,
+  showAdminActions,
 }: {
   data: DailyReviewReportDto;
   dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  showAdminActions: boolean;
 }) {
   return (
     <>
@@ -767,9 +769,10 @@ function DailyReviewView({
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
+          showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -857,9 +860,10 @@ function PortfolioReportView({
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
+          showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -906,9 +910,10 @@ function MarketReportView({
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
+          showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} stickyFirstColumn />
+      <HoldingsCard dict={dict} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -1109,6 +1114,7 @@ function HoldingsCard({
   isRefreshing,
   onRefresh,
   rows,
+  showAdminActivityLinks = false,
   stickyFirstColumn = true,
   title,
 }: {
@@ -1118,6 +1124,7 @@ function HoldingsCard({
   locale: LocaleCode;
   onRefresh: () => void;
   rows: ReportHoldingRowsPageDto;
+  showAdminActivityLinks?: boolean;
   stickyFirstColumn?: boolean;
   title: string;
 }) {
@@ -1319,6 +1326,7 @@ function HoldingsCard({
           dict={dict}
           rows={filteredRowsPage.rows}
           locale={locale}
+          showAdminActivityLinks={showAdminActivityLinks}
           summaryColumns={mobileColumnSplit.summaryColumns}
         />
         <HoldingsGridDesktopFrame className="max-h-[32rem]">
@@ -1357,6 +1365,7 @@ function HoldingsCard({
                       dict={dict}
                       locale={locale}
                       row={row}
+                      showAdminActivityLinks={showAdminActivityLinks}
                       stickyFirstColumn={stickyFirstColumn}
                     />
                   ))}
@@ -1401,6 +1410,7 @@ function ReportHoldingTableCell({
   dict,
   locale,
   row,
+  showAdminActivityLinks,
   stickyFirstColumn,
 }: {
   column: ReportHoldingsColumn;
@@ -1408,6 +1418,7 @@ function ReportHoldingTableCell({
   dict: AppDictionary;
   locale: LocaleCode;
   row: ReportHoldingRowDto;
+  showAdminActivityLinks: boolean;
   stickyFirstColumn: boolean;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
@@ -1438,7 +1449,7 @@ function ReportHoldingTableCell({
   if (column === "price") {
     return (
       <TableCell className={className} style={style}>
-        <PriceDisclosure dict={dict} row={row} locale={locale} align="end" />
+        <PriceDisclosure dict={dict} row={row} locale={locale} align="end" showAdminActivityLinks={showAdminActivityLinks} />
       </TableCell>
     );
   }
@@ -1638,11 +1649,13 @@ function ReportMobileColumnMetric({
   dict,
   locale,
   row,
+  showAdminActivityLinks,
 }: {
   column: ReportHoldingsColumn;
   dict: AppDictionary;
   locale: LocaleCode;
   row: ReportHoldingRowDto;
+  showAdminActivityLinks: boolean;
 }) {
   switch (column) {
     case "position":
@@ -1673,7 +1686,7 @@ function ReportMobileColumnMetric({
           locale={locale}
           value={row.reportingCurrentUnitPrice}
           currency={row.reportingCurrency}
-          valueOverride={<PriceDisclosure dict={dict} row={row} locale={locale} />}
+          valueOverride={<PriceDisclosure dict={dict} row={row} locale={locale} showAdminActivityLinks={showAdminActivityLinks} />}
         />
       );
     case "unitPnl":
@@ -1728,12 +1741,14 @@ function HoldingsMobileList({
   dict,
   locale,
   rows,
+  showAdminActivityLinks,
   summaryColumns,
 }: {
   detailColumns: ReportHoldingsColumn[];
   dict: AppDictionary;
   locale: LocaleCode;
   rows: ReportHoldingRowDto[];
+  showAdminActivityLinks: boolean;
   summaryColumns: ReportHoldingsColumn[];
 }) {
   const [selected, setSelected] = useState<ReportHoldingRowDto | null>(null);
@@ -1757,7 +1772,7 @@ function HoldingsMobileList({
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             {summaryColumns.map((column) => (
-              <ReportMobileColumnMetric key={column} column={column} dict={dict} locale={locale} row={row} />
+              <ReportMobileColumnMetric key={column} column={column} dict={dict} locale={locale} row={row} showAdminActivityLinks={showAdminActivityLinks} />
             ))}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
@@ -1859,11 +1874,13 @@ function PriceDisclosure({
   dict,
   locale,
   row,
+  showAdminActivityLinks = false,
 }: {
   align?: "center" | "end" | "start";
   dict: AppDictionary;
   locale: LocaleCode;
   row: ReportHoldingRowDto;
+  showAdminActivityLinks?: boolean;
 }) {
   const hasNativeDisclosure = row.nativeCurrency !== row.reportingCurrency;
   const priceState = getPriceState(row);
@@ -1904,7 +1921,7 @@ function PriceDisclosure({
           </div>
         </PopoverContent>
       </Popover>
-      {priceState ? <PriceStateChip dict={dict} locale={locale} priceState={priceState} testId={`reports-price-state-${row.ticker}-${row.marketCode}`} /> : null}
+      {priceState ? <PriceStateChip activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: row.marketCode, priceState, ticker: row.ticker }) : null} className="w-full justify-start text-left md:justify-end md:text-right" dict={dict} locale={locale} priceState={priceState} testId={`reports-price-state-${row.ticker}-${row.marketCode}`} /> : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { AccountDefaultCurrency } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, PriceRefreshPendingDto } from "@vakwen/shared-types";
 import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { DashboardHoldingsPreview } from "../dashboard/DashboardHoldingsPreview";
@@ -19,6 +19,7 @@ import { refreshPortfolioCloses, type PortfolioPageData } from "../../features/p
 import { Button } from "../ui/Button";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import { shouldPollForOpenMarket } from "../../features/price-state/priceState";
+import type { AppDictionary } from "../../lib/i18n";
 
 export function PortfolioClient({
   initialPrimaryData = null,
@@ -30,6 +31,7 @@ export function PortfolioClient({
     locale,
     routeCachePolicy,
     sessionUserId,
+    sessionUserRole,
     isSharedContext,
     mutations,
     contextRefreshSignal,
@@ -61,6 +63,7 @@ export function PortfolioClient({
   const portfolioPollMs = resolveTickerPricePollMs(portfolio.data.settings, initialPrimaryData?.settings);
   const shouldPollPortfolioPrices = shouldPollForOpenMarket(portfolio.data.holdings)
     && isTickerPriceIntradayEnabled(portfolio.data.settings, initialPrimaryData?.settings);
+  const refreshPricesStatus = formatRefreshPricesPending(dict, portfolio.data.refreshPending ?? null);
 
   useEffect(() => {
     if (firstSignalRef.current) {
@@ -248,6 +251,11 @@ export function PortfolioClient({
               {dict.dashboardHome.refreshPricesLabel}
             </Button>
           ) : null}
+          {refreshPricesStatus ? (
+            <span className="text-xs font-medium text-muted-foreground" data-testid="portfolio-refresh-prices-status">
+              {refreshPricesStatus}
+            </span>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -308,6 +316,7 @@ export function PortfolioClient({
                       locale={locale}
                       reportingCurrency={effectiveReportingCurrency}
                       settingsContextKey="portfolio.topHoldings"
+                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
                     />
                   ) : (
                     <HoldingsTable
@@ -319,6 +328,7 @@ export function PortfolioClient({
                       locale={locale}
                       recomputingSymbols={mutations.recomputingSymbols}
                       showFreshnessBadge={!isSharedContext}
+                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
                       allocationBasis={allocationBasis}
                       onAllocationBasisChange={setAllocationBasis}
                     />
@@ -380,6 +390,21 @@ function isTickerPriceIntradayEnabled(
   return currentSettings?.effectiveTickerPriceIntradayEnabled
     ?? initialSettings?.effectiveTickerPriceIntradayEnabled
     ?? true;
+}
+
+function formatRefreshPricesPending(dict: AppDictionary, pending: PriceRefreshPendingDto | null | undefined): string | null {
+  if (!pending) return null;
+  if (pending.enqueuedPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingQueued.replace("{count}", String(pending.enqueuedPairs));
+  }
+  if (pending.cappedPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingCapped.replace("{count}", String(pending.cappedPairs));
+  }
+  if (pending.calendarUnknownPairs > 0) {
+    return dict.dashboardHome.refreshPricesPendingCalendarUnknown.replace("{count}", String(pending.calendarUnknownPairs));
+  }
+  if (pending.consideredPairs > 0) return dict.dashboardHome.refreshPricesPendingIdle;
+  return null;
 }
 
 function CompactMetric({ label, value, detail }: { label: string; value: string; detail: string }) {

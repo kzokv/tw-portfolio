@@ -72,7 +72,7 @@ import {
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 import { getNativeUnitPnl } from "../../../lib/holdingsMetrics";
 import { buildTimelineAxis, type TimelineMode } from "../../../lib/timelineAxis";
-import { getPriceState, shouldPollForOpenMarket } from "../../../features/price-state/priceState";
+import { buildPriceStateActivityPath, getPriceState, shouldPollForOpenMarket } from "../../../features/price-state/priceState";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -436,6 +436,7 @@ export function TickerHistoryClient({
   const sharedContextOwnerId = useSharedContextOwnerId();
   const {
     sessionUserId,
+    sessionUserRole,
     openQuickActions,
     reportingCurrency,
     sharedContextPermissions,
@@ -1000,6 +1001,7 @@ export function TickerHistoryClient({
                 </Badge>
                 {priceState ? (
                   <PriceStateChip
+                    activityPath={sessionUserRole === "admin" ? buildPriceStateActivityPath({ marketCode: detailsState.identity.marketCode, priceState, ticker }) : null}
                     dict={dict}
                     locale={locale}
                     priceState={priceState}
