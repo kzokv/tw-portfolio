@@ -141,6 +141,7 @@ export function previewMarketCalendarImport(
         previewToken: response.previewToken,
         warnings: response.warnings,
         confirmable: true,
+        replaceConfirmedRequired: response.replaceConfirmedRequired,
         rows: [
           ...addedDates.map((date: string) => ({ date, session: "added", evidence: response.source?.label ?? null })),
           ...changedDates.map((date: string) => ({ date, session: "changed", evidence: response.source?.label ?? null })),

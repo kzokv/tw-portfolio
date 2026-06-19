@@ -128,6 +128,7 @@ export interface MarketCalendarPreviewDiffDto {
   previewToken?: string | null;
   warnings?: string[] | null;
   confirmable: boolean;
+  replaceConfirmedRequired?: boolean | null;
   rows: Array<{
     date: string;
     session: string;
@@ -175,6 +176,8 @@ export interface MarketCalendarPreviewRequest {
   marketCode: AdminMarketCode;
   sourceId?: string;
   normalizedPayload?: string;
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
 }
 
 export interface MarketCalendarPreviewResponse {
@@ -189,7 +192,7 @@ export interface MarketCalendarConfirmRequest {
   normalizedPayload?: string;
   replaceConfirmed?: boolean;
   reason?: string;
-  replacementReason?: string;
+  replacementReason?: string | null;
 }
 
 export interface MarketCalendarConfirmResponse {
