@@ -1,6 +1,6 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataInstrumentsResponse,
@@ -45,6 +45,7 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   revertProviderMapping: vi.fn(),
   rerunProviderMapping: vi.fn(),
   updateMarketCalendarSource: vi.fn(),
+  updateMarketCalendarSourceConfig: vi.fn(),
   updateMarketInstrumentSupportState: vi.fn(),
   updateProviderUnresolvedState: vi.fn(),
   updateMarketInstrumentDelistingOverride: vi.fn(),
@@ -517,6 +518,10 @@ describe("AdminMarketDataWorkspaceClient", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  beforeAll(() => {
+    (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockPush.mockClear();
@@ -524,6 +529,28 @@ describe("AdminMarketDataWorkspaceClient", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+  });
+
+  it("renders market data tabs as a mobile select and desktop tab links", async () => {
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="calendar"
+          overview={{ ...overview(), tabs: ["overview", "calendar", "instruments", "activity"] as never }}
+          actions={actions()}
+          instruments={instruments("BHP", "BHP Group")}
+          operations={null}
+          activity={activityResponse()}
+          calendar={calendarResponse()}
+          krMappings={null}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-testid='admin-market-data-mobile-tabs']")).not.toBeNull();
+    expect(container.querySelector("nav[aria-label='Market data tabs']")?.textContent).toContain("Calendar");
+    expect(container.querySelector("a[href='/admin/market-data/AU/activity']")).not.toBeNull();
   });
 
   it("previews and executes selected supported instruments with a frozen backfill token", async () => {
@@ -1806,6 +1833,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
 
     expect(container.textContent).toContain("Support controls");
     expect(container.textContent).toContain("Delisting override");
+    const instrumentsTable = container.querySelector("[data-testid='market-data-instruments'] table");
+    expect(instrumentsTable?.className).toContain("w-max");
+    expect(instrumentsTable?.className).toContain("min-w-[72rem]");
     const excludeButton = [...container.querySelectorAll("button")]
       .find((button) => button.textContent === "Exclude detection");
     expect(excludeButton).toBeTruthy();
@@ -1900,6 +1930,10 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(sourceIdFilter?.value).toBe("yahoo-finance-chart");
     const categoryFilter = container.querySelector("[data-testid='activity-category-filter']") as HTMLSelectElement | null;
     expect(categoryFilter?.value).toBe("intraday_price");
+    expect(sourceKindFilter?.className).toContain("min-w-0");
+    const activityTable = container.querySelector("[data-testid='activity-row-act-1']")?.closest("table");
+    expect(activityTable?.className).toContain("w-max");
+    expect(activityTable?.className).toContain("min-w-[64rem]");
 
     const yahooSummary = container.querySelector("[data-testid='activity-yahoo-summary']") as HTMLButtonElement | null;
     expect(yahooSummary).not.toBeNull();

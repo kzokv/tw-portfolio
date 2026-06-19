@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type { LocaleCode } from "@vakwen/shared-types";
@@ -38,9 +38,11 @@ export function PriceStateChip({
   const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
   const isMobile = useIsMobile();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const closePopoverTimerRef = useRef<number | null>(null);
   const keyboardDismissedHoverRef = useRef(false);
   const popoverOpenRef = useRef(false);
+  const touchPointerHandledRef = useRef(false);
   const flashTimerRef = useRef<number | null>(null);
   const changeSignatureRef = useRef<string | null>(null);
   const label = formatPriceStateLabel(dict, locale, priceState, clientNow ?? getInitialPriceStateNow(priceState));
@@ -85,6 +87,24 @@ export function PriceStateChip({
       document.removeEventListener("keyup", onEscape, true);
     };
   }, []);
+  useEffect(() => {
+    if (!isPopoverOpen) return;
+    const onPointerDownOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      if (closePopoverTimerRef.current !== null) {
+        window.clearTimeout(closePopoverTimerRef.current);
+        closePopoverTimerRef.current = null;
+      }
+      setIsPopoverOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownOutside, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownOutside, true);
+    };
+  }, [isPopoverOpen]);
   useEffect(() => {
     const signature = priceState
       ? [priceState.chipState, priceState.basis, priceState.asOfTimestamp, priceState.observedAt, priceState.marketState].join("|")
@@ -134,6 +154,10 @@ export function PriceStateChip({
     clearPopoverCloseTimer();
     setIsPopoverOpen(true);
   };
+  const closePopover = () => {
+    clearPopoverCloseTimer();
+    setIsPopoverOpen(false);
+  };
   const closePopoverSoon = () => {
     clearPopoverCloseTimer();
     closePopoverTimerRef.current = window.setTimeout(() => {
@@ -155,8 +179,16 @@ export function PriceStateChip({
   };
   const openPopoverForClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
+    if (touchPointerHandledRef.current) {
+      touchPointerHandledRef.current = false;
+      return;
+    }
     keyboardDismissedHoverRef.current = false;
     const useViewportPanel = typeof window !== "undefined" && window.innerWidth < 768;
+    if (isPopoverOpen && useViewportPanel) {
+      closePopover();
+      return;
+    }
     if (useViewportPanel) {
       setPreferBottomPopover(true);
     }
@@ -166,6 +198,11 @@ export function PriceStateChip({
   const openPopoverForTouchPointer = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse") return;
     event.preventDefault();
+    touchPointerHandledRef.current = true;
+    if (isPopoverOpen) {
+      closePopover();
+      return;
+    }
     keyboardDismissedHoverRef.current = false;
     setPreferBottomPopover(true);
     setPanelStyle(buildPanelStyle(triggerRef.current, true));
@@ -207,8 +244,11 @@ export function PriceStateChip({
         <PriceStateDetailsPanel
           activityLabel={dict.holdings.priceStateActivityHintLabel}
           activityPath={resolvedActivityPath}
+          closeLabel={dict.holdings.priceStateCloseDetailsLabel}
+          onClose={closePopover}
           onPointerEnter={openPopoverForMousePointer}
           onPointerLeave={closePopoverForMousePointer}
+          panelRef={panelRef}
           rows={tooltip.rows}
           style={panelStyle ?? buildPanelStyle(triggerRef.current, isMobile || preferBottomPopover)}
         />
@@ -220,21 +260,28 @@ export function PriceStateChip({
 function PriceStateDetailsPanel({
   activityLabel,
   activityPath,
+  closeLabel,
+  onClose,
   onPointerEnter,
   onPointerLeave,
+  panelRef,
   rows,
   style,
 }: {
   activityLabel: string;
   activityPath: string | null;
+  closeLabel: string;
+  onClose: () => void;
   onPointerEnter: (event: PointerEvent) => void;
   onPointerLeave: (event: PointerEvent) => void;
+  panelRef: RefObject<HTMLDivElement>;
   rows: Array<{ label: string; value: string }>;
   style: CSSProperties;
 }) {
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
+      ref={panelRef}
       data-radix-popper-content-wrapper=""
       role="dialog"
       className="fixed z-50 overflow-y-auto overscroll-contain rounded-md border bg-popover p-3 text-popover-foreground shadow-md outline-none"
@@ -242,6 +289,15 @@ function PriceStateDetailsPanel({
       onPointerLeave={onPointerLeave}
       style={style}
     >
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          className="rounded-sm px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onClose}
+        >
+          {closeLabel}
+        </button>
+      </div>
       <PriceStateDetailsRows activityLabel={activityLabel} activityPath={activityPath} rows={rows} />
     </div>,
     document.body,

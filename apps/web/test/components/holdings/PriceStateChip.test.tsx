@@ -32,6 +32,7 @@ const dict = {
     priceStateLatestAttemptLabel: "Latest attempt",
     priceStateLatestOutcomeLabel: "Latest outcome",
     priceStateActivityHintLabel: "Activity",
+    priceStateCloseDetailsLabel: "Close",
     calendarUnknownWarningTitle: "Market calendar needs attention",
     calendarUnknownWarningMessage: "{market} market calendar for {year} is missing. Today in {location} is {date}. Seed it in Admin Market Data or with the admin MCP calendar tool.",
     priceStateUnknownValue: "Unknown",
@@ -297,6 +298,54 @@ describe("PriceStateChip", () => {
     expect(document.body.textContent).toContain("Market: Closed");
     expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
     expect(document.querySelector("[role='tooltip']")).toBeNull();
+  });
+
+  it("dismisses touch-opened details when tapping outside or tapping the chip again", async () => {
+    act(() => {
+      root.render(
+        <PriceStateChip
+          dict={dict}
+          locale="en"
+          testId="price-state-chip"
+          priceState={{
+            basis: "today_close",
+            chipState: "closed",
+            marketState: "closed",
+            source: "daily-provider",
+            sourceKind: "primary_daily",
+            asOfDate: "2026-06-17",
+            asOfTimestamp: null,
+            observedAt: "2026-06-17T08:00:00.000Z",
+            delaySeconds: null,
+            marketTimeZone: "Asia/Taipei",
+            quality: "full_bar",
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+    expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
+
+    await act(async () => {
+      document.body.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+    expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
+
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+    expect(document.querySelector("[role='dialog']")).toBeNull();
   });
 
   it("keeps details open when a mouse click follows hover-open", async () => {
