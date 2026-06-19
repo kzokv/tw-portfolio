@@ -168,6 +168,7 @@ describe("HoldingsTable", () => {
     expect(container.querySelector("[data-testid='holdings-price-state-acc-1-AAPL']")).toBeNull();
     expect(container.querySelector("[data-testid='holdings-mobile-price-state-acc-1-AAPL']")).toBeNull();
     expect(desktopGroupChip?.parentElement?.className).toContain("justify-end");
+    expect(desktopGroupChip?.className).toContain("text-right");
     expect(mobileGroupChip?.parentElement?.className).toContain("justify-start");
   });
 
