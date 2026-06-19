@@ -2138,18 +2138,61 @@ const CALENDAR_JSON_EXAMPLE = `{
   "retrievedAt": "2026-06-19T00:00:00.000Z",
   "coverage": {
     "scope": "full_year",
-    "assertion": "All weekend and weekday exceptions are included.",
-    "evidence": "Official exchange holiday page checked on 2026-06-19."
+    "evidence": "Official exchange holiday page checked on 2026-06-19.",
+    "notes": "All weekday closures and weekend openings are included."
   },
   "exceptions": [
     {
       "date": "2026-01-01",
       "status": "closed",
       "name": "New Year's Day",
-      "evidence": "Official exchange holiday notice"
+      "evidence": "Official exchange holiday notice",
+      "overrideReason": "Official holiday closure."
     }
   ]
 }`;
+
+function readCalendarReplacementFields(normalizedPayload: string): {
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
+} {
+  try {
+    const parsed = JSON.parse(normalizedPayload) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const envelope = parsed as Record<string, unknown>;
+    const payload = envelope.payload && typeof envelope.payload === "object"
+      ? envelope.payload as Record<string, unknown>
+      : envelope;
+    const replaceConfirmed = envelope.replaceConfirmed === true || payload.replaceConfirmed === true;
+    const rawReason = typeof envelope.replacementReason === "string"
+      ? envelope.replacementReason
+      : typeof payload.replacementReason === "string"
+        ? payload.replacementReason
+        : null;
+    return {
+      replaceConfirmed: replaceConfirmed ? true : undefined,
+      replacementReason: rawReason?.trim() ? rawReason.trim() : null,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function resolveCalendarReplacementFields(
+  normalizedPayload: string,
+  replaceConfirmed: boolean,
+  replacementReason: string,
+): {
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
+} {
+  const embedded = readCalendarReplacementFields(normalizedPayload);
+  const resolvedReason = replacementReason.trim() || embedded.replacementReason || null;
+  return {
+    replaceConfirmed: replaceConfirmed || embedded.replaceConfirmed ? true : undefined,
+    replacementReason: resolvedReason,
+  };
+}
 
 function CalendarPanel({
   calendar,
@@ -2172,7 +2215,12 @@ function CalendarPanel({
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [previewToken, setPreviewToken] = useState<string | null>(calendar?.preview?.previewToken ?? null);
+  const [replaceConfirmed, setReplaceConfirmed] = useState(false);
+  const [replacementReason, setReplacementReason] = useState("");
+  const [previewReplaceConfirmedRequired, setPreviewReplaceConfirmedRequired] = useState(Boolean(calendar?.preview?.replaceConfirmedRequired));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const replacementFields = resolveCalendarReplacementFields(normalizedPayload, replaceConfirmed, replacementReason);
+  const replacementReady = !previewReplaceConfirmedRequired || replacementFields.replaceConfirmed === true;
 
   useEffect(() => {
     if (!selectedSource) return;
@@ -2189,8 +2237,10 @@ function CalendarPanel({
       const response = await previewMarketCalendarImport(marketCode, {
         sourceId: selectedSourceId || undefined,
         normalizedPayload: normalizedPayload.trim() || undefined,
+        ...replacementFields,
       });
       setPreviewToken(response.preview.previewToken ?? null);
+      setPreviewReplaceConfirmedRequired(Boolean(response.preview.replaceConfirmedRequired));
       const readyMessage = adminDict.calendarPreviewReady
         .replace("{added}", String(response.preview.added))
         .replace("{changed}", String(response.preview.changed))
@@ -2216,6 +2266,7 @@ function CalendarPanel({
     try {
       const response = await confirmMarketCalendarImport(marketCode, {
         previewToken,
+        ...replacementFields,
       });
       setSubmitMessage(adminDict.calendarImportStatus.replace("{status}", response.status).replace("{versionId}", response.versionId));
     } catch (error) {
@@ -2381,11 +2432,40 @@ function CalendarPanel({
               placeholder={CALENDAR_JSON_EXAMPLE}
               data-testid="calendar-json-input"
             />
+            <div className="space-y-3 rounded-md border border-border/70 p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">{adminDict.calendarReplacementTitle}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{adminDict.calendarReplacementHelp}</p>
+              </div>
+              <label className="flex items-start gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={replaceConfirmed}
+                  onChange={(event) => setReplaceConfirmed(event.target.checked)}
+                  data-testid="calendar-replace-confirmed-input"
+                />
+                <span>{adminDict.calendarReplaceConfirmed}</span>
+              </label>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-replacement-reason">{adminDict.calendarReplacementReason}</label>
+                <input
+                  id="calendar-replacement-reason"
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  value={replacementReason}
+                  onChange={(event) => setReplacementReason(event.target.value)}
+                  placeholder={adminDict.calendarReplacementReasonPlaceholder}
+                  data-testid="calendar-replacement-reason-input"
+                />
+              </div>
+              {previewReplaceConfirmedRequired && !replacementReady ? (
+                <p className="text-xs text-warning-foreground">{adminDict.calendarReplacementRequired}</p>
+              ) : null}
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="secondary" disabled={isSubmitting} onClick={() => void runPreview()} data-testid="calendar-preview-button">
                 {adminDict.calendarPreview}
               </Button>
-              <Button type="button" size="sm" disabled={isSubmitting || !previewToken} onClick={() => void runConfirm()} data-testid="calendar-confirm-button">
+              <Button type="button" size="sm" disabled={isSubmitting || !previewToken || !replacementReady} onClick={() => void runConfirm()} data-testid="calendar-confirm-button">
                 {adminDict.calendarConfirmImport}
               </Button>
             </div>

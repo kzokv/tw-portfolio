@@ -59,7 +59,9 @@ import {
   executeProviderRepair,
   fetchMarketValuationRepairStatus,
   mutateProviderOperation,
+  confirmMarketCalendarImport,
   previewMarketBackfill,
+  previewMarketCalendarImport,
   previewMarketPurge,
   previewProviderRepair,
   renewProviderEvidence,
@@ -80,7 +82,9 @@ const executeMarketSnapshotRepairMock = vi.mocked(executeMarketSnapshotRepair);
 const executeMarketPurgeMock = vi.mocked(executeMarketPurge);
 const fetchMarketValuationRepairStatusMock = vi.mocked(fetchMarketValuationRepairStatus);
 const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
+const confirmMarketCalendarImportMock = vi.mocked(confirmMarketCalendarImport);
 const previewMarketBackfillMock = vi.mocked(previewMarketBackfill);
+const previewMarketCalendarImportMock = vi.mocked(previewMarketCalendarImport);
 const previewMarketPurgeMock = vi.mocked(previewMarketPurge);
 const previewProviderRepairMock = vi.mocked(previewProviderRepair);
 const renewProviderEvidenceMock = vi.mocked(renewProviderEvidence);
@@ -498,6 +502,14 @@ function updateInputValue(input: HTMLInputElement, value: string) {
   act(() => {
     setter?.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function updateTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(textarea, value);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 
@@ -1928,5 +1940,92 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.querySelector("[data-testid='calendar-source-editor']")).not.toBeNull();
     expect(container.textContent).toContain("Suggested source URL");
     expect(container.querySelector("[data-testid='calendar-preview-button']")).not.toBeNull();
+  });
+
+  it("forwards replacement confirmation when previewing and confirming calendar imports", async () => {
+    previewMarketCalendarImportMock.mockResolvedValueOnce({
+      marketCode: "AU",
+      preview: {
+        added: 1,
+        changed: 0,
+        removed: 0,
+        previewToken: "preview-token",
+        warnings: [],
+        confirmable: true,
+        replaceConfirmedRequired: true,
+        rows: [],
+      },
+    });
+    confirmMarketCalendarImportMock.mockResolvedValueOnce({
+      marketCode: "AU",
+      status: "confirmed",
+      versionId: "calendar-version-1",
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="calendar"
+          overview={{ ...overview(), tabs: ["overview", "calendar"] as never }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          activity={null}
+          calendar={calendarResponse()}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const jsonInput = container.querySelector("[data-testid='calendar-json-input']") as HTMLTextAreaElement | null;
+    expect(jsonInput).not.toBeNull();
+    expect(() => JSON.parse(jsonInput?.value ?? "")).not.toThrow();
+    const parsedExample = JSON.parse(jsonInput?.value ?? "{}") as {
+      coverage?: Record<string, unknown>;
+      exceptions?: Array<Record<string, unknown>>;
+    };
+    expect(parsedExample.coverage?.assertion).toBeUndefined();
+    expect(parsedExample.exceptions?.[0]?.overrideReason).toBe("Official holiday closure.");
+
+    updateTextareaValue(jsonInput as HTMLTextAreaElement, JSON.stringify({
+      calendarYear: 2026,
+      sourceType: "official_source",
+      label: "ASX official calendar",
+      retrievedAt: "2026-06-19T00:00:00.000Z",
+      coverage: {
+        scope: "full_year",
+        evidence: "Official source checked.",
+      },
+      exceptions: [{
+        date: "2026-01-01",
+        status: "closed",
+        name: "New Year's Day",
+        evidence: "Official holiday notice",
+        overrideReason: "Official holiday closure.",
+      }],
+      replaceConfirmed: true,
+      replacementReason: "Replacing active official version after AI review.",
+    }));
+
+    const previewButton = container.querySelector("[data-testid='calendar-preview-button']") as HTMLButtonElement | null;
+    await act(async () => {
+      previewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(previewMarketCalendarImportMock).toHaveBeenCalledWith("AU", expect.objectContaining({
+      replaceConfirmed: true,
+      replacementReason: "Replacing active official version after AI review.",
+    }));
+
+    const confirmButton = container.querySelector("[data-testid='calendar-confirm-button']") as HTMLButtonElement | null;
+    expect(confirmButton?.disabled).toBe(false);
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(confirmMarketCalendarImportMock).toHaveBeenCalledWith("AU", {
+      previewToken: "preview-token",
+      replaceConfirmed: true,
+      replacementReason: "Replacing active official version after AI review.",
+    });
   });
 });
