@@ -89,6 +89,11 @@ export function PriceStateChip({
     event.preventDefault();
     openPopover();
   };
+  const openPopoverForTouchPointer = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse") return;
+    event.preventDefault();
+    openPopover();
+  };
 
   if (!interactive) {
     return (
@@ -112,6 +117,7 @@ export function PriceStateChip({
           className={chipClassName}
           data-testid={testId}
           onClick={openPopoverForClick}
+          onPointerDown={openPopoverForTouchPointer}
           onPointerEnter={openPopoverForMousePointer}
           onPointerLeave={closePopoverForMousePointer}
         >
