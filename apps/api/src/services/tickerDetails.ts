@@ -574,6 +574,9 @@ async function buildQuoteForTicker(input: {
       quoteStatus: "missing",
       priceState: buildMissingPriceState(input.marketCode, {
         marketState: session?.isOpen ? "open" : "closed",
+        marketStateReason: session?.marketStateReason,
+        calendarStatus: session?.calendarStatus ?? null,
+        marketLocalDate: session?.localDate ?? null,
         marketTimeZone: session?.marketTimeZone ?? null,
       }),
     };
