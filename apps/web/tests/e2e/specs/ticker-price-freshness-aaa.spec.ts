@@ -1,6 +1,7 @@
 import { appPagesTest as test } from "@vakwen/test-e2e/fixtures";
 import type { Locator } from "@playwright/test";
 import type { DashboardOverviewDto, PriceStateDto } from "@vakwen/shared-types";
+import { assertPriceChipDetailsPopover } from "./price-chip-popover-helpers";
 
 test.describe("ticker price freshness", () => {
   test("[ticker price freshness]: dashboard renders market summary, delayed/previous-close chips, and refresh-closes workflow", async ({
@@ -51,6 +52,8 @@ test.describe("ticker price freshness", () => {
     await assertContainsText(page.getByTestId("dashboard-market-state-TW"), /Open/i, "TW market-state chip");
     await assertContainsText(page.getByTestId("dashboard-price-state-2330-TW"), /Delayed/i, "delayed price chip");
     await assertContainsText(page.getByTestId("dashboard-price-state-2317-TW"), /Previous close/i, "previous-close price chip");
+    await assertPriceChipDetailsPopover(page, page.getByTestId("dashboard-price-state-2330-TW"), "dashboard delayed price chip", "hover");
+    await assertPriceChipDetailsPopover(page, page.getByTestId("dashboard-price-state-2317-TW"), "dashboard previous-close price chip", "hover");
 
     const refreshResponse = page.waitForResponse((response) =>
       response.url().includes("/portfolio/refresh-closes") && response.request().method() === "POST",
@@ -75,10 +78,12 @@ test.describe("ticker price freshness", () => {
     await portfolio.actions.navigateToPortfolio();
     await portfolio.assert.holdingsTableIsVisible();
     await assertContainsText(page.getByTestId("holdings-price-state-2330-TW"), /Closed|Stale|Previous close|Delayed|Updated/i, "portfolio price chip");
+    await assertPriceChipDetailsPopover(page, page.getByTestId("holdings-price-state-2330-TW"), "portfolio price chip", "hover");
 
     await ticker.actions.navigateToTicker("2330");
     await ticker.assert.sectionIsVisible();
     await assertContainsText(page.getByTestId("ticker-price-state-chip"), /Closed|Stale|Previous close|Delayed|Updated/i, "ticker detail price chip");
+    await assertPriceChipDetailsPopover(page, page.getByTestId("ticker-price-state-chip"), "ticker detail price chip", "hover");
   });
 });
 

@@ -270,6 +270,13 @@ describe("PriceStateChip", () => {
     expect(document.body.textContent).not.toContain("Basis: Today close");
 
     await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+
+    expect(document.body.textContent).toContain("Basis: Today close");
+    expect(document.body.textContent).toContain("Market: Closed");
+
+    await act(async () => {
       chip?.click();
     });
 
