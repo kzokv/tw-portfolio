@@ -3340,6 +3340,7 @@ export interface AdminMarketDataActivityFiltersDto {
   categories: AdminMarketDataActivityCategory[];
   results: AdminMarketDataActivityResult[];
   sourceKinds: AdminMarketDataActivitySourceKind[];
+  timeRanges?: string[];
 }
 
 export interface AdminMarketDataActivityItemDto {

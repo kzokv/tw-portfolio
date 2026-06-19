@@ -1135,9 +1135,10 @@ function providerIdsForMarket(marketCode: AdminMarketCode): string[] {
   return MARKET_DATA_WORKSPACES[marketCode].providers.map((provider) => provider.providerId);
 }
 
-function resolveActivityOccurredAfter(timeRange: "24h" | "7d" | "30d" | "all", now: Date): string | undefined {
+function resolveActivityOccurredAfter(timeRange: "24h" | "48h" | "7d" | "30d" | "all", now: Date): string | undefined {
   const hoursByRange = {
     "24h": 24,
+    "48h": 48,
     "7d": 24 * 7,
     "30d": 24 * 30,
     all: null,
@@ -7315,7 +7316,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       sourceIds: z.string().trim().optional(),
       sourceKind: z.string().trim().optional(),
       sources: z.string().trim().optional(),
-      timeRange: z.enum(["24h", "7d", "30d", "all"]).default("24h"),
+      timeRange: z.enum(["24h", "48h", "7d", "30d", "all"]).default("24h"),
     }).parse(req.query ?? {});
     const parseCsv = (value?: string) => value
       ? value.split(",").map((item) => item.trim()).filter((item) => item.length > 0 && item !== "all")
@@ -7366,6 +7367,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         categories: ["intraday_price", "daily_close", "calendar", "provider_operation", "provider_error", "instrument", "system"],
         results: ["success", "warning", "error", "skipped", "rate_limited"],
         sourceKinds: ["yahoo_chart", "official_calendar", "twse_close", "finmind", "provider", "system"],
+        timeRanges: ["24h", "48h", "7d", "30d", "all"],
       },
       summary,
       retention: {

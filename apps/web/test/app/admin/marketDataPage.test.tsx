@@ -90,7 +90,7 @@ describe("AdminMarketDataPage", () => {
       if (path === "/admin/market-data/KR/actions") {
         return { marketCode: "KR", actions: [] };
       }
-      if (path === "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=24h") {
+      if (path === "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=48h") {
         return { marketCode: "KR", providers: [], summary: [], items: [], total: 0, page: 2, limit: 10 };
       }
       throw new Error(`Unexpected getJson path: ${path}`);
@@ -104,13 +104,14 @@ describe("AdminMarketDataPage", () => {
         search: "2330",
         source: "yahoo_chart",
         category: "intraday_price",
+        timeRange: "48h",
       }),
     });
 
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
-      "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=24h",
+      "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=48h",
     ]);
   });
 
