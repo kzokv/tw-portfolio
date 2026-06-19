@@ -1,7 +1,6 @@
 import { appPagesTest as test } from "@vakwen/test-e2e/fixtures";
-import { expect, type Locator, type Page } from "@playwright/test";
 import type { DashboardOverviewDto, PriceStateDto } from "@vakwen/shared-types";
-import { assertPriceChipDetailsPopover } from "./price-chip-popover-helpers";
+import { assertPriceChipDetailsPopover, resolveFirstVisibleByTestId } from "./price-chip-popover-helpers";
 
 const MD_BREAKPOINT_PX = 768;
 
@@ -58,7 +57,7 @@ test.describe("mobile ticker price freshness popovers", () => {
     await page.getByTestId("reports-page").waitFor({ state: "visible" });
     await assertPriceChipDetailsPopover(
       page,
-      await resolveFirstVisibleReportsPriceChip(page, "reports-price-state-2330-TW"),
+      await resolveFirstVisibleByTestId(page, "reports-price-state-2330-TW", "mobile reports price chip"),
       "mobile reports price chip",
       "tap",
     );
@@ -73,14 +72,6 @@ test.describe("mobile ticker price freshness popovers", () => {
     );
   });
 });
-
-async function resolveFirstVisibleReportsPriceChip(page: Page, testId: string): Promise<Locator> {
-  const chips = page.getByTestId(testId).filter({ visible: true });
-  await expect
-    .poll(async () => chips.count(), { message: `reports price chip ${testId} becomes visible` })
-    .toBeGreaterThan(0);
-  return chips.nth(0);
-}
 
 function withDashboardPriceStates(payload: DashboardOverviewDto): DashboardOverviewDto {
   const next: DashboardOverviewDto = structuredClone(payload);

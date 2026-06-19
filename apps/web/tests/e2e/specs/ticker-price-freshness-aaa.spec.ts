@@ -1,7 +1,7 @@
 import { appPagesTest as test } from "@vakwen/test-e2e/fixtures";
 import type { Locator } from "@playwright/test";
 import type { DashboardOverviewDto, PriceStateDto } from "@vakwen/shared-types";
-import { assertPriceChipDetailsPopover } from "./price-chip-popover-helpers";
+import { assertPriceChipDetailsPopover, resolveFirstVisibleByTestId } from "./price-chip-popover-helpers";
 
 test.describe("ticker price freshness", () => {
   test("[ticker price freshness]: dashboard renders market summary, delayed/previous-close chips, and refresh-closes workflow", async ({
@@ -64,6 +64,7 @@ test.describe("ticker price freshness", () => {
   });
 
   test("[ticker price freshness]: portfolio and ticker detail render daily price-state chips", async ({
+    appShell,
     dashboard,
     page,
     portfolio,
@@ -79,6 +80,15 @@ test.describe("ticker price freshness", () => {
     await portfolio.assert.holdingsTableIsVisible();
     await assertContainsText(page.getByTestId("holdings-price-state-2330-TW"), /Closed|Stale|Previous close|Delayed|Updated/i, "portfolio price chip");
     await assertPriceChipDetailsPopover(page, page.getByTestId("holdings-price-state-2330-TW"), "portfolio price chip", "hover");
+
+    await appShell.actions.navigateToRouteForResponsiveTest("/reports?tab=portfolio&scope=all&range=1Y");
+    await page.getByTestId("reports-page").waitFor({ state: "visible" });
+    await assertPriceChipDetailsPopover(
+      page,
+      await resolveFirstVisibleByTestId(page, "reports-price-state-2330-TW", "reports price chip"),
+      "reports price chip",
+      "hover",
+    );
 
     await ticker.actions.navigateToTicker("2330");
     await ticker.assert.sectionIsVisible();
