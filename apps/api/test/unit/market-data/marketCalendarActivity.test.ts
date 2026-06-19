@@ -77,6 +77,15 @@ describe("market calendar activity persistence", () => {
     });
     expect(recentOnly.total).toBe(1);
     expect(recentOnly.items[0]?.eventType).toBe("intraday_refresh_completed");
+
+    const sourceIdFiltered = await persistence.listMarketCalendarActivity({
+      marketCode: "TW",
+      page: 1,
+      limit: 25,
+      sourceIds: ["yahoo-finance-chart"],
+    });
+    expect(sourceIdFiltered.total).toBe(1);
+    expect(sourceIdFiltered.items[0]?.sourceId).toBe("yahoo-finance-chart");
   });
 
   it("mirrors provider operation logs into provider-operation activity", async () => {

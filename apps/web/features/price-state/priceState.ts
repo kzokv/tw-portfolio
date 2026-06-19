@@ -213,6 +213,33 @@ export function summarizeDashboardMarketStates<T extends { marketCode: string } 
   return sortDashboardMarketStates([...grouped.values()]);
 }
 
+export function hydrateDashboardMarketStates<T extends { marketCode: string } & PriceStateCarrierLike>(
+  payloadStates: DashboardMarketStateLike[] | DashboardMarketStateDto[] | null | undefined,
+  rows: T[],
+): DashboardMarketStateLike[] {
+  const derivedStates = summarizeDashboardMarketStates(rows);
+  if (!payloadStates || payloadStates.length === 0) return derivedStates;
+
+  const derivedByMarket = new Map(derivedStates.map((state) => [state.marketCode, state]));
+  const merged = payloadStates.map((payloadState): DashboardMarketStateLike => {
+    const payload = payloadState as DashboardMarketStateLike;
+    const derivedState = derivedByMarket.get(payloadState.marketCode);
+    return {
+      ...payloadState,
+      heldCount: payload.heldCount ?? derivedState?.heldCount ?? 0,
+      openCount: payload.openCount ?? derivedState?.openCount ?? 0,
+      marketStateReason: payload.marketStateReason ?? derivedState?.marketStateReason ?? null,
+      calendarStatus: payload.calendarStatus ?? derivedState?.calendarStatus ?? null,
+      marketLocalDate: payload.marketLocalDate ?? derivedState?.marketLocalDate ?? null,
+    };
+  });
+  const payloadMarkets = new Set(payloadStates.map((state) => state.marketCode));
+  for (const derivedState of derivedStates) {
+    if (!payloadMarkets.has(derivedState.marketCode)) merged.push(derivedState);
+  }
+  return sortDashboardMarketStates(merged);
+}
+
 export function collectCalendarUnknownWarnings<T extends { marketCode: string } & PriceStateCarrierLike>(
   rows: T[] | null | undefined,
   marketStates?: DashboardMarketStateLike[] | null,

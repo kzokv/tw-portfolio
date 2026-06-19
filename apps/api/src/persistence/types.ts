@@ -1665,6 +1665,7 @@ export interface ListMarketCalendarActivityOptions {
   categories?: MarketCalendarActivityCategory[];
   results?: MarketCalendarActivityResult[];
   sourceKinds?: MarketCalendarActivitySourceKind[];
+  sourceIds?: string[];
   occurredAfter?: string;
 }
 
