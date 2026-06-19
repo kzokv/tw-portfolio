@@ -154,6 +154,8 @@ superseded_by: null
 - Provider-error trail inserts now mirror supported market errors into market-scoped Activity rows, and admin instrument support-state / delisting-override mutations emit instrument Activity rows with dedupe keys.
 - Admin Market Data Activity and Calendar shell copy now uses the admin i18n provider with English and zh-TW entries for the revised Activity filters/details and Calendar import/status flows.
 - Admin Market Data Calendar/Activity fallback labels, retention text, Yahoo detail text, raw metadata labels, and source/category/result labels now use English and zh-TW admin dictionaries. Price-state reason/outcome facts now use localized holding dictionary entries while preserving English fallbacks for partial test dictionaries.
+- Added append-only migration `db/migrations/082_market_calendar_activity_schema_reconcile.sql` after dev live validation found an already-applied older calendar/activity migration without the current `source_url`/exceptions-only columns. The reconcile migration upgrades older dev/prod-like schemas to the current Calendar and Activity contract without rewriting migration history.
+- Applied migration 082 manually to the Vakwen Dev Postgres container during validation, then reran it successfully to verify idempotency. This fixed the live Admin Market Data Calendar/Activity `source_url` schema error before the branch deploy picks up the migration normally.
 
 ## Focused Validation
 
@@ -185,13 +187,16 @@ superseded_by: null
 - Passed: `npm run test:http --prefix apps/api` (291 passed, 2 skipped)
 - Passed: `cd apps/web && npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/specs/ticker-price-freshness-aaa.spec.ts tests/e2e/specs/mobile-ticker-price-chip-popover-aaa.spec.ts` (focused freshness and mobile popover paths passed)
 - Passed: `cd apps/web && npx vitest run test/components/holdings/PriceStateChip.test.tsx` (10 tests passed after the fixed-position portal popover update)
+- Passed: `npx eslint apps/api/test/integration/postgres-migrations.integration.test.ts`
+- Passed: `VAKWEN_MANAGED_CI_STACK=1 RUN_POSTGRES_INTEGRATION=1 POSTGRES_CONNECTION_TIMEOUT_MS=10000 REDIS_CONNECTION_TIMEOUT_MS=10000 POSTGRES_PERSISTENCE_SKIP_REDIS_INIT=1 POSTGRES_TEST_DB_URL='postgres://app:app@192.168.64.1:15432/vakwen_ci?connect_timeout=10' POSTGRES_TEST_REDIS_URL='redis://192.168.64.1:16379' npm run test:integration:full -w apps/api -- test/integration/postgres-migrations.integration.test.ts -t 'keeps the baseline schema in parity with the numbered upgrade path'` (1 passed, 871 skipped) after adding calendar/activity schema assertions.
+- Passed: `npm run test:integration:full:host` after migration 082 and the parity assertion update (90 files passed; 871 tests passed, 1 skipped; duration 1278.16s).
 - Fetched `origin/dev`; current branch already contains the fetched dev tip (`git rev-list --left-right --count HEAD...origin/dev` => `63 0`), so no rebase was required in this pass.
 - Ran SI memory review for durable lessons; no promotion was made because existing repo memory/rules already cover the reusable route-enrichment and market-data identity patterns, and the new notes are scope-specific implementation evidence.
 - Local AGENTS.md validation: all eight required suites have passed in this pass. Dev deployment, live Chrome validation, and optional recent-48h Activity mirroring remain post-PR readiness work.
 
 ## Remaining Risks
 
-- Browser/live validation and optional dev DB Activity seeding have not been run yet.
+- Final browser/live validation after the next dev deploy is still pending for the migration-082 commit. Earlier live validation against Vakwen Dev found the schema drift, verified manual migration 082 fixed Admin Market Data Calendar/Activity rendering, and found existing AU Yahoo Activity rows plus a marked KR validation row, so no extra recent-48h manual Activity mirroring was needed at that time.
 - Focused web suites pass with existing noisy React test-environment/chart sizing/key warnings; no focused test failures were observed.
 - Admin Market Data still contains English-heavy strings in legacy-adjacent Instruments/Backfill/Purge surfaces outside this refresh revision; the scoped Calendar, Activity, Operations, Market context, Refresh prices, refresh-pending, and price-chip tooltip copy now have English and zh-TW coverage.
 - Price-state admin Activity drill-down is render-gated by admin-aware web surfaces instead of embedded in shared quote DTOs; this avoids exposing admin URLs to non-admin/public contexts and passed local component/e2e coverage, with final browser validation still pending.
