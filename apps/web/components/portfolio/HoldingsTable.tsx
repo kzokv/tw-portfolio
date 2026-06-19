@@ -1229,12 +1229,14 @@ function HoldingGroupCell({
     const priceState = getPriceState(group);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(group.currentUnitPrice, group.averageCostPerShare))} style={style}>
-        {group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}
-        {showFreshnessBadge && priceState ? (
-          <div className="mt-1 flex justify-end">
-            <PriceStateChip className="mt-0" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
-          </div>
-        ) : null}
+        <div className="flex min-w-0 flex-col items-end text-right">
+          <span>{group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}</span>
+          {showFreshnessBadge && priceState ? (
+            <div className="mt-1 flex w-full justify-end">
+              <PriceStateChip className="mt-0 max-w-full justify-end text-right" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
+            </div>
+          ) : null}
+        </div>
       </td>
     );
   }
