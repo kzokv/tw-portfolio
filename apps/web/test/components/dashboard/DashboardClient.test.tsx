@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
   dashboardPerformanceCalls: [] as Array<{ cacheKey?: string; expectedReportingCurrency?: AccountDefaultCurrency | null }>,
   performanceRefresh: vi.fn(async () => undefined),
   performanceIsLoading: false,
+  refreshPortfolioCloses: vi.fn(async () => undefined),
   shellReportingCurrency: "USD" as AccountDefaultCurrency,
 }));
 
@@ -113,6 +114,10 @@ vi.mock("../../../components/layout/CardLayoutResetContext", () => ({
 
 vi.mock("../../../components/layout/SortableCardGrid", () => ({
   SortableCardGrid: () => <div data-testid="mock-sortable-card-grid" />,
+}));
+
+vi.mock("../../../features/portfolio/services/portfolioService", () => ({
+  refreshPortfolioCloses: mocks.refreshPortfolioCloses,
 }));
 
 vi.mock("../../../features/dashboard/hooks/useDashboardData", () => ({
@@ -188,6 +193,7 @@ describe("DashboardClient", () => {
     mocks.dashboardPerformanceCalls.length = 0;
     mocks.performanceRefresh.mockClear();
     mocks.performanceIsLoading = false;
+    mocks.refreshPortfolioCloses.mockClear();
     mocks.shellReportingCurrency = "USD";
     mocks.dashboardSnapshot.holdings = [];
     mocks.dashboardSnapshot.marketStates = [{
@@ -221,6 +227,24 @@ describe("DashboardClient", () => {
 
     expect(mocks.dashboardRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.performanceRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a separate refresh prices action that only refreshes enrichment data", () => {
+    act(() => {
+      root.render(<DashboardClient />);
+    });
+
+    const button = container.querySelector("[data-testid='dashboard-refresh-prices-button']");
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.dashboardRefreshPrices).toHaveBeenCalledTimes(1);
+    expect(mocks.dashboardRefresh).not.toHaveBeenCalled();
+    expect(mocks.performanceRefresh).not.toHaveBeenCalled();
+    expect(mocks.refreshPortfolioCloses).not.toHaveBeenCalled();
   });
 
   it("keys dashboard performance cache by the owner/context summary currency", () => {

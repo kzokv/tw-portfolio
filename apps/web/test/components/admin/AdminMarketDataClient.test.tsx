@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataInstrumentsResponse,
-  AdminMarketDataLogsResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   ProviderFixerDashboardOperationDto,
@@ -14,6 +13,10 @@ import type {
   ProviderUnresolvedItemsResponse,
   ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
+import type {
+  AdminMarketDataActivityResponse,
+  AdminMarketDataCalendarResponse,
+} from "../../../lib/adminMarketDataContracts";
 
 const mockPush = vi.hoisted(() => vi.fn());
 const mockRefresh = vi.hoisted(() => vi.fn());
@@ -23,12 +26,15 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../../../lib/adminMarketDataService", () => ({
+  confirmMarketCalendarImport: vi.fn(),
   executeMarketBackfill: vi.fn(),
   executeMarketSnapshotRepair: vi.fn(),
   executeProviderRepair: vi.fn(),
   executeMarketPurge: vi.fn(),
   fetchMarketValuationRepairStatus: vi.fn(),
+  invalidateMarketCalendar: vi.fn(),
   bulkUpdateProviderUnresolvedState: vi.fn(),
+  previewMarketCalendarImport: vi.fn(),
   previewProviderRepair: vi.fn(),
   previewMarketBackfill: vi.fn(),
   previewMarketPurge: vi.fn(),
@@ -38,6 +44,7 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   reverifyProviderMapping: vi.fn(),
   revertProviderMapping: vi.fn(),
   rerunProviderMapping: vi.fn(),
+  updateMarketCalendarSource: vi.fn(),
   updateMarketInstrumentSupportState: vi.fn(),
   updateProviderUnresolvedState: vi.fn(),
   updateMarketInstrumentDelistingOverride: vi.fn(),
@@ -167,7 +174,7 @@ function krOverview(): AdminMarketDataOverviewResponse {
   return {
     marketCode: "KR",
     label: "Korea",
-    tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "logs"],
+    tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "activity"],
     providers: [
       { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
       { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
@@ -396,22 +403,83 @@ function auOperations(): AdminMarketDataOperationsResponse {
   };
 }
 
-function auLogs(): AdminMarketDataLogsResponse {
+function activityResponse(): AdminMarketDataActivityResponse {
   return {
     marketCode: "AU",
-    providers: auOperations().providers,
-    items: [
-      {
-        id: "log-1",
-        occurredAt: "2026-01-02T00:00:00.000Z",
-        phase: "completed",
-        message: "Backfill completed",
-        operationId: "OP-AU",
+    providers: [{ providerId: "asx-gics-csv", label: "ASX GICS CSV", role: "Operations" }],
+    summary: [{ id: "warnings", label: "Warnings", value: 2, detail: "1 delayed bar, 1 calendar warning" }],
+    yahooChartSummary: {
+      label: "Yahoo chart",
+      lastRequestAt: "2026-06-19T04:12:00.000Z",
+      successCount: 4,
+      delayedCount: 1,
+      rateLimitedCount: 0,
+      errorCount: 0,
+      budgetUsed: 10,
+      budgetLimit: 120,
+      filterPatch: {
+        source: "yahoo_chart",
+        category: "intraday_price",
+        result: "all",
+        timeRange: "24h",
       },
-    ],
+    },
+    availableFilters: {
+      sources: [{ value: "yahoo_chart", label: "Yahoo chart" }],
+      categories: [{ value: "intraday_price", label: "Intraday price" }],
+      results: [{ value: "warning,error", label: "Warnings and errors" }],
+      timeRanges: [{ value: "24h", label: "Last 24h" }],
+    },
+    retentionNote: "Detailed intraday events retained 7 days.",
+    items: [{
+      id: "act-1",
+      occurredAt: "2026-06-19T04:14:08.000Z",
+      category: "intraday_price",
+      source: "yahoo_chart",
+      sourceLabel: "Yahoo chart",
+      subject: "BHP.AX",
+      subjectDetail: "job au:bhp",
+      result: "warning",
+      facts: "bar 12:01 Australia/Sydney - delay 13m",
+      detailRows: [{ label: "Event id", value: "act-1" }],
+      timeline: [{ at: "2026-06-19T04:13:58.000Z", message: "queued by dashboard enrichment read" }],
+      metadata: { budgetRemaining: 110 },
+    }],
     total: 1,
     page: 1,
     limit: 25,
+    query: { page: 1, limit: 25, search: "", source: "", category: "", result: "warning,error", timeRange: "24h" },
+  };
+}
+
+function calendarResponse(): AdminMarketDataCalendarResponse {
+  return {
+    marketCode: "AU",
+    years: [{
+      calendarYear: 2026,
+      status: "confirmed",
+      sourceLabel: "ASX official calendar",
+      updatedAt: "2026-06-19T00:00:00.000Z",
+      note: "Current year confirmed.",
+    }],
+    sources: [{
+      sourceId: "asx-official",
+      label: "ASX official calendar",
+      sourceType: "official_parser",
+      url: "https://www.asx.com.au/markets/trade-our-cash-market/directory",
+      host: "www.asx.com.au",
+      allowedHosts: ["www.asx.com.au"],
+      parserType: "au-official",
+      isDefault: true,
+    }],
+    history: [{
+      id: "hist-1",
+      importOperationId: "import-op-1",
+      calendarYear: 2026,
+      sourceLabel: "ASX official calendar",
+      importedAt: "2026-06-19T00:00:00.000Z",
+      status: "confirmed",
+    }],
   };
 }
 
@@ -500,7 +568,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
         />,
       );
@@ -678,7 +745,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
           snapshotRepairRequest={{
             mode: "valuation",
@@ -886,7 +952,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
           snapshotRepairRequest={{
             mode: "valuation",
@@ -1087,7 +1152,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
           snapshotRepairRequest={{
             mode: "valuation",
@@ -1217,7 +1281,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
           snapshotRepairRequest={{
             mode: "valuation",
@@ -1292,7 +1355,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={actions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={null}
         />,
       );
@@ -1360,7 +1422,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={krMappingData()}
         />,
       );
@@ -1444,7 +1505,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={krMappingData()}
         />,
       );
@@ -1501,7 +1561,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={data}
         />,
       );
@@ -1530,7 +1589,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={krMappingData()}
         />,
       );
@@ -1569,7 +1627,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={krMappingData()}
         />,
       );
@@ -1627,7 +1684,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           actions={krActions()}
           instruments={null}
           operations={null}
-          logs={null}
           krMappings={null}
           krOperations={data}
         />,
@@ -1668,11 +1724,10 @@ describe("AdminMarketDataWorkspaceClient", () => {
         <AdminMarketDataWorkspaceClient
           marketCode="AU"
           tab="operations"
-          overview={{ ...overview(), tabs: ["overview", "operations", "logs"], providers: operations.providers }}
+          overview={{ ...overview(), tabs: ["overview", "operations", "activity"], providers: operations.providers }}
           actions={actions()}
           instruments={null}
           operations={operations}
-          logs={null}
           providerFilterId="yahoo-finance-au"
           krMappings={null}
         />,
@@ -1686,28 +1741,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
       .find((link) => link.textContent === "Yahoo Finance AU");
     expect(yahooLink?.getAttribute("href")).toBe("/admin/market-data/AU/operations?providerId=yahoo-finance-au");
 
-    const logs = auLogs();
-    await act(async () => {
-      root.render(
-        <AdminMarketDataWorkspaceClient
-          marketCode="AU"
-          tab="logs"
-          overview={{ ...overview(), tabs: ["overview", "operations", "logs"], providers: logs.providers }}
-          actions={actions()}
-          instruments={null}
-          operations={null}
-          logs={logs}
-          providerFilterId="asx-gics-csv"
-          krMappings={null}
-        />,
-      );
-    });
-
-    const logsFilter = container.querySelector("[data-testid='market-data-logs-provider-filter']");
-    expect(logsFilter?.textContent ?? "").toContain("ASX GICS CSV");
-    const asxLink = [...container.querySelectorAll("a")]
-      .find((link) => link.textContent === "ASX GICS CSV");
-    expect(asxLink?.getAttribute("href")).toBe("/admin/market-data/AU/logs?providerId=asx-gics-csv");
   });
 
   afterEach(() => {
@@ -1744,7 +1777,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
             sort: "ticker_asc",
           }}
           operations={null}
-          logs={null}
           krMappings={null}
         />,
       );
@@ -1789,7 +1821,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           instruments={instruments("OLD", "Old row")}
           instrumentQuery={query}
           operations={null}
-          logs={null}
           krMappings={null}
         />,
       );
@@ -1806,7 +1837,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
           instruments={instruments("NEW", "Filtered row")}
           instrumentQuery={{ ...query, search: "NEW" }}
           operations={null}
-          logs={null}
           krMappings={null}
         />,
       );
@@ -1814,5 +1844,68 @@ describe("AdminMarketDataWorkspaceClient", () => {
 
     expect(container.textContent).toContain("NEW");
     expect(container.textContent).not.toContain("OLD");
+  });
+
+  it("renders the activity panel with summary, filters, pagination, and details drawer", async () => {
+    const activity = activityResponse();
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="activity"
+          overview={{ ...overview(), tabs: ["overview", "activity"] as never }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          activity={activity}
+          calendar={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Activity");
+    expect(container.textContent).toContain("Yahoo chart");
+    expect(container.textContent).toContain("Detailed intraday events retained 7 days.");
+
+    const yahooSummary = container.querySelector("[data-testid='activity-yahoo-summary']") as HTMLButtonElement | null;
+    expect(yahooSummary).not.toBeNull();
+    await act(async () => {
+      yahooSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/admin/market-data/AU/activity?"));
+
+    const row = container.querySelector("[data-testid='activity-row-act-1']") as HTMLTableRowElement | null;
+    await act(async () => {
+      row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.body.textContent).toContain("queued by dashboard enrichment read");
+  });
+
+  it("renders the calendar panel shell with source, preview, and history areas", async () => {
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="calendar"
+          overview={{ ...overview(), tabs: ["overview", "calendar"] as never }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          activity={null}
+          calendar={calendarResponse()}
+          krMappings={null}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Calendar coverage");
+    expect(container.textContent).toContain("Paste normalized JSON");
+    expect(container.textContent).toContain("History");
+    expect(container.textContent).toContain("Import operation: import-op-1");
+    expect(container.querySelector("[data-testid='calendar-source-editor']")).not.toBeNull();
+    expect(container.textContent).toContain("Allowed hosts");
+    expect(container.querySelector("[data-testid='calendar-preview-button']")).not.toBeNull();
   });
 });

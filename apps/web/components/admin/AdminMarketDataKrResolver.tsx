@@ -1127,10 +1127,10 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
           </div>
           <Link
             className="rounded border border-border px-3 py-2 text-sm font-medium"
-            href={`/admin/market-data/KR/logs?providerId=${encodeURIComponent(yahooKrProviderId)}${selectedOperation ? `&operationId=${encodeURIComponent(selectedOperation.id)}` : ""}`}
-            data-testid="provider-console-operation-open-logs"
+            href={`/admin/market-data/KR/activity?source=yahoo_chart&category=provider_operation${selectedOperation ? `&search=${encodeURIComponent(selectedOperation.id)}` : ""}`}
+            data-testid="provider-console-operation-open-activity"
           >
-            Open logs
+            Open activity
           </Link>
         </div>
         {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}

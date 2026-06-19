@@ -25,7 +25,7 @@ interface TradingCalendarCacheEntry {
 }
 
 interface TradingCalendarCacheDeps {
-  persistence: Pick<Persistence, "getDistinctBarDates">;
+  persistence: Pick<Persistence, "getDistinctBarDates" | "getActiveMarketCalendarVersion">;
   log?: CalendarLogger;
 }
 
@@ -349,6 +349,33 @@ export class TradingCalendarCache {
       this.warnBootstrapFallback(market, "is_trading_day");
     }
     return isTradingDayPure(tradingDates, market, date);
+  }
+
+  async getOfficialCalendarDayStatus(
+    market: SupportedMarketCode,
+    at: Date,
+  ): Promise<{
+    localDate: string;
+    calendarYear: number;
+    status: "open" | "closed" | "calendar_unknown";
+    reason: "not_trading_day" | "calendar_unknown";
+  }> {
+    const { localDate } = getMarketLocalParts(market, at);
+    const calendarYear = Number(localDate.slice(0, 4));
+    const version = await this.deps.persistence.getActiveMarketCalendarVersion(market, calendarYear);
+    if (!version) {
+      return { localDate, calendarYear, status: "calendar_unknown", reason: "calendar_unknown" };
+    }
+    const row = version.rows.find((candidate) => candidate.date === localDate);
+    if (!row) {
+      return { localDate, calendarYear, status: "calendar_unknown", reason: "calendar_unknown" };
+    }
+    return {
+      localDate,
+      calendarYear,
+      status: row.isOpen ? "open" : "closed",
+      reason: "not_trading_day",
+    };
   }
 
   private async refreshMarket(market: SupportedMarketCode): Promise<Set<string>> {

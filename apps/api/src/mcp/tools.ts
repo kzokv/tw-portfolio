@@ -57,6 +57,7 @@ const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const marketCodeSchema = z.enum(MARKET_CODES);
 const reportScopeSchema = z.enum(REPORT_SCOPES);
 const reportCurrencyModeSchema = z.enum(REPORT_CURRENCY_MODES);
+const adminCalendarMarketCodeSchema = z.enum(["TW", "US", "AU", "KR"]);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
@@ -226,6 +227,71 @@ const toolDefinitions = {
     }),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
+  },
+  get_admin_market_calendar_status: {
+    description: "Admin-only. Return official calendar year coverage and configured sources for one runtime market.",
+    inputSchema: z.object({
+      marketCode: adminCalendarMarketCodeSchema,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  list_admin_market_calendar_sources: {
+    description: "Admin-only. List configured official calendar sources for one runtime market.",
+    inputSchema: z.object({
+      marketCode: adminCalendarMarketCodeSchema,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  update_admin_market_calendar_source: {
+    description: "Admin-only. Update one calendar source config with allowlisted-host and parser compatibility guardrails.",
+    inputSchema: z.object({
+      marketCode: adminCalendarMarketCodeSchema,
+      sourceId: z.string().trim().min(1).max(120),
+      label: z.string().trim().min(1).max(200).optional(),
+      sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
+      url: z.string().trim().min(1).max(500).nullable().optional(),
+      host: z.string().trim().min(1).max(200).nullable().optional(),
+      allowedHosts: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+      parserId: z.string().trim().min(1).max(120).nullable().optional(),
+      enabled: z.boolean().optional(),
+      isDefault: z.boolean().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  preview_admin_market_calendar_import: {
+    description: "Admin-only. Preview a normalized full-year calendar import for one market and year before confirmation.",
+    inputSchema: z.object({
+      marketCode: adminCalendarMarketCodeSchema,
+      calendarYear: z.number().int().min(2000).max(2100),
+      sourceId: z.string().trim().min(1).max(120).nullable().optional(),
+      sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
+      label: z.string().trim().min(1).max(200).nullable().optional(),
+      retrievedAt: z.string().trim().min(1).max(64),
+      rows: z.array(z.object({
+        date: z.string().trim().min(10).max(10),
+        isOpen: z.boolean(),
+        evidence: z.string().trim().min(1).max(500),
+        notes: z.string().trim().max(1_000).nullable().optional(),
+      }).strict()).min(1).max(366),
+      replaceConfirmed: z.boolean().optional(),
+      replacementReason: z.string().trim().max(500).nullable().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  confirm_admin_market_calendar_import: {
+    description: "Admin-only. Confirm the latest market calendar preview token and activate the annual calendar version.",
+    inputSchema: z.object({
+      marketCode: adminCalendarMarketCodeSchema,
+      previewToken: z.string().trim().min(1).max(120),
+      replaceConfirmed: z.boolean().optional(),
+      replacementReason: z.string().trim().max(500).nullable().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
   },
   get_cash_balance_summary: {
     description: `Return cash balance summaries only. This tool must not expose the full cash ledger. ${adviceBoundary}`,
@@ -759,6 +825,9 @@ export type McpToolName = keyof typeof toolDefinitions;
 export type McpToolDefinition = typeof toolDefinitions[McpToolName];
 
 function getToolAnnotations(name: McpToolName, accessKind: AiConnectorAccessKind): McpToolAnnotations {
+  if (name === "get_admin_market_calendar_status" || name === "list_admin_market_calendar_sources") {
+    return readOnlyToolAnnotations;
+  }
   if (accessKind === "read") return readOnlyToolAnnotations;
   if (
     name === "delete_unconfirmed_transaction_draft_batch"

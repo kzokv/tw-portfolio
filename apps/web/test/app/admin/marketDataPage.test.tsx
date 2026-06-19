@@ -82,34 +82,55 @@ describe("AdminMarketDataPage", () => {
     ]);
   });
 
-  it("fetches operations and logs with provider and operation filters", async () => {
+  it("fetches market activity with canonical activity filters", async () => {
     getJsonMock.mockImplementation((async (path: string) => {
       if (path === "/admin/market-data/KR/overview") {
-        return { marketCode: "KR", label: "Korea", tabs: ["overview", "operations", "logs"], providers: [] };
+        return { marketCode: "KR", label: "Korea", tabs: ["overview", "operations"], providers: [] };
       }
       if (path === "/admin/market-data/KR/actions") {
         return { marketCode: "KR", actions: [] };
       }
-      if (path === "/admin/market-data/KR/logs?page=2&limit=10&providerId=yahoo-finance-kr&operationId=op-1") {
-        return { marketCode: "KR", providers: [], items: [], total: 0, page: 2, limit: 10 };
+      if (path === "/admin/market-data/KR/activity?page=2&limit=10&search=2330&source=yahoo_chart&category=intraday_price&result=warning%2Cerror&timeRange=24h") {
+        return { marketCode: "KR", providers: [], summary: [], items: [], total: 0, page: 2, limit: 10 };
       }
       throw new Error(`Unexpected getJson path: ${path}`);
     }) as never);
 
     await AdminMarketDataWorkspacePage({
-      params: Promise.resolve({ marketCode: "KR", tab: "logs" }),
+      params: Promise.resolve({ marketCode: "KR", tab: "activity" }),
       searchParams: Promise.resolve({
         page: "2",
         limit: "10",
-        providerId: "yahoo-finance-kr",
-        operationId: "op-1",
+        search: "2330",
+        source: "yahoo_chart",
+        category: "intraday_price",
       }),
     });
 
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
-      "/admin/market-data/KR/logs?page=2&limit=10&providerId=yahoo-finance-kr&operationId=op-1",
+      "/admin/market-data/KR/activity?page=2&limit=10&search=2330&source=yahoo_chart&category=intraday_price&result=warning%2Cerror&timeRange=24h",
     ]);
+  });
+
+  it("rejects the legacy logs tab once activity replaces it", async () => {
+    getJsonMock.mockImplementation((async (path: string) => {
+      if (path === "/admin/market-data/KR/overview") {
+        return { marketCode: "KR", label: "Korea", tabs: ["overview", "operations", "activity"], providers: [] };
+      }
+      if (path === "/admin/market-data/KR/actions") {
+        return { marketCode: "KR", actions: [] };
+      }
+      if (path === "/admin/market-data/KR/logs?page=1&limit=50") {
+        return { marketCode: "KR", providers: [], items: [], total: 0, page: 1, limit: 50 };
+      }
+      throw new Error(`Unexpected getJson path: ${path}`);
+    }) as never);
+
+    await expect(AdminMarketDataWorkspacePage({
+      params: Promise.resolve({ marketCode: "KR", tab: "logs" }),
+      searchParams: Promise.resolve({}),
+    })).rejects.toThrow("notFound");
   });
 });

@@ -138,6 +138,9 @@ export function DashboardClient({
     void dashboard.refresh();
     void performance.refresh();
   };
+  const refreshDashboardPrices = () => {
+    void dashboard.refreshPrices();
+  };
   const refreshClosesAndDashboard = async () => {
     setIsRefreshingCloses(true);
     setCloseRefreshError("");
@@ -289,6 +292,18 @@ export function DashboardClient({
               data-testid="dashboard-refresh-closes-button"
             >
               {dict.dashboardHome.refreshClosesLabel}
+            </Button>
+          ) : null}
+          {!isSharedContext ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={refreshDashboardPrices}
+              disabled={dashboard.isRefreshing || performance.isLoading || isRefreshingCloses}
+              data-testid="dashboard-refresh-prices-button"
+            >
+              {dict.dashboardHome.refreshPricesLabel}
             </Button>
           ) : null}
           <Button

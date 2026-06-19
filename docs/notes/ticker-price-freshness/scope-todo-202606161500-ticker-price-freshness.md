@@ -12,7 +12,7 @@ required_reading:
   - apps/api/src/routes/adminRoutes.ts
   - apps/api/src/services/appConfig/bounds.ts
   - apps/web/lib/routeDtoCache.ts
-superseded_by: null
+superseded_by: docs/notes/ticker-price-freshness/scope-todo-202606191222-ticker-price-freshness-calendar-activity-revision.md
 ---
 
 # Todo: Ticker Price Freshness

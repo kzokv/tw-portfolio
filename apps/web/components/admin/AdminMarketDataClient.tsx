@@ -19,30 +19,45 @@ import type {
   AdminMarketDataInstrumentDto,
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataLandingResponse,
-  AdminMarketDataLogsResponse,
   AdminMarketDataOperationsResponse,
-  AdminMarketDataOverviewResponse,
   AdminMarketDataPurgeCategory,
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
-  AdminMarketWorkspaceTab,
 } from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import {
+  confirmMarketCalendarImport,
   executeMarketBackfill,
   executeMarketAction,
   executeMarketSnapshotRepair,
   executeMarketPurge,
   fetchMarketValuationRepairStatus,
+  invalidateMarketCalendar,
   previewMarketBackfill,
+  previewMarketCalendarImport,
   previewMarketPurge,
+  updateMarketCalendarSource,
+  updateMarketCalendarSourceConfig,
   updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
 import { Card } from "../ui/Card";
+import { Button } from "../ui/Button";
+import { Drawer } from "../ui/Drawer";
 import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
+import { Pagination } from "./Pagination";
 import { formatUtcTimestamp } from "./adminFormat";
+import type {
+  AdminMarketDataActivityResponse,
+  AdminMarketDataCalendarResponse,
+  AdminMarketDataOverviewUiResponse,
+  AdminMarketWorkspaceUiTab,
+  MarketActivityFilterOption,
+  MarketActivitySummaryCardDto,
+  MarketActivityTableItemDto,
+  YahooChartActivitySummaryDto,
+} from "../../lib/adminMarketDataContracts";
 
 interface AdminMarketDataLandingClientProps {
   data: AdminMarketDataLandingResponse;
@@ -50,13 +65,14 @@ interface AdminMarketDataLandingClientProps {
 
 interface AdminMarketDataWorkspaceClientProps {
   marketCode: AdminMarketCode;
-  tab: AdminMarketWorkspaceTab;
-  overview: AdminMarketDataOverviewResponse;
+  tab: AdminMarketWorkspaceUiTab;
+  overview: AdminMarketDataOverviewUiResponse;
   actions: AdminMarketDataActionDto[];
   instruments: AdminMarketDataInstrumentsResponse | null;
   instrumentQuery?: InstrumentQuery;
   operations: AdminMarketDataOperationsResponse | null;
-  logs: AdminMarketDataLogsResponse | null;
+  activity?: AdminMarketDataActivityResponse | null;
+  calendar?: AdminMarketDataCalendarResponse | null;
   providerFilterId?: string;
   krMappings: KrMappingsData | null;
   krOperations?: KrOperationsData | null;
@@ -83,14 +99,15 @@ interface InstrumentQuery {
   sort: string;
 }
 
-const tabLabels: Record<AdminMarketWorkspaceTab, string> = {
+const tabLabels: Record<AdminMarketWorkspaceUiTab, string> = {
   overview: "Overview",
+  calendar: "Calendar",
   instruments: "Instruments",
   backfill: "Backfill",
   mappings: "Mappings",
   purge: "Purge data",
   operations: "Operations",
-  logs: "Logs",
+  activity: "Activity",
   "refresh-rates": "Refresh rates",
 };
 
@@ -240,14 +257,28 @@ export function AdminMarketDataWorkspaceClient({
   instruments,
   instrumentQuery,
   operations,
-  logs,
+  activity,
+  calendar,
   providerFilterId = "",
   krMappings,
   krOperations,
   snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
-  const tabSet = new Set(overview.tabs);
+  const tabSet = new Set<AdminMarketWorkspaceUiTab>(overview.tabs);
+  if (calendar) tabSet.add("calendar");
+  if (activity) tabSet.add("activity");
   const safeTab = tabSet.has(tab) ? tab : "overview";
+  const orderedTabs = ([
+    "overview",
+    "calendar",
+    "instruments",
+    "backfill",
+    "mappings",
+    "operations",
+    "activity",
+    "purge",
+    "refresh-rates",
+  ] as const).filter((item) => tabSet.has(item));
 
   return (
     <div className="space-y-5" data-testid={`admin-market-data-${marketCode}`}>
@@ -271,7 +302,7 @@ export function AdminMarketDataWorkspaceClient({
       </div>
 
       <nav className="flex gap-2 overflow-x-auto border-b border-border pb-2" aria-label="Market data tabs">
-        {overview.tabs.map((item) => (
+        {orderedTabs.map((item) => (
           <Link
             key={item}
             href={`/admin/market-data/${marketCode}/${item}`}
@@ -286,6 +317,9 @@ export function AdminMarketDataWorkspaceClient({
       </nav>
 
       {safeTab === "overview" && <OverviewPanel overview={overview} actions={actions} />}
+      {safeTab === "calendar" && marketCode !== "FX" && (
+        <CalendarPanel calendar={calendar ?? null} marketCode={marketCode} />
+      )}
       {safeTab === "instruments" && instruments && (
         <InstrumentsPanel
           instruments={instruments}
@@ -309,12 +343,12 @@ export function AdminMarketDataWorkspaceClient({
         : safeTab === "operations" && operations
           ? <OperationsPanel operations={operations} currentProviderId={providerFilterId} />
           : null}
-      {safeTab === "logs" && logs && <LogsPanel logs={logs} currentProviderId={providerFilterId} />}
+      {safeTab === "activity" && activity ? <ActivityPanel activity={activity} marketCode={marketCode} /> : null}
     </div>
   );
 }
 
-function OverviewPanel({ overview, actions }: { overview: AdminMarketDataOverviewResponse; actions: AdminMarketDataActionDto[] }) {
+function OverviewPanel({ overview, actions }: { overview: AdminMarketDataOverviewUiResponse; actions: AdminMarketDataActionDto[] }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <Card className="px-5 py-4 hover:translate-y-0">
@@ -1438,7 +1472,7 @@ function RefreshRatesPanel({ actions }: { actions: AdminMarketDataActionDto[] })
   return (
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-refresh-rates">
       <h2 className="text-base font-semibold text-foreground">FX refresh</h2>
-      <p className="mt-2 text-sm text-muted-foreground">FX is lightweight here: refresh rates, operations, and logs only.</p>
+      <p className="mt-2 text-sm text-muted-foreground">FX is lightweight here: refresh rates and operations only.</p>
       <div className="mt-4"><ActionChips marketCode="FX" actions={actions} /></div>
     </Card>
   );
@@ -1454,7 +1488,7 @@ function ProviderFilterLinks({
   currentProviderId: string;
   marketCode: AdminMarketCode;
   providers: Array<{ providerId: string; label: string; role: string }>;
-  tab: "operations" | "logs";
+  tab: "operations" | "activity";
 }) {
   if (providers.length <= 1) return null;
   return (
@@ -1519,35 +1553,758 @@ function OperationsPanel({
   );
 }
 
-function LogsPanel({
-  logs,
-  currentProviderId,
+function ActivityPanel({
+  activity,
+  marketCode,
 }: {
-  logs: AdminMarketDataLogsResponse;
-  currentProviderId: string;
+  activity: AdminMarketDataActivityResponse;
+  marketCode: AdminMarketCode;
+}) {
+  const router = useRouter();
+  const activityRows = normalizeActivityItems(activity);
+  const summaryCards = normalizeActivitySummaryCards(activity);
+  const filterOptions = normalizeActivityFilterGroups(activity, activityRows);
+  const retentionNote = normalizeActivityRetentionNote(activity);
+  const yahooSummary = normalizeYahooChartSummary(activity);
+  const [selectedItem, setSelectedItem] = useState<MarketActivityTableItemDto | null>(null);
+  const [search, setSearch] = useState(activity.query?.search ?? "");
+  const [source, setSource] = useState(activity.query?.source ?? "");
+  const [category, setCategory] = useState(activity.query?.category ?? "");
+  const [result, setResult] = useState(activity.query?.result ?? "warning,error");
+  const [timeRange, setTimeRange] = useState(activity.query?.timeRange ?? "24h");
+
+  function pushQuery(next: Partial<Record<string, string | number>>) {
+    const params = new URLSearchParams();
+    const values = {
+      page: 1,
+      limit: activity.limit,
+      search,
+      source,
+      category,
+      result,
+      timeRange,
+      ...next,
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value === "" || value === null || value === undefined) continue;
+      params.set(key, String(value));
+    }
+    router.push(`/admin/market-data/${marketCode}/activity?${params.toString()}`);
+  }
+
+  const sources = filterOptions.sources;
+  const categories = filterOptions.categories;
+  const results = filterOptions.results;
+  const timeRanges = filterOptions.timeRanges;
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="market-data-activity">
+      <div className="space-y-4">
+        <Card className="overflow-hidden p-0 hover:translate-y-0">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-5 py-4">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Activity</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Market-scoped activity across intraday price, daily close, calendar, provider operations, and system events.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => router.refresh()} data-testid="activity-refresh-button">
+                Refresh activity
+              </Button>
+              <span className="text-xs text-muted-foreground">{retentionNote}</span>
+            </div>
+          </div>
+          <div className="grid gap-3 px-5 py-4 md:grid-cols-2 xl:grid-cols-5">
+            {yahooSummary ? (
+              <button
+                type="button"
+                className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-left"
+                onClick={() => pushQuery({
+                  source: yahooSummary.filterPatch?.source ?? "yahoo_chart",
+                  category: yahooSummary.filterPatch?.category ?? "intraday_price",
+                  result: yahooSummary.filterPatch?.result ?? "all",
+                  timeRange: yahooSummary.filterPatch?.timeRange ?? timeRange,
+                })}
+                data-testid="activity-yahoo-summary"
+              >
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{yahooSummary.label}</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {yahooSummary.successCount ?? 0} ok
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatYahooSummaryDetail(yahooSummary)}
+                </p>
+              </button>
+            ) : null}
+            {summaryCards.map((card) => (
+              <button
+                key={card.id}
+                type={card.filterPatch ? "button" : "button"}
+                className={cn(
+                  "rounded-lg border px-4 py-3 text-left",
+                  card.filterPatch ? "border-border bg-muted/20" : "border-border/70 bg-background",
+                )}
+                onClick={() => {
+                  if (!card.filterPatch) return;
+                  pushQuery(card.filterPatch as Partial<Record<string, string | number>>);
+                }}
+                data-testid={`activity-summary-${card.id}`}
+              >
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{card.value}</p>
+                {card.detail ? <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p> : null}
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="overflow-hidden p-0 hover:translate-y-0">
+          <div className="grid gap-3 border-b border-border px-5 py-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(0,0.8fr))]">
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Search</span>
+              <input
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onBlur={() => pushQuery({ search })}
+                placeholder="Ticker, operation id, job id, source..."
+                data-testid="activity-search-input"
+              />
+            </label>
+            <ActivityFilterSelect label="Source" options={sources} value={source} onChange={(next) => { setSource(next); pushQuery({ source: next }); }} testId="activity-source-filter" />
+            <ActivityFilterSelect label="Category" options={categories} value={category} onChange={(next) => { setCategory(next); pushQuery({ category: next }); }} testId="activity-category-filter" />
+            <ActivityFilterSelect label="Result" options={results} value={result} onChange={(next) => { setResult(next); pushQuery({ result: next }); }} testId="activity-result-filter" />
+            <ActivityFilterSelect label="Time" options={timeRanges} value={timeRange} onChange={(next) => { setTimeRange(next); pushQuery({ timeRange: next }); }} testId="activity-time-filter" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/30 text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                <tr>
+                  <th className="px-5 py-3">Time</th>
+                  <th className="px-5 py-3">Category</th>
+                  <th className="px-5 py-3">Source</th>
+                  <th className="px-5 py-3">Subject</th>
+                  <th className="px-5 py-3">Result</th>
+                  <th className="px-5 py-3">Facts</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {activityRows.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer align-top hover:bg-muted/20"
+                    onClick={() => setSelectedItem(item)}
+                    data-testid={`activity-row-${item.id}`}
+                  >
+                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{formatUtcTimestamp(item.occurredAt)}</td>
+                    <td className="px-5 py-3"><ActivityBadge tone={item.category}>{friendlyCategoryLabel(item.category)}</ActivityBadge></td>
+                    <td className="px-5 py-3">{item.sourceLabel ?? item.source}</td>
+                    <td className="px-5 py-3">
+                      <div className="font-medium text-foreground">{item.subject}</div>
+                      {item.subjectDetail ? <div className="text-xs text-muted-foreground">{item.subjectDetail}</div> : null}
+                    </td>
+                    <td className="px-5 py-3"><ActivityBadge tone={item.result}>{friendlyResultLabel(item.result)}</ActivityBadge></td>
+                    <td className="px-5 py-3 text-muted-foreground">{item.facts}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-border px-5 py-4">
+            <Pagination
+              page={activity.page}
+              limit={activity.limit}
+              total={activity.total}
+              onPageChange={(nextPage) => pushQuery({ page: nextPage })}
+            />
+          </div>
+        </Card>
+      </div>
+
+      <Drawer
+        open={selectedItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedItem(null);
+        }}
+        title={selectedItem?.detailTitle ?? selectedItem?.subject ?? "Activity details"}
+        bodyClassName="space-y-4"
+      >
+        {selectedItem ? (
+          <>
+            <p className="text-sm text-muted-foreground">{selectedItem.detailDescription ?? selectedItem.facts}</p>
+            {selectedItem.detailRows?.length ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Summary</h3>
+                <dl className="grid gap-2">
+                  {selectedItem.detailRows.map((row) => (
+                    <div key={`${selectedItem.id}:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                      <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                      <dd className="text-sm text-foreground">{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ) : null}
+            {selectedItem.timeline?.length ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Timeline</h3>
+                <div className="space-y-2">
+                  {selectedItem.timeline.map((entry, index) => (
+                    <div key={`${selectedItem.id}:timeline:${index}`} className="rounded-md border border-border/70 px-3 py-2 text-sm">
+                      <span className="mr-2 font-mono text-xs text-muted-foreground">{entry.at ? formatUtcTimestamp(entry.at) : "--"}</span>
+                      <span>{entry.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+            {selectedItem.metadata ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Metadata</h3>
+                <pre className="overflow-x-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs text-foreground">{JSON.stringify(selectedItem.metadata, null, 2)}</pre>
+              </section>
+            ) : null}
+          </>
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+function normalizeActivitySummaryCards(activity: AdminMarketDataActivityResponse): MarketActivitySummaryCardDto[] {
+  if (Array.isArray(activity.summary)) return activity.summary;
+  const summary = activity.summary as unknown as {
+    total?: number;
+    success?: number;
+    warning?: number;
+    error?: number;
+    skipped?: number;
+    rateLimited?: number;
+    hiddenSuccessCount?: number;
+  };
+  return [
+    { id: "total", label: "Total", value: summary.total ?? activity.total ?? 0, tone: "neutral" },
+    { id: "warning", label: "Warnings", value: summary.warning ?? 0, tone: "warning", filterPatch: { result: "warning" } },
+    { id: "error", label: "Errors", value: summary.error ?? 0, tone: "error", filterPatch: { result: "error" } },
+    { id: "skipped", label: "Skipped", value: summary.skipped ?? 0, tone: "skipped", filterPatch: { result: "skipped" } },
+    {
+      id: "success",
+      label: "Success",
+      value: summary.success ?? 0,
+      tone: "success",
+      detail: summary.hiddenSuccessCount ? `${summary.hiddenSuccessCount} hidden by current result filters` : null,
+      filterPatch: { result: "success" },
+    },
+  ];
+}
+
+function normalizeActivityItems(activity: AdminMarketDataActivityResponse): MarketActivityTableItemDto[] {
+  return activity.items.map((item) => {
+    if ("subject" in item && "facts" in item) return item as MarketActivityTableItemDto;
+    const raw = item as unknown as {
+      id: string;
+      occurredAt: string;
+      category: string;
+      result: string;
+      source: string;
+      eventType: string;
+      title: string;
+      message: string;
+      ticker: string | null;
+      providerSymbol: string | null;
+      operationId: string | null;
+      jobId: string | null;
+      calendarYear: number | null;
+      detail: Record<string, unknown>;
+    };
+    const subject = raw.ticker ?? raw.providerSymbol ?? raw.operationId ?? raw.jobId ?? (raw.calendarYear ? String(raw.calendarYear) : raw.eventType);
+    const detailRows = [
+      ["Event", raw.eventType],
+      ["Ticker", raw.ticker],
+      ["Provider symbol", raw.providerSymbol],
+      ["Operation", raw.operationId],
+      ["Job", raw.jobId],
+      ["Calendar year", raw.calendarYear === null ? null : String(raw.calendarYear)],
+    ]
+      .filter((row): row is [string, string] => typeof row[1] === "string" && row[1].length > 0)
+      .map(([label, value]) => ({ label, value }));
+    return {
+      id: raw.id,
+      occurredAt: raw.occurredAt,
+      category: raw.category,
+      source: raw.source,
+      sourceLabel: friendlySourceLabel(raw.source),
+      subject,
+      subjectDetail: raw.title,
+      result: raw.result,
+      facts: raw.message,
+      detailTitle: raw.title,
+      detailDescription: raw.message,
+      detailRows,
+      metadata: raw.detail,
+    };
+  });
+}
+
+function normalizeActivityFilterGroups(
+  activity: AdminMarketDataActivityResponse,
+  rows: MarketActivityTableItemDto[],
+): {
+  sources: MarketActivityFilterOption[];
+  categories: MarketActivityFilterOption[];
+  results: MarketActivityFilterOption[];
+  timeRanges: MarketActivityFilterOption[];
+} {
+  const rawFilters = activity.availableFilters as AdminMarketDataActivityResponse["availableFilters"] | {
+    sources?: string[];
+    categories?: string[];
+    results?: string[];
+  } | null | undefined;
+  const sources = Array.isArray(rawFilters?.sources) && typeof rawFilters.sources[0] === "string"
+    ? (rawFilters.sources as string[]).map((value) => ({ value, label: friendlySourceLabel(value) }))
+    : activity.availableFilters?.sources;
+  const categories = Array.isArray(rawFilters?.categories) && typeof rawFilters.categories[0] === "string"
+    ? (rawFilters.categories as string[]).map((value) => ({ value, label: friendlyCategoryLabel(value) }))
+    : activity.availableFilters?.categories;
+  const results = Array.isArray(rawFilters?.results) && typeof rawFilters.results[0] === "string"
+    ? (rawFilters.results as string[]).map((value) => ({ value, label: friendlyResultLabel(value) }))
+    : activity.availableFilters?.results;
+  return {
+    sources: normalizeFilterOptions(sources, rows.map((item) => item.source)),
+    categories: normalizeFilterOptions(categories, rows.map((item) => item.category)),
+    results: normalizeFilterOptions(results, ["warning", "error", "success", "skipped", "rate_limited"]),
+    timeRanges: normalizeFilterOptions(activity.availableFilters?.timeRanges, ["24h", "7d", "30d"]),
+  };
+}
+
+function normalizeActivityRetentionNote(activity: AdminMarketDataActivityResponse): string {
+  if (activity.retentionNote) return activity.retentionNote;
+  const retention = (activity as unknown as {
+    retention?: { detailedDays?: number; summaryDays?: number; calendarHistoryDays?: number };
+  }).retention;
+  if (retention) {
+    return `Detailed intraday events: ${retention.detailedDays ?? 7}d; summaries: ${retention.summaryDays ?? 90}d; calendar history: ${retention.calendarHistoryDays ?? 730}d.`;
+  }
+  return "Detailed intraday events are retained for a shorter period than calendar imports.";
+}
+
+function normalizeYahooChartSummary(activity: AdminMarketDataActivityResponse): YahooChartActivitySummaryDto | null {
+  if (activity.yahooChartSummary) return activity.yahooChartSummary;
+  const rows = normalizeActivityItems(activity);
+  const yahooRows = rows.filter((item) => item.source === "yahoo_chart" || item.source === "intraday_yahoo_chart");
+  if (yahooRows.length === 0) return null;
+  return {
+    label: "Yahoo chart",
+    lastRequestAt: yahooRows[0]?.occurredAt ?? null,
+    successCount: yahooRows.filter((item) => item.result === "success").length,
+    delayedCount: yahooRows.filter((item) => item.result === "warning").length,
+    rateLimitedCount: yahooRows.filter((item) => item.result === "rate_limited").length,
+    errorCount: yahooRows.filter((item) => item.result === "error").length,
+    filterPatch: { source: "yahoo_chart", category: "intraday_price", result: "all" },
+  };
+}
+
+function friendlySourceLabel(value: string): string {
+  switch (value) {
+    case "yahoo_chart":
+      return "Yahoo chart";
+    case "official_calendar":
+      return "Official calendar";
+    case "twse_close":
+      return "TWSE close";
+    case "finmind":
+      return "FinMind";
+    case "system":
+      return "System";
+    default:
+      return friendlyLabel(value);
+  }
+}
+
+function CalendarPanel({
+  calendar,
+  marketCode,
+}: {
+  calendar: AdminMarketDataCalendarResponse | null;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+}) {
+  const router = useRouter();
+  const [selectedSourceId, setSelectedSourceId] = useState(calendar?.sources.find((source) => source.isDefault)?.sourceId ?? calendar?.sources[0]?.sourceId ?? "");
+  const selectedSource = calendar?.sources.find((source) => source.sourceId === selectedSourceId) ?? calendar?.sources[0] ?? null;
+  const [sourceLabel, setSourceLabel] = useState(selectedSource?.label ?? "");
+  const [sourceType, setSourceType] = useState<"official_parser" | "manual_ai_assisted">(
+    selectedSource?.sourceType === "manual_ai_assisted" ? "manual_ai_assisted" : "official_parser",
+  );
+  const [sourceUrl, setSourceUrl] = useState(selectedSource?.url ?? "");
+  const [sourceHost, setSourceHost] = useState(selectedSource?.host ?? "");
+  const [sourceAllowedHosts, setSourceAllowedHosts] = useState("");
+  const [sourceParserId, setSourceParserId] = useState(selectedSource?.parserType ?? "");
+  const [sourceEnabled, setSourceEnabled] = useState(selectedSource?.isActive ?? true);
+  const [normalizedPayload, setNormalizedPayload] = useState("");
+  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!selectedSource) return;
+    setSourceLabel(selectedSource.label);
+    setSourceType(selectedSource.sourceType === "manual_ai_assisted" ? "manual_ai_assisted" : "official_parser");
+    setSourceUrl(selectedSource.url ?? "");
+    setSourceHost(selectedSource.host ?? "");
+    setSourceAllowedHosts((selectedSource.allowedHosts ?? []).join(", "));
+    setSourceParserId(selectedSource.parserType ?? "");
+    setSourceEnabled(selectedSource.isActive ?? true);
+  }, [selectedSource]);
+
+  async function runPreview() {
+    setIsSubmitting(true);
+    setPreviewMessage(null);
+    try {
+      const response = await previewMarketCalendarImport(marketCode, {
+        sourceId: selectedSourceId || undefined,
+        normalizedPayload: normalizedPayload.trim() || undefined,
+      });
+      setPreviewMessage(`Preview ready: ${response.preview.added} added, ${response.preview.changed} changed, ${response.preview.removed} removed.`);
+    } catch (error) {
+      setPreviewMessage(error instanceof Error ? error.message : "Calendar preview failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function runConfirm() {
+    setIsSubmitting(true);
+    setSubmitMessage(null);
+    try {
+      const response = await confirmMarketCalendarImport(marketCode, {
+        sourceId: selectedSourceId || undefined,
+        normalizedPayload: normalizedPayload.trim() || undefined,
+      });
+      setSubmitMessage(`Calendar import ${response.status}. Version ${response.versionId}.`);
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Calendar confirm failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function setDefaultSource(sourceId: string) {
+    setSelectedSourceId(sourceId);
+    try {
+      await updateMarketCalendarSource(marketCode, { defaultSourceId: sourceId });
+      setSubmitMessage("Default source updated.");
+      router.refresh();
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Default source update failed.");
+    }
+  }
+
+  async function saveSourceConfig() {
+    if (!selectedSource) return;
+    setIsSubmitting(true);
+    setSubmitMessage(null);
+    try {
+      const allowedHosts = sourceAllowedHosts
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      await updateMarketCalendarSourceConfig(marketCode, selectedSource.sourceId, {
+        label: sourceLabel,
+        sourceType,
+        url: sourceType === "official_parser" ? sourceUrl.trim() || null : null,
+        host: sourceType === "official_parser" ? sourceHost.trim() || null : null,
+        allowedHosts: sourceType === "official_parser" ? allowedHosts : [],
+        parserId: sourceType === "official_parser" ? sourceParserId.trim() || null : null,
+        enabled: sourceEnabled,
+        isDefault: selectedSource.isDefault ?? false,
+      });
+      setSubmitMessage("Calendar source saved.");
+      router.refresh();
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Calendar source save failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function invalidateYear(calendarYear: number) {
+    try {
+      await invalidateMarketCalendar(marketCode, { calendarYear, reason: "Admin invalidated calendar from Calendar panel." });
+      setSubmitMessage(`Calendar ${calendarYear} invalidated.`);
+      router.refresh();
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Calendar invalidation failed.");
+    }
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]" data-testid="market-data-calendar">
+      <Card className="overflow-hidden p-0 hover:translate-y-0">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-base font-semibold text-foreground">Calendar coverage</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Market-first year coverage with default source controls, normalized JSON paste, preview, confirm, invalidate, and history.
+          </p>
+        </div>
+        <div className="divide-y divide-border">
+          {(calendar?.years ?? []).map((year) => (
+            <div key={`${marketCode}:${year.calendarYear}`} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+              <div>
+                <p className="font-medium text-foreground">{marketCode} {year.calendarYear}</p>
+                <p className="text-sm text-muted-foreground">{year.note ?? year.sourceLabel ?? "No source detail available."}</p>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                <div>Status: <span className="font-medium text-foreground">{year.status}</span></div>
+                <div>Source: <span className="font-medium text-foreground">{year.sourceLabel ?? "Unknown"}</span></div>
+              </div>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void invalidateYear(year.calendarYear)}>
+                Invalidate
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <div className="space-y-4">
+        <Card className="overflow-hidden p-0 hover:translate-y-0">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">Sources</h2>
+          </div>
+          <div className="space-y-3 px-5 py-4">
+            {(calendar?.sources ?? []).map((source) => (
+              <button
+                key={source.sourceId}
+                type="button"
+                onClick={() => void setDefaultSource(source.sourceId)}
+                className={cn(
+                  "flex w-full items-start justify-between rounded-md border px-3 py-3 text-left",
+                  source.sourceId === selectedSourceId ? "border-primary bg-primary/5" : "border-border bg-background",
+                )}
+              >
+                <span>
+                  <span className="block font-medium text-foreground">{source.label}</span>
+                  <span className="block text-xs text-muted-foreground">{source.host ?? source.url ?? source.sourceType}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">{source.isDefault ? "Default" : "Available"}</span>
+              </button>
+            ))}
+            {selectedSource ? (
+              <div className="space-y-3 rounded-md border border-border/70 p-3" data-testid="calendar-source-editor">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-label">Label</label>
+                  <input
+                    id="calendar-source-label"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={sourceLabel}
+                    onChange={(event) => setSourceLabel(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-type">Source type</label>
+                    <select
+                      id="calendar-source-type"
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={sourceType}
+                      onChange={(event) => setSourceType(event.target.value === "manual_ai_assisted" ? "manual_ai_assisted" : "official_parser")}
+                    >
+                      <option value="official_parser">Official parser</option>
+                      <option value="manual_ai_assisted">Manual AI-assisted</option>
+                    </select>
+                  </div>
+                  <label className="flex items-end gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={sourceEnabled}
+                      onChange={(event) => setSourceEnabled(event.target.checked)}
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-url">Source URL</label>
+                  <input
+                    id="calendar-source-url"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={sourceUrl}
+                    disabled={sourceType !== "official_parser"}
+                    onChange={(event) => setSourceUrl(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-host">Host</label>
+                    <input
+                      id="calendar-source-host"
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={sourceHost}
+                      disabled={sourceType !== "official_parser"}
+                      onChange={(event) => setSourceHost(event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-parser">Parser</label>
+                    <input
+                      id="calendar-source-parser"
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={sourceParserId}
+                      disabled={sourceType !== "official_parser"}
+                      onChange={(event) => setSourceParserId(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="calendar-source-allowed-hosts">Allowed hosts</label>
+                  <input
+                    id="calendar-source-allowed-hosts"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={sourceAllowedHosts}
+                    disabled={sourceType !== "official_parser"}
+                    onChange={(event) => setSourceAllowedHosts(event.target.value)}
+                    placeholder="host.example.com, www.host.example.com"
+                  />
+                </div>
+                <Button type="button" size="sm" variant="secondary" disabled={isSubmitting || sourceLabel.trim().length === 0} onClick={() => void saveSourceConfig()}>
+                  Save source
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card className="overflow-hidden p-0 hover:translate-y-0">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">Paste normalized JSON</h2>
+          </div>
+          <div className="space-y-3 px-5 py-4">
+            <textarea
+              className="min-h-44 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
+              value={normalizedPayload}
+              onChange={(event) => setNormalizedPayload(event.target.value)}
+              placeholder='{"marketCode":"TW","calendarYear":2026,"retrievedAt":"...","rows":[]}'
+              data-testid="calendar-json-input"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="secondary" disabled={isSubmitting} onClick={() => void runPreview()} data-testid="calendar-preview-button">
+                Preview
+              </Button>
+              <Button type="button" size="sm" disabled={isSubmitting} onClick={() => void runConfirm()} data-testid="calendar-confirm-button">
+                Confirm import
+              </Button>
+            </div>
+            {previewMessage ? <p className="text-xs text-muted-foreground">{previewMessage}</p> : null}
+            {submitMessage ? <p className="text-xs text-muted-foreground">{submitMessage}</p> : null}
+          </div>
+        </Card>
+
+        <Card className="overflow-hidden p-0 hover:translate-y-0">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">History</h2>
+          </div>
+          <div className="space-y-3 px-5 py-4">
+            {(calendar?.history ?? []).map((entry) => (
+              <div key={entry.id} className="rounded-md border border-border/70 px-3 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-foreground">{entry.calendarYear} · {entry.sourceLabel}</p>
+                    <p className="text-xs text-muted-foreground">{formatUtcTimestamp(entry.importedAt)}</p>
+                    {entry.importOperationId ? <p className="text-xs text-muted-foreground">Import operation: {entry.importOperationId}</p> : null}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{entry.status}</span>
+                </div>
+                {entry.note ? <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p> : null}
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ActivityFilterSelect({
+  label,
+  options,
+  value,
+  onChange,
+  testId,
+}: {
+  label: string;
+  options: MarketActivityFilterOption[];
+  value: string;
+  onChange: (next: string) => void;
+  testId: string;
 }) {
   return (
-    <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-logs">
-      <div className="border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-foreground">Logs</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Provider filters keep raw diagnostics separated when several providers serve this market.</p>
-        <ProviderFilterLinks
-          currentProviderId={currentProviderId}
-          marketCode={logs.marketCode}
-          providers={logs.providers}
-          tab="logs"
-        />
-      </div>
-      <ul className="divide-y divide-border">
-        {logs.items.map((log) => (
-          <li key={log.id} className="px-5 py-4 text-sm">
-            <p className="font-medium text-foreground">{log.message}</p>
-            <p className="mt-1 text-muted-foreground">{log.operationId} - {log.phase} - {log.occurredAt}</p>
-          </li>
+    <label className="space-y-1 text-sm">
+      <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+      <select
+        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        data-testid={testId}
+      >
+        <option value="">All</option>
+        {options.map((option) => (
+          <option key={`${label}:${option.value}`} value={option.value}>{option.label}</option>
         ))}
-      </ul>
-    </Card>
+      </select>
+    </label>
   );
+}
+
+function normalizeFilterOptions(options: MarketActivityFilterOption[] | undefined, fallbackValues: string[]): MarketActivityFilterOption[] {
+  if (options && options.length > 0) return options;
+  return [...new Set(fallbackValues)]
+    .filter((value) => value.length > 0)
+    .map((value) => ({ value, label: friendlyLabel(value) }));
+}
+
+function friendlyLabel(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function friendlyCategoryLabel(value: string): string {
+  switch (value) {
+    case "intraday_price":
+      return "Intraday price";
+    case "daily_close":
+      return "Daily close";
+    case "provider_operation":
+      return "Provider operation";
+    default:
+      return friendlyLabel(value);
+  }
+}
+
+function friendlyResultLabel(value: string): string {
+  if (value === "rate_limited") return "Rate limited";
+  return friendlyLabel(value);
+}
+
+function formatYahooSummaryDetail(summary: NonNullable<AdminMarketDataActivityResponse["yahooChartSummary"]>): string {
+  const parts = [];
+  if (summary.lastRequestAt) parts.push(`Last request ${formatUtcTimestamp(summary.lastRequestAt)}`);
+  if (summary.delayedCount !== null && summary.delayedCount !== undefined) parts.push(`${summary.delayedCount} delayed bars`);
+  if (summary.rateLimitedCount !== null && summary.rateLimitedCount !== undefined) parts.push(`${summary.rateLimitedCount} 429`);
+  if (summary.budgetUsed !== null && summary.budgetUsed !== undefined && summary.budgetLimit) {
+    parts.push(`Budget ${summary.budgetUsed} / ${summary.budgetLimit}`);
+  }
+  return parts.join(" · ");
+}
+
+function ActivityBadge({ children, tone }: { children: string; tone: string }) {
+  const className = tone === "error"
+    ? "border-rose-200 bg-rose-50 text-rose-700"
+    : tone === "warning" || tone === "calendar"
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : tone === "success"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-border bg-secondary text-secondary-foreground";
+  return <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs font-medium", className)}>{children}</span>;
 }
 
 function isTerminalBackfillPhase(phase: NonNullable<AdminMarketDataValuationRepairStatusResponse["operation"]>["phase"]): boolean {

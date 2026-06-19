@@ -46,12 +46,20 @@ import type {
   AdminMarketDataValuationRepairTickerStatusDto,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
+  AdminMarketDataActivityResponse,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
+  AdminMarketCalendarConfirmRequest,
+  AdminMarketCalendarConfirmResponse,
+  AdminMarketCalendarHistoryResponse,
+  AdminMarketCalendarInvalidateRequest,
+  AdminMarketCalendarPreviewRequest,
+  AdminMarketCalendarPreviewResponse,
+  AdminMarketCalendarSourceConfigDto,
+  AdminMarketCalendarStatusResponse,
   AdminMarketDataInstrumentDto,
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataLandingResponse,
-  AdminMarketDataLogsResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   AdminMarketDataProviderChipDto,
@@ -97,6 +105,14 @@ import {
   resolveRouteCachePolicyFromRow,
 } from "../services/appConfig/valuationHealth.js";
 import { enqueueAuCatalogBarsBackfill } from "../services/market-data/enqueueAuCatalogBarsBackfill.js";
+import {
+  buildAdminMarketCalendarHistory,
+  buildAdminMarketCalendarStatus,
+  confirmAdminMarketCalendarImport,
+  isOfficialCalendarMarketCode,
+  previewAdminMarketCalendarImport,
+  updateAdminMarketCalendarSource,
+} from "../services/market-data/marketCalendarService.js";
 import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
 import {
   invalidate as invalidateAppConfigCache,
@@ -320,6 +336,9 @@ const tickerPriceFreshnessPatchSchema = z
     refreshCloseRateLimitWindowMs: plainBoundedField("tickerPriceRefreshCloseRateLimitWindowMs"),
     refreshCloseRateLimitMax: plainBoundedField("tickerPriceRefreshCloseRateLimitMax"),
     syncTickerCap: plainBoundedField("tickerPriceSyncTickerCap"),
+    activityDetailedRetentionDays: plainBoundedField("tickerPriceActivityDetailedRetentionDays"),
+    activitySummaryRetentionDays: plainBoundedField("tickerPriceActivitySummaryRetentionDays"),
+    calendarHistoryRetentionDays: plainBoundedField("tickerPriceCalendarHistoryRetentionDays"),
   })
   .strict();
 
@@ -480,6 +499,9 @@ const TIER1_PLAIN_FIELDS = [
   "tickerPriceRefreshCloseRateLimitWindowMs",
   "tickerPriceRefreshCloseRateLimitMax",
   "tickerPriceSyncTickerCap",
+  "tickerPriceActivityDetailedRetentionDays",
+  "tickerPriceActivitySummaryRetentionDays",
+  "tickerPriceCalendarHistoryRetentionDays",
   // KZO-195 — Tier 2 absence detection fields (admin-tunable via PATCH).
   "catalogAbsenceThreshold",
   "catalogAbsenceGuardPercent",
@@ -522,6 +544,9 @@ function flattenTickerPriceFreshnessPatch(
     tickerPriceRefreshCloseRateLimitWindowMs: value.refreshCloseRateLimitWindowMs,
     tickerPriceRefreshCloseRateLimitMax: value.refreshCloseRateLimitMax,
     tickerPriceSyncTickerCap: value.syncTickerCap,
+    tickerPriceActivityDetailedRetentionDays: value.activityDetailedRetentionDays,
+    tickerPriceActivitySummaryRetentionDays: value.activitySummaryRetentionDays,
+    tickerPriceCalendarHistoryRetentionDays: value.calendarHistoryRetentionDays,
   };
 }
 
@@ -978,21 +1003,21 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
   TW: {
     marketCode: "TW",
     label: "Taiwan",
-    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
     providers: [{ providerId: "finmind-tw", label: "FinMind TW", role: "Catalog and historical data" }],
     defaultBackfillProviderId: "finmind-tw",
   },
   US: {
     marketCode: "US",
     label: "United States",
-    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
     providers: [{ providerId: "finmind-us", label: "FinMind US", role: "Catalog and historical data" }],
     defaultBackfillProviderId: "finmind-us",
   },
   AU: {
     marketCode: "AU",
     label: "Australia",
-    tabs: ["overview", "instruments", "backfill", "purge", "operations", "logs"],
+    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
     providers: [
       { providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog" },
       { providerId: "yahoo-finance-au", label: "Yahoo Finance AU", role: "Bars, dividends, metadata" },
@@ -1003,7 +1028,7 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
   KR: {
     marketCode: "KR",
     label: "Korea",
-    tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "logs"],
+    tabs: ["overview", "calendar", "instruments", "backfill", "mappings", "purge", "operations", "activity"],
     providers: [
       { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
       { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
@@ -1013,7 +1038,7 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
   FX: {
     marketCode: "FX",
     label: "Foreign exchange",
-    tabs: ["overview", "refresh-rates", "operations", "logs"],
+    tabs: ["overview", "refresh-rates", "operations"],
     providers: [{ providerId: "frankfurter", label: "Frankfurter", role: "FX rates" }],
   },
 };
@@ -1021,6 +1046,50 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
 const marketDataWorkspaceParamSchema = z.object({
   marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
 });
+
+const calendarImportRowSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  isOpen: z.boolean(),
+  evidence: z.string().trim().min(1),
+  notes: z.string().trim().nullable().optional(),
+});
+
+const calendarImportPayloadSchema = z.object({
+  calendarYear: z.number().int().min(2000).max(2100),
+  sourceId: z.string().trim().min(1).nullable().optional(),
+  sourceType: z.enum(["official_parser", "manual_ai_assisted"]).optional(),
+  label: z.string().trim().min(1).nullable().optional(),
+  retrievedAt: z.string().datetime({ offset: true }).optional(),
+  rows: z.array(calendarImportRowSchema).min(1),
+  replaceConfirmed: z.boolean().optional(),
+  replacementReason: z.string().trim().nullable().optional(),
+});
+
+function parseCalendarImportRequest(body: unknown): AdminMarketCalendarPreviewRequest {
+  const envelope = z.object({
+    sourceId: z.string().trim().min(1).nullable().optional(),
+    normalizedPayload: z.string().trim().optional(),
+    replaceConfirmed: z.boolean().optional(),
+    replacementReason: z.string().trim().nullable().optional(),
+  }).passthrough().parse(body ?? {});
+  const rawPayload = envelope.normalizedPayload;
+  let parsedPayload: unknown = body ?? {};
+  if (rawPayload) {
+    try {
+      parsedPayload = JSON.parse(rawPayload);
+    } catch {
+      throw routeError(400, "market_calendar_payload_invalid_json", "Calendar normalized payload must be valid JSON");
+    }
+  }
+  const payload = calendarImportPayloadSchema.parse(parsedPayload);
+  return {
+    ...payload,
+    sourceId: envelope.sourceId ?? payload.sourceId ?? null,
+    retrievedAt: payload.retrievedAt ?? new Date().toISOString(),
+    replaceConfirmed: envelope.replaceConfirmed ?? payload.replaceConfirmed,
+    replacementReason: envelope.replacementReason ?? payload.replacementReason,
+  };
+}
 const marketDataInstrumentStatusSchema = z.enum(["listed", "delisted", "excluded", "all"]);
 const marketDataSupportStateSchema = z.enum(["supported", "retired_by_admin", "unsupported_by_provider"]);
 const marketDataBackfillStatusSchema = z.enum(["pending", "backfilling", "ready", "failed", "all"]);
@@ -1056,6 +1125,18 @@ const marketDataActionExecuteBodySchema = z
 
 function providerIdsForMarket(marketCode: AdminMarketCode): string[] {
   return MARKET_DATA_WORKSPACES[marketCode].providers.map((provider) => provider.providerId);
+}
+
+function resolveActivityOccurredAfter(timeRange: "24h" | "7d" | "30d" | "all", now: Date): string | undefined {
+  const hoursByRange = {
+    "24h": 24,
+    "7d": 24 * 7,
+    "30d": 24 * 30,
+    all: null,
+  } as const;
+  const hours = hoursByRange[timeRange];
+  if (hours === null) return undefined;
+  return new Date(now.getTime() - (hours * 60 * 60 * 1000)).toISOString();
 }
 
 function marketDataProviderForAction(marketCode: AdminMarketCode, action: ProviderOperationAction): string | null {
@@ -7175,51 +7256,419 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     };
   });
 
-  app.get("/market-data/:marketCode/logs", async (req): Promise<AdminMarketDataLogsResponse> => {
+  app.get("/market-data/:marketCode/logs", async (req) => {
+    requireAdminRole(req);
+    marketDataWorkspaceParamSchema.parse(req.params);
+    throw routeError(404, "market_logs_retired", "Market Data logs were replaced by Activity");
+  });
+
+  app.get("/market-data/:marketCode/activity", async (req): Promise<AdminMarketDataActivityResponse> => {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
-    const query = z
-      .object({
-        providerId: providerFixerProviderSchema.optional(),
-        operationId: z.string().trim().min(1).max(120).optional(),
-        page: z.coerce.number().int().min(1).default(1),
-        limit: z.coerce.number().int().min(1).max(200).default(25),
-      })
-      .parse(req.query ?? {});
-    const workspace = MARKET_DATA_WORKSPACES[marketCode];
-    const providerIds = query.providerId ? [query.providerId] : providerIdsForMarket(marketCode);
-    if (query.providerId && !providerIdsForMarket(marketCode).includes(query.providerId)) {
-      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    if (!isOfficialCalendarMarketCode(marketCode)) {
+      throw routeError(404, "market_activity_not_supported", "Activity is only supported for TW, US, AU, and KR");
     }
-    const operationIds = query.operationId
-      ? [query.operationId]
-      : (await Promise.all(providerIds.map(async (providerId) => app.persistence.listProviderOperations({
-          providerId,
-          marketCode: marketCode === "FX" ? undefined : marketCode,
-          page: 1,
-          limit: Math.max(query.limit, 25),
-        })))).flatMap((result) => result.items.map((operation) => operation.id));
-    const entries = (
-      await Promise.all(operationIds.map(async (operationId) => {
-        const logs = await app.persistence.listProviderOperationLogs({ operationId, page: 1, limit: query.limit });
-        return logs.items.map((log): AdminMarketDataLogsResponse["items"][number] => ({
-          id: String(log.id),
-          occurredAt: log.createdAt,
-          phase: log.phase,
-          message: log.message,
-          operationId: log.operationId,
-        }));
-      }))
-    ).flat().sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-    const offset = (query.page - 1) * query.limit;
-    return {
+    const query = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(200).default(25),
+      search: z.string().trim().optional(),
+      category: z.string().trim().optional(),
+      categories: z.string().trim().optional(),
+      result: z.string().trim().optional(),
+      results: z.string().trim().optional(),
+      source: z.string().trim().optional(),
+      sources: z.string().trim().optional(),
+      timeRange: z.enum(["24h", "7d", "30d", "all"]).default("24h"),
+    }).parse(req.query ?? {});
+    const parseCsv = (value?: string) => value
+      ? value.split(",").map((item) => item.trim()).filter((item) => item.length > 0 && item !== "all")
+      : undefined;
+    const categories = parseCsv(query.categories ?? query.category) as AdminMarketDataActivityResponse["filters"]["categories"] | undefined;
+    const results = parseCsv(query.results ?? query.result) as AdminMarketDataActivityResponse["filters"]["results"] | undefined;
+    const sources = parseCsv(query.sources ?? query.source) as AdminMarketDataActivityResponse["filters"]["sources"] | undefined;
+    const occurredAfter = resolveActivityOccurredAfter(query.timeRange, new Date());
+    const baseActivityQuery = {
       marketCode,
-      providers: workspace.providers,
-      items: entries.slice(offset, offset + query.limit),
-      total: entries.length,
+      search: query.search,
+      categories,
+      sources,
+      occurredAfter,
+    };
+    const activity = await app.persistence.listMarketCalendarActivity({
+      ...baseActivityQuery,
       page: query.page,
       limit: query.limit,
+      results,
+    });
+    const config = await loadAppConfigDto(app);
+    const retentionConfig = config.tickerPriceFreshness;
+    const [successCount, warningCount, errorCount, skippedCount, rateLimitedCount] = await Promise.all([
+      app.persistence.listMarketCalendarActivity({ ...baseActivityQuery, page: 1, limit: 1, results: ["success"] }),
+      app.persistence.listMarketCalendarActivity({ ...baseActivityQuery, page: 1, limit: 1, results: ["warning"] }),
+      app.persistence.listMarketCalendarActivity({ ...baseActivityQuery, page: 1, limit: 1, results: ["error"] }),
+      app.persistence.listMarketCalendarActivity({ ...baseActivityQuery, page: 1, limit: 1, results: ["skipped"] }),
+      app.persistence.listMarketCalendarActivity({ ...baseActivityQuery, page: 1, limit: 1, results: ["rate_limited"] }),
+    ]);
+    const selectedResults = results ? new Set(results) : null;
+    const visibleResultCount = (value: "success" | "warning" | "error" | "skipped" | "rate_limited", count: number) =>
+      selectedResults && !selectedResults.has(value) ? 0 : count;
+    const summary: AdminMarketDataActivityResponse["summary"] = {
+      success: visibleResultCount("success", successCount.total),
+      warning: visibleResultCount("warning", warningCount.total),
+      error: visibleResultCount("error", errorCount.total),
+      skipped: visibleResultCount("skipped", skippedCount.total),
+      rateLimited: visibleResultCount("rate_limited", rateLimitedCount.total),
+      total: activity.total,
+      hiddenSuccessCount: selectedResults && !selectedResults.has("success") ? successCount.total : 0,
     };
+    return {
+      marketCode,
+      filters: {
+        categories: ["intraday_price", "daily_close", "calendar", "provider_operation", "system"],
+        results: ["success", "warning", "error", "skipped", "rate_limited"],
+        sources: ["yahoo_chart", "official_calendar", "twse_close", "finmind", "system"],
+      },
+      summary,
+      retention: {
+        detailedDays: retentionConfig.effectiveActivityDetailedRetentionDays,
+        summaryDays: retentionConfig.effectiveActivitySummaryRetentionDays,
+        calendarHistoryDays: retentionConfig.effectiveCalendarHistoryRetentionDays,
+      },
+      items: activity.items.map((item) => ({
+        ...item,
+        marketCode,
+        detail: { ...item.detail },
+      })),
+      total: activity.total,
+      page: activity.page,
+      limit: activity.limit,
+    };
+  });
+
+  app.get("/market-data/:marketCode/calendar/status", async (req): Promise<AdminMarketCalendarStatusResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (!isOfficialCalendarMarketCode(marketCode)) {
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+    }
+    return buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date());
+  });
+
+  app.get("/market-data/:marketCode/calendar", async (req) => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (!isOfficialCalendarMarketCode(marketCode)) {
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+    }
+    const [status, history] = await Promise.all([
+      buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date()),
+      buildAdminMarketCalendarHistory(app.persistence, marketCode),
+    ]);
+    const defaultSource = status.sources.find((source) => source.isDefault) ?? status.sources[0] ?? null;
+    return {
+      marketCode,
+      marketLabel: MARKET_DATA_WORKSPACES[marketCode].label,
+      defaultSourceLabel: defaultSource?.label ?? null,
+      defaultSourceHost: defaultSource?.host ?? null,
+      years: status.years.map((year) => ({
+        calendarYear: year.calendarYear,
+        status: year.status,
+        sourceLabel: year.sourceLabel,
+        sourceUrlHost: year.sourceLabel ? defaultSource?.host ?? null : null,
+        versionLabel: year.activeVersionId,
+        updatedAt: year.updatedAt,
+        note: year.status === "missing"
+          ? `${marketCode} market calendar for ${year.calendarYear} is missing. Today is ${status.localDate}.`
+          : null,
+      })),
+      sources: status.sources.map((source) => ({
+        sourceId: source.id,
+        label: source.label,
+        sourceType: source.sourceType,
+        parserType: source.parserId,
+        url: source.url,
+        host: source.host,
+        allowedHosts: source.allowedHosts,
+        isDefault: source.isDefault,
+        isActive: source.enabled,
+        years: status.years
+          .filter((year) => year.sourceLabel === source.label)
+          .map((year) => year.calendarYear),
+      })),
+      preview: null,
+      history: history.items.map((item) => ({
+        id: item.versionId,
+        importOperationId: item.importOperationId,
+        calendarYear: item.calendarYear,
+        sourceLabel: item.sourceLabel ?? "Unknown source",
+        importedAt: item.confirmedAt ?? item.retrievedAt,
+        importedBy: null,
+        status: item.status,
+        note: item.invalidationReason,
+      })),
+      statusNote: `Today in ${marketCode} local market time is ${status.localDate}.`,
+    };
+  });
+
+  app.get("/market-data/:marketCode/calendar/sources", async (req): Promise<AdminMarketCalendarSourceConfigDto[]> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (!isOfficialCalendarMarketCode(marketCode)) {
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+    }
+    return (await app.persistence.listMarketCalendarSources(marketCode)).map((source) => ({
+      ...source,
+      marketCode,
+    }));
+  });
+
+  app.post("/market-data/:marketCode/calendar/source", async (req) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const body = z.object({
+      defaultSourceId: z.string().trim().min(1),
+    }).parse(req.body ?? {});
+    const source = (await app.persistence.listMarketCalendarSources(marketCode))
+      .find((candidate) => candidate.id === body.defaultSourceId);
+    if (!source) {
+      throw routeError(404, "market_calendar_source_not_found", "Market calendar source not found");
+    }
+    const { previous, saved } = await updateAdminMarketCalendarSource(app.persistence, marketCode, source.id, {
+      label: source.label,
+      sourceType: source.sourceType,
+      url: source.url,
+      host: source.host,
+      allowedHosts: source.allowedHosts,
+      parserId: source.parserId,
+      enabled: source.enabled,
+      isDefault: true,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_source_updated",
+      ipAddress,
+      metadata: { marketCode, sourceId: saved.id, previous, next: saved, mode: "default_source" },
+    });
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "calendar",
+      result: "success",
+      source: "official_calendar",
+      eventType: "calendar_default_source_updated",
+      title: "Default calendar source updated",
+      message: `${saved.label} set as default source for ${marketCode}.`,
+      calendarYear: null,
+      detail: { sourceId: saved.id },
+    });
+    const status = await buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date());
+    const history = await buildAdminMarketCalendarHistory(app.persistence, marketCode);
+    const defaultSource = status.sources.find((item) => item.isDefault) ?? status.sources[0] ?? null;
+    return {
+      marketCode,
+      marketLabel: MARKET_DATA_WORKSPACES[marketCode].label,
+      defaultSourceLabel: defaultSource?.label ?? null,
+      defaultSourceHost: defaultSource?.host ?? null,
+      years: status.years.map((year) => ({
+        calendarYear: year.calendarYear,
+        status: year.status,
+        sourceLabel: year.sourceLabel,
+        sourceUrlHost: defaultSource?.host ?? null,
+        versionLabel: year.activeVersionId,
+        updatedAt: year.updatedAt,
+        note: year.status === "missing"
+          ? `${marketCode} market calendar for ${year.calendarYear} is missing. Today is ${status.localDate}.`
+          : null,
+      })),
+      sources: status.sources.map((item) => ({
+        sourceId: item.id,
+        label: item.label,
+        sourceType: item.sourceType,
+        parserType: item.parserId,
+        url: item.url,
+        host: item.host,
+        allowedHosts: item.allowedHosts,
+        isDefault: item.isDefault,
+        isActive: item.enabled,
+        years: status.years.filter((year) => year.sourceLabel === item.label).map((year) => year.calendarYear),
+      })),
+      preview: null,
+      history: history.items.map((item) => ({
+        id: item.versionId,
+        importOperationId: item.importOperationId,
+        calendarYear: item.calendarYear,
+        sourceLabel: item.sourceLabel ?? "Unknown source",
+        importedAt: item.confirmedAt ?? item.retrievedAt,
+        importedBy: null,
+        status: item.status,
+        note: item.invalidationReason,
+      })),
+      statusNote: `Today in ${marketCode} local market time is ${status.localDate}.`,
+    };
+  });
+
+  app.patch("/market-data/:marketCode/calendar/sources/:sourceId", async (req): Promise<AdminMarketCalendarSourceConfigDto> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode, sourceId } = z.object({
+      marketCode: z.enum(["TW", "US", "AU", "KR"]),
+      sourceId: z.string().trim().min(1),
+    }).parse(req.params);
+    const body = z.object({
+      label: z.string().trim().min(1),
+      sourceType: z.enum(["official_parser", "manual_ai_assisted"]),
+      url: z.string().trim().url().nullable().optional(),
+      host: z.string().trim().min(1).nullable().optional(),
+      allowedHosts: z.array(z.string().trim().min(1)).default([]),
+      parserId: z.string().trim().min(1).nullable().optional(),
+      enabled: z.boolean().optional(),
+      isDefault: z.boolean().optional(),
+    }).parse(req.body ?? {});
+    const { previous, saved } = await updateAdminMarketCalendarSource(app.persistence, marketCode, sourceId, body);
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_source_updated",
+      ipAddress,
+      metadata: {
+        marketCode,
+        sourceId: saved.id,
+        previous,
+        next: saved,
+      },
+    });
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "calendar",
+      result: "success",
+      source: "official_calendar",
+      eventType: "calendar_source_updated",
+      title: "Calendar source updated",
+      message: `${saved.label} source updated for ${marketCode}.`,
+      calendarYear: null,
+      detail: {
+        sourceId: saved.id,
+        previous,
+        next: saved,
+      },
+    });
+    return {
+      ...saved,
+      marketCode,
+    };
+  });
+
+  app.post("/market-data/:marketCode/calendar/preview", async (req): Promise<AdminMarketCalendarPreviewResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const body = parseCalendarImportRequest(req.body);
+    const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, body);
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_previewed",
+      ipAddress,
+      metadata: { marketCode, calendarYear: body.calendarYear, previewToken: preview.previewToken },
+    });
+    return preview;
+  });
+
+  app.post("/market-data/:marketCode/calendar/confirm", async (req): Promise<AdminMarketCalendarConfirmResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const confirmBody = z.object({
+      previewToken: z.string().trim().min(1),
+      replaceConfirmed: z.boolean().optional(),
+      replacementReason: z.string().trim().nullable().optional(),
+    }).safeParse(req.body ?? {});
+    let body: AdminMarketCalendarConfirmRequest;
+    if (confirmBody.success) {
+      body = confirmBody.data;
+    } else {
+      const importRequest = parseCalendarImportRequest(req.body);
+      const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, importRequest);
+      body = {
+        previewToken: preview.previewToken,
+        replaceConfirmed: importRequest.replaceConfirmed,
+        replacementReason: importRequest.replacementReason,
+      };
+    }
+    const confirmed = await confirmAdminMarketCalendarImport(
+      app.persistence,
+      marketCode,
+      body.previewToken,
+      body.replaceConfirmed,
+      body.replacementReason,
+    );
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_confirmed",
+      ipAddress,
+      metadata: { marketCode, calendarYear: confirmed.calendarYear, versionId: confirmed.versionId },
+    });
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "calendar",
+      result: "success",
+      source: "official_calendar",
+      eventType: "calendar_confirmed",
+      title: "Calendar confirmed",
+      message: `${marketCode} ${confirmed.calendarYear} calendar confirmed.`,
+      calendarYear: confirmed.calendarYear,
+      detail: { versionId: confirmed.versionId },
+    });
+    return confirmed;
+  });
+
+  app.post("/market-data/:marketCode/calendar/invalidate", async (req): Promise<AdminMarketCalendarConfirmResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const body = z.object({
+      calendarYear: z.number().int().min(2000).max(2100),
+      reason: z.string().trim().min(1),
+    }).parse(req.body ?? {}) as AdminMarketCalendarInvalidateRequest & { calendarYear: number };
+    const invalidated = await app.persistence.invalidateMarketCalendarVersion({
+      marketCode,
+      calendarYear: body.calendarYear,
+      reason: body.reason,
+    });
+    if (!invalidated) {
+      throw routeError(404, "market_calendar_not_found", "No active calendar version found for that market-year");
+    }
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "market_calendar_invalidated",
+      ipAddress,
+      metadata: { marketCode, calendarYear: body.calendarYear, versionId: invalidated.versionId, reason: body.reason },
+    });
+    await app.persistence.createMarketCalendarActivityEvent({
+      marketCode,
+      category: "calendar",
+      result: "warning",
+      source: "official_calendar",
+      eventType: "calendar_invalidated",
+      title: "Calendar invalidated",
+      message: `${marketCode} ${body.calendarYear} calendar invalidated.`,
+      calendarYear: body.calendarYear,
+      detail: { versionId: invalidated.versionId, reason: body.reason },
+    });
+    return {
+      marketCode,
+      calendarYear: body.calendarYear,
+      versionId: invalidated.versionId,
+      activeVersionId: invalidated.versionId,
+      confirmedAt: invalidated.confirmedAt ?? invalidated.updatedAt,
+    };
+  });
+
+  app.get("/market-data/:marketCode/calendar/history", async (req): Promise<AdminMarketCalendarHistoryResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const query = z.object({
+      calendarYear: z.coerce.number().int().min(2000).max(2100).optional(),
+    }).parse(req.query ?? {});
+    return buildAdminMarketCalendarHistory(app.persistence, marketCode, query.calendarYear);
   });
 
   app.post("/market-data/:marketCode/backfill/preview", async (req): Promise<AdminMarketDataBackfillPreviewResponse> => {

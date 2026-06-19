@@ -48,6 +48,7 @@ interface CloseFallbackProviders {
 export interface RunCloseRefreshInput {
   pairs: ReadonlyArray<CloseRefreshPair>;
   persistence: Pick<Persistence, "getLatestBarsByTickerMarket">;
+  activityPersistence?: Pick<Persistence, "createMarketCalendarActivityEvent">;
   tradingCalendar: RegularSessionClock;
   marketDataProviders: ReadonlyMap<MarketCode, MarketDataProvider>;
   fallbackProviders?: CloseFallbackProviders;
@@ -78,24 +79,32 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
       input.closeRefreshGraceMinutes,
     );
     if (!closeDate) {
-      items.push(buildItem(pair, "not_eligible", null, null, null));
+      const item = buildItem(pair, "not_eligible", null, null, null);
+      items.push(item);
+      await emitCloseRefreshActivity(input, item);
       continue;
     }
 
     const latest = latestByKey.get(quoteSnapshotKey(pair.ticker, pair.marketCode));
     if (latest && isCurrentFullBar(latest, closeDate)) {
-      items.push(buildItem(pair, "current", latest.barDate, latest.source, latest.quality));
+      const item = buildItem(pair, "current", latest.barDate, latest.source, latest.quality);
+      items.push(item);
+      await emitCloseRefreshActivity(input, item);
       continue;
     }
 
     try {
       const bar = await fetchCloseRefreshBar(input, pair, closeDate, now);
       if (!bar) {
-        items.push(buildItem(pair, "missing", closeDate, null, null));
+        const item = buildItem(pair, "missing", closeDate, null, null);
+        items.push(item);
+        await emitCloseRefreshActivity(input, item);
         continue;
       }
       await input.upsertBars([bar], pair.marketCode);
-      items.push(buildItem(pair, "refreshed", bar.barDate, bar.source, bar.quality));
+      const item = buildItem(pair, "refreshed", bar.barDate, bar.source, bar.quality);
+      items.push(item);
+      await emitCloseRefreshActivity(input, item);
     } catch (error) {
       if (error instanceof RateLimitedError) throw error;
       input.log?.warn(
@@ -107,14 +116,16 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
         },
         "close_refresh_pair_failed",
       );
-      items.push(buildItem(
+      const item = buildItem(
         pair,
         "failed",
         closeDate,
         null,
         null,
         error instanceof Error ? error.message : String(error),
-      ));
+      );
+      items.push(item);
+      await emitCloseRefreshActivity(input, item);
     }
   }
 
@@ -224,4 +235,88 @@ function summarize(items: ReadonlyArray<CloseRefreshResultItem>): Record<CloseRe
     summary[item.status] += 1;
   }
   return summary;
+}
+
+async function emitCloseRefreshActivity(
+  input: RunCloseRefreshInput,
+  item: CloseRefreshResultItem,
+): Promise<void> {
+  if (!input.activityPersistence?.createMarketCalendarActivityEvent) return;
+  const resultByStatus: Record<CloseRefreshStatus, "success" | "warning" | "error" | "skipped"> = {
+    refreshed: "success",
+    current: "skipped",
+    not_eligible: "skipped",
+    missing: "warning",
+    failed: "error",
+    queued: "skipped",
+  };
+  const titleByStatus: Record<CloseRefreshStatus, string> = {
+    refreshed: "Close refresh completed",
+    current: "Close refresh skipped",
+    not_eligible: "Close refresh not eligible",
+    missing: "Close refresh missing bar",
+    failed: "Close refresh failed",
+    queued: "Close refresh queued",
+  };
+  const eventTypeByStatus: Record<CloseRefreshStatus, string> = {
+    refreshed: "close_refresh_refreshed",
+    current: "close_refresh_current",
+    not_eligible: "close_refresh_not_eligible",
+    missing: "close_refresh_missing",
+    failed: "close_refresh_failed",
+    queued: "close_refresh_queued",
+  };
+  try {
+    await input.activityPersistence.createMarketCalendarActivityEvent({
+      marketCode: item.marketCode,
+      category: "daily_close",
+      result: resultByStatus[item.status],
+      source: activitySourceForCloseRefresh(item.source),
+      eventType: eventTypeByStatus[item.status],
+      title: titleByStatus[item.status],
+      message: buildCloseRefreshMessage(item),
+      ticker: item.ticker,
+      detail: {
+        barDate: item.barDate,
+        source: item.source,
+        quality: item.quality,
+        ...(item.error ? { error: item.error } : {}),
+      },
+    });
+  } catch (error) {
+    input.log?.warn(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        ticker: item.ticker,
+        marketCode: item.marketCode,
+        status: item.status,
+      },
+      "close_refresh_activity_emit_failed",
+    );
+  }
+}
+
+function activitySourceForCloseRefresh(source: string | null) {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("twse")) return "twse_close" as const;
+  if (normalized.includes("yahoo")) return "yahoo_chart" as const;
+  if (normalized.includes("finmind")) return "finmind" as const;
+  return "system" as const;
+}
+
+function buildCloseRefreshMessage(item: CloseRefreshResultItem): string {
+  switch (item.status) {
+    case "refreshed":
+      return `${item.ticker} close refresh stored ${item.barDate}.`;
+    case "current":
+      return `${item.ticker} already has a current close for ${item.barDate}.`;
+    case "not_eligible":
+      return `${item.ticker} close refresh skipped because no eligible settled close date was found.`;
+    case "missing":
+      return `${item.ticker} close refresh found no bar for ${item.barDate}.`;
+    case "failed":
+      return `${item.ticker} close refresh failed${item.error ? `: ${item.error}` : "."}`;
+    case "queued":
+      return `${item.ticker} close refresh queued.`;
+  }
 }

@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppDictionary } from "../../../lib/i18n/types";
+import { CalendarUnknownWarnings } from "../../../components/holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
 
 const dict = {
@@ -22,6 +23,16 @@ const dict = {
     priceStateQualityLabel: "Quality",
     priceStateDelayLabel: "Delay",
     priceStateTimeZoneLabel: "Time zone",
+    priceStateCalendarLabel: "Calendar",
+    priceStateCalendarReasonLabel: "Calendar reason",
+    priceStateMarketLocalDateLabel: "Market date",
+    priceStateYahooSymbolLabel: "Yahoo symbol",
+    priceStateCadenceLabel: "Cadence",
+    priceStateLatestAttemptLabel: "Latest attempt",
+    priceStateLatestOutcomeLabel: "Latest outcome",
+    priceStateActivityHintLabel: "Activity",
+    calendarUnknownWarningTitle: "Market calendar needs attention",
+    calendarUnknownWarningMessage: "{market} market calendar for {year} is missing. Today in {location} is {date}. Seed it in Admin Market Data or with the admin MCP calendar tool.",
     priceStateUnknownValue: "Unknown",
     priceStateBasisIntraday: "Intraday",
     priceStateBasisDelayedIntraday: "Delayed intraday",
@@ -324,6 +335,106 @@ describe("PriceStateChip", () => {
 
     expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
     expect(chip?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("opens on touch and shows calendar-unknown and intraday-attempt facts", async () => {
+    act(() => {
+      root.render(
+        <PriceStateChip
+          dict={dict}
+          locale="en"
+          testId="price-state-chip"
+          priceState={{
+            basis: "previous_close",
+            chipState: "open_previous_close",
+            marketState: "closed",
+            source: "daily-provider",
+            sourceKind: "primary_daily",
+            asOfDate: "2026-06-19",
+            asOfTimestamp: null,
+            observedAt: "2026-06-19T01:32:00.000Z",
+            delaySeconds: null,
+            marketTimeZone: "Asia/Taipei",
+            quality: "full_bar",
+            marketStateReason: "calendar_unknown",
+            calendarStatus: "missing",
+            marketLocalDate: "2026-06-19",
+            latestAttemptAt: "2026-06-19T01:31:00.000Z",
+            latestAttemptOutcome: "skipped",
+          } as never}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+
+    const dialogText = document.querySelector("[role='dialog']")?.textContent ?? "";
+    expect(dialogText).toContain("Calendar: missing");
+    expect(dialogText).toContain("Calendar reason: Calendar unknown");
+    expect(dialogText).toContain("Market date: 2026-06-19");
+    expect(dialogText).toContain("Latest attempt:");
+    expect(dialogText).toContain("Latest outcome: skipped");
+  });
+
+  it("groups calendar-unknown warnings by affected market year", async () => {
+    act(() => {
+      root.render(
+        <CalendarUnknownWarnings
+          dict={dict}
+          rows={[
+            {
+              marketCode: "TW",
+              priceState: {
+                basis: "previous_close",
+                chipState: "stale",
+                marketState: "closed",
+                marketStateReason: "calendar_unknown",
+                marketLocalDate: "2026-06-19",
+                calendarStatus: "calendar_unknown",
+                source: "daily-provider",
+                sourceKind: "primary_daily",
+                asOfDate: "2026-06-18",
+                asOfTimestamp: null,
+                observedAt: null,
+                delaySeconds: null,
+                marketTimeZone: "Asia/Taipei",
+                quality: "full_bar",
+              },
+            },
+            {
+              marketCode: "TW",
+              priceState: {
+                basis: "previous_close",
+                chipState: "stale",
+                marketState: "closed",
+                marketStateReason: "calendar_unknown",
+                marketLocalDate: "2026-06-19",
+                calendarStatus: "calendar_unknown",
+                source: "daily-provider",
+                sourceKind: "primary_daily",
+                asOfDate: "2026-06-18",
+                asOfTimestamp: null,
+                observedAt: null,
+                delaySeconds: null,
+                marketTimeZone: "Asia/Taipei",
+                quality: "full_bar",
+              },
+            },
+          ]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(container.textContent).toContain("Market calendar needs attention");
+    expect(container.textContent).toContain("TW market calendar for 2026 is missing. Today in Taipei is 2026-06-19.");
+    expect(container.querySelectorAll("li")).toHaveLength(1);
   });
 
   it("uses the bar timestamp for delayed relative labels even when observed recently", async () => {

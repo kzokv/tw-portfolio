@@ -6,6 +6,15 @@ export type RegularSessionMarketCode = "TW" | "US" | "AU" | "KR";
 export interface RegularSessionClock {
   isTradingDay(market: RegularSessionMarketCode, date: string): Promise<boolean>;
   getTradingDates?(market: RegularSessionMarketCode): Promise<ReadonlySet<string>>;
+  getOfficialCalendarDayStatus?(
+    market: RegularSessionMarketCode,
+    at: Date,
+  ): Promise<{
+    localDate: string;
+    calendarYear: number;
+    status: "open" | "closed" | "calendar_unknown";
+    reason: "not_trading_day" | "calendar_unknown";
+  }>;
   useWeekdayFallback?: boolean;
 }
 
@@ -15,6 +24,8 @@ export interface RegularSessionState {
   localDate: string;
   isTradingDay: boolean;
   isOpen: boolean;
+  marketStateReason: "market_open" | "calendar_unknown" | "not_trading_day" | "outside_regular_session";
+  calendarStatus: "confirmed" | "missing" | "unconfirmed" | "invalidated" | "calendar_unknown";
   opensAtLocal: string;
   closesAtLocal: string;
 }
@@ -112,21 +123,61 @@ async function isRegularSessionTradingDay(
 ): Promise<boolean> {
   const isTradingDay = await clock.isTradingDay(marketCode, date);
   if (isTradingDay) return true;
-  if (clock.useWeekdayFallback !== undefined) {
-    return clock.useWeekdayFallback && isWeekdayIsoDate(date);
+  if (clock.getTradingDates) {
+    const tradingDates = await clock.getTradingDates(marketCode);
+    return tradingDates.has(date);
   }
-  if (!clock.getTradingDates) return false;
+  if (clock.useWeekdayFallback === true) return isWeekdayIsoDate(date);
+  return false;
+}
 
-  const tradingDates = await clock.getTradingDates(marketCode);
-  if (tradingDates.size === 0) return isWeekdayIsoDate(date);
-
-  let latestKnownDate: string | null = null;
-  for (const tradingDate of tradingDates) {
-    if (latestKnownDate === null || tradingDate > latestKnownDate) {
-      latestKnownDate = tradingDate;
+async function resolveRegularSessionCalendar(
+  clock: RegularSessionClock,
+  marketCode: RegularSessionMarketCode,
+  at: Date,
+  localDate: string,
+): Promise<{
+  isTradingDay: boolean;
+  marketStateReason: RegularSessionState["marketStateReason"];
+  calendarStatus: RegularSessionState["calendarStatus"];
+}> {
+  if (clock.getOfficialCalendarDayStatus) {
+    const official = await clock.getOfficialCalendarDayStatus(marketCode, at);
+    if (official.status === "calendar_unknown") {
+      return {
+        isTradingDay: false,
+        marketStateReason: "calendar_unknown",
+        calendarStatus: "calendar_unknown",
+      };
     }
+    return {
+      isTradingDay: official.status === "open",
+      marketStateReason: official.status === "open" ? "outside_regular_session" : "not_trading_day",
+      calendarStatus: "confirmed",
+    };
   }
-  return latestKnownDate !== null && date > latestKnownDate && isWeekdayIsoDate(date);
+
+  const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
+  if (isTradingDay) {
+    return {
+      isTradingDay: true,
+      marketStateReason: "outside_regular_session",
+      calendarStatus: "confirmed",
+    };
+  }
+  if (clock.getTradingDates) {
+    const tradingDates = await clock.getTradingDates(marketCode);
+    return {
+      isTradingDay: false,
+      marketStateReason: tradingDates.size === 0 ? "calendar_unknown" : "not_trading_day",
+      calendarStatus: tradingDates.size === 0 ? "calendar_unknown" : "confirmed",
+    };
+  }
+  return {
+    isTradingDay: false,
+    marketStateReason: "not_trading_day",
+    calendarStatus: "confirmed",
+  };
 }
 
 export function isWithinRegularSessionTime(
@@ -148,15 +199,25 @@ export async function getRegularSessionState(
   at: Date,
 ): Promise<RegularSessionState> {
   const { localDate, localHour, localMinute } = getMarketLocalParts(marketCode, at);
-  const isTradingDay = await isRegularSessionTradingDay(clock, marketCode, localDate);
+  const calendar = await resolveRegularSessionCalendar(clock, marketCode, at, localDate);
+  const isTradingDay = calendar.isTradingDay;
   const open = MARKET_OPEN_LOCAL_TIME[marketCode];
   const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
+  const isOpen = isTradingDay && isWithinRegularSessionTime(marketCode, localHour, localMinute);
   return {
     marketCode,
     marketTimeZone: MARKET_TIMEZONE[marketCode],
     localDate,
     isTradingDay,
-    isOpen: isTradingDay && isWithinRegularSessionTime(marketCode, localHour, localMinute),
+    isOpen,
+    marketStateReason: isOpen
+      ? "market_open"
+      : calendar.marketStateReason === "calendar_unknown"
+        ? "calendar_unknown"
+        : isTradingDay
+          ? "outside_regular_session"
+          : "not_trading_day",
+    calendarStatus: calendar.calendarStatus,
     opensAtLocal: `${localDate}T${String(open.hour).padStart(2, "0")}:${String(open.minute).padStart(2, "0")}:00`,
     closesAtLocal: `${localDate}T${String(close.hour).padStart(2, "0")}:${String(close.minute).padStart(2, "0")}:00`,
   };

@@ -370,17 +370,41 @@ export type PriceStateChipStateDto =
   | "stale"
   | "missing";
 export type PriceStateMarketStateDto = "open" | "closed";
+export type PriceStateMarketStateReasonDto =
+  | "market_open"
+  | "calendar_unknown"
+  | "not_trading_day"
+  | "outside_regular_session"
+  | "market_closed";
 export type PriceStateSourceKindDto =
   | "primary_daily"
   | "intraday_yahoo_chart"
   | "twse_stock_day_close"
   | "yahoo_chart_close"
   | "missing";
+export type PriceStateCalendarStatusDto = "confirmed" | "missing" | "unconfirmed" | "invalidated" | "calendar_unknown";
+export type PriceStateIntradayAttemptOutcomeDto =
+  | "queued"
+  | "success"
+  | "warning"
+  | "error"
+  | "skipped"
+  | "rate_limited";
+
+export interface PriceStateIntradayAttemptDto {
+  requestedAt: string;
+  completedAt: string | null;
+  outcome: PriceStateIntradayAttemptOutcomeDto;
+  source: string | null;
+  providerSymbol: string | null;
+  message: string | null;
+}
 
 export interface PriceStateDto {
   basis: PriceStateBasisDto;
   chipState: PriceStateChipStateDto;
   marketState: PriceStateMarketStateDto;
+  marketStateReason?: PriceStateMarketStateReasonDto;
   source: string | null;
   sourceKind: PriceStateSourceKindDto;
   asOfDate: string | null;
@@ -389,6 +413,12 @@ export interface PriceStateDto {
   delaySeconds: number | null;
   marketTimeZone: string | null;
   quality: DailyBarQualityDto | null;
+  marketLocalDate?: string | null;
+  localMarketDate?: string | null;
+  calendarStatus?: PriceStateCalendarStatusDto | null;
+  latestIntradayAttempt?: PriceStateIntradayAttemptDto | null;
+  latestRefreshAttemptAt?: string | null;
+  latestRefreshOutcome?: PriceStateIntradayAttemptOutcomeDto | null;
 }
 
 export interface DashboardMarketStateDto {
@@ -1550,6 +1580,9 @@ export interface TickerPriceFreshnessAppConfigBoundsDto {
   refreshCloseRateLimitWindowMs: { min: number; max: number };
   refreshCloseRateLimitMax: { min: number; max: number };
   syncTickerCap: { min: number; max: number };
+  activityDetailedRetentionDays: { min: number; max: number };
+  activitySummaryRetentionDays: { min: number; max: number };
+  calendarHistoryRetentionDays: { min: number; max: number };
 }
 
 export interface TickerPriceFreshnessAppConfigOptionsDto {
@@ -1587,6 +1620,12 @@ export interface TickerPriceFreshnessAppConfigDto {
   effectiveRefreshCloseRateLimitMax: number;
   syncTickerCap: number | null;
   effectiveSyncTickerCap: number;
+  activityDetailedRetentionDays: number | null;
+  effectiveActivityDetailedRetentionDays: number;
+  activitySummaryRetentionDays: number | null;
+  effectiveActivitySummaryRetentionDays: number;
+  calendarHistoryRetentionDays: number | null;
+  effectiveCalendarHistoryRetentionDays: number;
   options: TickerPriceFreshnessAppConfigOptionsDto;
   bounds: TickerPriceFreshnessAppConfigBoundsDto;
 }
@@ -2980,12 +3019,13 @@ export interface AdminInstrumentsResponse {
 export type AdminMarketCode = MarketCode | "FX";
 export type AdminMarketWorkspaceTab =
   | "overview"
+  | "calendar"
   | "instruments"
   | "backfill"
   | "mappings"
   | "purge"
   | "operations"
-  | "logs"
+  | "activity"
   | "refresh-rates";
 export type AdminMarketDataBackfillScope =
   | "user_owned_or_monitored"
@@ -3108,6 +3148,192 @@ export interface AdminMarketDataLogsResponse {
   marketCode: AdminMarketCode;
   providers: AdminMarketDataProviderChipDto[];
   items: ProviderFixerDashboardLogEntryDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type AdminMarketCalendarYearStatus = "confirmed" | "draft" | "invalidated" | "missing";
+export type AdminMarketCalendarSourceType = "official_parser" | "manual_ai_assisted";
+export type AdminMarketDataActivityCategory =
+  | "intraday_price"
+  | "daily_close"
+  | "calendar"
+  | "provider_operation"
+  | "system";
+export type AdminMarketDataActivityResult =
+  | "success"
+  | "warning"
+  | "error"
+  | "skipped"
+  | "rate_limited";
+export type AdminMarketDataActivitySource =
+  | "yahoo_chart"
+  | "official_calendar"
+  | "twse_close"
+  | "finmind"
+  | "system";
+
+export interface AdminMarketCalendarSourceConfigDto {
+  id: string;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  label: string;
+  sourceType: AdminMarketCalendarSourceType;
+  url: string | null;
+  host: string | null;
+  allowedHosts: string[];
+  parserId: string | null;
+  enabled: boolean;
+  isDefault: boolean;
+  updatedAt: string;
+}
+
+export interface AdminMarketCalendarYearStatusDto {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  calendarYear: number;
+  status: AdminMarketCalendarYearStatus;
+  sourceLabel: string | null;
+  sourceType: AdminMarketCalendarSourceType | null;
+  activeVersionId: string | null;
+  retrievedAt: string | null;
+  confirmedAt: string | null;
+  invalidatedAt: string | null;
+  openDayCount: number;
+  closedDayCount: number;
+  updatedAt: string | null;
+}
+
+export interface AdminMarketCalendarStatusResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  localDate: string;
+  years: AdminMarketCalendarYearStatusDto[];
+  sources: AdminMarketCalendarSourceConfigDto[];
+}
+
+export interface AdminMarketCalendarImportRowDto {
+  date: string;
+  isOpen: boolean;
+  evidence: string;
+  notes?: string | null;
+}
+
+export interface AdminMarketCalendarPreviewRequest {
+  calendarYear: number;
+  sourceId?: string | null;
+  sourceType?: AdminMarketCalendarSourceType;
+  label?: string | null;
+  retrievedAt: string;
+  rows: AdminMarketCalendarImportRowDto[];
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
+}
+
+export interface AdminMarketCalendarPreviewDiffDto {
+  addedDates: string[];
+  removedDates: string[];
+  changedDates: string[];
+}
+
+export interface AdminMarketCalendarPreviewResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  calendarYear: number;
+  source: AdminMarketCalendarSourceConfigDto | null;
+  sourceType: AdminMarketCalendarSourceType;
+  retrievedAt: string;
+  rowCount: number;
+  openDayCount: number;
+  closedDayCount: number;
+  replaceConfirmedRequired: boolean;
+  warnings: string[];
+  diff: AdminMarketCalendarPreviewDiffDto;
+  previewToken: string;
+}
+
+export interface AdminMarketCalendarConfirmRequest {
+  previewToken: string;
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
+}
+
+export interface AdminMarketCalendarConfirmResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  calendarYear: number;
+  versionId: string;
+  activeVersionId: string;
+  confirmedAt: string;
+}
+
+export interface AdminMarketCalendarInvalidateRequest {
+  reason: string;
+}
+
+export interface AdminMarketCalendarHistoryItemDto {
+  versionId: string;
+  importOperationId: string;
+  calendarYear: number;
+  sourceLabel: string | null;
+  sourceType: AdminMarketCalendarSourceType;
+  status: "confirmed" | "invalidated";
+  retrievedAt: string;
+  confirmedAt: string | null;
+  invalidatedAt: string | null;
+  rowCount: number;
+  openDayCount: number;
+  closedDayCount: number;
+  invalidationReason: string | null;
+}
+
+export interface AdminMarketCalendarHistoryResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  items: AdminMarketCalendarHistoryItemDto[];
+}
+
+export interface AdminMarketDataActivitySummaryDto {
+  total: number;
+  success: number;
+  warning: number;
+  error: number;
+  skipped: number;
+  rateLimited: number;
+  hiddenSuccessCount: number;
+}
+
+export interface AdminMarketDataActivityFiltersDto {
+  categories: AdminMarketDataActivityCategory[];
+  results: AdminMarketDataActivityResult[];
+  sources: AdminMarketDataActivitySource[];
+}
+
+export interface AdminMarketDataActivityItemDto {
+  id: string;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  occurredAt: string;
+  category: AdminMarketDataActivityCategory;
+  result: AdminMarketDataActivityResult;
+  source: AdminMarketDataActivitySource;
+  eventType: string;
+  title: string;
+  message: string;
+  ticker: string | null;
+  providerSymbol: string | null;
+  operationId: string | null;
+  jobId: string | null;
+  calendarYear: number | null;
+  detail: Record<string, unknown>;
+}
+
+export interface AdminMarketDataActivityRetentionDto {
+  detailedDays: number;
+  summaryDays: number;
+  calendarHistoryDays: number;
+}
+
+export interface AdminMarketDataActivityResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  filters: AdminMarketDataActivityFiltersDto;
+  summary: AdminMarketDataActivitySummaryDto;
+  retention: AdminMarketDataActivityRetentionDto;
+  items: AdminMarketDataActivityItemDto[];
   total: number;
   page: number;
   limit: number;

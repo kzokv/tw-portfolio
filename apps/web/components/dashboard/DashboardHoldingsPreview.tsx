@@ -82,6 +82,7 @@ import {
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
+import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import {
   getDashboardReportingAverageCost,
@@ -539,6 +540,7 @@ export function DashboardHoldingsPreview({
                   locale={locale}
                   reportingCurrency={reportingCurrency}
                 />
+                <CalendarUnknownWarnings dict={dict} rows={visibleGroups} />
                 <HoldingsGridMobileList>
                   {visibleGroups.map((group) => (
                     <DashboardHoldingRow

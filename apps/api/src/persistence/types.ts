@@ -99,6 +99,9 @@ export type AppConfigPlainField =
   | "tickerPriceRefreshCloseRateLimitWindowMs"
   | "tickerPriceRefreshCloseRateLimitMax"
   | "tickerPriceSyncTickerCap"
+  | "tickerPriceActivityDetailedRetentionDays"
+  | "tickerPriceActivitySummaryRetentionDays"
+  | "tickerPriceCalendarHistoryRetentionDays"
   | "dailyRefreshLookbackDays"
   | "dailyRefreshPriority"
   | "sseHeartbeatIntervalMs"
@@ -204,6 +207,9 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   tickerPriceRefreshCloseRateLimitWindowMs: "ticker_price_refresh_close_rate_limit_window_ms",
   tickerPriceRefreshCloseRateLimitMax: "ticker_price_refresh_close_rate_limit_max",
   tickerPriceSyncTickerCap: "ticker_price_sync_ticker_cap",
+  tickerPriceActivityDetailedRetentionDays: "ticker_price_activity_detailed_retention_days",
+  tickerPriceActivitySummaryRetentionDays: "ticker_price_activity_summary_retention_days",
+  tickerPriceCalendarHistoryRetentionDays: "ticker_price_calendar_history_retention_days",
   dailyRefreshLookbackDays: "daily_refresh_lookback_days",
   dailyRefreshPriority: "daily_refresh_priority",
   sseHeartbeatIntervalMs: "sse_heartbeat_interval_ms",
@@ -338,6 +344,10 @@ export type AuditLogAction =
   | "instrument_absence_streak_bumped"
   | "instrument_absence_guard_tripped"
   | "delegated_portfolio_write"
+  | "market_calendar_previewed"
+  | "market_calendar_confirmed"
+  | "market_calendar_invalidated"
+  | "market_calendar_source_updated"
   // ui-enhancement — account lifecycle audit actions.
   | "account_soft_deleted"
   | "account_restored"
@@ -1461,6 +1471,165 @@ export interface ProviderLogPurgeCounts {
   operationLogCount: number;
 }
 
+export type MarketCalendarSourceType = "official_parser" | "manual_ai_assisted";
+export type MarketCalendarVersionStatus = "confirmed" | "invalidated";
+export type MarketCalendarActivityCategory =
+  | "intraday_price"
+  | "daily_close"
+  | "calendar"
+  | "provider_operation"
+  | "system";
+export type MarketCalendarActivityResult =
+  | "success"
+  | "warning"
+  | "error"
+  | "skipped"
+  | "rate_limited";
+export type MarketCalendarActivitySource =
+  | "yahoo_chart"
+  | "official_calendar"
+  | "twse_close"
+  | "finmind"
+  | "system";
+
+export interface MarketCalendarSourceConfigRecord {
+  id: string;
+  marketCode: MarketCode;
+  label: string;
+  sourceType: MarketCalendarSourceType;
+  url: string | null;
+  host: string | null;
+  allowedHosts: string[];
+  parserId: string | null;
+  enabled: boolean;
+  isDefault: boolean;
+  updatedAt: string;
+}
+
+export interface SaveMarketCalendarSourceConfigInput {
+  marketCode: MarketCode;
+  sourceId?: string;
+  label: string;
+  sourceType: MarketCalendarSourceType;
+  url?: string | null;
+  host?: string | null;
+  allowedHosts?: string[];
+  parserId?: string | null;
+  enabled?: boolean;
+  isDefault?: boolean;
+}
+
+export interface MarketCalendarRowInput {
+  date: string;
+  isOpen: boolean;
+  evidence: string;
+  notes?: string | null;
+}
+
+export interface MarketCalendarPreviewRecord {
+  previewToken: string;
+  importOperationId: string;
+  marketCode: MarketCode;
+  calendarYear: number;
+  sourceId: string | null;
+  sourceType: MarketCalendarSourceType;
+  label: string | null;
+  retrievedAt: string;
+  replaceConfirmedRequired: boolean;
+  warnings: string[];
+  diff: {
+    addedDates: string[];
+    removedDates: string[];
+    changedDates: string[];
+  };
+  rows: MarketCalendarRowInput[];
+  createdAt: string;
+}
+
+export interface MarketCalendarVersionRecord {
+  versionId: string;
+  importOperationId: string;
+  marketCode: MarketCode;
+  calendarYear: number;
+  sourceId: string | null;
+  sourceLabel: string | null;
+  sourceType: MarketCalendarSourceType;
+  retrievedAt: string;
+  confirmedAt: string | null;
+  invalidatedAt: string | null;
+  invalidationReason: string | null;
+  status: MarketCalendarVersionStatus;
+  isActive: boolean;
+  rows: MarketCalendarRowInput[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConfirmMarketCalendarPreviewInput {
+  previewToken: string;
+  replaceConfirmed?: boolean;
+  replacementReason?: string | null;
+}
+
+export interface InvalidateMarketCalendarVersionInput {
+  marketCode: MarketCode;
+  calendarYear: number;
+  reason: string;
+}
+
+export interface MarketCalendarActivityEventRecord {
+  id: string;
+  marketCode: MarketCode;
+  occurredAt: string;
+  category: MarketCalendarActivityCategory;
+  result: MarketCalendarActivityResult;
+  source: MarketCalendarActivitySource;
+  eventType: string;
+  title: string;
+  message: string;
+  ticker: string | null;
+  providerSymbol: string | null;
+  operationId: string | null;
+  jobId: string | null;
+  calendarYear: number | null;
+  detail: Record<string, unknown>;
+}
+
+export interface CreateMarketCalendarActivityEventInput {
+  marketCode: MarketCode;
+  occurredAt?: string;
+  category: MarketCalendarActivityCategory;
+  result: MarketCalendarActivityResult;
+  source: MarketCalendarActivitySource;
+  eventType: string;
+  title: string;
+  message: string;
+  ticker?: string | null;
+  providerSymbol?: string | null;
+  operationId?: string | null;
+  jobId?: string | null;
+  calendarYear?: number | null;
+  detail?: Record<string, unknown>;
+}
+
+export interface ListMarketCalendarActivityOptions {
+  marketCode: MarketCode;
+  page: number;
+  limit: number;
+  search?: string;
+  categories?: MarketCalendarActivityCategory[];
+  results?: MarketCalendarActivityResult[];
+  sources?: MarketCalendarActivitySource[];
+  occurredAfter?: string;
+}
+
+export interface ListMarketCalendarActivityResult {
+  items: MarketCalendarActivityEventRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export type ProviderOperationOutcomeState =
   | "pending"
   | "running"
@@ -2384,6 +2553,9 @@ export interface Persistence {
     tickerPriceRefreshCloseRateLimitWindowMs: number | null;
     tickerPriceRefreshCloseRateLimitMax: number | null;
     tickerPriceSyncTickerCap: number | null;
+    tickerPriceActivityDetailedRetentionDays: number | null;
+    tickerPriceActivitySummaryRetentionDays: number | null;
+    tickerPriceCalendarHistoryRetentionDays: number | null;
     dailyRefreshLookbackDays: number | null;
     dailyRefreshPriority: number | null;
     sseHeartbeatIntervalMs: number | null;
@@ -2993,6 +3165,16 @@ export interface Persistence {
   hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean>;
   createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord>;
   listProviderOperationLogs(options: ListProviderOperationLogsOptions): Promise<ListProviderOperationLogsResult>;
+  listMarketCalendarSources(marketCode: MarketCode): Promise<MarketCalendarSourceConfigRecord[]>;
+  saveMarketCalendarSource(input: SaveMarketCalendarSourceConfigInput): Promise<MarketCalendarSourceConfigRecord>;
+  saveMarketCalendarPreview(preview: MarketCalendarPreviewRecord): Promise<MarketCalendarPreviewRecord>;
+  getMarketCalendarPreview(previewToken: string): Promise<MarketCalendarPreviewRecord | null>;
+  confirmMarketCalendarPreview(input: ConfirmMarketCalendarPreviewInput): Promise<MarketCalendarVersionRecord>;
+  invalidateMarketCalendarVersion(input: InvalidateMarketCalendarVersionInput): Promise<MarketCalendarVersionRecord | null>;
+  getActiveMarketCalendarVersion(marketCode: MarketCode, calendarYear: number): Promise<MarketCalendarVersionRecord | null>;
+  listMarketCalendarHistory(marketCode: MarketCode, calendarYear?: number): Promise<MarketCalendarVersionRecord[]>;
+  createMarketCalendarActivityEvent(input: CreateMarketCalendarActivityEventInput): Promise<MarketCalendarActivityEventRecord>;
+  listMarketCalendarActivity(options: ListMarketCalendarActivityOptions): Promise<ListMarketCalendarActivityResult>;
   countProviderLogsForPurge(providerId: string): Promise<ProviderLogPurgeCounts>;
   purgeProviderLogs(providerId: string): Promise<ProviderLogPurgeCounts>;
   upsertProviderOperationOutcome(input: UpsertProviderOperationOutcomeInput): Promise<ProviderOperationOutcomeRecord>;

@@ -67,6 +67,9 @@ export const APP_CONFIG_BOUNDS = {
   tickerPriceRefreshCloseRateLimitWindowMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
   tickerPriceRefreshCloseRateLimitMax: { min: 1, max: 10_000 },
   tickerPriceSyncTickerCap: { min: 1, max: 10_000 },
+  tickerPriceActivityDetailedRetentionDays: { min: 1, max: 365 },
+  tickerPriceActivitySummaryRetentionDays: { min: 1, max: 730 },
+  tickerPriceCalendarHistoryRetentionDays: { min: 30, max: 10 * 365 },
 
   // Tier 2 (DB + SQL only — NOT in UI / NOT in PATCH):
   //   dailyRefreshLookbackDays, dailyRefreshPriority,

@@ -52,6 +52,7 @@ import {
   HoldingsGridMobileList,
   HoldingsGridNativeTable,
 } from "../holdings/HoldingsGrid";
+import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import { holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
 import { getPriceState } from "../../features/price-state/priceState";
@@ -510,6 +511,7 @@ export function HoldingsTable({
           </HoldingsGridEmptyState>
         ) : (
           <>
+            <CalendarUnknownWarnings className="mt-6" dict={dict} rows={filteredGroups} />
             <HoldingsGridMobileList className="mt-6" testId="holdings-mobile-list">
               {displayMode === "accounts"
                 ? visibleChildRows.map((child) => (
