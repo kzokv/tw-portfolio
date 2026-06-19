@@ -75,11 +75,16 @@ test.describe("admin market-data instruments", () => {
       params: {
         category: "instrument",
         search: "AUDEL41",
-        timeRange: "all",
+        timeRange: "48h",
       },
     });
     await assertStatus(activityResponse, 200);
     const activityBody = assertRecord(await activityResponse.json(), "support-state activity body");
+    const filters = assertRecord(activityBody.filters, "support-state activity body.filters");
+    const timeRanges = assertArray(filters.timeRanges, "support-state activity body.filters.timeRanges");
+    if (!timeRanges.includes("48h")) {
+      throw new Error("Expected activity filters to include 48h");
+    }
     const activityItems = assertArray(activityBody.items, "support-state activity body.items");
     const activity = assertRecord(activityItems[0], "support-state activity item");
     assertEqual(activity.eventType, "instrument_support_state_updated", "support-state activity.eventType");
