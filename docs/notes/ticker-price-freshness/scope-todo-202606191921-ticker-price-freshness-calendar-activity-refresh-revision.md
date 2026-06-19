@@ -158,6 +158,7 @@ superseded_by: null
 - Applied migration 082 manually to the Vakwen Dev Postgres container during validation, then reran it successfully to verify idempotency. This fixed the live Admin Market Data Calendar/Activity `source_url` schema error before the branch deploy picks up the migration normally.
 - Added append-only migration `db/migrations/083_market_calendar_activity_legacy_source_nullable.sql` after QNAP live validation found an older dev table still carrying legacy `market_calendar_activity.source TEXT NOT NULL`. New code writes `source_kind`; the legacy column now becomes nullable with default `system` only when it exists, and fresh installs remain unchanged.
 - Applied migration 083 manually to the Vakwen Dev Postgres container and recorded it in `schema_migrations`. Afterward, Dashboard `Refresh prices` stayed on `/dashboard`, preserved scroll position, returned `5 blocked by calendar`, and wrote four fresh `official_calendar` skipped Activity rows instead of degrading with the prior `null value in column "source"` error.
+- Added append-only migration `db/migrations/085_market_calendar_audit_actions.sql` after live Calendar Preview validation found the API was already writing `market_calendar_*` audit actions while the Postgres `audit_log_action_check` constraint still rejected them. The migration keeps the constraint in sync with the `AuditLogAction` union and covers preview, confirm, invalidation, and source-update actions.
 
 ## Live Validation
 
@@ -182,6 +183,11 @@ superseded_by: null
 - Admin Operations live validation showed KR resolver operation history with Operation inspector and Open activity link; AU generic Operations showed provider filters, operation rows, detail content, raw-log retention copy, and Related Activity link.
 - Dashboard live validation showed the Market context card for TW/US/AU/KR, `Refresh prices`, unchanged URL/scroll after manual refresh, calendar-blocked refresh status, and closed price chips. Earlier Chrome validation on this deployed SHA also verified Dashboard, Portfolio, and Ticker price-chip popovers include basis, market date, cadence, timezone/calendar facts, and admin Activity links.
 - QNAP API logs after migration 083 showed clean `/dashboard/enrichment` read-path timings and no fresh `market_calendar_activity.source` NOT NULL failures. QNAP Activity query for the last 10 minutes showed one `official_calendar`/`calendar`/`skipped` row each for TW, US, AU, and KR at `2026-06-19 17:51:27 UTC`.
+- Final audit-constraint follow-up head `42f90dea` passed PR #225 GitHub CI run `27850567432`: `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-oauth`, and `e2e-bypass` all succeeded. PR Gate run `27850566928` also succeeded, and PR merge state was `CLEAN`.
+- Dev deploy run `27850851594` succeeded for branch `codex/ticker-price-freshness` at `42f90dea`; `deploy / deploy` completed in `12m52s`.
+- QNAP post-deploy validation confirmed dev containers restarted healthy, `/health/live` returned `{"status":"ok"}`, `/health/ready` returned `{"status":"ready","dependencies":{"backend":"postgres","postgres":true,"redis":true}}`, migration `085_market_calendar_audit_actions.sql` was recorded in `schema_migrations`, and the live `audit_log_action_check` includes `market_calendar_previewed`, `market_calendar_confirmed`, `market_calendar_invalidated`, and `market_calendar_source_updated`.
+- Chrome live validation on `/admin/market-data/TW/calendar` as the logged-in Vakwen Dev user confirmed the page renders the TW 2026/2027 missing calendar cards with today's local reference date `2026-06-20`, the default TW source URL, JSON paste UI, Preview, and Confirm import. Previewing a matching `official_source` TW 2026 payload showed `Preview ready: 1 added, 0 changed, 0 removed` and enabled `Confirm import` without submitting a confirmation.
+- QNAP DB validation after the Chrome preview showed a fresh `audit_log` row with action `market_calendar_previewed`, market `TW`, and year `2026`. QNAP API logs for the preview requests showed no `audit_log_action_check` violation and no `internal_error`.
 
 ## Focused Validation
 
@@ -228,6 +234,11 @@ superseded_by: null
 - Passed after 48h Activity follow-up: `npm run test:http --prefix apps/api -- test/http/specs/admin-instruments-aaa.http.spec.ts` (10 tests).
 - Passed after 48h Activity follow-up: `git diff --check`.
 - PR #225 CI passed on pushed head `8f17f3ad`: `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-oauth`, and `e2e-bypass`; PR Gate also passed.
+- Passed after audit-constraint follow-up: `npx eslint apps/api/test/integration/postgres-migrations.integration.test.ts`.
+- Passed after audit-constraint follow-up: `git diff --check`.
+- Passed after audit-constraint follow-up: `npm run build -w @vakwen/api`.
+- Passed after audit-constraint follow-up: `npm run test:integration:full:host` (90 files passed; 873 tests passed, 1 skipped; duration 1344.91s).
+- PR #225 CI passed on pushed head `42f90dea`: `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-oauth`, and `e2e-bypass`; PR Gate also passed.
 
 ## Remaining Risks
 
