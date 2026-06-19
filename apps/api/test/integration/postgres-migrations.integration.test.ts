@@ -3494,6 +3494,10 @@ describePostgres("postgres migrations", () => {
     expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_revoked");
     expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_expired");
     expect(auditCheck.rows[0]?.def ?? "").toContain("delegated_portfolio_write");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("market_calendar_previewed");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("market_calendar_confirmed");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("market_calendar_invalidated");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("market_calendar_source_updated");
 
     const connectionIndex = await pool.query<{ indexname: string }>(
       `SELECT indexname
