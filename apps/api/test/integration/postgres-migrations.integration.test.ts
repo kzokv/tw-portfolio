@@ -765,6 +765,106 @@ describePostgres("postgres migrations", () => {
     expect(baselineSignature).toEqual(upgradedSignature);
   }, 15_000);
 
+  it("converts legacy full-year market calendar rows into exception-only records", async () => {
+    await resetDatabase();
+    await applyMigrationFiles(await getNumberedMigrationsBefore("082_market_calendar_activity_schema_reconcile.sql"));
+
+    const legacyRows = [
+      { date: "2026-01-01", isOpen: false, name: "New Year", source: "legacy-calendar" },
+      { date: "2026-01-02", isOpen: true, name: "Regular trading", source: "legacy-calendar" },
+      { date: "2026-01-03", isOpen: true, name: "Special Saturday session", source: "legacy-calendar" },
+      { date: "2026-01-04", isOpen: false, name: "Regular weekend", source: "legacy-calendar" },
+    ];
+
+    await pool.query(`ALTER TABLE market_data.market_calendar_previews ADD COLUMN IF NOT EXISTS rows JSONB`);
+    await pool.query(`ALTER TABLE market_data.market_calendar_versions ADD COLUMN IF NOT EXISTS rows JSONB`);
+    await pool.query(
+      `INSERT INTO market_data.market_calendar_previews (
+         preview_token, import_operation_id, market_code, calendar_year, source_type,
+         retrieved_at, rows, exceptions
+       ) VALUES (
+         'legacy-preview-082', 'legacy-import-082', 'TW', 2026, 'official_source',
+         TIMESTAMPTZ '2026-01-01 00:00:00Z', $1::jsonb, '[]'::jsonb
+       )`,
+      [JSON.stringify(legacyRows)],
+    );
+    await pool.query(
+      `INSERT INTO market_data.market_calendar_versions (
+         version_id, import_operation_id, market_code, calendar_year, source_type,
+         retrieved_at, confirmed_at, status, is_active, rows, exceptions
+       ) VALUES (
+         'legacy-version-082', 'legacy-import-082', 'TW', 2026, 'official_source',
+         TIMESTAMPTZ '2026-01-01 00:00:00Z', TIMESTAMPTZ '2026-01-01 00:00:00Z',
+         'confirmed', TRUE, $1::jsonb, '[]'::jsonb
+       )`,
+      [JSON.stringify(legacyRows)],
+    );
+    await pool.query(
+      `INSERT INTO market_data.market_calendar_versions (
+         version_id, import_operation_id, market_code, calendar_year, source_type,
+         retrieved_at, confirmed_at, status, is_active, exceptions
+       ) VALUES (
+         'legacy-version-084', 'legacy-import-084', 'US', 2026, 'official_source',
+         TIMESTAMPTZ '2026-01-01 00:00:00Z', TIMESTAMPTZ '2026-01-01 00:00:00Z',
+         'confirmed', TRUE, $1::jsonb
+       )`,
+      [JSON.stringify(legacyRows)],
+    );
+
+    await applyMigrationFiles([
+      "082_market_calendar_activity_schema_reconcile.sql",
+      "083_market_calendar_activity_legacy_source_nullable.sql",
+      "084_market_calendar_legacy_exception_rows_repair.sql",
+    ]);
+
+    const versions = await pool.query<{
+      version_id: string;
+      exceptions: unknown;
+      annual_counts: unknown;
+    }>(
+      `SELECT version_id, exceptions, annual_counts
+         FROM market_data.market_calendar_versions
+        WHERE version_id IN ('legacy-version-082', 'legacy-version-084')
+        ORDER BY version_id`,
+    );
+    expect(versions.rows).toHaveLength(2);
+    for (const row of versions.rows) {
+      expect(row.exceptions).toEqual([
+        {
+          date: "2026-01-01",
+          status: "closed",
+          name: "New Year",
+          evidence: "legacy-calendar",
+          overrideReason: "Migrated from legacy full-year calendar rows",
+        },
+        {
+          date: "2026-01-03",
+          status: "open",
+          name: "Special Saturday session",
+          evidence: "legacy-calendar",
+          overrideReason: "Migrated from legacy full-year calendar rows",
+        },
+      ]);
+      expect(row.annual_counts).toEqual({
+        tradingDayCount: 2,
+        nonTradingDayCount: 2,
+        weekdayClosedCount: 1,
+        weekendOpenCount: 1,
+      });
+    }
+
+    const preview = await pool.query<{
+      exceptions: unknown;
+      annual_counts: unknown;
+    }>(
+      `SELECT exceptions, annual_counts
+         FROM market_data.market_calendar_previews
+        WHERE preview_token = 'legacy-preview-082'`,
+    );
+    expect(preview.rows[0]?.exceptions).toEqual(versions.rows[0]?.exceptions);
+    expect(preview.rows[0]?.annual_counts).toEqual(versions.rows[0]?.annual_counts);
+  });
+
   it("backfills normalized fee profile tax rules, snapshot tax components, and market codes in migration 011", async () => {
     await applyMigrationFiles([
       "002_cost_basis_weighted_average.sql",

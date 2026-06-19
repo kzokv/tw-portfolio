@@ -404,7 +404,13 @@ function auOperations(): AdminMarketDataOperationsResponse {
 }
 
 function activityResponse(): AdminMarketDataActivityResponse {
-  return {
+  const response: AdminMarketDataActivityResponse & {
+    filters: {
+      categories: string[];
+      results: string[];
+      sourceKinds: string[];
+    };
+  } = {
     marketCode: "AU",
     providers: [{ providerId: "asx-gics-csv", label: "ASX GICS CSV", role: "Operations" }],
     summary: [{ id: "warnings", label: "Warnings", value: 2, detail: "1 delayed bar, 1 calendar warning" }],
@@ -423,6 +429,11 @@ function activityResponse(): AdminMarketDataActivityResponse {
         result: "all",
         timeRange: "24h",
       },
+    },
+    filters: {
+      categories: ["intraday_price", "calendar"],
+      results: ["success", "warning", "error", "skipped", "rate_limited"],
+      sourceKinds: ["yahoo_chart", "official_calendar"],
     },
     availableFilters: {
       sources: [{ value: "yahoo_chart", label: "Yahoo chart" }],
@@ -450,6 +461,7 @@ function activityResponse(): AdminMarketDataActivityResponse {
     limit: 25,
     query: { page: 1, limit: 25, search: "", source: "", category: "", result: "warning,error", timeRange: "24h" },
   };
+  return response;
 }
 
 function calendarResponse(): AdminMarketDataCalendarResponse {
@@ -1865,6 +1877,11 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.textContent).toContain("Activity");
     expect(container.textContent).toContain("Yahoo chart");
     expect(container.textContent).toContain("Detailed intraday events retained 7 days.");
+    const sourceKindFilter = container.querySelector("[data-testid='activity-source-kind-filter']") as HTMLSelectElement | null;
+    expect(Array.from(sourceKindFilter?.options ?? []).map((option) => option.value)).toEqual(expect.arrayContaining([
+      "yahoo_chart",
+      "official_calendar",
+    ]));
 
     const yahooSummary = container.querySelector("[data-testid='activity-yahoo-summary']") as HTMLButtonElement | null;
     expect(yahooSummary).not.toBeNull();
