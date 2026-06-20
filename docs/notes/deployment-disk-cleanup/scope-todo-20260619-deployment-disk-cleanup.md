@@ -37,11 +37,11 @@ superseded_by: null
 - [x] Validate changed shell scripts with `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`.
 - [x] Validate dev/prod compose config rendering with `docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/fixtures/env.prod.ci config >/dev/null` and `docker compose -f infra/docker/docker-compose.dev.yml --env-file infra/docker/fixtures/env.dev.ci config >/dev/null`.
 - [x] Run focused infra/script tests with `npx vitest run infra/scripts/__tests__`.
-- [ ] Use the Linear waiver path for PR metadata: label `waiver:linear-ticket` and include `## Waiver` with `Reason:`, `Approved-by: @handle`, and `Scope: title|commits|both`.
+- [x] Use the Linear waiver path for PR metadata: label `waiver:linear-ticket` and include `## Waiver` with `Reason:`, `Approved-by: @handle`, and `Scope: title|commits|both`.
 
 ## Open Items
 
-- [ ] Fill in the PR waiver fields when preparing the PR.
+- [x] Fill in the PR waiver fields when preparing the PR.
 
 ## References
 

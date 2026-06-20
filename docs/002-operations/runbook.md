@@ -1248,6 +1248,7 @@ Option examples:
 - GitHub Actions deploys keep the SSH session alive with client-side keepalives while the remote deploy script runs.
 - `deploy.sh` emits periodic heartbeat log lines during long image builds, migrations, and `docker compose up` so a quiet Docker build does not look like a stalled or dead SSH session.
 - The reusable deploy workflow captures remote Docker disk diagnostics before deploy, after successful deploys, and again during failure handling when SSH is still available.
+- Docker disk diagnostics use `docker info` plus filesystem `df` checks. On QNAP Container Station, the reported Docker root can be private to the container-station administrator, so diagnostics fall back to the nearest inspectable parent filesystem. Detailed `docker system df` is opt-in with `DEPLOY_DOCKER_SYSTEM_DF=1` because it can take several minutes on QNAP.
 - If a deploy still fails with `client_loop: send disconnect: Broken pipe`, treat it as a WARP/SSH transport interruption first. Check whether the remote deploy log continued under `~/.local/state/vakwen/<environment>/logs/deploy/` before assuming the app build failed.
 
 **Deploy guardrails**

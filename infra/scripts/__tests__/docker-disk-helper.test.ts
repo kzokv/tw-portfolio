@@ -141,6 +141,88 @@ ${cleanupFunction!}
     expect(commands).toContain("builder prune -f --keep-storage 17GB");
   });
 
+  it("adds an explicit Docker binary path when Docker is absent from PATH", () => {
+    const workDir = makeTempDir("docker-disk-bin-");
+    const dockerBinDir = path.join(workDir, "qnap-bin");
+    const dockerBin = path.join(dockerBinDir, "docker");
+
+    fs.mkdirSync(dockerBinDir, { recursive: true });
+    writeExecutable(
+      dockerBin,
+      `#!/usr/bin/env bash
+exit 0
+`,
+    );
+
+    const resolvedDocker = runShell(
+      `set -euo pipefail
+source "${DOCKER_DISK_HELPER}"
+command -v docker
+`,
+      {
+        PATH: "/usr/bin:/bin",
+        DEPLOY_DOCKER_BIN: dockerBin,
+      },
+    ).trim();
+
+    expect(resolvedDocker).toBe(dockerBin);
+  });
+
+  it("uses an accessible parent filesystem when Docker root cannot be inspected directly", () => {
+    const workDir = makeTempDir("docker-disk-parent-");
+    const fakeBinDir = path.join(workDir, "fake-bin");
+    const dockerRootDir = path.join(workDir, "private", "docker");
+
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+
+    writeExecutable(
+      path.join(fakeBinDir, "docker"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1-}" = "info" ] && [ "\${2-}" = "--format" ]; then
+  printf '%s\\n' "${dockerRootDir}"
+  exit 0
+fi
+if [ "\${1-}" = "info" ]; then
+  exit 0
+fi
+exit 0
+`,
+    );
+
+    writeExecutable(
+      path.join(fakeBinDir, "df"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+target="\${@: -1}"
+if [ "$target" != "${workDir}" ]; then
+  exit 1
+fi
+cat <<EOF
+Filesystem 1024-blocks Used Available Capacity Mounted on
+/dev/disk1 104857600 62914560 41943040 60% ${workDir}
+EOF
+`,
+    );
+
+    const output = runShell(
+      `set -euo pipefail
+source "${DOCKER_DISK_HELPER}"
+docker_disk_collect_metrics
+printf '%s\\n' "$DOCKER_DISK_ROOT_DIR"
+printf '%s\\n' "$DOCKER_DISK_DF_TARGET"
+`,
+      {
+        PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+      },
+    )
+      .trim()
+      .split("\n");
+
+    expect(output.at(-2)).toBe(dockerRootDir);
+    expect(output.at(-1)).toBe(workDir);
+  });
+
   it("evaluates threshold decisions from stubbed disk readings", () => {
     expect(fs.existsSync(DOCKER_DISK_HELPER)).toBe(true);
 

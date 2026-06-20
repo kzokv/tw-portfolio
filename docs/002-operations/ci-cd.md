@@ -130,6 +130,7 @@ flowchart TD
 - Backup retention defaults are environment-aware: production keeps `30` days / `60` files; dev keeps `7` days / `20` files.
 - Retention overrides use `BACKUP_RETAIN_DAYS` and `BACKUP_RETAIN_MAX_FILES`; legacy `RETAIN_DAYS` remains a supported alias for the day-based retention value.
 - `deploy.sh` and `redeploy-service.sh` both run the shared Docker disk helper before builds and perform bounded exit cleanup, but the GitHub workflow itself does not run any remote cleanup commands.
+- Docker disk diagnostics use `docker info` plus filesystem `df` checks. On QNAP Container Station, the reported Docker root can be private to the container-station administrator, so diagnostics fall back to the nearest inspectable parent filesystem. Detailed `docker system df` is opt-in with `DEPLOY_DOCKER_SYSTEM_DF=1` because it can take several minutes on QNAP.
 
 ### Options
 
@@ -144,7 +145,7 @@ flowchart TD
 
 ### Logging
 
-Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/vakwen/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically. Remote workflow runs also emit Docker disk diagnostics before deploy, after successful deploys, and again in failure handling when the runner can still reach the host.
+Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/vakwen/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically. Remote workflow runs also emit fast Docker disk diagnostics before deploy, after successful deploys, and again in failure handling when the runner can still reach the host.
 
 ---
 
