@@ -3247,6 +3247,21 @@ export interface AdminMarketCalendarImportExceptionDto {
   notes?: string | null;
 }
 
+export interface AdminMarketCalendarActiveVersionDto {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  calendarYear: number;
+  versionId: string;
+  importOperationId: string;
+  sourceLabel: string | null;
+  sourceType: AdminMarketCalendarSourceType;
+  sourceUrl: string | null;
+  retrievedAt: string;
+  confirmedAt: string | null;
+  annualCounts: AdminMarketCalendarAnnualCountsDto;
+  exceptions: AdminMarketCalendarImportExceptionDto[];
+  coverage: AdminMarketCalendarCoverageAssertionDto;
+}
+
 export interface AdminMarketCalendarPreviewRequest {
   calendarYear: number;
   sourceId?: string | null;

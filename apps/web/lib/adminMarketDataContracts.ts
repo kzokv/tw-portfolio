@@ -1,5 +1,6 @@
 import type {
   AdminMarketCode,
+  AdminMarketCalendarActiveVersionDto,
   AdminMarketDataOverviewResponse,
   AdminMarketDataProviderChipDto,
   AdminMarketWorkspaceTab,
@@ -155,6 +156,7 @@ export interface AdminMarketDataCalendarResponse {
   defaultSourceHost?: string | null;
   years: MarketCalendarCoverageYearDto[];
   sources: MarketCalendarSourceDto[];
+  activeCalendars?: AdminMarketCalendarActiveVersionDto[];
   preview?: MarketCalendarPreviewDiffDto | null;
   history: MarketCalendarHistoryItemDto[];
   statusNote?: string | null;

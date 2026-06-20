@@ -2239,6 +2239,7 @@ function CalendarPanel({
 }) {
   const router = useRouter();
   const adminDict = useAdminI18n().marketData;
+  const [activeExceptionFilter, setActiveExceptionFilter] = useState<"all" | "closed" | "open">("all");
   const [selectedSourceId, setSelectedSourceId] = useState(calendar?.sources.find((source) => source.isDefault)?.sourceId ?? calendar?.sources[0]?.sourceId ?? "");
   const selectedSource = calendar?.sources.find((source) => source.sourceId === selectedSourceId) ?? calendar?.sources[0] ?? null;
   const [sourceLabel, setSourceLabel] = useState(selectedSource?.label ?? "");
@@ -2305,6 +2306,7 @@ function CalendarPanel({
         ...replacementFields,
       });
       setSubmitMessage(adminDict.calendarImportStatus.replace("{status}", response.status).replace("{versionId}", response.versionId));
+      router.refresh();
     } catch (error) {
       setSubmitMessage(error instanceof Error ? error.message : adminDict.calendarConfirmFailed);
     } finally {
@@ -2356,31 +2358,142 @@ function CalendarPanel({
 
   return (
     <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]" data-testid="market-data-calendar">
-      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="text-base font-semibold text-foreground">{adminDict.calendarTitle}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {adminDict.calendarDescription}
-          </p>
-        </div>
-        <div className="divide-y divide-border">
-          {(calendar?.years ?? []).map((year) => (
-            <div key={`${marketCode}:${year.calendarYear}`} className="grid min-w-0 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-              <div className="min-w-0">
-                <p className="font-medium text-foreground">{marketCode} {year.calendarYear}</p>
-                <p className="break-words text-sm text-muted-foreground">{year.note ?? year.sourceLabel ?? adminDict.calendarNoSourceDetail}</p>
+      <div className="min-w-0 space-y-4">
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">{adminDict.calendarTitle}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {adminDict.calendarDescription}
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {(calendar?.years ?? []).map((year) => (
+              <div key={`${marketCode}:${year.calendarYear}`} className="grid min-w-0 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{marketCode} {year.calendarYear}</p>
+                  <p className="break-words text-sm text-muted-foreground">{year.note ?? year.sourceLabel ?? adminDict.calendarNoSourceDetail}</p>
+                </div>
+                <div className="min-w-0 text-sm text-muted-foreground">
+                  <div>{adminDict.calendarStatus}: <span className="font-medium text-foreground">{year.status}</span></div>
+                  <div>{adminDict.source}: <span className="break-words font-medium text-foreground">{year.sourceLabel ?? adminDict.unknown}</span></div>
+                </div>
+                <Button type="button" size="sm" variant="secondary" onClick={() => void invalidateYear(year.calendarYear)}>
+                  {adminDict.calendarInvalidate}
+                </Button>
               </div>
-              <div className="min-w-0 text-sm text-muted-foreground">
-                <div>{adminDict.calendarStatus}: <span className="font-medium text-foreground">{year.status}</span></div>
-                <div>{adminDict.source}: <span className="break-words font-medium text-foreground">{year.sourceLabel ?? adminDict.unknown}</span></div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="calendar-active-viewer">
+          <div className="border-b border-border px-5 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{adminDict.calendarActiveTitle}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{adminDict.calendarActiveDescription}</p>
               </div>
-              <Button type="button" size="sm" variant="secondary" onClick={() => void invalidateYear(year.calendarYear)}>
-                {adminDict.calendarInvalidate}
-              </Button>
+              <select
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm sm:w-48"
+                value={activeExceptionFilter}
+                onChange={(event) => setActiveExceptionFilter(event.target.value === "closed" || event.target.value === "open" ? event.target.value : "all")}
+                data-testid="calendar-active-filter"
+              >
+                <option value="all">{adminDict.calendarExceptionFilterAll}</option>
+                <option value="closed">{adminDict.calendarExceptionFilterClosed}</option>
+                <option value="open">{adminDict.calendarExceptionFilterOpen}</option>
+              </select>
             </div>
-          ))}
-        </div>
-      </Card>
+          </div>
+          <div className="space-y-4 px-5 py-4">
+            {(calendar?.activeCalendars ?? []).length === 0 ? (
+              <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                {adminDict.calendarActiveEmpty}
+              </p>
+            ) : (
+              calendar!.activeCalendars!.map((active) => {
+                const visibleExceptions = active.exceptions.filter((exception) =>
+                  activeExceptionFilter === "all" ? true : exception.status === activeExceptionFilter);
+                return (
+                  <section key={active.versionId} className="min-w-0 rounded-md border border-border/70" data-testid={`calendar-active-year-${active.calendarYear}`}>
+                    <div className="space-y-3 border-b border-border/70 bg-muted/20 px-4 py-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">{marketCode} {active.calendarYear}</p>
+                          <p className="break-words text-sm text-muted-foreground">
+                            {active.sourceLabel ?? adminDict.unknown} · {active.sourceType}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                          {adminDict.calendarActiveVersion.replace("{versionId}", active.versionId)}
+                        </span>
+                      </div>
+                      <dl className="grid min-w-0 gap-2 text-sm sm:grid-cols-2">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">{adminDict.calendarRetrievedAt}</dt>
+                          <dd className="break-words text-foreground">{formatUtcTimestamp(active.retrievedAt)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">{adminDict.calendarConfirmedAt}</dt>
+                          <dd className="break-words text-foreground">{active.confirmedAt ? formatUtcTimestamp(active.confirmedAt) : adminDict.unknown}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">{adminDict.calendarTradingDays}</dt>
+                          <dd className="text-foreground">{active.annualCounts.tradingDayCount}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">{adminDict.calendarExceptionCount}</dt>
+                          <dd className="text-foreground">{active.exceptions.length}</dd>
+                        </div>
+                      </dl>
+                      {active.sourceUrl ? (
+                        <p className="break-all text-xs text-muted-foreground">{active.sourceUrl}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-2 px-4 py-3">
+                      {visibleExceptions.length === 0 ? (
+                        <p className="rounded-md border border-border/70 bg-background px-3 py-3 text-sm text-muted-foreground">
+                          {active.exceptions.length === 0
+                            ? adminDict.calendarNoExceptions
+                            : adminDict.calendarNoExceptionsForFilter}
+                        </p>
+                      ) : (
+                        visibleExceptions.map((exception) => (
+                          <article key={`${active.versionId}:${exception.date}`} className="min-w-0 rounded-md border border-border/70 bg-background px-3 py-3" data-testid={`calendar-exception-${exception.date}`}>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="font-medium text-foreground">{exception.date} · {exception.name}</p>
+                                <p className="mt-1 break-words text-sm text-muted-foreground">{exception.evidence}</p>
+                              </div>
+                              <span className={cn(
+                                "shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium",
+                                exception.status === "open"
+                                  ? "border-success/40 bg-success/10 text-success"
+                                  : "border-warning/40 bg-warning/10 text-warning-foreground",
+                              )}>
+                                {exception.status === "open" ? adminDict.calendarStatusOpen : adminDict.calendarStatusClosed}
+                              </span>
+                            </div>
+                            <dl className="mt-3 grid min-w-0 gap-2 text-sm sm:grid-cols-2">
+                              <div className="min-w-0">
+                                <dt className="text-xs text-muted-foreground">{adminDict.calendarOverrideReason}</dt>
+                                <dd className="break-words text-foreground">{exception.overrideReason}</dd>
+                              </div>
+                              <div className="min-w-0">
+                                <dt className="text-xs text-muted-foreground">{adminDict.calendarNotes}</dt>
+                                <dd className="break-words text-foreground">{exception.notes ?? "-"}</dd>
+                              </div>
+                            </dl>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                );
+              })
+            )}
+          </div>
+        </Card>
+      </div>
 
       <div className="min-w-0 space-y-4">
         <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
