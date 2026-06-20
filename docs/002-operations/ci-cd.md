@@ -82,7 +82,10 @@ Both workflows use the same hardened pattern:
 3. Enroll runner into Zero Trust using a service token
 4. Install SSH deploy key and pinned `known_hosts`
 5. Verify remote deploy script, compose file, and env file exist
-6. Run `deploy.sh` with the exact CI-tested commit SHA
+6. Capture remote Docker disk diagnostics before deploy
+7. Run `deploy.sh` with the exact CI-tested commit SHA
+8. Capture remote Docker disk diagnostics after deploy when the deploy succeeds
+9. On failure, collect runner-side WARP status plus remote Docker disk diagnostics when SSH is still available
 
 ---
 
@@ -94,8 +97,8 @@ Both workflows use the same hardened pattern:
 flowchart TD
   A[deploy.sh] --> B["[1] Preflight"]
   B --> C["[2] Checkout"]
-  C --> D["[3] Build"]
-  D --> E["[4] Backup"]
+  C --> D["[3] Backup"]
+  D --> E["[4] Build"]
   E --> F["[5] Migrate"]
   F -->|Fail| R[ROLLBACK]
   F --> G["[6] Deploy"]
@@ -111,14 +114,23 @@ flowchart TD
 |-------|--------|
 | Preflight | Validate git, docker, env file, compose config |
 | Checkout | `git fetch` + checkout + reset to target SHA |
-| Build | `docker compose --profile migrate build` |
-| Backup | `pg_dump \| gzip` (if postgres running) |
+| Backup | Wait for backup-safe Postgres (`pg_isready` + `SELECT NOT pg_is_in_recovery()`), then run atomic `pg_dump \| gzip` backup before any image builds |
+| Build | Enforce Docker disk preflight (`DEPLOY_MIN_DOCKER_FREE_GB=25`, `DEPLOY_MIN_DOCKER_FREE_PERCENT=15` by default), then `docker compose --profile migrate build` |
 | Migrate | `docker compose run --rm migrate` + post-migration verification |
 | Deploy | `docker compose up -d --remove-orphans` |
 | Health Check | API `/health/live` (30s) + Web `/` (20s) |
-| Cleanup | Remove old images |
+| Cleanup | Success-only tagged app-image cleanup, plus bounded exit cleanup (`docker container prune`, `docker image prune`, `docker builder prune --keep-storage`) on every exit |
 
 **Rollback**: Restores previous branch/SHA, rebuilds images, restores DB from backup, `docker compose up -d`.
+
+### Backup and disk guardrails
+
+- `DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS` defaults to `120` seconds for the backup-safe readiness gate.
+- `infra/scripts/backup-postgres.sh` writes dumps atomically via a temporary file and renames only after `pg_dump | gzip` succeeds.
+- Backup retention defaults are environment-aware: production keeps `30` days / `60` files; dev keeps `7` days / `20` files.
+- Retention overrides use `BACKUP_RETAIN_DAYS` and `BACKUP_RETAIN_MAX_FILES`; legacy `RETAIN_DAYS` remains a supported alias for the day-based retention value.
+- `deploy.sh` and `redeploy-service.sh` both run the shared Docker disk helper before builds and perform bounded exit cleanup, but the GitHub workflow itself does not run any remote cleanup commands.
+- Docker disk diagnostics use `docker info` plus filesystem `df` checks. On QNAP Container Station, the reported Docker root can be private to the container-station administrator, so diagnostics fall back to the nearest inspectable parent filesystem. Detailed `docker system df` is opt-in with `DEPLOY_DOCKER_SYSTEM_DF=1` because it can take several minutes on QNAP.
 
 ### Options
 
@@ -133,7 +145,7 @@ flowchart TD
 
 ### Logging
 
-Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/vakwen/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically.
+Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/vakwen/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically. Remote workflow runs also emit fast Docker disk diagnostics before deploy, after successful deploys, and again in failure handling when the runner can still reach the host.
 
 ---
 
@@ -155,7 +167,7 @@ Pass `--teardown` to tear down after validation. Accessible via `npm run dev:doc
 
 ## Service Redeploy
 
-`infra/scripts/redeploy-service.sh` rebuilds and restarts a single service:
+`infra/scripts/redeploy-service.sh` rebuilds and restarts a single service. It uses the same Docker disk preflight and bounded exit cleanup helper as the full deploy path:
 
 ```bash
 bash infra/scripts/redeploy-service.sh -e local web

@@ -5,8 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_PATH="${0##*/}"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKUP_SCRIPT="$SCRIPT_DIR/backup-postgres.sh"
+DOCKER_DISK_LIB="$SCRIPT_DIR/lib/docker-disk.sh"
 PREVIOUS_BRANCH=""
 PREVIOUS_SHA=""
+ROLLBACK_IMAGE_TAG=""
 
 ENVIRONMENT="production"
 BRANCH_NAME="main"
@@ -23,6 +25,7 @@ PHASE_START_EPOCH=""
 IMAGE_TAG=""
 BUILD_FLAGS=""
 ENABLE_EXIT_DOCKER_CLEANUP=false
+DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS="${DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS:-120}"
 
 COMPOSE_FILE=""
 COMPOSE_PROJECT=""
@@ -50,6 +53,13 @@ log_phase() {
   echo ""
   log "== $* =="
 }
+
+if [ ! -f "$DOCKER_DISK_LIB" ]; then
+  echo "ERROR: Required Docker disk helper not found: $DOCKER_DISK_LIB" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DOCKER_DISK_LIB"
 
 phase_start() {
   PHASE_START_EPOCH=$(date +%s)
@@ -132,10 +142,16 @@ finalize_deploy() {
   local exit_code=$?
   trap - EXIT
 
+  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    log_phase "Docker exit cleanup"
+    docker_disk_bounded_cleanup "Deploy exit cleanup" || true
+  fi
+
   # Only clean up unused images on successful deploy — on failure the
   # freshly built images aren't referenced by running containers yet
   # and would be incorrectly removed.
   if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ] && [ "$exit_code" -eq 0 ]; then
+    log_phase "Successful app image cleanup"
     cleanup_unused_images
   fi
 
@@ -631,6 +647,34 @@ restore_database_if_possible() {
   fi
 }
 
+wait_for_backup_safe_postgres() {
+  local timeout_seconds="${DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS}"
+  local primary_ready=""
+  local i
+
+  if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [ "$timeout_seconds" -lt 1 ]; then
+    log "ERROR: DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS must be a positive integer (got '$timeout_seconds')"
+    return 1
+  fi
+
+  log "Waiting for Postgres backup-safe readiness (up to ${timeout_seconds}s)..."
+  for i in $(seq 1 "$timeout_seconds"); do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -q >/dev/null 2>&1; then
+      primary_ready="$(docker exec "$POSTGRES_CONTAINER" \
+        psql -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -Atqc \
+        'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)"
+      if [ "$primary_ready" = "t" ]; then
+        log "Postgres is ready for backup after ${i}s"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+
+  log "ERROR: Postgres did not become backup-safe within ${timeout_seconds}s"
+  return 1
+}
+
 rollback() {
   log_phase "ROLLBACK: restoring previous state (branch: ${PREVIOUS_BRANCH:-detached}, sha: ${PREVIOUS_SHA:-unknown})"
   set +e
@@ -640,7 +684,18 @@ rollback() {
   fi
   git reset --hard "$PREVIOUS_SHA"
 
-  run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS
+  IMAGE_TAG="${ROLLBACK_IMAGE_TAG:-$(git rev-parse --short "$PREVIOUS_SHA")}"
+  CACHE_BUST="$PREVIOUS_SHA"
+  export IMAGE_TAG CACHE_BUST
+  log "Rollback image tag: $IMAGE_TAG"
+
+  if ! docker_disk_preflight_build "Rollback Docker build preflight"; then
+    log "WARNING: Rollback Docker build preflight failed after cleanup; attempting rollback image build anyway"
+  fi
+  if ! run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS; then
+    log "WARNING: Rollback image build failed; attempting to restart preserved rollback images"
+  fi
+  restore_explicit_runtime_tag_from_rollback_images
   dc down --remove-orphans --timeout 10 || true
   for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
@@ -692,6 +747,81 @@ cleanup_old_images() {
   docker images --format '{{.Repository}}:{{.Tag}}' | grep "^${STACK_PREFIX}-" | grep -v ":${IMAGE_TAG}$" | xargs -r docker rmi >/dev/null 2>&1 || true
 }
 
+preserve_rollback_images() {
+  local image_tag="$1"
+  local pair repo container image_id
+
+  [ -n "$image_tag" ] || return 0
+
+  for pair in \
+    "${STACK_PREFIX}-api:${API_CONTAINER}" \
+    "${STACK_PREFIX}-web:${WEB_CONTAINER}" \
+    "${STACK_PREFIX}-migrate:${MIGRATE_SERVICE}"
+  do
+    repo="${pair%%:*}"
+    container="${pair#*:}"
+
+    if docker image inspect "${repo}:${image_tag}" >/dev/null 2>&1; then
+      log "Rollback image already available: ${repo}:${image_tag}"
+      continue
+    fi
+
+    image_id=""
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+      image_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+    fi
+    if [ -z "$image_id" ] && docker image inspect "${repo}:latest" >/dev/null 2>&1; then
+      image_id="${repo}:latest"
+    fi
+
+    if [ -n "$image_id" ] && docker tag "$image_id" "${repo}:${image_tag}" >/dev/null 2>&1; then
+      log "Preserved rollback image: ${repo}:${image_tag}"
+    else
+      log "WARNING: No rollback image source found for ${repo}:${image_tag}; rollback may need to rebuild it"
+    fi
+  done
+}
+
+restore_runtime_image_tags() {
+  local source_tag="$1"
+  local target_tag="$2"
+  local pair repo
+
+  [ -n "$source_tag" ] || return 0
+  [ -n "$target_tag" ] || return 0
+  [ "$source_tag" != "$target_tag" ] || return 0
+
+  for pair in \
+    "${STACK_PREFIX}-api" \
+    "${STACK_PREFIX}-web" \
+    "${STACK_PREFIX}-migrate"
+  do
+    repo="$pair"
+    if docker image inspect "${repo}:${source_tag}" >/dev/null 2>&1; then
+      if docker tag "${repo}:${source_tag}" "${repo}:${target_tag}" >/dev/null 2>&1; then
+        log "Restored runtime image tag: ${repo}:${target_tag} -> ${repo}:${source_tag}"
+      else
+        log "WARNING: Failed to restore runtime image tag: ${repo}:${target_tag}"
+      fi
+    else
+      log "WARNING: Rollback image missing for ${repo}:${source_tag}; cannot restore ${repo}:${target_tag}"
+    fi
+  done
+}
+
+restore_explicit_runtime_tag_from_rollback_images() {
+  if [ -z "$IMAGE_TAG_EXPLICIT" ]; then
+    return 0
+  fi
+
+  log "Restoring explicit runtime image tag '$IMAGE_TAG_EXPLICIT' to preserved rollback images"
+  restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG_EXPLICIT"
+}
+
+restore_explicit_runtime_tag_on_failed_pre_migration_exit() {
+  restore_explicit_runtime_tag_from_rollback_images
+}
+
 parse_args "$@"
 configure_environment
 
@@ -722,6 +852,8 @@ cutover_preflight
 
 PREVIOUS_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
+ROLLBACK_IMAGE_TAG="$(git rev-parse --short "$PREVIOUS_SHA")"
+preserve_rollback_images "$ROLLBACK_IMAGE_TAG"
 
 phase_start "Checkout"
 checkout_deploy_ref "$BRANCH_NAME" "$DEPLOY_SHA" "$BRANCH_REMOTE"
@@ -739,7 +871,22 @@ export IMAGE_TAG ENV_FILE ENVIRONMENT
 export CACHE_BUST="$(git rev-parse HEAD)"
 phase_done
 
+phase_start "Pre-migration database backup"
+if docker ps --format '{{.Names}}' | grep -q "^${POSTGRES_CONTAINER}$"; then
+  if ! wait_for_backup_safe_postgres; then
+    collect_compose_failure_diagnostics "postgres not backup-safe for backup"
+    exit 1
+  fi
+  bash "$BACKUP_SCRIPT" --environment "$ENVIRONMENT"
+else
+  log "Postgres not running; skipping pre-migration backup"
+fi
+phase_done
+
 phase_start "Build images (tag: $IMAGE_TAG)"
+if ! docker_disk_preflight_build "Docker build preflight"; then
+  exit 1
+fi
 # Ensure buildx is usable. check-buildx.sh auto-installs or removes bad binaries.
 # If it still fails, fall back to --no-cache with the legacy builder.
 bash "$SCRIPT_DIR/check-buildx.sh" || true
@@ -751,19 +898,19 @@ fi
 if ! run_with_heartbeat "image build" dc --profile migrate build $BUILD_FLAGS; then
   log "ERROR: Image build failed"
   collect_compose_failure_diagnostics "image build failed"
+  restore_explicit_runtime_tag_on_failed_pre_migration_exit
   exit 1
 fi
 phase_done
 
-phase_start "Pre-migration database backup"
-if docker ps --format '{{.Names}}' | grep -q "^${POSTGRES_CONTAINER}$"; then
-  bash "$BACKUP_SCRIPT" --environment "$ENVIRONMENT"
-else
-  log "Postgres not running; skipping pre-migration backup"
-fi
-phase_done
-
 phase_start "Database migrations"
+# Run the migration-image build preflight before stopping the current stack.
+# If cleanup still cannot recover enough Docker space, this exits while the
+# previous app containers are still serving traffic.
+if ! docker_disk_preflight_build "Migration image build preflight"; then
+  restore_explicit_runtime_tag_on_failed_pre_migration_exit
+  exit 1
+fi
 # Remove stale containers from previous deploys. dc down only removes containers
 # it recognises as part of the current compose project — orphaned containers from
 # prior failed deploys (different project label or missing label) survive and
@@ -777,7 +924,7 @@ for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
       log "WARNING: docker rm -f failed for $stale_container — restarting Docker daemon"
       sudo systemctl restart docker 2>/dev/null \
         || sudo service docker restart 2>/dev/null \
-        || { log "ERROR: Cannot restart Docker daemon. Remove container manually: docker rm -f $stale_container"; on_failure; }
+        || { log "ERROR: Cannot restart Docker daemon. Remove container manually: docker rm -f $stale_container"; exit 1; }
       # Wait for Docker daemon to be ready
       for _w in $(seq 1 30); do
         docker info >/dev/null 2>&1 && break
