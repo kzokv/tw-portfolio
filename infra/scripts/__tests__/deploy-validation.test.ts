@@ -98,3 +98,30 @@ describe("deploy.sh validate_env_file_keys — AUTH_USER_ID guard", () => {
     expect(result.exitCode).toBe(0);
   });
 });
+
+describe("deploy.sh rollback and migration disk preflight safeguards", () => {
+  it("checks migration image build disk space before stopping the running stack", () => {
+    const source = fs.readFileSync(DEPLOY_SCRIPT, "utf8");
+    const migrationsPhase = source.slice(source.indexOf('phase_start "Database migrations"'));
+
+    expect(migrationsPhase.indexOf('docker_disk_preflight_build "Migration image build preflight"')).toBeGreaterThanOrEqual(0);
+    expect(migrationsPhase.indexOf("dc down --remove-orphans --timeout 10")).toBeGreaterThanOrEqual(0);
+    expect(
+      migrationsPhase.indexOf('docker_disk_preflight_build "Migration image build preflight"'),
+    ).toBeLessThan(migrationsPhase.indexOf("dc down --remove-orphans --timeout 10"));
+  });
+
+  it("rolls back with the preserved previous image tag even when rollback preflight is low", () => {
+    const source = fs.readFileSync(DEPLOY_SCRIPT, "utf8");
+    const rollbackFunction = source.slice(
+      source.indexOf("rollback() {"),
+      source.indexOf("wait_for_healthcheck() {"),
+    );
+
+    expect(source).toContain('ROLLBACK_IMAGE_TAG="$(git rev-parse --short "$PREVIOUS_SHA")"');
+    expect(source).toContain('preserve_rollback_images "$ROLLBACK_IMAGE_TAG"');
+    expect(rollbackFunction).toContain('IMAGE_TAG="${ROLLBACK_IMAGE_TAG:-$(git rev-parse --short "$PREVIOUS_SHA")}"');
+    expect(rollbackFunction).toContain("attempting rollback image build anyway");
+    expect(rollbackFunction).not.toContain("Skipping rollback image build because Docker disk preflight failed");
+  });
+});

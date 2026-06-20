@@ -8,6 +8,7 @@ BACKUP_SCRIPT="$SCRIPT_DIR/backup-postgres.sh"
 DOCKER_DISK_LIB="$SCRIPT_DIR/lib/docker-disk.sh"
 PREVIOUS_BRANCH=""
 PREVIOUS_SHA=""
+ROLLBACK_IMAGE_TAG=""
 
 ENVIRONMENT="production"
 BRANCH_NAME="main"
@@ -681,11 +682,16 @@ rollback() {
   fi
   git reset --hard "$PREVIOUS_SHA"
 
-  if docker_disk_preflight_build "Rollback Docker build preflight"; then
-    run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS || \
-      log "WARNING: Rollback image build failed; attempting to restart existing images"
-  else
-    log "WARNING: Skipping rollback image build because Docker disk preflight failed; attempting to restart existing images"
+  IMAGE_TAG="${ROLLBACK_IMAGE_TAG:-$(git rev-parse --short "$PREVIOUS_SHA")}"
+  CACHE_BUST="$PREVIOUS_SHA"
+  export IMAGE_TAG CACHE_BUST
+  log "Rollback image tag: $IMAGE_TAG"
+
+  if ! docker_disk_preflight_build "Rollback Docker build preflight"; then
+    log "WARNING: Rollback Docker build preflight failed after cleanup; attempting rollback image build anyway"
+  fi
+  if ! run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS; then
+    log "WARNING: Rollback image build failed; attempting to restart preserved rollback images"
   fi
   dc down --remove-orphans --timeout 10 || true
   for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
@@ -738,6 +744,41 @@ cleanup_old_images() {
   docker images --format '{{.Repository}}:{{.Tag}}' | grep "^${STACK_PREFIX}-" | grep -v ":${IMAGE_TAG}$" | xargs -r docker rmi >/dev/null 2>&1 || true
 }
 
+preserve_rollback_images() {
+  local image_tag="$1"
+  local pair repo container image_id
+
+  [ -n "$image_tag" ] || return 0
+
+  for pair in \
+    "${STACK_PREFIX}-api:${API_CONTAINER}" \
+    "${STACK_PREFIX}-web:${WEB_CONTAINER}" \
+    "${STACK_PREFIX}-migrate:${MIGRATE_SERVICE}"
+  do
+    repo="${pair%%:*}"
+    container="${pair#*:}"
+
+    if docker image inspect "${repo}:${image_tag}" >/dev/null 2>&1; then
+      log "Rollback image already available: ${repo}:${image_tag}"
+      continue
+    fi
+
+    image_id=""
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+      image_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+    fi
+    if [ -z "$image_id" ] && docker image inspect "${repo}:latest" >/dev/null 2>&1; then
+      image_id="${repo}:latest"
+    fi
+
+    if [ -n "$image_id" ] && docker tag "$image_id" "${repo}:${image_tag}" >/dev/null 2>&1; then
+      log "Preserved rollback image: ${repo}:${image_tag}"
+    else
+      log "WARNING: No rollback image source found for ${repo}:${image_tag}; rollback may need to rebuild it"
+    fi
+  done
+}
+
 parse_args "$@"
 configure_environment
 
@@ -768,6 +809,8 @@ cutover_preflight
 
 PREVIOUS_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
+ROLLBACK_IMAGE_TAG="$(git rev-parse --short "$PREVIOUS_SHA")"
+preserve_rollback_images "$ROLLBACK_IMAGE_TAG"
 
 phase_start "Checkout"
 checkout_deploy_ref "$BRANCH_NAME" "$DEPLOY_SHA" "$BRANCH_REMOTE"
@@ -817,6 +860,12 @@ fi
 phase_done
 
 phase_start "Database migrations"
+# Run the migration-image build preflight before stopping the current stack.
+# If cleanup still cannot recover enough Docker space, this exits while the
+# previous app containers are still serving traffic.
+if ! docker_disk_preflight_build "Migration image build preflight"; then
+  exit 1
+fi
 # Remove stale containers from previous deploys. dc down only removes containers
 # it recognises as part of the current compose project — orphaned containers from
 # prior failed deploys (different project label or missing label) survive and
@@ -843,9 +892,6 @@ done
 # --build forces a fresh image so new migration files are never missed due to
 # Docker layer cache (the full service build ran earlier, so this only rebuilds
 # the lightweight migrate image — typically < 2s).
-if ! docker_disk_preflight_build "Migration image build preflight"; then
-  exit 1
-fi
 if ! run_with_heartbeat "database migrations" dc --profile migrate run --build --rm "$MIGRATE_SERVICE"; then
   log "ERROR: Migration failed; triggering rollback"
   collect_container_logs

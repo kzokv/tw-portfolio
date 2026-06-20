@@ -34,6 +34,12 @@ Dev deployment follow-up:
 - Local SSH against alias `qnap` confirmed the Docker root is on `/share/CACHEDEV1_DATA`, with about `130.3G` available at the time of inspection.
 - Resolution: `infra/scripts/lib/docker-disk.sh` resolves QNAP Container Station's Docker binary when Docker is absent from PATH, falls back to an accessible parent filesystem for disk metrics, and leaves detailed Docker usage behind `DEPLOY_DOCKER_SYSTEM_DF=1`.
 
+Codex review follow-up:
+
+- Codex review thread `discussion_r3445325642` reported that migration build preflight could fail after `dc down`, leaving the stack stopped without rollback. Resolution: `infra/scripts/deploy.sh` now runs `Migration image build preflight` before `dc down --remove-orphans`.
+- Codex review thread `discussion_r3445325645` reported that rollback could restart the failed deploy tag when rollback build was skipped. Resolution: `infra/scripts/deploy.sh` now preserves current app images under the previous SHA tag before checkout/build, switches `IMAGE_TAG` to that rollback tag inside `rollback`, and attempts rollback build even after a failed rollback disk preflight.
+- `infra/scripts/__tests__/deploy-validation.test.ts` includes regression coverage for both safeguards.
+
 ## Focused Validation
 
 Evidence:
@@ -64,6 +70,15 @@ Evidence:
 
 - Command/check: `npx vitest run infra/scripts/__tests__`
 - Outcome: passed after the QNAP follow-up. Vitest reported `3` test files passed and `13` tests passed.
+
+- Command/check: `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`
+- Outcome: passed with exit code `0` after the Codex review follow-up.
+
+- Command/check: `npx eslint infra/scripts/__tests__/deploy-validation.test.ts`
+- Outcome: passed with exit code `0`.
+
+- Command/check: `npx vitest run infra/scripts/__tests__`
+- Outcome: passed after the Codex review follow-up. Vitest reported `3` test files passed and `15` tests passed.
 
 - Command/check: `git diff --check`
 - Outcome: passed with exit code `0`.
