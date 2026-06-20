@@ -174,7 +174,7 @@ jobs:
             -o ServerAliveCountMax=6 \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'sh -s' <<'REMOTE' || true
+            'sh -s' <<'REMOTE'
           set -eu
           qnap_docker="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
           if ! command -v docker >/dev/null 2>&1 && [ -x "$qnap_docker" ]; then
@@ -223,7 +223,7 @@ jobs:
             -o ServerAliveCountMax=6 \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'sh -s' <<'REMOTE'
+            'sh -s' <<'REMOTE' || true
           set -eu
           qnap_docker="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
           if ! command -v docker >/dev/null 2>&1 && [ -x "$qnap_docker" ]; then

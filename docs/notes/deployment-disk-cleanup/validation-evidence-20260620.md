@@ -43,6 +43,7 @@ Codex review follow-up:
 - Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383687`: post-deploy diagnostics could fail a successful deploy. Resolution: `.github/workflows/_deploy-reusable.yml` now treats after-deploy diagnostics as best-effort with `|| true`.
 - Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383691`: the Docker resolver test could pick a real `/usr/bin/docker`. Resolution: `infra/scripts/lib/docker-disk.sh` now treats `DEPLOY_DOCKER_BIN` as an explicit override, and the focused test name documents that behavior.
 - Operator visibility follow-up: `deploy.sh` and `redeploy-service.sh` now emit a clear `== Docker exit cleanup ==` marker before bounded cleanup. Full successful deploys also emit `== Successful app image cleanup ==` before tagged app-image cleanup.
+- Fresh Codex review for commit `94281ec102` reported `discussion_r3445399103`: the best-effort guard was needed on post-deploy diagnostics. Resolution: `.github/workflows/_deploy-reusable.yml` now keeps pre-deploy diagnostics strict and applies `|| true` to the post-deploy diagnostics SSH heredoc.
 
 ## Focused Validation
 
