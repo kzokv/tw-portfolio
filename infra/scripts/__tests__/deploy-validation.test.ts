@@ -124,4 +124,21 @@ describe("deploy.sh rollback and migration disk preflight safeguards", () => {
     expect(rollbackFunction).toContain("attempting rollback image build anyway");
     expect(rollbackFunction).not.toContain("Skipping rollback image build because Docker disk preflight failed");
   });
+
+  it("restores explicit runtime image tags before post-build pre-migration exits", () => {
+    const source = fs.readFileSync(DEPLOY_SCRIPT, "utf8");
+    const buildFailureBlock = source.slice(
+      source.indexOf('if ! run_with_heartbeat "image build"'),
+      source.indexOf("phase_done", source.indexOf('if ! run_with_heartbeat "image build"')),
+    );
+    const migrationPreflightBlock = source.slice(
+      source.indexOf('if ! docker_disk_preflight_build "Migration image build preflight"'),
+      source.indexOf("# Remove stale containers", source.indexOf('if ! docker_disk_preflight_build "Migration image build preflight"')),
+    );
+
+    expect(source).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit()");
+    expect(source).toContain('restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG"');
+    expect(buildFailureBlock).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit");
+    expect(migrationPreflightBlock).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit");
+  });
 });

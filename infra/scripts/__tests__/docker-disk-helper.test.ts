@@ -223,6 +223,38 @@ printf '%s\\n' "$DOCKER_DISK_DF_TARGET"
     expect(output.at(-1)).toBe(workDir);
   });
 
+  it("fails closed when disk threshold overrides are not integer values", () => {
+    const workDir = makeTempDir("docker-disk-invalid-threshold-");
+    const fakeBinDir = path.join(workDir, "fake-bin");
+
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+
+    writeExecutable(
+      path.join(fakeBinDir, "docker"),
+      `#!/usr/bin/env bash
+exit 0
+`,
+    );
+
+    const exitCode = parseLastLineAsInt(
+      runShell(
+        `set +e
+source "${DOCKER_DISK_HELPER}"
+docker_disk_require_minimums "invalid threshold"
+status=$?
+printf '%s\\n' "$status"
+`,
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+          DEPLOY_MIN_DOCKER_FREE_GB: "25GB",
+          DEPLOY_MIN_DOCKER_FREE_PERCENT: "15%",
+        },
+      ),
+    );
+
+    expect(exitCode).not.toBe(0);
+  });
+
   it("evaluates threshold decisions from stubbed disk readings", () => {
     expect(fs.existsSync(DOCKER_DISK_HELPER)).toBe(true);
 

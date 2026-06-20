@@ -15,6 +15,29 @@ docker_disk_set_defaults() {
   : "${DEPLOY_DOCKER_SYSTEM_DF:=0}"
 }
 
+docker_disk_validate_thresholds() {
+  docker_disk_set_defaults
+
+  case "$DEPLOY_MIN_DOCKER_FREE_GB" in
+    ''|*[!0-9]*)
+      docker_disk_log "ERROR: DEPLOY_MIN_DOCKER_FREE_GB must be an integer number of GB (got '$DEPLOY_MIN_DOCKER_FREE_GB')"
+      return 1
+      ;;
+  esac
+
+  case "$DEPLOY_MIN_DOCKER_FREE_PERCENT" in
+    ''|*[!0-9]*)
+      docker_disk_log "ERROR: DEPLOY_MIN_DOCKER_FREE_PERCENT must be an integer percentage from 0 to 100 (got '$DEPLOY_MIN_DOCKER_FREE_PERCENT')"
+      return 1
+      ;;
+  esac
+
+  if [ "$DEPLOY_MIN_DOCKER_FREE_PERCENT" -gt 100 ]; then
+    docker_disk_log "ERROR: DEPLOY_MIN_DOCKER_FREE_PERCENT must be an integer percentage from 0 to 100 (got '$DEPLOY_MIN_DOCKER_FREE_PERCENT')"
+    return 1
+  fi
+}
+
 docker_disk_resolve_docker() {
   local candidate candidate_dir
 
@@ -89,6 +112,9 @@ docker_disk_collect_metrics() {
   local docker_root_dir df_target df_line total_kb avail_kb used_percent
 
   docker_disk_set_defaults
+  if ! docker_disk_validate_thresholds; then
+    return 1
+  fi
 
   if ! docker_disk_resolve_docker; then
     docker_disk_log "ERROR: docker is not available on PATH"

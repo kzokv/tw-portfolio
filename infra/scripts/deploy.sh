@@ -781,6 +781,42 @@ preserve_rollback_images() {
   done
 }
 
+restore_runtime_image_tags() {
+  local source_tag="$1"
+  local target_tag="$2"
+  local pair repo
+
+  [ -n "$source_tag" ] || return 0
+  [ -n "$target_tag" ] || return 0
+  [ "$source_tag" != "$target_tag" ] || return 0
+
+  for pair in \
+    "${STACK_PREFIX}-api" \
+    "${STACK_PREFIX}-web" \
+    "${STACK_PREFIX}-migrate"
+  do
+    repo="$pair"
+    if docker image inspect "${repo}:${source_tag}" >/dev/null 2>&1; then
+      if docker tag "${repo}:${source_tag}" "${repo}:${target_tag}" >/dev/null 2>&1; then
+        log "Restored runtime image tag: ${repo}:${target_tag} -> ${repo}:${source_tag}"
+      else
+        log "WARNING: Failed to restore runtime image tag: ${repo}:${target_tag}"
+      fi
+    else
+      log "WARNING: Rollback image missing for ${repo}:${source_tag}; cannot restore ${repo}:${target_tag}"
+    fi
+  done
+}
+
+restore_explicit_runtime_tag_on_failed_pre_migration_exit() {
+  if [ -z "$IMAGE_TAG_EXPLICIT" ]; then
+    return 0
+  fi
+
+  log "Restoring explicit runtime image tag '$IMAGE_TAG' to previous images before exiting"
+  restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG"
+}
+
 parse_args "$@"
 configure_environment
 
@@ -857,6 +893,7 @@ fi
 if ! run_with_heartbeat "image build" dc --profile migrate build $BUILD_FLAGS; then
   log "ERROR: Image build failed"
   collect_compose_failure_diagnostics "image build failed"
+  restore_explicit_runtime_tag_on_failed_pre_migration_exit
   exit 1
 fi
 phase_done
@@ -866,6 +903,7 @@ phase_start "Database migrations"
 # If cleanup still cannot recover enough Docker space, this exits while the
 # previous app containers are still serving traffic.
 if ! docker_disk_preflight_build "Migration image build preflight"; then
+  restore_explicit_runtime_tag_on_failed_pre_migration_exit
   exit 1
 fi
 # Remove stale containers from previous deploys. dc down only removes containers

@@ -44,6 +44,8 @@ Codex review follow-up:
 - Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383691`: the Docker resolver test could pick a real `/usr/bin/docker`. Resolution: `infra/scripts/lib/docker-disk.sh` now treats `DEPLOY_DOCKER_BIN` as an explicit override, and the focused test name documents that behavior.
 - Operator visibility follow-up: `deploy.sh` and `redeploy-service.sh` now emit a clear `== Docker exit cleanup ==` marker before bounded cleanup. Full successful deploys also emit `== Successful app image cleanup ==` before tagged app-image cleanup.
 - Fresh Codex review for commit `94281ec102` reported `discussion_r3445399103`: the best-effort guard was needed on post-deploy diagnostics. Resolution: `.github/workflows/_deploy-reusable.yml` now keeps pre-deploy diagnostics strict and applies `|| true` to the post-deploy diagnostics SSH heredoc.
+- Fresh Codex review for commit `dffcf743bb` reported `discussion_r3445408037`: when CI uses `-t latest`, a migration preflight failure after image build could leave `latest` pointing to new images while old containers keep serving. Resolution: `deploy.sh` now restores explicit runtime image tags from preserved rollback images before exiting from image-build failure or migration-preflight failure paths.
+- Fresh Codex review for commit `dffcf743bb` reported `discussion_r3445408038`: non-integer disk threshold overrides could make Bash comparisons fail open. Resolution: `infra/scripts/lib/docker-disk.sh` now validates `DEPLOY_MIN_DOCKER_FREE_GB` and `DEPLOY_MIN_DOCKER_FREE_PERCENT` before collecting metrics or comparing thresholds.
 
 ## Focused Validation
 
@@ -102,6 +104,15 @@ Evidence:
 
 - Command/check: `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`
 - Outcome: passed with exit code `0` after the cleanup log-marker follow-up.
+
+- Command/check: `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`
+- Outcome: passed with exit code `0` after explicit-tag restore and threshold-validation follow-up.
+
+- Command/check: `npx vitest run infra/scripts/__tests__`
+- Outcome: passed after explicit-tag restore and threshold-validation follow-up. Vitest reported `3` test files passed and `17` tests passed.
+
+- Command/check: `npx eslint infra/scripts/__tests__/deploy-validation.test.ts infra/scripts/__tests__/docker-disk-helper.test.ts`
+- Outcome: passed with exit code `0`.
 
 - Command/check: `git diff --check`
 - Outcome: passed with exit code `0`.
