@@ -117,9 +117,17 @@ Evidence:
 - Command/check: `git diff --check`
 - Outcome: passed with exit code `0`.
 
-## Remaining Verification
+## PR, Review, and Deployment Evidence
 
 - Pull request uses the repository Linear-ticket waiver path: PR #227 has label `waiver:linear-ticket` and a `## Waiver` body with `Reason:`, `Approved-by: @kzokv`, and `Scope: both`.
-- CI passed on PR #227 before the QNAP follow-up commit: run `27857704918` plus PR Gate checks were green.
-- CI must rerun on the QNAP follow-up commit and be monitored until green.
-- Dev deployment must be tested via the GitHub `Deploy Dev via Cloudflare WARP` workflow against the dev environment.
+- Latest implementation CI passed on commit `05183504bee336d2978759f9b5e2e9189ad2de3a`: GitHub Actions run `27859484877` completed successfully, including `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `docker-build-validation`, `deploy-config-validation`, `e2e-bypass`, and `e2e-oauth`; PR Gate run `27859484432` also passed.
+- Latest Codex review for commit `05183504be` reported no major issues in PR comment `4756326496`.
+- All Codex review threads opened for this PR were resolved after verifying their fixes against the current code.
+- Final dev deployment test passed on commit `05183504bee336d2978759f9b5e2e9189ad2de3a`: `Deploy Dev via Cloudflare WARP` run `27859703711` completed successfully, with deploy job `82453514223` completing in `13m22s`.
+- Deployment log evidence from run `27859703711`:
+  - Pre-migration backup ran before image builds and completed a dev backup at `04:09:04`.
+  - Health checks passed and the dev containers were healthy before cleanup.
+  - Searchable cleanup keyword: `Deploy exit cleanup`.
+  - Cleanup log line: `Deploy exit cleanup: pruning containers, dangling images, and builder cache (keep-storage=20GB)`.
+  - Post-cleanup diagnostics reported Docker root `/share/CACHEDEV1_DATA/Container/container-station-data/lib/docker` with `147.9GB` free (`64%`) against thresholds `25GB/15%`.
+  - Successful app-image cleanup removed an unused `vakwen-dev-migrate:latest` image and reported `Unused vakwen/alpine-related Docker image cleanup complete`.
