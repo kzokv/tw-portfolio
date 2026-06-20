@@ -40,6 +40,8 @@ Codex review follow-up:
 - Codex review thread `discussion_r3445325645` reported that rollback could restart the failed deploy tag when rollback build was skipped. Resolution: `infra/scripts/deploy.sh` now preserves current app images under the previous SHA tag before checkout/build, switches `IMAGE_TAG` to that rollback tag inside `rollback`, and attempts rollback build even after a failed rollback disk preflight.
 - `infra/scripts/__tests__/deploy-validation.test.ts` includes regression coverage for both safeguards.
 - Fresh Codex review for commit `bf7f999ea8` reported `discussion_r3445372717`: the failure-diagnostics heredoc terminator could remain indented inside the shell `if`. Resolution: `.github/workflows/_deploy-reusable.yml` now writes the remote failure diagnostics script to a temporary file at the top level, then pipes it into SSH from inside the credential guard.
+- Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383687`: post-deploy diagnostics could fail a successful deploy. Resolution: `.github/workflows/_deploy-reusable.yml` now treats after-deploy diagnostics as best-effort with `|| true`.
+- Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383691`: the Docker resolver test could pick a real `/usr/bin/docker`. Resolution: `infra/scripts/lib/docker-disk.sh` now treats `DEPLOY_DOCKER_BIN` as an explicit override, and the focused test name documents that behavior.
 
 ## Focused Validation
 
@@ -86,6 +88,15 @@ Evidence:
 
 - Command/check: `ruby -e 'require "yaml"; workflow=YAML.load_file(".github/workflows/_deploy-reusable.yml"); step=workflow.fetch("jobs").fetch("deploy").fetch("steps").find { |s| s["name"] == "Collect failure diagnostics" }; puts step.fetch("run")' >/tmp/deploy-failure-diagnostics.sh && bash -n /tmp/deploy-failure-diagnostics.sh`
 - Outcome: passed with exit code `0`.
+
+- Command/check: `ruby -e 'require "yaml"; workflow=YAML.load_file(".github/workflows/_deploy-reusable.yml"); ["Remote Docker disk diagnostics after deploy", "Collect failure diagnostics"].each { |name| step=workflow.fetch("jobs").fetch("deploy").fetch("steps").find { |s| s["name"] == name }; path="/tmp/#{name.gsub(/[^A-Za-z0-9]+/, "-")}.sh"; File.write(path, step.fetch("run")); system("bash", "-n", path) or exit 1 }'`
+- Outcome: passed with exit code `0` after the post-deploy diagnostics follow-up.
+
+- Command/check: `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`
+- Outcome: passed with exit code `0` after the post-deploy diagnostics and Docker resolver follow-up.
+
+- Command/check: `npx vitest run infra/scripts/__tests__`
+- Outcome: passed after the post-deploy diagnostics and Docker resolver follow-up. Vitest reported `3` test files passed and `15` tests passed.
 
 - Command/check: `git diff --check`
 - Outcome: passed with exit code `0`.

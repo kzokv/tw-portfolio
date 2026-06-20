@@ -141,7 +141,7 @@ ${cleanupFunction!}
     expect(commands).toContain("builder prune -f --keep-storage 17GB");
   });
 
-  it("adds an explicit Docker binary path when Docker is absent from PATH", () => {
+  it("prefers an explicit Docker binary path over Docker already on PATH", () => {
     const workDir = makeTempDir("docker-disk-bin-");
     const dockerBinDir = path.join(workDir, "qnap-bin");
     const dockerBin = path.join(dockerBinDir, "docker");

@@ -18,12 +18,20 @@ docker_disk_set_defaults() {
 docker_disk_resolve_docker() {
   local candidate candidate_dir
 
+  if [ -n "${DEPLOY_DOCKER_BIN:-}" ] && [ -x "$DEPLOY_DOCKER_BIN" ]; then
+    candidate_dir="$(dirname "$DEPLOY_DOCKER_BIN")"
+    case ":$PATH:" in
+      *":$candidate_dir:"*) ;;
+      *) export PATH="$candidate_dir:$PATH" ;;
+    esac
+    return 0
+  fi
+
   if command -v docker >/dev/null 2>&1; then
     return 0
   fi
 
-  for candidate in "${DEPLOY_DOCKER_BIN:-}" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"; do
-    [ -n "$candidate" ] || continue
+  for candidate in "/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"; do
     if [ ! -x "$candidate" ]; then
       continue
     fi
