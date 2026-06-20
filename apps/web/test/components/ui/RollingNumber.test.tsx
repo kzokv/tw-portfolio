@@ -19,9 +19,17 @@ describe("RollingNumber", () => {
     root = null;
     container?.remove();
     container = null;
-    Object.defineProperty(window, "matchMedia", { writable: true, value: originalMatchMedia });
-    Object.defineProperty(window, "requestAnimationFrame", { writable: true, value: originalRequestAnimationFrame });
-    Object.defineProperty(window, "cancelAnimationFrame", { writable: true, value: originalCancelAnimationFrame });
+    Object.defineProperty(window, "matchMedia", { configurable: true, writable: true, value: originalMatchMedia });
+    Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: originalRequestAnimationFrame,
+    });
+    Object.defineProperty(window, "cancelAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: originalCancelAnimationFrame,
+    });
     vi.useRealTimers();
   });
 
@@ -52,6 +60,7 @@ describe("RollingNumber", () => {
     vi.useFakeTimers();
     let frameCallback: FrameRequestCallback | null = null;
     Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
       writable: true,
       value: vi.fn((callback: FrameRequestCallback) => {
         frameCallback = callback;
@@ -59,6 +68,7 @@ describe("RollingNumber", () => {
       }),
     });
     Object.defineProperty(window, "cancelAnimationFrame", {
+      configurable: true,
       writable: true,
       value: vi.fn(() => {
         frameCallback = null;
@@ -94,6 +104,7 @@ describe("RollingNumber", () => {
 
   it("falls back to static rendering when reduced motion is enabled", () => {
     Object.defineProperty(window, "matchMedia", {
+      configurable: true,
       writable: true,
       value: vi.fn().mockReturnValue({
         matches: true,

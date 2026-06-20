@@ -75,11 +75,14 @@ superseded_by: null
 - Second post-review focused web rerun passed: `npx vitest run test/components/admin/AdminMarketDataClient.test.tsx test/components/ui/RollingNumber.test.tsx` — 2 files, 26 tests, including route-backed KR operation outcome loading and requestAnimationFrame-started rolling digits.
 - Third post-review focused API rerun passed: `npx vitest run test/unit/realizedPnlBreakdown.test.ts test/integration/portfolio.integration.test.ts test/integration/ticker-details.integration.test.ts` — 3 files, 38 tests, including persisted allocation divergence protection for realized P&L breakdowns.
 - Fourth post-review focused web rerun passed: `npx vitest run test/components/ui/RollingNumber.test.tsx` — 1 file, 3 tests, including RAF cancellation protection and transition cleanup for same-length quote-refresh updates.
+- Fifth post-review focused web rerun passed: `npx vitest run test/components/ui/RollingNumber.test.tsx` — 1 file, 3 tests, including configurable animation-frame mocks so Vitest teardown can restore jsdom globals.
+- CI unit-test reproduction passed after the RollingNumber mock-descriptor fix: `npm run test:unit` — all workspace unit suites completed with exit code 0.
 - Shared-types build passed.
 - `npm run typecheck` passed after installing the worktree-local dependency tree and ensuring `@vakwen/*` resolves to this worktree.
 - Post-review `npm run typecheck` and `npx eslint .` passed after review fixes.
 - Third post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after realized P&L consistency/performance fixes.
 - Fourth post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after the rolling-number effect dependency fix.
+- Fifth post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after the RollingNumber test teardown fix.
 - Full AGENTS.md suite evidence before browser validation:
   - `npx eslint .` passed cleanly after moving the new AAA guard conditionals into helper functions.
   - `npm run typecheck` passed.
