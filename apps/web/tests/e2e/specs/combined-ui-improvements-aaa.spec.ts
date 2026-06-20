@@ -226,6 +226,40 @@ test.describe("combined UI improvements", () => {
     await assertText(drawer, new RegExp(operationId));
   });
 
+  test("[admin-market-data]: backfill supported instruments and preview targets fit mobile viewport", async ({
+    appShell,
+    page,
+    settings,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const backfillTicker = uniqueTicker("BF");
+    await settings.arrange.seedInstruments([
+      {
+        ticker: backfillTicker,
+        name: "Supported Backfill Responsive Fixture With A Long Name",
+        instrumentType: "STOCK",
+        marketCode: "TW",
+        barsBackfillStatus: "pending",
+      },
+    ]);
+
+    await appShell.actions.navigateToRoute(`/admin/market-data/TW/backfill?search=${backfillTicker}&supportState=supported&backfillStatus=pending`);
+    await appShell.assert.appIsReady();
+    const backfillPanel = page.getByTestId("market-data-backfill");
+    await backfillPanel.waitFor({ state: "visible" });
+    await page.getByLabel("Backfill mode").selectOption("supported");
+    await page.getByTestId("market-data-backfill-supported-list").waitFor({ state: "visible" });
+    await page.getByLabel(`Select ${backfillTicker}`).check();
+    await page.getByRole("button", { name: "Preview selected" }).click();
+    await page.getByTestId("market-data-backfill-preview-targets").waitFor({ state: "visible" });
+
+    await assertWithinViewport(page, backfillPanel, "Backfill panel");
+    await assertWithinViewport(page, page.getByTestId("market-data-backfill-supported-list"), "Supported backfill list");
+    await assertWithinViewport(page, page.getByTestId("market-data-backfill-preview-targets"), "Backfill preview targets");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    await appShell.assert.mxAssertEqual(overflow, false, "Backfill supported preview mobile layout has no horizontal overflow");
+  });
+
   test("[admin-market-data]: KR operations do not auto-open without operationId", async ({
     appShell,
     page,

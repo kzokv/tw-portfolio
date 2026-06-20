@@ -724,6 +724,44 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.textContent).toContain("Operation OP-BACKFILL-PREVIEW is completed");
   });
 
+  it("shows an inline error when backfill preview fails", async () => {
+    previewMarketBackfillMock.mockRejectedValueOnce(new Error("internal_error"));
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="backfill"
+          overview={{ ...overview(), tabs: ["overview", "instruments", "backfill"] }}
+          actions={backfillActions()}
+          instruments={instruments("AUBF1", "AU Backfill Fixture")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "listed",
+            supportState: "supported",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "pending",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview owned or monitored")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='market-data-backfill-preview-error']")?.textContent)
+      .toContain("internal_error");
+    expect(container.textContent).not.toContain("Frozen targets");
+  });
+
   it("drives guided valuation repair from bounded backfill status and queues only eligible snapshots", async () => {
     fetchMarketValuationRepairStatusMock
       .mockResolvedValueOnce({

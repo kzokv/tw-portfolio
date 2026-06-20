@@ -6786,7 +6786,7 @@ export class MemoryPersistence implements Persistence {
       successCount: input.successCount ?? (typeof rawContext?.successCount === "number" ? rawContext.successCount : null),
       warningCount: input.warningCount ?? (typeof rawContext?.warningCount === "number" ? rawContext.warningCount : null),
       errorCount: input.errorCount ?? (typeof rawContext?.errorCount === "number" ? rawContext.errorCount : null),
-      detail: input.detail ?? (typeof rawContext?.detail === "string" ? rawContext.detail : null),
+      detail: input.detail ?? (typeof rawContext?.detail === "string" ? rawContext.detail : input.message),
       rawContext,
       message: input.message,
       context: input.context ?? null,

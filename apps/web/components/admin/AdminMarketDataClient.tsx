@@ -777,6 +777,96 @@ function targetFromInstrument(row: AdminMarketDataInstrumentDto): AdminMarketDat
   };
 }
 
+function BackfillInstrumentRows({
+  instruments,
+  selectedTickers,
+  onToggleTicker,
+}: {
+  instruments: AdminMarketDataInstrumentDto[];
+  selectedTickers: string[];
+  onToggleTicker: (ticker: string) => void;
+}) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded border border-border" data-testid="market-data-backfill-supported-list">
+      <div className="hidden grid-cols-[minmax(7rem,0.75fr)_minmax(12rem,1.25fr)_minmax(7rem,0.8fr)_minmax(7rem,0.8fr)_minmax(10rem,1fr)] gap-3 border-b border-border bg-muted/40 px-4 py-3 text-xs uppercase text-muted-foreground md:grid">
+        <span>Select</span>
+        <span>Ticker</span>
+        <span>Support</span>
+        <span>Backfill</span>
+        <span>Providers</span>
+      </div>
+      <div className="divide-y divide-border">
+        {instruments.map((row) => (
+          <div
+            key={`${row.marketCode}:${row.ticker}`}
+            className="grid min-w-0 gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(7rem,0.75fr)_minmax(12rem,1.25fr)_minmax(7rem,0.8fr)_minmax(7rem,0.8fr)_minmax(10rem,1fr)] md:items-center"
+          >
+            <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              <input
+                aria-label={`Select ${row.ticker}`}
+                type="checkbox"
+                checked={selectedTickers.includes(row.ticker)}
+                onChange={() => onToggleTicker(row.ticker)}
+              />
+              <span className="md:hidden">Select</span>
+            </label>
+            <div className="min-w-0">
+              <p className="break-all font-medium text-foreground">{row.ticker}</p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+            </div>
+            <BackfillRowFact label="Support" value={row.supportState} />
+            <BackfillRowFact label="Backfill" value={row.backfillStatus} />
+            <BackfillRowFact label="Providers" value={row.providerIds.join(", ") || "none"} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BackfillTargetRows({
+  targets,
+  className,
+  testId,
+}: {
+  targets: AdminMarketDataBackfillTargetDto[];
+  className?: string;
+  testId: string;
+}) {
+  return (
+    <div className={cn("min-w-0 overflow-hidden rounded border border-border", className)} data-testid={testId}>
+      <div className="hidden grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs uppercase text-muted-foreground md:grid">
+        <span>Ticker</span>
+        <span>Name</span>
+        <span>Backfill</span>
+        <span>Support</span>
+      </div>
+      <div className="divide-y divide-border">
+        {targets.map((target) => (
+          <div
+            key={`${target.marketCode}:${target.ticker}`}
+            className="grid min-w-0 gap-3 px-3 py-3 text-sm md:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] md:items-center"
+          >
+            <p className="break-all font-medium text-foreground">{target.ticker}</p>
+            <BackfillRowFact label="Name" value={target.name ?? "Unnamed"} />
+            <BackfillRowFact label="Backfill" value={target.backfillStatus ?? "unknown"} />
+            <BackfillRowFact label="Support" value={target.supportState ?? "unknown"} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BackfillRowFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <span className="text-xs font-medium uppercase text-muted-foreground md:hidden">{label}</span>
+      <p className="break-words text-muted-foreground">{value}</p>
+    </div>
+  );
+}
+
 function BackfillPanel({
   marketCode,
   actions,
@@ -804,6 +894,7 @@ function BackfillPanel({
   const [acknowledged, setAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataBackfillPreviewResponse | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataBackfillExecuteResponse | null>(null);
   const [snapshotRepairResult, setSnapshotRepairResult] = useState<AdminMarketDataSnapshotRepairExecuteResponse | null>(null);
   const [snapshotRepairError, setSnapshotRepairError] = useState<string | null>(null);
@@ -852,6 +943,7 @@ function BackfillPanel({
 
   function clearFrozenPreview() {
     setPreview(null);
+    setPreviewError(null);
     setExecuteResult(null);
     setSnapshotRepairResult(null);
     setSnapshotRepairError(null);
@@ -943,18 +1035,26 @@ function BackfillPanel({
     scope: "user_owned_or_monitored" | "selected_catalog_rows" | "all_matching",
     overrideTargets?: Array<{ ticker: string; marketCode: Exclude<AdminMarketCode, "FX"> }>,
   ) {
-    const result = await previewMarketBackfill(marketCode, {
-      scope,
-      providerId,
-      includeDemoUsers: scope === "user_owned_or_monitored" ? includeDemoUsers : undefined,
-      selectedCatalogRows: scope === "selected_catalog_rows" ? overrideTargets ?? selectedRequestTargets : undefined,
-      filters: scope === "all_matching" ? previewFilters() : undefined,
-      ...rangeRequest(),
-    });
-    setPreview(result);
+    setPreviewError(null);
     setExecuteResult(null);
-    setAcknowledged(false);
-    setTypedConfirmation("");
+    try {
+      const result = await previewMarketBackfill(marketCode, {
+        scope,
+        providerId,
+        includeDemoUsers: scope === "user_owned_or_monitored" ? includeDemoUsers : undefined,
+        selectedCatalogRows: scope === "selected_catalog_rows" ? overrideTargets ?? selectedRequestTargets : undefined,
+        filters: scope === "all_matching" ? previewFilters() : undefined,
+        ...rangeRequest(),
+      });
+      setPreview(result);
+      setAcknowledged(false);
+      setTypedConfirmation("");
+    } catch (err) {
+      setPreview(null);
+      setAcknowledged(false);
+      setTypedConfirmation("");
+      setPreviewError(err instanceof Error ? err.message : "Backfill preview failed");
+    }
   }
 
   async function runExecute() {
@@ -1188,7 +1288,7 @@ function BackfillPanel({
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-backfill">
       <h2 className="text-base font-semibold text-foreground">Backfill preview</h2>
       <p className="mt-2 text-sm text-muted-foreground">Backfill writes historical bars and dividends from the owning provider. Preview freezes the exact target list before execution.</p>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
+      <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
         <div className="space-y-4">
           <label className="text-sm font-medium text-foreground">
             Backfill mode
@@ -1252,19 +1352,19 @@ function BackfillPanel({
             </p>
           </div>
         </div>
-        <div className="rounded border border-border p-4">
+        <div className="min-w-0 rounded border border-border p-4">
           {mode === "owned" ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 This collects all supported instruments that appear in open positions or monitored tickers across users. Demo users are excluded unless selected.
               </p>
-              <button type="button" onClick={() => void runPreview("user_owned_or_monitored")} className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              <button type="button" onClick={() => void runPreview("user_owned_or_monitored")} className="w-full rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:w-auto">
                 Preview owned or monitored
               </button>
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_repeat(4,minmax(8rem,10rem))_minmax(9rem,auto)]">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-sm font-medium text-foreground">
                   Search
                   <input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Ticker or name" />
@@ -1273,53 +1373,35 @@ function BackfillPanel({
                 <FilterSelect label="Support" value={filters.supportState} options={instruments.filters.supportState} onChange={(value) => updateFilter("supportState", value)} />
                 <FilterSelect label="Type" value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
                 <FilterSelect label="Backfill" value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end xl:justify-end">
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end lg:justify-end">
                   <button type="button" onClick={applyFilters} className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:w-auto">Apply</button>
                   <Link href={`/admin/market-data/${marketCode}/backfill`} className="w-full rounded border border-border px-3 py-2 text-center text-sm text-muted-foreground sm:w-auto">Reset</Link>
                 </div>
               </div>
-              <div className="overflow-x-auto rounded border border-border">
-                <table className="min-w-full divide-y divide-border text-sm">
-                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3">Select</th>
-                      <th className="px-4 py-3">Ticker</th>
-                      <th className="px-4 py-3">Support</th>
-                      <th className="px-4 py-3">Backfill</th>
-                      <th className="px-4 py-3">Providers</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {instruments.items.map((row) => (
-                      <tr key={`${row.marketCode}:${row.ticker}`}>
-                        <td className="px-4 py-3">
-                          <input aria-label={`Select ${row.ticker}`} type="checkbox" checked={selectedTickers.includes(row.ticker)} onChange={() => toggleTicker(row.ticker)} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-foreground">{row.ticker}</p>
-                          <p className="mt-1 max-w-[18rem] truncate text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">{row.supportState}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{row.backfillStatus}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{row.providerIds.join(", ") || "none"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <p>Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
-                <div className="flex flex-wrap gap-2 sm:justify-end">
+              <BackfillInstrumentRows
+                instruments={instruments.items}
+                selectedTickers={selectedTickers}
+                onToggleTicker={toggleTicker}
+              />
+              <div className="flex min-w-0 flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <p className="min-w-0 break-words">Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
-                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">Preview selected</button>
-                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground">Preview all matching filters</button>
+                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">Preview selected</button>
+                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">Preview all matching filters</button>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+      {previewError ? (
+        <div className="mt-4 min-w-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-backfill-preview-error">
+          <p className="font-medium">Backfill preview failed</p>
+          <p className="mt-1 break-words">{previewError}</p>
+        </div>
+      ) : null}
       {preview && (
         <div className="mt-4 space-y-4">
           <PreviewSummary title="Backfill estimate" rows={[
@@ -1352,23 +1434,7 @@ function BackfillPanel({
               ) : null}
             </div>
             {previewTargets.length <= 100 ? (
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full divide-y divide-border text-sm">
-                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-                    <tr><th className="px-3 py-2">Ticker</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Backfill</th><th className="px-3 py-2">Support</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {previewTargets.map((target) => (
-                      <tr key={`${target.marketCode}:${target.ticker}`}>
-                        <td className="px-3 py-2 font-medium text-foreground">{target.ticker}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{target.name ?? "Unnamed"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{target.backfillStatus ?? "unknown"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{target.supportState ?? "unknown"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <BackfillTargetRows targets={previewTargets} className="mt-3" testId="market-data-backfill-preview-targets" />
             ) : (
               <p className="mt-2 text-sm text-muted-foreground">Large previews show a summary by default. Open details to filter the frozen list before executing.</p>
             )}
@@ -1407,22 +1473,8 @@ function BackfillPanel({
                   </div>
                   <input value={targetModalFilter} onChange={(event) => setTargetModalFilter(event.target.value)} className="mt-3 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Filter frozen targets" />
                 </div>
-                <div className="max-h-[70vh] overflow-auto">
-                  <table className="min-w-full divide-y divide-border text-sm">
-                    <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-                      <tr><th className="px-4 py-3">Ticker</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Backfill</th><th className="px-4 py-3">Support</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {filteredPreviewTargets.map((target) => (
-                        <tr key={`${target.marketCode}:${target.ticker}`}>
-                          <td className="px-4 py-3 font-medium text-foreground">{target.ticker}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{target.name ?? "Unnamed"}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{target.backfillStatus ?? "unknown"}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{target.supportState ?? "unknown"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="max-h-[70vh] overflow-auto p-4">
+                  <BackfillTargetRows targets={filteredPreviewTargets} testId="market-data-backfill-modal-targets" />
                 </div>
               </div>
             </div>

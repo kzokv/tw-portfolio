@@ -15194,7 +15194,7 @@ export class PostgresPersistence implements Persistence {
     const successCount = input.successCount ?? getNumberContextValue(rawContext, ["successCount", "processedCount"]);
     const warningCount = input.warningCount ?? getNumberContextValue(rawContext, ["warningCount"]);
     const errorCount = input.errorCount ?? getNumberContextValue(rawContext, ["errorCount", "failedCount"]);
-    const detail = input.detail ?? getStringContextValue(rawContext, ["detail", "summary"]);
+    const detail = input.detail ?? getStringContextValue(rawContext, ["detail", "summary"]) ?? input.message;
     const result = await this.pool.query<ProviderOperationLogRowSql>(
       `INSERT INTO market_data.provider_operation_logs
          (operation_id, provider_id, market_code, phase, level, event_kind, batch_id, job_id, success_count, warning_count, error_count, detail, raw_context, message, context)
