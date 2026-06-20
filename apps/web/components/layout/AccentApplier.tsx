@@ -30,7 +30,9 @@ export function shouldSkipPreferenceHydration(pathname: string): boolean {
   return pathname === "/login"
     || pathname.startsWith("/auth/")
     || pathname === "/invite"
-    || pathname.startsWith("/invite/");
+    || pathname.startsWith("/invite/")
+    || pathname === "/share"
+    || pathname.startsWith("/share/");
 }
 
 export function AccentApplier(): null {

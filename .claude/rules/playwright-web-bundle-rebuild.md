@@ -53,6 +53,20 @@ npx playwright test --config tests/e2e/playwright.oauth.config.ts specs-oauth/fo
 
 The npm scripts pin both `NEXT_PUBLIC_AUTH_MODE` and `NEXT_PUBLIC_API_BASE_URL` because Next.js inlines `NEXT_PUBLIC_*` at build time — see `.claude/rules/`-adjacent context in `docs/001-architecture/web-frontend.md` § "Build-Time vs Runtime Variables". Running `npm run build -w @vakwen/web` without these env vars will produce a bundle that points at the wrong API URL.
 
+## Memory E2E Scripts Must Not Re-Source Root `.env.local`
+
+For `*:mem` E2E scripts, do not source the repo-root `.env.local` after setting the memory-mode environment. Local development files commonly contain `PERSISTENCE_BACKEND=postgres`, `WEB_PORT=3000`, or other host-specific values, and a late `. ../../.env.local` can silently override the intended `PERSISTENCE_BACKEND=memory` run.
+
+```json
+// ✅ Correct — explicit memory env flows into the Playwright webServer config.
+"test:e2e:oauth:mem": "NEXT_PUBLIC_AUTH_MODE=oauth NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}} npm run build ... && npx playwright test --config=tests/e2e/playwright.oauth.config.ts"
+
+// ❌ Wrong — root .env.local can switch the run back to postgres or another port.
+"test:e2e:oauth:mem": "NEXT_PUBLIC_AUTH_MODE=oauth ... npm run build ... && [ -f ../../.env.local ] && set -a && . ../../.env.local && set +a; npx playwright test ..."
+```
+
+If a Playwright config is explicitly for memory mode, pin `PERSISTENCE_BACKEND: "memory"` in `webServer` env overrides rather than inheriting `process.env.PERSISTENCE_BACKEND`.
+
 ## When to suspect a stale bundle
 
 - A spec that worked yesterday fails after a source edit, but the git diff looks correct.

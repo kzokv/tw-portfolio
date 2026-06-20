@@ -86,6 +86,22 @@ function buildToolCatalogEntry(overrides: Partial<AiConnectorToolCatalogEntryDto
 async function flushEffects() {
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  act(() => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -109,163 +125,117 @@ describe("AiConnectorsSettingsClient", () => {
     container.remove();
   });
 
-  it("announces policy-disabled scope controls and page-level recovery", async () => {
-    const response: AiConnectorSummaryResponse = {
+  it("renders responsive section controls and policy recovery messaging", async () => {
+    mockFetchAiConnectorSummary.mockResolvedValue({
       connections: [buildConnection()],
       policy: buildPolicy({ groupToggles: { read: false, drafts: false, write: false } }),
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
+    } satisfies AiConnectorSummaryResponse);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
-    expect(document.body.textContent).toContain("AI settings");
+    expect(document.body.textContent).toContain("AI Connectors");
+    expect(document.querySelector("[data-testid='ai-connectors-mobile-tab-select']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ai-connectors-tab-connections']")).not.toBeNull();
     const alert = document.querySelector("[role='alert']");
     expect(alert?.textContent).toContain("Admin policy has disabled all MCP tool groups");
-    const checkbox = document.querySelector("input[type='checkbox']") as HTMLInputElement | null;
-    expect(checkbox?.disabled).toBe(true);
-    const describedBy = checkbox?.getAttribute("aria-describedby");
-    expect(describedBy).toBeTruthy();
-    expect(document.getElementById(String(describedBy))?.textContent).toContain("Disabled by MCP policy");
   });
 
-  it("exposes pending connector status through a live status region", async () => {
-    const response: AiConnectorSummaryResponse = {
-      connections: [buildConnection({ status: "pending", lastUsedAt: null })],
+  it("keeps the active ChatGPT connector visible first and collapses revoked history by default", async () => {
+    mockFetchAiConnectorSummary.mockResolvedValue({
+      connections: [
+        buildConnection({ id: "revoked-1", status: "revoked", displayName: "Old ChatGPT" }),
+        buildConnection({ id: "conn-1", status: "active", displayName: "Primary ChatGPT" }),
+        buildConnection({ id: "pending-1", provider: "self_hosted", status: "pending", displayName: "Lab Connector" }),
+      ],
       policy: buildPolicy(),
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
+    } satisfies AiConnectorSummaryResponse);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
-    const statusRegions = Array.from(document.querySelectorAll("[role='status']"));
-    expect(statusRegions.some((region) => region.textContent?.includes("Waiting for ChatGPT"))).toBe(true);
+    const cards = Array.from(document.querySelectorAll("[data-testid^='ai-connector-']"));
+    expect(cards[0]?.textContent).toContain("Primary ChatGPT");
+    expect(document.body.textContent).not.toContain("Connection tools");
+    const history = document.querySelector("[data-testid='ai-connectors-history']") as HTMLDetailsElement | null;
+    expect(history).not.toBeNull();
+    expect(history?.open).toBe(false);
+    expect(history?.textContent).toContain("1 hidden connection");
   });
 
-  it("keeps transaction:write as a reconnect-only advanced scope when it was not granted at consent", async () => {
-    const response: AiConnectorSummaryResponse = {
-      connections: [buildConnection()],
-      policy: buildPolicy(),
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
-
-    await act(async () => root.render(<AiConnectorsSettingsClient />));
-    await flushEffects();
-
-    expect(document.body.textContent).toContain("All tools inherit policy defaults");
-    const accountLabel = Array.from(document.querySelectorAll("label"))
-      .find((candidate) => candidate.textContent?.includes("Manage accounts"));
-    expect(accountLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");
-    const accountCheckbox = accountLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
-    expect(accountCheckbox?.checked).toBe(false);
-    expect(accountCheckbox?.disabled).toBe(true);
-
-    const postingLabel = Array.from(document.querySelectorAll("label"))
-      .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
-    expect(postingLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");
-    const postingCheckbox = postingLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
-    expect(postingCheckbox?.checked).toBe(false);
-    expect(postingCheckbox?.disabled).toBe(true);
-    expect(document.body.textContent).toContain("Reconnect in ChatGPT");
-  });
-
-  it("renders the MCP tool catalog even when connection-level tool overrides are empty", async () => {
-    const response: AiConnectorSummaryResponse = {
+  it("renders the MCP tools tab as the only searchable tool surface", async () => {
+    mockUpdateAiConnector.mockResolvedValue(buildConnection({
+      toolToggles: { get_daily_review_report: false },
+    }));
+    mockFetchAiConnectorSummary.mockResolvedValue({
       connections: [buildConnection()],
       policy: buildPolicy(),
       toolCatalog: [
         buildToolCatalogEntry({ name: "get_daily_review_report" }),
-        buildToolCatalogEntry({ name: "get_portfolio_report" }),
-        buildToolCatalogEntry({ name: "get_market_report" }),
-      ],
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
-
-    await act(async () => root.render(<AiConnectorsSettingsClient />));
-    await flushEffects();
-
-    expect(document.querySelector("[data-testid='ai-connector-tool-catalog']")).not.toBeNull();
-    expect(document.body.textContent).toContain("Available MCP tools");
-    expect(document.body.textContent).toContain("get_daily_review_report");
-    expect(document.body.textContent).toContain("get_portfolio_report");
-    expect(document.body.textContent).toContain("get_market_report");
-    expect(document.body.textContent).toContain("available");
-    expect(document.body.textContent).toContain("Connection tools");
-    expect(document.body.textContent).toContain("Inherited default");
-  });
-
-  it("surfaces unavailable MCP tool reasons from policy and connection scope", async () => {
-    const response: AiConnectorSummaryResponse = {
-      connections: [buildConnection()],
-      policy: buildPolicy({ groupToggles: { read: true, drafts: false, write: true } }),
-      toolCatalog: [
+        buildToolCatalogEntry({ name: "create_account", scope: "account:manage", group: "write", accessKind: "write" }),
         buildToolCatalogEntry({
-          name: "create_transaction_draft_batch",
-          scope: "transaction_draft:create",
-          accessKind: "draft_create",
+          name: "delete_draft",
+          scope: "transaction_draft:delete",
           group: "drafts",
-          enabledByPolicy: false,
+          accessKind: "draft_delete",
           availability: "unavailable",
-          unavailableReason: "Draft MCP tools are disabled by admin policy.",
-          annotations: {
-            readOnlyHint: false,
-            destructiveHint: false,
-            idempotentHint: true,
-            openWorldHint: false,
-          },
-        }),
-        buildToolCatalogEntry({
-          name: "create_account",
-          scope: "account:manage",
-          accessKind: "write",
-          group: "write",
-          enabledByPolicy: true,
-          availability: "available",
-          unavailableReason: null,
-          annotations: {
-            readOnlyHint: false,
-            destructiveHint: false,
-            idempotentHint: false,
-            openWorldHint: false,
-          },
+          unavailableReason: "Draft tools disabled.",
         }),
       ],
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
+    } satisfies AiConnectorSummaryResponse);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
-    expect(document.body.textContent).toContain("Draft MCP tools are disabled by admin policy.");
-    expect(document.body.textContent).toContain("Requires Manage accounts.");
-    const disabledDraftTool = Array.from(document.querySelectorAll("label"))
-      .find((candidate) => candidate.textContent?.includes("create_transaction_draft_batch"));
-    const disabledDraftCheckbox = disabledDraftTool?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
-    expect(disabledDraftCheckbox?.disabled).toBe(true);
-    expect(disabledDraftCheckbox?.getAttribute("aria-describedby")).toBeTruthy();
-  });
+    expect(document.querySelector("[data-testid='ai-connectors-tab-tools']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ai-connectors-mobile-tab-select']")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Connection tools");
 
-  it("renders the MCP tool catalog even when no connectors are connected", async () => {
-    const response: AiConnectorSummaryResponse = {
-      connections: [],
-      policy: buildPolicy(),
-      toolCatalog: [
-        buildToolCatalogEntry({ name: "get_daily_review_report" }),
-      ],
-    };
-    mockFetchAiConnectorSummary.mockResolvedValue(response);
-
-    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await act(async () => {
+      (document.querySelector("[data-testid='ai-connectors-tab-tools']") as HTMLButtonElement | null)?.click();
+    });
     await flushEffects();
 
-    expect(document.querySelector("[data-testid='ai-connector-tool-catalog']")).not.toBeNull();
-    expect(document.body.textContent).toContain("Available MCP tools");
+    expect(document.querySelector("[data-testid='ai-connectors-tool-search']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ai-connectors-tool-group-filter']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ai-connectors-tool-availability-filter']")).not.toBeNull();
     expect(document.body.textContent).toContain("get_daily_review_report");
-    expect(document.body.textContent).toContain("No AI connectors are connected.");
+    expect(document.body.textContent).toContain("Available");
+    expect(document.body.textContent).toContain("delete_draft");
+    expect(document.body.textContent).toContain("Unavailable");
+
+    const search = document.querySelector("[data-testid='ai-connectors-tool-search']") as HTMLInputElement;
+    setInputValue(search, "daily");
+    expect(document.body.textContent).toContain("get_daily_review_report");
+    expect(document.body.textContent).not.toContain("create_account");
+
+    const availability = document.querySelector("[data-testid='ai-connectors-tool-availability-filter']") as HTMLSelectElement;
+    setSelectValue(availability, "unavailable");
+    expect(document.body.textContent).toContain("No tools match");
+
+    setInputValue(search, "");
+    expect(document.body.textContent).toContain("delete_draft");
+    expect(document.body.textContent).not.toContain("get_daily_review_report");
+
+    const group = document.querySelector("[data-testid='ai-connectors-tool-group-filter']") as HTMLSelectElement;
+    setSelectValue(group, "read");
+    expect(document.body.textContent).toContain("No tools match");
+
+    setSelectValue(availability, "all");
+    expect(document.body.textContent).toContain("get_daily_review_report");
+    const reportLabel = Array.from(document.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("get_daily_review_report"));
+    const reportToggle = reportLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+    expect(reportToggle).not.toBeNull();
+    await act(async () => {
+      reportToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mockUpdateAiConnector).toHaveBeenCalledWith("conn-1", {
+      toolToggles: { get_daily_review_report: false },
+    });
   });
 
-  it("loads access logs after connector summary renders", async () => {
+  it("loads access logs after the summary resolves", async () => {
     mockFetchAiConnectorSummary.mockResolvedValue({
       connections: [buildConnection()],
       policy: buildPolicy(),
@@ -290,9 +260,7 @@ describe("AiConnectorsSettingsClient", () => {
     await flushEffects();
     await flushEffects();
 
-    expect(mockFetchAiConnectorSummary).toHaveBeenCalledTimes(1);
     expect(mockFetchAiConnectorLogs).toHaveBeenCalledWith(12);
-    expect(document.body.textContent).toContain("Recent access");
-    expect(document.body.textContent).toContain("portfolio.read");
+    expect(document.querySelector("[data-testid='ai-connectors-tab-access']")).not.toBeNull();
   });
 });

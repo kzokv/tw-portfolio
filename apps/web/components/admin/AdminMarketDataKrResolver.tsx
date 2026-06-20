@@ -16,6 +16,7 @@ import type {
   ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
 import { Card } from "../ui/Card";
+import { Drawer } from "../ui/Drawer";
 import { cn } from "../../lib/utils";
 import {
   bulkUpdateProviderUnresolvedState,
@@ -29,7 +30,9 @@ import {
   reverifyProviderMapping,
   updateProviderUnresolvedState,
 } from "../../lib/adminMarketDataService";
+import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
 import { formatUtcTimestamp } from "./adminFormat";
+import { useAdminI18n } from "./admin-i18n";
 
 export interface KrMappingsData {
   unresolved: ProviderUnresolvedItemsResponse;
@@ -109,6 +112,23 @@ function krResolverModeHelp(mode: KrMappingsData["query"]["resolverMode"]): stri
 function previewExpired(operation: ProviderFixerDashboardOperationDto | null): boolean {
   if (!operation?.preview.tokenExpiresAt) return true;
   return new Date(operation.preview.tokenExpiresAt).getTime() <= Date.now();
+}
+
+function krSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["marketData"]) {
+  return {
+    columnSettingsButtonLabel: adminDict.columnSettingsButtonLabel,
+    columnSettingsTitle: adminDict.columnSettingsTitle,
+    dragColumnTitle: adminDict.dragColumnTitle,
+    mobileSummaryCountLabel: adminDict.mobileSummaryCountLabel,
+    mobileSummaryCountHelp: adminDict.mobileSummaryCountHelp,
+    mobileSummaryCountDecreaseAria: adminDict.mobileSummaryCountDecreaseAria,
+    mobileSummaryCountIncreaseAria: adminDict.mobileSummaryCountIncreaseAria,
+    moveColumnLeftAria: adminDict.moveColumnLeftAria,
+    moveColumnRightAria: adminDict.moveColumnRightAria,
+    resizeColumnAria: adminDict.resizeColumnAria,
+    resetColumnsLabel: adminDict.resetColumnsLabel,
+    toggleColumnAria: adminDict.toggleColumnAria,
+  };
 }
 
 function csvCell(value: unknown): string {
@@ -1021,6 +1041,7 @@ function KrMappingsPanel({
 
 export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   const router = useRouter();
+  const adminDict = useAdminI18n().marketData;
   const operationRows = useMemo(() => {
     const rows = [...data.operations.operations];
     if (data.operations.stagedOperation && !rows.some((operation) => operation.id === data.operations.stagedOperation?.id)) {
@@ -1031,17 +1052,62 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
     }
     return rows;
   }, [data.operations.operations, data.operations.selectedOperation, data.operations.stagedOperation]);
-  const selectedOperation =
-    data.operations.selectedOperation
-    ?? operationRows.find((operation) => operation.id === data.selectedOperationId)
-    ?? operationRows[0]
-    ?? null;
+  const routeOperationId = data.selectedOperationId || null;
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(routeOperationId);
+  const selectedOperation = selectedOperationId ? operationRows.find((operation) => operation.id === selectedOperationId) ?? null : null;
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [outcomeActionInput, setOutcomeActionInput] = useState(data.query.operationOutcomeAction);
   const [outcomeStateInput, setOutcomeStateInput] = useState<KrOperationsData["query"]["operationOutcomeState"]>(data.query.operationOutcomeState);
+  type KrOperationColumnId = "operation" | "phase" | "scope" | "preview" | "matches";
+  const settingsCopy = krSettingsCopy(adminDict);
+  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<ProviderFixerDashboardOperationDto, KrOperationColumnId>>>(() => [
+    {
+      id: "operation",
+      label: "Operation",
+      defaultWidth: 280,
+      canHide: false,
+      renderCell: (operation) => <span className="block break-all font-mono text-xs font-semibold text-foreground">{operation.id}</span>,
+    },
+    {
+      id: "phase",
+      label: adminDict.phase,
+      defaultWidth: 140,
+      renderCell: (operation) => <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>,
+      renderCardValue: (operation) => operation.phase,
+    },
+    {
+      id: "scope",
+      label: adminDict.scope,
+      defaultWidth: 180,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.matchCount.toLocaleString()} matches</span>,
+      renderCardValue: (operation) => `${operation.matchCount.toLocaleString()} matches`,
+    },
+    {
+      id: "preview",
+      label: "Preview",
+      defaultWidth: 210,
+      renderCell: (operation) => (
+        <span className="text-muted-foreground">
+          {operation.preview.sampleCount.toLocaleString()} sample / {operation.preview.matchCount.toLocaleString()} matching
+        </span>
+      ),
+      renderCardValue: (operation) => `${operation.preview.sampleCount.toLocaleString()} / ${operation.preview.matchCount.toLocaleString()}`,
+    },
+    {
+      id: "matches",
+      label: adminDict.progress,
+      defaultWidth: 150,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.progressPercent ?? data.outcomes.summary.progressPercent}%</span>,
+      renderCardValue: (operation) => `${operation.progressPercent ?? data.outcomes.summary.progressPercent}%`,
+    },
+  ], [adminDict, data.outcomes.summary.progressPercent]);
+
+  useEffect(() => {
+    setSelectedOperationId(routeOperationId);
+  }, [routeOperationId]);
 
   useEffect(() => {
     setAcknowledged(false);
@@ -1056,8 +1122,26 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   function pushOperations(next: Partial<KrOperationsData["query"]> & { operationId?: string; providerId?: string }) {
     router.push(krOperationsPath({
       ...data.query,
-      operationId: selectedOperation?.id,
+      operationId: selectedOperationId ?? undefined,
       ...next,
+    }));
+  }
+
+  function selectOperation(operation: ProviderFixerDashboardOperationDto) {
+    setSelectedOperationId(operation.id);
+    router.push(krOperationsPath({
+      ...data.query,
+      operationId: operation.id,
+      operationOutcomesPage: 1,
+    }));
+  }
+
+  function clearSelectedOperation() {
+    setSelectedOperationId(null);
+    router.push(krOperationsPath({
+      ...data.query,
+      operationId: undefined,
+      operationOutcomesPage: 1,
     }));
   }
 
@@ -1082,6 +1166,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
       (result) => {
         if (action === "retry") {
           router.push(krOperationsPath({ ...data.query, operationId: result.operation.id, operationOutcomesPage: 1 }));
+          setSelectedOperationId(result.operation.id);
         }
         return `${action} updated operation ${result.operation.id}.`;
       },
@@ -1114,6 +1199,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
     || !acknowledged
     || (typedConfirmationRequired && typedConfirmation.trim() !== selectedOperation.preview.confirmationText);
   const summary = data.outcomes.summary;
+  const outcomesMatchSelectedOperation = selectedOperation !== null && routeOperationId === selectedOperation.id;
 
   return (
     <div className="min-w-0 space-y-5" data-testid="market-data-kr-operations">
@@ -1137,75 +1223,45 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
       </Card>
 
       <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="provider-console-operations-table">
-        <div className="border-b border-border px-5 py-4">
-          <h3 className="text-base font-semibold text-foreground">Operation history</h3>
-        </div>
-        <div className="min-w-0 overflow-x-auto">
-          <table className="min-w-[56rem] divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3">Operation</th>
-                <th className="px-5 py-3">Phase</th>
-                <th className="px-5 py-3">Scope</th>
-                <th className="px-5 py-3">Preview</th>
-                <th className="px-5 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {operationRows.map((operation) => (
-                <tr key={operation.id}>
-                  <td className="px-5 py-4 font-mono text-xs font-semibold text-foreground">
-                    <span className="block break-all">{operation.id}</span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>
-                  </td>
-                  <td className="px-5 py-4 text-muted-foreground">{operation.matchCount.toLocaleString()} matches</td>
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {operation.preview.sampleCount.toLocaleString()} sample / {operation.preview.matchCount.toLocaleString()} matching
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => pushOperations({ operationId: operation.id, operationOutcomesPage: 1 })}
-                        className={cn("rounded border border-border px-2 py-1 text-xs", selectedOperation?.id === operation.id && "bg-primary text-primary-foreground")}
-                        data-testid={`provider-console-operation-select-${operation.id}`}
-                      >
-                        Inspect
-                      </button>
-                      {operation.canExecute ? (
-                        <button
-                          type="button"
-                          onClick={() => pushOperations({ operationId: operation.id, operationOutcomesPage: 1 })}
-                          className="rounded border border-border px-2 py-1 text-xs"
-                          data-testid={`provider-console-operation-execute-review-${operation.id}`}
-                        >
-                          Execute
-                        </button>
-                      ) : null}
-                      <button type="button" disabled={!operation.canPause || busyAction !== null} onClick={() => void controlOperation(operation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Pause</button>
-                      <button type="button" disabled={!operation.canResume || busyAction !== null} onClick={() => void controlOperation(operation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Resume</button>
-                      <button type="button" disabled={!operation.canRetry || busyAction !== null} onClick={() => void controlOperation(operation, "retry")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-operation-retry-${operation.id}`}>Retry</button>
-                      <button type="button" disabled={!operation.canCancel || busyAction !== null} onClick={() => void controlOperation(operation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">Cancel</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {operationRows.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No KR provider operations match this page.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperation?.id, operationsPage: Math.max(1, data.query.operationsPage - 1) })}>Previous</Link>
-          <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperation?.id, operationsPage: data.query.operationsPage + 1 })}>Next</Link>
-        </div>
+        <AdminMarketDataResponsiveTable
+          columns={columns}
+          rows={operationRows}
+          contextKey="admin.marketData.KR.providerOperations"
+          emptyMessage="No KR provider operations match this page."
+          footer={(
+            <div className="flex gap-2 text-sm">
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperationId ?? undefined, operationsPage: Math.max(1, data.query.operationsPage - 1) })}>Previous</Link>
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperationId ?? undefined, operationsPage: data.query.operationsPage + 1 })}>Next</Link>
+            </div>
+          )}
+          rowKey={(operation) => operation.id}
+          rowTestId={(operation) => `provider-console-operation-select-${operation.id}`}
+          selectedRowKey={selectedOperationId}
+          onRowSelect={selectOperation}
+          settingsCopy={settingsCopy}
+          tableTestId="provider-console-operations-history"
+          desktopMinWidthClassName="min-w-[56rem]"
+          defaultMobileSummaryCount={3}
+          toolbar={<h3 className="text-base font-semibold text-foreground">Operation history</h3>}
+          getCardIdentity={(operation) => ({
+            title: operation.id,
+            subtitle: operation.preview.scopeSummary,
+            badge: <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>,
+          })}
+        />
       </Card>
 
-      {selectedOperation ? (
-        <Card className="min-w-0 space-y-4 px-5 py-4 hover:translate-y-0" data-testid="provider-console-operation-panel">
+      <Drawer
+        open={selectedOperation !== null}
+        onOpenChange={(open) => {
+          if (!open) clearSelectedOperation();
+        }}
+        title={selectedOperation?.id ?? "Operation inspector"}
+        closeLabel={adminDict.closeDrawerAriaLabel}
+        bodyClassName="space-y-4"
+      >
+        {selectedOperation ? (
+          <div className="space-y-4" data-testid="provider-console-operation-panel">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h3 className="text-base font-semibold text-foreground">Operation inspector</h3>
@@ -1251,9 +1307,9 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
                     value={typedConfirmation}
                     onChange={(event) => setTypedConfirmation(event.target.value)}
                     placeholder={selectedOperation.preview.confirmationText ?? ""}
-                    className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                    data-testid="provider-console-operation-typed-confirmation"
-                  />
+                  className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-typed-confirmation"
+                />
                 </label>
               ) : null}
               <button
@@ -1267,6 +1323,13 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
               </button>
             </div>
           ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!selectedOperation.canPause || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Pause</button>
+            <button type="button" disabled={!selectedOperation.canResume || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Resume</button>
+            <button type="button" disabled={!selectedOperation.canRetry || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "retry")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-operation-retry-${selectedOperation.id}`}>Retry</button>
+            <button type="button" disabled={!selectedOperation.canCancel || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">Cancel</button>
+          </div>
+          {outcomesMatchSelectedOperation ? (
           <div className="rounded border border-border bg-muted/20 p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -1346,8 +1409,17 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
               <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperation.id, operationOutcomesPage: data.query.operationOutcomesPage + 1 })}>Next outcomes</Link>
             </div>
           </div>
-        </Card>
-      ) : null}
+          ) : (
+            <div
+              className="rounded border border-border bg-muted/20 p-4 text-sm text-muted-foreground"
+              data-testid="provider-console-operation-outcomes-loading"
+            >
+              Loading operation outcomes...
+            </div>
+          )}
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
 }

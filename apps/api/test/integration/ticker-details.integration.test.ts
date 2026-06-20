@@ -264,6 +264,103 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: reuses realized pnl breakdown mapping for sell rows", async () => {
+    const createZeroFeeProfile = await app.inject({
+      method: "POST",
+      url: "/fee-profiles",
+      headers: authHeaders(),
+      payload: {
+        accountId: "acc-1",
+        name: "Ticker Breakdown Zero Fee",
+        boardCommissionRate: 0,
+        commissionDiscountPercent: 0,
+        minimumCommissionAmount: 0,
+        commissionCurrency: "TWD",
+        commissionRoundingMode: "FLOOR",
+        taxRoundingMode: "FLOOR",
+        stockSellTaxRateBps: 0,
+        stockDayTradeTaxRateBps: 0,
+        etfSellTaxRateBps: 0,
+        bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
+      },
+    });
+    expect(createZeroFeeProfile.statusCode).toBe(200);
+    const zeroFeeProfile = createZeroFeeProfile.json() as { id: string };
+
+    const updateFeeConfig = await app.inject({
+      method: "PUT",
+      url: "/settings/fee-config",
+      headers: authHeaders(),
+      payload: {
+        accounts: [{ id: "acc-1", feeProfileId: zeroFeeProfile.id }],
+        feeProfileBindings: [],
+      },
+    });
+    expect(updateFeeConfig.statusCode).toBe(200);
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-breakdown-buy-1" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-breakdown-buy-2" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 10,
+        unitPrice: 120,
+        tradeDate: "2026-01-03",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-breakdown-sell" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 5,
+        unitPrice: 130,
+        tradeDate: "2026-01-04",
+        type: "SELL",
+      }),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details?accountId=acc-1",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      transactions: expect.arrayContaining([
+        expect.objectContaining({
+          type: "SELL",
+          realizedPnlBreakdown: expect.objectContaining({
+            status: "available",
+            preSaleOpenQuantity: 20,
+            allocatedCostAmount: 550,
+            netProceedsAmount: 650,
+            realizedPnlAmount: 100,
+          }),
+        }),
+        expect.objectContaining({
+          type: "BUY",
+          realizedPnlBreakdown: null,
+        }),
+      ]),
+    }));
+  });
+
   it("[ticker details]: computes market value and P&L for non-TW tickers by market", async () => {
     await app.persistence._setUserPreferences(userId, { reportingCurrency: "USD" });
     const createUsAccount = await app.inject({

@@ -263,6 +263,162 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     );
   });
 
+  it("returns realized pnl breakdown math for sell rows and null for buy rows", async () => {
+    const zeroFeeProfileResponse = await app.inject({
+      method: "POST",
+      url: "/fee-profiles",
+      payload: feeProfilePayload({ name: "Zero Fee Breakdown" }),
+    });
+    expect(zeroFeeProfileResponse.statusCode).toBe(200);
+    const zeroFeeProfile = zeroFeeProfileResponse.json();
+
+    const saveFull = await app.inject({
+      method: "PUT",
+      url: "/settings/fee-config",
+      payload: {
+        accounts: [{ id: "acc-1", feeProfileId: zeroFeeProfile.id }],
+        feeProfileBindings: [],
+      },
+    });
+    expect(saveFull.statusCode).toBe(200);
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-buy-1" },
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-01" }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-buy-2" },
+      payload: transactionPayload({ quantity: 10, unitPrice: 120, tradeDate: "2026-01-02" }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-sell" },
+      payload: transactionPayload({
+        quantity: 5,
+        unitPrice: 130,
+        tradeDate: "2026-01-03",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/transactions" });
+    expect(response.statusCode).toBe(200);
+
+    const transactions = response.json() as Array<{
+      type: string;
+      realizedPnlBreakdown: Record<string, unknown> | null;
+    }>;
+
+    const sell = transactions.find((tx) => tx.type === "SELL");
+    expect(sell?.realizedPnlBreakdown).toEqual({
+      status: "available",
+      currency: "TWD",
+      preSaleOpenQuantity: 20,
+      preSaleOpenCostAmount: 2200,
+      exactAverageCostPerShare: 110,
+      roundedAverageCostPerShare: 110,
+      allocatedCostAmount: 550,
+      grossProceedsAmount: 650,
+      commissionAmount: 0,
+      taxAmount: 0,
+      netProceedsAmount: 650,
+      realizedPnlAmount: 100,
+    });
+
+    const buy = transactions.find((tx) => tx.type === "BUY");
+    expect(buy?.realizedPnlBreakdown).toBeNull();
+  });
+
+  it("marks realized pnl breakdown unavailable when replay finds insufficient quantity", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-insufficient-buy" },
+      payload: transactionPayload({ quantity: 3, unitPrice: 100, tradeDate: "2026-01-01" }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-insufficient-sell" },
+      payload: transactionPayload({
+        quantity: 2,
+        unitPrice: 120,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    const buy = store.accounting.facts.tradeEvents.find((trade) => trade.type === "BUY");
+    if (!buy) {
+      throw new Error("expected seeded buy trade");
+    }
+    buy.quantity = 1;
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/transactions" });
+    expect(response.statusCode).toBe(200);
+
+    const sell = (response.json() as Array<{
+      type: string;
+      realizedPnlBreakdown: Record<string, unknown> | null;
+    }>).find((tx) => tx.type === "SELL");
+
+    expect(sell?.realizedPnlBreakdown).toEqual({
+      status: "unavailable",
+      currency: "TWD",
+      reason: "insufficient_quantity",
+    });
+  });
+
+  it("marks realized pnl breakdown unavailable on trade-currency mismatch", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-currency-buy" },
+      payload: transactionPayload({ quantity: 3, unitPrice: 100, tradeDate: "2026-01-01" }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-breakdown-currency-sell" },
+      payload: transactionPayload({
+        quantity: 2,
+        unitPrice: 120,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    const buy = store.accounting.facts.tradeEvents.find((trade) => trade.type === "BUY");
+    if (!buy) {
+      throw new Error("expected seeded buy trade");
+    }
+    buy.priceCurrency = "USD";
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/transactions" });
+    expect(response.statusCode).toBe(200);
+
+    const sell = (response.json() as Array<{
+      type: string;
+      realizedPnlBreakdown: Record<string, unknown> | null;
+    }>).find((tx) => tx.type === "SELL");
+
+    expect(sell?.realizedPnlBreakdown).toEqual({
+      status: "unavailable",
+      currency: "TWD",
+      reason: "currency_mismatch",
+    });
+  });
+
+
   it("accepts booked commission and tax overrides and uses them in accounting outputs", async () => {
     const createBuyResponse = await app.inject({
       method: "POST",

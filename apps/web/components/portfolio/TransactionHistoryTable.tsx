@@ -10,6 +10,7 @@ import { Card } from "../ui/Card";
 import { EditableTransactionRow } from "./EditableTransactionRow";
 import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
 import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
+import { RealizedPnlBreakdownInline, RealizedPnlValue } from "./RealizedPnlBreakdown";
 
 interface TransactionHistoryTableProps {
   transactions: TransactionHistoryItemDto[];
@@ -52,6 +53,9 @@ export function TransactionHistoryTable({
           otherwise. Same `transaction-row` / `editable-transaction-row` /
           `edit-transaction-button` / `delete-transaction-button` testids in
           both renderings — only one variant is in DOM at a time. */}
+      <p className="mb-3 rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm text-muted-foreground">
+        {dict.tickerHistory.realizedPnlWeightedAverageNote}
+      </p>
       {isSmallScreen ? (
         <div className="grid gap-3">
           {transactions.map((transaction) => {
@@ -101,7 +105,7 @@ export function TransactionHistoryTable({
                         label={dict.tickerHistory.taxLabel}
                         value={formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}
                       />
-                      <HistoryDetail
+                      <HistoryDetailNode
                         label={dict.tickerHistory.realizedPnlLabel}
                         value={transaction.realizedPnlAmount === null
                           ? dict.tickerHistory.noRealizedPnl
@@ -110,6 +114,13 @@ export function TransactionHistoryTable({
                       />
                       <HistoryDetail label={dict.tickerHistory.feeProfileLabel} value={transaction.feeProfileName} />
                     </dl>
+                    {transaction.type === "SELL" ? (
+                      <RealizedPnlBreakdownInline
+                        breakdown={transaction.realizedPnlBreakdown ?? null}
+                        dict={dict}
+                        locale={locale}
+                      />
+                    ) : null}
 
                     {hasMutationActions && (
                       <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
@@ -202,10 +213,15 @@ export function TransactionHistoryTable({
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}</td>
-                    <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(transaction.realizedPnlAmount))}>
-                      {transaction.realizedPnlAmount === null
-                        ? dict.tickerHistory.noRealizedPnl
-                        : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
+                    <td className="px-4 py-4 text-right font-medium">
+                      <RealizedPnlValue
+                        amount={transaction.realizedPnlAmount}
+                        breakdown={transaction.type === "SELL" ? transaction.realizedPnlBreakdown ?? null : null}
+                        currency={transaction.realizedPnlCurrency ?? transaction.priceCurrency}
+                        dict={dict}
+                        locale={locale}
+                        toneClassName={getRealizedPnlTone(transaction.realizedPnlAmount)}
+                      />
                     </td>
                     <td className="px-4 py-4 text-muted-foreground">{transaction.feeProfileName}</td>
                     <td className="px-4 py-4 text-muted-foreground">
@@ -253,6 +269,23 @@ export function TransactionHistoryTable({
 }
 
 function HistoryDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+  return (
+    <div>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
+      <dd className={cn("mt-1 text-sm font-medium text-foreground", valueClassName)}>{value}</dd>
+    </div>
+  );
+}
+
+function HistoryDetailNode({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: React.ReactNode;
+  valueClassName?: string;
+}) {
   return (
     <div>
       <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>

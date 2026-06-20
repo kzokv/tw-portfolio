@@ -29,6 +29,7 @@ import {
 } from "./market-data/marketRegularSession.js";
 import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
+import { createRealizedPnlBreakdownResolver } from "./realizedPnlBreakdown.js";
 import type { DividendEvent, Store, Transaction } from "../types/store.js";
 
 type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
@@ -170,6 +171,8 @@ export async function buildTickerDetails(
     accountBreakdown,
   });
 
+  const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(input.store.accounting);
+
   const details: TickerDetailsDto = {
     identity: {
       ticker: normalizedTicker,
@@ -197,7 +200,7 @@ export async function buildTickerDetails(
       metadata: chart.metadata,
       points: chart.points,
     },
-    transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById)),
+    transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
       upcoming: upcomingDividends,
       recent: recentDividends,
@@ -866,6 +869,7 @@ function buildFundamentalsRefresh(
 function mapTransactionHistoryItem(
   trade: Transaction,
   accountById: ReadonlyMap<string, { id: string; name: string }>,
+  buildRealizedPnlBreakdown: (trade: Transaction) => TransactionHistoryItemDto["realizedPnlBreakdown"],
 ): TransactionHistoryItemDto {
   return {
     id: trade.id,
@@ -886,6 +890,7 @@ function mapTransactionHistoryItem(
     isDayTrade: trade.isDayTrade,
     realizedPnlAmount: trade.realizedPnlAmount ?? null,
     realizedPnlCurrency: trade.realizedPnlCurrency ?? null,
+    realizedPnlBreakdown: buildRealizedPnlBreakdown(trade),
     feeProfileId: trade.feeSnapshot.id,
     feeProfileName: trade.feeSnapshot.name,
     bookedAt: trade.bookedAt ?? null,

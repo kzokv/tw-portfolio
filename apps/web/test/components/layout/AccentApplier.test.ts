@@ -7,6 +7,8 @@ describe("AccentApplier", () => {
     expect(shouldSkipPreferenceHydration("/auth/error")).toBe(true);
     expect(shouldSkipPreferenceHydration("/invite")).toBe(true);
     expect(shouldSkipPreferenceHydration("/invite/CHGGDFXB")).toBe(true);
+    expect(shouldSkipPreferenceHydration("/share")).toBe(true);
+    expect(shouldSkipPreferenceHydration("/share/public-token")).toBe(true);
   });
 
   it("hydrates preferences on authenticated app surfaces", () => {

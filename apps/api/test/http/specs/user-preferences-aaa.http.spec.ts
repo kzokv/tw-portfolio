@@ -268,6 +268,48 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[user-prefs]: PATCH /user-preferences { adminMarketDataTableSettings } → 200 echoes, GET returns same", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-admin-market-data-table-settings-sub",
+      email: "user-prefs-admin-market-data-table-settings@example.com",
+      name: "Prefs Admin Market Data Table Settings",
+      role: "admin",
+    });
+    const adminMarketDataTableSettings = {
+      version: 1,
+      contexts: {
+        "admin.marketData.TW.instruments": {
+          columnOrder: ["ticker", "status", "support", "backfill"],
+          hiddenColumns: ["providers"],
+          columnWidths: { ticker: 240, status: 140 },
+          mobileSummaryCount: 3,
+        },
+      },
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { adminMarketDataTableSettings },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      adminMarketDataTableSettings,
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      adminMarketDataTableSettings,
+    });
+  });
+
   test("[user-prefs]: GET /user-preferences/effective-ranges → source=default when no user pref, no admin override", async ({
     request,
     adminApi,

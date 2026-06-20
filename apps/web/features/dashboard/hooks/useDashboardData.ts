@@ -29,6 +29,7 @@ interface UseDashboardDataResult extends DashboardSnapshot {
   isBootstrapping: boolean;
   isRefreshing: boolean;
   errorMessage: string;
+  quoteRefreshVersion: number;
   setErrorMessage: (message: string) => void;
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;
@@ -111,6 +112,7 @@ export function useDashboardPrimaryData({
   const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(initialCached?.status ?? null);
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const [quoteRefreshVersion, setQuoteRefreshVersion] = useState(0);
   const initialCacheKeyRef = useRef(cacheKey);
   const requestVersionRef = useRef(0);
 
@@ -121,7 +123,10 @@ export function useDashboardPrimaryData({
 
   const isCurrentRequest = useCallback((version: number) => version === requestVersionRef.current, []);
 
-  const refreshEnrichment = useCallback(async (version: number) => {
+  const refreshEnrichment = useCallback(async (
+    version: number,
+    options?: { markQuoteRefresh?: boolean },
+  ) => {
     try {
       const nextSnapshot = await fetchDashboardEnrichmentData();
       if (!isCurrentRequest(version)) return;
@@ -136,6 +141,9 @@ export function useDashboardPrimaryData({
       setCacheStatus("fresh");
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
+      if (options?.markQuoteRefresh) {
+        setQuoteRefreshVersion((current) => current + 1);
+      }
     } catch {
       // Secondary market/FX/freshness enrichment must not blank primary content.
     }
@@ -171,7 +179,7 @@ export function useDashboardPrimaryData({
   }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   const refreshPrices = useCallback(async () => {
-    await refreshEnrichment(requestVersionRef.current);
+    await refreshEnrichment(requestVersionRef.current, { markQuoteRefresh: true });
   }, [refreshEnrichment]);
 
   useEffect(() => {
@@ -252,6 +260,7 @@ export function useDashboardPrimaryData({
     isBootstrapping,
     isRefreshing,
     errorMessage,
+    quoteRefreshVersion,
     setErrorMessage,
     showIntegrityDialog,
     setShowIntegrityDialog,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataBackfillTargetDto,
@@ -53,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/shadcn/select";
+import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
 import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
 import { Pagination } from "./Pagination";
 import { formatUtcTimestamp } from "./adminFormat";
@@ -67,6 +68,7 @@ import type {
   MarketActivityTableItemDto,
   YahooChartActivitySummaryDto,
 } from "../../lib/adminMarketDataContracts";
+import type { HoldingsColumnSettingsCopy } from "../holdings/HoldingsColumnSettings";
 
 interface AdminMarketDataLandingClientProps {
   data: AdminMarketDataLandingResponse;
@@ -136,6 +138,27 @@ function marketTone(status: AdminMarketDataLandingResponse["markets"][number]["h
   if (status === "degraded") return "bg-amber-500";
   if (status === "down") return "bg-rose-500";
   return "bg-slate-400";
+}
+
+function marketDataSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["marketData"]): Partial<HoldingsColumnSettingsCopy> {
+  return {
+    columnSettingsButtonLabel: adminDict.columnSettingsButtonLabel,
+    columnSettingsTitle: adminDict.columnSettingsTitle,
+    dragColumnTitle: adminDict.dragColumnTitle,
+    mobileSummaryCountLabel: adminDict.mobileSummaryCountLabel,
+    mobileSummaryCountHelp: adminDict.mobileSummaryCountHelp,
+    mobileSummaryCountDecreaseAria: adminDict.mobileSummaryCountDecreaseAria,
+    mobileSummaryCountIncreaseAria: adminDict.mobileSummaryCountIncreaseAria,
+    moveColumnLeftAria: adminDict.moveColumnLeftAria,
+    moveColumnRightAria: adminDict.moveColumnRightAria,
+    resizeColumnAria: adminDict.resizeColumnAria,
+    resetColumnsLabel: adminDict.resetColumnsLabel,
+    toggleColumnAria: adminDict.toggleColumnAria,
+  };
+}
+
+function detailRow(label: string, value: string | null | undefined) {
+  return { label, value: value && value.trim() ? value : "—" };
 }
 
 function ActionChips({ marketCode, actions }: { marketCode: AdminMarketCode; actions: AdminMarketDataActionDto[] }) {
@@ -443,16 +466,75 @@ function InstrumentsPanel({
   initialQuery: InstrumentQuery;
 }) {
   const router = useRouter();
+  const adminDict = useAdminI18n().marketData;
   const [rows, setRows] = useState(instruments.items);
   const [filters, setFilters] = useState<InstrumentQuery>(initialQuery);
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [savingTicker, setSavingTicker] = useState<string | null>(null);
   const [savingDelistingTicker, setSavingDelistingTicker] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
   const delistingOverrideSupported = instruments.marketCode === "AU" || instruments.marketCode === "KR";
+  const selectedInstrument = selectedTicker ? rows.find((row) => row.ticker === selectedTicker) ?? null : null;
+  type InstrumentColumnId = "ticker" | "status" | "support" | "backfill" | "providers" | "lastSeen";
+  const settingsCopy = marketDataSettingsCopy(adminDict);
+  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<AdminMarketDataInstrumentDto, InstrumentColumnId>>>(() => [
+    {
+      id: "ticker",
+      label: "Ticker",
+      defaultWidth: 240,
+      canHide: false,
+      renderCell: (row) => (
+        <div>
+          <p className="font-medium text-foreground">{row.ticker}</p>
+          <p className="mt-1 max-w-[20rem] truncate text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      label: "Status",
+      defaultWidth: 140,
+      renderCell: (row) => <span className="text-muted-foreground">{row.status}</span>,
+    },
+    {
+      id: "support",
+      label: "Support",
+      defaultWidth: 170,
+      renderCell: (row) => <span className="text-muted-foreground">{row.supportState}</span>,
+    },
+    {
+      id: "backfill",
+      label: "Backfill",
+      defaultWidth: 150,
+      renderCell: (row) => <span className="text-muted-foreground">{row.backfillStatus}</span>,
+      renderCardValue: (row) => row.backfillStatus,
+    },
+    {
+      id: "providers",
+      label: "Providers",
+      defaultWidth: 220,
+      renderCell: (row) => (
+        <div className="flex flex-wrap gap-1">
+          {row.providerIds.map((providerId) => (
+            <span key={providerId} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{providerId}</span>
+          ))}
+        </div>
+      ),
+      renderCardValue: (row) => row.providerIds.join(", "),
+    },
+    {
+      id: "lastSeen",
+      label: "Last seen",
+      defaultWidth: 170,
+      renderCell: (row) => <span className="text-muted-foreground">{formatUtcTimestamp(row.lastSeenInCatalogAt)}</span>,
+      renderCardValue: (row) => formatUtcTimestamp(row.lastSeenInCatalogAt),
+    },
+  ], []);
 
   useEffect(() => {
     setRows(instruments.items);
     setFilters(initialQuery);
+    setSelectedTicker(null);
   }, [initialQuery, instruments.items]);
 
   function updateFilter(key: keyof InstrumentQuery, value: string) {
@@ -521,115 +603,136 @@ function InstrumentsPanel({
           </div>
         </div>
       </div>
-      <div className="min-w-0 overflow-x-auto">
-        <table className="w-max min-w-[72rem] divide-y divide-border text-sm">
-          <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-5 py-3">Ticker</th>
-              <th className="px-5 py-3">Status</th>
-              <th className="px-5 py-3">Support</th>
-              <th className="px-5 py-3">Backfill</th>
-              <th className="px-5 py-3">Providers</th>
-              <th className="px-5 py-3">Support controls</th>
-              <th className="px-5 py-3">Delisting override</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((row) => (
-              <tr key={`${row.marketCode}:${row.ticker}`}>
-                <td className="px-5 py-4">
-                  <p className="font-medium text-foreground">{row.ticker}</p>
-                  <p className="mt-1 max-w-[20rem] truncate text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
-                </td>
-                <td className="px-5 py-4 text-muted-foreground">{row.status}</td>
-                <td className="px-5 py-4 text-muted-foreground">{row.supportState}</td>
-                <td className="px-5 py-4 text-muted-foreground">{row.backfillStatus}</td>
-                <td className="px-5 py-4">
-                  <div className="flex flex-wrap gap-1">
-                    {row.providerIds.map((providerId) => (
-                      <span key={providerId} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{providerId}</span>
-                    ))}
+      <AdminMarketDataResponsiveTable
+        columns={columns}
+        rows={rows}
+        contextKey={`admin.marketData.${instruments.marketCode}.instruments`}
+        emptyMessage="No instruments match this filter."
+        footer={(
+          <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Showing {rows.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Link
+                href={queryPath(instruments.marketCode, "instruments", filters, Math.max(1, instruments.page - 1))}
+                aria-disabled={instruments.page <= 1}
+                className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}
+              >
+                Previous
+              </Link>
+              <Link
+                href={queryPath(instruments.marketCode, "instruments", filters, Math.min(totalPages, instruments.page + 1))}
+                aria-disabled={instruments.page >= totalPages}
+                className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}
+              >
+                Next
+              </Link>
+            </div>
+          </div>
+        )}
+        rowKey={(row) => `${row.marketCode}:${row.ticker}`}
+        rowTestId={(row) => `market-data-instrument-row-${row.ticker}`}
+        selectedRowKey={selectedInstrument ? `${selectedInstrument.marketCode}:${selectedInstrument.ticker}` : null}
+        onRowSelect={(row) => setSelectedTicker(row.ticker)}
+        settingsCopy={settingsCopy}
+        tableTestId="market-data-instruments-table"
+        desktopMinWidthClassName="min-w-[72rem]"
+        defaultMobileSummaryCount={3}
+        getCardIdentity={(row) => ({
+          title: row.ticker,
+          subtitle: row.name ?? "Unnamed",
+          badge: <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{row.backfillStatus}</span>,
+        })}
+      />
+      <Drawer
+        open={selectedInstrument !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTicker(null);
+        }}
+        title={selectedInstrument ? `${selectedInstrument.ticker} details` : "Instrument details"}
+        closeLabel={adminDict.closeDrawerAriaLabel}
+        bodyClassName="space-y-4"
+      >
+        {selectedInstrument ? (
+          <>
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">{adminDict.summary}</h3>
+              <dl className="grid gap-2">
+                {[
+                  detailRow("Ticker", selectedInstrument.ticker),
+                  detailRow("Name", selectedInstrument.name ?? "Unnamed"),
+                  detailRow("Market", selectedInstrument.marketCode),
+                  detailRow("Type", selectedInstrument.instrumentType),
+                  detailRow("Status", selectedInstrument.status),
+                  detailRow("Support", selectedInstrument.supportState),
+                  detailRow("Backfill", selectedInstrument.backfillStatus),
+                  detailRow("Providers", selectedInstrument.providerIds.join(", ")),
+                  detailRow("Last seen", formatUtcTimestamp(selectedInstrument.lastSeenInCatalogAt)),
+                  detailRow("Delisted at", selectedInstrument.delistedAt ? formatUtcTimestamp(selectedInstrument.delistedAt) : null),
+                  detailRow("Absence streak", selectedInstrument.absenceStreak.toLocaleString()),
+                ].map((row) => (
+                  <div key={`${selectedInstrument.ticker}:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                    <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                    <dd className="break-words text-sm text-foreground">{row.value}</dd>
                   </div>
-                </td>
-                <td className="px-5 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    {(["supported", "retired_by_admin", "unsupported_by_provider"] as const).map((state) => (
-                      <button
-                        key={state}
-                        type="button"
-                        disabled={savingTicker === row.ticker || row.supportState === state}
-                        onClick={() => void setSupportState(row, state)}
-                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
-                      >
-                        {state}
-                      </button>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-5 py-4">
-                  {delistingOverrideSupported ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={savingDelistingTicker === row.ticker || row.delistingDetectionExcluded}
-                        onClick={() => void setDelistingOverride(row, "exclude_from_delisting_detection")}
-                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
-                      >
-                        Exclude detection
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingDelistingTicker === row.ticker || !row.delistingDetectionExcluded}
-                        onClick={() => void setDelistingOverride(row, "include_in_delisting_detection")}
-                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
-                      >
-                        Include detection
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingDelistingTicker === row.ticker || !row.delistedAt}
-                        onClick={() => void setDelistingOverride(row, "clear_delisted_state")}
-                        className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
-                      >
-                        Clear delisted
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">AU/KR only</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <p>
-          Showing {rows.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Link
-            href={queryPath(instruments.marketCode, "instruments", filters, Math.max(1, instruments.page - 1))}
-            aria-disabled={instruments.page <= 1}
-            className={cn(
-              "rounded border border-border px-3 py-2",
-              instruments.page <= 1 && "pointer-events-none opacity-50",
-            )}
-          >
-            Previous
-          </Link>
-          <Link
-            href={queryPath(instruments.marketCode, "instruments", filters, Math.min(totalPages, instruments.page + 1))}
-            aria-disabled={instruments.page >= totalPages}
-            className={cn(
-              "rounded border border-border px-3 py-2",
-              instruments.page >= totalPages && "pointer-events-none opacity-50",
-            )}
-          >
-            Next
-          </Link>
-        </div>
-      </div>
+                ))}
+              </dl>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">Support controls</h3>
+              <div className="flex flex-wrap gap-2 rounded-md border border-border/70 bg-muted/20 p-3">
+                {(["supported", "retired_by_admin", "unsupported_by_provider"] as const).map((state) => (
+                  <button
+                    key={state}
+                    type="button"
+                    disabled={savingTicker === selectedInstrument.ticker || selectedInstrument.supportState === state}
+                    onClick={() => void setSupportState(selectedInstrument, state)}
+                    className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                  >
+                    {state}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">Delisting override</h3>
+              {delistingOverrideSupported ? (
+                <div className="flex flex-wrap gap-2 rounded-md border border-border/70 bg-muted/20 p-3">
+                  <button
+                    type="button"
+                    disabled={savingDelistingTicker === selectedInstrument.ticker || selectedInstrument.delistingDetectionExcluded}
+                    onClick={() => void setDelistingOverride(selectedInstrument, "exclude_from_delisting_detection")}
+                    className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                  >
+                    Exclude detection
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDelistingTicker === selectedInstrument.ticker || !selectedInstrument.delistingDetectionExcluded}
+                    onClick={() => void setDelistingOverride(selectedInstrument, "include_in_delisting_detection")}
+                    className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                  >
+                    Include detection
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDelistingTicker === selectedInstrument.ticker || !selectedInstrument.delistedAt}
+                    onClick={() => void setDelistingOverride(selectedInstrument, "clear_delisted_state")}
+                    className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
+                  >
+                    Clear delisted
+                  </button>
+                </div>
+              ) : (
+                <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">AU/KR only</p>
+              )}
+            </section>
+          </>
+        ) : null}
+      </Drawer>
     </Card>
   );
 }
@@ -649,6 +752,7 @@ function FilterSelect({
     <label className="min-w-0 text-sm font-medium text-foreground">
       {label}
       <select
+        aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="mt-1 w-full min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
@@ -1563,54 +1667,102 @@ function OperationsPanel({
   currentProviderId: string;
 }) {
   const adminDict = useAdminI18n().marketData;
-  const [selectedOperation, setSelectedOperation] = useState<AdminMarketDataOperationsResponse["items"][number] | null>(operations.items[0] ?? null);
+  const [selectedOperation, setSelectedOperation] = useState<AdminMarketDataOperationsResponse["items"][number] | null>(null);
+  type OperationColumnId = "operation" | "phase" | "provider" | "scope" | "matches" | "progress";
+  const settingsCopy = marketDataSettingsCopy(adminDict);
+  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<AdminMarketDataOperationsResponse["items"][number], OperationColumnId>>>(() => [
+    {
+      id: "operation",
+      label: "Operation",
+      defaultWidth: 280,
+      canHide: false,
+      renderCell: (operation) => (
+        <div className="min-w-0">
+          <p className="break-all font-medium text-foreground">{operation.id}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{operation.preview.scopeSummary}</p>
+        </div>
+      ),
+    },
+    {
+      id: "phase",
+      label: adminDict.phase,
+      defaultWidth: 140,
+      renderCell: (operation) => <span className="text-muted-foreground">{friendlyLabel(operation.phase)}</span>,
+    },
+    {
+      id: "provider",
+      label: adminDict.provider,
+      defaultWidth: 180,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.providerId}</span>,
+    },
+    {
+      id: "scope",
+      label: adminDict.scope,
+      defaultWidth: 240,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.preview.scopeSummary}</span>,
+      renderCardValue: (operation) => operation.preview.scopeSummary,
+    },
+    {
+      id: "matches",
+      label: adminDict.matchesLabel,
+      defaultWidth: 130,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.matchCount.toLocaleString()}</span>,
+    },
+    {
+      id: "progress",
+      label: adminDict.progress,
+      defaultWidth: 150,
+      renderCell: (operation) => (
+        <span className="text-muted-foreground">
+          {operation.progressPercent === null ? adminDict.queued : adminDict.progressPercent.replace("{percent}", String(operation.progressPercent))}
+        </span>
+      ),
+      renderCardValue: (operation) => operation.progressPercent === null ? adminDict.queued : `${operation.progressPercent}%`,
+    },
+  ], [adminDict]);
 
   return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]" data-testid="market-data-operations">
+    <div className="min-w-0" data-testid="market-data-operations">
       <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="text-base font-semibold text-foreground">{adminDict.operationTitle}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{adminDict.operationDescription}</p>
-          <ProviderFilterLinks
-            currentProviderId={currentProviderId}
-            marketCode={operations.marketCode}
-            providers={operations.providers}
-            tab="operations"
-          />
-        </div>
-        <ul className="divide-y divide-border">
-          {operations.items.map((operation) => (
-            <li key={operation.id}>
-              <button
-                type="button"
-                className={cn(
-                  "grid w-full gap-3 px-5 py-4 text-left text-sm sm:grid-cols-[minmax(0,1fr)_auto]",
-                  selectedOperation?.id === operation.id && "bg-muted/20",
-                )}
-                onClick={() => setSelectedOperation(operation)}
-                data-testid={`market-data-operation-row-${operation.id}`}
-              >
-                <div className="min-w-0">
-                  <p className="break-all font-medium text-foreground">{operation.id}</p>
-                  <p className="mt-1 text-muted-foreground">{operation.providerId} - {friendlyLabel(operation.phase)}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{operation.preview.scopeSummary}</p>
-                </div>
-                <div className="text-left text-xs text-muted-foreground sm:text-right">
-                  <div>{adminDict.matches.replace("{count}", operation.matchCount.toLocaleString())}</div>
-                  <div>{operation.progressPercent === null ? adminDict.queued : adminDict.progressPercent.replace("{percent}", String(operation.progressPercent))}</div>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <AdminMarketDataResponsiveTable
+          columns={columns}
+          rows={operations.items}
+          contextKey={`admin.marketData.${operations.marketCode}.operations`}
+          emptyMessage="No provider operations match this page."
+          rowKey={(operation) => operation.id}
+          rowTestId={(operation) => `market-data-operation-row-${operation.id}`}
+          selectedRowKey={selectedOperation?.id ?? null}
+          onRowSelect={setSelectedOperation}
+          settingsCopy={settingsCopy}
+          tableTestId="market-data-operations-table"
+          desktopMinWidthClassName="min-w-[70rem]"
+          defaultMobileSummaryCount={3}
+          toolbar={(
+            <div>
+              <h2 className="text-base font-semibold text-foreground">{adminDict.operationTitle}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{adminDict.operationDescription}</p>
+              <ProviderFilterLinks
+                currentProviderId={currentProviderId}
+                marketCode={operations.marketCode}
+                providers={operations.providers}
+                tab="operations"
+              />
+            </div>
+          )}
+          getCardIdentity={(operation) => ({
+            title: operation.id,
+            subtitle: `${operation.providerId} - ${friendlyLabel(operation.phase)}`,
+            badge: <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{operation.matchCount.toLocaleString()} matches</span>,
+          })}
+        />
       </Card>
-
       <Drawer
         open={selectedOperation !== null}
         onOpenChange={(open) => {
           if (!open) setSelectedOperation(null);
         }}
         title={selectedOperation?.id ?? adminDict.operationDetails}
+        closeLabel={adminDict.closeDrawerAriaLabel}
         bodyClassName="space-y-4"
       >
         {selectedOperation ? (
@@ -1700,6 +1852,60 @@ function ActivityPanel({
   const [category, setCategory] = useState(activity.query?.category ?? "");
   const [result, setResult] = useState(activity.query?.result ?? "all");
   const [timeRange, setTimeRange] = useState(activity.query?.timeRange ?? "24h");
+  type ActivityColumnId = "time" | "category" | "source" | "subject" | "result" | "facts";
+  const settingsCopy = marketDataSettingsCopy(adminDict);
+  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<MarketActivityTableItemDto, ActivityColumnId>>>(() => [
+    {
+      id: "time",
+      label: adminDict.time,
+      defaultWidth: 180,
+      canHide: false,
+      renderCell: (item) => <span className="font-mono text-xs text-muted-foreground">{formatUtcTimestamp(item.occurredAt)}</span>,
+      renderCardValue: (item) => formatUtcTimestamp(item.occurredAt),
+    },
+    {
+      id: "category",
+      label: adminDict.category,
+      defaultWidth: 150,
+      renderCell: (item) => <ActivityBadge tone={item.category}>{friendlyCategoryLabel(item.category, adminDict)}</ActivityBadge>,
+    },
+    {
+      id: "source",
+      label: adminDict.source,
+      defaultWidth: 190,
+      renderCell: (item) => (
+        <div>
+          <div>{item.sourceLabel ?? friendlySourceLabel(item.sourceKind ?? item.source, adminDict)}</div>
+          {item.sourceId ? <div className="text-xs text-muted-foreground">{item.sourceId}</div> : null}
+        </div>
+      ),
+      renderCardValue: (item) => item.sourceLabel ?? friendlySourceLabel(item.sourceKind ?? item.source, adminDict),
+    },
+    {
+      id: "subject",
+      label: adminDict.subject,
+      defaultWidth: 220,
+      renderCell: (item) => (
+        <div>
+          <div className="font-medium text-foreground">{item.subject}</div>
+          {item.subjectDetail ? <div className="text-xs text-muted-foreground">{item.subjectDetail}</div> : null}
+        </div>
+      ),
+    },
+    {
+      id: "result",
+      label: adminDict.result,
+      defaultWidth: 130,
+      renderCell: (item) => <ActivityBadge tone={item.result}>{friendlyResultLabel(item.result, adminDict)}</ActivityBadge>,
+    },
+    {
+      id: "facts",
+      label: adminDict.facts,
+      defaultWidth: 280,
+      renderCell: (item) => <span className="block break-words text-muted-foreground">{item.facts}</span>,
+      renderCardValue: (item) => item.facts,
+    },
+  ], [adminDict]);
 
   function pushQuery(next: Partial<Record<string, string | number>>) {
     const params = new URLSearchParams();
@@ -1807,71 +2013,53 @@ function ActivityPanel({
         </Card>
 
         <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
-          <div className="grid min-w-0 gap-3 border-b border-border px-5 py-4 lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(0,0.8fr))] xl:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(0,0.7fr))]">
-            <label className="min-w-0 space-y-1 text-sm">
-              <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{adminDict.search}</span>
-              <input
-                className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                onBlur={() => pushQuery({ search })}
-                placeholder={adminDict.searchPlaceholder}
-                data-testid="activity-search-input"
+          <AdminMarketDataResponsiveTable
+            columns={columns}
+            rows={activityRows}
+            contextKey={`admin.marketData.${marketCode}.activity`}
+            emptyMessage="No activity rows match this filter."
+            footer={(
+              <Pagination
+                page={activity.page}
+                limit={activity.limit}
+                total={activity.total}
+                onPageChange={(nextPage) => pushQuery({ page: nextPage })}
               />
-            </label>
-            <ActivityFilterSelect label={adminDict.sourceKind} options={sourceKinds} value={sourceKind} onChange={(next) => { setSourceKind(next); pushQuery({ sourceKind: next }); }} testId="activity-source-kind-filter" />
-            <ActivityFilterSelect label={adminDict.sourceId} options={sourceIds} value={sourceId} onChange={(next) => { setSourceId(next); pushQuery({ sourceId: next }); }} testId="activity-source-id-filter" />
-            <ActivityFilterSelect label={adminDict.category} options={categories} value={category} onChange={(next) => { setCategory(next); pushQuery({ category: next }); }} testId="activity-category-filter" />
-            <ActivityFilterSelect label={adminDict.result} options={results} value={result} onChange={(next) => { setResult(next); pushQuery({ result: next }); }} testId="activity-result-filter" />
-            <ActivityFilterSelect label={adminDict.time} options={timeRanges} value={timeRange} onChange={(next) => { setTimeRange(next); pushQuery({ timeRange: next }); }} testId="activity-time-filter" />
-          </div>
-          <div className="min-w-0 overflow-x-auto">
-            <table className="w-max min-w-[64rem] divide-y divide-border text-sm">
-              <thead className="bg-muted/30 text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                <tr>
-                  <th className="px-5 py-3">{adminDict.time}</th>
-                  <th className="px-5 py-3">{adminDict.category}</th>
-                  <th className="px-5 py-3">{adminDict.source}</th>
-                  <th className="px-5 py-3">{adminDict.subject}</th>
-                  <th className="px-5 py-3">{adminDict.result}</th>
-                  <th className="px-5 py-3">{adminDict.facts}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {activityRows.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="cursor-pointer align-top hover:bg-muted/20"
-                    onClick={() => setSelectedItem(item)}
-                    data-testid={`activity-row-${item.id}`}
-                  >
-                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{formatUtcTimestamp(item.occurredAt)}</td>
-                    <td className="px-5 py-3"><ActivityBadge tone={item.category}>{friendlyCategoryLabel(item.category, adminDict)}</ActivityBadge></td>
-                    <td className="px-5 py-3">
-                      <div>{item.sourceLabel ?? friendlySourceLabel(item.sourceKind ?? item.source, adminDict)}</div>
-                      {item.sourceId ? <div className="text-xs text-muted-foreground">{item.sourceId}</div> : null}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="font-medium text-foreground">{item.subject}</div>
-                      {item.subjectDetail ? <div className="text-xs text-muted-foreground">{item.subjectDetail}</div> : null}
-                    </td>
-                    <td className="px-5 py-3"><ActivityBadge tone={item.result}>{friendlyResultLabel(item.result, adminDict)}</ActivityBadge></td>
-                    <td className="max-w-[22rem] px-5 py-3 text-muted-foreground">
-                      <span className="block break-words">{item.facts}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="border-t border-border px-5 py-4">
-            <Pagination
-              page={activity.page}
-              limit={activity.limit}
-              total={activity.total}
-              onPageChange={(nextPage) => pushQuery({ page: nextPage })}
-            />
-          </div>
+            )}
+            rowKey={(item) => item.id}
+            rowTestId={(item) => `activity-row-${item.id}`}
+            selectedRowKey={selectedItem?.id ?? null}
+            onRowSelect={setSelectedItem}
+            settingsCopy={settingsCopy}
+            tableTestId="market-data-activity-table"
+            desktopMinWidthClassName="min-w-[64rem]"
+            defaultMobileSummaryCount={3}
+            toolbar={(
+              <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(0,0.8fr))] xl:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(0,0.7fr))]">
+                <label className="min-w-0 space-y-1 text-sm">
+                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{adminDict.search}</span>
+                  <input
+                    className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    onBlur={() => pushQuery({ search })}
+                    placeholder={adminDict.searchPlaceholder}
+                    data-testid="activity-search-input"
+                  />
+                </label>
+                <ActivityFilterSelect label={adminDict.sourceKind} options={sourceKinds} value={sourceKind} onChange={(next) => { setSourceKind(next); pushQuery({ sourceKind: next }); }} testId="activity-source-kind-filter" />
+                <ActivityFilterSelect label={adminDict.sourceId} options={sourceIds} value={sourceId} onChange={(next) => { setSourceId(next); pushQuery({ sourceId: next }); }} testId="activity-source-id-filter" />
+                <ActivityFilterSelect label={adminDict.category} options={categories} value={category} onChange={(next) => { setCategory(next); pushQuery({ category: next }); }} testId="activity-category-filter" />
+                <ActivityFilterSelect label={adminDict.result} options={results} value={result} onChange={(next) => { setResult(next); pushQuery({ result: next }); }} testId="activity-result-filter" />
+                <ActivityFilterSelect label={adminDict.time} options={timeRanges} value={timeRange} onChange={(next) => { setTimeRange(next); pushQuery({ timeRange: next }); }} testId="activity-time-filter" />
+              </div>
+            )}
+            getCardIdentity={(item) => ({
+              title: item.subject,
+              subtitle: item.subjectDetail ?? (item.sourceLabel ?? friendlySourceLabel(item.sourceKind ?? item.source, adminDict)),
+              badge: <ActivityBadge tone={item.result}>{friendlyResultLabel(item.result, adminDict)}</ActivityBadge>,
+            })}
+          />
         </Card>
       </div>
 
@@ -1881,6 +2069,7 @@ function ActivityPanel({
           if (!open) setSelectedItem(null);
         }}
         title={selectedItem?.detailTitle ?? selectedItem?.subject ?? adminDict.activityDetails}
+        closeLabel={adminDict.closeDrawerAriaLabel}
         bodyClassName="space-y-4"
       >
         {selectedItem ? (

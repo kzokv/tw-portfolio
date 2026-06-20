@@ -56,6 +56,7 @@ export function usePortfolioPrimaryData(
   const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(initialCached?.status ?? null);
   const [restoredFromCache, setRestoredFromCache] = useState(initialPrimaryData === null && initialCached !== null);
   const [restoredAt, setRestoredAt] = useState<number | null>(initialCached?.savedAt ?? null);
+  const [quoteRefreshVersion, setQuoteRefreshVersion] = useState(0);
   const initialCacheKeyRef = useRef(cacheKey);
   const requestVersionRef = useRef(0);
 
@@ -66,7 +67,10 @@ export function usePortfolioPrimaryData(
 
   const isCurrentRequest = useCallback((version: number) => version === requestVersionRef.current, []);
 
-  const refreshEnrichment = useCallback(async (version: number) => {
+  const refreshEnrichment = useCallback(async (
+    version: number,
+    options?: { markQuoteRefresh?: boolean },
+  ) => {
     try {
       const next = await fetchPortfolioEnrichmentData();
       if (!isCurrentRequest(version)) return;
@@ -80,6 +84,9 @@ export function usePortfolioPrimaryData(
       }
       setCacheStatus("fresh");
       setErrorMessage("");
+      if (options?.markQuoteRefresh) {
+        setQuoteRefreshVersion((current) => current + 1);
+      }
     } catch {
       // Secondary quote/freshness/dividend enrichment must not blank primary content.
     }
@@ -113,7 +120,7 @@ export function usePortfolioPrimaryData(
   }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, isCurrentRequest, refreshEnrichment, startRequest]);
 
   const refreshPrices = useCallback(async () => {
-    await refreshEnrichment(requestVersionRef.current);
+    await refreshEnrichment(requestVersionRef.current, { markQuoteRefresh: true });
   }, [refreshEnrichment]);
 
   useEffect(() => {
@@ -176,6 +183,7 @@ export function usePortfolioPrimaryData(
     cacheStatus,
     restoredFromCache,
     restoredAt,
+    quoteRefreshVersion,
   };
 }
 

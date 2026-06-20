@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Value Animation Options</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --panel-muted: #f1f5f9;
+        --text: #172033;
+        --muted: #64748b;
+        --line: #d9e1ec;
+        --accent: #2563eb;
+        --success: #15803d;
+        --amber-soft: #fff7ed;
+        --green-soft: #ecfdf5;
+        --blue-soft: #eff6ff;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      main {
+        width: min(1180px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 32px 0 40px;
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin: 8px 0 0;
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .context-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 0 12px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .option {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 10px 26px rgb(15 23 42 / 0.06);
+        overflow: hidden;
+      }
+
+      .option-header {
+        min-height: 120px;
+        border-bottom: 1px solid var(--line);
+        padding: 16px;
+      }
+
+      .option-kicker {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .option-letter {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #ffffff;
+        font-weight: 700;
+      }
+
+      .tag {
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 4px 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .tag.recommended {
+        border-color: rgb(21 128 61 / 0.28);
+        background: var(--green-soft);
+        color: var(--success);
+      }
+
+      h2 {
+        margin: 14px 0 0;
+        font-size: 18px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      .summary {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .frames {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+      }
+
+      .frame {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        overflow: hidden;
+      }
+
+      .frame-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel-muted);
+        padding: 7px 10px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .value-card {
+        padding: 13px 12px 14px;
+      }
+
+      .metric-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .as-of {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .number {
+        margin-top: 7px;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+        font-size: 24px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+
+      .exact {
+        margin-top: 5px;
+        color: var(--muted);
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .delta {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 9px;
+        border-radius: 999px;
+        background: var(--green-soft);
+        padding: 4px 8px;
+        color: var(--success);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .flash {
+        background: linear-gradient(90deg, #fff7ed, #ecfdf5);
+        box-shadow:
+          inset 0 0 0 1px rgb(245 158 11 / 0.26),
+          0 0 0 3px rgb(245 158 11 / 0.12);
+      }
+
+      .counting {
+        background: linear-gradient(90deg, var(--blue-soft), #ffffff);
+        box-shadow:
+          inset 0 0 0 1px rgb(37 99 235 / 0.20),
+          0 0 0 3px rgb(37 99 235 / 0.10);
+      }
+
+      .progress {
+        position: relative;
+        margin-top: 10px;
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #dbeafe;
+      }
+
+      .progress::before {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 68%;
+        border-radius: inherit;
+        background: var(--accent);
+        content: "";
+      }
+
+      .roll-number {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-top: 7px;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+        font-size: 23px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .digit,
+      .plain {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 13px;
+        height: 28px;
+      }
+
+      .digit {
+        position: relative;
+        overflow: hidden;
+        border-radius: 5px;
+        background: var(--panel-muted);
+        color: transparent;
+      }
+
+      .digit::before,
+      .digit::after {
+        position: absolute;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        color: var(--text);
+        content: attr(data-before);
+      }
+
+      .digit::before {
+        top: -14px;
+        opacity: 0.38;
+      }
+
+      .digit::after {
+        top: 9px;
+        content: attr(data-after);
+      }
+
+      .motion-note {
+        margin: 0 14px 14px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .verdict {
+        margin-top: 16px;
+        border: 1px solid rgb(37 99 235 / 0.18);
+        border-radius: 8px;
+        background: var(--blue-soft);
+        padding: 14px 16px;
+        color: #1e3a8a;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .verdict strong {
+        color: #172554;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          width: min(520px, calc(100vw - 28px));
+          padding-top: 20px;
+        }
+
+        .titlebar {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .option-header {
+          min-height: auto;
+        }
+
+        .number {
+          font-size: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="titlebar">
+        <div>
+          <h1>Market value update animation options</h1>
+          <p class="subtitle">
+            These mockups compare what users would see when quote refresh updates dashboard market value and holdings
+            market-value cells. Each option shows before, the update moment, and the settled state.
+          </p>
+        </div>
+        <div class="context-pill">Quote refresh: 13:31:04 -> 13:31:17</div>
+      </div>
+
+      <section class="grid" aria-label="Animation options">
+        <article class="option">
+          <div class="option-header">
+            <div class="option-kicker">
+              <span class="option-letter">A</span>
+              <span class="tag">Lowest motion</span>
+            </div>
+            <h2>Subtle flash only</h2>
+            <p class="summary">The number updates immediately. A short highlight tells the user what changed.</p>
+          </div>
+          <div class="frames">
+            <div class="frame">
+              <div class="frame-label"><span>Before</span><span>current quote</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:04</span></div>
+                <div class="number">TWD 1.2498M</div>
+                <div class="exact">Exact TWD 1,249,800</div>
+              </div>
+            </div>
+            <div class="frame flash">
+              <div class="frame-label"><span>Update</span><span>0-900 ms</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="number">TWD 1.2539M</div>
+                <div class="exact">Exact TWD 1,253,925</div>
+                <div class="delta">+ TWD 4,125</div>
+              </div>
+            </div>
+            <div class="frame">
+              <div class="frame-label"><span>Settled</span><span>after fade</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="number">TWD 1.2539M</div>
+                <div class="exact">Exact TWD 1,253,925</div>
+              </div>
+            </div>
+          </div>
+          <p class="motion-note">Best when we want calm financial UI and minimal distraction. It does not visually explain the numeric movement.</p>
+        </article>
+
+        <article class="option">
+          <div class="option-header">
+            <div class="option-kicker">
+              <span class="option-letter">B</span>
+              <span class="tag recommended">Recommended</span>
+            </div>
+            <h2>Count transition plus flash</h2>
+            <p class="summary">The value briefly counts from previous to next while a restrained flash marks the refresh.</p>
+          </div>
+          <div class="frames">
+            <div class="frame">
+              <div class="frame-label"><span>Before</span><span>current quote</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:04</span></div>
+                <div class="number">TWD 1.2498M</div>
+                <div class="exact">Exact TWD 1,249,800</div>
+              </div>
+            </div>
+            <div class="frame counting">
+              <div class="frame-label"><span>Update</span><span>0-500 ms</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="number">TWD 1.2519M</div>
+                <div class="exact">Counting toward TWD 1,253,925</div>
+                <div class="progress" aria-hidden="true"></div>
+              </div>
+            </div>
+            <div class="frame">
+              <div class="frame-label"><span>Settled</span><span>final value</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="number">TWD 1.2539M</div>
+                <div class="exact">Exact TWD 1,253,925</div>
+                <div class="delta">+ TWD 4,125</div>
+              </div>
+            </div>
+          </div>
+          <p class="motion-note">Best balance: it makes quote refresh feel alive but still works for tables. Reduced-motion users get option A.</p>
+        </article>
+
+        <article class="option">
+          <div class="option-header">
+            <div class="option-kicker">
+              <span class="option-letter">C</span>
+              <span class="tag">Highest motion</span>
+            </div>
+            <h2>Rolling digit style</h2>
+            <p class="summary">Digits flip like a small ticker board. It is noticeable, but visually busy in dense holdings rows.</p>
+          </div>
+          <div class="frames">
+            <div class="frame">
+              <div class="frame-label"><span>Before</span><span>current quote</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:04</span></div>
+                <div class="number">TWD 1,249,800</div>
+              </div>
+            </div>
+            <div class="frame flash">
+              <div class="frame-label"><span>Update</span><span>digit roll</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="roll-number" aria-hidden="true">
+                  <span class="plain">T</span><span class="plain">W</span><span class="plain">D</span>
+                  <span class="plain">&nbsp;</span><span class="plain">1</span><span class="plain">,</span><span class="digit" data-before="2" data-after="2">2</span><span class="digit" data-before="4" data-after="5">5</span><span class="digit" data-before="9" data-after="3">3</span><span class="plain">,</span><span class="digit" data-before="8" data-after="9">9</span><span class="digit" data-before="0" data-after="2">2</span><span class="digit" data-before="0" data-after="5">5</span>
+                </div>
+                <div class="exact">Several digits animate independently</div>
+              </div>
+            </div>
+            <div class="frame">
+              <div class="frame-label"><span>Settled</span><span>final value</span></div>
+              <div class="value-card">
+                <div class="metric-row"><span class="metric-label">Market value</span><span class="as-of">13:31:17</span></div>
+                <div class="number">TWD 1,253,925</div>
+                <div class="delta">+ TWD 4,125</div>
+              </div>
+            </div>
+          </div>
+          <p class="motion-note">Good for a single hero number. I would avoid this in holdings tables because rows can update in clusters.</p>
+        </article>
+      </section>
+
+      <aside class="verdict">
+        <strong>Recommendation:</strong> choose B for dashboard hero totals and holdings market-value cells. Keep duration short,
+        cap simultaneous row animations, and fall back to A for reduced-motion or low-value/noisy updates.
+      </aside>
+    </main>
+  </body>
+</html>

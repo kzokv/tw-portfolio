@@ -45,7 +45,7 @@ export default createPlaywrightConfig({
   ],
   apiEnvOverrides: {
     DEMO_MODE_ENABLED: "true",
-    PERSISTENCE_BACKEND: process.env.PERSISTENCE_BACKEND ?? "memory",
+    PERSISTENCE_BACKEND: "memory",
     GOOGLE_CLIENT_ID: TestEnv.oauth.clientId,
     GOOGLE_CLIENT_SECRET: TestEnv.oauth.clientSecret,
     GOOGLE_REDIRECT_URI: TestEnv.googleRedirectUri,
