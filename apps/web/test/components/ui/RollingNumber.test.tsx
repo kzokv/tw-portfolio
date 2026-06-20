@@ -71,6 +71,20 @@ describe("RollingNumber", () => {
     expect(container.textContent).toBe("NT$120");
   });
 
+  it("keeps fallback text with spaces as one static run", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(<RollingNumber value="Waiting for market value data" animateOnKey={0} />);
+    });
+
+    const hiddenText = container.querySelector("[aria-hidden='true']");
+    expect(hiddenText?.children).toHaveLength(1);
+    expect(container.textContent).toBe("Waiting for market value data");
+  });
+
   it("starts changed digits at the initial transform before rolling in the next frame", () => {
     vi.useFakeTimers();
     let frameCallback: FrameRequestCallback | null = null;

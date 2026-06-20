@@ -108,16 +108,24 @@ export function RollingNumber({
 
 function buildRollingParts(previous: string | null, current: string): RollingPart[] {
   if (!previous || previous.length !== current.length) {
-    return current.split("").map((value) => ({ type: "static", value }));
+    return [{ type: "static", value: current }];
   }
 
-  return current.split("").map((value, index) => {
+  const parts: RollingPart[] = [];
+  for (const [index, value] of Array.from(current).entries()) {
     const previousValue = previous[index] ?? "";
     if (isDigit(previousValue) && isDigit(value) && previousValue !== value) {
-      return { type: "digit", from: previousValue, to: value };
+      parts.push({ type: "digit", from: previousValue, to: value });
+    } else {
+      const previousPart = parts[parts.length - 1];
+      if (previousPart?.type === "static") {
+        previousPart.value += value;
+      } else {
+        parts.push({ type: "static", value });
+      }
     }
-    return { type: "static", value };
-  });
+  }
+  return parts;
 }
 
 function isDigit(value: string): boolean {

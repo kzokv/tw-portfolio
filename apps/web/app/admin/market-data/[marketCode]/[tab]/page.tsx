@@ -312,11 +312,11 @@ export default async function AdminMarketDataWorkspacePage({
               ? [providerOperations.stagedOperation, ...providerOperations.operations]
               : providerOperations.operations;
           const selectedOperation =
-            providerOperations.selectedOperation
-            ?? (operationId ? operationRows.find((operation) => operation.id === operationId) : null)
-            ?? providerOperations.stagedOperation
-            ?? operationRows[0]
-            ?? null;
+            operationId
+              ? providerOperations.selectedOperation
+                ?? operationRows.find((operation) => operation.id === operationId)
+                ?? null
+              : null;
           const outcomes = selectedOperation
             ? await getJson<ProviderOperationOutcomesResponse>(
                 `/admin/providers/yahoo-finance-kr/operations/${encodeURIComponent(selectedOperation.id)}/outcomes?page=${krOperationsQuery.operationOutcomesPage}&limit=${krOperationsQuery.operationOutcomesLimit}${krOperationsQuery.operationOutcomeState !== "all" ? `&state=${encodeURIComponent(krOperationsQuery.operationOutcomeState)}` : ""}${krOperationsQuery.operationOutcomeAction.trim() ? `&action=${encodeURIComponent(krOperationsQuery.operationOutcomeAction.trim())}` : ""}`,
@@ -339,7 +339,13 @@ export default async function AdminMarketDataWorkspacePage({
                 page: 1,
                 limit: krOperationsQuery.operationOutcomesLimit,
               };
-          return { operations: providerOperations, selectedOperationId: selectedOperation?.id ?? "", outcomes, query: krOperationsQuery };
+          return {
+            operations: providerOperations,
+            explicitOperationId: operationId ?? "",
+            selectedOperationId: selectedOperation?.id ?? "",
+            outcomes,
+            query: krOperationsQuery,
+          };
         })
       : null;
 

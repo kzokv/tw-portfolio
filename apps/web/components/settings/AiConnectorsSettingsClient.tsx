@@ -440,14 +440,14 @@ export function AiConnectorsSettingsClient() {
   }
 
   return (
-    <div className="space-y-5" data-testid="settings-ai-connectors-page">
-      <div className="flex flex-col gap-3 rounded-[1.75rem] border border-border bg-card px-5 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div>
+    <div className="min-w-0 space-y-4 sm:space-y-5" data-testid="settings-ai-connectors-page">
+      <div className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:rounded-[1.75rem] sm:px-5 sm:py-5">
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{copy.pageEyebrow}</p>
-          <h1 className="mt-2 text-2xl font-semibold text-foreground">{copy.pageTitle}</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-foreground break-words">{copy.pageTitle}</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{copy.pageDescription}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()} disabled={isLoading}>
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={isLoading} className="w-full sm:w-auto">
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
           {copy.refresh}
         </Button>
@@ -464,7 +464,7 @@ export function AiConnectorsSettingsClient() {
         </div>
       ) : null}
 
-      <Card className="rounded-[1.5rem]">
+      <Card className="rounded-xl sm:rounded-[1.5rem]">
         <div className="flex flex-col gap-4">
           <div>
             <h2 className="text-base font-semibold text-foreground">{copy.policyTitle}</h2>
@@ -506,11 +506,11 @@ export function AiConnectorsSettingsClient() {
 
         <TabsContent value="connections" className="space-y-4">
           {isLoading ? (
-            <Card className="rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true">
+            <Card className="rounded-xl sm:rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true">
               <p className="text-sm text-muted-foreground">{copy.loadingConnections}</p>
             </Card>
           ) : currentConnections.length === 0 && historicalConnections.length === 0 ? (
-            <Card className="rounded-[1.5rem] border-dashed">
+            <Card className="rounded-xl border-dashed sm:rounded-[1.5rem]">
               <div className="space-y-2">
                 <p className="text-sm font-medium text-foreground">{copy.noConnections}</p>
                 <p className="text-sm text-muted-foreground">{copy.noConnectionsBody}</p>
@@ -518,7 +518,7 @@ export function AiConnectorsSettingsClient() {
             </Card>
           ) : (
             <>
-              <Card className="rounded-[1.5rem]">
+              <Card className="rounded-xl sm:rounded-[1.5rem]">
                 <div className="space-y-2">
                   <h2 className="text-base font-semibold text-foreground">{copy.activeConnections}</h2>
                   <p className="text-sm text-muted-foreground">{copy.currentFirstHint}</p>
@@ -537,7 +537,7 @@ export function AiConnectorsSettingsClient() {
                 />
               ))}
               {historicalConnections.length > 0 ? (
-                <details className="rounded-[1.5rem] border border-border bg-card px-5 py-4" data-testid="ai-connectors-history">
+                <details className="rounded-xl border border-border bg-card px-4 py-4 sm:rounded-[1.5rem] sm:px-5" data-testid="ai-connectors-history">
                   <summary className="cursor-pointer list-none text-sm font-medium text-foreground">
                     {formatMessage(copy.historyLabel, { count: String(historicalConnections.length) })}
                   </summary>
@@ -563,7 +563,7 @@ export function AiConnectorsSettingsClient() {
         </TabsContent>
 
         <TabsContent value="tools" className="space-y-4">
-          <Card className="rounded-[1.5rem]">
+          <Card className="rounded-xl sm:rounded-[1.5rem]">
             <div className="flex flex-col gap-4">
               <div>
                 <h2 className="text-base font-semibold text-foreground">{copy.toolsTitle}</h2>
@@ -612,7 +612,7 @@ export function AiConnectorsSettingsClient() {
             </div>
           </Card>
           {connections.length === 0 ? (
-            <Card className="rounded-[1.5rem] border-dashed">
+            <Card className="rounded-xl border-dashed sm:rounded-[1.5rem]">
               <p className="text-sm text-muted-foreground">{copy.noConnectionsBody}</p>
             </Card>
           ) : (
@@ -629,7 +629,7 @@ export function AiConnectorsSettingsClient() {
             ))
           )}
           {Object.values(filteredToolGroups).every((group) => group.length === 0) ? (
-            <Card className="rounded-[1.5rem] border-dashed">
+            <Card className="rounded-xl border-dashed sm:rounded-[1.5rem]">
               <p className="text-sm text-muted-foreground">{copy.noMatchingTools}</p>
             </Card>
           ) : null}
@@ -637,11 +637,11 @@ export function AiConnectorsSettingsClient() {
 
         <TabsContent value="access" className="space-y-4">
           {isLoadingLogs ? (
-            <Card className="rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true">
+            <Card className="rounded-xl sm:rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true">
               <p className="text-sm text-muted-foreground">{copy.loadingAccess}</p>
             </Card>
           ) : accessLogs.length > 0 ? (
-            <Card className="rounded-[1.5rem]">
+            <Card className="rounded-xl sm:rounded-[1.5rem]">
               <h2 className="text-base font-semibold text-foreground">{copy.recentAccess}</h2>
               <div className="mt-3 divide-y divide-border">
                 {accessLogs.map((log) => (
@@ -653,7 +653,7 @@ export function AiConnectorsSettingsClient() {
               </div>
             </Card>
           ) : (
-            <Card className="rounded-[1.5rem] border-dashed">
+            <Card className="rounded-xl border-dashed sm:rounded-[1.5rem]">
               <p className="text-sm text-muted-foreground">{copy.noAccess}</p>
             </Card>
           )}
@@ -665,9 +665,9 @@ export function AiConnectorsSettingsClient() {
 
 function CompactPolicyStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-muted/20 px-4 py-3">
+    <div className="min-w-0 rounded-xl border border-border bg-muted/20 px-4 py-3 sm:rounded-2xl">
       <p className="text-xs uppercase text-muted-foreground">{label}</p>
-      <p className="mt-1 font-medium text-foreground">{value}</p>
+      <p className="mt-1 break-words font-medium text-foreground">{value}</p>
     </div>
   );
 }
@@ -690,11 +690,11 @@ function ConnectionCard({
   scopeEnabledByGroup: { read: boolean; drafts: boolean; write: boolean };
 }) {
   return (
-    <Card className="rounded-[1.5rem]" data-testid={`ai-connector-${connection.id}`}>
+    <Card className="rounded-xl sm:rounded-[1.5rem]" data-testid={`ai-connector-${connection.id}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-foreground">{connection.displayName}</h2>
+            <h2 className="min-w-0 break-words text-lg font-semibold text-foreground">{connection.displayName}</h2>
             <span className={cn("rounded-full border px-2 py-0.5 text-xs capitalize", statusClassName(connection.status))}>
               {connection.status}
             </span>
@@ -715,6 +715,7 @@ function ConnectionCard({
           size="sm"
           onClick={onRevoke}
           disabled={busy || connection.status === "revoked"}
+          className="w-full lg:w-auto"
         >
           <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
           {copy.revoke}
@@ -738,7 +739,7 @@ function ConnectionCard({
       </div>
 
       {connection.provider === "chatgpt" ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:rounded-2xl">
           <span className="min-w-0 flex-1">
             <span className="font-medium text-foreground">{copy.reconnectTitle}</span>
             <span className="ml-2">{copy.reconnectBody}</span>
@@ -747,7 +748,7 @@ function ConnectionCard({
             href={CHATGPT_RECONNECT_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-900 transition hover:border-slate-400"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-900 transition hover:border-slate-400 sm:w-auto"
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
             {copy.reconnect}
@@ -785,7 +786,7 @@ function ScopeGroupCard({
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-muted/20 p-4">
+    <div className="min-w-0 rounded-xl border border-border bg-muted/20 p-3 sm:rounded-2xl sm:p-4">
       <p className="text-sm font-medium text-foreground">{titleMap[title as keyof typeof titleMap]}</p>
       <div className="mt-3 space-y-2">
         {scopes.map((scope) => {
@@ -797,8 +798,8 @@ function ScopeGroupCard({
           const reconnectRequired = scopeNeedsReconnect(connection, scope);
           const disabled = busy || connection.status !== "active" || policyDisabled || reconnectRequired;
           return (
-            <label key={scope} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-background/80">
-              <span className="min-w-0">
+            <label key={scope} className="flex items-start justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-background/80">
+              <span className="min-w-0 break-words">
                 {AI_CONNECTOR_SCOPE_LABELS[scope]}
                 {policyDisabled ? (
                   <span className="block text-xs text-slate-500">{copy.disabledByPolicy}</span>
@@ -845,10 +846,10 @@ function ToolSurfaceCard({
   if (toolCount === 0) return null;
 
   return (
-    <Card className="rounded-[1.5rem]" data-testid={`ai-connector-tools-${connection.id}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-foreground">{connection.displayName}</h3>
+    <Card className="rounded-xl sm:rounded-[1.5rem]" data-testid={`ai-connector-tools-${connection.id}`}>
+      <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="break-words text-base font-semibold text-foreground">{connection.displayName}</h3>
           <p className="text-sm text-muted-foreground">{connection.provider} · {connection.status}</p>
         </div>
         <span className={cn("rounded-full border px-2 py-0.5 text-xs capitalize", statusClassName(connection.status))}>
@@ -857,23 +858,23 @@ function ToolSurfaceCard({
       </div>
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         {(Object.keys(tools) as AiConnectorToolGroup[]).map((group) => (
-          <div key={group} className="rounded-2xl border border-border bg-muted/20 p-4">
+          <div key={group} className="min-w-0 rounded-xl border border-border bg-muted/20 p-3 sm:rounded-2xl sm:p-4">
             <p className="text-sm font-medium text-foreground">{toolGroupLabel(copy, group)}</p>
             <div className="mt-3 flex flex-col gap-2">
               {tools[group].map((tool) => {
                 const unavailableReason = toolUnavailableReason(locale, connection, tool);
                 const explicit = Object.prototype.hasOwnProperty.call(connection.toolToggles, tool.name);
                 return (
-                  <label key={`${connection.id}-${tool.name}`} className="rounded-xl border border-border bg-background px-3 py-3 text-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                  <label key={`${connection.id}-${tool.name}`} className="block rounded-xl border border-border bg-background px-3 py-3 text-sm">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate font-mono font-medium text-foreground">{tool.name}</span>
+                          <span className="min-w-0 break-all font-mono font-medium text-foreground">{tool.name}</span>
                           <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", toolAvailabilityClassName(tool))}>
                             {tool.availability === "available" ? copy.available : copy.unavailable}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
+                        <p className="mt-1 break-words text-xs text-muted-foreground">{tool.description}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{AI_CONNECTOR_SCOPE_LABELS[tool.scope]}</span>
                           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{accessKindLabel(copy, tool.accessKind)}</span>

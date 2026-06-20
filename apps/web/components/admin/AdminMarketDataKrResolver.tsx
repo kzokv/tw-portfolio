@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketCode,
@@ -52,6 +52,7 @@ export interface KrMappingsData {
 
 export interface KrOperationsData {
   operations: ProviderFixerDashboardOperationsResponse;
+  explicitOperationId: string;
   selectedOperationId: string;
   outcomes: ProviderOperationOutcomesResponse;
   query: {
@@ -221,6 +222,11 @@ function krOperationsPath(query: Partial<KrOperationsData["query"]> & { operatio
   if (operationOutcomeAction.trim()) params.set("operationOutcomeAction", operationOutcomeAction.trim());
   const queryString = params.toString();
   return `/admin/market-data/KR/operations${queryString ? `?${queryString}` : ""}`;
+}
+
+function browserKrOperationId(fallback: string): string | null {
+  if (typeof window === "undefined") return fallback || null;
+  return new URLSearchParams(window.location.search).get("operationId")?.trim() || null;
 }
 
 export function MappingsPanel({
@@ -1041,6 +1047,8 @@ function KrMappingsPanel({
 
 export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchParamSnapshot = searchParams.toString();
   const adminDict = useAdminI18n().marketData;
   const operationRows = useMemo(() => {
     const rows = [...data.operations.operations];
@@ -1052,8 +1060,12 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
     }
     return rows;
   }, [data.operations.operations, data.operations.selectedOperation, data.operations.stagedOperation]);
-  const routeOperationId = data.selectedOperationId || null;
-  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(routeOperationId);
+  const routeOperationId = useMemo(
+    () => browserKrOperationId(data.explicitOperationId),
+    [data.explicitOperationId, searchParamSnapshot],
+  );
+  const [localSelectedOperationId, setLocalSelectedOperationId] = useState<string | null | undefined>(undefined);
+  const selectedOperationId = localSelectedOperationId === undefined ? routeOperationId : localSelectedOperationId;
   const selectedOperation = selectedOperationId ? operationRows.find((operation) => operation.id === selectedOperationId) ?? null : null;
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -1106,7 +1118,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   ], [adminDict, data.outcomes.summary.progressPercent]);
 
   useEffect(() => {
-    setSelectedOperationId(routeOperationId);
+    setLocalSelectedOperationId(undefined);
   }, [routeOperationId]);
 
   useEffect(() => {
@@ -1128,7 +1140,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   }
 
   function selectOperation(operation: ProviderFixerDashboardOperationDto) {
-    setSelectedOperationId(operation.id);
+    setLocalSelectedOperationId(operation.id);
     router.push(krOperationsPath({
       ...data.query,
       operationId: operation.id,
@@ -1137,7 +1149,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   }
 
   function clearSelectedOperation() {
-    setSelectedOperationId(null);
+    setLocalSelectedOperationId(null);
     router.push(krOperationsPath({
       ...data.query,
       operationId: undefined,
@@ -1166,7 +1178,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
       (result) => {
         if (action === "retry") {
           router.push(krOperationsPath({ ...data.query, operationId: result.operation.id, operationOutcomesPage: 1 }));
-          setSelectedOperationId(result.operation.id);
+          setLocalSelectedOperationId(result.operation.id);
         }
         return `${action} updated operation ${result.operation.id}.`;
       },

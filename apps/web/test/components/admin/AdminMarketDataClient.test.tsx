@@ -20,10 +20,12 @@ import type {
 
 const mockPush = vi.hoisted(() => vi.fn());
 const mockRefresh = vi.hoisted(() => vi.fn());
+const mockSearchParams = vi.hoisted(() => vi.fn(() => new URLSearchParams()));
 const mockIsSmallScreen = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
+  useSearchParams: () => mockSearchParams(),
 }));
 
 vi.mock("../../../lib/hooks/use-small-screen", () => ({
@@ -393,6 +395,7 @@ function krOperationsData() {
   };
   return {
     operations,
+    explicitOperationId: "",
     selectedOperationId: "",
     outcomes,
     query: {
@@ -575,6 +578,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
     vi.clearAllMocks();
     mockPush.mockClear();
     mockRefresh.mockClear();
+    mockSearchParams.mockReturnValue(new URLSearchParams());
+    window.history.pushState({}, "", "/");
     mockIsSmallScreen.mockReturnValue(false);
     getJsonMock.mockResolvedValue({ preferences: {} });
     patchJsonMock.mockResolvedValue({ preferences: {} });
@@ -1800,8 +1805,12 @@ describe("AdminMarketDataWorkspaceClient", () => {
 
     expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("repair_mapping");
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
     expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
 
+    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
+    mockSearchParams.mockReturnValue(selectedOperationParams);
+    window.history.pushState({}, "", `/admin/market-data/KR/operations?${selectedOperationParams.toString()}`);
     await act(async () => {
       root.render(
         <AdminMarketDataWorkspaceClient
@@ -1812,7 +1821,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
           instruments={null}
           operations={null}
           krMappings={null}
-          krOperations={{ ...data, selectedOperationId: "OP-PREVIEW" }}
+          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
         />,
       );
     });
@@ -2083,7 +2092,46 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
     expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("Operation item outcomes");
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
     expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
+
+    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
+    mockSearchParams.mockReturnValue(selectedOperationParams);
+    window.history.pushState({}, "", `/admin/market-data/KR/operations?${selectedOperationParams.toString()}`);
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
+        />,
+      );
+    });
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Operation item outcomes");
+
+    mockSearchParams.mockReturnValue(new URLSearchParams());
+    window.history.pushState({}, "", "/admin/market-data/KR/operations");
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={data}
+        />,
+      );
+    });
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
   });
 
   it("persists admin market data column settings under adminMarketDataTableSettings", async () => {

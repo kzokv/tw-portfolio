@@ -312,7 +312,6 @@ export function AdminMarketDataWorkspaceClient({
     "purge",
     "refresh-rates",
   ] as const).filter((item) => tabSet.has(item));
-
   return (
     <div className="min-w-0 space-y-5" data-testid={`admin-market-data-${marketCode}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

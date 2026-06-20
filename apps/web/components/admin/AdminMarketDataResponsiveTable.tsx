@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/shadcn/table";
 import { cn } from "../../lib/utils";
@@ -65,13 +65,13 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
   getCardIdentity,
 }: AdminMarketDataResponsiveTableProps<Row, ColumnId>) {
   const isSmallScreen = useIsSmallScreen();
+  const [isHydrated, setIsHydrated] = useState(false);
   const identityColumn = columns[0];
-  if (!identityColumn) return null;
   const mobileSummaryColumnIds = useMemo(
     () => columns.slice(1).map((column) => column.id),
     [columns],
   );
-  const pinnedLeadingColumns = useMemo(() => [identityColumn.id], [identityColumn.id]);
+  const pinnedLeadingColumns = useMemo<ColumnId[]>(() => (identityColumn ? [identityColumn.id] : []), [identityColumn]);
   const settings = useHoldingsColumnSettings({
     columns,
     contextKey,
@@ -86,15 +86,21 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
     .filter((column): column is AdminMarketDataResponsiveColumn<Row, ColumnId> => (
       column !== undefined && settings.visibleColumns.includes(column.id)
     ));
-  const summaryColumns = visibleColumns.filter((column) => column.id !== identityColumn.id).slice(0, settings.mobileSummaryCount);
+  const summaryColumns = visibleColumns.filter((column) => column.id !== identityColumn?.id).slice(0, settings.mobileSummaryCount);
   function handleDesktopRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, row: Row) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onRowSelect(row);
   }
 
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  if (!identityColumn) return null;
+
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-hydrated={isHydrated ? "true" : "false"}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div className="min-w-0 flex-1">{toolbar}</div>
         <HoldingsColumnSettingsMenu
@@ -113,17 +119,8 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
           {rows.map((row) => {
             const key = rowKey(row);
             const identity = getCardIdentity(row);
-            return (
-              <button
-                key={key}
-                type="button"
-                className={cn(
-                  "w-full rounded-xl border border-border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/20",
-                  selectedRowKey === key && "border-primary/45 bg-primary/5",
-                )}
-                onClick={() => onRowSelect(row)}
-                data-testid={rowTestId?.(row)}
-              >
+            const cardContent = (
+              <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="break-words font-medium text-foreground">{identity.title}</div>
@@ -141,6 +138,21 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
                     ))}
                   </dl>
                 ) : null}
+              </>
+            );
+            const cardClassName = cn(
+              "w-full rounded-xl border border-border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/20",
+              selectedRowKey === key && "border-primary/45 bg-primary/5",
+            );
+            return (
+              <button
+                key={key}
+                type="button"
+                className={cardClassName}
+                onClick={() => onRowSelect(row)}
+                data-testid={rowTestId?.(row)}
+              >
+                {cardContent}
               </button>
             );
           })}
