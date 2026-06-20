@@ -695,6 +695,7 @@ rollback() {
   if ! run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS; then
     log "WARNING: Rollback image build failed; attempting to restart preserved rollback images"
   fi
+  restore_explicit_runtime_tag_from_rollback_images
   dc down --remove-orphans --timeout 10 || true
   for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
@@ -808,13 +809,17 @@ restore_runtime_image_tags() {
   done
 }
 
-restore_explicit_runtime_tag_on_failed_pre_migration_exit() {
+restore_explicit_runtime_tag_from_rollback_images() {
   if [ -z "$IMAGE_TAG_EXPLICIT" ]; then
     return 0
   fi
 
-  log "Restoring explicit runtime image tag '$IMAGE_TAG' to previous images before exiting"
-  restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG"
+  log "Restoring explicit runtime image tag '$IMAGE_TAG_EXPLICIT' to preserved rollback images"
+  restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG_EXPLICIT"
+}
+
+restore_explicit_runtime_tag_on_failed_pre_migration_exit() {
+  restore_explicit_runtime_tag_from_rollback_images
 }
 
 parse_args "$@"

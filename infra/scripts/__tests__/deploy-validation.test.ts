@@ -122,6 +122,7 @@ describe("deploy.sh rollback and migration disk preflight safeguards", () => {
     expect(source).toContain('preserve_rollback_images "$ROLLBACK_IMAGE_TAG"');
     expect(rollbackFunction).toContain('IMAGE_TAG="${ROLLBACK_IMAGE_TAG:-$(git rev-parse --short "$PREVIOUS_SHA")}"');
     expect(rollbackFunction).toContain("attempting rollback image build anyway");
+    expect(rollbackFunction).toContain("restore_explicit_runtime_tag_from_rollback_images");
     expect(rollbackFunction).not.toContain("Skipping rollback image build because Docker disk preflight failed");
   });
 
@@ -137,7 +138,7 @@ describe("deploy.sh rollback and migration disk preflight safeguards", () => {
     );
 
     expect(source).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit()");
-    expect(source).toContain('restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG"');
+    expect(source).toContain('restore_runtime_image_tags "$ROLLBACK_IMAGE_TAG" "$IMAGE_TAG_EXPLICIT"');
     expect(buildFailureBlock).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit");
     expect(migrationPreflightBlock).toContain("restore_explicit_runtime_tag_on_failed_pre_migration_exit");
   });
