@@ -5,6 +5,7 @@ import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../l
 import { Card } from "../ui/Card";
 import { DataTable, type DataTableColumn } from "../ui/DataTable";
 import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
+import { RealizedPnlBreakdownInline, RealizedPnlValue } from "../portfolio/RealizedPnlBreakdown";
 
 interface RecentTransactionsCardProps {
   items: TransactionHistoryItemDto[];
@@ -70,11 +71,14 @@ export function RecentTransactionsCard({
       key: "realizedPnl",
       header: dict.tickerHistory.realizedPnlLabel,
       render: (item) => (
-        <span className={cn("text-right font-medium", getRealizedPnlTone(item.realizedPnlAmount))}>
-          {item.realizedPnlAmount === null
-            ? dict.tickerHistory.noRealizedPnl
-            : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
-        </span>
+        <RealizedPnlValue
+          amount={item.realizedPnlAmount}
+          breakdown={item.type === "SELL" ? item.realizedPnlBreakdown ?? null : null}
+          currency={item.realizedPnlCurrency ?? item.priceCurrency}
+          dict={dict}
+          locale={locale}
+          toneClassName={getRealizedPnlTone(item.realizedPnlAmount)}
+        />
       ),
       cellClassName: "text-right",
     },
@@ -106,6 +110,11 @@ export function RecentTransactionsCard({
         </div>
       ) : (
         <div className="mt-6">
+          {isPrimary ? (
+            <p className="mb-3 rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm text-muted-foreground">
+              {dict.tickerHistory.realizedPnlWeightedAverageNote}
+            </p>
+          ) : null}
           <DataTable
             data={items}
             columns={columns}
@@ -139,6 +148,13 @@ export function RecentTransactionsCard({
                     valueClassName={getRealizedPnlTone(item.realizedPnlAmount)}
                   />
                 </dl>
+                {item.type === "SELL" ? (
+                  <RealizedPnlBreakdownInline
+                    breakdown={item.realizedPnlBreakdown ?? null}
+                    dict={dict}
+                    locale={locale}
+                  />
+                ) : null}
               </article>
             )}
             emptyState={

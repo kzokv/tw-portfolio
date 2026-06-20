@@ -327,6 +327,63 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
     });
   });
 
+  describe("setUserPreferencePatch — adminMarketDataTableSettings context merge", () => {
+    it("merges partial admin table contexts without wiping siblings", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.TW.instruments": {
+              columnOrder: ["ticker", "status"],
+              hiddenColumns: ["providers"],
+            },
+          },
+        },
+      });
+      const merged = await persistence!.setUserPreferencePatch(userId, {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.TW.activity": {
+              columnOrder: ["event", "source"],
+              mobileSummaryCount: 2,
+            },
+          },
+        },
+      });
+      expect(merged.adminMarketDataTableSettings).toEqual({
+        version: 1,
+        contexts: {
+          "admin.marketData.TW.instruments": {
+            columnOrder: ["ticker", "status"],
+            hiddenColumns: ["providers"],
+          },
+          "admin.marketData.TW.activity": {
+            columnOrder: ["event", "source"],
+            mobileSummaryCount: 2,
+          },
+        },
+      });
+    });
+
+    it("clears the entire admin table settings key when the top-level value is null", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.TW.instruments": { columnOrder: ["ticker"] },
+          },
+        },
+        dashboardPerformanceRanges: ["1M"],
+      });
+      const cleared = await persistence!.setUserPreferencePatch(userId, {
+        adminMarketDataTableSettings: null,
+      });
+      expect(cleared).not.toHaveProperty("adminMarketDataTableSettings");
+      expect(cleared.dashboardPerformanceRanges).toEqual(["1M"]);
+    });
+  });
+
   describe("_setUserPreferences — shallow merge (test-only seed helper)", () => {
     // KZO-177: switched from full-replace to shallow merge at top-level keys.
     // Reason: parallel E2E specs seeding `{ cardOrder: ... }` on the shared
@@ -683,7 +740,45 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
     expect(result.cardOrder).toEqual({ dashboard: ["x", "y"] });
   });
 
-  it("M13 — dashboardHoldingFocus persists as top-level full-object preference", async () => {
+  it("M13 — adminMarketDataTableSettings patch merges partial contexts without wiping siblings", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      adminMarketDataTableSettings: {
+        version: 1,
+        contexts: {
+          "admin.marketData.TW.instruments": {
+            columnOrder: ["ticker", "status"],
+            hiddenColumns: ["providers"],
+          },
+        },
+      },
+    });
+    const merged = await persistence.setUserPreferencePatch(userId, {
+      adminMarketDataTableSettings: {
+        version: 1,
+        contexts: {
+          "admin.marketData.TW.activity": {
+            columnOrder: ["event", "source"],
+            mobileSummaryCount: 2,
+          },
+        },
+      },
+    });
+    expect(merged.adminMarketDataTableSettings).toEqual({
+      version: 1,
+      contexts: {
+        "admin.marketData.TW.instruments": {
+          columnOrder: ["ticker", "status"],
+          hiddenColumns: ["providers"],
+        },
+        "admin.marketData.TW.activity": {
+          columnOrder: ["event", "source"],
+          mobileSummaryCount: 2,
+        },
+      },
+    });
+  });
+
+  it("M14 — dashboardHoldingFocus persists as top-level full-object preference", async () => {
     const initial = {
       presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
       hiddenPresets: ["worst-pnl"],

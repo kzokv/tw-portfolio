@@ -13,6 +13,7 @@ import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { RollingNumber } from "../ui/RollingNumber";
 import { Badge } from "../ui/shadcn/badge";
 
 interface DashboardHeroProps {
@@ -22,6 +23,7 @@ interface DashboardHeroProps {
   summary: DashboardOverviewSummaryDto;
   locale: LocaleCode;
   dict: AppDictionary;
+  quoteRefreshVersion?: number;
   canOpenQuickActions?: boolean;
   onOpenQuickActions?: () => void;
 }
@@ -33,6 +35,7 @@ export function DashboardHero({
   summary,
   locale,
   dict,
+  quoteRefreshVersion = 0,
   canOpenQuickActions = false,
   onOpenQuickActions,
 }: DashboardHeroProps) {
@@ -71,7 +74,7 @@ export function DashboardHero({
           className="mt-2 font-mono text-3xl font-semibold tabular-nums text-foreground sm:text-4xl"
           data-testid="dashboard-hero-total-value"
         >
-          {totalValue}
+          <RollingNumber value={totalValue} animateOnKey={quoteRefreshVersion} />
         </p>
         {totalExactValue ? (
           <p className="mt-1 text-sm text-muted-foreground" data-testid="dashboard-hero-total-exact">
@@ -91,7 +94,7 @@ export function DashboardHero({
           )}
           data-testid="dashboard-hero-day-delta-value"
         >
-          {dayDeltaValue}
+          <RollingNumber value={dayDeltaValue} animateOnKey={quoteRefreshVersion} />
         </p>
         {dayDeltaExactValue ? (
           <p className={cn("mt-1 text-sm", deltaTone)} data-testid="dashboard-hero-day-delta-exact">
@@ -192,7 +195,10 @@ export function DashboardHero({
               >
                 <span className="text-xs font-medium text-muted-foreground">{market.marketCode}</span>
                 <span className="mt-1 block font-mono text-lg font-semibold tabular-nums text-foreground">
-                  {formatCompactCurrencyAmount(market.value, summary.reportingCurrency, locale)}
+                  <RollingNumber
+                    value={formatCompactCurrencyAmount(market.value, summary.reportingCurrency, locale)}
+                    animateOnKey={quoteRefreshVersion}
+                  />
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
                   {formatHeroMessage(dict.dashboardHome.exactAmountInline, {

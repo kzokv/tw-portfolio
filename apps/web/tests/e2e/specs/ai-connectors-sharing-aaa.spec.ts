@@ -18,8 +18,10 @@ test.describe("ai connectors and sharing", () => {
     await page.getByTestId("settings-ai-connectors-page").waitFor({ state: "visible" });
     await page.getByRole("heading", { name: "AI Connectors" }).waitFor({ state: "visible" });
     await page.getByText("Deployment").waitFor({ state: "visible" });
-    await page.getByText("Active connection cap").waitFor({ state: "visible" });
-    await page.getByText("No AI connectors are connected.").waitFor({ state: "visible" });
+    await page.getByText("Active cap").waitFor({ state: "visible" });
+    await page.getByTestId("ai-connectors-tab-connections").waitFor({ state: "visible" });
+    await page.getByTestId("ai-connectors-tab-tools").waitFor({ state: "visible" });
+    await page.getByText("Start a connector flow from ChatGPT").waitFor({ state: "visible" });
   });
 
   test("[admin mcp settings]: settings route renders deployment and policy controls", async ({

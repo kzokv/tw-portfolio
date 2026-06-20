@@ -54,8 +54,9 @@ import {
   MARKET_FILTER_CODES,
   REPORT_CURRENCY_MODES,
   REPORT_SCOPES,
-  dashboardPerformanceRangesSchema,
+  adminMarketDataTableSettingsPreferenceSchema,
   dashboardHoldingFocusPreferenceSchema,
+  dashboardPerformanceRangesSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
   holdingsTableSettingsPreferenceSchema,
@@ -73,6 +74,7 @@ import {
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../services/dashboardReportingCurrency.js";
+import { createRealizedPnlBreakdownResolver } from "../services/realizedPnlBreakdown.js";
 import type { ImpersonationDto } from "@vakwen/shared-types";
 import { Env } from "@vakwen/config";
 import {
@@ -1709,6 +1711,7 @@ function normalizeBindings(rawBindings: Array<z.infer<typeof feeBindingSchema>>)
 function mapTransactionHistoryItem(
   trade: Transaction,
   accountById: ReadonlyMap<string, { id: string; name: string }>,
+  buildRealizedPnlBreakdown: (trade: Transaction) => TransactionHistoryItemDto["realizedPnlBreakdown"],
 ): TransactionHistoryItemDto {
   return {
     id: trade.id,
@@ -1729,6 +1732,7 @@ function mapTransactionHistoryItem(
     isDayTrade: trade.isDayTrade,
     realizedPnlAmount: trade.realizedPnlAmount ?? null,
     realizedPnlCurrency: trade.realizedPnlCurrency ?? null,
+    realizedPnlBreakdown: buildRealizedPnlBreakdown(trade),
     feeProfileId: trade.feeSnapshot.id,
     feeProfileName: trade.feeSnapshot.name,
     bookedAt: trade.bookedAt ?? null,
@@ -1746,13 +1750,14 @@ function buildTransactionHistoryItems(
   } = {},
 ): TransactionHistoryItemDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
-  const items = listTradeEvents(store)
+  const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(store.accounting);
+  const sortedTrades = listTradeEvents(store)
     .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
     .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
     .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
-    .sort(compareTransactionsForHistory)
-    .map((trade) => mapTransactionHistoryItem(trade, accountById));
-  return query.limit ? items.slice(0, query.limit) : items;
+    .sort(compareTransactionsForHistory);
+  const visibleTrades = query.limit ? sortedTrades.slice(0, query.limit) : sortedTrades;
+  return visibleTrades.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown));
 }
 
 function compareTransactionsForHistory(left: Transaction, right: Transaction): number {
@@ -3508,6 +3513,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
+        .optional(),
+      adminMarketDataTableSettings: z
+        .union([adminMarketDataTableSettingsPreferenceSchema, z.null()])
         .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.

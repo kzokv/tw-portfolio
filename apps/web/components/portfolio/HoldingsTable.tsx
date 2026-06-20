@@ -18,6 +18,7 @@ import { buildAllocationPercentages, getAmountForAllocationBasis, resolveHolding
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { RollingNumber } from "../ui/RollingNumber";
 import { fieldClassName } from "../ui/fieldStyles";
 import { Checkbox } from "../ui/shadcn/checkbox";
 import {
@@ -84,6 +85,7 @@ interface HoldingsTableProps {
   recomputingSymbols?: Set<string>;
   showFreshnessBadge?: boolean;
   showAdminActivityLinks?: boolean;
+  quoteRefreshVersion?: number;
   variant?: "default" | "compact";
   allocationBasis?: HoldingAllocationBasis;
   onAllocationBasisChange?: (basis: HoldingAllocationBasis) => void;
@@ -120,6 +122,7 @@ const PORTFOLIO_MOBILE_FIELD_COLUMNS: HoldingsColumn[] = [
   "nextDividend",
   "lastDividend",
 ];
+const MAX_ANIMATED_HOLDING_VALUE_ROWS = 8;
 
 const PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = [];
 const PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = ["avgCost", "unitPnl"];
@@ -185,6 +188,7 @@ export function HoldingsTable({
   recomputingSymbols,
   showFreshnessBadge = true,
   showAdminActivityLinks = false,
+  quoteRefreshVersion = 0,
   variant = "default",
   allocationBasis,
   onAllocationBasisChange,
@@ -516,7 +520,7 @@ export function HoldingsTable({
             <CalendarUnknownWarnings className="mt-6" dict={dict} rows={filteredGroups} />
             <HoldingsGridMobileList className="mt-6" testId="holdings-mobile-list">
               {displayMode === "accounts"
-                ? visibleChildRows.map((child) => (
+                ? visibleChildRows.map((child, index) => (
                     <HoldingChildMobileCard
                       key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
                       child={child}
@@ -528,9 +532,10 @@ export function HoldingsTable({
                       nested={false}
                       showFreshnessBadge={showFreshnessBadge}
                       summaryColumns={mobileColumnSplit.summaryColumns}
+                      quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
                   ))
-                : filteredGroups.map((group) => {
+                : filteredGroups.map((group, index) => {
                   const groupKey = `${group.ticker}::${group.marketCode}`;
                   const showChildren = expandedState.has(groupKey);
                   const visibleChildren = group.children.filter((child) =>
@@ -550,6 +555,7 @@ export function HoldingsTable({
                       expanded={showChildren}
                       showFreshnessBadge={showFreshnessBadge}
                       showAdminActivityLinks={showAdminActivityLinks}
+                      quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                       summaryColumns={mobileColumnSplit.summaryColumns}
                       onToggle={() => toggleGroup(groupKey)}
                       />
@@ -566,6 +572,7 @@ export function HoldingsTable({
                             nested
                             showFreshnessBadge={showFreshnessBadge}
                             summaryColumns={mobileColumnSplit.summaryColumns}
+                            quoteRefreshVersion={0}
                           />
                         ))
                         : null}
@@ -601,7 +608,7 @@ export function HoldingsTable({
               </thead>
               <tbody>
                 {displayMode === "accounts"
-                  ? visibleChildRows.map((child) => (
+                  ? visibleChildRows.map((child, index) => (
                     <HoldingChildRow
                       key={`${child.accountId}:${child.ticker}:${child.marketCode}`}
                       child={child}
@@ -612,9 +619,10 @@ export function HoldingsTable({
                       allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                       allocationBasis={effectiveAllocationBasis}
                       isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
+                      quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
                   ))
-                  : filteredGroups.map((group) => {
+                  : filteredGroups.map((group, index) => {
                     const groupKey = `${group.ticker}::${group.marketCode}`;
                     const showChildren = expandedState.has(groupKey);
                     const visibleChildren = group.children.filter((child) =>
@@ -637,6 +645,7 @@ export function HoldingsTable({
                           showFreshnessBadge={showFreshnessBadge}
                           showAdminActivityLinks={showAdminActivityLinks}
                           isRecomputing={hasRecomputingChild(group, recomputingSymbols)}
+                          quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                         />
                         {showChildren
                           ? visibleChildren.map((child) => (
@@ -648,10 +657,11 @@ export function HoldingsTable({
                               visibleColumns={visibleColumns}
                               columnSettings={columnSettings}
                               allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
-                              allocationBasis={effectiveAllocationBasis}
-                              isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
-                              nested
-                            />
+                                  allocationBasis={effectiveAllocationBasis}
+                                  isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
+                                  nested
+                                  quoteRefreshVersion={0}
+                                />
                           ))
                           : null}
                       </React.Fragment>
@@ -677,6 +687,7 @@ function HoldingGroupMobileCard({
   expanded,
   showFreshnessBadge,
   showAdminActivityLinks,
+  quoteRefreshVersion,
   summaryColumns,
   onToggle,
 }: {
@@ -689,6 +700,7 @@ function HoldingGroupMobileCard({
   expanded: boolean;
   showFreshnessBadge: boolean;
   showAdminActivityLinks: boolean;
+  quoteRefreshVersion: number;
   summaryColumns: HoldingsColumn[];
   onToggle: () => void;
 }) {
@@ -734,6 +746,7 @@ function HoldingGroupMobileCard({
             row={group}
             showFreshnessBadge={showFreshnessBadge}
             showAdminActivityLinks={showAdminActivityLinks}
+            quoteRefreshVersion={quoteRefreshVersion}
           />
         ))}
       </div>
@@ -783,6 +796,7 @@ function HoldingChildMobileCard({
   detailColumns,
   nested,
   showFreshnessBadge,
+  quoteRefreshVersion,
   summaryColumns,
 }: {
   child: DashboardOverviewHoldingChildDto;
@@ -793,6 +807,7 @@ function HoldingChildMobileCard({
   detailColumns: HoldingsColumn[];
   nested: boolean;
   showFreshnessBadge: boolean;
+  quoteRefreshVersion: number;
   summaryColumns: HoldingsColumn[];
 }) {
   const reportingCurrency = child.reportingCurrency;
@@ -830,6 +845,7 @@ function HoldingChildMobileCard({
             locale={locale}
             row={child}
             showFreshnessBadge={showFreshnessBadge}
+            quoteRefreshVersion={quoteRefreshVersion}
           />
         ))}
       </div>
@@ -852,6 +868,7 @@ function HoldingChildMobileCard({
                   locale={locale}
                   row={child}
                   showFreshnessBadge={showFreshnessBadge}
+                  quoteRefreshVersion={quoteRefreshVersion}
                 />
               ))}
             </div>
@@ -902,6 +919,7 @@ function PortfolioMobileColumnMetric({
   row,
   showFreshnessBadge,
   showAdminActivityLinks = false,
+  quoteRefreshVersion = 0,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
   allocationBasis: HoldingAllocationBasis;
@@ -912,6 +930,7 @@ function PortfolioMobileColumnMetric({
   row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
   showFreshnessBadge: boolean;
   showAdminActivityLinks?: boolean;
+  quoteRefreshVersion?: number;
 }) {
   const reportingCurrency = row.reportingCurrency;
   const avgCost = getDashboardReportingAverageCost(row, reportingCurrency);
@@ -979,7 +998,12 @@ function PortfolioMobileColumnMetric({
       return (
         <MobileHoldingMetric
           label={dict.holdings.marketValueTerm}
-          value={row.reportingMarketValueAmount == null ? "-" : formatCurrencyAmount(row.reportingMarketValueAmount, reportingCurrency, locale)}
+          value={row.reportingMarketValueAmount == null ? "-" : (
+            <RollingNumber
+              value={formatCurrencyAmount(row.reportingMarketValueAmount, reportingCurrency, locale)}
+              animateOnKey={quoteRefreshVersion}
+            />
+          )}
           valueClassName="break-all"
         />
       );
@@ -1031,6 +1055,7 @@ function HoldingGroupRow({
   showFreshnessBadge,
   showAdminActivityLinks,
   isRecomputing,
+  quoteRefreshVersion,
 }: {
   columnSettings: HoldingsColumnSettingsState<HoldingsColumn>;
   group: DashboardOverviewHoldingGroupDto;
@@ -1044,6 +1069,7 @@ function HoldingGroupRow({
   showFreshnessBadge: boolean;
   showAdminActivityLinks: boolean;
   isRecomputing: boolean;
+  quoteRefreshVersion: number;
 }) {
   const allocation = getAmountForAllocationBasis(group, allocationBasis);
   const reportingCurrency = group.reportingCurrency;
@@ -1068,6 +1094,7 @@ function HoldingGroupRow({
           showFreshnessBadge={showFreshnessBadge}
           showAdminActivityLinks={showAdminActivityLinks}
           unrealizedPnlAmount={group.reportingUnrealizedPnlAmount}
+          quoteRefreshVersion={quoteRefreshVersion}
         />
       ))}
     </tr>
@@ -1084,6 +1111,7 @@ function HoldingChildRow({
   allocationBasis,
   isRecomputing,
   nested = false,
+  quoteRefreshVersion,
 }: {
   columnSettings: HoldingsColumnSettingsState<HoldingsColumn>;
   child: DashboardOverviewHoldingChildDto;
@@ -1094,6 +1122,7 @@ function HoldingChildRow({
   allocationBasis: HoldingAllocationBasis;
   isRecomputing: boolean;
   nested?: boolean;
+  quoteRefreshVersion: number;
 }) {
   const allocation = getAmountForAllocationBasis(child, allocationBasis);
   const reportingCurrency = child.reportingCurrency;
@@ -1115,6 +1144,7 @@ function HoldingChildRow({
           nested={nested}
           reportingCurrency={reportingCurrency}
           unrealizedPnlAmount={child.reportingUnrealizedPnlAmount}
+          quoteRefreshVersion={quoteRefreshVersion}
         />
       ))}
     </tr>
@@ -1170,6 +1200,7 @@ function HoldingGroupCell({
   showFreshnessBadge,
   showAdminActivityLinks,
   unrealizedPnlAmount,
+  quoteRefreshVersion,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
   allocationPercent: number | null;
@@ -1186,6 +1217,7 @@ function HoldingGroupCell({
   showFreshnessBadge: boolean;
   showAdminActivityLinks: boolean;
   unrealizedPnlAmount: number | null;
+  quoteRefreshVersion: number;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
@@ -1273,7 +1305,16 @@ function HoldingGroupCell({
     );
   }
   if (column === "marketValue") {
-    return <td className="px-4 py-3 text-right" style={style}>{marketValueAmount == null ? "-" : formatCurrencyAmount(marketValueAmount, reportingCurrency, locale)}</td>;
+    return (
+      <td className="px-4 py-3 text-right" style={style}>
+        {marketValueAmount == null ? "-" : (
+          <RollingNumber
+            value={formatCurrencyAmount(marketValueAmount, reportingCurrency, locale)}
+            animateOnKey={quoteRefreshVersion}
+          />
+        )}
+      </td>
+    );
   }
   if (column === "pnl") {
     return (
@@ -1324,6 +1365,7 @@ function HoldingChildCell({
   nested,
   reportingCurrency,
   unrealizedPnlAmount,
+  quoteRefreshVersion,
 }: {
   allocation: ReturnType<typeof getAmountForAllocationBasis>;
   allocationPercent: number | null;
@@ -1337,6 +1379,7 @@ function HoldingChildCell({
   nested: boolean;
   reportingCurrency: AccountDefaultCurrency;
   unrealizedPnlAmount: number | null;
+  quoteRefreshVersion: number;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
@@ -1405,7 +1448,16 @@ function HoldingChildCell({
     );
   }
   if (column === "marketValue") {
-    return <td className="px-4 py-3 text-right" style={style}>{marketValueAmount == null ? "-" : formatCurrencyAmount(marketValueAmount, reportingCurrency, locale)}</td>;
+    return (
+      <td className="px-4 py-3 text-right" style={style}>
+        {marketValueAmount == null ? "-" : (
+          <RollingNumber
+            value={formatCurrencyAmount(marketValueAmount, reportingCurrency, locale)}
+            animateOnKey={quoteRefreshVersion}
+          />
+        )}
+      </td>
+    );
   }
   if (column === "pnl") {
     return (

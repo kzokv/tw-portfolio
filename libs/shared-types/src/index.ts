@@ -853,6 +853,11 @@ export interface HoldingsTableSettingsPreferenceDto {
   contexts: Record<string, HoldingsTableContextPreferenceDto>;
 }
 
+export interface AdminMarketDataTableSettingsPreferenceDto {
+  version: 1;
+  contexts: Record<string, HoldingsTableContextPreferenceDto>;
+}
+
 const dashboardHoldingFocusPresetSchema = z.enum(DASHBOARD_HOLDING_FOCUS_PRESETS);
 const dashboardHoldingFocusPresetListSchema = z
   .array(dashboardHoldingFocusPresetSchema)
@@ -941,6 +946,38 @@ export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSetti
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "holdings_table_too_many_contexts",
+          });
+        }
+      }),
+  })
+  .strict();
+
+export const adminMarketDataTableSettingsPreferenceSchema: z.ZodType<AdminMarketDataTableSettingsPreferenceDto> = z
+  .object({
+    version: z.literal(1),
+    contexts: z
+      .record(
+        holdingsTableContextKeySchema,
+        z
+          .object({
+            columnOrder: holdingsTableColumnListSchema.optional(),
+            hiddenColumns: holdingsTableColumnListSchema.optional(),
+            columnWidths: z
+              .record(
+                holdingsTableColumnIdSchema,
+                z.number().int().min(72).max(420),
+              )
+              .optional(),
+            layoutStyle: z.enum(["dashboard", "portfolio"]).optional(),
+            mobileSummaryCount: z.number().int().min(1).max(40).optional(),
+          })
+          .strict(),
+      )
+      .superRefine((value, ctx) => {
+        if (Object.keys(value).length > 20) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "admin_market_data_table_too_many_contexts",
           });
         }
       }),
@@ -1265,11 +1302,43 @@ export interface TransactionHistoryItemDto {
   isDayTrade: boolean;
   realizedPnlAmount: number | null;
   realizedPnlCurrency: CurrencyCode | null;
+  realizedPnlBreakdown?: RealizedPnlBreakdownDto | null;
   feeProfileId: string;
   feeProfileName: string;
   bookedAt: string | null;
   feesSource: "CALCULATED" | "MANUAL";
 }
+
+export type RealizedPnlBreakdownUnavailableReason =
+  | "insufficient_quantity"
+  | "currency_mismatch"
+  | "unsupported_cost_basis_method"
+  | "unknown";
+
+export interface RealizedPnlBreakdownAvailableDto {
+  status: "available";
+  currency: CurrencyCode;
+  preSaleOpenQuantity: number;
+  preSaleOpenCostAmount: number;
+  exactAverageCostPerShare: number;
+  roundedAverageCostPerShare: number;
+  allocatedCostAmount: number;
+  grossProceedsAmount: number;
+  commissionAmount: number;
+  taxAmount: number;
+  netProceedsAmount: number;
+  realizedPnlAmount: number;
+}
+
+export interface RealizedPnlBreakdownUnavailableDto {
+  status: "unavailable";
+  currency: CurrencyCode;
+  reason: RealizedPnlBreakdownUnavailableReason;
+}
+
+export type RealizedPnlBreakdownDto =
+  | RealizedPnlBreakdownAvailableDto
+  | RealizedPnlBreakdownUnavailableDto;
 
 export interface TransactionAccountOptionDto {
   id: string;

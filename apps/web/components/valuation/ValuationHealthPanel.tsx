@@ -197,9 +197,9 @@ export function ValuationHealthPanel({
             {adminHelp}
           </p>
         ) : (
-          <Alert data-testid="valuation-health-user-tip">
-            <AlertTitle>{userTipTitle}</AlertTitle>
-            <AlertDescription>{userTipDescription}</AlertDescription>
+          <Alert className="min-w-0 flex-1 overflow-hidden break-words" data-testid="valuation-health-user-tip">
+            <AlertTitle className="break-words leading-snug">{userTipTitle}</AlertTitle>
+            <AlertDescription className="break-words">{userTipDescription}</AlertDescription>
           </Alert>
         )}
         <div className="flex flex-wrap items-center gap-2">

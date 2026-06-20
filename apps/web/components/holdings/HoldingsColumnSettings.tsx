@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type {
+  AdminMarketDataTableSettingsPreferenceDto,
   HoldingsTableContextPreferenceDto,
   HoldingsTableLayoutStyle,
   HoldingsTableSettingsPreferenceDto,
 } from "@vakwen/shared-types";
-import { holdingsTableSettingsPreferenceSchema } from "@vakwen/shared-types";
+import {
+  adminMarketDataTableSettingsPreferenceSchema,
+  holdingsTableSettingsPreferenceSchema,
+} from "@vakwen/shared-types";
 import { ArrowLeft, ArrowRight, GripVertical, Minus, Plus, RotateCcw, Rows3, Settings2 } from "lucide-react";
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
@@ -35,8 +39,29 @@ export interface HoldingsGridColumnDefinition<ColumnId extends string> {
 interface UserPreferencesResponse {
   preferences?: {
     holdingsTableSettings?: unknown;
+    adminMarketDataTableSettings?: unknown;
   };
 }
+
+export interface HoldingsColumnSettingsCopy {
+  columnSettingsButtonLabel: string;
+  columnSettingsTitle: string;
+  dragColumnTitle: string;
+  layoutStyleLabel: string;
+  layoutStyleCompact: string;
+  layoutStyleDetailed: string;
+  mobileSummaryCountLabel: string;
+  mobileSummaryCountHelp: string;
+  mobileSummaryCountDecreaseAria: string;
+  mobileSummaryCountIncreaseAria: string;
+  moveColumnLeftAria: string;
+  moveColumnRightAria: string;
+  resizeColumnAria: string;
+  resetColumnsLabel: string;
+  toggleColumnAria: string;
+}
+
+type ColumnSettingsPreferenceNamespace = "holdingsTableSettings" | "adminMarketDataTableSettings";
 
 interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>;
@@ -45,6 +70,8 @@ interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   defaultHiddenColumns?: ColumnId[];
   defaultMobileSummaryCount?: number;
   mobileSummaryColumnIds?: ColumnId[];
+  pinnedLeadingColumns?: ColumnId[];
+  preferenceNamespace?: ColumnSettingsPreferenceNamespace;
 }
 
 interface ColumnRuntimeSettings<ColumnId extends string> {
@@ -58,6 +85,7 @@ interface ColumnRuntimeSettings<ColumnId extends string> {
 export interface HoldingsColumnSettingsState<ColumnId extends string> {
   allColumns: Array<HoldingsGridColumnDefinition<ColumnId>>;
   orderedColumns: Array<HoldingsGridColumnDefinition<ColumnId>>;
+  pinnedLeadingColumns: ColumnId[];
   visibleColumns: ColumnId[];
   layoutStyle: HoldingsTableLayoutStyle;
   mobileSummaryCount: number;
@@ -99,24 +127,7 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   resizeColumnAria: "Resize {column} column",
   resetColumnsLabel: "Reset",
   toggleColumnAria: "Show {column} column",
-} satisfies Pick<
-  AppDictionary["holdings"],
-  | "columnSettingsButtonLabel"
-  | "columnSettingsTitle"
-  | "dragColumnTitle"
-  | "layoutStyleLabel"
-  | "layoutStyleCompact"
-  | "layoutStyleDetailed"
-  | "mobileSummaryCountLabel"
-  | "mobileSummaryCountHelp"
-  | "mobileSummaryCountDecreaseAria"
-  | "mobileSummaryCountIncreaseAria"
-  | "moveColumnLeftAria"
-  | "moveColumnRightAria"
-  | "resizeColumnAria"
-  | "resetColumnsLabel"
-  | "toggleColumnAria"
->;
+} satisfies HoldingsColumnSettingsCopy;
 
 export function useHoldingsColumnSettings<ColumnId extends string>({
   columns,
@@ -125,12 +136,18 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   defaultHiddenColumns = EMPTY_DEFAULT_HIDDEN_COLUMNS,
   defaultMobileSummaryCount = 5,
   mobileSummaryColumnIds,
+  pinnedLeadingColumns = EMPTY_DEFAULT_HIDDEN_COLUMNS,
+  preferenceNamespace = "holdingsTableSettings",
 }: UseHoldingsColumnSettingsOptions<ColumnId>): HoldingsColumnSettingsState<ColumnId> {
   const columnIds = useMemo(() => columns.map((column) => column.id), [columns]);
+  const pinnedLeadingOrder = useMemo(
+    () => pinnedLeadingColumns.filter((column, index) => columnIds.includes(column) && pinnedLeadingColumns.indexOf(column) === index),
+    [columnIds, pinnedLeadingColumns],
+  );
   const mobileSummaryCountMax = Math.max(1, mobileSummaryColumnIds?.length ?? columns.length);
   const defaultSettings = useMemo(
-    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax),
-    [columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax],
+    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder),
+    [columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder],
   );
   const [contexts, setContexts] = useState<Record<string, HoldingsTableContextPreferenceDto>>({});
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
@@ -151,17 +168,25 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     setSettings((current) => {
-      const next = normalizeContextSettings(current, columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
+      const next = normalizeContextSettings(
+        current,
+        columns,
+        defaultLayoutStyle,
+        defaultHiddenColumns,
+        defaultMobileSummaryCount,
+        mobileSummaryCountMax,
+        pinnedLeadingOrder,
+      );
       return columnSettingsEqual(current, next) ? current : next;
     });
-  }, [columns, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax]);
+  }, [columns, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder]);
 
   useEffect(() => {
     let cancelled = false;
     void getJson<UserPreferencesResponse>("/user-preferences")
       .then((response) => {
         if (cancelled) return;
-        const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
+        const parsed = readPreferenceSchema(preferenceNamespace).safeParse(response?.preferences?.[preferenceNamespace]);
         const nextContexts = parsed.success ? parsed.data.contexts : {};
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
@@ -178,7 +203,15 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         contextsRef.current = nextContexts;
         setContexts(nextContexts);
         setSettings((current) => {
-          const next = normalizeContextSettings(nextContexts[contextKey], columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
+          const next = normalizeContextSettings(
+            nextContexts[contextKey],
+            columns,
+            defaultLayoutStyle,
+            defaultHiddenColumns,
+            defaultMobileSummaryCount,
+            mobileSummaryCountMax,
+            pinnedLeadingOrder,
+          );
           return columnSettingsEqual(current, next) ? current : next;
         });
       })
@@ -190,7 +223,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     return () => {
       cancelled = true;
     };
-  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder, preferenceNamespace]);
 
   const orderedColumns = useMemo(
     () => settings.columnOrder
@@ -200,8 +233,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   );
 
   function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>) {
-    const payload: HoldingsTableSettingsPreferenceDto = { version: 1, contexts: nextContexts };
-    void patchJson("/user-preferences", { holdingsTableSettings: payload })
+    const payload = buildPreferencePayload(preferenceNamespace, nextContexts);
+    void patchJson("/user-preferences", { [preferenceNamespace]: payload })
       .catch((error) => {
         setSettingsError(error instanceof Error ? error.message : String(error));
       });
@@ -234,11 +267,15 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     const withoutSource = settings.columnOrder.filter((column) => column !== source);
     const targetIndex = withoutSource.indexOf(target);
     if (targetIndex < 0) return;
-    const nextOrder = [...withoutSource.slice(0, targetIndex), source, ...withoutSource.slice(targetIndex)];
+    const nextOrder = withPinnedLeadingColumns(
+      [...withoutSource.slice(0, targetIndex), source, ...withoutSource.slice(targetIndex)],
+      pinnedLeadingOrder,
+    );
     persist({ ...settings, columnOrder: nextOrder });
   }
 
   function moveColumn(column: ColumnId, direction: "left" | "right") {
+    if (pinnedLeadingOrder.includes(column)) return;
     const currentIndex = settings.columnOrder.indexOf(column);
     const targetIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= settings.columnOrder.length) return;
@@ -246,7 +283,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     const [source] = nextOrder.splice(currentIndex, 1);
     if (!source) return;
     nextOrder.splice(targetIndex, 0, source);
-    persist({ ...settings, columnOrder: nextOrder });
+    persist({ ...settings, columnOrder: withPinnedLeadingColumns(nextOrder, pinnedLeadingOrder) });
   }
 
   function resetColumns() {
@@ -320,6 +357,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   return {
     allColumns: columns,
     orderedColumns,
+    pinnedLeadingColumns: pinnedLeadingOrder,
     visibleColumns: settings.columnOrder.filter((column) => !settings.hiddenColumns.includes(column)),
     layoutStyle: settings.layoutStyle,
     mobileSummaryCount: clampMobileSummaryCount(settings.mobileSummaryCount, mobileSummaryCountMax),
@@ -337,32 +375,37 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 }
 
 export function HoldingsColumnSettingsMenu<ColumnId extends string>({
+  copy,
   dict,
   enableLayoutStyle = false,
   getColumnLabel,
   settings,
+  testIdPrefix = "holdings",
 }: {
+  copy?: Partial<HoldingsColumnSettingsCopy>;
   dict?: AppDictionary;
   enableLayoutStyle?: boolean;
   getColumnLabel?: (column: HoldingsGridColumnDefinition<ColumnId>) => string;
   settings: HoldingsColumnSettingsState<ColumnId>;
+  testIdPrefix?: string;
 }) {
-  const copy = dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY;
+  const resolvedCopy = { ...(dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY), ...copy };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="sm" data-testid="holdings-column-settings">
+        <Button type="button" variant="outline" size="sm" data-testid={`${testIdPrefix}-column-settings`}>
           <Settings2 data-icon="inline-start" aria-hidden="true" />
-          {copy.columnSettingsButtonLabel}
+          {resolvedCopy.columnSettingsButtonLabel}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>{copy.columnSettingsTitle}</DropdownMenuLabel>
+        <DropdownMenuLabel>{resolvedCopy.columnSettingsTitle}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <div className="flex flex-col gap-2 px-2 py-1.5">
           {settings.orderedColumns.map((column, index) => {
             const isFirst = index === 0;
             const isLast = index === settings.orderedColumns.length - 1;
+            const pinnedLeadingColumn = settings.pinnedLeadingColumns.includes(column.id);
             const columnLabel = getColumnLabel?.(column) ?? column.label;
             return (
               <div key={column.id} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm">
@@ -370,7 +413,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                   checked={settings.visibleColumns.includes(column.id)}
                   disabled={column.canHide === false}
                   onCheckedChange={() => settings.toggleColumn(column.id)}
-                  aria-label={copy.toggleColumnAria.replace("{column}", columnLabel)}
+                  aria-label={resolvedCopy.toggleColumnAria.replace("{column}", columnLabel)}
                 />
                 <span className="min-w-0 flex-1 break-words">{columnLabel}</span>
                 <div className="flex shrink-0 items-center gap-1">
@@ -379,10 +422,10 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={isFirst}
+                    disabled={isFirst || pinnedLeadingColumn}
                     onClick={() => settings.moveColumn(column.id, "left")}
-                    aria-label={copy.moveColumnLeftAria.replace("{column}", columnLabel)}
-                    data-testid={`holdings-column-move-left-${column.id}`}
+                    aria-label={resolvedCopy.moveColumnLeftAria.replace("{column}", columnLabel)}
+                    data-testid={`${testIdPrefix}-column-move-left-${column.id}`}
                   >
                     <ArrowLeft className="size-3.5" aria-hidden="true" />
                   </Button>
@@ -391,10 +434,10 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={isLast}
+                    disabled={isLast || pinnedLeadingColumn}
                     onClick={() => settings.moveColumn(column.id, "right")}
-                    aria-label={copy.moveColumnRightAria.replace("{column}", columnLabel)}
-                    data-testid={`holdings-column-move-right-${column.id}`}
+                    aria-label={resolvedCopy.moveColumnRightAria.replace("{column}", columnLabel)}
+                    data-testid={`${testIdPrefix}-column-move-right-${column.id}`}
                   >
                     <ArrowRight className="size-3.5" aria-hidden="true" />
                   </Button>
@@ -407,8 +450,8 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
         <div className="flex flex-col gap-2 px-2 py-1.5">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-medium">{copy.mobileSummaryCountLabel}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{copy.mobileSummaryCountHelp}</p>
+              <p className="text-sm font-medium">{resolvedCopy.mobileSummaryCountLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{resolvedCopy.mobileSummaryCountHelp}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background p-1">
               <Button
@@ -418,12 +461,12 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                 className="size-7"
                 disabled={settings.mobileSummaryCount <= 1}
                 onClick={() => settings.setMobileSummaryCount(settings.mobileSummaryCount - 1)}
-                aria-label={copy.mobileSummaryCountDecreaseAria}
-                data-testid="holdings-mobile-summary-count-decrease"
+                aria-label={resolvedCopy.mobileSummaryCountDecreaseAria}
+                data-testid={`${testIdPrefix}-mobile-summary-count-decrease`}
               >
                 <Minus className="size-3.5" aria-hidden="true" />
               </Button>
-              <span className="min-w-8 text-center font-mono text-sm tabular-nums" data-testid="holdings-mobile-summary-count">
+              <span className="min-w-8 text-center font-mono text-sm tabular-nums" data-testid={`${testIdPrefix}-mobile-summary-count`}>
                 {settings.mobileSummaryCount}
               </span>
               <Button
@@ -433,8 +476,8 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                 className="size-7"
                 disabled={settings.mobileSummaryCount >= settings.mobileSummaryCountMax}
                 onClick={() => settings.setMobileSummaryCount(settings.mobileSummaryCount + 1)}
-                aria-label={copy.mobileSummaryCountIncreaseAria}
-                data-testid="holdings-mobile-summary-count-increase"
+                aria-label={resolvedCopy.mobileSummaryCountIncreaseAria}
+                data-testid={`${testIdPrefix}-mobile-summary-count-increase`}
               >
                 <Plus className="size-3.5" aria-hidden="true" />
               </Button>
@@ -447,7 +490,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
             <div className="flex flex-col gap-2 px-2 py-1.5">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Rows3 className="size-4 shrink-0" aria-hidden="true" />
-                {copy.layoutStyleLabel}
+                {resolvedCopy.layoutStyleLabel}
               </div>
               <ToggleGroup
                 type="single"
@@ -460,16 +503,16 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
                 <ToggleGroupItem
                   value="dashboard"
                   className="h-auto whitespace-normal text-left leading-5"
-                  data-testid="holdings-layout-dashboard"
+                  data-testid={`${testIdPrefix}-layout-dashboard`}
                 >
-                  {copy.layoutStyleCompact}
+                  {resolvedCopy.layoutStyleCompact}
                 </ToggleGroupItem>
                 <ToggleGroupItem
                   value="portfolio"
                   className="h-auto whitespace-normal text-left leading-5"
-                  data-testid="holdings-layout-portfolio"
+                  data-testid={`${testIdPrefix}-layout-portfolio`}
                 >
-                  {copy.layoutStyleDetailed}
+                  {resolvedCopy.layoutStyleDetailed}
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
@@ -480,7 +523,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
           {settings.settingsError ? <p className="min-w-0 flex-1 break-words text-xs text-destructive">{settings.settingsError}</p> : <span />}
           <Button type="button" variant="ghost" size="sm" onClick={settings.resetColumns}>
             <RotateCcw data-icon="inline-start" aria-hidden="true" />
-            {copy.resetColumnsLabel}
+            {resolvedCopy.resetColumnsLabel}
           </Button>
         </div>
       </DropdownMenuContent>
@@ -491,17 +534,21 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
 export function HoldingsColumnHeaderContent<ColumnId extends string>({
   align = "left",
   column,
+  copy,
   dict,
   label,
   settings,
+  testIdPrefix = "holdings",
 }: {
   align?: HoldingsColumnAlign;
   column: ColumnId;
+  copy?: Partial<HoldingsColumnSettingsCopy>;
   dict?: AppDictionary;
   label: string;
   settings: HoldingsColumnSettingsState<ColumnId>;
+  testIdPrefix?: string;
 }) {
-  const copy = dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY;
+  const resolvedCopy = { ...(dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY), ...copy };
   return (
     <div
       {...settings.headerProps(column)}
@@ -509,17 +556,17 @@ export function HoldingsColumnHeaderContent<ColumnId extends string>({
         "group relative flex min-h-9 cursor-grab select-none items-center gap-1 pr-3 active:cursor-grabbing",
         align === "right" ? "justify-end text-right" : "justify-start text-left",
       )}
-      data-testid={`holdings-column-drag-${column}`}
-      title={copy.dragColumnTitle.replace("{column}", label)}
+      data-testid={`${testIdPrefix}-column-drag-${column}`}
+      title={resolvedCopy.dragColumnTitle.replace("{column}", label)}
     >
       <GripVertical className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
       <span className="min-w-0 break-words leading-tight">{label}</span>
       <span
         {...settings.resizeProps(column)}
         role="separator"
-        aria-label={copy.resizeColumnAria.replace("{column}", label)}
+        aria-label={resolvedCopy.resizeColumnAria.replace("{column}", label)}
         className="absolute -right-1 top-1/2 h-6 w-2 -translate-y-1/2 cursor-col-resize rounded-sm bg-transparent transition-colors hover:bg-primary/30"
-        data-testid={`holdings-column-resize-${column}`}
+        data-testid={`${testIdPrefix}-column-resize-${column}`}
       />
     </div>
   );
@@ -543,9 +590,10 @@ function buildDefaultSettings<ColumnId extends string>(
   defaultHiddenColumns: ColumnId[],
   defaultMobileSummaryCount: number,
   mobileSummaryCountMax: number,
+  pinnedLeadingColumns: ColumnId[],
 ): ColumnRuntimeSettings<ColumnId> {
   return {
-    columnOrder: columns.map((column) => column.id),
+    columnOrder: withPinnedLeadingColumns(columns.map((column) => column.id), pinnedLeadingColumns),
     hiddenColumns: defaultHiddenColumns,
     columnWidths: Object.fromEntries(columns.map((column) => [column.id, clampWidth(column.defaultWidth)])) as Record<ColumnId, number>,
     layoutStyle,
@@ -560,14 +608,15 @@ function normalizeContextSettings<ColumnId extends string>(
   defaultHiddenColumns: ColumnId[],
   defaultMobileSummaryCount: number,
   mobileSummaryCountMax: number,
+  pinnedLeadingColumns: ColumnId[],
 ): ColumnRuntimeSettings<ColumnId> {
-  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax);
+  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingColumns);
   const validIds = new Set(columns.map((column) => column.id));
   const rawOrder = Array.isArray(rawSettings?.columnOrder) ? rawSettings.columnOrder : [];
-  const columnOrder = [
+  const columnOrder = withPinnedLeadingColumns([
     ...rawOrder.filter((column): column is ColumnId => validIds.has(column as ColumnId)) as ColumnId[],
     ...defaults.columnOrder.filter((column) => !rawOrder.includes(column)),
-  ];
+  ], pinnedLeadingColumns);
   const rawHiddenColumns = (Array.isArray(rawSettings?.hiddenColumns) ? rawSettings.hiddenColumns : [])
     .filter((column): column is ColumnId => validIds.has(column as ColumnId));
   const hiddenColumns = rawSettings
@@ -631,4 +680,25 @@ function clampWidth(width: number) {
 
 function clampMobileSummaryCount(count: number, max: number) {
   return Math.max(1, Math.min(Math.max(1, max), Math.round(count)));
+}
+
+function readPreferenceSchema(namespace: ColumnSettingsPreferenceNamespace) {
+  return namespace === "adminMarketDataTableSettings"
+    ? adminMarketDataTableSettingsPreferenceSchema
+    : holdingsTableSettingsPreferenceSchema;
+}
+
+function buildPreferencePayload(
+  namespace: ColumnSettingsPreferenceNamespace,
+  contexts: Record<string, HoldingsTableContextPreferenceDto>,
+): HoldingsTableSettingsPreferenceDto | AdminMarketDataTableSettingsPreferenceDto {
+  return namespace === "adminMarketDataTableSettings"
+    ? { version: 1, contexts }
+    : { version: 1, contexts };
+}
+
+function withPinnedLeadingColumns<ColumnId extends string>(columnOrder: ColumnId[], pinnedLeadingColumns: ColumnId[]) {
+  if (pinnedLeadingColumns.length === 0) return columnOrder;
+  const pinned = pinnedLeadingColumns.filter((column, index) => columnOrder.includes(column) && pinnedLeadingColumns.indexOf(column) === index);
+  return [...pinned, ...columnOrder.filter((column) => !pinned.includes(column))];
 }

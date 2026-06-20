@@ -22,6 +22,7 @@ import { getJson, patchJson } from "../../lib/api";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
+import { RollingNumber } from "../ui/RollingNumber";
 import { Badge } from "../ui/shadcn/badge";
 import {
   Card,
@@ -111,6 +112,7 @@ const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHo
   { id: "action", label: "Action", defaultWidth: 112, align: "right" },
 ];
 const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "health"];
+const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
 
 const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
   { id: "largest", label: "Largest", sortMode: "value" },
@@ -133,6 +135,7 @@ interface DashboardHoldingsPreviewProps {
   groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
   reportingCurrency: AccountDefaultCurrency;
+  quoteRefreshVersion?: number;
   settingsContextKey?: string;
   showAdminActivityLinks?: boolean;
 }
@@ -142,6 +145,7 @@ export function DashboardHoldingsPreview({
   groups,
   locale,
   reportingCurrency,
+  quoteRefreshVersion = 0,
   settingsContextKey = "dashboard.topHoldings",
   showAdminActivityLinks = false,
 }: DashboardHoldingsPreviewProps) {
@@ -544,7 +548,7 @@ export function DashboardHoldingsPreview({
                 />
                 <CalendarUnknownWarnings dict={dict} rows={visibleGroups} />
                 <HoldingsGridMobileList>
-                  {visibleGroups.map((group) => (
+                  {visibleGroups.map((group, index) => (
                     <DashboardHoldingRow
                       dict={dict}
                       key={`${group.ticker}-${group.marketCode}`}
@@ -554,6 +558,7 @@ export function DashboardHoldingsPreview({
                       summaryColumns={mobileColumnSplit.summaryColumns}
                       visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
                       onOpen={() => setSelected(group)}
+                      quoteRefreshVersion={index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0}
                       reportingCurrency={reportingCurrency}
                       showAdminActivityLinks={showAdminActivityLinks}
                     />
@@ -569,6 +574,7 @@ export function DashboardHoldingsPreview({
                   accountFilter={accountFilter}
                   columnSettings={columnSettings}
                   onToggleExpanded={toggleExpandedRow}
+                  quoteRefreshVersion={quoteRefreshVersion}
                   reportingCurrency={reportingCurrency}
                   showAdminActivityLinks={showAdminActivityLinks}
                 />
@@ -597,7 +603,7 @@ export function DashboardHoldingsPreview({
         selected={selected}
         title={(group) => `${group.ticker} · ${group.marketCode}`}
         renderDetail={(group) => (
-          <DashboardHoldingDetail
+        <DashboardHoldingDetail
             dict={dict}
             fxRate={findFxRate(fxRates, group.currency, reportingCurrency)}
             group={group}
@@ -620,6 +626,7 @@ function DashboardHoldingRow({
   summaryColumns,
   visibleColumns,
   onOpen,
+  quoteRefreshVersion,
   reportingCurrency,
   showAdminActivityLinks,
 }: {
@@ -630,6 +637,7 @@ function DashboardHoldingRow({
   summaryColumns: DashboardHoldingsColumn[];
   visibleColumns: DashboardHoldingsColumn[];
   onOpen: () => void;
+  quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
   showAdminActivityLinks: boolean;
 }) {
@@ -674,6 +682,7 @@ function DashboardHoldingRow({
             reportingAvgCost={reportingAvgCost}
             reportingCurrency={reportingCurrency}
             reportingPrice={reportingPrice}
+            quoteRefreshVersion={quoteRefreshVersion}
             showAdminActivityLinks={showAdminActivityLinks}
             unitPnl={unitPnl}
           />
@@ -705,6 +714,7 @@ function DashboardHoldingsTable({
   locale,
   onOpen,
   onToggleExpanded,
+  quoteRefreshVersion,
   reportingCurrency,
   showAdminActivityLinks,
 }: {
@@ -717,6 +727,7 @@ function DashboardHoldingsTable({
   locale: LocaleCode;
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
   onToggleExpanded: (key: string) => void;
+  quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
   showAdminActivityLinks: boolean;
 }) {
@@ -749,7 +760,7 @@ function DashboardHoldingsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {groups.map((group) => {
+          {groups.map((group, index) => {
             const rowKey = holdingRowKey(group);
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
             const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
@@ -769,6 +780,7 @@ function DashboardHoldingsTable({
                     locale,
                     onOpen,
                     onToggleExpanded: () => onToggleExpanded(rowKey),
+                    quoteRefreshVersion: index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0,
                     reportingCurrency,
                     reportingDailyMove,
                     reportingPrice,
@@ -786,6 +798,7 @@ function DashboardHoldingsTable({
                         dict,
                         group,
                         locale,
+                        quoteRefreshVersion: 0,
                         reportingCurrency,
                       }))}
                     </TableRow>
@@ -844,6 +857,7 @@ function renderDashboardGroupCell({
   locale,
   onOpen,
   onToggleExpanded,
+  quoteRefreshVersion,
   reportingCurrency,
   reportingDailyMove,
   reportingPrice,
@@ -859,6 +873,7 @@ function renderDashboardGroupCell({
   locale: LocaleCode;
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
   onToggleExpanded: () => void;
+  quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
   reportingDailyMove: number | null;
   reportingPrice: number | null;
@@ -964,7 +979,12 @@ function renderDashboardGroupCell({
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>
-            {group.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+            {group.reportingMarketValueAmount === null ? "-" : (
+              <RollingNumber
+                value={formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+                animateOnKey={quoteRefreshVersion}
+              />
+            )}
           </span>
           {group.reportingMarketValueAmount === null ? null : (
             <span className="text-xs text-muted-foreground">
@@ -1025,6 +1045,7 @@ function renderDashboardChildCell({
   dict,
   group,
   locale,
+  quoteRefreshVersion,
   reportingCurrency,
 }: {
   child: DashboardOverviewHoldingChildDto;
@@ -1033,6 +1054,7 @@ function renderDashboardChildCell({
   dict: ReturnType<typeof getDictionary>;
   group: DashboardOverviewHoldingGroupDto;
   locale: LocaleCode;
+  quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
 }) {
   const style = holdingsColumnCellStyle(columnSettings, column);
@@ -1101,7 +1123,12 @@ function renderDashboardChildCell({
       <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>
-            {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+            {child.reportingMarketValueAmount === null ? "-" : (
+              <RollingNumber
+                value={formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+                animateOnKey={quoteRefreshVersion}
+              />
+            )}
           </span>
           {child.reportingMarketValueAmount === null ? null : (
             <span className="text-xs text-muted-foreground">
@@ -1222,7 +1249,7 @@ function PreviewMetric({
   testId?: string;
   title?: string;
   toneValue?: number | null;
-  value: string;
+  value: ReactNode;
   subValue?: string;
 }) {
   return (
@@ -1618,6 +1645,7 @@ function DashboardMobileColumnMetric({
   reportingAvgCost,
   reportingCurrency,
   reportingPrice,
+  quoteRefreshVersion,
   showAdminActivityLinks,
   unitPnl,
 }: {
@@ -1630,6 +1658,7 @@ function DashboardMobileColumnMetric({
   reportingAvgCost: number | null;
   reportingCurrency: AccountDefaultCurrency;
   reportingPrice: number | null;
+  quoteRefreshVersion: number;
   showAdminActivityLinks: boolean;
   unitPnl: ReturnType<typeof getDashboardUnitPnl>;
 }) {
@@ -1669,7 +1698,12 @@ function DashboardMobileColumnMetric({
       return (
         <PreviewMetric
           label={dict.reports.marketValue}
-          value={group.reportingMarketValueAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+          value={group.reportingMarketValueAmount === null ? "-" : (
+            <RollingNumber
+              value={formatFinanceCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+              animateOnKey={quoteRefreshVersion}
+            />
+          )}
         />
       );
     case "daily":

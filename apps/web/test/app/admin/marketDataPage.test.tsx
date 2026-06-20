@@ -152,6 +152,43 @@ describe("AdminMarketDataPage", () => {
     ]);
   });
 
+  it("does not auto-select KR operations without an explicit operation id", async () => {
+    getJsonMock.mockImplementation((async (path: string) => {
+      if (path === "/admin/market-data/KR/overview") {
+        return { marketCode: "KR", label: "Korea", tabs: ["overview", "operations"], providers: [] };
+      }
+      if (path === "/admin/market-data/KR/actions") {
+        return { marketCode: "KR", actions: [] };
+      }
+      if (path === "/admin/market-data/KR/operations?page=1&limit=50") {
+        return { marketCode: "KR", providers: [], items: [], total: 0, page: 1, limit: 50 };
+      }
+      if (path === "/admin/providers/yahoo-finance-kr/operations?page=1&limit=25") {
+        return {
+          operations: [{ id: "OP-ROW" }],
+          stagedOperation: { id: "OP-STAGED" },
+          selectedOperation: { id: "OP-PROVIDER-DEFAULT" },
+        };
+      }
+      throw new Error(`Unexpected getJson path: ${path}`);
+    }) as never);
+
+    const element = await AdminMarketDataWorkspacePage({
+      params: Promise.resolve({ marketCode: "KR", tab: "operations" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/admin/market-data/KR/overview",
+      "/admin/market-data/KR/actions",
+      "/admin/market-data/KR/operations?page=1&limit=50",
+      "/admin/providers/yahoo-finance-kr/operations?page=1&limit=25",
+    ]);
+    expect(html).toContain("&quot;explicitOperationId&quot;:&quot;&quot;");
+    expect(html).toContain("&quot;selectedOperationId&quot;:&quot;&quot;");
+  });
+
   it("rejects the legacy logs tab once activity replaces it", async () => {
     getJsonMock.mockImplementation((async (path: string) => {
       if (path === "/admin/market-data/KR/overview") {

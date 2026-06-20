@@ -107,9 +107,7 @@ test.describe.serial("admin market-data console", () => {
       .getByRole("definition")
       .filter({ hasText: /^finmind-tw$/ })
       .waitFor({ state: "visible" });
-    await backfillPanel
-      .getByRole("cell", { name: "TWE2EBF1", exact: true })
-      .waitFor({ state: "visible" });
+    await page.getByTestId("market-data-backfill-preview-targets").getByText("TWE2EBF1", { exact: true }).waitFor({ state: "visible" });
     await page.getByText("I reviewed the preview").waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
       await page.getByRole("button", { name: "Execute backfill" }).isDisabled(),

@@ -20,9 +20,21 @@ import type {
 
 const mockPush = vi.hoisted(() => vi.fn());
 const mockRefresh = vi.hoisted(() => vi.fn());
+const mockSearchParams = vi.hoisted(() => vi.fn(() => new URLSearchParams()));
+const mockIsSmallScreen = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
+  useSearchParams: () => mockSearchParams(),
+}));
+
+vi.mock("../../../lib/hooks/use-small-screen", () => ({
+  useIsSmallScreen: () => mockIsSmallScreen(),
+}));
+
+vi.mock("../../../lib/api", () => ({
+  getJson: vi.fn(async () => ({ preferences: {} })),
+  patchJson: vi.fn(async () => ({ preferences: {} })),
 }));
 
 vi.mock("../../../lib/adminMarketDataService", () => ({
@@ -73,6 +85,7 @@ import {
   updateMarketInstrumentDelistingOverride,
   updateProviderUnresolvedState,
 } from "../../../lib/adminMarketDataService";
+import { getJson, patchJson } from "../../../lib/api";
 
 const updateMarketInstrumentDelistingOverrideMock = vi.mocked(updateMarketInstrumentDelistingOverride);
 const bulkUpdateProviderUnresolvedStateMock = vi.mocked(bulkUpdateProviderUnresolvedState);
@@ -93,6 +106,8 @@ const rerunProviderResolvedUnresolvedItemMock = vi.mocked(rerunProviderResolvedU
 const reverifyProviderMappingMock = vi.mocked(reverifyProviderMapping);
 const rerunProviderMappingMock = vi.mocked(rerunProviderMapping);
 const revertProviderMappingMock = vi.mocked(revertProviderMapping);
+const getJsonMock = vi.mocked(getJson);
+const patchJsonMock = vi.mocked(patchJson);
 
 const auBackfillDateRange = {
   requestedStartDate: "2026-06-12",
@@ -380,7 +395,8 @@ function krOperationsData() {
   };
   return {
     operations,
-    selectedOperationId: selected.id,
+    explicitOperationId: "",
+    selectedOperationId: "",
     outcomes,
     query: {
       operationsPage: 1,
@@ -562,6 +578,11 @@ describe("AdminMarketDataWorkspaceClient", () => {
     vi.clearAllMocks();
     mockPush.mockClear();
     mockRefresh.mockClear();
+    mockSearchParams.mockReturnValue(new URLSearchParams());
+    window.history.pushState({}, "", "/");
+    mockIsSmallScreen.mockReturnValue(false);
+    getJsonMock.mockResolvedValue({ preferences: {} });
+    patchJsonMock.mockResolvedValue({ preferences: {} });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -701,6 +722,44 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.querySelector("[data-testid='market-data-backfill-created-notice']")?.textContent)
       .toContain("Backfill job created");
     expect(container.textContent).toContain("Operation OP-BACKFILL-PREVIEW is completed");
+  });
+
+  it("shows an inline error when backfill preview fails", async () => {
+    previewMarketBackfillMock.mockRejectedValueOnce(new Error("internal_error"));
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="backfill"
+          overview={{ ...overview(), tabs: ["overview", "instruments", "backfill"] }}
+          actions={backfillActions()}
+          instruments={instruments("AUBF1", "AU Backfill Fixture")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "listed",
+            supportState: "supported",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "pending",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Preview owned or monitored")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='market-data-backfill-preview-error']")?.textContent)
+      .toContain("internal_error");
+    expect(container.textContent).not.toContain("Frozen targets");
   });
 
   it("drives guided valuation repair from bounded backfill status and queues only eligible snapshots", async () => {
@@ -1776,14 +1835,43 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
 
     expect(container.querySelector("[data-testid='market-data-kr-operations']")).not.toBeNull();
-    expect(container.textContent).toContain("Operation item outcomes");
-    expect(container.textContent).toContain("repair_mapping");
+    expect(container.textContent).not.toContain("Operation item outcomes");
 
-    await act(async () => {
-      container.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    act(() => {
+      container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(document.body.textContent).not.toContain("repair_mapping");
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
+
+    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
+    mockSearchParams.mockReturnValue(selectedOperationParams);
+    window.history.pushState({}, "", `/admin/market-data/KR/operations?${selectedOperationParams.toString()}`);
     await act(async () => {
-      container.querySelector("[data-testid='provider-console-operation-execute-button']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
+        />,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Operation item outcomes");
+    expect(document.body.textContent).toContain("repair_mapping");
+
+    act(() => {
+      document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body.querySelector("[data-testid='provider-console-operation-execute-button']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(executeProviderRepairMock).toHaveBeenCalledWith(expect.objectContaining({
       providerId: "yahoo-finance-kr",
@@ -1791,9 +1879,15 @@ describe("AdminMarketDataWorkspaceClient", () => {
       previewToken: "preview-token",
       acknowledged: true,
     }));
+    await act(async () => undefined);
 
-    await act(async () => {
-      container.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    act(() => {
+      container.querySelector("[data-testid='provider-console-operation-select-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-FAILED");
+    await act(async () => undefined);
+    act(() => {
+      document.body.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mutateProviderOperationMock).toHaveBeenCalledWith({
       providerId: "yahoo-finance-kr",
@@ -1867,16 +1961,19 @@ describe("AdminMarketDataWorkspaceClient", () => {
       );
     });
 
-    expect(container.textContent).toContain("Support controls");
-    expect(container.textContent).toContain("Delisting override");
     const instrumentsTable = container.querySelector("[data-testid='market-data-instruments'] table");
     expect(instrumentsTable?.className).toContain("w-max");
     expect(instrumentsTable?.className).toContain("min-w-[72rem]");
-    const excludeButton = [...container.querySelectorAll("button")]
+    act(() => {
+      container.querySelector("[data-testid='market-data-instrument-row-BHP']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.body.textContent).toContain("Support controls");
+    expect(document.body.textContent).toContain("Delisting override");
+    const excludeButton = [...document.body.querySelectorAll("button")]
       .find((button) => button.textContent === "Exclude detection");
     expect(excludeButton).toBeTruthy();
 
-    await act(async () => {
+    act(() => {
       excludeButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -1980,10 +2077,201 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("sourceId=yahoo-finance-chart"));
 
     const row = container.querySelector("[data-testid='activity-row-act-1']") as HTMLTableRowElement | null;
-    await act(async () => {
-      row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(row?.getAttribute("tabindex")).toBe("0");
+    expect(row?.getAttribute("role")).toBe("button");
+    act(() => {
+      row?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     });
     expect(document.body.textContent).toContain("queued by dashboard enrichment read");
+  });
+
+  it("keeps operation drawers closed until a row is tapped", async () => {
+    const operations = auOperations();
+    const data = krOperationsData();
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="operations"
+          overview={{ ...overview(), tabs: ["overview", "operations"], providers: operations.providers }}
+          actions={actions()}
+          instruments={null}
+          operations={operations}
+          krMappings={null}
+        />,
+      );
+    });
+
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
+    act(() => {
+      container.querySelector("[data-testid='market-data-operation-row-OP-AU']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.body.textContent).toContain("Open filtered activity");
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={data}
+        />,
+      );
+    });
+
+    expect(document.body.textContent ?? "").not.toContain("Operation item outcomes");
+    act(() => {
+      container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(document.body.textContent).not.toContain("Operation item outcomes");
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
+
+    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
+    mockSearchParams.mockReturnValue(selectedOperationParams);
+    window.history.pushState({}, "", `/admin/market-data/KR/operations?${selectedOperationParams.toString()}`);
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
+        />,
+      );
+    });
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Operation item outcomes");
+
+    mockSearchParams.mockReturnValue(new URLSearchParams());
+    window.history.pushState({}, "", "/admin/market-data/KR/operations");
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="KR"
+          tab="operations"
+          overview={krOverview()}
+          actions={krActions()}
+          instruments={null}
+          operations={null}
+          krMappings={null}
+          krOperations={data}
+        />,
+      );
+    });
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
+  });
+
+  it("persists admin market data column settings under adminMarketDataTableSettings", async () => {
+    getJsonMock.mockResolvedValueOnce({
+      preferences: {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.AU.instruments": {
+              columnOrder: ["ticker", "backfill", "status", "support", "providers", "lastSeen"],
+              mobileSummaryCount: 2,
+              columnWidths: { ticker: 260 },
+            },
+          },
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="instruments"
+          overview={overview()}
+          actions={actions()}
+          instruments={instruments("BHP", "BHP Group")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "all",
+            supportState: "all",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "all",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const headers = [...container.querySelectorAll('[data-testid^="admin-market-data-column-drag-"]')];
+    expect(headers[0]?.getAttribute("data-testid")).toBe("admin-market-data-column-drag-ticker");
+
+    act(() => {
+      container.querySelector("[data-testid='admin-market-data-column-settings']")?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    await act(async () => undefined);
+
+    const moveRight = document.body.querySelector('[data-testid="admin-market-data-column-move-right-backfill"]');
+    expect(moveRight).not.toBeNull();
+    act(() => {
+      moveRight?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(patchJsonMock).toHaveBeenCalledWith("/user-preferences", expect.objectContaining({
+      adminMarketDataTableSettings: expect.objectContaining({
+        contexts: expect.objectContaining({
+          "admin.marketData.AU.instruments": expect.objectContaining({
+            columnOrder: ["ticker", "status", "backfill", "support", "providers", "lastSeen"],
+          }),
+        }),
+      }),
+    }));
+  });
+
+  it("keeps the identity column visible in mobile cards", async () => {
+    mockIsSmallScreen.mockReturnValue(true);
+    getJsonMock.mockResolvedValueOnce({
+      preferences: {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.AU.activity": {
+              hiddenColumns: ["facts", "source"],
+              mobileSummaryCount: 1,
+            },
+          },
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="activity"
+          overview={{ ...overview(), tabs: ["overview", "activity"] as never }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          activity={activityResponse()}
+          calendar={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const mobileRow = container.querySelector("[data-testid='activity-row-act-1']");
+    expect(mobileRow?.textContent).toContain("BHP.AX");
+    expect(mobileRow?.textContent).toContain("Warning");
   });
 
   it("renders the calendar panel shell with source, preview, and history areas", async () => {
