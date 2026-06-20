@@ -4596,6 +4596,9 @@ export class MemoryPersistence implements Persistence {
     // A null sub-key value (e.g. `{cardOrder:{transactions:null}}`) deletes
     // just that sub-key; the empty `cardOrder` object is preserved (caller
     // can still PATCH `{cardOrder:null}` to clear the whole top-level key).
+    //
+    // Admin market-data table settings are likewise context-merged so one
+    // mounted table cannot overwrite sibling table contexts from a stale hook.
     const current = this.userPreferences.get(userId) ?? {};
     const next: Record<string, unknown> = { ...current };
     for (const [key, value] of Object.entries(patch)) {
@@ -4615,6 +4618,25 @@ export class MemoryPersistence implements Persistence {
           }
         }
         next.cardOrder = merged;
+      } else if (
+        key === "adminMarketDataTableSettings"
+        && isPlainObject(value)
+      ) {
+        const currentSettings = isPlainObject(next.adminMarketDataTableSettings)
+          ? next.adminMarketDataTableSettings
+          : {};
+        const currentContexts = isPlainObject(currentSettings.contexts)
+          ? currentSettings.contexts
+          : {};
+        const patchContexts = isPlainObject(value.contexts) ? value.contexts : {};
+        next.adminMarketDataTableSettings = {
+          ...currentSettings,
+          ...value,
+          contexts: {
+            ...currentContexts,
+            ...patchContexts,
+          },
+        };
       } else {
         next[key] = value;
       }

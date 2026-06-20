@@ -56,6 +56,21 @@ describe("RollingNumber", () => {
     expect(container.querySelector("[data-rolling-active='true']")).not.toBeNull();
   });
 
+  it("exposes one accessible value without duplicating visible text", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(<RollingNumber value="NT$120" animateOnKey={0} />);
+    });
+
+    const value = container.querySelector("[data-rolling-active='false']") as HTMLElement | null;
+    expect(value?.getAttribute("aria-label")).toBe("NT$120");
+    expect(value?.querySelector("[aria-hidden='true']")).not.toBeNull();
+    expect(container.textContent).toBe("NT$120");
+  });
+
   it("starts changed digits at the initial transform before rolling in the next frame", () => {
     vi.useFakeTimers();
     let frameCallback: FrameRequestCallback | null = null;

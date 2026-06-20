@@ -310,6 +310,66 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[user-prefs]: PATCH /user-preferences { adminMarketDataTableSettings } twice → merges contexts", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-admin-market-data-context-merge-sub",
+      email: "user-prefs-admin-market-data-context-merge@example.com",
+      name: "Prefs Admin Market Data Context Merge",
+      role: "admin",
+    });
+    const instrumentsContext = {
+      columnOrder: ["ticker", "status", "support"],
+      hiddenColumns: ["providers"],
+      columnWidths: { ticker: 240 },
+      mobileSummaryCount: 3,
+    };
+    const activityContext = {
+      columnOrder: ["event", "source", "category"],
+      hiddenColumns: ["facts"],
+      columnWidths: { event: 260 },
+      mobileSummaryCount: 2,
+    };
+
+    const firstResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.TW.instruments": instrumentsContext,
+          },
+        },
+      },
+    });
+    await adminApi.assert.statusIs(firstResponse, 200);
+
+    const secondResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: {
+        adminMarketDataTableSettings: {
+          version: 1,
+          contexts: {
+            "admin.marketData.TW.activity": activityContext,
+          },
+        },
+      },
+    });
+    await adminApi.assert.statusIs(secondResponse, 200);
+    const secondBody = await secondResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(secondBody.preferences, {
+      adminMarketDataTableSettings: {
+        version: 1,
+        contexts: {
+          "admin.marketData.TW.instruments": instrumentsContext,
+          "admin.marketData.TW.activity": activityContext,
+        },
+      },
+    });
+  });
+
   test("[user-prefs]: GET /user-preferences/effective-ranges → source=default when no user pref, no admin override", async ({
     request,
     adminApi,

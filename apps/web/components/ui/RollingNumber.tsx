@@ -80,26 +80,28 @@ export function RollingNumber({
   return (
     <span
       className={cn("inline-flex items-baseline whitespace-nowrap tabular-nums", className)}
+      aria-label={state.current}
       data-rolling-active={state.isAnimating ? "true" : "false"}
     >
-      {parts.map((part, index) => {
-        if (part.type === "static") {
-          return <span key={`${part.value}-${index}`}>{part.value}</span>;
-        }
-        return (
-          <span key={`${part.from}-${part.to}-${index}`} className={cn(DIGIT_CLASS_NAME, "overflow-hidden")} style={{ height: "1em" }}>
-            <span
-              data-rolling-digit-track="true"
-              className="inline-flex flex-col transition-transform duration-400 ease-out"
-              style={{ transform: state.isRolling ? "translateY(-1em)" : "translateY(0)" }}
-            >
-              <span className={DIGIT_CLASS_NAME} style={{ height: "1em" }}>{part.from}</span>
-              <span className={DIGIT_CLASS_NAME} style={{ height: "1em" }}>{part.to}</span>
+      <span aria-hidden="true" className="inline-flex items-baseline">
+        {parts.map((part, index) => {
+          if (part.type === "static") {
+            return <span key={`${part.value}-${index}`}>{part.value}</span>;
+          }
+          return (
+            <span key={`${part.from}-${part.to}-${index}`} className={cn(DIGIT_CLASS_NAME, "overflow-hidden")} style={{ height: "1em" }}>
+              <span
+                data-rolling-digit-track="true"
+                className="inline-flex flex-col transition-transform duration-400 ease-out"
+                style={{ transform: state.isRolling ? "translateY(-1em)" : "translateY(0)" }}
+              >
+                <span className={DIGIT_CLASS_NAME} style={{ height: "1em" }}>{part.from}</span>
+                <span className={DIGIT_CLASS_NAME} style={{ height: "1em" }}>{part.to}</span>
+              </span>
             </span>
-          </span>
-        );
-      })}
-      <span className="sr-only">{state.current}</span>
+          );
+        })}
+      </span>
     </span>
   );
 }

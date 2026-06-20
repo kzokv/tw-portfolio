@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/shadcn/table";
 import { cn } from "../../lib/utils";
 import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
@@ -87,6 +87,11 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
       column !== undefined && settings.visibleColumns.includes(column.id)
     ));
   const summaryColumns = visibleColumns.filter((column) => column.id !== identityColumn.id).slice(0, settings.mobileSummaryCount);
+  function handleDesktopRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, row: Row) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onRowSelect(row);
+  }
 
   return (
     <div className="min-w-0">
@@ -168,8 +173,15 @@ export function AdminMarketDataResponsiveTable<Row, ColumnId extends string>({
                 return (
                   <TableRow
                     key={key}
-                    className={cn("cursor-pointer align-top hover:bg-muted/20", selectedRowKey === key && "bg-muted/20")}
+                    className={cn(
+                      "cursor-pointer align-top outline-none hover:bg-muted/20 focus-visible:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      selectedRowKey === key && "bg-muted/20",
+                    )}
+                    tabIndex={0}
+                    role="button"
+                    aria-selected={selectedRowKey === key}
                     onClick={() => onRowSelect(row)}
+                    onKeyDown={(event) => handleDesktopRowKeyDown(event, row)}
                     data-testid={rowTestId?.(row)}
                   >
                     {visibleColumns.map((column, index) => (

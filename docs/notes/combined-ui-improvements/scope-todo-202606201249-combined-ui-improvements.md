@@ -77,21 +77,25 @@ superseded_by: null
 - Fourth post-review focused web rerun passed: `npx vitest run test/components/ui/RollingNumber.test.tsx` — 1 file, 3 tests, including RAF cancellation protection and transition cleanup for same-length quote-refresh updates.
 - Fifth post-review focused web rerun passed: `npx vitest run test/components/ui/RollingNumber.test.tsx` — 1 file, 3 tests, including configurable animation-frame mocks so Vitest teardown can restore jsdom globals.
 - CI unit-test reproduction passed after the RollingNumber mock-descriptor fix: `npm run test:unit` — all workspace unit suites completed with exit code 0.
+- Sixth post-review focused web rerun passed: `npx vitest run test/components/ui/RollingNumber.test.tsx test/components/admin/AdminMarketDataClient.test.tsx` — 2 files, 27 tests, including single accessible RollingNumber text and keyboard activation for desktop admin table rows.
+- Sixth post-review focused API rerun passed: `npx vitest run test/integration/user-preferences.integration.test.ts` — 1 file, 14 passed / 34 skipped, including memory persistence parity for partial `adminMarketDataTableSettings.contexts` merges.
+- Sixth post-review focused HTTP rerun passed: `npm run test:http --prefix apps/api -- user-preferences-aaa.http.spec.ts` — 22 tests, including repeated `adminMarketDataTableSettings` PATCH calls preserving sibling contexts.
 - Shared-types build passed.
 - `npm run typecheck` passed after installing the worktree-local dependency tree and ensuring `@vakwen/*` resolves to this worktree.
 - Post-review `npm run typecheck` and `npx eslint .` passed after review fixes.
 - Third post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after realized P&L consistency/performance fixes.
 - Fourth post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after the rolling-number effect dependency fix.
 - Fifth post-review `npm run typecheck`, `npx eslint .`, and `git diff --check` passed after the RollingNumber test teardown fix.
+- Sixth post-review `npx eslint .`, `npm run typecheck`, and `git diff --check` passed after the accessibility and preference-merge review fixes.
 - Full AGENTS.md suite evidence before browser validation:
-  - `npx eslint .` passed cleanly after moving the new AAA guard conditionals into helper functions.
+  - `npx eslint .` passed.
   - `npm run typecheck` passed.
-  - `npm run test --prefix apps/web` passed: 50 files / 310 tests, then 59 files / 410 tests.
-  - `npm run test --prefix apps/api` passed: 171 files / 1697 tests, 44 files / 428 tests skipped.
-  - `npm run test:integration:full:host` passed: 90 files / 877 tests, 1 skipped.
+  - `npm run test --prefix apps/web` passed: 50 files / 312 tests, then 59 files / 410 tests.
+  - `npm run test --prefix apps/api` passed: 171 files / 1700 tests, 44 files / 430 tests skipped.
+  - `npm run test:integration:full:host` passed: 90 files / 880 tests, 1 skipped.
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 286 tests, 17 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 120 tests.
-  - `npm run test:http --prefix apps/api` passed: 291 tests, 2 skipped.
+  - `npm run test:http --prefix apps/api` passed: 293 tests, 2 skipped.
 - E2E/AAA coverage added and verified in `apps/web/tests/e2e/specs/combined-ui-improvements-aaa.spec.ts` for realized P&L disclosure, admin market-data drawer/settings/no-auto-open behavior, and AI Connectors MCP Tools search/filter flow.
 - Anonymous public share auth regression is covered in `apps/web/tests/e2e/specs/anon-public-view-rendered-aaa.spec.ts`, which asserts `/share/:token` remains visible and does not redirect to `/login`.
 - Targeted post-warning-cleanup E2E rerun passed: `NEXT_PUBLIC_AUTH_MODE=dev_bypass NEXT_PUBLIC_API_BASE_URL=http://localhost:4000 npx playwright test tests/e2e/specs/combined-ui-improvements-aaa.spec.ts tests/e2e/specs/anon-public-view-rendered-aaa.spec.ts --config=tests/e2e/playwright.config.ts --project=chromium` — 4 passed.
@@ -109,13 +113,14 @@ superseded_by: null
 - Direct source evidence supports the checked non-test items above:
   - `libs/shared-types/src/index.ts` defines `RealizedPnlBreakdownDto` and `adminMarketDataTableSettingsPreferenceSchema`.
   - `apps/api/src/routes/registerRoutes.ts` accepts `adminMarketDataTableSettings` in the strict `/user-preferences` PATCH schema.
+  - `apps/api/src/persistence/memory.ts` and `apps/api/src/persistence/postgres.ts` preserve sibling `adminMarketDataTableSettings.contexts` when separate admin market-data table tabs save partial settings.
   - `apps/api/src/routes/registerRoutes.ts` applies transaction history limits before DTO/breakdown mapping to avoid building realized P&L breakdowns for rows that will not be returned.
   - `apps/api/src/services/realizedPnlBreakdown.ts` implements the replay helper, unavailable reasons, conservative split/reverse-split unavailable guard, and persisted-allocation consistency guard.
   - `apps/web/components/portfolio/RealizedPnlBreakdown.tsx`, `TransactionHistoryTable.tsx`, and `RecentTransactionsCard.tsx` wire the realized P&L disclosure UI.
-  - `apps/web/components/admin/AdminMarketDataResponsiveTable.tsx` and `HoldingsColumnSettings.tsx` provide the shared admin table settings + sticky/mobile-summary behavior.
+  - `apps/web/components/admin/AdminMarketDataResponsiveTable.tsx` and `HoldingsColumnSettings.tsx` provide the shared admin table settings + sticky/mobile-summary behavior; desktop rows are keyboard-focusable buttons and open drawers on Enter/Space.
   - `apps/web/components/admin/AdminMarketDataKrResolver.tsx` keeps KR operation outcome rows route-backed after row selection so drawer headers cannot show one operation while stale outcomes show another.
   - `apps/web/components/settings/AiConnectorsSettingsClient.tsx` implements responsive tabs, mobile select, current-first ordering, collapsed revoked/expired history, and MCP Tools search/group/availability filters with per-tool toggles.
-  - `apps/web/components/ui/RollingNumber.tsx`, `DashboardHero.tsx`, `DashboardHoldingsPreview.tsx`, and `HoldingsTable.tsx` wire the rolling-value animation and row-cap behavior; `RollingNumber` starts changed digits at the initial transform before applying the final transform in the next animation frame without canceling its own RAF/timeout on state updates.
+  - `apps/web/components/ui/RollingNumber.tsx`, `DashboardHero.tsx`, `DashboardHoldingsPreview.tsx`, and `HoldingsTable.tsx` wire the rolling-value animation and row-cap behavior; `RollingNumber` starts changed digits at the initial transform before applying the final transform in the next animation frame without canceling its own RAF/timeout on state updates, while exposing one accessible text value.
   - `apps/web/components/layout/AccentApplier.tsx` skips preference hydration on `/share` and `/share/*`.
 
 ## Remaining Gaps

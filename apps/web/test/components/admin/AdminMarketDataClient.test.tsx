@@ -2030,8 +2030,10 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("sourceId=yahoo-finance-chart"));
 
     const row = container.querySelector("[data-testid='activity-row-act-1']") as HTMLTableRowElement | null;
+    expect(row?.getAttribute("tabindex")).toBe("0");
+    expect(row?.getAttribute("role")).toBe("button");
     act(() => {
-      row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      row?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     });
     expect(document.body.textContent).toContain("queued by dashboard enrichment read");
   });

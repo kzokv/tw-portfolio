@@ -12040,23 +12040,61 @@ export class PostgresPersistence implements Persistence {
     // sub-key values (`{cardOrder:{transactions:null}}`) are dropped via
     // `jsonb_strip_nulls()`. Top-level `{cardOrder:null}` still routes
     // through the delete-keys arm and removes the entire `cardOrder` key.
+    //
+    // `adminMarketDataTableSettings.contexts` is also sub-key-merged so
+    // concurrently mounted admin tables do not overwrite sibling contexts.
     const mergeObj: Record<string, unknown> = {};
     const deleteKeys: string[] = [];
     let cardOrderPatch: Record<string, unknown> | null = null;
+    let adminMarketDataTableSettingsPatch: Record<string, unknown> | null = null;
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) {
         deleteKeys.push(k);
       } else if (k === "cardOrder" && typeof v === "object" && !Array.isArray(v)) {
         cardOrderPatch = v as Record<string, unknown>;
+      } else if (k === "adminMarketDataTableSettings" && typeof v === "object" && !Array.isArray(v)) {
+        adminMarketDataTableSettingsPatch = v as Record<string, unknown>;
       } else {
         mergeObj[k] = v;
       }
     }
     const r = await this.pool.query<{ preferences: Record<string, unknown> }>(
       `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
-       VALUES ($1, jsonb_strip_nulls(COALESCE($2::jsonb, '{}'::jsonb) || COALESCE(jsonb_build_object('cardOrder', $4::jsonb), '{}'::jsonb)), NOW())
+       VALUES ($1, jsonb_strip_nulls(
+         COALESCE($2::jsonb, '{}'::jsonb)
+         || COALESCE(jsonb_build_object('cardOrder', $4::jsonb), '{}'::jsonb)
+         || COALESCE(jsonb_build_object('adminMarketDataTableSettings', $5::jsonb), '{}'::jsonb)
+       ), NOW())
        ON CONFLICT (user_id) DO UPDATE
          SET preferences = CASE
+           WHEN $5::jsonb IS NOT NULL THEN
+             jsonb_set(
+               CASE
+                 WHEN $4::jsonb IS NOT NULL THEN
+                   jsonb_set(
+                     (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+                     '{cardOrder}',
+                     jsonb_strip_nulls(
+                       COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                       || $4::jsonb
+                     )
+                   )
+                 ELSE
+                   (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+               END,
+               '{adminMarketDataTableSettings}',
+               jsonb_set(
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences->'adminMarketDataTableSettings', '{}'::jsonb)
+                   || $5::jsonb
+                 ),
+                 '{contexts}',
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences#>'{adminMarketDataTableSettings,contexts}', '{}'::jsonb)
+                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                 )
+              )
+             )
            WHEN $4::jsonb IS NOT NULL THEN
              jsonb_set(
                (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
@@ -12076,6 +12114,7 @@ export class PostgresPersistence implements Persistence {
         JSON.stringify(mergeObj),
         deleteKeys,
         cardOrderPatch === null ? null : JSON.stringify(cardOrderPatch),
+        adminMarketDataTableSettingsPatch === null ? null : JSON.stringify(adminMarketDataTableSettingsPatch),
       ],
     );
     return r.rows[0]?.preferences ?? {};
