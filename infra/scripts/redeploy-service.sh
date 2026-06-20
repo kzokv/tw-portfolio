@@ -50,6 +50,7 @@ finalize_redeploy() {
   trap - EXIT
 
   if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    log_phase "Docker exit cleanup"
     docker_disk_bounded_cleanup "Redeploy exit cleanup" || true
   fi
 

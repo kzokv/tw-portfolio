@@ -42,6 +42,7 @@ Codex review follow-up:
 - Fresh Codex review for commit `bf7f999ea8` reported `discussion_r3445372717`: the failure-diagnostics heredoc terminator could remain indented inside the shell `if`. Resolution: `.github/workflows/_deploy-reusable.yml` now writes the remote failure diagnostics script to a temporary file at the top level, then pipes it into SSH from inside the credential guard.
 - Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383687`: post-deploy diagnostics could fail a successful deploy. Resolution: `.github/workflows/_deploy-reusable.yml` now treats after-deploy diagnostics as best-effort with `|| true`.
 - Fresh Codex review for commit `ad25af2f55` reported `discussion_r3445383691`: the Docker resolver test could pick a real `/usr/bin/docker`. Resolution: `infra/scripts/lib/docker-disk.sh` now treats `DEPLOY_DOCKER_BIN` as an explicit override, and the focused test name documents that behavior.
+- Operator visibility follow-up: `deploy.sh` and `redeploy-service.sh` now emit a clear `== Docker exit cleanup ==` marker before bounded cleanup. Full successful deploys also emit `== Successful app image cleanup ==` before tagged app-image cleanup.
 
 ## Focused Validation
 
@@ -97,6 +98,9 @@ Evidence:
 
 - Command/check: `npx vitest run infra/scripts/__tests__`
 - Outcome: passed after the post-deploy diagnostics and Docker resolver follow-up. Vitest reported `3` test files passed and `15` tests passed.
+
+- Command/check: `bash -n infra/scripts/deploy.sh infra/scripts/backup-postgres.sh infra/scripts/redeploy-service.sh infra/scripts/lib/docker-disk.sh`
+- Outcome: passed with exit code `0` after the cleanup log-marker follow-up.
 
 - Command/check: `git diff --check`
 - Outcome: passed with exit code `0`.

@@ -143,6 +143,7 @@ finalize_deploy() {
   trap - EXIT
 
   if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    log_phase "Docker exit cleanup"
     docker_disk_bounded_cleanup "Deploy exit cleanup" || true
   fi
 
@@ -150,6 +151,7 @@ finalize_deploy() {
   # freshly built images aren't referenced by running containers yet
   # and would be incorrectly removed.
   if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ] && [ "$exit_code" -eq 0 ]; then
+    log_phase "Successful app image cleanup"
     cleanup_unused_images
   fi
 
