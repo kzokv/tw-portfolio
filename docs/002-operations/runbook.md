@@ -1162,7 +1162,7 @@ For human operators, evaluate **Access for Infrastructure** instead. Cloudflare 
 
 ## 5. Deployment Flow
 
-Deploys use the shared `infra/scripts/deploy.sh` entrypoint with an explicit `--environment` flag. The script selects the matching compose file and env file (`docker-compose.prod.yml` + `.env.prod` for production, `docker-compose.dev.yml` + `.env.dev` for dev), checks out the target ref, builds app images, takes a pre-migration DB backup, runs migrations, brings up services, runs health checks, and on failure performs an automatic rollback.
+Deploys use the shared `infra/scripts/deploy.sh` entrypoint with an explicit `--environment` flag. The script selects the matching compose file and env file (`docker-compose.prod.yml` + `.env.prod` for production, `docker-compose.dev.yml` + `.env.dev` for dev), checks out the target ref, waits for backup-safe Postgres readiness, takes a pre-migration DB backup before any image builds, runs Docker disk preflight checks, builds app images, runs migrations, brings up services, runs health checks, and on failure performs an automatic rollback.
 
 ### 5.1 Automated Dev Deploy
 
@@ -1247,7 +1247,14 @@ Option examples:
 
 - GitHub Actions deploys keep the SSH session alive with client-side keepalives while the remote deploy script runs.
 - `deploy.sh` emits periodic heartbeat log lines during long image builds, migrations, and `docker compose up` so a quiet Docker build does not look like a stalled or dead SSH session.
+- The reusable deploy workflow captures remote Docker disk diagnostics before deploy, after successful deploys, and again during failure handling when SSH is still available.
 - If a deploy still fails with `client_loop: send disconnect: Broken pipe`, treat it as a WARP/SSH transport interruption first. Check whether the remote deploy log continued under `~/.local/state/vakwen/<environment>/logs/deploy/` before assuming the app build failed.
+
+**Deploy guardrails**
+
+- `DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS` defaults to `120` seconds. The deploy waits for `pg_isready` and `SELECT NOT pg_is_in_recovery()` before running `backup-postgres.sh`.
+- `DEPLOY_MIN_DOCKER_FREE_GB` defaults to `25`, `DEPLOY_MIN_DOCKER_FREE_PERCENT` defaults to `15`, and `DEPLOY_BUILDER_KEEP_STORAGE` defaults to `20GB`.
+- `deploy.sh` and `redeploy-service.sh` both use the shared Docker disk helper for build preflight and bounded exit cleanup. Tagged app-image cleanup remains success-only in the full deploy flow.
 
 ---
 
@@ -1561,7 +1568,22 @@ bash infra/scripts/backup-postgres.sh --environment production
 bash infra/scripts/backup-postgres.sh --environment dev
 ```
 
-Backups are written to `~/.local/state/vakwen/<environment>/backups/` (or `BACKUP_DIR` / `VAKWEN_STATE_DIR` if set). Old backups are pruned per `RETAIN_DAYS` (default 30).
+Backups are written to `~/.local/state/vakwen/<environment>/backups/` (or `BACKUP_DIR` / `VAKWEN_STATE_DIR` if set). The script writes to a temporary file and renames only after `pg_dump | gzip` succeeds, so interrupted backups do not leave a partial `.sql.gz` in place.
+
+Retention defaults are environment-aware:
+
+| Environment | Retain days | Max files |
+|---|---:|---:|
+| `production` | `30` | `60` |
+| `dev` | `7` | `20` |
+
+Overrides:
+
+- `BACKUP_RETAIN_DAYS` — explicit day-based retention override
+- `BACKUP_RETAIN_MAX_FILES` — explicit max-file retention override
+- `RETAIN_DAYS` — backward-compatible alias for `BACKUP_RETAIN_DAYS`
+
+Retention pruning runs only after a new backup completes successfully.
 
 **Manual backup:**
 

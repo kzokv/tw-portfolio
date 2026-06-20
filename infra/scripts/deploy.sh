@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_PATH="${0##*/}"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKUP_SCRIPT="$SCRIPT_DIR/backup-postgres.sh"
+DOCKER_DISK_LIB="$SCRIPT_DIR/lib/docker-disk.sh"
 PREVIOUS_BRANCH=""
 PREVIOUS_SHA=""
 
@@ -23,6 +24,7 @@ PHASE_START_EPOCH=""
 IMAGE_TAG=""
 BUILD_FLAGS=""
 ENABLE_EXIT_DOCKER_CLEANUP=false
+DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS="${DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS:-120}"
 
 COMPOSE_FILE=""
 COMPOSE_PROJECT=""
@@ -50,6 +52,13 @@ log_phase() {
   echo ""
   log "== $* =="
 }
+
+if [ ! -f "$DOCKER_DISK_LIB" ]; then
+  echo "ERROR: Required Docker disk helper not found: $DOCKER_DISK_LIB" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DOCKER_DISK_LIB"
 
 phase_start() {
   PHASE_START_EPOCH=$(date +%s)
@@ -131,6 +140,10 @@ EOF
 finalize_deploy() {
   local exit_code=$?
   trap - EXIT
+
+  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    docker_disk_bounded_cleanup "Deploy exit cleanup" || true
+  fi
 
   # Only clean up unused images on successful deploy — on failure the
   # freshly built images aren't referenced by running containers yet
@@ -631,6 +644,34 @@ restore_database_if_possible() {
   fi
 }
 
+wait_for_backup_safe_postgres() {
+  local timeout_seconds="${DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS}"
+  local primary_ready=""
+  local i
+
+  if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [ "$timeout_seconds" -lt 1 ]; then
+    log "ERROR: DEPLOY_POSTGRES_BACKUP_READY_TIMEOUT_SECONDS must be a positive integer (got '$timeout_seconds')"
+    return 1
+  fi
+
+  log "Waiting for Postgres backup-safe readiness (up to ${timeout_seconds}s)..."
+  for i in $(seq 1 "$timeout_seconds"); do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -q >/dev/null 2>&1; then
+      primary_ready="$(docker exec "$POSTGRES_CONTAINER" \
+        psql -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -Atqc \
+        'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)"
+      if [ "$primary_ready" = "t" ]; then
+        log "Postgres is ready for backup after ${i}s"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+
+  log "ERROR: Postgres did not become backup-safe within ${timeout_seconds}s"
+  return 1
+}
+
 rollback() {
   log_phase "ROLLBACK: restoring previous state (branch: ${PREVIOUS_BRANCH:-detached}, sha: ${PREVIOUS_SHA:-unknown})"
   set +e
@@ -640,7 +681,12 @@ rollback() {
   fi
   git reset --hard "$PREVIOUS_SHA"
 
-  run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS
+  if docker_disk_preflight_build "Rollback Docker build preflight"; then
+    run_with_heartbeat "rollback image build" dc --profile migrate build $BUILD_FLAGS || \
+      log "WARNING: Rollback image build failed; attempting to restart existing images"
+  else
+    log "WARNING: Skipping rollback image build because Docker disk preflight failed; attempting to restart existing images"
+  fi
   dc down --remove-orphans --timeout 10 || true
   for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
@@ -739,7 +785,22 @@ export IMAGE_TAG ENV_FILE ENVIRONMENT
 export CACHE_BUST="$(git rev-parse HEAD)"
 phase_done
 
+phase_start "Pre-migration database backup"
+if docker ps --format '{{.Names}}' | grep -q "^${POSTGRES_CONTAINER}$"; then
+  if ! wait_for_backup_safe_postgres; then
+    collect_compose_failure_diagnostics "postgres not backup-safe for backup"
+    exit 1
+  fi
+  bash "$BACKUP_SCRIPT" --environment "$ENVIRONMENT"
+else
+  log "Postgres not running; skipping pre-migration backup"
+fi
+phase_done
+
 phase_start "Build images (tag: $IMAGE_TAG)"
+if ! docker_disk_preflight_build "Docker build preflight"; then
+  exit 1
+fi
 # Ensure buildx is usable. check-buildx.sh auto-installs or removes bad binaries.
 # If it still fails, fall back to --no-cache with the legacy builder.
 bash "$SCRIPT_DIR/check-buildx.sh" || true
@@ -752,14 +813,6 @@ if ! run_with_heartbeat "image build" dc --profile migrate build $BUILD_FLAGS; t
   log "ERROR: Image build failed"
   collect_compose_failure_diagnostics "image build failed"
   exit 1
-fi
-phase_done
-
-phase_start "Pre-migration database backup"
-if docker ps --format '{{.Names}}' | grep -q "^${POSTGRES_CONTAINER}$"; then
-  bash "$BACKUP_SCRIPT" --environment "$ENVIRONMENT"
-else
-  log "Postgres not running; skipping pre-migration backup"
 fi
 phase_done
 
@@ -777,7 +830,7 @@ for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
       log "WARNING: docker rm -f failed for $stale_container — restarting Docker daemon"
       sudo systemctl restart docker 2>/dev/null \
         || sudo service docker restart 2>/dev/null \
-        || { log "ERROR: Cannot restart Docker daemon. Remove container manually: docker rm -f $stale_container"; on_failure; }
+        || { log "ERROR: Cannot restart Docker daemon. Remove container manually: docker rm -f $stale_container"; exit 1; }
       # Wait for Docker daemon to be ready
       for _w in $(seq 1 30); do
         docker info >/dev/null 2>&1 && break
@@ -790,6 +843,9 @@ done
 # --build forces a fresh image so new migration files are never missed due to
 # Docker layer cache (the full service build ran earlier, so this only rebuilds
 # the lightweight migrate image — typically < 2s).
+if ! docker_disk_preflight_build "Migration image build preflight"; then
+  exit 1
+fi
 if ! run_with_heartbeat "database migrations" dc --profile migrate run --build --rm "$MIGRATE_SERVICE"; then
   log "ERROR: Migration failed; triggering rollback"
   collect_container_logs

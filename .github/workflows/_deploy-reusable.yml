@@ -162,6 +162,20 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "test -f '$DEPLOY_PATH/infra/scripts/deploy.sh' && test -f '$remote_compose_file' && test -f '$remote_env_file' && docker compose version >/dev/null"
 
+      - name: Remote Docker disk diagnostics before deploy
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -euo pipefail; docker_root=\$(docker info --format '{{.DockerRootDir}}'); echo '== Remote Docker disk diagnostics (before deploy) =='; echo \"Docker root: \$docker_root\"; df -h \"\$docker_root\"; docker system df"
+
       - name: Run remote deploy
         run: |
           set -euo pipefail
@@ -176,10 +190,38 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "bash '$DEPLOY_PATH/infra/scripts/deploy.sh' --environment '$DEPLOY_ENVIRONMENT' --branch '$DEPLOY_BRANCH' -t '$DEPLOY_IMAGE_TAG' '$DEPLOY_SHA'"
 
+      - name: Remote Docker disk diagnostics after deploy
+        if: success()
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -euo pipefail; docker_root=\$(docker info --format '{{.DockerRootDir}}'); echo '== Remote Docker disk diagnostics (after deploy) =='; echo \"Docker root: \$docker_root\"; df -h \"\$docker_root\"; docker system df"
+
       - name: Collect failure diagnostics
         if: failure()
         run: |
           set +e
+          if [ -f ~/.ssh/id_ed25519 ]; then
+            ssh -i ~/.ssh/id_ed25519 \
+              -o BatchMode=yes \
+              -o ConnectTimeout=30 \
+              -o IdentitiesOnly=yes \
+              -o LogLevel=ERROR \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=6 \
+              -o StrictHostKeyChecking=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "set -euo pipefail; docker_root=\$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true); echo '== Remote Docker disk diagnostics (failure) =='; if [ -n \"\$docker_root\" ] && [ -d \"\$docker_root\" ]; then echo \"Docker root: \$docker_root\"; df -h \"\$docker_root\" || true; fi; docker system df || true" \
+              || true
+          fi
           warp-cli --accept-tos status || true
           sudo systemctl status warp-svc --no-pager || true
 
