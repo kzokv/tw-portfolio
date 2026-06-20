@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_PATH="${0##*/}"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DOCKER_DISK_LIB="$SCRIPT_DIR/lib/docker-disk.sh"
 
 ENVIRONMENT=""
 WITH_DEPS=false
@@ -16,6 +17,7 @@ STACK_PREFIX=""
 FULL_SERVICE=""
 
 PHASE_START_EPOCH=""
+ENABLE_EXIT_DOCKER_CLEANUP=false
 
 log() {
   echo "[$(date '+%H:%M:%S')] $*"
@@ -26,6 +28,13 @@ log_phase() {
   log "== $* =="
 }
 
+if [ ! -f "$DOCKER_DISK_LIB" ]; then
+  echo "ERROR: Required Docker disk helper not found: $DOCKER_DISK_LIB" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DOCKER_DISK_LIB"
+
 phase_start() {
   PHASE_START_EPOCH=$(date +%s)
   log_phase "$*"
@@ -35,6 +44,20 @@ phase_done() {
   local elapsed=$(( $(date +%s) - PHASE_START_EPOCH ))
   log "done (${elapsed}s)"
 }
+
+finalize_redeploy() {
+  local exit_code=$?
+  trap - EXIT
+
+  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    log_phase "Docker exit cleanup"
+    docker_disk_bounded_cleanup "Redeploy exit cleanup" || true
+  fi
+
+  exit "$exit_code"
+}
+
+trap finalize_redeploy EXIT
 
 dc() {
   docker compose --project-name "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
@@ -211,6 +234,7 @@ parse_args() {
 parse_args "$@"
 configure_environment
 resolve_service_name "$SERVICE"
+ENABLE_EXIT_DOCKER_CLEANUP=true
 
 log "Redeploying $SERVICE ($FULL_SERVICE) in $ENVIRONMENT"
 log "Compose file: $COMPOSE_FILE"
@@ -230,6 +254,10 @@ fi
 
 # ── Phase 1: Build target ────────────────────────────────────────────
 phase_start "Phase 1: Build $FULL_SERVICE"
+
+if ! docker_disk_preflight_build "Docker build preflight for $FULL_SERVICE"; then
+  exit 1
+fi
 
 if ! dc build "$FULL_SERVICE"; then
   echo "ERROR: Build failed for $FULL_SERVICE" >&2

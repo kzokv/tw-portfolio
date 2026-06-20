@@ -162,6 +162,40 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "test -f '$DEPLOY_PATH/infra/scripts/deploy.sh' && test -f '$remote_compose_file' && test -f '$remote_env_file' && docker compose version >/dev/null"
 
+      - name: Remote Docker disk diagnostics before deploy
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'sh -s' <<'REMOTE'
+          set -eu
+          qnap_docker="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
+          if ! command -v docker >/dev/null 2>&1 && [ -x "$qnap_docker" ]; then
+            PATH="$(dirname "$qnap_docker"):$PATH"
+            export PATH
+          fi
+          docker_root="$(docker info --format '{{.DockerRootDir}}')"
+          df_target="$docker_root"
+          while ! df -h "$df_target" >/dev/null 2>&1; do
+            [ "$df_target" = "/" ] && break
+            df_target="$(dirname "$df_target")"
+          done
+          echo "== Remote Docker disk diagnostics (before deploy) =="
+          echo "Docker root: $docker_root"
+          if [ "$df_target" != "$docker_root" ]; then
+            echo "Filesystem target: $df_target"
+          fi
+          df -h "$df_target"
+          echo "Skipping docker system df in workflow diagnostics; it is slow on QNAP Container Station."
+          REMOTE
+
       - name: Run remote deploy
         run: |
           set -euo pipefail
@@ -176,10 +210,88 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "bash '$DEPLOY_PATH/infra/scripts/deploy.sh' --environment '$DEPLOY_ENVIRONMENT' --branch '$DEPLOY_BRANCH' -t '$DEPLOY_IMAGE_TAG' '$DEPLOY_SHA'"
 
+      - name: Remote Docker disk diagnostics after deploy
+        if: success()
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o LogLevel=ERROR \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'sh -s' <<'REMOTE' || true
+          set -eu
+          qnap_docker="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
+          if ! command -v docker >/dev/null 2>&1 && [ -x "$qnap_docker" ]; then
+            PATH="$(dirname "$qnap_docker"):$PATH"
+            export PATH
+          fi
+          docker_root="$(docker info --format '{{.DockerRootDir}}')"
+          df_target="$docker_root"
+          while ! df -h "$df_target" >/dev/null 2>&1; do
+            [ "$df_target" = "/" ] && break
+            df_target="$(dirname "$df_target")"
+          done
+          echo "== Remote Docker disk diagnostics (after deploy) =="
+          echo "Docker root: $docker_root"
+          if [ "$df_target" != "$docker_root" ]; then
+            echo "Filesystem target: $df_target"
+          fi
+          df -h "$df_target"
+          echo "Skipping docker system df in workflow diagnostics; it is slow on QNAP Container Station."
+          REMOTE
+
       - name: Collect failure diagnostics
         if: failure()
         run: |
           set +e
+          remote_failure_script="$(mktemp)"
+          cat >"$remote_failure_script" <<'REMOTE'
+          set +e
+          qnap_docker="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
+          if ! command -v docker >/dev/null 2>&1 && [ -x "$qnap_docker" ]; then
+            PATH="$(dirname "$qnap_docker"):$PATH"
+            export PATH
+          fi
+          echo "== Remote Docker disk diagnostics (failure) =="
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "docker is not available on PATH"
+            exit 0
+          fi
+          docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+          if [ -z "$docker_root" ]; then
+            echo "Docker root unavailable"
+            exit 0
+          fi
+          df_target="$docker_root"
+          while ! df -h "$df_target" >/dev/null 2>&1; do
+            [ "$df_target" = "/" ] && break
+            df_target="$(dirname "$df_target")"
+          done
+          echo "Docker root: $docker_root"
+          if [ "$df_target" != "$docker_root" ]; then
+            echo "Filesystem target: $df_target"
+          fi
+          df -h "$df_target" || true
+          echo "Skipping docker system df in failure diagnostics; it is slow on QNAP Container Station."
+          REMOTE
+          if [ -f ~/.ssh/id_ed25519 ]; then
+            ssh -i ~/.ssh/id_ed25519 \
+              -o BatchMode=yes \
+              -o ConnectTimeout=30 \
+              -o IdentitiesOnly=yes \
+              -o LogLevel=ERROR \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=6 \
+              -o StrictHostKeyChecking=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              'sh -s' <"$remote_failure_script" || true
+          fi
+          rm -f "$remote_failure_script"
           warp-cli --accept-tos status || true
           sudo systemctl status warp-svc --no-pager || true
 
