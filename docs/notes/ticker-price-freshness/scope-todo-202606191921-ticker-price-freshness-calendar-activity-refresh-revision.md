@@ -154,6 +154,7 @@ superseded_by: null
 - Provider-error trail inserts now mirror supported market errors into market-scoped Activity rows, and admin instrument support-state / delisting-override mutations emit instrument Activity rows with dedupe keys.
 - Admin Market Data Activity and Calendar shell copy now uses the admin i18n provider with English and zh-TW entries for the revised Activity filters/details and Calendar import/status flows.
 - Admin Market Data Calendar/Activity fallback labels, retention text, Yahoo detail text, raw metadata labels, and source/category/result labels now use English and zh-TW admin dictionaries. Price-state reason/outcome facts now use localized holding dictionary entries while preserving English fallbacks for partial test dictionaries.
+- Admin Calendar now returns active confirmed calendar versions from the market calendar API and renders a read-only Active calendar viewer after successful imports. The viewer is exception-list first, shows source/year/provenance/counts/coverage, supports all/closed/open exception filters, treats explicitly confirmed empty exception lists as valid, and refreshes the Calendar tab in place after Confirm import.
 - Added append-only migration `db/migrations/082_market_calendar_activity_schema_reconcile.sql` after dev live validation found an already-applied older calendar/activity migration without the current `source_url`/exceptions-only columns. The reconcile migration upgrades older dev/prod-like schemas to the current Calendar and Activity contract without rewriting migration history.
 - Applied migration 082 manually to the Vakwen Dev Postgres container during validation, then reran it successfully to verify idempotency. This fixed the live Admin Market Data Calendar/Activity `source_url` schema error before the branch deploy picks up the migration normally.
 - Added append-only migration `db/migrations/083_market_calendar_activity_legacy_source_nullable.sql` after QNAP live validation found an older dev table still carrying legacy `market_calendar_activity.source TEXT NOT NULL`. New code writes `source_kind`; the legacy column now becomes nullable with default `system` only when it exists, and fresh installs remain unchanged.
@@ -238,6 +239,11 @@ superseded_by: null
 - Passed after audit-constraint follow-up: `git diff --check`.
 - Passed after audit-constraint follow-up: `npm run build -w @vakwen/api`.
 - Passed after audit-constraint follow-up: `npm run test:integration:full:host` (90 files passed; 873 tests passed, 1 skipped; duration 1344.91s).
+- Passed after Active calendar viewer follow-up: `cd apps/web && npx vitest run test/components/admin/AdminMarketDataClient.test.tsx --config vitest.config.ts` (20 tests).
+- Passed after Active calendar viewer follow-up: `npx eslint apps/api/src/routes/adminRoutes.ts apps/web/components/admin/AdminMarketDataClient.tsx apps/web/components/admin/admin-i18n.tsx apps/web/lib/adminMarketDataContracts.ts apps/web/test/components/admin/AdminMarketDataClient.test.tsx libs/shared-types/src/index.ts`.
+- Passed after Active calendar viewer follow-up: `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`.
+- Passed after Active calendar viewer follow-up: `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false`.
+- Passed after Active calendar viewer follow-up: `git diff --check`.
 - PR #225 CI passed on pushed head `42f90dea`: `lint`, `build-and-typecheck`, `unit-tests`, `integration-tests`, `deploy-config-validation`, `docker-build-validation`, `e2e-oauth`, and `e2e-bypass`; PR Gate also passed.
 
 ## Remaining Risks

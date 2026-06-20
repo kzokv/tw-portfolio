@@ -487,6 +487,42 @@ function calendarResponse(): AdminMarketDataCalendarResponse {
       suggestedSourceUrl: "https://www.asx.com.au/markets/trade-our-cash-market/directory",
       isDefault: true,
     }],
+    activeCalendars: [{
+      marketCode: "AU",
+      calendarYear: 2026,
+      versionId: "calendar-version-1",
+      importOperationId: "import-op-1",
+      sourceLabel: "ASX official calendar",
+      sourceType: "official_source",
+      sourceUrl: "https://www.asx.com.au/markets/trade-our-cash-market/directory",
+      retrievedAt: "2026-06-18T23:00:00.000Z",
+      confirmedAt: "2026-06-19T00:00:00.000Z",
+      annualCounts: {
+        tradingDayCount: 251,
+        nonTradingDayCount: 114,
+        weekdayClosedCount: 10,
+        weekendOpenCount: 1,
+      },
+      coverage: {
+        scope: "full_year",
+        evidence: "Official ASX calendar checked.",
+      },
+      exceptions: [{
+        date: "2026-01-01",
+        status: "closed",
+        name: "New Year's Day",
+        evidence: "Official ASX holiday notice",
+        overrideReason: "Official holiday closure.",
+        notes: null,
+      }, {
+        date: "2026-01-03",
+        status: "open",
+        name: "Special Saturday session",
+        evidence: "Official ASX special session notice",
+        overrideReason: "Official weekend trading session.",
+        notes: "Half-day",
+      }],
+    }],
     history: [{
       id: "hist-1",
       importOperationId: "import-op-1",
@@ -1968,12 +2004,53 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
 
     expect(container.textContent).toContain("Calendar coverage");
+    expect(container.textContent).toContain("Active calendar");
+    expect(container.textContent).toContain("Weekdays are open and weekends are closed");
+    expect(container.textContent).toContain("New Year's Day");
+    expect(container.textContent).toContain("Special Saturday session");
     expect(container.textContent).toContain("Paste normalized JSON");
     expect(container.textContent).toContain("History");
     expect(container.textContent).toContain("Import operation: import-op-1");
     expect(container.querySelector("[data-testid='calendar-source-editor']")).not.toBeNull();
     expect(container.textContent).toContain("Suggested source URL");
     expect(container.querySelector("[data-testid='calendar-preview-button']")).not.toBeNull();
+  });
+
+  it("filters active calendar exceptions by weekday closures and weekend openings", async () => {
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="calendar"
+          overview={{ ...overview(), tabs: ["overview", "calendar"] as never }}
+          actions={actions()}
+          instruments={null}
+          operations={null}
+          activity={null}
+          calendar={calendarResponse()}
+          krMappings={null}
+        />,
+      );
+    });
+
+    const filter = container.querySelector("[data-testid='calendar-active-filter']") as HTMLSelectElement | null;
+    expect(filter).not.toBeNull();
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-01']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-03']")).not.toBeNull();
+
+    await act(async () => {
+      filter!.value = "closed";
+      filter!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-01']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-03']")).toBeNull();
+
+    await act(async () => {
+      filter!.value = "open";
+      filter!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-01']")).toBeNull();
+    expect(container.querySelector("[data-testid='calendar-exception-2026-01-03']")).not.toBeNull();
   });
 
   it("forwards replacement confirmation when previewing and confirming calendar imports", async () => {
@@ -2061,5 +2138,6 @@ describe("AdminMarketDataWorkspaceClient", () => {
       replaceConfirmed: true,
       replacementReason: "Replacing active official version after AI review.",
     });
+    expect(mockRefresh).toHaveBeenCalled();
   });
 });
