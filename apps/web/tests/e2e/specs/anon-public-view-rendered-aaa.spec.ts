@@ -10,9 +10,16 @@ import { seedAccountForUser, seedTransactionForUser, seedUser } from "./helpers/
 // cross-test quote-bar contamination (e.g. dashboard-daily-change-aaa expects
 // "2330" to have NO bars; seeding 2330 here would break that suite).
 
+function assertPublicShareUrl(currentUrl: string, token: string): void {
+  if (!currentUrl.endsWith(`/share/${token}`) || currentUrl.includes("/login")) {
+    throw new Error(`Expected public share URL to remain visible without login redirect, received: ${currentUrl}`);
+  }
+}
+
 test.describe("anonymous public share: rendered page", () => {
   test("[anon public view]: unauthenticated visit renders holdings + summary → no cost basis and noindex meta", async ({
     anonymousShare,
+    page,
   }) => {
     const owner = await seedUser({
       sub: "anon-public-e2e-owner-sub",
@@ -93,6 +100,7 @@ test.describe("anonymous public share: rendered page", () => {
 
     await anonymousShare.actions.navigateToPublicShare(token.token);
     await anonymousShare.assert.rootIsVisible();
+    assertPublicShareUrl(page.url(), token.token);
     await anonymousShare.assert.headerIsVisible();
     await anonymousShare.assert.ownerNameContains("Anon Public E2E Owner");
     await anonymousShare.assert.metaIsVisible();

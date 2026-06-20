@@ -248,6 +248,7 @@ export function DashboardClient({
           summary={dashboard.summary}
           locale={locale}
           dict={dict}
+          quoteRefreshVersion={dashboard.quoteRefreshVersion}
           canOpenQuickActions={canUseGlobalQuickActions}
           onOpenQuickActions={openQuickActions}
         />
@@ -405,6 +406,7 @@ export function DashboardClient({
                   groups={holdingGroups}
                   locale={locale}
                   reportingCurrency={dashboard.summary.reportingCurrency}
+                  quoteRefreshVersion={dashboard.quoteRefreshVersion}
                   showAdminActivityLinks={sessionUserRole === "admin"}
                 />
               );

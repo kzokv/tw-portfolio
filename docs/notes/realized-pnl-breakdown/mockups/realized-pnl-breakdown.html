@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Realized P&amp;L Breakdown Mockup</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #17202a;
+      --muted: #687382;
+      --line: #d8dde5;
+      --soft: #eef1f5;
+      --green: #087f5b;
+      --red: #c92a2a;
+      --blue: #2563eb;
+      --shadow: 0 18px 48px rgb(15 23 42 / 14%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page {
+      display: grid;
+      gap: 28px;
+      padding: 32px;
+    }
+
+    .surface {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+    }
+
+    .desktop {
+      position: relative;
+      width: 1180px;
+      min-height: 820px;
+      padding: 24px;
+    }
+
+    .kicker {
+      margin: 0;
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 8px 0 0;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .description {
+      margin: 8px 0 0;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .method-note {
+      margin-top: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #cad5e4;
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 8px 10px;
+      color: #475569;
+      font-size: 13px;
+    }
+
+    .table-shell {
+      margin-top: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      padding: 12px 14px;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    td {
+      border-top: 1px solid var(--line);
+      padding: 15px 14px;
+      vertical-align: middle;
+    }
+
+    .right {
+      text-align: right;
+    }
+
+    .ticker {
+      color: var(--text);
+      font-weight: 700;
+      text-decoration: underline;
+      text-decoration-color: rgb(37 99 235 / 30%);
+      text-underline-offset: 4px;
+    }
+
+    .pill {
+      display: inline-flex;
+      border: 1px solid #f3b4b4;
+      border-radius: 999px;
+      background: #fff5f5;
+      padding: 4px 9px;
+      color: #b42318;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+
+    .money-positive {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .pnl-cell {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 130px;
+    }
+
+    .info-button {
+      display: inline-flex;
+      width: 24px;
+      height: 24px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .popover {
+      position: absolute;
+      top: 217px;
+      right: 108px;
+      width: 390px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      z-index: 5;
+    }
+
+    .popover::before {
+      position: absolute;
+      top: -8px;
+      right: 30px;
+      width: 14px;
+      height: 14px;
+      border-left: 1px solid var(--line);
+      border-top: 1px solid var(--line);
+      background: var(--card);
+      content: "";
+      transform: rotate(45deg);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 750;
+    }
+
+    .panel-subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .section {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+
+    .section-title {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 7px;
+      font-size: 13px;
+    }
+
+    .row span:first-child {
+      color: #475569;
+    }
+
+    .row strong,
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .formula {
+      margin-top: 10px;
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .note {
+      margin: 12px 0 0;
+      border-left: 3px solid #94a3b8;
+      padding-left: 10px;
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .mobile {
+      width: 390px;
+      padding: 18px;
+    }
+
+    .mobile .method-note {
+      margin-top: 12px;
+      width: 100%;
+      align-items: flex-start;
+    }
+
+    .mobile-card {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      padding: 15px;
+    }
+
+    .mobile-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .mobile-date {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .metric {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 9px;
+    }
+
+    .metric-label {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin: 4px 0 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .mobile-pnl-trigger {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .inline-panel {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .inline-panel .section:first-of-type {
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section id="desktop" class="surface desktop" aria-label="Desktop realized P&L mockup">
+      <p class="kicker">Transactions</p>
+      <h1>Recent Transactions</h1>
+      <p class="description">Review posted trades, fees, taxes, and realized P&amp;L for completed sell transactions.</p>
+      <div class="method-note">Realized P&amp;L uses weighted average cost basis for sell transactions.</div>
+
+      <div class="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Type</th>
+              <th>Account</th>
+              <th>Trade date</th>
+              <th class="right">Quantity</th>
+              <th class="right">Unit price</th>
+              <th class="right">Realized P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="ticker">6190</span></td>
+              <td><span class="pill">Sell</span></td>
+              <td>Guotai Securities</td>
+              <td>Jun 17, 2026</td>
+              <td class="right mono">5,000</td>
+              <td class="right mono">78.50 TWD</td>
+              <td class="right">
+                <span class="pnl-cell">
+                  <span class="money-positive">+17,884 TWD</span>
+                  <span class="info-button" aria-label="Show realized P&L breakdown">i</span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="ticker">3714</span></td>
+              <td><span class="pill" style="border-color:#b7ebc6;background:#f0fff4;color:#087f5b">Buy</span></td>
+              <td>Guotai Securities</td>
+              <td>Jun 12, 2026</td>
+              <td class="right mono">1,000</td>
+              <td class="right mono">64.40 TWD</td>
+              <td class="right">No realized P&amp;L</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <aside class="popover" aria-label="Realized P&L breakdown">
+        <p class="panel-title">Realized P&amp;L: +17,884 TWD</p>
+        <p class="panel-subtitle">Native trade currency. Derived from posted sell proceeds and weighted-average allocated cost.</p>
+
+        <div class="section">
+          <p class="section-title">Proceeds</p>
+          <div class="row"><span>Gross sale</span><strong>5,000 x 78.50 = 392,500</strong></div>
+          <div class="row"><span>Commission</span><strong>-139</strong></div>
+          <div class="row"><span>Transaction tax</span><strong>-1,177</strong></div>
+          <div class="row"><span>Net proceeds</span><strong>391,184</strong></div>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Cost Basis</p>
+          <div class="row"><span>Method</span><strong>Weighted average</strong></div>
+          <div class="row"><span>Open cost before sale</span><strong>447,957</strong></div>
+          <div class="row"><span>Open shares before sale</span><strong>6,000</strong></div>
+          <div class="row"><span>Exact average</span><strong>447,957 / 6,000 = 74.6595</strong></div>
+          <div class="row"><span>Rounded average used</span><strong>74.66</strong></div>
+          <div class="row"><span>Allocated cost</span><strong>5,000 x 74.66 = 373,300</strong></div>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Result</p>
+          <div class="formula">391,184 - 373,300 = 17,884 TWD</div>
+          <p class="note">Weighted average pools open cost across shares. It is not FIFO.</p>
+        </div>
+      </aside>
+    </section>
+
+    <section id="mobile" class="surface mobile" aria-label="Mobile realized P&L mockup">
+      <p class="kicker">Transactions</p>
+      <h1>Recent Transactions</h1>
+      <p class="description">Review posted trades and realized P&amp;L.</p>
+      <div class="method-note">Realized P&amp;L uses weighted average cost basis for sell transactions.</div>
+
+      <article class="mobile-card">
+        <div class="mobile-top">
+          <div>
+            <div class="ticker">6190</div>
+            <p class="mobile-date">Jun 17, 2026</p>
+          </div>
+          <span class="pill">Sell</span>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <p class="metric-label">Quantity</p>
+            <p class="metric-value">5,000</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Unit price</p>
+            <p class="metric-value">78.50 TWD</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Account</p>
+            <p class="metric-value" style="font-family:inherit">Guotai Securities</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Realized P&amp;L</p>
+            <p class="metric-value mobile-pnl-trigger">
+              <span class="money-positive">+17,884 TWD</span>
+              <span class="info-button">i</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="inline-panel">
+          <p class="panel-title">Realized P&amp;L breakdown</p>
+          <p class="panel-subtitle">Native trade currency. Derived from posted sell proceeds and weighted-average allocated cost.</p>
+
+          <div class="section">
+            <p class="section-title">Proceeds</p>
+            <div class="row"><span>Gross sale</span><strong>392,500</strong></div>
+            <div class="row"><span>Commission</span><strong>-139</strong></div>
+            <div class="row"><span>Transaction tax</span><strong>-1,177</strong></div>
+            <div class="row"><span>Net proceeds</span><strong>391,184</strong></div>
+          </div>
+
+          <div class="section">
+            <p class="section-title">Cost Basis</p>
+            <div class="row"><span>Method</span><strong>Weighted average</strong></div>
+            <div class="row"><span>Open cost before sale</span><strong>447,957</strong></div>
+            <div class="row"><span>Open shares before sale</span><strong>6,000</strong></div>
+            <div class="row"><span>Exact average</span><strong>74.6595</strong></div>
+            <div class="row"><span>Rounded average used</span><strong>74.66</strong></div>
+            <div class="row"><span>Allocated cost</span><strong>373,300</strong></div>
+          </div>
+
+          <div class="section">
+            <p class="section-title">Result</p>
+            <div class="formula">391,184 - 373,300 = 17,884 TWD</div>
+            <p class="note">Weighted average pools open cost across shares. It is not FIFO.</p>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

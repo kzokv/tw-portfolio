@@ -50,6 +50,7 @@ describe("Provider Fixer persistence contract", () => {
       phase: "preview",
       level: "info",
       message: "preview prepared",
+      detail: "preview prepared",
     });
   });
 

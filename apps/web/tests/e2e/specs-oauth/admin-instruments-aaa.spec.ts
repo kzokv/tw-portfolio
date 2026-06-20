@@ -86,11 +86,14 @@ test.describe("admin market-data instruments", () => {
     await page.getByTestId("market-data-instruments").waitFor({ state: "visible" });
     await page.getByText("AUE2EF1").waitFor({ state: "visible" });
     await page.getByLabel("Search").fill("AUE2EF1");
-    await page.getByLabel("Backfill").selectOption("pending");
+    await page.getByLabel("Backfill", { exact: true }).selectOption("pending");
 
     const instrumentsPanel = page.getByTestId("market-data-instruments");
-    const retiredButton = instrumentsPanel.getByRole("button", { name: "retired_by_admin" });
-    await retiredButton.first().click();
-    await retiredButton.first().waitFor({ state: "visible" });
+    await instrumentsPanel.getByTestId("market-data-instrument-row-AUE2EF1").click();
+    const drawer = page.getByTestId("ui-drawer");
+    await drawer.getByText("Support controls").waitFor({ state: "visible" });
+    const retiredButton = drawer.getByRole("button", { name: "retired_by_admin" });
+    await retiredButton.click();
+    await drawer.getByText("retired_by_admin").waitFor({ state: "visible" });
   });
 });

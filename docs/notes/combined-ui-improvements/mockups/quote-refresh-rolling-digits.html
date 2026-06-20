@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quote Refresh Rolling Digits</title>
+    <style>
+      :root {
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --muted-panel: #f1f5f9;
+        --text: #172033;
+        --muted: #64748b;
+        --line: #d8e1ec;
+        --success: #15803d;
+        --warning: #b45309;
+        --primary: #2563eb;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); }
+      main { width: min(1160px, calc(100vw - 40px)); margin: 0 auto; padding: 28px 0 36px; }
+      h1 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: 0; }
+      .subtitle { margin: 8px 0 18px; max-width: 760px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+      .grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+      .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 10px 26px rgb(15 23 42 / 0.06); overflow: hidden; }
+      .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 15px 16px; }
+      h2 { margin: 0; font-size: 17px; line-height: 1.25; }
+      .sub { margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+      .pill { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; color: var(--muted); font-size: 12px; font-weight: 800; white-space: nowrap; }
+      .hero-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
+      .metric { border: 1px solid var(--line); border-radius: 8px; background: #ffffff; padding: 14px; }
+      .label { color: var(--muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+      .number { margin-top: 8px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace; font-size: 30px; font-weight: 850; line-height: 1.1; letter-spacing: 0; white-space: nowrap; }
+      .exact { margin-top: 6px; color: var(--muted); font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace; font-size: 12px; }
+      .delta { display: inline-flex; align-items: center; margin-top: 10px; border-radius: 999px; background: #ecfdf5; padding: 4px 8px; color: var(--success); font-size: 12px; font-weight: 850; }
+      .rolling { background: linear-gradient(90deg, #fff7ed, #ecfdf5); box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.22), 0 0 0 3px rgb(245 158 11 / 0.11); }
+      .roll-number { display: flex; align-items: center; gap: 2px; margin-top: 8px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace; font-size: 30px; font-weight: 850; line-height: 1; white-space: nowrap; }
+      .digit, .plain { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 34px; }
+      .digit { position: relative; overflow: hidden; border-radius: 5px; background: #edf2f7; color: transparent; }
+      .digit::before, .digit::after { position: absolute; left: 0; right: 0; display: flex; align-items: center; justify-content: center; height: 34px; color: var(--text); content: attr(data-before); }
+      .digit::before { top: -17px; opacity: 0.36; }
+      .digit::after { top: 10px; content: attr(data-after); }
+      .table-wrap { padding: 0 16px 16px; overflow-x: auto; }
+      table { width: 100%; min-width: 660px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 11px 12px; text-align: left; vertical-align: middle; }
+      th { background: var(--muted-panel); color: var(--muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace; font-weight: 800; white-space: nowrap; }
+      .cell-roll { display: inline-flex; align-items: center; gap: 1px; border-radius: 7px; background: #fff7ed; padding: 3px 5px; box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.22); }
+      .cell-roll .digit, .cell-roll .plain { min-width: 10px; height: 20px; }
+      .cell-roll .digit::before, .cell-roll .digit::after { height: 20px; }
+      .cell-roll .digit::before { top: -10px; }
+      .cell-roll .digit::after { top: 6px; }
+      .note { margin: 0 16px 16px; border: 1px solid rgb(37 99 235 / 0.18); border-radius: 8px; background: #eff6ff; padding: 12px; color: #1e3a8a; font-size: 13px; line-height: 1.5; }
+      .mobile-holdings { display: none; }
+
+      @media (max-width: 840px) {
+        main { width: min(430px, calc(100vw - 24px)); padding-top: 18px; }
+        .grid { grid-template-columns: 1fr; }
+        .hero-metrics { grid-template-columns: 1fr; }
+        .number, .roll-number { font-size: 26px; }
+        .digit, .plain { min-width: 15px; height: 30px; }
+        .digit::before, .digit::after { height: 30px; }
+        .digit::before { top: -15px; }
+        .digit::after { top: 9px; }
+        .table-wrap { display: none; }
+        .mobile-holdings { display: grid; gap: 10px; padding: 0 16px 16px; }
+        .holding-card { border: 1px solid var(--line); border-radius: 8px; background: #ffffff; padding: 12px; }
+        .holding-card.changed { background: #fffaf0; box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.18); }
+        .holding-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .holding-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .field-label { color: var(--muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+        .field-value { margin-top: 4px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace; font-size: 13px; font-weight: 850; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Rolling digit animation for quote refresh</h1>
+      <p class="subtitle">
+        Option C is scoped to quote-refresh-driven dashboard and portfolio market values. Dense tables use the same language, but with smaller, capped row animations.
+      </p>
+
+      <section class="grid">
+        <article class="panel">
+          <div class="panel-head">
+            <div><h2>Dashboard hero</h2><p class="sub">Only the changing numbers roll; surrounding copy remains stable.</p></div>
+            <span class="pill">13:31:17 refresh</span>
+          </div>
+          <div class="hero-metrics">
+            <div class="metric rolling">
+              <div class="label">Market value</div>
+              <div class="roll-number" aria-hidden="true">
+                <span class="plain">TWD</span><span class="plain">&nbsp;</span><span class="plain">1</span><span class="plain">.</span><span class="digit" data-before="2" data-after="2">2</span><span class="digit" data-before="4" data-after="5">5</span><span class="digit" data-before="9" data-after="3">3</span><span class="digit" data-before="8" data-after="9">9</span><span class="plain">M</span>
+              </div>
+              <div class="exact">Final: TWD 1,253,925</div>
+              <div class="delta">+ TWD 4,125</div>
+            </div>
+            <div class="metric">
+              <div class="label">Daily change</div>
+              <div class="number">+ TWD 18.4K</div>
+              <div class="exact">+1.49%</div>
+            </div>
+          </div>
+          <p class="note">Reduced-motion users get an instant value update plus the subtle flash fallback.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div><h2>Holdings market values</h2><p class="sub">Rows affected by quote refresh can roll briefly; unchanged rows stay still.</p></div>
+            <span class="pill">3 rows changed</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Ticker</th><th>Price</th><th>Market value</th><th>Daily change</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>6910.TW</strong><div class="sub">Sennics Co.</div></td>
+                  <td class="mono">TWD 78.50</td>
+                  <td class="mono">
+                    <span class="cell-roll">
+                      <span class="plain">TWD&nbsp;392,</span><span class="digit" data-before="1" data-after="5">5</span><span class="digit" data-before="8" data-after="0">0</span><span class="digit" data-before="0" data-after="0">0</span>
+                    </span>
+                  </td>
+                  <td><span class="delta">+ TWD 3,500</span></td>
+                </tr>
+                <tr>
+                  <td><strong>2330.TW</strong><div class="sub">Taiwan Semiconductor</div></td>
+                  <td class="mono">TWD 1,120.00</td>
+                  <td class="mono">
+                    <span class="cell-roll">
+                      <span class="plain">TWD&nbsp;1,120,</span><span class="digit" data-before="0" data-after="0">0</span><span class="digit" data-before="0" data-after="0">0</span><span class="digit" data-before="0" data-after="0">0</span>
+                    </span>
+                  </td>
+                  <td><span class="delta">+ TWD 12,000</span></td>
+                </tr>
+                <tr>
+                  <td><strong>0050.TW</strong><div class="sub">Yuanta Taiwan 50</div></td>
+                  <td class="mono">TWD 186.20</td>
+                  <td class="mono">TWD 279,300</td>
+                  <td class="mono">TWD 0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mobile-holdings">
+            <div class="holding-card changed">
+              <div class="holding-top"><div><strong>6910.TW</strong><div class="sub">Sennics Co.</div></div><span class="delta">+ TWD 3,500</span></div>
+              <div class="holding-fields">
+                <div><div class="field-label">Price</div><div class="field-value">TWD 78.50</div></div>
+                <div><div class="field-label">Market value</div><div class="field-value">TWD 392,500</div></div>
+              </div>
+            </div>
+            <div class="holding-card changed">
+              <div class="holding-top"><div><strong>2330.TW</strong><div class="sub">Taiwan Semiconductor</div></div><span class="delta">+ TWD 12,000</span></div>
+              <div class="holding-fields">
+                <div><div class="field-label">Price</div><div class="field-value">TWD 1,120.00</div></div>
+                <div><div class="field-label">Market value</div><div class="field-value">TWD 1,120,000</div></div>
+              </div>
+            </div>
+            <div class="holding-card">
+              <div class="holding-top"><div><strong>0050.TW</strong><div class="sub">Yuanta Taiwan 50</div></div><span class="pill">Unchanged</span></div>
+              <div class="holding-fields">
+                <div><div class="field-label">Price</div><div class="field-value">TWD 186.20</div></div>
+                <div><div class="field-label">Market value</div><div class="field-value">TWD 279,300</div></div>
+              </div>
+            </div>
+          </div>
+          <p class="note">Implementation should cap simultaneous row animations so large refreshes remain readable.</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

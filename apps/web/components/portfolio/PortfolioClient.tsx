@@ -315,6 +315,7 @@ export function PortfolioClient({
                       groups={holdingGroups}
                       locale={locale}
                       reportingCurrency={effectiveReportingCurrency}
+                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
                       settingsContextKey="portfolio.topHoldings"
                       showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
                     />
@@ -329,6 +330,7 @@ export function PortfolioClient({
                       recomputingSymbols={mutations.recomputingSymbols}
                       showFreshnessBadge={!isSharedContext}
                       showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
+                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
                       allocationBasis={allocationBasis}
                       onAllocationBasisChange={setAllocationBasis}
                     />
