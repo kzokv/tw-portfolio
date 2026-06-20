@@ -7406,6 +7406,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       buildAdminMarketCalendarHistory(app.persistence, marketCode),
     ]);
     const defaultSource = status.sources.find((source) => source.isDefault) ?? status.sources[0] ?? null;
+    const activeCalendarYears = [...new Set([
+      ...status.years.map((year) => year.calendarYear),
+      ...history.items.map((item) => item.calendarYear),
+    ])].sort((left, right) => right - left);
+    const activeCalendarVersions = (await Promise.all(activeCalendarYears.map((calendarYear) =>
+      app.persistence.getActiveMarketCalendarVersion(marketCode, calendarYear))))
+      .filter((version): version is NonNullable<typeof version> => version !== null && version.status === "confirmed" && version.isActive);
     return {
       marketCode,
       marketLabel: MARKET_DATA_WORKSPACES[marketCode].label,
@@ -7432,6 +7439,20 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         years: status.years
           .filter((year) => year.sourceLabel === source.label)
           .map((year) => year.calendarYear),
+      })),
+      activeCalendars: activeCalendarVersions.map((version) => ({
+        marketCode,
+        calendarYear: version.calendarYear,
+        versionId: version.versionId,
+        importOperationId: version.importOperationId,
+        sourceLabel: version.sourceLabel,
+        sourceType: version.sourceType,
+        sourceUrl: version.sourceUrl,
+        retrievedAt: version.retrievedAt,
+        confirmedAt: version.confirmedAt,
+        annualCounts: version.annualCounts,
+        exceptions: version.exceptions,
+        coverage: version.coverage,
       })),
       preview: null,
       history: history.items.map((item) => ({
