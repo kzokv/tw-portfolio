@@ -10,6 +10,7 @@ import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPageData,
   fetchPortfolioPrimaryData,
+  fetchTransactionHistoryPage,
   refreshPortfolioCloses,
   fetchTransactionsPrimaryData,
   fetchTransactionInstrumentCatalog,
@@ -113,5 +114,39 @@ describe("portfolio primary/enrichment service paths", () => {
     await refreshPortfolioCloses();
 
     expect(postNoBody).toHaveBeenCalledWith("/portfolio/refresh-closes");
+  });
+});
+
+describe("fetchTransactionHistoryPage", () => {
+  beforeEach(() => {
+    vi.mocked(getJson).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      aggregates: { realizedPnlByCurrency: [] },
+    });
+  });
+
+  afterEach(() => {
+    vi.mocked(getJson).mockReset();
+  });
+
+  it("calls the transaction history endpoint with normalized query params", async () => {
+    await fetchTransactionHistoryPage({
+      type: "SELL",
+      pnl: "realized",
+      marketCode: "US",
+      accountId: "acc-1",
+      ticker: " msft ",
+      from: "2026-05-01",
+      to: "2026-06-01",
+      limit: 25,
+      offset: 50,
+      sortBy: "realizedPnl",
+      sortOrder: "asc",
+    });
+
+    expect(getJson).toHaveBeenCalledWith("/transactions/history?type=SELL&pnl=realized&marketCode=US&accountId=acc-1&ticker=MSFT&from=2026-05-01&to=2026-06-01&limit=25&offset=50&sortBy=realizedPnl&sortOrder=asc");
   });
 });

@@ -8,10 +8,12 @@ import { deriveSharedContextPermissions } from "../../../features/sharing/capabi
 
 const replaceMock = vi.fn();
 const refreshMock = vi.fn();
+const historyRefreshMock = vi.hoisted(() => vi.fn());
+const searchParamsValue = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(searchParamsValue.value),
 }));
 
 vi.mock("../../../features/portfolio/hooks/useTransactionsPrimaryData", () => ({
@@ -55,11 +57,32 @@ vi.mock("../../../components/portfolio/AddTransactionCard", () => ({
   AddTransactionCard: () => <div data-testid="mock-add-transaction-card" />,
 }));
 
+vi.mock("../../../features/portfolio/hooks/useTransactionHistory", () => ({
+  useTransactionHistory: () => ({
+    data: {
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      aggregates: {
+        realizedPnlByCurrency: [],
+      },
+    },
+    errorMessage: "",
+    isLoading: false,
+    refresh: historyRefreshMock,
+  }),
+}));
+
+vi.mock("../../../components/transactions/TransactionHistoryBrowser", () => ({
+  TransactionHistoryBrowser: () => <div data-testid="mock-transaction-history-browser" />,
+}));
+
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
-function buildShellData(capabilities: AppShellData["currentSharedCapabilities"]): AppShellData {
+function buildShellData(capabilities: AppShellData["currentSharedCapabilities"], contextRefreshSignal = 0): AppShellData {
   return {
     uiDict: getDictionary("en"),
     locale: "en",
@@ -100,7 +123,7 @@ function buildShellData(capabilities: AppShellData["currentSharedCapabilities"])
     setShowIntegrityDialog: vi.fn(),
     generateSnapshots: vi.fn(),
     isGeneratingSnapshots: false,
-    contextRefreshSignal: 0,
+    contextRefreshSignal,
   };
 }
 
@@ -110,6 +133,8 @@ describe("TransactionsClient shared AI Inbox visibility", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    historyRefreshMock.mockReset();
+    searchParamsValue.value = "";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -145,5 +170,43 @@ describe("TransactionsClient shared AI Inbox visibility", () => {
 
     expect(document.querySelector("[data-testid='transactions-tab-ai-inbox']")).not.toBeNull();
     expect(document.querySelector("[data-testid='mock-ai-inbox-panel']")).not.toBeNull();
+  });
+
+  it("normalizes BUY + realized URLs to SELL with router.replace", () => {
+    searchParamsValue.value = "type=BUY&pnl=realized";
+
+    act(() => {
+      root.render(
+        <AppShellDataProvider value={buildShellData([])}>
+          <TransactionsClient initialTab="posted" />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(replaceMock).toHaveBeenCalledWith("/transactions?type=SELL&pnl=realized", { scroll: false });
+  });
+
+  it("refreshes transaction history when the shell refresh signal changes on the posted tab", () => {
+    act(() => {
+      root.render(
+        <AppShellDataProvider value={buildShellData([], 0)}>
+          <TransactionsClient initialTab="posted" />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(historyRefreshMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.render(
+        <AppShellDataProvider value={buildShellData([], 1)}>
+          <TransactionsClient initialTab="posted" />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(historyRefreshMock).toHaveBeenCalledTimes(1);
   });
 });

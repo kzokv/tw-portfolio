@@ -1,11 +1,8 @@
-import Link from "next/link";
 import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { Card } from "../ui/Card";
-import { DataTable, type DataTableColumn } from "../ui/DataTable";
-import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
-import { RealizedPnlBreakdownInline, RealizedPnlValue } from "../portfolio/RealizedPnlBreakdown";
+import { TransactionHistoryTable } from "../transactions/TransactionHistoryTable";
 
 interface RecentTransactionsCardProps {
   items: TransactionHistoryItemDto[];
@@ -25,64 +22,6 @@ export function RecentTransactionsCard({
   variant = "default",
 }: RecentTransactionsCardProps) {
   const isPrimary = variant === "primary";
-  // Phase 4 — single-DOM DataTable migration. Card-stack at <sm (per
-  // scope-grill); scroll + sticky-first-column at <md.
-  const columns: DataTableColumn<TransactionHistoryItemDto>[] = [
-    {
-      key: "ticker",
-      header: dict.transactions.tickerTerm,
-      render: (item) => (
-        <Link
-          href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
-          className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 transition hover:text-primary"
-        >
-          {item.ticker}
-        </Link>
-      ),
-    },
-    {
-      key: "type",
-      header: dict.transactions.typeTerm,
-      render: (item) => <TypePill type={item.type} />,
-    },
-    {
-      key: "account",
-      header: dict.holdings.accountTerm,
-      render: (item) => <span className="text-muted-foreground">{transactionAccountDisplayName(item)}</span>,
-    },
-    {
-      key: "tradeDate",
-      header: dict.tickerHistory.tradeDateLabel,
-      render: (item) => <span className="text-muted-foreground">{formatDateLabel(item.tradeDate, locale)}</span>,
-    },
-    {
-      key: "quantity",
-      header: dict.transactions.quantityTerm,
-      render: (item) => <span className="text-right">{formatNumber(item.quantity, locale)}</span>,
-      cellClassName: "text-right",
-    },
-    {
-      key: "unitPrice",
-      header: dict.transactions.unitPriceTerm,
-      render: (item) => <span className="text-right">{formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)}</span>,
-      cellClassName: "text-right",
-    },
-    {
-      key: "realizedPnl",
-      header: dict.tickerHistory.realizedPnlLabel,
-      render: (item) => (
-        <RealizedPnlValue
-          amount={item.realizedPnlAmount}
-          breakdown={item.type === "SELL" ? item.realizedPnlBreakdown ?? null : null}
-          currency={item.realizedPnlCurrency ?? item.priceCurrency}
-          dict={dict}
-          locale={locale}
-          toneClassName={getRealizedPnlTone(item.realizedPnlAmount)}
-        />
-      ),
-      cellClassName: "text-right",
-    },
-  ];
 
   return (
     <Card className="border border-border bg-card" data-testid="recent-transactions-card">
@@ -115,93 +54,21 @@ export function RecentTransactionsCard({
               {dict.tickerHistory.realizedPnlWeightedAverageNote}
             </p>
           ) : null}
-          <DataTable
-            data={items}
-            columns={columns}
-            rowKey={(item) => item.id}
-            rowTestId={(item) => `recent-transactions-row-${item.id}`}
-            data-testid="recent-transactions-table"
-            stickyFirstColumn
-            mobileRow={(item) => (
-              <article className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <Link
-                      href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
-                      className="text-lg font-semibold text-foreground underline decoration-primary/30 underline-offset-4"
-                    >
-                      {item.ticker}
-                    </Link>
-                    <p className="mt-1 text-sm text-muted-foreground">{formatDateLabel(item.tradeDate, locale)}</p>
-                  </div>
-                  <TypePill type={item.type} />
-                </div>
-                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <HistoryDetail label={dict.transactions.quantityTerm} value={formatNumber(item.quantity, locale)} />
-                  <HistoryDetail label={dict.transactions.unitPriceTerm} value={formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)} />
-                  <HistoryDetail label={dict.holdings.accountTerm} value={transactionAccountDisplayName(item)} />
-                  <HistoryDetail
-                    label={dict.tickerHistory.realizedPnlLabel}
-                    value={item.realizedPnlAmount === null
-                      ? dict.tickerHistory.noRealizedPnl
-                      : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
-                    valueClassName={getRealizedPnlTone(item.realizedPnlAmount)}
-                  />
-                </dl>
-                {item.type === "SELL" ? (
-                  <RealizedPnlBreakdownInline
-                    breakdown={item.realizedPnlBreakdown ?? null}
-                    dict={dict}
-                    locale={locale}
-                  />
-                ) : null}
-              </article>
-            )}
-            emptyState={
-              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-5 py-8 text-sm text-muted-foreground">
-                {dict.transactions.recentLedgerEmpty}
-              </div>
-            }
+          <TransactionHistoryTable
+            dict={{
+              ...dict,
+              transactions: {
+                ...dict.transactions,
+                historyEmpty: dict.transactions.recentLedgerEmpty,
+              },
+            }}
+            items={items}
+            locale={locale}
+            mode="compact"
+            tableTestId="recent-transactions-table"
           />
         </div>
       )}
     </Card>
   );
-}
-
-function TypePill({ type }: { type: TransactionHistoryItemDto["type"] }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]",
-        type === "BUY"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-rose-200 bg-rose-50 text-rose-700",
-      )}
-    >
-      {type}
-    </span>
-  );
-}
-
-function HistoryDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
-  return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
-      <dd className={cn("mt-1 text-sm font-medium text-foreground", valueClassName)}>{value}</dd>
-    </div>
-  );
-}
-
-function getRealizedPnlTone(value: number | null): string {
-  if (value === null) {
-    return "text-foreground";
-  }
-  if (value > 0) {
-    return "text-emerald-600";
-  }
-  if (value < 0) {
-    return "text-rose-600";
-  }
-  return "text-foreground";
 }

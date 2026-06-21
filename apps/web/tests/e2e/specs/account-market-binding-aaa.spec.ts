@@ -136,5 +136,6 @@ test("[transactions]: BUY trade against US account with US ticker MSFT succeeds 
 
   // ── Assert: transaction appears in the recent-transactions table ──────────
   await transactions.assert.recentTransactionsTableIsVisible();
+  await transactions.actions.filterTransactionHistoryByTicker("MSFT");
   await transactions.assert.recentTransactionTickerIsVisible("MSFT");
 });

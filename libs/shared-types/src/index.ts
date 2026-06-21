@@ -1096,6 +1096,8 @@ export interface ReportQueryStateDto {
   reportingCurrency: AccountDefaultCurrency;
   nativeCurrency: AccountDefaultCurrency | null;
   range: DashboardPerformanceRange | null;
+  rangeStartDate: string;
+  rangeEndDate: string;
   asOf: string;
 }
 
@@ -1173,6 +1175,7 @@ export interface ReportSummaryTotalsDto {
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
   realizedPnlAmount: number;
+  realizedPnlTransactionCount: number;
   dailyChangeAmount: number | null;
   dailyChangePercent: number | null;
   incomeAmount: number;
@@ -1352,6 +1355,23 @@ export interface TransactionPrimaryDto {
   recentTransactions: TransactionHistoryItemDto[];
   accountOptions: TransactionAccountOptionDto[];
   portfolioConfig: ShellPortfolioConfigDto;
+}
+
+export interface TransactionHistoryRealizedPnlAggregateDto {
+  currency: CurrencyCode;
+  amount: number;
+}
+
+export interface TransactionHistoryAggregatesDto {
+  realizedPnlByCurrency: TransactionHistoryRealizedPnlAggregateDto[];
+}
+
+export interface TransactionHistoryPageDto {
+  items: TransactionHistoryItemDto[];
+  total: number;
+  limit: number;
+  offset: number;
+  aggregates: TransactionHistoryAggregatesDto;
 }
 
 export interface TickerFundamentalsFieldDto<TValue> {

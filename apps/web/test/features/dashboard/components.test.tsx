@@ -1870,7 +1870,7 @@ describe("dashboard components", () => {
       />,
     );
     expect(recentTransactionsHtml).toContain("Recent Transactions");
-    expect(recentTransactionsHtml).toContain("href=\"/tickers/2330?accountId=acc-1\"");
+    expect(recentTransactionsHtml).toContain("href=\"/tickers/2330?marketCode=TW&amp;accountId=acc-1\"");
     expect(recentTransactionsHtml).toContain("Main Brokerage");
   });
 

@@ -52,7 +52,7 @@ export function reportApiPath(tab: ReportTab, state: ReportRouteState): string {
   const params = new URLSearchParams();
   params.set("scope", state.scope);
   params.set("currencyMode", "auto");
-  if (tab !== "daily-review") params.set("range", state.range);
+  params.set("range", state.range);
   params.set("limit", String(REPORT_HOLDINGS_FILTER_LIMIT));
 
   const endpoint = tab === "daily-review"

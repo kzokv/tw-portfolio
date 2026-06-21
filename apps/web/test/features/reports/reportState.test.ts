@@ -50,10 +50,10 @@ describe("report route state", () => {
     expect(reportApiPath("market", state)).toBe(`/reports/market?scope=AU&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
-  it("omits range from daily review API queries", () => {
+  it("includes range in daily review API queries so shared summaries stay range-scoped", () => {
     const state = parseReportRouteState(new URLSearchParams("tab=daily-review&scope=TW&currencyMode=specified&currency=AUD&range=1Y"));
 
-    expect(reportApiPath("daily-review", state)).toBe(`/reports/daily-review?scope=TW&currencyMode=auto&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
+    expect(reportApiPath("daily-review", state)).toBe(`/reports/daily-review?scope=TW&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("serializes report URLs without currency overrides", () => {

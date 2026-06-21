@@ -129,7 +129,11 @@ test.describe("combined UI improvements", () => {
     });
 
     await transactions.actions.navigateToTransactions();
-    await page.getByText(realizedTicker).first().waitFor({ state: "visible" });
+    await page
+      .getByTestId("transaction-history-table")
+      .getByRole("link", { name: realizedTicker })
+      .first()
+      .waitFor({ state: "visible" });
     await page.getByTestId("realized-pnl-breakdown-trigger").first().waitFor({ state: "visible" });
 
     await page.getByTestId("realized-pnl-breakdown-trigger").first().click();

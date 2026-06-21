@@ -88,6 +88,7 @@ test("[transactions]: AAPL US trade against USD account → posted, recent table
 
   // ── Assert: the transaction landed and is reflected in the recent table ─
   await transactions.assert.recentTransactionsTableIsVisible();
+  await transactions.actions.filterTransactionHistoryByTicker("AAPL");
   await transactions.assert.recentTransactionTickerIsVisible("AAPL");
 });
 

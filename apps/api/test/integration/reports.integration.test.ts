@@ -1072,6 +1072,100 @@ describe("report routes", () => {
     expect(usRow?.dailyChangeAmount).toBe(usBody.summary.dailyChangeAmount);
   });
 
+  it("scopes realized pnl amount and transaction count to the resolved report range bounds", async () => {
+    vi.setSystemTime(new Date("2026-06-21T12:00:00.000Z"));
+
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+
+    const realizedTrades = [
+      { id: "range-sell-outside-1y", tradeDate: "2025-06-20", realizedPnlAmount: 5 },
+      { id: "range-sell-1y-boundary", tradeDate: "2025-06-21", realizedPnlAmount: 10 },
+      { id: "range-sell-ytd-boundary", tradeDate: "2026-01-01", realizedPnlAmount: 20 },
+      { id: "range-sell-3m-boundary", tradeDate: "2026-03-21", realizedPnlAmount: 30 },
+      { id: "range-sell-1m-boundary", tradeDate: "2026-05-21", realizedPnlAmount: 40 },
+      { id: "range-sell-as-of", tradeDate: "2026-06-21", realizedPnlAmount: 50 },
+    ];
+
+    for (const [index, trade] of realizedTrades.entries()) {
+      store.accounting.facts.tradeEvents.push({
+        id: trade.id,
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 100 + index,
+        priceCurrency: "TWD",
+        tradeDate: trade.tradeDate,
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: `${trade.tradeDate}T09:00:00.000Z`,
+        bookingSequence: index + 1,
+        bookedAt: `${trade.tradeDate}T09:00:00.000Z`,
+        realizedPnlAmount: trade.realizedPnlAmount,
+        realizedPnlCurrency: "TWD",
+      });
+    }
+
+    store.accounting.facts.tradeEvents.push({
+      id: "range-buy-ignored",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 1,
+      unitPrice: 80,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-10",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-06-10T09:00:00.000Z",
+      bookingSequence: 99,
+      bookedAt: "2026-06-10T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const cases = [
+      { range: "1M", rangeStartDate: "2026-05-21", rangeEndDate: "2026-06-21", realizedPnlAmount: 90, realizedPnlTransactionCount: 2 },
+      { range: "3M", rangeStartDate: "2026-03-21", rangeEndDate: "2026-06-21", realizedPnlAmount: 120, realizedPnlTransactionCount: 3 },
+      { range: "YTD", rangeStartDate: "2026-01-01", rangeEndDate: "2026-06-21", realizedPnlAmount: 140, realizedPnlTransactionCount: 4 },
+      { range: "1Y", rangeStartDate: "2025-06-21", rangeEndDate: "2026-06-21", realizedPnlAmount: 150, realizedPnlTransactionCount: 5 },
+    ] as const;
+
+    for (const testCase of cases) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/reports/portfolio?scope=TW&range=${testCase.range}`,
+        headers: { cookie: cookieHeader },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(expect.objectContaining({
+        query: expect.objectContaining({
+          scope: "TW",
+          range: testCase.range,
+          rangeStartDate: testCase.rangeStartDate,
+          rangeEndDate: testCase.rangeEndDate,
+          asOf: testCase.rangeEndDate,
+        }),
+        summary: expect.objectContaining({
+          realizedPnlAmount: testCase.realizedPnlAmount,
+          realizedPnlTransactionCount: testCase.realizedPnlTransactionCount,
+        }),
+      }));
+    }
+  });
+
   it("returns an empty all-market performance series when holding snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
@@ -2458,6 +2552,7 @@ describe("report routes", () => {
     expect(marketReport.json()).toEqual(expect.objectContaining({
       summary: expect.objectContaining({
         realizedPnlAmount: 10,
+        realizedPnlTransactionCount: 1,
       }),
       detail: expect.objectContaining({
         rows: [

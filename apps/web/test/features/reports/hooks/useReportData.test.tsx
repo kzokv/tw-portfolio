@@ -54,6 +54,8 @@ function buildReport(
       reportingCurrency,
       nativeCurrency: null,
       range: reportState.range,
+      rangeStartDate: "2026-05-21",
+      rangeEndDate: asOf,
       asOf,
     },
     summary: {
@@ -61,6 +63,7 @@ function buildReport(
       marketValueAmount: 1200,
       unrealizedPnlAmount: 200,
       realizedPnlAmount: 30,
+      realizedPnlTransactionCount: 1,
       dailyChangeAmount: 10,
       dailyChangePercent: 0.8,
       incomeAmount: 15,
