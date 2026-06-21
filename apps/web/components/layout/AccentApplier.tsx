@@ -12,15 +12,21 @@
 
 import { useEffect } from "react";
 import { useTheme } from "next-themes";
-import { densityModeSchema, themeAccentSchema } from "@vakwen/shared-types";
+import {
+  DEFAULT_PRICE_COLOR_CONVENTION,
+  densityModeSchema,
+  priceColorConventionSchema,
+  themeAccentSchema,
+} from "@vakwen/shared-types";
 import type { ThemeAccent } from "@vakwen/shared-types";
 import { getJson, ApiError } from "../../lib/api";
-import { applyAccent, applyDensity } from "../../lib/theme";
+import { applyAccent, applyDensity, applyPriceColorConvention } from "../../lib/theme";
 
 interface PrefsResponse {
   preferences?: {
     themeAccent?: unknown;
     density?: unknown;
+    priceColorConvention?: unknown;
   } | null;
 }
 
@@ -57,6 +63,10 @@ export function AccentApplier(): null {
         }
         const density = densityModeSchema.safeParse(res?.preferences?.density);
         if (density.success) applyDensity(density.data);
+        const priceColorConvention = priceColorConventionSchema.safeParse(res?.preferences?.priceColorConvention);
+        applyPriceColorConvention(
+          priceColorConvention.success ? priceColorConvention.data : DEFAULT_PRICE_COLOR_CONVENTION,
+        );
       })
       .catch((err) => {
         // Silent fail on auth surface (401/403) — defaults stay in CSS.

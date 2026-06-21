@@ -8,6 +8,7 @@ import type { AppDictionary } from "../../lib/i18n";
 import type { DashboardOverviewHoldingGroupDto } from "../../features/portfolio/holdingGroups";
 import { cn, formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 
 interface BiggestMoversCardProps {
   groups: DashboardOverviewHoldingGroupDto[];
@@ -44,7 +45,7 @@ export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardPro
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
           {movers.map((h) => {
-            const tone = (h.changePercent ?? 0) > 0 ? "text-success" : (h.changePercent ?? 0) < 0 ? "text-destructive" : "text-foreground";
+            const tone = holdingsFinanceToneClass(h.changePercent ?? 0, "text-foreground");
             return (
               <li
                 key={`${h.marketCode}-${h.ticker}`}

@@ -1025,8 +1025,16 @@ export const DENSITY_MODES = ["compact", "comfortable"] as const;
 export type DensityMode = (typeof DENSITY_MODES)[number];
 export const densityModeSchema: z.ZodType<DensityMode> = z.enum(DENSITY_MODES);
 
+export const PRICE_COLOR_CONVENTIONS = [
+  "gain_green_loss_red",
+  "gain_red_loss_green",
+] as const;
+export type PriceColorConvention = (typeof PRICE_COLOR_CONVENTIONS)[number];
+export const priceColorConventionSchema: z.ZodType<PriceColorConvention> = z.enum(PRICE_COLOR_CONVENTIONS);
+
 export const DEFAULT_THEME_ACCENT: ThemeAccent = { kind: "preset", preset: "indigo" };
 export const DEFAULT_DENSITY: DensityMode = "compact";
+export const DEFAULT_PRICE_COLOR_CONVENTION: PriceColorConvention = "gain_green_loss_red";
 
 // KZO-180: 5 numeric fields are now `number | null` (not `number`/optional)
 // so that `fxAvailable === false` cleanly propagates a uniform "no value"

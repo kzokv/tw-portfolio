@@ -6,6 +6,7 @@ import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatNumber } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { holdingsFinanceSurfaceClass } from "../holdings/holdingsStyle";
 import { TransactionHistoryTable } from "./TransactionHistoryTable";
 import {
   DEFAULT_TRANSACTION_HISTORY_ROUTE_STATE,
@@ -237,7 +238,7 @@ export function TransactionHistoryBrowser({
                     key={item.currency}
                     className={cn(
                       "rounded-full border px-3 py-1 text-sm font-medium",
-                      item.amount > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : item.amount < 0 ? "border-rose-200 bg-rose-50 text-rose-700" : "border-border bg-background text-foreground",
+                      holdingsFinanceSurfaceClass(item.amount, "border-border bg-background text-foreground"),
                     )}
                   >
                     {item.currency}: {formatCurrencyAmount(item.amount, item.currency, locale)}

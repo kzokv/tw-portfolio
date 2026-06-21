@@ -3,7 +3,7 @@
 // in light and dark modes. Custom accents pass their own h/s/l straight to
 // the setter. See globals.css for the legacy alias bridge.
 
-import type { AccentPreset, ThemeAccent } from "@vakwen/shared-types";
+import type { AccentPreset, PriceColorConvention, ThemeAccent } from "@vakwen/shared-types";
 
 export type ResolvedMode = "light" | "dark";
 
@@ -62,6 +62,20 @@ export function applyDensity(density: "compact" | "comfortable"): void {
   } else {
     delete document.documentElement.dataset.density;
   }
+}
+
+export function applyPriceColorConvention(convention: PriceColorConvention): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (convention === "gain_red_loss_green") {
+    root.style.setProperty("--finance-gain", "var(--destructive)");
+    root.style.setProperty("--finance-loss", "var(--success)");
+  } else {
+    root.style.setProperty("--finance-gain", "var(--success)");
+    root.style.setProperty("--finance-loss", "var(--destructive)");
+  }
+  root.style.setProperty("--chart-direction-positive", "var(--finance-gain)");
+  root.style.setProperty("--chart-direction-negative", "var(--finance-loss)");
 }
 
 // ─── AA contrast (WCAG relative luminance) ───────────────────────────────

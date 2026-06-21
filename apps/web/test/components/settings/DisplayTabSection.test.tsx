@@ -95,6 +95,10 @@ describe("DisplayTabSection — reporting currency selector (KZO-180)", () => {
   afterEach(() => {
     teardown(handle);
     vi.restoreAllMocks();
+    document.documentElement.style.removeProperty("--finance-gain");
+    document.documentElement.style.removeProperty("--finance-loss");
+    document.documentElement.style.removeProperty("--chart-direction-positive");
+    document.documentElement.style.removeProperty("--chart-direction-negative");
   });
 
   it("hydrates the dropdown from GET /user-preferences", async () => {
@@ -257,5 +261,113 @@ describe("DisplayTabSection — reporting currency selector (KZO-180)", () => {
     // Error message rendered.
     const errorEl = handle.container.querySelector('[data-testid="reporting-currency-error"]');
     expect(errorEl, "error region rendered on PATCH failure").not.toBeNull();
+  });
+
+  it("hydrates the gain/loss color convention from GET /user-preferences", async () => {
+    const fetchMock = buildFetchMock({
+      initialPrefs: { priceColorConvention: "gain_red_loss_green" },
+      recordCalls: calls,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      handle.root.render(
+        <DisplayTabSection
+          dict={dict}
+          onTimeframesSaved={() => undefined}
+          onLayoutReset={() => undefined}
+          onPageLayoutReset={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const redGainOption = handle.container.querySelector('[data-testid="display-price-color-convention-gain_red_loss_green"]');
+    expect(redGainOption?.getAttribute("aria-checked")).toBe("true");
+    expect(document.documentElement.style.getPropertyValue("--finance-gain")).toBe("var(--destructive)");
+    expect(document.documentElement.style.getPropertyValue("--finance-loss")).toBe("var(--success)");
+  });
+
+  it("PATCHes /user-preferences with gain/loss color convention and applies it immediately", async () => {
+    const fetchMock = buildFetchMock({
+      initialPrefs: { priceColorConvention: "gain_green_loss_red" },
+      recordCalls: calls,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      handle.root.render(
+        <DisplayTabSection
+          dict={dict}
+          onTimeframesSaved={() => undefined}
+          onLayoutReset={() => undefined}
+          onPageLayoutReset={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const redGainOption = handle.container.querySelector('[data-testid="display-price-color-convention-gain_red_loss_green"]') as HTMLButtonElement | null;
+    expect(redGainOption).not.toBeNull();
+    act(() => {
+      redGainOption!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCall = calls.find((c) => c.method === "PATCH" && c.url.includes("/user-preferences"));
+    expect(patchCall?.body).toEqual({ priceColorConvention: "gain_red_loss_green" });
+    expect(document.documentElement.style.getPropertyValue("--finance-gain")).toBe("var(--destructive)");
+    expect(document.documentElement.style.getPropertyValue("--finance-loss")).toBe("var(--success)");
+    expect(handle.container.querySelector('[data-testid="price-color-convention-saved"]')?.textContent)
+      .toContain(dict.settings.displayPriceColorConventionSaved);
+  });
+
+  it("rolls back gain/loss color convention when PATCH fails", async () => {
+    const fetchMock = buildFetchMock({
+      initialPrefs: { priceColorConvention: "gain_green_loss_red" },
+      patchStatus: 500,
+      recordCalls: calls,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      handle.root.render(
+        <DisplayTabSection
+          dict={dict}
+          onTimeframesSaved={() => undefined}
+          onLayoutReset={() => undefined}
+          onPageLayoutReset={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const redGainOption = handle.container.querySelector('[data-testid="display-price-color-convention-gain_red_loss_green"]') as HTMLButtonElement | null;
+    act(() => {
+      redGainOption!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const greenGainOption = handle.container.querySelector('[data-testid="display-price-color-convention-gain_green_loss_red"]');
+    expect(greenGainOption?.getAttribute("aria-checked")).toBe("true");
+    expect(document.documentElement.style.getPropertyValue("--finance-gain")).toBe("var(--success)");
+    expect(document.documentElement.style.getPropertyValue("--finance-loss")).toBe("var(--destructive)");
+    expect(handle.container.querySelector('[data-testid="price-color-convention-error"]')).not.toBeNull();
   });
 });

@@ -40,7 +40,7 @@ test("dashboard: daily change metric cards render in summary section", async ({
   await dashboard.assert.heroPanelContains(/Waiting for market value data/i);
 });
 
-test("dashboard: positive daily change → green color coding and percent display", async ({
+test("dashboard: positive daily change → gain color coding and percent display", async ({
   dashboard,
   appShell,
 }) => {
@@ -53,8 +53,8 @@ test("dashboard: positive daily change → green color coding and percent displa
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
 
-  // change = close(2026-04-05) - close(2026-04-04) = 100 - 99 = 1 TWD (positive → emerald)
-  await dashboard.assert.holdingRowHasColorClass("2330", "text-emerald-600");
+  // change = close(2026-04-05) - close(2026-04-04) = 100 - 99 = 1 TWD (positive → gain)
+  await dashboard.assert.holdingRowHasColorClass("2330", "text-[hsl(var(--finance-gain))]");
   await dashboard.assert.holdingRowContainsText("2330", /\d+/);
 });
 

@@ -7,6 +7,7 @@ import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../l
 import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
 import { RealizedPnlBreakdownInline, RealizedPnlValue } from "../portfolio/RealizedPnlBreakdown";
 import { DataTable, type DataTableColumn } from "../ui/DataTable";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 import type {
   TransactionHistorySortBy,
   TransactionHistorySortOrder,
@@ -284,8 +285,5 @@ function HistoryDetail({ label, value, valueClassName }: { label: string; value:
 }
 
 function getRealizedPnlTone(value: number | null): string {
-  if (value === null) return "text-foreground";
-  if (value > 0) return "text-emerald-600";
-  if (value < 0) return "text-rose-600";
-  return "text-foreground";
+  return holdingsFinanceToneClass(value, "text-foreground");
 }

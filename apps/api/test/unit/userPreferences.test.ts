@@ -6,7 +6,7 @@
 // dependency.
 
 import { describe, it, expect } from "vitest";
-import { resolveReportingCurrency } from "../../src/services/userPreferences.js";
+import { resolvePriceColorConvention, resolveReportingCurrency } from "../../src/services/userPreferences.js";
 
 describe("resolveReportingCurrency", () => {
   it("returns TWD when the key is missing", () => {
@@ -68,5 +68,37 @@ describe("resolveReportingCurrency", () => {
         reportingCurrency: "USD",
       }),
     ).toBe("USD");
+  });
+});
+
+describe("resolvePriceColorConvention", () => {
+  it("returns gain_green_loss_red when the key is missing", () => {
+    expect(resolvePriceColorConvention({})).toBe("gain_green_loss_red");
+  });
+
+  it("passes through gain_green_loss_red", () => {
+    expect(resolvePriceColorConvention({ priceColorConvention: "gain_green_loss_red" })).toBe("gain_green_loss_red");
+  });
+
+  it("passes through gain_red_loss_green", () => {
+    expect(resolvePriceColorConvention({ priceColorConvention: "gain_red_loss_green" })).toBe("gain_red_loss_green");
+  });
+
+  it("defaults on an invalid string", () => {
+    expect(resolvePriceColorConvention({ priceColorConvention: "western" })).toBe("gain_green_loss_red");
+  });
+
+  it("defaults on null, objects, arrays, and numbers", () => {
+    expect(resolvePriceColorConvention({ priceColorConvention: null })).toBe("gain_green_loss_red");
+    expect(resolvePriceColorConvention({ priceColorConvention: { value: "gain_red_loss_green" } })).toBe("gain_green_loss_red");
+    expect(resolvePriceColorConvention({ priceColorConvention: ["gain_red_loss_green"] })).toBe("gain_green_loss_red");
+    expect(resolvePriceColorConvention({ priceColorConvention: 1 })).toBe("gain_green_loss_red");
+  });
+
+  it("ignores unrelated sibling keys", () => {
+    expect(resolvePriceColorConvention({
+      reportingCurrency: "USD",
+      priceColorConvention: "gain_red_loss_green",
+    })).toBe("gain_red_loss_green");
   });
 });
