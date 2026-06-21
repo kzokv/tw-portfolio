@@ -278,8 +278,9 @@ function buildActiveFilterChips(
   accountOptions: TransactionAccountOptionDto[],
 ) {
   const chips: Array<{ key: string; label: string; reset: Partial<TransactionHistoryRouteState> }> = [];
+  const isRealizedPnlDerivedSellType = state.pnl === "realized" && state.type === "SELL";
 
-  if (state.type !== DEFAULT_TRANSACTION_HISTORY_ROUTE_STATE.type) {
+  if (state.type !== DEFAULT_TRANSACTION_HISTORY_ROUTE_STATE.type && !isRealizedPnlDerivedSellType) {
     chips.push({ key: "type", label: `${dict.transactions.typeTerm}: ${state.type}`, reset: { type: DEFAULT_TRANSACTION_HISTORY_ROUTE_STATE.type } });
   }
   if (state.pnl !== DEFAULT_TRANSACTION_HISTORY_ROUTE_STATE.pnl) {

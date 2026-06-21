@@ -71,6 +71,10 @@ describe("TransactionHistoryBrowser", () => {
       .toBe("/reports?tab=portfolio&scope=US&range=1M");
     expect(document.querySelector("[data-testid='transaction-history-active-chips']")?.textContent)
       .toContain("Ticker: MSFT");
+    expect(document.querySelector("[data-testid='transaction-history-active-chips']")?.textContent)
+      .toContain("P&L: Realized only");
+    expect(document.querySelector("[data-testid='transaction-history-active-chips']")?.textContent)
+      .not.toContain("Type: SELL");
     expect(document.querySelector("[data-testid='transaction-history-subtotals']")?.textContent)
       .toContain("USD");
   });
