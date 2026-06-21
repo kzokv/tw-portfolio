@@ -23,16 +23,12 @@ export class TransactionsAssert extends BaseAssert {
 
   @Step()
   async recentTransactionsTableIsVisible(): Promise<void> {
-    await expect(
-      this.el.recentTransactionsCard.getByTestId("recent-transactions-table"),
-    ).toBeVisible();
+    await expect(this.el.recentTransactionsTable).toBeVisible();
   }
 
   @Step()
   async recentTransactionTickerIsVisible(symbol: string): Promise<void> {
-    await expect(
-      this.el.recentTransactionsTable.getByRole("link", { name: symbol }),
-    ).toBeVisible();
+    await expect(this.el.recentTransactionsTable.getByRole("link", { name: symbol })).toBeVisible();
   }
 
   @Step()

@@ -21,6 +21,7 @@ test("transaction combobox: search by ticker → submit updates the verification
   await transactions.assert.transactionStatusContains(/Transaction recorded successfully|交易已成功寫入/);
   await transactions.assert.verificationPanelIsVisible();
   await transactions.assert.recentTransactionsTableIsVisible();
+  await transactions.actions.filterTransactionHistoryByTicker("2330");
   await transactions.assert.recentTransactionTickerIsVisible("2330");
 });
 

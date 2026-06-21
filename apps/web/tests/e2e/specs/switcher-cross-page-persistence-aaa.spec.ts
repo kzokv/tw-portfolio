@@ -66,6 +66,7 @@ test.describe("portfolio switcher cross-page persistence", () => {
     await contextSwitcher.assert.cookieEquals(owner.userId);
     await contextSwitcher.assert.assertSwitchedIn("Switcher Persist Owner");
     await transactions.assert.recentTransactionsTableIsVisible();
+    await transactions.actions.filterTransactionHistoryByTicker("2330");
     await transactions.assert.recentTransactionTickerIsVisible("2330");
     await transactions.assert.readOnlyMessageIsVisible();
   });

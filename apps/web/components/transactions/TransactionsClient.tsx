@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { TransactionPrimaryDto } from "@vakwen/shared-types";
 import { formatNumber } from "../../lib/utils";
+import { useTransactionHistory } from "../../features/portfolio/hooks/useTransactionHistory";
 import { useTransactionsPrimaryData } from "../../features/portfolio/hooks/useTransactionsPrimaryData";
-import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
+import {
+  mergeTransactionHistoryRouteStateIntoSearchParams,
+  normalizeTransactionHistoryRouteState,
+  parseTransactionHistoryRouteState,
+  transactionHistoryRouteStatesEqual,
+  type TransactionHistoryRouteState,
+  type TransactionHistorySortBy,
+} from "../../features/portfolio/transactionHistoryRouteState";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
@@ -15,6 +23,7 @@ import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "../ui/Tabs";
 import { AiInboxPanel } from "./AiInboxPanel";
+import { TransactionHistoryBrowser } from "./TransactionHistoryBrowser";
 
 interface TransactionsClientProps {
   initialTab?: "posted" | "ai-inbox";
@@ -31,6 +40,7 @@ export function TransactionsClient({
 }: TransactionsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams?.toString() ?? "";
   const [activeTab, setActiveTab] = useState<"posted" | "ai-inbox">(initialTab);
   const {
     uiDict: dict,
@@ -47,6 +57,24 @@ export function TransactionsClient({
   const cacheKey = buildRouteDtoCacheKey("transactions-primary", getRouteDtoContextScope(sessionUserId), locale);
   const seededPrimaryData = contextRefreshSignal === 0 ? initialPrimaryData : null;
   const primary = useTransactionsPrimaryData(seededPrimaryData, cacheKey, routeCachePolicy);
+  const historyState = useMemo(
+    () => parseTransactionHistoryRouteState(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey],
+  );
+  const historyQuery = useMemo(() => ({
+    accountId: historyState.accountId,
+    from: historyState.from,
+    limit: historyState.limit,
+    marketCode: historyState.marketCode,
+    offset: historyState.offset,
+    pnl: historyState.pnl,
+    sortBy: historyState.sortBy,
+    sortOrder: historyState.sortOrder,
+    ticker: historyState.ticker,
+    to: historyState.to,
+    type: historyState.type,
+  }), [historyState]);
+  const history = useTransactionHistory(historyQuery, { enabled: activeTab === "posted" });
   const addPanelRef = useRef<HTMLDivElement | null>(null);
   const effectiveTransactionAccountOptions = transactionAccountOptions.length > 0
     ? transactionAccountOptions
@@ -54,20 +82,54 @@ export function TransactionsClient({
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
   const canReadAiDrafts = !isSharedContext || sharedContextPermissions.canReadAiDrafts;
 
+  const updateHistoryState = useCallback((
+    patch: Partial<TransactionHistoryRouteState>,
+    options: { resetOffset?: boolean; removeReturnTo?: boolean } = {},
+  ) => {
+    const next = normalizeTransactionHistoryRouteState({
+      ...historyState,
+      ...patch,
+      offset: options.resetOffset ? 0 : patch.offset ?? historyState.offset,
+      returnTo: options.removeReturnTo ? null : patch.returnTo ?? historyState.returnTo,
+    });
+    if (transactionHistoryRouteStatesEqual(historyState, next)) return;
+    const params = mergeTransactionHistoryRouteStateIntoSearchParams(new URLSearchParams(searchParamsKey), next);
+    const query = params.toString();
+    router.replace(query ? `/transactions?${query}` : "/transactions", { scroll: false });
+  }, [historyState, router, searchParamsKey]);
+
   useEffect(() => {
     setActiveTab(initialTab === "ai-inbox" && !canReadAiDrafts ? "posted" : initialTab);
   }, [canReadAiDrafts, initialTab]);
 
+  useEffect(() => {
+    const current = new URLSearchParams(searchParamsKey);
+    const normalized = mergeTransactionHistoryRouteStateIntoSearchParams(current, historyState);
+    if (normalized.toString() !== current.toString()) {
+      const query = normalized.toString();
+      router.replace(query ? `/transactions?${query}` : "/transactions", { scroll: false });
+    }
+  }, [historyState, router, searchParamsKey]);
+
   // Re-fetch when AppShell signals a context/data change (shared-context
   // switch, transaction submit, retry click). Initial mount skipped.
-  const firstSignalRef = useRef(true);
+  const handledSignalRef = useRef(contextRefreshSignal);
   useEffect(() => {
-    if (firstSignalRef.current) {
-      firstSignalRef.current = false;
+    if (handledSignalRef.current === contextRefreshSignal) {
       return;
     }
+    handledSignalRef.current = contextRefreshSignal;
     void primary.refresh();
-  }, [contextRefreshSignal, primary.refresh]);
+    if (activeTab === "posted") {
+      void history.refresh();
+    }
+  }, [activeTab, contextRefreshSignal, history.refresh, primary.refresh]);
+
+  useEffect(() => {
+    if (history.data.total === 0 || historyState.offset < history.data.total) return;
+    const lastPageOffset = Math.floor((history.data.total - 1) / historyState.limit) * historyState.limit;
+    updateHistoryState({ offset: lastPageOffset });
+  }, [history.data.total, historyState.limit, historyState.offset, updateHistoryState]);
 
   // TODO(performance-smooth-pages): switch these summary cards to a dedicated
   // transactions read-model endpoint when the backend exposes one. For now we
@@ -118,6 +180,13 @@ export function TransactionsClient({
     }
 
     addPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleHistorySort(field: TransactionHistorySortBy) {
+    updateHistoryState({
+      sortBy: field,
+      sortOrder: historyState.sortBy === field && historyState.sortOrder === "desc" ? "asc" : "desc",
+    }, { resetOffset: true });
   }
 
   return (
@@ -201,11 +270,23 @@ export function TransactionsClient({
         </TabsList>
 
         <TabsContent value="posted">
+          <TransactionHistoryBrowser
+            accountOptions={effectiveTransactionAccountOptions}
+            data={history.data}
+            dict={dict}
+            errorMessage={history.errorMessage}
+            isLoading={history.isLoading}
+            locale={locale}
+            onChange={updateHistoryState}
+            onSort={handleHistorySort}
+            state={historyState}
+          />
           {/*
-            KZO-162 — All three transactions cards (form/readonly + status + recent)
-            render through one SortableCardGrid. All slugs declare
-            `fullWidth: true` so they stack vertically and any can be reordered
-            to any position. The `transactions-add` slot renders the
+            KZO-162 — Add/status cards render through one SortableCardGrid.
+            The full transaction history browser is fixed above this grid so
+            report deep links land on visible filtered results. Both remaining
+            slugs declare `fullWidth: true` so they stack vertically and can be
+            reordered. The `transactions-add` slot renders the
             AddTransactionCard normally and a read-only notice in shared context;
             either way the slot stays in the saved order so a user's preferred
             position survives context switches.
@@ -216,24 +297,12 @@ export function TransactionsClient({
             key={`card-grid-transactions-${resetCount}`}
             orderKey="transactions"
             cards={[
-              { slug: "transactions-recent", fullWidth: true },
               { slug: "transactions-status", fullWidth: true },
               { slug: "transactions-add", fullWidth: true },
             ]}
           >
             {(slug) => {
               switch (slug) {
-                case "transactions-recent":
-                  return (
-                    <RecentTransactionsCard
-                      items={primary.data.recentTransactions}
-                      locale={locale}
-                      dict={dict}
-                      isLoading={primary.isBootstrapping}
-                      errorMessage={primary.errorMessage}
-                      variant="primary"
-                    />
-                  );
                 case "transactions-status":
                   return (
                     <Card data-testid="transactions-verification-panel">

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { roundToDecimal, type QuoteSnapshot } from "@vakwen/domain";
+import { resolveRangeBounds, roundToDecimal, type QuoteSnapshot } from "@vakwen/domain";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
@@ -71,7 +71,7 @@ interface PreparedReportData {
   dataHealth: ReportDataHealthDto;
   fxStatus: ReportFxStatusDto;
   fxRates: FxConversionRateDto[];
-  realizedPnl: HistoricalFxAmountResult;
+  realizedPnl: HistoricalFxAmountResult & { transactionCount: number };
   trailingDividendIncome: HistoricalFxAmountResult;
   store: Store;
   scopedStore: Store;
@@ -81,6 +81,7 @@ interface PreparedReportData {
 }
 
 type MissingFxRatePair = HistoricalFxMissingRatePair;
+type ReportRangeBounds = { startDate: string; endDate: string };
 
 type ReportKnownGapReason =
   | "missing_snapshot"
@@ -115,7 +116,12 @@ export async function buildDailyReviewReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(
+      prepared.translatedSummary,
+      prepared.realizedPnl.amount,
+      prepared.realizedPnl.transactionCount,
+      prepared.trailingDividendIncome.amount,
+    ),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -158,7 +164,12 @@ export async function buildPortfolioReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(
+      prepared.translatedSummary,
+      prepared.realizedPnl.amount,
+      prepared.realizedPnl.transactionCount,
+      prepared.trailingDividendIncome.amount,
+    ),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -213,7 +224,12 @@ export async function buildMarketReport(
 
   return {
     query: prepared.reportQuery,
-    summary: buildSummaryTotals(prepared.translatedSummary, prepared.realizedPnl.amount, prepared.trailingDividendIncome.amount),
+    summary: buildSummaryTotals(
+      prepared.translatedSummary,
+      prepared.realizedPnl.amount,
+      prepared.realizedPnl.transactionCount,
+      prepared.trailingDividendIncome.amount,
+    ),
     fxStatus: prepared.fxStatus,
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
@@ -248,6 +264,10 @@ async function prepareReportData(
   });
   const range = resolveReportRange(input.range, ranges);
   const scopedStore = scopeStore(store, context.scope);
+  const earliestTradeDate = scopedStore.accounting.facts.tradeEvents
+    .map((trade) => trade.tradeDate)
+    .sort()[0];
+  const rangeBounds = resolveRangeBounds(range, new Date().toISOString().slice(0, 10), earliestTradeDate);
   const quoteableTickers = new Set(
     scopedStore.instruments
       .filter((instrument) => isInstrumentQuoteable(instrument))
@@ -287,7 +307,7 @@ async function prepareReportData(
       .map((pair) => `${pair.ticker}:${pair.marketCode}`)),
   });
   const quotes = Object.values(snapshotMap).filter((quote): quote is ResolvedQuoteSnapshot => quote !== null);
-  const asOf = new Date().toISOString().slice(0, 10);
+  const asOf = rangeBounds.endDate;
   const overview = buildDashboardOverview(scopedStore, { integrityIssue: null, quotes, summaryAsOf: asOf });
   const translatedSummary = await translateOverviewSummary(
     overview.summary,
@@ -313,14 +333,14 @@ async function prepareReportData(
   );
 
   const [realizedPnl, trailingDividendIncome] = await Promise.all([
-    translateTradeAmounts(scopedStore, context.reportingCurrency, app.persistence, "realized_pnl"),
+    translateTradeAmounts(scopedStore, context.reportingCurrency, app.persistence, "realized_pnl", rangeBounds),
     buildTrailingDividendIncome(scopedStore, context.reportingCurrency, app.persistence),
   ]);
   const historicalMissingRatePairs = dedupeMissingRatePairs([
     ...realizedPnl.missingRatePairs,
     ...trailingDividendIncome.missingRatePairs,
   ]);
-  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
+  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs, rangeBounds);
   const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
   const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
     ? { latestSnapshotDate: null, missingProviderSourceCount: 0, markets: [] }
@@ -334,6 +354,8 @@ async function prepareReportData(
       reportingCurrency: context.reportingCurrency,
       nativeCurrency: context.nativeCurrency,
       range,
+      rangeStartDate: rangeBounds.startDate,
+      rangeEndDate: rangeBounds.endDate,
       asOf,
     },
     translatedSummary,
@@ -829,8 +851,9 @@ async function buildFxStatus(
   reportingCurrency: AccountDefaultCurrency,
   asOf: string,
   historicalMissingRatePairs: ReadonlyArray<MissingFxRatePair> = [],
+  rangeBounds?: ReportRangeBounds,
 ): Promise<ReportFxStatusDto> {
-  const nativeCurrencies = collectReportFxCurrencies(store);
+  const nativeCurrencies = collectReportFxCurrencies(store, rangeBounds);
   const currentMissingRatePairs: MissingFxRatePair[] = [];
   for (const currency of nativeCurrencies) {
     if (currency === reportingCurrency) continue;
@@ -864,7 +887,7 @@ function dedupeMissingRatePairs(pairs: ReadonlyArray<MissingFxRatePair>): Missin
   return [...byKey.values()];
 }
 
-function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
+function collectReportFxCurrencies(store: Store, rangeBounds?: ReportRangeBounds): AccountDefaultCurrency[] {
   const currencies = new Set<AccountDefaultCurrency>();
   const addCurrency = (currency: CurrencyCode | string | null | undefined) => {
     if (typeof currency === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(currency)) {
@@ -877,6 +900,7 @@ function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
   }
   for (const trade of store.accounting.facts.tradeEvents) {
     if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
+    if (rangeBounds && (trade.tradeDate < rangeBounds.startDate || trade.tradeDate > rangeBounds.endDate)) continue;
     addCurrency(trade.realizedPnlCurrency ?? trade.priceCurrency);
   }
   const holdingTickers = new Set(store.accounting.projections.holdings.map((holding) => holding.ticker));
@@ -896,6 +920,7 @@ function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
 function buildSummaryTotals(
   translatedSummary: Awaited<ReturnType<typeof translateOverviewSummary>>,
   realizedPnlAmount: number,
+  realizedPnlTransactionCount: number,
   incomeAmount: number,
 ): ReportSummaryTotalsDto {
   return {
@@ -903,6 +928,7 @@ function buildSummaryTotals(
     marketValueAmount: translatedSummary.marketValueAmount,
     unrealizedPnlAmount: translatedSummary.unrealizedPnlAmount,
     realizedPnlAmount,
+    realizedPnlTransactionCount,
     dailyChangeAmount: translatedSummary.dailyChangeAmount,
     dailyChangePercent: translatedSummary.dailyChangePercent,
     incomeAmount,
@@ -916,10 +942,13 @@ async function translateTradeAmounts(
   reportingCurrency: AccountDefaultCurrency,
   rates: Pick<Persistence, "getFxRate">,
   _kind: "realized_pnl",
-): Promise<HistoricalFxAmountResult> {
-  return translateHistoricalFxAmounts(
-    store.accounting.facts.tradeEvents
-      .filter((trade) => trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null)
+  rangeBounds: ReportRangeBounds,
+): Promise<HistoricalFxAmountResult & { transactionCount: number }> {
+  const realizedTrades = store.accounting.facts.tradeEvents
+    .filter((trade) => trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null)
+    .filter((trade) => trade.tradeDate >= rangeBounds.startDate && trade.tradeDate <= rangeBounds.endDate);
+  const result = await translateHistoricalFxAmounts(
+    realizedTrades
       .map((trade) => ({
         amount: trade.realizedPnlAmount as number,
         currency: (trade.realizedPnlCurrency ?? trade.priceCurrency) as AccountDefaultCurrency,
@@ -928,6 +957,7 @@ async function translateTradeAmounts(
     reportingCurrency,
     rates,
   );
+  return { ...result, transactionCount: realizedTrades.length };
 }
 
 async function buildTrailingDividendIncome(

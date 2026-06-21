@@ -9,6 +9,7 @@ import type {
   MarketCode,
   TransactionPrimaryDto,
   TransactionHistoryItemDto,
+  TransactionHistoryPageDto,
   UserSettings,
 } from "@vakwen/shared-types";
 import type { IntegrityIssue } from "../../dashboard/types";
@@ -123,6 +124,39 @@ export async function fetchTransactionHistory(filters: {
 
   const query = params.toString();
   return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
+}
+
+export interface TransactionHistoryPageQuery {
+  type?: "BUY" | "SELL" | "ALL";
+  pnl?: "any" | "realized";
+  marketCode?: MarketCode | "ALL";
+  accountId?: string | "ALL";
+  ticker?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+  sortBy?: "tradeDate" | "type" | "ticker" | "account" | "realizedPnl";
+  sortOrder?: "asc" | "desc";
+}
+
+export async function fetchTransactionHistoryPage(query: TransactionHistoryPageQuery): Promise<TransactionHistoryPageDto> {
+  const params = new URLSearchParams();
+
+  if (query.type && query.type !== "ALL") params.set("type", query.type);
+  if (query.pnl && query.pnl !== "any") params.set("pnl", query.pnl);
+  if (query.marketCode && query.marketCode !== "ALL") params.set("marketCode", query.marketCode);
+  if (query.accountId && query.accountId !== "ALL") params.set("accountId", query.accountId);
+  if (query.ticker?.trim()) params.set("ticker", query.ticker.trim().toUpperCase());
+  if (query.from?.trim()) params.set("from", query.from.trim());
+  if (query.to?.trim()) params.set("to", query.to.trim());
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.offset && query.offset > 0) params.set("offset", String(query.offset));
+  if (query.sortBy) params.set("sortBy", query.sortBy);
+  if (query.sortOrder) params.set("sortOrder", query.sortOrder);
+
+  const search = params.toString();
+  return getJson<TransactionHistoryPageDto>(search ? `/transactions/history?${search}` : "/transactions/history");
 }
 
 export async function fetchTransactionsPrimaryData(): Promise<TransactionPrimaryDto> {

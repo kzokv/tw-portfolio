@@ -652,6 +652,8 @@ export interface AppDictionary {
     severityCritical: string;
     severityWarning: string;
     severityInfo: string;
+    viewTransactionRecords: string;
+    openRealizedPnlTransactions: string;
   };
   tickerHistory: {
     eyebrow: string;
@@ -1372,6 +1374,27 @@ export interface AppDictionary {
     recentLedgerTitle: string;
     recentLedgerDescription: string;
     recentLedgerEmpty: string;
+    historyTitle: string;
+    historyDescription: string;
+    historyLoading: string;
+    historyEmpty: string;
+    filterPnl: string;
+    filterPnlAny: string;
+    filterPnlRealized: string;
+    filterAllTypes: string;
+    filterAllMarkets: string;
+    filterAllAccounts: string;
+    filterTradeDateFrom: string;
+    filterTradeDateTo: string;
+    pageSizeLabel: string;
+    clearAll: string;
+    resultsCount: string;
+    backToReport: string;
+    reportSubtotalNote: string;
+    realizedSubtotalLabel: string;
+    realizedSubtotalEmpty: string;
+    paginationPrevious: string;
+    paginationNext: string;
     commissionEstimateTitle: string;
     taxEstimateTitle: string;
     estimatedLabel: string;

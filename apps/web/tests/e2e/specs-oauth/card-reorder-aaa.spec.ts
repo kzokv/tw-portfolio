@@ -370,7 +370,7 @@ test.describe("card reorder (KZO-161 F5)", () => {
     await seedAsBrowser(page, {
       cardOrder: {
         dashboard: ["holdings-table", "portfolio-trend"],
-        transactions: ["transactions-recent", "transactions-status"],
+        transactions: ["transactions-status", "transactions-add"],
         portfolio: ["dividends-section", "holdings-table"],
       },
     });

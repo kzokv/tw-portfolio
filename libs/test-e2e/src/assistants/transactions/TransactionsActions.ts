@@ -72,6 +72,11 @@ export class TransactionsActions extends AppBaseActions {
   }
 
   @Step()
+  async filterTransactionHistoryByTicker(ticker: string): Promise<void> {
+    await this.mxFill(this.el.transactionHistoryTickerFilter, ticker);
+  }
+
+  @Step()
   async selectMarketChip(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
     await this.uiActions.click.perform(this.el.transactionForm.marketChip(market));
   }
@@ -135,6 +140,7 @@ export class TransactionsActions extends AppBaseActions {
         if (r.request().method() !== "GET" || !r.ok()) return false;
         const url = new URL(r.url());
         return (
+          url.pathname.endsWith("/transactions/history") ||
           url.pathname.endsWith("/transactions/primary") ||
           (url.pathname.endsWith("/portfolio/transactions") && url.searchParams.has("limit"))
         );

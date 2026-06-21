@@ -79,6 +79,10 @@ import { TooltipInfo } from "../ui/TooltipInfo";
 import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 import { useReportData } from "../../features/reports/hooks/useReportData";
+import {
+  buildRealizedPnlTransactionsHref,
+  hasRealizedPnlTransactionDrilldown,
+} from "../../features/reports/realizedPnlDrilldown";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank } from "../../features/price-state/priceState";
 import {
@@ -302,6 +306,14 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            realizedPnlHref={buildRealizedPnlTransactionsHref({
+              query: report.data?.query ?? initialReport?.query ?? {
+                scope: state.scope,
+                rangeStartDate: new Date().toISOString().slice(0, 10),
+                rangeEndDate: new Date().toISOString().slice(0, 10),
+              },
+              returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
+            })}
             showAdminActions={sessionUserRole === "admin"}
             tab="daily-review"
             timelineMode={timelineMode}
@@ -317,6 +329,14 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            realizedPnlHref={buildRealizedPnlTransactionsHref({
+              query: report.data?.query ?? initialReport?.query ?? {
+                scope: state.scope,
+                rangeStartDate: new Date().toISOString().slice(0, 10),
+                rangeEndDate: new Date().toISOString().slice(0, 10),
+              },
+              returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
+            })}
             showAdminActions={sessionUserRole === "admin"}
             tab="portfolio"
             timelineMode={timelineMode}
@@ -332,6 +352,14 @@ export function ReportsClient({
             isRefreshing={report.isRefreshing}
             locale={locale}
             onRefresh={() => { void report.refresh({ bypassCache: true }); }}
+            realizedPnlHref={buildRealizedPnlTransactionsHref({
+              query: report.data?.query ?? initialReport?.query ?? {
+                scope: state.scope,
+                rangeStartDate: new Date().toISOString().slice(0, 10),
+                rangeEndDate: new Date().toISOString().slice(0, 10),
+              },
+              returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
+            })}
             showAdminActions={sessionUserRole === "admin"}
             tab="market"
             timelineMode={timelineMode}
@@ -477,6 +505,7 @@ function ReportBody({
   isRefreshing,
   locale,
   onRefresh,
+  realizedPnlHref,
   showAdminActions,
   tab,
   timelineMode,
@@ -489,6 +518,7 @@ function ReportBody({
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
+  realizedPnlHref: string;
   showAdminActions: boolean;
   tab: ReportTab;
   timelineMode: TimelineMode;
@@ -527,7 +557,13 @@ function ReportBody({
         </Alert>
       ) : null}
       <ReportMeta data={data} dict={uiDict} locale={locale} />
-      <SummaryGrid summary={data.summary} currency={data.query.reportingCurrency} dict={uiDict} locale={locale} />
+      <SummaryGrid
+        summary={data.summary}
+        currency={data.query.reportingCurrency}
+        dict={uiDict}
+        locale={locale}
+        realizedPnlHref={realizedPnlHref}
+      />
       <div className="grid gap-4 lg:grid-cols-2">
         <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
         <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
@@ -578,22 +614,40 @@ function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDicti
   );
 }
 
+type SummaryMetricItem = {
+  label: string;
+  value: number | null;
+  toneValue?: number | null;
+  detail?: string;
+  href?: string | null;
+};
+
 function SummaryGrid({
   currency,
   dict,
   locale,
+  realizedPnlHref,
   summary,
 }: {
   currency: AccountDefaultCurrency;
   dict: AppDictionary;
   locale: LocaleCode;
+  realizedPnlHref: string;
   summary: ReportSummaryTotalsDto;
 }) {
-  const items = [
+  const items: SummaryMetricItem[] = [
     { label: dict.reports.marketValue, value: summary.marketValueAmount },
     { label: dict.reports.bookCost, value: summary.costBasisAmount },
     { label: dict.reports.unrealizedPnl, toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
-    { label: dict.reports.realizedPnl, toneValue: summary.realizedPnlAmount, value: summary.realizedPnlAmount },
+    {
+      label: dict.reports.realizedPnl,
+      toneValue: summary.realizedPnlAmount,
+      value: summary.realizedPnlAmount,
+      href: hasRealizedPnlTransactionDrilldown(summary) ? realizedPnlHref : null,
+      detail: hasRealizedPnlTransactionDrilldown(summary)
+        ? formatReportMessage(dict.reports.viewTransactionRecords, { count: formatNumber(summary.realizedPnlTransactionCount, locale) })
+        : undefined,
+    },
     { label: dict.reports.dailyChange, detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
     { label: dict.reports.income, value: summary.incomeAmount },
     {
@@ -605,22 +659,42 @@ function SummaryGrid({
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="reports-summary-grid">
       {items.map((item) => (
-        <Card key={item.label} className={cn(item.toneValue != null && item.toneValue !== 0 ? "border-border/80" : null)}>
+        <Card key={item.label} className={cn(item.toneValue != null && item.toneValue !== 0 ? "border-border/80" : null, item.href ? "transition hover:border-primary/40 hover:bg-muted/20" : null)}>
           <CardHeader className="p-4 pb-2">
             <CardDescription className="flex items-center justify-between gap-3">
               <span>{item.label}</span>
               <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">{currency}</span>
             </CardDescription>
-            <CardTitle
-              className={cn("break-words font-mono text-xl tabular-nums sm:text-2xl", holdingsFinanceToneClass(item.toneValue ?? null, "text-foreground"))}
-              title={item.value === null ? undefined : formatCurrencyAmount(item.value, currency, locale)}
-            >
-              {item.value === null
-                ? "-"
-                : item.toneValue === undefined
-                  ? formatCompactCurrencyAmount(item.value, currency, locale)
-                  : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
-            </CardTitle>
+            {item.href ? (
+              <Link
+                href={item.href}
+                className="block"
+                aria-label={dict.reports.openRealizedPnlTransactions}
+                data-testid="reports-summary-realized-pnl-link"
+              >
+                <CardTitle
+                  className={cn("break-words font-mono text-xl tabular-nums underline decoration-primary/30 underline-offset-4 sm:text-2xl", holdingsFinanceToneClass(item.toneValue ?? null, "text-foreground"))}
+                  title={item.value === null ? undefined : formatCurrencyAmount(item.value, currency, locale)}
+                >
+                  {item.value === null
+                    ? "-"
+                    : item.toneValue === undefined
+                      ? formatCompactCurrencyAmount(item.value, currency, locale)
+                      : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
+                </CardTitle>
+              </Link>
+            ) : (
+              <CardTitle
+                className={cn("break-words font-mono text-xl tabular-nums sm:text-2xl", holdingsFinanceToneClass(item.toneValue ?? null, "text-foreground"))}
+                title={item.value === null ? undefined : formatCurrencyAmount(item.value, currency, locale)}
+              >
+                {item.value === null
+                  ? "-"
+                  : item.toneValue === undefined
+                    ? formatCompactCurrencyAmount(item.value, currency, locale)
+                    : formatFinanceCurrencyAmount(item.value, currency, locale, true)}
+              </CardTitle>
+            )}
             {item.value !== null ? (
               <CardDescription className={cn("mt-1 break-words font-mono text-xs tabular-nums", holdingsFinanceToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
                 {formatExactAmountInline(dict, formatCurrencyAmount(item.value, currency, locale))}
@@ -692,11 +766,11 @@ function FxStatusCard({
 
 function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto; dict: AppDictionary }) {
   const rows = [
-    [dict.holdings.dataHealthHoldingCount, dataHealth.holdingCount],
-    [dict.holdings.dataHealthMissingQuoteCount, dataHealth.missingQuoteCount],
-    [dict.holdings.dataHealthProvisionalQuoteCount, dataHealth.provisionalQuoteCount],
-    [dict.holdings.dataHealthMissingFxCount, dataHealth.missingFxCount],
-    [dict.holdings.dataHealthNonCurrentPriceCount, dataHealth.nonCurrentPriceCount],
+    { key: "holdingCount", label: dict.holdings.dataHealthHoldingCount, value: dataHealth.holdingCount },
+    { key: "missingQuoteCount", label: dict.holdings.dataHealthMissingQuoteCount, value: dataHealth.missingQuoteCount },
+    { key: "provisionalQuoteCount", label: dict.holdings.dataHealthProvisionalQuoteCount, value: dataHealth.provisionalQuoteCount },
+    { key: "missingFxCount", label: dict.holdings.dataHealthMissingFxCount, value: dataHealth.missingFxCount },
+    { key: "nonCurrentPriceCount", label: dict.holdings.dataHealthNonCurrentPriceCount, value: dataHealth.nonCurrentPriceCount },
   ];
   return (
     <Card>
@@ -705,10 +779,10 @@ function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto;
         <CardDescription>{dict.holdings.dataHealthDescription}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
-            <span className="text-sm text-muted-foreground">{label}</span>
-            <span className="font-mono text-sm font-semibold tabular-nums">{value}</span>
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+            <span className="text-sm text-muted-foreground">{row.label}</span>
+            <span className="font-mono text-sm font-semibold tabular-nums">{row.value}</span>
           </div>
         ))}
       </CardContent>

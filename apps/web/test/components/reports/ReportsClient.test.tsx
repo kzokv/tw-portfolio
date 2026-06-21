@@ -138,6 +138,8 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         severityCritical: "Critical",
         severityWarning: "Warning",
         severityInfo: "Info",
+        viewTransactionRecords: "View {count} records",
+        openRealizedPnlTransactions: "Open realized P&L transactions",
       },
       holdings: {
         dataHealthTerm: "Data health",
@@ -248,6 +250,8 @@ const fixture: DailyReviewReportDto = {
     reportingCurrency: "AUD",
     nativeCurrency: null,
     range: "1Y",
+    rangeStartDate: "2025-06-08",
+    rangeEndDate: "2026-06-08",
     asOf: "2026-06-08",
   },
   summary: {
@@ -255,6 +259,7 @@ const fixture: DailyReviewReportDto = {
     marketValueAmount: 1200,
     unrealizedPnlAmount: 200,
     realizedPnlAmount: 30,
+    realizedPnlTransactionCount: 2,
     dailyChangeAmount: 10,
     dailyChangePercent: 0.8,
     incomeAmount: 15,
@@ -472,6 +477,86 @@ describe("ReportsClient", () => {
       quickActionsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(openQuickActionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a realized P&L drilldown link with range, scope, and returnTo when summary count is positive", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=AU&range=1M";
+    const drilldownFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        scope: "AU",
+        range: "1M",
+        rangeStartDate: "2026-05-21",
+        rangeEndDate: "2026-06-21",
+        asOf: "2026-06-21",
+      },
+      summary: {
+        ...portfolioFixture.summary,
+        realizedPnlAmount: 45,
+        realizedPnlTransactionCount: 2,
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={drilldownFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "AU",
+        range: "1M",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const drilldownHref = Array.from(document.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href"))
+      .find((href) => href?.includes("/transactions?") && href.includes("pnl=realized"));
+
+    expect(drilldownHref).toBeTruthy();
+    const url = new URL(drilldownHref!, "http://localhost");
+    expect(url.pathname).toBe("/transactions");
+    expect(url.searchParams.get("type")).toBe("SELL");
+    expect(url.searchParams.get("pnl")).toBe("realized");
+    expect(url.searchParams.get("marketCode")).toBe("AU");
+    expect(url.searchParams.get("from")).toBe("2026-05-21");
+    expect(url.searchParams.get("to")).toBe("2026-06-21");
+    expect(url.searchParams.get("returnTo")).toBe("/reports?tab=portfolio&scope=AU&range=1M");
+  });
+
+  it("keeps the realized P&L summary non-clickable when there are no realized transactions", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=AU&range=1M";
+    const emptyDrilldownFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        scope: "AU",
+        range: "1M",
+        rangeStartDate: "2026-05-21",
+        rangeEndDate: "2026-06-21",
+        asOf: "2026-06-21",
+      },
+      summary: {
+        ...portfolioFixture.summary,
+        realizedPnlAmount: 0,
+        realizedPnlTransactionCount: 0,
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={emptyDrilldownFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "AU",
+        range: "1M",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const drilldownLinks = Array.from(document.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href"))
+      .filter((href): href is string => Boolean(href?.includes("/transactions?") && href.includes("pnl=realized")));
+
+    expect(drilldownLinks).toHaveLength(0);
   });
 
   it("colors Today severity badges by level", async () => {

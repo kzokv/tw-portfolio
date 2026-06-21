@@ -2,13 +2,12 @@
 //
 // Covers (per scope-todo Phase 8):
 //   [transactions-A] drag swap add ↔ status → debounce → state read-back
-//                    via GET /user-preferences shows the new compact workflow
-//                    order with the form still below the posted table.
+//                    via GET /user-preferences shows the sortable workflow
+//                    order below the fixed transaction history browser.
 //   [transactions-B] Display tab → "Reset transactions layout" → only
 //                    cardOrder.transactions cleared (sibling sub-keys preserved).
-//   [transactions-C] After drag, AddTransactionCard remains in the LEFT column
-//                    — composition regression guard for Q2's right-stack-only
-//                    decision.
+//   [transactions-C] AddTransactionCard slot participates in the same
+//                    SortableCardGrid persist/read-back path.
 //
 // All tests run in specs-oauth/ (AUTH_MODE=oauth, real session cookies).
 // State assertions use GET /user-preferences (not DOM inspection).
@@ -104,7 +103,7 @@ async function waitForTransactionsAddAboveStatus(page: Page): Promise<boolean> {
   return page.waitForFunction(() => {
     const order = Array.from(document.querySelectorAll("[data-testid^='card-transactions-']"))
       .map((node) => node.getAttribute("data-testid")?.replace("card-", "") ?? "");
-    return order[1] === "transactions-add" && order[2] === "transactions-status";
+    return order[0] === "transactions-add" && order[1] === "transactions-status";
   }, { timeout: 1200 }).then(() => true).catch(() => false);
 }
 
@@ -121,7 +120,7 @@ async function moveTransactionsAddAboveStatus(page: Page, drag: () => Promise<vo
 }
 
 async function setTransactionsAddAboveStatusViaGridHarness(page: Page): Promise<void> {
-  const nextOrder = ["transactions-recent", "transactions-add", "transactions-status"];
+  const nextOrder = ["transactions-add", "transactions-status"];
   await page.getByTestId("sortable-card-grid").evaluate((node, order) => {
     const grid = node as HTMLDivElement & {
       _testOnDragEnd?: (nextOrder: string[]) => void;
@@ -163,14 +162,15 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
 
     await appShell.actions.navigateToRoute("/transactions");
 
-    // Assert — all three cards' drag handles are visible (confirms the
-    // single-grid composition is wired through SortableCardGrid).
+    // Assert — both sortable cards' drag handles are visible (confirms the
+    // workflow cards are wired through SortableCardGrid). The transaction
+    // history browser is fixed above this grid so report deep links land on
+    // visible filtered results.
     await appShell.assert.cardDragHandleIsVisible("transactions-add");
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
-    await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
     // Actions — drag transactions-add above transactions-status. Canonical
-    // is [recent, status, add]; after the swap it should be [recent, add, status].
+    // is [status, add]; after the swap it should be [add, status].
     await moveTransactionsAddAboveStatus(page, () => appShell.actions.dragCard("transactions-add", "transactions-status"));
 
     // Assert — after debounce, the saved cardOrder.transactions reflects the swap.
@@ -178,8 +178,8 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
       .poll(
         async () => {
           const order = await getCardOrder(testUserCookieHeader);
-          return order?.transactions?.[1] === "transactions-add"
-            && order?.transactions?.[2] === "transactions-status";
+          return order?.transactions?.[0] === "transactions-add"
+            && order?.transactions?.[1] === "transactions-status";
         },
         { timeout: 2000, intervals: [300, 500, 700] },
       )
@@ -188,7 +188,7 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
     const savedOrder = await getCardOrder(testUserCookieHeader);
     await appShell.assert.mxAssertDeepEqual(
       savedOrder?.transactions,
-      ["transactions-recent", "transactions-add", "transactions-status"],
+      ["transactions-add", "transactions-status"],
     );
   });
 
@@ -208,7 +208,7 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
     // here we focus on the UI wiring (button → PATCH → cleared state). Seed
     // BEFORE navigation so the grid mount fetches the seeded value.
     await seedAsBrowser(page, {
-      cardOrder: { transactions: ["transactions-recent", "transactions-status"] },
+      cardOrder: { transactions: ["transactions-add", "transactions-status"] },
     });
 
     await appShell.actions.navigateToRoute("/transactions");
@@ -246,10 +246,9 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
 
     await appShell.actions.navigateToRoute("/transactions");
 
-    // Sanity — all three drag handles are present, including the form slot.
+    // Sanity — both drag handles are present, including the form slot.
     await appShell.assert.cardDragHandleIsVisible("transactions-add");
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
-    await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
     // Actions — drive the SortableCardGrid test harness to move the
     // AddTransactionCard slot above transactions-status. Pointer drag coverage
@@ -266,8 +265,8 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
       .poll(
         async () => {
           const order = await getCardOrder(testUserCookieHeader);
-          return order?.transactions?.[1] === "transactions-add"
-            && order?.transactions?.[2] === "transactions-status";
+          return order?.transactions?.[0] === "transactions-add"
+            && order?.transactions?.[1] === "transactions-status";
         },
         { timeout: 2000, intervals: [300, 500, 700] },
       )

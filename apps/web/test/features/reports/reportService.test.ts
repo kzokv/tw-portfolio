@@ -22,7 +22,7 @@ describe("reportService", () => {
 
     await fetchReport("daily-review", state);
 
-    expect(getJson).toHaveBeenCalledWith(`/reports/daily-review?scope=TW&currencyMode=auto&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
+    expect(getJson).toHaveBeenCalledWith(`/reports/daily-review?scope=TW&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
   it("normalizes legacy specified currency route state to backend auto mode", async () => {

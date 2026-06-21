@@ -28,6 +28,7 @@ import type {
   AiConnectorPolicySettingsDto,
   AiConnectorSummaryDto,
   AiConnectorScope,
+  CurrencyCode,
   DashboardOverviewDto,
   DashboardMarketStateDto,
   DashboardOverviewHoldingGroupDto,
@@ -46,6 +47,7 @@ import type {
   TransactionDraftRowDto,
   TransactionDraftUnsupportedItemDto,
   TransactionHistoryItemDto,
+  TransactionHistoryPageDto,
   TransactionPrimaryDto,
 } from "@vakwen/shared-types";
 import {
@@ -1758,6 +1760,101 @@ function buildTransactionHistoryItems(
     .sort(compareTransactionsForHistory);
   const visibleTrades = query.limit ? sortedTrades.slice(0, query.limit) : sortedTrades;
   return visibleTrades.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown));
+}
+
+type TransactionHistorySortBy = "tradeDate" | "type" | "ticker" | "account" | "realizedPnl";
+type TransactionHistorySortOrder = "asc" | "desc";
+
+interface TransactionHistoryPageQuery {
+  type: "BUY" | "SELL" | "ALL";
+  pnl: "realized" | "any";
+  ticker?: string;
+  accountId?: string;
+  marketCode?: SharedMarketCode;
+  from?: string;
+  to?: string;
+  limit: number;
+  offset: number;
+  sortBy: TransactionHistorySortBy;
+  sortOrder: TransactionHistorySortOrder;
+}
+
+function buildTransactionHistoryPage(
+  store: Store,
+  query: TransactionHistoryPageQuery,
+): TransactionHistoryPageDto {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(store.accounting);
+  const effectiveType = query.pnl === "realized" ? "SELL" : query.type;
+  const filteredTrades = listTradeEvents(store)
+    .filter((trade) => (effectiveType === "ALL" ? true : trade.type === effectiveType))
+    .filter((trade) => (query.pnl === "realized" ? trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null : true))
+    .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
+    .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+    .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
+    .filter((trade) => (query.from ? trade.tradeDate >= query.from : true))
+    .filter((trade) => (query.to ? trade.tradeDate <= query.to : true));
+  const aggregates = buildTransactionHistoryAggregates(filteredTrades);
+  const sortedTrades = [...filteredTrades].sort((left, right) =>
+    compareTransactionsForHistorySort(left, right, accountById, query.sortBy, query.sortOrder));
+  const visibleTrades = sortedTrades.slice(query.offset, query.offset + query.limit);
+  return {
+    items: visibleTrades.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
+    total: filteredTrades.length,
+    limit: query.limit,
+    offset: query.offset,
+    aggregates,
+  };
+}
+
+function buildTransactionHistoryAggregates(
+  trades: Transaction[],
+): TransactionHistoryPageDto["aggregates"] {
+  const byCurrency = new Map<CurrencyCode, number>();
+  for (const trade of trades) {
+    if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
+    const currency = trade.realizedPnlCurrency ?? trade.priceCurrency;
+    byCurrency.set(currency, roundToDecimal((byCurrency.get(currency) ?? 0) + trade.realizedPnlAmount, 2));
+  }
+  return {
+    realizedPnlByCurrency: [...byCurrency.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([currency, amount]) => ({ currency, amount })),
+  };
+}
+
+function compareTransactionsForHistorySort(
+  left: Transaction,
+  right: Transaction,
+  accountById: ReadonlyMap<string, { id: string; name: string }>,
+  sortBy: TransactionHistorySortBy,
+  sortOrder: TransactionHistorySortOrder,
+): number {
+  if (sortBy === "tradeDate") {
+    const dateResult = sortOrder === "desc"
+      ? right.tradeDate.localeCompare(left.tradeDate)
+      : left.tradeDate.localeCompare(right.tradeDate);
+    return dateResult !== 0 ? dateResult : compareTransactionsForHistory(left, right);
+  }
+
+  let result = 0;
+  if (sortBy === "type") {
+    result = left.type.localeCompare(right.type);
+  } else if (sortBy === "ticker") {
+    result = left.ticker.localeCompare(right.ticker) || left.marketCode.localeCompare(right.marketCode);
+  } else if (sortBy === "account") {
+    result = resolveAccountDisplayName(accountById, left.accountId)
+      .localeCompare(resolveAccountDisplayName(accountById, right.accountId));
+  } else {
+    const leftValue = left.realizedPnlAmount;
+    const rightValue = right.realizedPnlAmount;
+    if (leftValue === undefined || leftValue === null) return rightValue === undefined || rightValue === null ? compareTransactionsForHistory(left, right) : 1;
+    if (rightValue === undefined || rightValue === null) return -1;
+    result = leftValue - rightValue;
+  }
+
+  if (result === 0) return compareTransactionsForHistory(left, right);
+  return sortOrder === "asc" ? result : -result;
 }
 
 function compareTransactionsForHistory(left: Transaction, right: Transaction): number {
@@ -4987,6 +5084,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return withReadPathTiming(req, reply, "/portfolio/transactions", async (timing) => {
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
       return timing.measure("map_transactions", "app", () => Promise.resolve(buildTransactionHistoryItems(store, query)));
+    });
+  });
+
+  app.get("/transactions/history", async (req, reply): Promise<TransactionHistoryPageDto> => {
+    const query = z.object({
+      type: z.enum(["BUY", "SELL", "ALL"]).default("ALL"),
+      pnl: z.enum(["realized", "any"]).default("any"),
+      ticker: tickerSchema.optional(),
+      accountId: z.union([userScopedIdSchema, z.literal("ALL")]).optional(),
+      marketCode: z.enum(MARKET_FILTER_CODES).default("ALL"),
+      from: isoDateSchema.optional(),
+      to: isoDateSchema.optional(),
+      limit: z.coerce.number().int().positive().max(100).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+      sortBy: z.enum(["tradeDate", "type", "ticker", "account", "realizedPnl"]).default("tradeDate"),
+      sortOrder: z.enum(["asc", "desc"]).default("desc"),
+    }).superRefine((value, ctx) => {
+      if (value.from && value.to && value.from > value.to) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "from must be before or equal to to",
+          path: ["from"],
+        });
+      }
+    }).parse(req.query);
+    return withReadPathTiming(req, reply, "/transactions/history", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      return timing.measure("map_transactions_history", "app", () => Promise.resolve(buildTransactionHistoryPage(store, {
+        ...query,
+        accountId: query.accountId === "ALL" ? undefined : query.accountId,
+        marketCode: query.marketCode === "ALL" ? undefined : query.marketCode,
+      })));
     });
   });
 
