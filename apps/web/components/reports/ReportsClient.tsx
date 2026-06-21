@@ -209,11 +209,9 @@ export function ReportsClient({
   } = useAppShellData();
   const searchParamsKey = searchParams?.toString() ?? "";
   const routeState = useMemo(
-    () => parseReportRouteState(
-      searchParamsKey === ""
-        ? reportRouteStateToSearchParams(initialState)
-        : new URLSearchParams(searchParamsKey),
-    ),
+    () => searchParamsKey === ""
+      ? { ...initialState, useServerDefaultRange: true }
+      : parseReportRouteState(new URLSearchParams(searchParamsKey)),
     [initialState, searchParamsKey],
   );
   const [state, setState] = useState(() => routeState);
@@ -230,7 +228,7 @@ export function ReportsClient({
   });
 
   const updateState = useCallback((patch: Partial<ReportRouteState>) => {
-    const next = { ...state, ...patch };
+    const next = { ...state, ...patch, useServerDefaultRange: false };
     if (reportRouteStatesEqual(state, next)) return;
     setState(next);
     router.replace(`/reports?${reportRouteStateToSearchParams(next).toString()}`, { scroll: false });
@@ -241,9 +239,14 @@ export function ReportsClient({
   }, [routeState, searchParamsKey]);
 
   useEffect(() => {
-    if (effectiveRanges.length === 0 || effectiveRanges.includes(state.range)) return;
+    if (effectiveRanges.length === 0) return;
+    if (state.useServerDefaultRange && state.range !== effectiveRanges[0]) {
+      updateState({ range: effectiveRanges[0] });
+      return;
+    }
+    if (effectiveRanges.includes(state.range)) return;
     updateState({ range: effectiveRanges[0] });
-  }, [effectiveRanges, state.range, updateState]);
+  }, [effectiveRanges, state.range, state.useServerDefaultRange, updateState]);
 
   const restoredLabel = report.restoredAt
     ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
@@ -375,7 +378,8 @@ export function ReportsClient({
 function reportRouteStatesEqual(left: ReportRouteState, right: ReportRouteState): boolean {
   return left.tab === right.tab
     && left.scope === right.scope
-    && left.range === right.range;
+    && left.range === right.range
+    && left.useServerDefaultRange === right.useServerDefaultRange;
 }
 
 function reportTabLabel(dict: AppDictionary, tab: ReportTab): string {

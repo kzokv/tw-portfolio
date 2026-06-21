@@ -56,6 +56,16 @@ describe("report route state", () => {
     expect(reportApiPath("daily-review", state)).toBe(`/reports/daily-review?scope=TW&currencyMode=auto&range=1Y&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
   });
 
+  it("omits default daily review ranges until the server resolves the effective fallback", () => {
+    const state = {
+      ...parseReportRouteState(new URLSearchParams("")),
+      useServerDefaultRange: true,
+    };
+
+    expect(reportApiPath("daily-review", state)).toBe(`/reports/daily-review?scope=all&currencyMode=auto&limit=${REPORT_HOLDINGS_FILTER_LIMIT}`);
+    expect(reportRouteStateToSearchParams(state).toString()).toBe("tab=daily-review&scope=all");
+  });
+
   it("serializes report URLs without currency overrides", () => {
     const state = parseReportRouteState({
       tab: "portfolio",

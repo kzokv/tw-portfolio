@@ -209,4 +209,22 @@ describe("TransactionsClient shared AI Inbox visibility", () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
     expect(historyRefreshMock).toHaveBeenCalledTimes(1);
   });
+
+  it("refreshes transaction history from the visible refresh button", () => {
+    act(() => {
+      root.render(
+        <AppShellDataProvider value={buildShellData([])}>
+          <TransactionsClient initialTab="posted" />
+        </AppShellDataProvider>,
+      );
+    });
+
+    act(() => {
+      document.querySelector<HTMLButtonElement>("[data-testid='transactions-refresh-button']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(historyRefreshMock).toHaveBeenCalledTimes(1);
+  });
 });

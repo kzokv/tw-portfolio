@@ -189,6 +189,13 @@ export function TransactionsClient({
     }, { resetOffset: true });
   }
 
+  function handleRefreshClick() {
+    void primary.refresh();
+    if (activeTab === "posted") {
+      void history.refresh();
+    }
+  }
+
   return (
     <div className="stagger grid min-w-0 gap-6">
       <section
@@ -253,8 +260,8 @@ export function TransactionsClient({
           type="button"
           size="sm"
           variant="secondary"
-          onClick={() => { void primary.refresh(); }}
-          disabled={primary.isRefreshing}
+          onClick={handleRefreshClick}
+          disabled={primary.isRefreshing || history.isLoading}
           data-testid="transactions-refresh-button"
         >
           Refresh
