@@ -1166,6 +1166,93 @@ describe("report routes", () => {
     }
   });
 
+  it("ignores out-of-range realized pnl currencies when building report FX status", async () => {
+    vi.setSystemTime(new Date("2026-06-21T12:00:00.000Z"));
+
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "range-fx-in-range-twd-sell",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-06-10",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-06-10T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2026-06-10T09:00:00.000Z",
+        realizedPnlAmount: 25,
+        realizedPnlCurrency: "TWD",
+      },
+      {
+        id: "range-fx-out-of-range-usd-sell",
+        userId,
+        accountId: "acc-1",
+        ticker: "AAPL",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 200,
+        priceCurrency: "USD",
+        tradeDate: "2026-05-20",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2026-05-20T14:30:00.000Z",
+        bookingSequence: 2,
+        bookedAt: "2026-05-20T14:30:00.000Z",
+        realizedPnlAmount: 50,
+        realizedPnlCurrency: "USD",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/reports/portfolio?scope=all&range=1M&currencyMode=specified&currency=TWD&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const body = response.json() as {
+      summary: {
+        realizedPnlAmount: number;
+        realizedPnlTransactionCount: number;
+      };
+      fxStatus: {
+        status: string;
+        nativeCurrencies: string[];
+        missingRatePairs: Array<{ from: string; to: string }>;
+      };
+    };
+
+    expect(response.statusCode).toBe(200);
+    expect(body.summary.realizedPnlAmount).toBe(25);
+    expect(body.summary.realizedPnlTransactionCount).toBe(1);
+    expect(body.fxStatus.status).toBe("complete");
+    expect(body.fxStatus.nativeCurrencies).not.toContain("USD");
+    expect(body.fxStatus.missingRatePairs).toEqual([]);
+  });
+
   it("returns an empty all-market performance series when holding snapshots are absent", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];

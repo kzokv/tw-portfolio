@@ -81,6 +81,7 @@ interface PreparedReportData {
 }
 
 type MissingFxRatePair = HistoricalFxMissingRatePair;
+type ReportRangeBounds = { startDate: string; endDate: string };
 
 type ReportKnownGapReason =
   | "missing_snapshot"
@@ -339,7 +340,7 @@ async function prepareReportData(
     ...realizedPnl.missingRatePairs,
     ...trailingDividendIncome.missingRatePairs,
   ]);
-  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs);
+  const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs, rangeBounds);
   const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
   const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
     ? { latestSnapshotDate: null, missingProviderSourceCount: 0, markets: [] }
@@ -850,8 +851,9 @@ async function buildFxStatus(
   reportingCurrency: AccountDefaultCurrency,
   asOf: string,
   historicalMissingRatePairs: ReadonlyArray<MissingFxRatePair> = [],
+  rangeBounds?: ReportRangeBounds,
 ): Promise<ReportFxStatusDto> {
-  const nativeCurrencies = collectReportFxCurrencies(store);
+  const nativeCurrencies = collectReportFxCurrencies(store, rangeBounds);
   const currentMissingRatePairs: MissingFxRatePair[] = [];
   for (const currency of nativeCurrencies) {
     if (currency === reportingCurrency) continue;
@@ -885,7 +887,7 @@ function dedupeMissingRatePairs(pairs: ReadonlyArray<MissingFxRatePair>): Missin
   return [...byKey.values()];
 }
 
-function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
+function collectReportFxCurrencies(store: Store, rangeBounds?: ReportRangeBounds): AccountDefaultCurrency[] {
   const currencies = new Set<AccountDefaultCurrency>();
   const addCurrency = (currency: CurrencyCode | string | null | undefined) => {
     if (typeof currency === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(currency)) {
@@ -898,6 +900,7 @@ function collectReportFxCurrencies(store: Store): AccountDefaultCurrency[] {
   }
   for (const trade of store.accounting.facts.tradeEvents) {
     if (trade.realizedPnlAmount === undefined || trade.realizedPnlAmount === null) continue;
+    if (rangeBounds && (trade.tradeDate < rangeBounds.startDate || trade.tradeDate > rangeBounds.endDate)) continue;
     addCurrency(trade.realizedPnlCurrency ?? trade.priceCurrency);
   }
   const holdingTickers = new Set(store.accounting.projections.holdings.map((holding) => holding.ticker));
@@ -939,7 +942,7 @@ async function translateTradeAmounts(
   reportingCurrency: AccountDefaultCurrency,
   rates: Pick<Persistence, "getFxRate">,
   _kind: "realized_pnl",
-  rangeBounds: { startDate: string; endDate: string },
+  rangeBounds: ReportRangeBounds,
 ): Promise<HistoricalFxAmountResult & { transactionCount: number }> {
   const realizedTrades = store.accounting.facts.tradeEvents
     .filter((trade) => trade.realizedPnlAmount !== undefined && trade.realizedPnlAmount !== null)
