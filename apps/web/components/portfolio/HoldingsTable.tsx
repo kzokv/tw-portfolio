@@ -889,6 +889,7 @@ function MobileHoldingMetric({
   label,
   value,
   tone = null,
+  toneClassName,
   secondary,
   detail,
   valueClassName,
@@ -896,6 +897,7 @@ function MobileHoldingMetric({
   label: string;
   value: React.ReactNode;
   tone?: number | null;
+  toneClassName?: string;
   secondary?: string;
   detail?: ReactNode;
   valueClassName?: string;
@@ -903,7 +905,7 @@ function MobileHoldingMetric({
   return (
     <div className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <div className={cn("mt-1 min-w-0 break-words font-mono text-sm font-semibold tabular-nums", getUnrealizedPnlTone(tone), valueClassName)}>{value}</div>
+      <div className={cn("mt-1 min-w-0 break-words font-mono text-sm font-semibold tabular-nums", toneClassName ?? getUnrealizedPnlTone(tone), valueClassName)}>{value}</div>
       {secondary ? <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{secondary}</p> : null}
       {detail ? <div className="mt-1 text-xs text-muted-foreground">{detail}</div> : null}
     </div>
@@ -968,7 +970,7 @@ function PortfolioMobileColumnMetric({
       return (
         <MobileHoldingMetric
           label={dict.holdings.priceTerm}
-          tone={row.currentUnitPrice == null ? null : row.currentUnitPrice - row.averageCostPerShare}
+          toneClassName={getCurrentPriceTone(row.currentUnitPrice, row.averageCostPerShare)}
           value={row.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(row.currentUnitPrice, row.currency, locale)}
           detail={showFreshnessBadge && priceState ? (
             <div className="flex justify-start">
