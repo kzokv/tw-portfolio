@@ -10,6 +10,7 @@ import { Card } from "../ui/Card";
 import { EditableTransactionRow } from "./EditableTransactionRow";
 import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
 import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 import { RealizedPnlBreakdownInline, RealizedPnlValue } from "./RealizedPnlBreakdown";
 
 interface TransactionHistoryTableProps {
@@ -295,16 +296,7 @@ function HistoryDetailNode({
 }
 
 function getRealizedPnlTone(value: number | null): string {
-  if (value === null) {
-    return "text-foreground";
-  }
-  if (value > 0) {
-    return "text-emerald-600";
-  }
-  if (value < 0) {
-    return "text-rose-600";
-  }
-  return "text-foreground";
+  return holdingsFinanceToneClass(value, "text-foreground");
 }
 
 function TypePill({ type }: { type: TransactionHistoryItemDto["type"] }) {

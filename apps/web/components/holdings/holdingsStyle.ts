@@ -7,8 +7,23 @@ export function holdingsFinanceToneClass(
   neutralClass = "text-foreground",
 ): string {
   if (value === null || value === undefined || value === 0) return neutralClass;
-  if (value > 0) return "text-[hsl(var(--success))]";
-  return "text-[hsl(var(--destructive))]";
+  if (value > 0) return financeGainTextClass;
+  return financeLossTextClass;
+}
+
+export const financeGainTextClass = "text-[hsl(var(--finance-gain))]";
+export const financeLossTextClass = "text-[hsl(var(--finance-loss))]";
+export const financeGainDotClass = "bg-[hsl(var(--finance-gain))]";
+export const financeLossDotClass = "bg-[hsl(var(--finance-loss))]";
+export const financeGainSurfaceClass = "border-[hsl(var(--finance-gain)/0.4)] bg-[hsl(var(--finance-gain)/0.1)] text-[hsl(var(--finance-gain))]";
+export const financeLossSurfaceClass = "border-[hsl(var(--finance-loss)/0.4)] bg-[hsl(var(--finance-loss)/0.1)] text-[hsl(var(--finance-loss))]";
+
+export function holdingsFinanceSurfaceClass(
+  value: number | null | undefined,
+  neutralClass = "border-border bg-muted/30 text-muted-foreground",
+): string {
+  if (value === null || value === undefined || value === 0) return neutralClass;
+  return value > 0 ? financeGainSurfaceClass : financeLossSurfaceClass;
 }
 
 export function holdingsStickyFirstColumnClassName(

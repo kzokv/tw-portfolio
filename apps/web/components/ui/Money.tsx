@@ -8,6 +8,7 @@ import type { HTMLAttributes } from "react";
 import type { CurrencyCode, LocaleCode } from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import { formatCurrencyAmount } from "../../lib/utils";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 
 interface MoneyProps extends HTMLAttributes<HTMLSpanElement> {
   value: number;
@@ -30,7 +31,7 @@ export function Money({
 }: MoneyProps) {
   const formatted = formatCurrencyAmount(Math.abs(value), currency, locale);
   const sign = value < 0 ? "−" : explicitPlus ? "+" : "";
-  const tone = signed ? (value < 0 ? "text-destructive" : value > 0 ? "text-success" : "") : "";
+  const tone = signed ? holdingsFinanceToneClass(value, "") : "";
   return (
     <span
       className={cn("font-mono tabular-nums", tone, className)}

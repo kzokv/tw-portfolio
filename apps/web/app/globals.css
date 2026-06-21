@@ -27,6 +27,8 @@
   --destructive-foreground: 0 0% 100%;
   --success: 142 71% 36%;
   --success-foreground: 0 0% 100%;
+  --finance-gain: var(--success);
+  --finance-loss: var(--destructive);
   --warning: 38 92% 50%;
   --warning-foreground: 222 47% 11%;
   --border: 214 32% 91%;
@@ -49,6 +51,8 @@
   --chart-primary: var(--primary);
   --chart-muted: 215 16% 47%;
   --chart-positive: 142 71% 36%;
+  --chart-direction-positive: var(--finance-gain);
+  --chart-direction-negative: var(--finance-loss);
   --chart-expected: 200 98% 39%;
   --chart-received: 142 71% 45%;
   --chart-1: 245 78% 59%;
@@ -80,6 +84,8 @@
   --destructive-foreground: 0 0% 100%;
   --success: 142 71% 45%;
   --success-foreground: 222 47% 6%;
+  --finance-gain: var(--success);
+  --finance-loss: var(--destructive);
   --warning: 38 92% 60%;
   --warning-foreground: 222 47% 11%;
   --border: 217 33% 17%;
@@ -91,6 +97,8 @@
   --chart-primary: var(--primary);
   --chart-muted: 215 20% 65%;
   --chart-positive: 142 71% 50%;
+  --chart-direction-positive: var(--finance-gain);
+  --chart-direction-negative: var(--finance-loss);
   --chart-expected: 200 98% 55%;
   --chart-received: 142 71% 55%;
   --chart-1: 245 78% 65%;

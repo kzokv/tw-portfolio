@@ -242,6 +242,25 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
       expect(read).toEqual({});
     });
 
+    it("persists, merges, and null-deletes priceColorConvention as a top-level preference", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        dashboardPerformanceRanges: ["1M"],
+      });
+      const merged = await persistence!.setUserPreferencePatch(userId, {
+        priceColorConvention: "gain_red_loss_green",
+      });
+      expect(merged).toEqual({
+        dashboardPerformanceRanges: ["1M"],
+        priceColorConvention: "gain_red_loss_green",
+      });
+
+      const cleared = await persistence!.setUserPreferencePatch(userId, {
+        priceColorConvention: null,
+      });
+      expect(cleared).toEqual({ dashboardPerformanceRanges: ["1M"] });
+      expect(cleared).not.toHaveProperty("priceColorConvention");
+    });
+
     it("isolates preferences per user (no cross-user bleed)", async () => {
       await persistence!.setUserPreferencePatch(userId, {
         dashboardPerformanceRanges: ["1M"],
@@ -636,6 +655,15 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
       dashboardPerformanceRanges: null,
     });
     expect(afterDelete).not.toHaveProperty("dashboardPerformanceRanges");
+
+    const withPriceColor = await persistence.setUserPreferencePatch(userId, {
+      priceColorConvention: "gain_red_loss_green",
+    });
+    expect(withPriceColor.priceColorConvention).toBe("gain_red_loss_green");
+    const withoutPriceColor = await persistence.setUserPreferencePatch(userId, {
+      priceColorConvention: null,
+    });
+    expect(withoutPriceColor).not.toHaveProperty("priceColorConvention");
   });
 
   it("M3 — per-user isolation", async () => {

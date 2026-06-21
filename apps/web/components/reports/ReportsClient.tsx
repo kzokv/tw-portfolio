@@ -165,20 +165,24 @@ function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsCol
   }
 }
 
-const PERFORMANCE_CHART_CONFIG = {
-  marketValueAmount: {
-    label: "Market value",
-    color: "hsl(var(--chart-primary))",
-  },
-  totalCostAmount: {
-    label: "Book Cost",
-    color: "hsl(var(--chart-muted))",
-  },
-  totalReturnAmount: {
-    label: "Total return",
-    color: "hsl(var(--chart-positive))",
-  },
-} satisfies ChartConfig;
+function buildPerformanceChartConfig(totalReturnAmount: number | null | undefined): ChartConfig {
+  return {
+    marketValueAmount: {
+      label: "Market value",
+      color: "hsl(var(--chart-primary))",
+    },
+    totalCostAmount: {
+      label: "Book Cost",
+      color: "hsl(var(--chart-muted))",
+    },
+    totalReturnAmount: {
+      label: "Total return",
+      color: totalReturnAmount != null && totalReturnAmount < 0
+        ? "hsl(var(--chart-direction-negative))"
+        : "hsl(var(--chart-direction-positive))",
+    },
+  } satisfies ChartConfig;
+}
 
 const ALLOCATION_CHART_CONFIG = {
   amount: {
@@ -1019,6 +1023,7 @@ function PerformanceChart({
 }) {
   const points = performance.points;
   const chartPoints = points.map((point) => ({ ...point, dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime() }));
+  const latestTotalReturnAmount = [...points].reverse().find((point) => point.totalReturnAmount != null)?.totalReturnAmount;
   const lastReliableDate = performance.lastReliableDate ?? findLastReliablePointDate(points);
   const marketDataStaleSince = performance.marketDataStaleSince ?? null;
   const timelineAxis = buildTimelineAxis({
@@ -1120,7 +1125,7 @@ function PerformanceChart({
         {points.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">{dict.reports.noSnapshotSeries}</div>
         ) : (
-          <ChartContainer config={PERFORMANCE_CHART_CONFIG} className="h-72 w-full aspect-auto" data-testid="reports-performance-chart">
+          <ChartContainer config={buildPerformanceChartConfig(latestTotalReturnAmount)} className="h-72 w-full aspect-auto" data-testid="reports-performance-chart">
             <LineChart data={chartPoints} margin={{ top: 12, right: 8, bottom: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="4 6" vertical={false} />
               <XAxis dataKey="dateMs" type="number" domain={timelineAxis.domain} ticks={timelineAxis.ticks} tickFormatter={timelineAxis.tickFormatter} tickLine={false} axisLine={false} minTickGap={40} />

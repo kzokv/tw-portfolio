@@ -220,8 +220,10 @@ export class DashboardAssert extends BaseAssert {
 }
 
 const FINANCE_TONE_CLASS_EQUIVALENTS: Record<string, string[]> = {
-  "text-emerald-600": ["text-emerald-600", "text-success", "text-[hsl(var(--success))]"],
-  "text-rose-600": ["text-rose-600", "text-destructive", "text-[hsl(var(--destructive))]"],
+  "text-emerald-600": ["text-emerald-600", "text-success", "text-[hsl(var(--success))]", "text-[hsl(var(--finance-gain))]"],
+  "text-rose-600": ["text-rose-600", "text-destructive", "text-[hsl(var(--destructive))]", "text-[hsl(var(--finance-loss))]"],
+  "text-[hsl(var(--finance-gain))]": ["text-[hsl(var(--finance-gain))]"],
+  "text-[hsl(var(--finance-loss))]": ["text-[hsl(var(--finance-loss))]"],
 };
 
 function classTokenPattern(classToken: string): RegExp {

@@ -138,6 +138,63 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[user-prefs]: PATCH /user-preferences { priceColorConvention } → 200 echoes and GET returns same", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-price-color-sub",
+      email: "user-prefs-price-color@example.com",
+      name: "Prefs Price Color",
+      role: "member",
+    });
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { priceColorConvention: "gain_red_loss_green" },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      priceColorConvention: "gain_red_loss_green",
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      priceColorConvention: "gain_red_loss_green",
+    });
+  });
+
+  test("[user-prefs]: PATCH /user-preferences { priceColorConvention: null } clears the key", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-price-color-clear-sub",
+      email: "user-prefs-price-color-clear@example.com",
+      name: "Prefs Price Color Clear",
+      role: "member",
+    });
+
+    const seedResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { priceColorConvention: "gain_red_loss_green" },
+    });
+    await adminApi.assert.statusIs(seedResponse, 200);
+
+    const clearResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { priceColorConvention: null },
+    });
+    await adminApi.assert.statusIs(clearResponse, 200);
+    const clearBody = await clearResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(clearBody.preferences, {});
+  });
+
   test("[user-prefs]: PATCH /user-preferences { dashboardHoldingFocus } → 200 echoes, GET returns same, null clears", async ({
     request,
     adminApi,
@@ -614,6 +671,26 @@ test.describe("user preferences API (KZO-159)", () => {
     const response = await request.patch(apiPath("/user-preferences"), {
       headers: { cookie: session.cookieHeader },
       data: { unknownKey: "whatever" },
+    });
+    await adminApi.assert.statusIs(response, 400);
+    const body = await response.json() as { error: string };
+    await adminApi.assert.errorCodeIs(body, "invalid_preference");
+  });
+
+  test("[user-prefs]: PATCH with invalid priceColorConvention → 400 invalid_preference", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-patch-invalid-price-color-sub",
+      email: "user-prefs-patch-invalid-price-color@example.com",
+      name: "Prefs Invalid Price Color",
+      role: "member",
+    });
+
+    const response = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { priceColorConvention: "western" },
     });
     await adminApi.assert.statusIs(response, 400);
     const body = await response.json() as { error: string };

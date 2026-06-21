@@ -45,7 +45,7 @@ import {
   getHoldingsQuoteStatusLabel,
 } from "../../../components/holdings/HoldingsDataHealth";
 import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
-import { holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
+import { holdingsFinanceSurfaceClass, holdingsFinanceToneClass, holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
@@ -153,11 +153,11 @@ function formatPercent(locale: LocaleCode, value: number | null): string {
   return `${formatCompactNumber(locale, value)}%`;
 }
 
-function metricValueClassName(value: string, emptyValue: string, compact = false): string {
+function metricValueClassName(value: string, emptyValue: string, compact = false, toneClassName = "text-foreground"): string {
   const size = compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl";
   return value === emptyValue
     ? "mt-3 break-words text-sm font-medium leading-6 text-muted-foreground sm:text-base"
-    : `mt-3 font-semibold tracking-tight text-foreground ${size}`;
+    : cn("mt-3 font-semibold tracking-tight", toneClassName, size);
 }
 
 function isTickerChartRange(value: string): value is TickerChartRange {
@@ -708,11 +708,7 @@ export function TickerHistoryClient({
     : detailsState.quote.changeAmount > 0
       ? "up"
       : "down";
-  const quoteAccent = quoteDirection === "neutral"
-    ? "border-border bg-muted/30 text-muted-foreground"
-    : quoteDirection === "up"
-      ? "border-success/40 bg-success/10 text-success"
-      : "border-destructive/40 bg-destructive/10 text-destructive";
+  const quoteAccent = holdingsFinanceSurfaceClass(detailsState.quote.changeAmount);
   const quoteStatusBadgeClassName = detailsState.quote.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined;
   const priceState = getPriceState(detailsState.quote);
   const summaryCards = [
@@ -756,6 +752,7 @@ export function TickerHistoryClient({
       value: detailsState.position.unrealizedPnl != null
         ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
         : dict.tickerHistory.noHoldingData,
+      toneValue: detailsState.position.unrealizedPnl,
       detail: detailsState.quote.quoteStatus,
       testId: "ticker-history-unrealized-pnl",
     },
@@ -763,6 +760,7 @@ export function TickerHistoryClient({
       key: "realized",
       label: dict.tickerHistory.realizedPnlLabel,
       value: formatCurrencyAmount(detailsState.position.realizedPnl, currency, locale),
+      toneValue: detailsState.position.realizedPnl,
       detail: detailsState.position.lastDividendPostedDate
         ? formatDateLabel(detailsState.position.lastDividendPostedDate, locale)
         : dict.tickerHistory.noHoldingData,
@@ -847,6 +845,7 @@ export function TickerHistoryClient({
             : dict.tickerHistory.noHoldingData,
           dict.tickerHistory.noHoldingData,
           true,
+          holdingsFinanceToneClass(detailsState.position.unrealizedPnl, "text-foreground"),
         )}>
           {detailsState.position.unrealizedPnl != null
             ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
@@ -1100,6 +1099,7 @@ export function TickerHistoryClient({
                       : dict.tickerHistory.noHoldingData,
                     dict.tickerHistory.noHoldingData,
                     true,
+                    holdingsFinanceToneClass(detailsState.position.unrealizedPnl, "text-foreground"),
                   )}>
                     {detailsState.position.unrealizedPnl != null
                       ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
@@ -1154,7 +1154,12 @@ export function TickerHistoryClient({
           {summaryCards.map((card) => (
             <Card key={card.key} className="min-w-0 rounded-[24px] border-border bg-background/90 p-5 shadow-[0_14px_28px_rgba(148,163,184,0.1)]" data-testid={card.testId}>
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
-              <p className={metricValueClassName(card.value, dict.tickerHistory.noHoldingData)}>{card.value}</p>
+              <p className={metricValueClassName(
+                card.value,
+                dict.tickerHistory.noHoldingData,
+                false,
+                holdingsFinanceToneClass("toneValue" in card ? card.toneValue : undefined, "text-foreground"),
+              )}>{card.value}</p>
               <p className="mt-2 break-words text-sm text-muted-foreground">{card.detail}</p>
             </Card>
           ))}

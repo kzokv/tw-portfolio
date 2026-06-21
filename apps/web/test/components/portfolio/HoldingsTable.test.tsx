@@ -274,6 +274,42 @@ describe("HoldingsTable", () => {
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "accounts")).toBe(true);
   });
 
+  it("keeps mobile current price comparisons on the fixed success/destructive palette", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "portfolio.holdings": {
+              columnOrder: ["price", "unitPnl", "dailyChange", "ticker", "accounts", "quantity", "avgCost", "marketValue", "pnl", "health", "costBasis", "allocation", "nextDividend", "lastDividend"],
+              hiddenColumns: [],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 1,
+            },
+          },
+        },
+      },
+    });
+    const rendered = renderTable([baseGroup]);
+    root = rendered.root;
+    container = rendered.container;
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const mobileRow = container.querySelector("[data-testid='holding-group-mobile-row-AAPL-US']");
+    expect(mobileRow).not.toBeNull();
+    const label = Array.from(mobileRow?.querySelectorAll("p") ?? [])
+      .find((node) => node.textContent === dict.holdings.priceTerm);
+    expect(label).toBeDefined();
+    const value = label?.nextElementSibling;
+    expect(value?.className).toContain("text-success");
+    expect(value?.className).not.toContain("finance-gain");
+  });
+
   it("keeps hidden portfolio mobile columns out of card and details content", async () => {
     vi.mocked(getJson).mockResolvedValue({
       preferences: {
