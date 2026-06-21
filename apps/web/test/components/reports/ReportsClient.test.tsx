@@ -789,8 +789,8 @@ describe("ReportsClient", () => {
     expect(topMoversTable?.querySelector("th")?.getAttribute("class")).toContain("left-0");
 
     const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
-      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-[hsl(var(--destructive))]"));
-    expect(negativeValue?.className).toContain("text-[hsl(var(--destructive))]");
+      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-[hsl(var(--finance-loss))]"));
+    expect(negativeValue?.className).toContain("text-[hsl(var(--finance-loss))]");
     expect(document.body.textContent).toContain("Native price $150.00");
 
     const fxRates = document.querySelector("[data-testid='reports-fx-rates']");
@@ -807,7 +807,7 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("FX rate");
     expect(document.body.textContent).toContain("1.52");
     const detailPercent = Array.from(document.querySelectorAll("span")).find((node) => node.textContent?.includes("-0.8%"));
-    expect(detailPercent?.className).toContain("text-[hsl(var(--destructive))]");
+    expect(detailPercent?.className).toContain("text-[hsl(var(--finance-loss))]");
   });
 
   it("does not render a stale daily-review DTO as another report tab", async () => {

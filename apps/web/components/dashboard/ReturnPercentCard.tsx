@@ -16,6 +16,7 @@ import { TooltipInfo } from "../ui/TooltipInfo";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
+import { financeGainDotClass, financeLossDotClass, holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 
 interface ReturnPercentCardProps {
   data: DashboardPerformanceDto | null;
@@ -33,11 +34,14 @@ interface ChartPoint {
   totalReturnPercent: number | null;
 }
 
-function buildChartConfig(dict: AppDictionary): ChartConfig {
+function buildChartConfig(dict: AppDictionary, value: number | null): ChartConfig {
+  const directionColor = value != null && value < 0
+    ? "hsl(var(--chart-direction-negative))"
+    : "hsl(var(--chart-direction-positive))";
   return {
     totalReturnPercent: {
       label: dict.dashboardHome.snapshotsReturnPercentSeriesLabel,
-      color: "hsl(var(--chart-primary))",
+      color: directionColor,
     },
   };
 }
@@ -70,7 +74,7 @@ export function ReturnPercentCard({
     totalReturnPercent: point.totalReturnPercent ?? null,
   }));
 
-  const chartConfig = buildChartConfig(dict);
+  const chartConfig = buildChartConfig(dict, latestReturnPoint?.totalReturnPercent ?? null);
   const chartAxis = resolvePerformanceChartDomain(data, locale, timelineMode);
   const emptyStateMessage = resolveSnapshotEmptyStateMessage(data, dict);
 
@@ -119,14 +123,14 @@ export function ReturnPercentCard({
           <div className="rounded-[22px] border border-slate-200 bg-white/88 px-4 py-4 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
             <div className="flex items-center gap-2">
               <span
-                className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--chart-primary))]"
+                className={`h-2.5 w-2.5 rounded-full ${latestReturnPoint.totalReturnPercent < 0 ? financeLossDotClass : financeGainDotClass}`}
                 aria-hidden="true"
               />
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 {dict.dashboardHome.snapshotsReturnPercentSeriesLabel}
               </p>
             </div>
-            <p className="mt-3 text-lg font-semibold text-slate-950">
+            <p className={`mt-3 text-lg font-semibold ${holdingsFinanceToneClass(latestReturnPoint.totalReturnPercent, "text-slate-950")}`}>
               {formatPercent(latestReturnPoint.totalReturnPercent, locale)}
             </p>
           </div>

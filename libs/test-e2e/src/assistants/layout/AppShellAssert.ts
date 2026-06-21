@@ -1,4 +1,5 @@
-import { expect } from "@playwright/test";
+import { expect, type APIRequestContext } from "@playwright/test";
+import { TestEnv } from "@vakwen/config/test";
 import { Step } from "@vakwen/test-framework/decorators";
 import { BaseAssert } from "@vakwen/test-framework/mixins";
 
@@ -1063,5 +1064,51 @@ export class AppShellAssert extends BaseAssert {
       const hasAttr = await this.el.htmlRoot.evaluate((el) => el.hasAttribute("data-density"));
       expect(hasAttr, "html[data-density] absent for compact").toBe(false);
     }
+  }
+
+  @Step()
+  async priceColorConventionSectionIsVisible(): Promise<void> {
+    await expect(this.el.testId("display-price-color-convention-section")).toBeVisible();
+  }
+
+  @Step()
+  async priceColorConventionIsSelected(
+    convention: "gain_green_loss_red" | "gain_red_loss_green",
+  ): Promise<void> {
+    await expect(this.el.testId(`display-price-color-convention-${convention}`)).toHaveAttribute("aria-checked", "true");
+  }
+
+  @Step()
+  async financeColorVariablesUseRedGains(): Promise<void> {
+    await expect.poll(async () => this.page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      const gain = styles.getPropertyValue("--finance-gain").trim();
+      const loss = styles.getPropertyValue("--finance-loss").trim();
+      return {
+        gainIsDestructive: gain === styles.getPropertyValue("--destructive").trim(),
+        lossIsSuccess: loss === styles.getPropertyValue("--success").trim(),
+        chartPositiveMatchesGain: styles.getPropertyValue("--chart-direction-positive").trim() === gain,
+        chartNegativeMatchesLoss: styles.getPropertyValue("--chart-direction-negative").trim() === loss,
+      };
+    })).toEqual({
+      gainIsDestructive: true,
+      lossIsSuccess: true,
+      chartPositiveMatchesGain: true,
+      chartNegativeMatchesLoss: true,
+    });
+  }
+
+  @Step()
+  async priceColorPreferenceIs(
+    request: APIRequestContext,
+    userId: string,
+    convention: "gain_green_loss_red" | "gain_red_loss_green",
+  ): Promise<void> {
+    const response = await request.get(new URL("/user-preferences", TestEnv.apiBaseUrl).href, {
+      headers: { "x-user-id": userId },
+    });
+    expect(response.ok(), "GET /user-preferences").toBeTruthy();
+    const body = await response.json() as { preferences: { priceColorConvention?: string } };
+    expect(body.preferences.priceColorConvention).toBe(convention);
   }
 }

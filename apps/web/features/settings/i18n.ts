@@ -243,6 +243,12 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayReportingCurrencyDescription:
         "Choose the currency your dashboard totals are rendered in. Per-holding values stay in each account's native currency.",
       displayReportingCurrencySaved: "Saved",
+      displayPriceColorConventionTitle: "Gain/loss colors",
+      displayPriceColorConventionDescription:
+        "Choose how gains, losses, and price changes are colored.",
+      displayPriceColorConventionGreenGain: "Green gains, red losses",
+      displayPriceColorConventionRedGain: "Red gains, green losses",
+      displayPriceColorConventionSaved: "Saved",
       // ui-reshape Phase 2 — accent + density
       displayAccentTitle: "Accent color",
       displayAccentDescription:
@@ -573,6 +579,12 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayReportingCurrencyDescription:
         "選擇儀表板總計的顯示幣別。各持股仍以該帳戶的原幣顯示。",
       displayReportingCurrencySaved: "已儲存",
+      displayPriceColorConventionTitle: "漲跌顏色",
+      displayPriceColorConventionDescription:
+        "選擇獲利、虧損和價格變動的顏色呈現方式。",
+      displayPriceColorConventionGreenGain: "綠色代表獲利，紅色代表虧損",
+      displayPriceColorConventionRedGain: "紅色代表獲利，綠色代表虧損",
+      displayPriceColorConventionSaved: "已儲存",
       // ui-reshape Phase 2 — 主色 + 密度
       displayAccentTitle: "主題色",
       displayAccentDescription:

@@ -30,6 +30,7 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
 import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
+import { financeGainDotClass, financeLossDotClass, holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 
 const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 
@@ -66,7 +67,10 @@ interface ChartPoint {
   isPartialMarketData?: boolean;
 }
 
-function buildChartConfig(dict: AppDictionary): ChartConfig {
+function buildChartConfig(dict: AppDictionary, totalReturnAmount: number | null): ChartConfig {
+  const totalReturnColor = totalReturnAmount != null && totalReturnAmount < 0
+    ? "hsl(var(--chart-direction-negative))"
+    : "hsl(var(--chart-direction-positive))";
   return {
     marketValue: {
       label: dict.dashboardHome.performanceMarketValueSeriesLabel,
@@ -78,7 +82,7 @@ function buildChartConfig(dict: AppDictionary): ChartConfig {
     },
     totalReturn: {
       label: dict.dashboardHome.snapshotsTotalReturnSeriesLabel,
-      color: "hsl(var(--chart-positive))",
+      color: totalReturnColor,
     },
   };
 }
@@ -142,7 +146,7 @@ export function PortfolioTrendCard({
     isPartialMarketData: point.isPartialMarketData,
   }));
 
-  const chartConfig = buildChartConfig(dict);
+  const chartConfig = buildChartConfig(dict, latestTotalReturnPoint?.totalReturnAmount ?? null);
   const chartAxis = resolveTimelineAxis(data, locale, range, timelineMode);
   const lastIndex = points.length - 1;
   const lastDate = points[lastIndex]?.date;
@@ -240,7 +244,8 @@ export function PortfolioTrendCard({
             value={latestTotalReturnPoint?.totalReturnAmount != null
               ? formatCurrencyAmount(latestTotalReturnPoint.totalReturnAmount, currency, locale)
               : dict.dashboardHome.noMarketValue}
-            swatchClassName="bg-[hsl(var(--chart-positive))]"
+            valueClassName={holdingsFinanceToneClass(latestTotalReturnPoint?.totalReturnAmount ?? null, "text-foreground")}
+            swatchClassName={latestTotalReturnPoint?.totalReturnAmount != null && latestTotalReturnPoint.totalReturnAmount < 0 ? financeLossDotClass : financeGainDotClass}
           />
         ) : null}
       </div>
@@ -475,6 +480,7 @@ function LegendMetric({
   metaTestId,
   badgeLabel,
   swatchClassName,
+  valueClassName,
 }: {
   label: string;
   value: string;
@@ -482,6 +488,7 @@ function LegendMetric({
   metaTestId?: string;
   badgeLabel?: string;
   swatchClassName: string;
+  valueClassName?: string;
 }) {
   return (
     <div className="rounded-[22px] border border-border bg-card px-4 py-4 shadow-sm">
@@ -490,7 +497,7 @@ function LegendMetric({
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
         {badgeLabel ? <Badge variant="outline" className="font-medium">{badgeLabel}</Badge> : null}
       </div>
-      <p className="mt-3 text-lg font-semibold text-foreground">{value}</p>
+      <p className={cn("mt-3 text-lg font-semibold text-foreground", valueClassName)}>{value}</p>
       {meta ? (
         <p className="mt-2 text-xs text-muted-foreground" data-testid={metaTestId}>
           {meta}

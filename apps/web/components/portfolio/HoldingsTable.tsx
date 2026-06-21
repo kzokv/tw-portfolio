@@ -55,7 +55,7 @@ import {
 } from "../holdings/HoldingsGrid";
 import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
-import { holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
+import { holdingsFinanceToneClass, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
 import { buildPriceStateActivityPath, getPriceState } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
@@ -1557,16 +1557,11 @@ function getCurrentPriceTone(currentUnitPrice: number | null, averageCostPerShar
 }
 
 function getDailyChangeTone(change: number): string {
-  if (change > 0) return "text-success";
-  if (change < 0) return "text-destructive";
-  return "text-foreground";
+  return holdingsFinanceToneClass(change, "text-foreground");
 }
 
 function getUnrealizedPnlTone(value: number | null): string {
-  if (value == null) return "text-muted-foreground";
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-destructive";
-  return "text-foreground";
+  return holdingsFinanceToneClass(value, "text-muted-foreground");
 }
 
 function splitMobileHoldingColumns<ColumnId extends string>(

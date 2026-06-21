@@ -15,6 +15,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { RollingNumber } from "../ui/RollingNumber";
 import { Badge } from "../ui/shadcn/badge";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 
 interface DashboardHeroProps {
   fxRates?: FxConversionRateDto[];
@@ -54,13 +55,7 @@ export function DashboardHero({
   const dayDeltaPercent = summary.dailyChangePercent !== null
     ? formatPercent(summary.dailyChangePercent, locale)
     : null;
-  const deltaTone = summary.dailyChangeAmount === null
-    ? "text-foreground"
-    : summary.dailyChangeAmount > 0
-      ? "text-success"
-      : summary.dailyChangeAmount < 0
-        ? "text-destructive"
-        : "text-foreground";
+  const deltaTone = holdingsFinanceToneClass(summary.dailyChangeAmount, "text-foreground");
   return (
     <section
       className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_0.9fr]"

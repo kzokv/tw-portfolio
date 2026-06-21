@@ -742,4 +742,29 @@ export class AppShellActions extends AppBaseActions {
   async clickDensityToggle(mode: "compact" | "comfortable"): Promise<void> {
     await this.uiActions.click.perform(this.el.testId(`display-density-toggle-${mode}`));
   }
+
+  /** Click one of the Settings → Display gain/loss color convention options. */
+  @Step()
+  async clickPriceColorConvention(
+    convention: "gain_green_loss_red" | "gain_red_loss_green",
+  ): Promise<void> {
+    const patchResponse = this.mxWaitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname.endsWith("/user-preferences") && response.request().method() === "PATCH";
+    });
+    await this.uiActions.click.perform(this.el.testId(`display-price-color-convention-${convention}`));
+    expect((await patchResponse).ok(), "PATCH /user-preferences").toBeTruthy();
+  }
+
+  /** Ensure a deterministic gain/loss color convention baseline for a spec. */
+  @Step()
+  async ensurePriceColorConvention(
+    convention: "gain_green_loss_red" | "gain_red_loss_green",
+  ): Promise<void> {
+    const option = this.el.testId(`display-price-color-convention-${convention}`);
+    if (await option.getAttribute("aria-checked") !== "true") {
+      await this.clickPriceColorConvention(convention);
+      await expect(option).toHaveAttribute("aria-checked", "true");
+    }
+  }
 }

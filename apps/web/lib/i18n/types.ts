@@ -1009,6 +1009,11 @@ export interface AppDictionary {
     displayReportingCurrencyTitle: string;
     displayReportingCurrencyDescription: string;
     displayReportingCurrencySaved: string;
+    displayPriceColorConventionTitle: string;
+    displayPriceColorConventionDescription: string;
+    displayPriceColorConventionGreenGain: string;
+    displayPriceColorConventionRedGain: string;
+    displayPriceColorConventionSaved: string;
     // ui-reshape Phase 2 — accent color + density toggle.
     displayAccentTitle: string;
     displayAccentDescription: string;

@@ -68,3 +68,31 @@ test("invalid settings surface inline validation and do not navigate away", asyn
   await settings.assert.validationErrorIsVisible();
   await settings.assert.drawerIsVisible(); // URL-based: still on /settings/display
 });
+
+test("settings display gain/loss colors persist and update finance variables without reload", async ({
+  appShell,
+  request,
+  testUser,
+}) => {
+  await appShell.actions.navigateToRoute("/dashboard");
+  await appShell.actions.openSettingsSection("display");
+
+  await appShell.assert.priceColorConventionSectionIsVisible();
+  await appShell.actions.ensurePriceColorConvention("gain_green_loss_red");
+  await appShell.assert.priceColorConventionIsSelected("gain_green_loss_red");
+
+  await appShell.actions.clickPriceColorConvention("gain_red_loss_green");
+
+  await appShell.assert.priceColorConventionIsSelected("gain_red_loss_green");
+  await appShell.assert.financeColorVariablesUseRedGains();
+  await appShell.assert.priceColorPreferenceIs(request, testUser.userId, "gain_red_loss_green");
+
+  await appShell.actions.reloadPage();
+  await appShell.assert.priceColorConventionIsSelected("gain_red_loss_green");
+  await appShell.assert.financeColorVariablesUseRedGains();
+
+  await appShell.actions.setViewport(375, 667);
+  await appShell.actions.reloadPage();
+  await appShell.assert.priceColorConventionSectionIsVisible();
+  await appShell.assert.priceColorConventionIsSelected("gain_red_loss_green");
+});

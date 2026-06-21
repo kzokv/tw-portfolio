@@ -7,13 +7,17 @@ import type {
   AccentPreset,
   AccountDefaultCurrency,
   DensityMode,
+  PriceColorConvention,
   ThemeAccent,
 } from "@vakwen/shared-types";
 import {
   ACCENT_PRESETS,
   ACCOUNT_DEFAULT_CURRENCIES,
+  DEFAULT_PRICE_COLOR_CONVENTION,
   DEFAULT_THEME_ACCENT,
+  PRICE_COLOR_CONVENTIONS,
   densityModeSchema,
+  priceColorConventionSchema,
   themeAccentSchema,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
@@ -22,6 +26,7 @@ import {
   aaContrastPassesBothModes,
   applyAccent,
   applyDensity,
+  applyPriceColorConvention,
   hexToHsl,
   hslToHex,
 } from "../../lib/theme";
@@ -62,6 +67,7 @@ interface UserPreferencesResponse {
     reportingCurrency?: AccountDefaultCurrency | null;
     themeAccent?: unknown;
     density?: unknown;
+    priceColorConvention?: unknown;
   } | null;
 }
 
@@ -101,6 +107,11 @@ export function DisplayTabSection({
   const [currencySavedFlash, setCurrencySavedFlash] = useState(false);
   const [currencyError, setCurrencyError] = useState<string | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [priceColorConvention, setPriceColorConvention] = useState<PriceColorConvention>(DEFAULT_PRICE_COLOR_CONVENTION);
+  const [priceColorSaving, setPriceColorSaving] = useState(false);
+  const [priceColorSavedFlash, setPriceColorSavedFlash] = useState(false);
+  const [priceColorError, setPriceColorError] = useState<string | null>(null);
+  const priceColorFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Phase 2C — accent + density state.
   const [accent, setAccent] = useState<ThemeAccent>(DEFAULT_THEME_ACCENT);
@@ -138,6 +149,11 @@ export function DisplayTabSection({
         }
         const savedDensity = densityModeSchema.safeParse(res?.preferences?.density);
         if (savedDensity.success) setDensity(savedDensity.data);
+        const savedPriceColorConvention = priceColorConventionSchema.safeParse(res?.preferences?.priceColorConvention);
+        if (savedPriceColorConvention.success) {
+          setPriceColorConvention(savedPriceColorConvention.data);
+          applyPriceColorConvention(savedPriceColorConvention.data);
+        }
       })
       .catch(() => {
         // Silent fallback: "TWD" default stays in state.
@@ -151,6 +167,7 @@ export function DisplayTabSection({
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      if (priceColorFlashTimerRef.current) clearTimeout(priceColorFlashTimerRef.current);
     };
   }, []);
 
@@ -248,6 +265,38 @@ export function DisplayTabSection({
       }
     },
     [density],
+  );
+
+  const savePriceColorConvention = useCallback(
+    async (next: PriceColorConvention): Promise<void> => {
+      const previous = priceColorConvention;
+      setPriceColorConvention(next);
+      applyPriceColorConvention(next);
+      setPriceColorSaving(true);
+      setPriceColorError(null);
+      setPriceColorSavedFlash(false);
+      try {
+        await patchJson("/user-preferences", { priceColorConvention: next });
+        setPriceColorSavedFlash(true);
+        if (priceColorFlashTimerRef.current) clearTimeout(priceColorFlashTimerRef.current);
+        priceColorFlashTimerRef.current = setTimeout(
+          () => setPriceColorSavedFlash(false),
+          SAVED_FLASH_MS,
+        );
+      } catch (err) {
+        setPriceColorConvention(previous);
+        applyPriceColorConvention(previous);
+        if (err instanceof ApiError) setPriceColorError(err.message);
+        else if (err instanceof Error) setPriceColorError(err.message);
+        else setPriceColorError(dict.settings.resetLayoutError);
+      } finally {
+        setPriceColorSaving(false);
+      }
+    },
+    [
+      priceColorConvention,
+      dict.settings.resetLayoutError,
+    ],
   );
 
   const customDraftAccent: ThemeAccent = {
@@ -528,6 +577,82 @@ export function DisplayTabSection({
             data-testid="reporting-currency-error"
           >
             {currencyError}
+          </p>
+        ) : null}
+      </section>
+
+      <section
+        className="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-4"
+        data-testid="display-price-color-convention-section"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">
+            {dict.settings.displayPriceColorConventionTitle}
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {dict.settings.displayPriceColorConventionDescription}
+          </p>
+        </div>
+
+        <div
+          role="radiogroup"
+          aria-label={dict.settings.displayPriceColorConventionTitle}
+          className="grid gap-2 sm:grid-cols-2"
+        >
+          {PRICE_COLOR_CONVENTIONS.map((value) => {
+            const on = priceColorConvention === value;
+            const gainClass = value === "gain_green_loss_red" ? "text-[hsl(var(--success))]" : "text-[hsl(var(--destructive))]";
+            const lossClass = value === "gain_green_loss_red" ? "text-[hsl(var(--destructive))]" : "text-[hsl(var(--success))]";
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={priceColorSaving}
+                onClick={() => {
+                  if (!on) void savePriceColorConvention(value);
+                }}
+                data-testid={`display-price-color-convention-${value}`}
+                className={cn(
+                  "flex min-w-0 flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left text-sm transition",
+                  on
+                    ? "border-slate-900 bg-white shadow-sm"
+                    : "border-slate-200 bg-slate-50/70 hover:border-slate-300",
+                  priceColorSaving && "cursor-not-allowed opacity-70",
+                )}
+              >
+                <span className="font-medium text-slate-900">
+                  {value === "gain_green_loss_red"
+                    ? dict.settings.displayPriceColorConventionGreenGain
+                    : dict.settings.displayPriceColorConventionRedGain}
+                </span>
+                <span className="flex gap-3 font-mono text-xs tabular-nums">
+                  <span className={gainClass}>+1.25%</span>
+                  <span className={lossClass}>-1.25%</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {priceColorSavedFlash ? (
+          <span
+            className="text-xs text-emerald-700"
+            role="status"
+            data-testid="price-color-convention-saved"
+          >
+            {dict.settings.displayPriceColorConventionSaved}
+          </span>
+        ) : null}
+
+        {priceColorError ? (
+          <p
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
+            role="alert"
+            data-testid="price-color-convention-error"
+          >
+            {priceColorError}
           </p>
         ) : null}
       </section>

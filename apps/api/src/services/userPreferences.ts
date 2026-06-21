@@ -29,13 +29,15 @@ import {
   DEFAULT_HOLDING_ALLOCATION_BASIS,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   DEFAULT_DENSITY,
+  DEFAULT_PRICE_COLOR_CONVENTION,
   DEFAULT_THEME_ACCENT,
   HOLDING_ALLOCATION_BASES,
+  PRICE_COLOR_CONVENTIONS,
   dashboardPerformanceRangesSchema,
   densityModeSchema,
   themeAccentSchema,
 } from "@vakwen/shared-types";
-import type { AccountDefaultCurrency, DensityMode, HoldingAllocationBasis, ThemeAccent } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DensityMode, HoldingAllocationBasis, PriceColorConvention, ThemeAccent } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 export type EffectiveRangesSource = "user" | "admin" | "default";
@@ -186,4 +188,14 @@ export function resolveHoldingAllocationBasis(
     return v as HoldingAllocationBasis;
   }
   return DEFAULT_HOLDING_ALLOCATION_BASIS;
+}
+
+export function resolvePriceColorConvention(
+  prefs: Record<string, unknown>,
+): PriceColorConvention {
+  const v = prefs.priceColorConvention;
+  if (typeof v === "string" && (PRICE_COLOR_CONVENTIONS as readonly string[]).includes(v)) {
+    return v as PriceColorConvention;
+  }
+  return DEFAULT_PRICE_COLOR_CONVENTION;
 }

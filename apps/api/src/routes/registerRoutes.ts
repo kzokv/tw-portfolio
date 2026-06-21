@@ -62,6 +62,7 @@ import {
   densityModeSchema,
   holdingAllocationBasisSchema,
   holdingsTableSettingsPreferenceSchema,
+  priceColorConventionSchema,
   themeAccentSchema,
   currencyFor,
   marketCodeFor,
@@ -3621,6 +3622,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       density: z
         .union([densityModeSchema, z.null()])
+        .optional(),
+      priceColorConvention: z
+        .union([priceColorConventionSchema, z.null()])
         .optional(),
     })
     .strict();
