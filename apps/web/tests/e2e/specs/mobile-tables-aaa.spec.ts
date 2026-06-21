@@ -20,6 +20,7 @@
 // rendering at <sm".
 
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
+import { seedTransactionForUser } from "./helpers/sharing.js";
 
 const SM_BREAKPOINT_PX = 640;
 
@@ -49,9 +50,11 @@ test.describe("Phase 4 mobile DataTable smoke", () => {
     );
   });
 
-  test("[mobile-table-card-stack-A]: recent transactions card grid renders at <sm viewport", async ({
+  test("[mobile-table-card-stack-A]: transaction history card grid renders at <sm viewport", async ({
     appShell,
     page,
+    settings,
+    testUser,
   }) => {
     const viewport = page.viewportSize();
     // eslint-disable-next-line playwright/no-skipped-test
@@ -60,11 +63,20 @@ test.describe("Phase 4 mobile DataTable smoke", () => {
       "Mobile-only — verifies card-stack at <sm",
     );
 
+    await settings.arrange.seedInstruments([
+      { ticker: "2330", name: "台積電", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+    ]);
+    await seedTransactionForUser(testUser.userId, {
+      ticker: "2330",
+      quantity: 100,
+      unitPrice: 600,
+      tradeDate: "2026-01-02",
+    });
+
     await appShell.actions.navigateToRouteForResponsiveTest("/transactions");
-    // The `recent-transactions-card` Card wraps the DataTable;
-    // `recent-transactions-table` is the DataTable container testid.
-    await page.getByTestId("recent-transactions-card").waitFor({ state: "visible" });
-    await page.getByTestId("recent-transactions-table").waitFor({ state: "attached" });
+    // The full transaction history browser wraps the shared DataTable.
+    await page.getByTestId("transaction-history-browser").waitFor({ state: "visible" });
+    await page.getByTestId("transaction-history-table").waitFor({ state: "attached" });
   });
 
   test("[mobile-table-overflow-B]: scroll tables fit within viewport at tablet ≥sm", async ({

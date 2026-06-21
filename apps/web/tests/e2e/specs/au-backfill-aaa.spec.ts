@@ -93,6 +93,7 @@ test("[transactions]: BHP AU trade against AUD account → posted, recent table 
 
   // ── Assert: the transaction landed and is reflected in the recent table ─
   await transactions.assert.recentTransactionsTableIsVisible();
+  await transactions.actions.filterTransactionHistoryByTicker("BHP");
   await transactions.assert.recentTransactionTickerIsVisible("BHP");
 });
 

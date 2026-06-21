@@ -383,6 +383,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       severityCritical: "Critical",
       severityWarning: "Warning",
       severityInfo: "Info",
+      viewTransactionRecords: "View {count} records",
+      openRealizedPnlTransactions: "Open realized P&L transactions",
     },
     tickerHistory: {
       eyebrow: "Ticker Ledger",
@@ -895,6 +897,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       severityCritical: "嚴重",
       severityWarning: "警告",
       severityInfo: "資訊",
+      viewTransactionRecords: "查看 {count} 筆紀錄",
+      openRealizedPnlTransactions: "開啟已實現損益交易",
     },
     tickerHistory: {
       eyebrow: "標的帳本",

@@ -14,6 +14,7 @@ export interface ReportRouteState {
   tab: ReportTab;
   scope: ReportScope;
   range: DashboardPerformanceRange;
+  useServerDefaultRange?: boolean;
 }
 
 export const DEFAULT_REPORT_STATE: ReportRouteState = {
@@ -44,7 +45,9 @@ export function reportRouteStateToSearchParams(state: ReportRouteState): URLSear
   const params = new URLSearchParams();
   params.set("tab", state.tab);
   params.set("scope", state.scope);
-  params.set("range", state.range);
+  if (!state.useServerDefaultRange) {
+    params.set("range", state.range);
+  }
   return params;
 }
 
@@ -52,7 +55,9 @@ export function reportApiPath(tab: ReportTab, state: ReportRouteState): string {
   const params = new URLSearchParams();
   params.set("scope", state.scope);
   params.set("currencyMode", "auto");
-  if (tab !== "daily-review") params.set("range", state.range);
+  if (tab !== "daily-review" || !state.useServerDefaultRange) {
+    params.set("range", state.range);
+  }
   params.set("limit", String(REPORT_HOLDINGS_FILTER_LIMIT));
 
   const endpoint = tab === "daily-review"
