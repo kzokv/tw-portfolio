@@ -38,7 +38,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;

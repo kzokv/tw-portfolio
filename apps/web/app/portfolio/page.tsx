@@ -14,7 +14,7 @@ export default async function PortfolioPage() {
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
     fetchPortfolioPrimaryData().catch(() => null),
   ]);
   const initialPortfolioConfig = initialPrimaryData

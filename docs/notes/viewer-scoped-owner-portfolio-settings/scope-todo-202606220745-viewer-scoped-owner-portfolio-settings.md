@@ -20,7 +20,8 @@ superseded_by: null
 - `sharing:manage` covers named-user shares and pending invites only; public anonymous link management stays owner-only.
 - Delegated sharing managers cannot grant capabilities beyond their own active grant set and cannot grant `sharing:manage` onward.
 - Missing grants hide nav entries and show permission-required states on direct URL access.
-- Reporting currency, other preference scoping, anonymous-link delegation, and cleaner future routes are out of scope.
+- A complete preference-scoping policy beyond this PR is out of scope. Existing user-preference surfaces that are already session-scoped are documented as current behavior, but this PR's explicit scoping decision is `priceColorConvention`.
+- Anonymous-link delegation and cleaner future routes are out of scope.
 
 ## Implementation Steps
 
@@ -39,6 +40,20 @@ superseded_by: null
 
 ## Validation
 
+Latest-head focused validation after review fixes:
+
+- `npm run test --prefix apps/api -- shared-context-sharing-manage.integration.test.ts` passed: `6 passed`, including delegated active-share revoker attribution and shared-context public-link list/create/revoke blocks.
+- `npm run test --prefix apps/web -- AccentApplier.test.ts SharedContextStrip.test.tsx api.test.ts heavyPages.serverSeed.test.ts SettingsTwoPaneLayout.test.tsx SharingClient.test.tsx` passed. Because the package script runs broad phases before the filtered files, this completed as first phase `55 passed / 333 tests` and second phase `66 passed / 430 tests`; included session-scoped `patchJson`, viewer-scoped `priceColorConvention`, one-time shared-context strip animation, and session-scoped shell settings source contracts.
+- Targeted lint for touched API/web files passed.
+- `npm run typecheck` passed after the latest review fixes.
+- `npm run test:e2e:bypass:mem --prefix apps/web -- shared-portfolio-nav-permissions-aaa.spec.ts` passed after fixing a brittle strip text assertion: `2 passed`.
+
+Validation issues encountered and fixed:
+
+- First focused E2E rerun failed because the added strip assertion expected the literal word `Portfolio`; the strip was visible but text varies by owner/locale. Replaced the brittle text filter with stable strip visibility plus exit-cookie assertions, then reran the focused E2E successfully.
+
+Prior full-suite validation before the latest review-fix commit:
+
 - `npx eslint .` passed.
 - `npm run typecheck` passed.
 - `npm run test --prefix apps/web` passed: first Vitest phase `54 passed / 331 tests`; second phase `61 passed / 418 tests`.
@@ -54,10 +69,11 @@ superseded_by: null
   - `docs/notes/viewer-scoped-owner-portfolio-settings/mockups/viewer-scoped-owner-portfolio-settings-mobile.png`
   - `docs/notes/viewer-scoped-owner-portfolio-settings/mockups/viewer-scoped-owner-portfolio-settings.html`
   - `docs/notes/viewer-scoped-owner-portfolio-settings/mockups/capture-viewer-scoped-owner-portfolio-settings.mjs`
+- 2026-06-22 update: sticky shared-context strip mockups regenerated after the quiet opaque strip decision. Desktop screenshot is `1440x980`; mobile screenshot is `390x1511`.
 
 ## Open Items
 
-- [ ] Follow up on whether reporting currency, holding allocation basis, dashboard ranges, card order, and table settings should be viewer-scoped or owner-scoped.
+- [ ] Follow up on whether current session-scoped user-preference surfaces beyond `priceColorConvention` should remain viewer-scoped formally or be split by preference type.
 - [ ] Follow up on whether public anonymous share links need a separate delegated capability.
 - [ ] Consider a cleaner long-term route such as `/portfolio/settings/accounts` for owner-scoped portfolio administration.
 

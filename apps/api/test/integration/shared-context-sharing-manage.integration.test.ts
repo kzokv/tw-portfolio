@@ -247,6 +247,35 @@ describe("shared-context sharing manage", () => {
     );
   });
 
+  it("[shared sharing manage]: delegated revoke records the delegated actor as revoker", async () => {
+    const { viewerUserId, role } = await createViewerShare([
+      "portfolio:mcp_read",
+      SHARING_MANAGE,
+    ]);
+    const activeShare = await createOwnerShareFor("owner-revoked-by-delegate@example.com");
+
+    const revokeResponse = await app.inject({
+      method: "DELETE",
+      url: `/shares/${activeShare.id}`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": role,
+        "x-context-user-id": "user-1",
+      },
+    });
+
+    expect(revokeResponse.statusCode).toBe(204);
+    const outbound = await app.persistence.listSharesForOwner("user-1");
+    expect(outbound.revoked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: activeShare.id,
+          revokedByUserId: viewerUserId,
+        }),
+      ]),
+    );
+  });
+
   it("[shared sharing manage]: member cannot grant sharing:manage onward or exceed their delegated grant set", async () => {
     const { viewerUserId, role } = await createViewerShare([
       "portfolio:mcp_read",
@@ -319,7 +348,7 @@ describe("shared-context sharing manage", () => {
     expect(await app.persistence.getPendingShareInviteCapabilities(pendingInvite.code)).toEqual(["portfolio:mcp_read"]);
   });
 
-  it("[shared anonymous links]: member with sharing:manage still cannot create or revoke owner public links", async () => {
+  it("[shared anonymous links]: member with sharing:manage still cannot list, create, or revoke owner public links", async () => {
     const { viewerUserId, role } = await createViewerShare(["portfolio:mcp_read", SHARING_MANAGE]);
     const createdToken = await app.persistence.createAnonymousShareToken({
       ownerUserId: "user-1",
@@ -331,6 +360,17 @@ describe("shared-context sharing manage", () => {
     if (createdToken.status !== "ok") {
       throw new Error(`failed to seed anonymous token: ${createdToken.status}`);
     }
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/share-tokens",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": role,
+        "x-context-user-id": "user-1",
+      },
+    });
+    expect(listResponse.statusCode).toBe(403);
 
     const createResponse = await app.inject({
       method: "POST",

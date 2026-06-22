@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "../../lib/utils";
 
 interface SharedContextStripProps {
+  ownerId: string;
   ownerLabel: string;
   titleTemplate: string;
   subtitleTemplate: string;
@@ -10,17 +12,34 @@ interface SharedContextStripProps {
   onExitSharedContext: () => void;
 }
 
+function shouldAnimateSharedContextStrip(ownerId: string): boolean {
+  if (typeof window === "undefined") return true;
+
+  try {
+    const key = `vakwen:shared-context-strip-seen:${ownerId}`;
+    if (window.sessionStorage.getItem(key) === "1") return false;
+    window.sessionStorage.setItem(key, "1");
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export function SharedContextStrip({
+  ownerId,
   ownerLabel,
   titleTemplate,
   subtitleTemplate,
   actionLabel,
   onExitSharedContext,
 }: SharedContextStripProps) {
+  const [shouldAnimate] = useState(() => shouldAnimateSharedContextStrip(ownerId));
+
   return (
     <div
       className={cn(
-        "sticky top-0 z-20 mb-5 flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-[0_10px_22px_rgba(15,23,42,0.06)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-150",
+        "sticky top-0 z-20 mb-5 flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-[0_10px_22px_rgba(15,23,42,0.06)]",
+        shouldAnimate && "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-150",
         "sm:flex-row sm:items-center sm:justify-between sm:gap-4",
       )}
       data-testid="shared-context-strip"

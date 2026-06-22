@@ -4027,10 +4027,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const context = await resolveNamedShareManagementContext(req);
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
 
-    const outcome = await app.persistence.revokeShareGrant(params.id, context.ownerUserId, {
-      actorUserId: context.actorUserId,
-      ipAddress: req.ip,
-      metadata: buildDelegatedShareAuditMetadata(context),
+    const outcome = await app.persistence.revokeShareGrant(params.id, {
+      ownerUserId: context.ownerUserId,
+      revokedByUserId: context.actorUserId,
+      auditInput: {
+        actorUserId: context.actorUserId,
+        ipAddress: req.ip,
+        metadata: buildDelegatedShareAuditMetadata(context),
+      },
     });
     if (outcome) {
       await app.eventBus.publishEvent(outcome.granteeUserId, "sharing_notification", { shareId: params.id });
@@ -4086,6 +4090,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // GET /share-tokens — list the session user's own tokens (created within
   // the 30-day retention window). Status is derived server-side.
   app.get("/share-tokens", async (req) => {
+    requireWriteableContext(req);
     const sessionUserId = requireSessionUserId(req);
     const records = await app.persistence.listAnonymousShareTokensForOwner(sessionUserId);
     const now = Date.now();

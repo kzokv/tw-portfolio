@@ -412,6 +412,7 @@ export function AppShell({
                 uiDict={uiDict}
                 locale={locale}
                 isSharedContext={showSharedContextStrip}
+                sharedOwnerId={currentContextOwnerId ?? currentSharedOwnerLabel}
                 sharedOwnerLabel={currentSharedOwnerLabel}
                 onExitSharedContext={handleExitSharedContext}
                 switcherSlot={portfolioSwitcher}

@@ -40,7 +40,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
   ]);
 
   const locale: LocaleCode = settings?.locale ?? "en";

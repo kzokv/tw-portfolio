@@ -24,7 +24,7 @@ export default async function DashboardPage() {
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
     getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" }).catch(() => null),
     fetchDashboardPrimaryData().catch(() => null),
   ]);

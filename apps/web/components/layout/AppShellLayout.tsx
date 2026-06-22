@@ -34,6 +34,7 @@ interface AppShellLayoutProps {
   uiDict: AppDictionary;
   locale: LocaleCode;
   isSharedContext: boolean;
+  sharedOwnerId: string;
   sharedOwnerLabel: string;
   onExitSharedContext: () => void;
   // Sidebar slot
@@ -85,6 +86,7 @@ export function AppShellLayout({
   uiDict,
   locale,
   isSharedContext,
+  sharedOwnerId,
   sharedOwnerLabel,
   onExitSharedContext,
   switcherSlot,
@@ -195,6 +197,8 @@ export function AppShellLayout({
           >
             {isSharedContext ? (
               <SharedContextStrip
+                key={sharedOwnerId}
+                ownerId={sharedOwnerId}
                 ownerLabel={sharedOwnerLabel}
                 titleTemplate={uiDict.switcher.contextStripTitle}
                 subtitleTemplate={uiDict.switcher.contextStripSubtitle}

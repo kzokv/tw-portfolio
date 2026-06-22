@@ -156,7 +156,11 @@ describePostgres("sharing notification locale (postgres integration)", () => {
       auditInput: { actorUserId: ownerUserId },
     });
 
-    await persistence.revokeShareGrant(share.id, ownerUserId, { actorUserId: ownerUserId });
+    await persistence.revokeShareGrant(share.id, {
+      ownerUserId,
+      revokedByUserId: ownerUserId,
+      auditInput: { actorUserId: ownerUserId },
+    });
 
     const { notifications } = await persistence.getNotificationsForUser(granteeId, {
       page: 1,

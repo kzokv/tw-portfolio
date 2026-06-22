@@ -24,7 +24,7 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
     fetchTransactionsPrimaryData().catch(() => null),
   ]);
   const tab = firstParam(sp.tab) === "ai-inbox" ? "ai-inbox" as const : "posted" as const;

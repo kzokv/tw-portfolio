@@ -1420,8 +1420,11 @@ export class PostgresPersistence implements Persistence {
 
   async revokeShareGrant(
     shareId: string,
-    revokedByUserId: string,
-    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+    input: {
+      ownerUserId: string;
+      revokedByUserId: string;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
   ): Promise<{ granteeUserId: string } | null> {
     const client = await this.pool.connect();
     try {
@@ -1453,7 +1456,7 @@ export class PostgresPersistence implements Persistence {
          WHERE ps.id = $1
            AND ps.owner_user_id = $2
          FOR UPDATE`,
-        [shareId, revokedByUserId],
+        [shareId, input.ownerUserId],
       );
 
       const share = shareResult.rows[0];
@@ -1469,10 +1472,10 @@ export class PostgresPersistence implements Persistence {
            SET revoked_at = NOW(),
                revoked_by_user_id = $2
            WHERE id = $1`,
-          [shareId, revokedByUserId],
+          [shareId, input.revokedByUserId],
         );
         await this.appendAuditLogTx(client, {
-          ...auditInput,
+          ...input.auditInput,
           action: "share_revoked",
           targetUserId: share.grantee_user_id,
           metadata: {
@@ -1487,7 +1490,7 @@ export class PostgresPersistence implements Persistence {
                 display_name: share.grantee_display_name,
               },
             ),
-            ...(auditInput.metadata ?? {}),
+            ...(input.auditInput.metadata ?? {}),
           },
         });
         await this.createNotificationTx(

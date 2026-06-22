@@ -250,6 +250,7 @@
         align-items: center;
         gap: 10px;
         min-width: 0;
+        flex: 1 1 auto;
       }
 
       .strip-dot {
@@ -508,7 +509,8 @@
         }
 
         .context-strip {
-          align-items: flex-start;
+          flex-direction: column;
+          align-items: stretch;
           margin: 0 -12px 16px;
           padding: 9px 12px;
         }
@@ -526,14 +528,9 @@
           line-height: 1.3;
         }
 
-        .strip-subtitle {
-          display: none;
-        }
-
         .strip-action {
-          padding: 7px 8px;
-          max-width: 116px;
-          white-space: normal;
+          width: 100%;
+          padding: 9px 10px;
           line-height: 1.2;
           text-align: center;
         }
@@ -613,7 +610,6 @@
                 <div class="strip-title">Viewing Alice Chen's portfolio</div>
                 <div class="strip-subtitle">Your price color convention stays active while portfolio data is Alice's.</div>
               </div>
-              <span class="badge owner">Delegated access</span>
             </div>
             <button class="strip-action" type="button">Back to my portfolio</button>
           </div>

@@ -76,6 +76,7 @@ test.describe("shared portfolio nav and permissions", () => {
 
     await contextSwitcher.assert.cookieEquals(testUser.userId);
     await contextSwitcher.assert.assertSwitchedIn(/Portfolio/);
+    await page.getByTestId("shared-context-strip").waitFor({ state: "visible" });
     await page.getByTestId("app-sidebar-nav-sharing").waitFor({ state: "visible" });
 
     await appShell.actions.navigateToRoute("/sharing");
@@ -94,5 +95,9 @@ test.describe("shared portfolio nav and permissions", () => {
       0,
       "public-link create control is hidden in delegated sharing context",
     );
+
+    await page.getByTestId("shared-context-strip-exit").click();
+    await appShell.assert.appIsReady();
+    await contextSwitcher.assert.cookieEquals(null);
   });
 });
