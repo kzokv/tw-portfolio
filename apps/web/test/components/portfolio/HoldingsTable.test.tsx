@@ -2,7 +2,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
-import { useHoldingsColumnSettings, type HoldingsGridColumnDefinition } from "../../../components/holdings/HoldingsColumnSettings";
+import {
+  HoldingsRowSettingsMenu,
+  useHoldingsColumnSettings,
+  type HoldingsColumnSettingsState,
+  type HoldingsGridColumnDefinition,
+} from "../../../components/holdings/HoldingsColumnSettings";
 import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { getJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
@@ -99,6 +104,28 @@ function renderColumnSettingsHarness() {
   return { container: testContainer, root: testRoot };
 }
 
+function pointerDown(el: Element) {
+  act(() => {
+    const event = new MouseEvent("pointerdown", { bubbles: true, button: 0, cancelable: true, ctrlKey: false });
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "ctrlKey", { value: false });
+    el.dispatchEvent(event);
+  });
+}
+
+function click(el: Element) {
+  act(() => {
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true }));
+  });
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe("HoldingsTable", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
@@ -189,6 +216,77 @@ describe("HoldingsTable", () => {
     expect(layoutStyleControl).toBeNull();
     expect(tickerHeader?.className).toContain("sticky");
     expect(tickerCell?.className).toContain("sticky");
+  });
+
+  it("keeps market filter menu open while selecting multiple markets", async () => {
+    const rendered = renderTable([
+      baseGroup,
+      {
+        ...baseGroup,
+        ticker: "2330",
+        instrumentName: "Taiwan Semiconductor Manufacturing",
+        marketCode: "TW",
+        currency: "TWD",
+      },
+    ]);
+    root = rendered.root;
+    container = rendered.container;
+
+    const marketFilter = container.querySelector('[data-testid="holdings-filter-market"]');
+    expect(marketFilter).not.toBeNull();
+    pointerDown(marketFilter!);
+    await flushPromises();
+
+    const usOption = document.body.querySelector('[role="menuitemcheckbox"][data-radix-collection-item]');
+    expect(usOption).not.toBeNull();
+    click(usOption!);
+    await flushPromises();
+
+    expect(document.body.textContent).toContain(dict.holdings.marketFilterLabel);
+    expect(document.body.textContent).toContain("TW");
+  });
+
+  it("preserves hidden row-order entries when visible rows are reordered", async () => {
+    const setRowOrder = vi.fn();
+    const settings = {
+      rowOrder: ["US:AAPL", "JP:7203", "TW:2330", "KR:005930"],
+      setRowOrder,
+      settingsError: "",
+      topHoldingsLimit: 12,
+    } as unknown as HoldingsColumnSettingsState<TestColumn>;
+    const rendered = (() => {
+      const testContainer = document.createElement("div");
+      document.body.appendChild(testContainer);
+      const testRoot = createRoot(testContainer);
+      act(() => {
+        testRoot.render(
+          <HoldingsRowSettingsMenu
+            dict={dict}
+            rows={[
+              { id: "US:AAPL", label: "AAPL", description: "US" },
+              { id: "TW:2330", label: "2330", description: "TW" },
+            ]}
+            settings={settings}
+            testIdPrefix="test-holdings"
+          />,
+        );
+      });
+      return { container: testContainer, root: testRoot };
+    })();
+    root = rendered.root;
+    container = rendered.container;
+
+    const rowSettings = container.querySelector('[data-testid="test-holdings-row-settings"]');
+    expect(rowSettings).not.toBeNull();
+    pointerDown(rowSettings!);
+    await flushPromises();
+
+    const moveAaplDown = document.body.querySelector('[data-testid="test-holdings-row-move-down-US:AAPL"]');
+    expect(moveAaplDown).not.toBeNull();
+    click(moveAaplDown!);
+    await flushPromises();
+
+    expect(setRowOrder).toHaveBeenCalledWith(["TW:2330", "JP:7203", "US:AAPL", "KR:005930"]);
   });
 
   it("does not let late preference hydration overwrite local column edits", async () => {

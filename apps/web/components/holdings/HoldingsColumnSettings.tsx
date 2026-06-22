@@ -598,6 +598,7 @@ export function HoldingsRowSettingsMenu<ColumnId extends string>({
   const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings };
   const [draggedRow, setDraggedRow] = useState<string | null>(null);
   const orderedRows = applyHoldingsRowOrder(rows, (row) => row.id, settings.rowOrder);
+  const visibleRowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 
   function moveRow(rowId: string, direction: -1 | 1) {
     const ids = orderedRows.map((row) => row.id);
@@ -608,7 +609,7 @@ export function HoldingsRowSettingsMenu<ColumnId extends string>({
     const [source] = next.splice(index, 1);
     if (!source) return;
     next.splice(targetIndex, 0, source);
-    settings.setRowOrder(next);
+    settings.setRowOrder(mergeVisibleRowOrder(settings.rowOrder, visibleRowIds, next));
   }
 
   function moveRowBefore(sourceId: string, targetId: string) {
@@ -617,11 +618,11 @@ export function HoldingsRowSettingsMenu<ColumnId extends string>({
     const withoutSource = ids.filter((rowId) => rowId !== sourceId);
     const targetIndex = withoutSource.indexOf(targetId);
     if (targetIndex < 0) return;
-    settings.setRowOrder([
+    settings.setRowOrder(mergeVisibleRowOrder(settings.rowOrder, visibleRowIds, [
       ...withoutSource.slice(0, targetIndex),
       sourceId,
       ...withoutSource.slice(targetIndex),
-    ]);
+    ]));
   }
 
   return (
@@ -939,6 +940,29 @@ function normalizeRowOrder(rowOrder: unknown): string[] {
     normalized.push(row);
   }
   return normalized.slice(0, 500);
+}
+
+function mergeVisibleRowOrder(existingOrder: string[], visibleRowIds: string[], nextVisibleOrder: string[]): string[] {
+  const visible = new Set(visibleRowIds);
+  const nextVisible = nextVisibleOrder.filter((rowId) => visible.has(rowId));
+  const merged: string[] = [];
+  let nextIndex = 0;
+  for (const rowId of existingOrder) {
+    if (visible.has(rowId)) {
+      const nextRow = nextVisible[nextIndex];
+      if (nextRow) {
+        merged.push(nextRow);
+        nextIndex += 1;
+      }
+      continue;
+    }
+    merged.push(rowId);
+  }
+  for (; nextIndex < nextVisible.length; nextIndex += 1) {
+    const nextRow = nextVisible[nextIndex];
+    if (nextRow) merged.push(nextRow);
+  }
+  return normalizeRowOrder(merged);
 }
 
 function readPreferenceSchema(namespace: ColumnSettingsPreferenceNamespace) {

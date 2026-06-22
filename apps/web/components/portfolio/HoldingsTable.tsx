@@ -409,6 +409,7 @@ export function HoldingsTable({
                   <DropdownMenuCheckboxItem
                     key={option}
                     checked={selectedMarketCodes.includes(option)}
+                    onSelect={(event) => event.preventDefault()}
                     onCheckedChange={() => toggleMarket(option)}
                   >
                     {option}

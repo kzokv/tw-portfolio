@@ -698,6 +698,7 @@ function DashboardMultiSelectMenu({
           <DropdownMenuCheckboxItem
             key={option.id}
             checked={selectedIds.includes(option.id)}
+            onSelect={(event) => event.preventDefault()}
             onCheckedChange={() => toggle(option.id)}
           >
             {option.label}

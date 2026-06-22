@@ -549,6 +549,32 @@ function ReportBody({
   onTimelineModeChange: (mode: TimelineMode) => void;
   uiDict: AppDictionary;
 }) {
+  const reportHoldingsColumns = useMemo(
+    () => REPORT_HOLDINGS_COLUMNS.map((column) => ({
+      ...column,
+      label: reportHoldingColumnLabel(uiDict, column.id),
+    })),
+    [
+      uiDict.holdings.avgCostTerm,
+      uiDict.holdings.dataHealthTerm,
+      uiDict.holdings.unitPnlTerm,
+      uiDict.reports.bookCost,
+      uiDict.reports.dailyChange,
+      uiDict.reports.marketValue,
+      uiDict.reports.pnl,
+      uiDict.reports.position,
+      uiDict.reports.price,
+      uiDict.reports.ticker,
+      uiDict.reports.weight,
+    ],
+  );
+  const reportHoldingsSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
+    columns: reportHoldingsColumns,
+    contextKey: SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
+    defaultLayoutStyle: "portfolio",
+    mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
+  });
+
   if (isBootstrapping) return <ReportSkeleton />;
   if (errorMessage && !data) {
     return (
@@ -592,11 +618,12 @@ function ReportBody({
         <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
         <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
       </div>
-      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
+      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} holdingsSettings={reportHoldingsSettings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
       {tab === "portfolio" ? (
         <PortfolioReportView
           data={data as PortfolioReportDto}
           dict={uiDict}
+          holdingsSettings={reportHoldingsSettings}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -609,6 +636,7 @@ function ReportBody({
         <MarketReportView
           data={data as MarketReportDto}
           dict={uiDict}
+          holdingsSettings={reportHoldingsSettings}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -817,6 +845,7 @@ function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto;
 function DailyReviewView({
   data,
   dict,
+  holdingsSettings,
   isRefreshing,
   locale,
   onRefresh,
@@ -824,6 +853,7 @@ function DailyReviewView({
 }: {
   data: DailyReviewReportDto;
   dict: AppDictionary;
+  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -861,6 +891,7 @@ function DailyReviewView({
         </Card>
         <HoldingsCard
           dict={dict}
+          columnSettings={holdingsSettings}
           title={dict.reports.topMoversTitle}
           contextKey="reports.dailyReview.topMovers"
           rows={{ total: data.topMovers.length, limit: data.topMovers.length, offset: 0, rows: data.topMovers }}
@@ -870,7 +901,7 @@ function DailyReviewView({
           showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -902,6 +933,7 @@ function dailyReviewSeverityLabel(dict: AppDictionary, severity: DailyReviewRepo
 function PortfolioReportView({
   data,
   dict,
+  holdingsSettings,
   isRefreshing,
   locale,
   onRefresh,
@@ -911,6 +943,7 @@ function PortfolioReportView({
 }: {
   data: PortfolioReportDto;
   dict: AppDictionary;
+  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -952,6 +985,7 @@ function PortfolioReportView({
         </Card>
         <HoldingsCard
           dict={dict}
+          columnSettings={holdingsSettings}
           title={dict.reports.concentrationTitle}
           contextKey="reports.portfolio.concentration"
           rows={{ total: data.concentration.topHoldings.length, limit: data.concentration.topHoldings.length, offset: 0, rows: data.concentration.topHoldings }}
@@ -961,7 +995,7 @@ function PortfolioReportView({
           showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -969,6 +1003,7 @@ function PortfolioReportView({
 function MarketReportView({
   data,
   dict,
+  holdingsSettings,
   isRefreshing,
   locale,
   onRefresh,
@@ -978,6 +1013,7 @@ function MarketReportView({
 }: {
   data: MarketReportDto;
   dict: AppDictionary;
+  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -1002,6 +1038,7 @@ function MarketReportView({
         <AllocationChart dict={dict} title={dict.reports.marketSummaryTitle} buckets={data.marketSummary} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <HoldingsCard
           dict={dict}
+          columnSettings={holdingsSettings}
           title={dict.reports.topHoldingsTitle}
           contextKey="reports.market.topHoldings"
           rows={{ total: data.topHoldings.length, limit: data.topHoldings.length, offset: 0, rows: data.topHoldings }}
@@ -1011,7 +1048,7 @@ function MarketReportView({
           showAdminActivityLinks={showAdminActions}
         />
       </div>
-      <HoldingsCard dict={dict} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -1207,6 +1244,7 @@ function AllocationChart({
 }
 
 function HoldingsCard({
+  columnSettings,
   contextKey,
   dict,
   locale,
@@ -1217,6 +1255,7 @@ function HoldingsCard({
   stickyFirstColumn = true,
   title,
 }: {
+  columnSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
   contextKey: string;
   dict: AppDictionary;
   isRefreshing: boolean;
@@ -1233,31 +1272,6 @@ function HoldingsCard({
   const [query, setQuery] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
   const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
-  const columns = useMemo(
-    () => REPORT_HOLDINGS_COLUMNS.map((column) => ({
-      ...column,
-      label: reportHoldingColumnLabel(dict, column.id),
-    })),
-    [
-      dict.holdings.avgCostTerm,
-      dict.holdings.dataHealthTerm,
-      dict.holdings.unitPnlTerm,
-      dict.reports.bookCost,
-      dict.reports.dailyChange,
-      dict.reports.marketValue,
-      dict.reports.pnl,
-      dict.reports.position,
-      dict.reports.price,
-      dict.reports.ticker,
-      dict.reports.weight,
-    ],
-  );
-  const columnSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
-    columns,
-    contextKey: SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
-    defaultLayoutStyle: "portfolio",
-    mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
-  });
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, REPORT_MOBILE_FIELD_COLUMNS);
   const marketOptions = useMemo(
@@ -1560,6 +1574,7 @@ function ReportsMultiSelectMenu({
           <DropdownMenuCheckboxItem
             key={option.id}
             checked={selectedIds.includes(option.id)}
+            onSelect={(event) => event.preventDefault()}
             onCheckedChange={() => toggle(option.id)}
           >
             {option.label}
