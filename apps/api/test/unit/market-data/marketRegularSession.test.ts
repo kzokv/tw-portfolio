@@ -18,6 +18,7 @@ describe("marketRegularSession", () => {
       localDate: "2026-06-17",
       isTradingDay: true,
       isOpen: true,
+      isAfterRegularSessionClose: false,
     });
   });
 
@@ -30,8 +31,22 @@ describe("marketRegularSession", () => {
 
     expect(state.isTradingDay).toBe(true);
     expect(state.isOpen).toBe(false);
+    expect(state.isAfterRegularSessionClose).toBe(false);
     expect(state.opensAtLocal.endsWith("09:30:00")).toBe(true);
     expect(state.closesAtLocal.endsWith("16:00:00")).toBe(true);
+  });
+
+  it("marks TW as after the regular session close only once the close time has arrived", async () => {
+    const state = await getRegularSessionState(
+      "TW",
+      { isTradingDay: vi.fn().mockResolvedValue(true) },
+      new Date("2026-06-17T05:30:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(true);
+    expect(state.isOpen).toBe(false);
+    expect(state.isAfterRegularSessionClose).toBe(true);
+    expect(state.marketStateReason).toBe("outside_regular_session");
   });
 
   it("marks KR as closed on weekends even during regular local hours", async () => {

@@ -80,7 +80,7 @@ describe("POST /portfolio/refresh-closes", () => {
     }));
   });
 
-  it("returns retryable provider-rate-limit details when synchronous close refresh exhausts provider budget", async () => {
+  it("returns retryable provider-rate-limit details when same-day close-only upgrade hits a primary provider limit", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-18T08:00:00.000Z"));
     await seedOfficialMarketCalendar("TW", 2026);
@@ -96,6 +96,19 @@ describe("POST /portfolio/refresh-closes", () => {
         throw new RateLimitedError({ msUntilAvailable: 30_000 });
       },
     } as never);
+    (app.persistence as MemoryPersistence)._seedDailyBars([{
+      ticker: "2330",
+      marketCode: "TW",
+      barDate: "2026-06-17",
+      open: 1010,
+      high: 1010,
+      low: 1010,
+      close: 1010,
+      volume: 0,
+      quality: "close_only",
+      source: "yahoo-chart-close",
+      ingestedAt: "2026-06-17T06:00:00.000Z",
+    }]);
     const trade = await app.inject({
       method: "POST",
       url: "/portfolio/transactions",

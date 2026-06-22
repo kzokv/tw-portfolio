@@ -39,6 +39,14 @@ const FIXTURE_BARS_BHP = [
 
 const EMPTY_SETTLED = new Map<string, string>();
 
+function tradingCalendarWithDates(dates: ReadonlyArray<string>) {
+  const tradingDates = new Set(dates);
+  return {
+    isTradingDay: async (_market: string, date: string) => tradingDates.has(date),
+    getTradingDates: async () => tradingDates,
+  };
+}
+
 describe("resolveQuoteSnapshots", () => {
   let persistence: MemoryPersistence;
 
@@ -277,6 +285,69 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.chipState).toBe("open_fresh");
   });
 
+  it("marks open-session intraday overlays as delayed after the freshness tolerance", async () => {
+    persistence._seedDailyBars([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 995, high: 1000, low: 990, close: 998, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-13", open: 980, high: 985, low: 975, close: 982, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-13T13:40:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "2330",
+      marketCode: "TW",
+      price: 1005,
+      previousClose: 998,
+      asOfDate: "2026-06-17",
+      asOfTimestamp: "2026-06-17T01:00:00.000Z",
+      observedAt: "2026-06-17T01:01:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "TWD",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "2330", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-16"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-17T01:30:00.000Z"),
+        heldPairs: new Set(["2330:TW"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["2330"]?.close).toBe(1005);
+    expect(result["2330"]?.priceState.basis).toBe("delayed_intraday");
+    expect(result["2330"]?.priceState.chipState).toBe("open_delayed");
+  });
+
+  it("uses previous close while the market is open when no same-day overlay exists", async () => {
+    persistence._seedDailyBars([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 995, high: 1000, low: 990, close: 998, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-13", open: 980, high: 985, low: 975, close: 982, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-13T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "2330", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-16"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-17T01:18:00.000Z"),
+        heldPairs: new Set(["2330:TW"]),
+        tradingCalendar: {
+          isTradingDay: async () => true,
+        },
+      },
+    );
+
+    expect(result["2330"]?.close).toBe(998);
+    expect(result["2330"]?.priceState.marketState).toBe("open");
+    expect(result["2330"]?.priceState.basis).toBe("previous_close");
+    expect(result["2330"]?.priceState.chipState).toBe("open_previous_close");
+  });
+
   it("keeps same-day provisional daily bars from masking open-session intraday state", async () => {
     persistence._seedDailyBars([
       { ticker: "QAU", marketCode: "AU", barDate: "2026-06-19", open: 34.1, high: 34.2, low: 33.2, close: 33.27, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-19T01:00:00.000Z" },
@@ -409,9 +480,7 @@ describe("resolveQuoteSnapshots", () => {
         mode: "displayed",
         now: new Date("2026-06-18T06:00:00.000Z"),
         heldPairs: new Set(["2330:TW"]),
-        tradingCalendar: {
-          isTradingDay: async () => true,
-        },
+        tradingCalendar: tradingCalendarWithDates(["2026-06-17", "2026-06-18"]),
       },
     );
 
@@ -427,7 +496,86 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
   });
 
-  it("keeps stale daily close state after market close when no same-day overlay exists", async () => {
+  it("uses latest daily close as pending today close after market close when no overlay exists", async () => {
+    persistence._seedDailyBars([
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-17", open: 2355, high: 2385, low: 2350, close: 2385, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
+      { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 2375, high: 2400, low: 2350, close: 2400, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "2330", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-18"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-18T06:00:00.000Z"),
+        heldPairs: new Set(["2330:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-17", "2026-06-18"]),
+      },
+    );
+
+    expect(result["2330"]?.close).toBe(2385);
+    expect(result["2330"]?.dailyCompatibleClose).toBe(2385);
+    expect(result["2330"]?.priceState.marketState).toBe("closed");
+    expect(result["2330"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["2330"]?.priceState.chipState).toBe("closed_pending");
+    expect(result["2330"]?.priceState.sourceKind).toBe("primary_daily");
+  });
+
+  it("does not mark the prior trading day's close as pending before today's market opens", async () => {
+    persistence._seedDailyBars([
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-19", open: 70.9, high: 72.2, low: 70.5, close: 71.5, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-19T13:40:00.000Z" },
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-18", open: 66.8, high: 68.1, low: 66.4, close: 67.2, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "3714", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-19"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T00:00:00.000Z"),
+        heldPairs: new Set(["3714:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-19", "2026-06-22"]),
+      },
+    );
+
+    expect(result["3714"]?.close).toBe(71.5);
+    expect(result["3714"]?.priceState.marketState).toBe("closed");
+    expect(result["3714"]?.priceState.basis).toBe("today_close");
+    expect(result["3714"]?.priceState.chipState).toBe("closed");
+  });
+
+  it("keeps close refresh pending after close when intraday overlays are disabled", async () => {
+    await seedCache(
+      { tickerPriceIntradayEnabled: false },
+      { _resetAppConfigCache, refresh, setAppConfigCachePersistence },
+    );
+    persistence._seedDailyBars([
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-18", open: 66.8, high: 68.1, low: 66.4, close: 67.2, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T13:40:00.000Z" },
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-17", open: 65.1, high: 67.5, low: 64.9, close: 66.5, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "3714", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-22"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T06:05:00.000Z"),
+        heldPairs: new Set(["3714:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-22"]),
+      },
+    );
+
+    expect(result["3714"]?.close).toBe(67.2);
+    expect(result["3714"]?.priceState.marketState).toBe("closed");
+    expect(result["3714"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["3714"]?.priceState.chipState).toBe("closed_pending");
+    expect(result["3714"]?.priceState.sourceKind).toBe("primary_daily");
+  });
+
+  it("ignores older overlays and uses latest daily close as pending today close after market close", async () => {
     persistence._seedDailyBars([
       { ticker: "2330", marketCode: "TW", barDate: "2026-06-17", open: 2355, high: 2385, low: 2350, close: 2385, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
       { ticker: "2330", marketCode: "TW", barDate: "2026-06-16", open: 2375, high: 2400, low: 2350, close: 2400, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
@@ -462,9 +610,74 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.close).toBe(2385);
     expect(result["2330"]?.dailyCompatibleClose).toBe(2385);
     expect(result["2330"]?.priceState.marketState).toBe("closed");
-    expect(result["2330"]?.priceState.basis).toBe("stale_close");
-    expect(result["2330"]?.priceState.chipState).toBe("stale");
+    expect(result["2330"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["2330"]?.priceState.chipState).toBe("closed_pending");
     expect(result["2330"]?.priceState.sourceKind).toBe("primary_daily");
+  });
+
+  it("keeps the latest quote price pending after close until today's daily close lands", async () => {
+    persistence._seedDailyBars([
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-18", open: 66.8, high: 68.1, low: 66.4, close: 67.2, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T13:40:00.000Z" },
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-17", open: 65.1, high: 67.5, low: 64.9, close: 66.5, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "3714",
+      marketCode: "TW",
+      price: 71.5,
+      previousClose: 67.2,
+      asOfDate: "2026-06-22",
+      asOfTimestamp: "2026-06-22T05:20:00.000Z",
+      observedAt: "2026-06-22T05:21:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "TWD",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "3714", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-22"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T06:05:00.000Z"),
+        heldPairs: new Set(["3714:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-22"]),
+      },
+    );
+
+    expect(result["3714"]?.close).toBe(71.5);
+    expect(result["3714"]?.previousClose).toBe(67.2);
+    expect(result["3714"]?.change).toBeCloseTo(4.3, 4);
+    expect(result["3714"]?.changePercent).toBeCloseTo((4.3 / 67.2) * 100, 4);
+    expect(result["3714"]?.dailyCompatibleClose).toBe(67.2);
+    expect(result["3714"]?.priceState.marketState).toBe("closed");
+    expect(result["3714"]?.priceState.basis).toBe("pending_today_close");
+    expect(result["3714"]?.priceState.chipState).toBe("closed_pending");
+    expect(result["3714"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
+  });
+
+  it("keeps older multi-session daily gaps stale instead of closed pending after market close", async () => {
+    persistence._seedDailyBars([
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-17", open: 65.1, high: 67.5, low: 64.9, close: 66.5, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-17T13:40:00.000Z" },
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-16", open: 64.5, high: 65.5, low: 63.8, close: 65.1, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-16T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "3714", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-22"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T06:05:00.000Z"),
+        heldPairs: new Set(["3714:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-22"]),
+      },
+    );
+
+    expect(result["3714"]?.close).toBe(66.5);
+    expect(result["3714"]?.priceState.marketState).toBe("closed");
+    expect(result["3714"]?.priceState.basis).toBe("stale_close");
+    expect(result["3714"]?.priceState.chipState).toBe("stale");
   });
 
   it("prefers same-day daily bars over intraday overlays after close", async () => {
@@ -493,9 +706,7 @@ describe("resolveQuoteSnapshots", () => {
         mode: "displayed",
         now: new Date("2026-06-18T06:00:00.000Z"),
         heldPairs: new Set(["2330:TW"]),
-        tradingCalendar: {
-          isTradingDay: async () => true,
-        },
+        tradingCalendar: tradingCalendarWithDates(["2026-06-17", "2026-06-18"]),
       },
     );
 
@@ -504,6 +715,34 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["2330"]?.priceState.marketState).toBe("closed");
     expect(result["2330"]?.priceState.basis).toBe("today_close");
     expect(result["2330"]?.priceState.sourceKind).toBe("primary_daily");
+  });
+
+  it("treats same-day Yahoo close-only daily bars as today's closed price", async () => {
+    persistence._seedDailyBars([
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-22", open: 72.9, high: 72.9, low: 72.9, close: 72.9, volume: 0, quality: "close_only", source: "yahoo-chart-close", ingestedAt: "2026-06-22T06:10:00.000Z" },
+      { ticker: "3714", marketCode: "TW", barDate: "2026-06-18", open: 66.8, high: 68.1, low: 66.4, close: 67.2, volume: 100, quality: FULL_BAR, source: "daily", ingestedAt: "2026-06-18T13:40:00.000Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "3714", marketCode: "TW" }],
+      persistence,
+      new Map([["TW", "2026-06-22"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-22T06:15:00.000Z"),
+        heldPairs: new Set(["3714:TW"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-22"]),
+      },
+    );
+
+    expect(result["3714"]?.close).toBe(72.9);
+    expect(result["3714"]?.priceState).toEqual(expect.objectContaining({
+      basis: "today_close",
+      chipState: "closed",
+      sourceKind: "yahoo_chart_close",
+      sourceId: "yahoo-chart-close",
+      quality: "close_only",
+    }));
   });
 
   it("reports closed-session overlays as pending close when regular-session-only is disabled", async () => {

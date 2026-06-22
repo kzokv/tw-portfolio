@@ -27,7 +27,7 @@ export class YahooChartCloseProvider {
 
   async fetchCloseOnlyBar(
     ticker: string,
-    marketCode: Extract<RegularSessionMarketCode, "TW" | "US">,
+    marketCode: Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR">,
     barDate: string,
     now: Date = closeFallbackQueryTime(marketCode, barDate),
   ): Promise<DailyBar | null> {
@@ -57,7 +57,7 @@ export class YahooChartCloseProvider {
 }
 
 function closeFallbackQueryTime(
-  marketCode: Extract<RegularSessionMarketCode, "TW" | "US">,
+  marketCode: Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR">,
   barDate: string,
   now?: Date,
 ): Date {

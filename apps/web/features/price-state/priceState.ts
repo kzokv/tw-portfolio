@@ -334,16 +334,23 @@ export function describePriceStateTooltip(
   priceState: PriceStateDtoLike | null | undefined,
 ): PriceStateTooltipDetails {
   if (!priceState) return { rows: [], activityPath: null };
+  const isClosedCloseOnlyRow = priceState.marketState === "closed" && priceState.quality === "close_only";
   const rows: PriceStateTooltipRow[] = [
     { label: dict.holdings.priceStateBasisLabel, value: formatBasisLabel(dict, priceState.basis) },
     { label: dict.holdings.priceStateMarketStateLabel, value: formatMarketStateLabel(dict, priceState.marketState) },
     { label: dict.holdings.priceStateAsOfLabel, value: formatTimestampValue(priceState.asOfTimestamp, priceState.asOfDate, locale, priceState.marketTimeZone, dict) },
     { label: dict.holdings.priceStateObservedAtLabel, value: formatTimestampValue(priceState.observedAt, null, locale, priceState.marketTimeZone, dict) },
-    { label: dict.holdings.priceStateSourceLabel, value: priceState.source ?? dict.holdings.priceStateUnknownValue },
+    { label: dict.holdings.priceStateSourceLabel, value: formatSourceLabel(dict, priceState) },
     { label: dict.holdings.priceStateQualityLabel, value: formatQualityLabel(dict, priceState.quality) },
     { label: dict.holdings.priceStateDelayLabel, value: formatDelayLabel(dict, priceState.delaySeconds) },
     { label: dict.holdings.priceStateTimeZoneLabel, value: priceState.marketTimeZone ?? dict.holdings.priceStateUnknownValue },
   ];
+  if (isClosedCloseOnlyRow) {
+    rows.push({
+      label: dict.holdings.priceStateFullDailyBarLabel,
+      value: dict.holdings.priceStatePendingValue,
+    });
+  }
   const calendarStatus = readStringFact(priceState, "calendarStatus");
   const calendarReason = readStringFact(priceState, "calendarReason") ?? readStringFact(priceState, "marketStateReason");
   const marketLocalDate = readStringFact(priceState, "marketLocalDate") ?? readStringFact(priceState, "localMarketDate");
@@ -459,6 +466,24 @@ function formatQualityLabel(dict: AppDictionary, quality: PriceStateQuality | nu
   if (quality === "full_bar") return dict.holdings.priceStateQualityFullBar;
   if (quality === "close_only") return dict.holdings.priceStateQualityCloseOnly;
   return dict.holdings.priceStateUnknownValue;
+}
+
+function formatSourceLabel(dict: AppDictionary, priceState: PriceStateDtoLike): string {
+  switch (priceState.sourceKind) {
+    case "yahoo_chart":
+    case "intraday_yahoo_chart":
+      return dict.holdings.priceStateSourceYahooChart;
+    case "yahoo_chart_close":
+      return dict.holdings.priceStateSourceYahooClose;
+    case "twse_stock_day_close":
+      return dict.holdings.priceStateSourceTwseClose;
+    case "primary_daily":
+      return dict.holdings.priceStateSourcePrimaryDaily;
+    case "missing":
+      return dict.holdings.priceStateUnknownValue;
+    default:
+      return priceState.source ?? dict.holdings.priceStateUnknownValue;
+  }
 }
 
 function formatDelayLabel(dict: AppDictionary, delaySeconds: number | null): string {

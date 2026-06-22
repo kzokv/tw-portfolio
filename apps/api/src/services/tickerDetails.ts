@@ -20,6 +20,7 @@ import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
 import { historyStartFor } from "./market-data/types.js";
 import {
   buildMissingPriceState,
+  mapDailySourceKind,
   resolveQuoteSnapshots,
 } from "./market-data/quoteSnapshotService.js";
 import {
@@ -514,7 +515,8 @@ function buildQuoteFromBars(
       chipState: settledTradingDay && latest.barDate < settledTradingDay ? "stale" : "closed",
       marketState: "closed",
       source: latest.source,
-      sourceKind: "primary_daily",
+      sourceKind: mapDailySourceKind(latest.source),
+      sourceId: latest.source,
       asOfDate: latest.barDate,
       asOfTimestamp: null,
       observedAt: latest.ingestedAt,
