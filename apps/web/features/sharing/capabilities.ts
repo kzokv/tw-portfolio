@@ -3,6 +3,7 @@ import type { ShareCapability } from "@vakwen/shared-types";
 export interface SharedContextPermissions {
   canReadAiDrafts: boolean;
   canManageAccounts: boolean;
+  canManageSharing: boolean;
   canWriteTransactions: boolean;
   canCreateDrafts: boolean;
   canEditDrafts: boolean;
@@ -14,6 +15,7 @@ export interface SharedContextPermissions {
 export const ASSIGNABLE_SHARE_CAPABILITIES: ShareCapability[] = [
   "portfolio:mcp_read",
   "account:manage",
+  "sharing:manage",
   "transaction_draft:create",
   "transaction_draft:edit",
   "transaction_draft:archive",
@@ -27,6 +29,7 @@ export function deriveSharedContextPermissions(
   const set = new Set(capabilities);
   const canReadAiDrafts = set.has("portfolio:mcp_read");
   const canManageAccounts = set.has("account:manage");
+  const canManageSharing = set.has("sharing:manage");
   const canWriteTransactions = set.has("transaction:write");
   const canCreateDrafts = set.has("transaction_draft:create");
   const canEditDrafts = set.has("transaction_draft:edit");
@@ -36,6 +39,7 @@ export function deriveSharedContextPermissions(
   return {
     canReadAiDrafts,
     canManageAccounts,
+    canManageSharing,
     canWriteTransactions,
     canCreateDrafts,
     canEditDrafts,
@@ -43,6 +47,7 @@ export function deriveSharedContextPermissions(
     canDeleteDrafts,
     hasAnyDelegatedWrite:
       canManageAccounts
+      || canManageSharing
       || canWriteTransactions
       || canCreateDrafts
       || canEditDrafts

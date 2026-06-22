@@ -69,6 +69,6 @@ describe("useHoldingAllocationBasis", () => {
     expect(result.allocationBasis).toBe("cost_basis");
     expect(patchJson).toHaveBeenCalledWith("/user-preferences", {
       holdingAllocationBasis: "cost_basis",
-    });
+    }, { contextScope: "session" });
   });
 });

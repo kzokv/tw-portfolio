@@ -144,6 +144,10 @@ export function AppSidebar({
   const navigationFeedback = useOptionalNavigationFeedback();
   const appShellData = useOptionalAppShellData();
   const canReadAiDrafts = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canReadAiDrafts;
+  const canManageSharedAccounts = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canManageAccounts;
+  const canManageSharedSharing = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canManageSharing;
+  const sharedSettingsLabel = appShellData?.uiDict.switcher.sharedPortfolioSettings;
+  const sharedSharingLabel = appShellData?.uiDict.switcher.sharedPortfolioSharing;
 
   const refreshAiInboxBadge = useCallback(async () => {
     if (variant !== "user" || !canReadAiDrafts) {
@@ -170,7 +174,16 @@ export function AppSidebar({
 
   const groups: NavGroup[] = variant === "admin"
     ? [{ key: "admin", items: getAdminNavItems(labels?.nav) }]
-    : getUserNavGroups({ role, aiInboxCount, labels });
+    : getUserNavGroups({
+      role,
+      aiInboxCount,
+      labels,
+      isSharedContext: appShellData?.isSharedContext ?? false,
+      canManageSharedAccounts,
+      canManageSharedSharing,
+      sharedSettingsLabel,
+      sharedSharingLabel,
+    });
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
@@ -393,10 +406,20 @@ function getUserNavGroups({
   role,
   aiInboxCount,
   labels,
+  isSharedContext,
+  canManageSharedAccounts,
+  canManageSharedSharing,
+  sharedSettingsLabel,
+  sharedSharingLabel,
 }: {
   role?: string;
   aiInboxCount: number;
   labels?: AppSidebarLabels;
+  isSharedContext: boolean;
+  canManageSharedAccounts: boolean;
+  canManageSharedSharing: boolean;
+  sharedSettingsLabel?: string;
+  sharedSharingLabel?: string;
 }): NavGroup[] {
   const main: NavItem[] = [
     { key: "dashboard", href: "/dashboard", label: labels?.nav?.dashboard ?? "Dashboard", icon: Gauge },
@@ -405,8 +428,17 @@ function getUserNavGroups({
     { key: "transactions", href: "/transactions", label: labels?.nav?.transactions ?? "Transactions", icon: Wallet, badgeCount: aiInboxCount },
     { key: "cash-ledger", href: "/cash-ledger", label: labels?.nav?.["cash-ledger"] ?? "Cash Ledger", icon: CreditCard },
     { key: "dividends", href: "/dividends", label: labels?.nav?.dividends ?? "Dividends", icon: LineChart },
-    { key: "sharing", href: "/sharing", label: labels?.nav?.sharing ?? "Sharing", icon: Share2 },
   ];
+  if (canManageSharedSharing) {
+    main.push({
+      key: "sharing",
+      href: "/sharing",
+      label: isSharedContext
+        ? sharedSharingLabel ?? "Portfolio sharing"
+        : labels?.nav?.sharing ?? "Sharing",
+      icon: Share2,
+    });
+  }
 
   // Operator group — Admin (role-gated) + Settings. Matches the mockup design
   // (`_shell.js` "Operator" nav-section).
@@ -414,17 +446,23 @@ function getUserNavGroups({
   if (role === "admin") {
     operator.push({ key: "admin", href: "/admin", label: labels?.nav?.admin ?? "Admin", icon: ShieldAlert });
   }
-  operator.push({
-    key: "settings",
-    href: "/settings",
-    label: labels?.nav?.settings ?? "Settings",
-    icon: Settings,
-    isActiveOverride: (pathname) => pathname.startsWith("/settings"),
-  });
+  if (canManageSharedAccounts) {
+    operator.push({
+      key: "settings",
+      href: isSharedContext ? "/settings/accounts" : "/settings",
+      label: isSharedContext
+        ? sharedSettingsLabel ?? "Portfolio settings"
+        : labels?.nav?.settings ?? "Settings",
+      icon: Settings,
+      isActiveOverride: (pathname) => pathname.startsWith("/settings"),
+    });
+  }
 
   return [
     { key: "main", items: main },
-    { key: "operator", label: labels?.operatorGroupLabel ?? "Operator", items: operator },
+    ...(operator.length > 0
+      ? [{ key: "operator", label: labels?.operatorGroupLabel ?? "Operator", items: operator }]
+      : []),
   ];
 }
 

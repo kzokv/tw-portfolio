@@ -11,7 +11,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   await requireSession();
 
   const [profile, sidebarOpen] = await Promise.all([
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
   ]);
 

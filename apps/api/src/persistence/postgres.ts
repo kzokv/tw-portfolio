@@ -1365,7 +1365,10 @@ export class PostgresPersistence implements Persistence {
           ...input.auditInput,
           action: "share_granted",
           targetUserId: input.granteeUserId,
-          metadata: buildShareAuditMetadata(share.id, owner, grantee),
+          metadata: {
+            ...buildShareAuditMetadata(share.id, owner, grantee),
+            ...(input.auditInput.metadata ?? {}),
+          },
         });
         await this.createNotificationTx(
           client,
@@ -1472,17 +1475,20 @@ export class PostgresPersistence implements Persistence {
           ...auditInput,
           action: "share_revoked",
           targetUserId: share.grantee_user_id,
-          metadata: buildShareAuditMetadata(
-            share.id,
-            {
-              email: share.owner_email,
-              display_name: share.owner_display_name,
-            },
-            {
-              email: share.grantee_email,
-              display_name: share.grantee_display_name,
-            },
-          ),
+          metadata: {
+            ...buildShareAuditMetadata(
+              share.id,
+              {
+                email: share.owner_email,
+                display_name: share.owner_display_name,
+              },
+              {
+                email: share.grantee_email,
+                display_name: share.grantee_display_name,
+              },
+            ),
+            ...(auditInput.metadata ?? {}),
+          },
         });
         await this.createNotificationTx(
           client,
@@ -1842,6 +1848,7 @@ export class PostgresPersistence implements Persistence {
             shareCoupled: true,
             shareOwnerEmail: owner.email,
             shareOwnerDisplayName: owner.display_name,
+            ...(auditInput.metadata ?? {}),
           },
         });
       }

@@ -37,7 +37,7 @@ export async function renameAccount(accountId: string, name: string): Promise<Ac
 export async function patchUserPreferences<TResponse = unknown>(
   patch: Record<string, unknown>,
 ): Promise<TResponse> {
-  return patchJson<TResponse>("/user-preferences", patch);
+  return patchJson<TResponse>("/user-preferences", patch, { contextScope: "session" });
 }
 
 /**
@@ -58,7 +58,7 @@ export interface ProfileFieldPatch {
 }
 
 export async function patchProfile(patch: ProfileFieldPatch): Promise<ProfileDto> {
-  return patchJson<ProfileDto>("/profile", patch);
+  return patchJson<ProfileDto>("/profile", patch, { contextScope: "session" });
 }
 
 /**
@@ -79,5 +79,5 @@ export async function patchSettings(
   patch: SettingsFieldPatch,
   options: PatchSettingsOptions = {},
 ): Promise<UserSettings> {
-  return patchJson<UserSettings>("/settings", patch, options);
+  return patchJson<UserSettings>("/settings", patch, { ...options, contextScope: "session" });
 }

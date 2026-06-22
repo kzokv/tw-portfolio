@@ -12,7 +12,7 @@ import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/u
 export default async function PortfolioPage() {
   const [session, profile, sidebarOpen, settings, initialPrimaryData] = await Promise.all([
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
     fetchPortfolioPrimaryData().catch(() => null),

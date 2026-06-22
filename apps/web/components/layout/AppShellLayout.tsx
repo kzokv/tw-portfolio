@@ -13,6 +13,7 @@ import { AppShellTopBarSlot } from "./AppShellTopBarSlot";
 import { AppShellBanners } from "./AppShellBanners";
 import { AppShellChrome } from "./AppShellChrome";
 import { ApiClientErrorToast } from "./ApiClientErrorToast";
+import { SharedContextStrip } from "./SharedContextStrip";
 import { StatusToast } from "../ui/StatusToast";
 import { cn } from "../../lib/utils";
 import type { QuickSearchItem } from "./QuickSearchPanel";
@@ -32,6 +33,9 @@ interface AppShellLayoutProps {
   dict: AppDictionary;
   uiDict: AppDictionary;
   locale: LocaleCode;
+  isSharedContext: boolean;
+  sharedOwnerLabel: string;
+  onExitSharedContext: () => void;
   // Sidebar slot
   switcherSlot: ReactNode;
   // TopBar inputs
@@ -80,6 +84,9 @@ export function AppShellLayout({
   dict,
   uiDict,
   locale,
+  isSharedContext,
+  sharedOwnerLabel,
+  onExitSharedContext,
   switcherSlot,
   quickSearchItems,
   unreadCount,
@@ -186,6 +193,15 @@ export function AppShellLayout({
             )}
             data-testid="shell-content-frame"
           >
+            {isSharedContext ? (
+              <SharedContextStrip
+                ownerLabel={sharedOwnerLabel}
+                titleTemplate={uiDict.switcher.contextStripTitle}
+                subtitleTemplate={uiDict.switcher.contextStripSubtitle}
+                actionLabel={uiDict.switcher.contextStripAction}
+                onExitSharedContext={onExitSharedContext}
+              />
+            ) : null}
             <AppShellChrome
               integrityIssue={integrityIssue}
               showIntegrityDialog={showIntegrityDialog}

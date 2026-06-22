@@ -6,6 +6,7 @@ export interface TSharingElements extends TElementLocatorHelpers {
   grantButton: Locator;
   outboundSection: Locator;
   inboundSection: Locator;
+  inboundTab: Locator;
   inboundEmpty: Locator;
   grantDialog: Locator;
   grantEmailInput: Locator;
@@ -60,6 +61,7 @@ export class SharingPage extends BasePage<TSharingElements> {
       grantButton: this.locate("sharing-grant-button", "Share your portfolio button"),
       outboundSection: this.locate("sharing-outbound-section", "Outbound section"),
       inboundSection: this.locate("sharing-inbound-section", "Inbound section"),
+      inboundTab: this.locate("sharing-tab-inbound", "Inbound sharing tab"),
       inboundEmpty: this.locate("sharing-inbound-empty", "Inbound empty state"),
       grantDialog: this.locate("grant-share-dialog", "Grant share dialog"),
       grantEmailInput: this.locate("grant-share-email-input", "Grant share email input"),

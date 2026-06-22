@@ -22,7 +22,7 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
   const [sp, session, profile, sidebarOpen, settings, initialPrimaryData] = await Promise.all([
     searchParams,
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
     fetchTransactionsPrimaryData().catch(() => null),

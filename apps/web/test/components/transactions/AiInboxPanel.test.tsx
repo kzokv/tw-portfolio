@@ -91,6 +91,7 @@ describe("AiInboxPanel", () => {
         permissions={{
           canReadAiDrafts: true,
           canManageAccounts: false,
+          canManageSharing: false,
           canWriteTransactions: false,
           canCreateDrafts: false,
           canEditDrafts: false,

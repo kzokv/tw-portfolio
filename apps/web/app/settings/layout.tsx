@@ -20,9 +20,9 @@ import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/u
 export default async function SettingsLayout({ children }: { children: ReactNode }) {
   const [session, profile, initialSidebarOpen, initialSettings] = await Promise.all([
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
   ]);
 
   const locale: LocaleCode = initialSettings?.locale ?? "en";

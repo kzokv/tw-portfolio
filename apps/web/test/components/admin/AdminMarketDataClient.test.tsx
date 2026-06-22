@@ -2234,7 +2234,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
           }),
         }),
       }),
-    }));
+    }), { contextScope: "session" });
   });
 
   it("keeps the identity column visible in mobile cards", async () => {

@@ -53,7 +53,7 @@ export function AccentApplier(): null {
       if (shouldSkipPreferenceHydration(path)) return;
     }
     let cancelled = false;
-    void getJson<PrefsResponse>("/user-preferences")
+    void getJson<PrefsResponse>("/user-preferences", { contextScope: "session" })
       .then((res) => {
         if (cancelled) return;
         const accent = themeAccentSchema.safeParse(res?.preferences?.themeAccent);

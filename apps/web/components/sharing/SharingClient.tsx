@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { LocaleCode, ShareCapability, UserRole } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
+import { clearContextCookie } from "../../lib/context";
 import {
   fetchSharingPageData,
   resolveInviteUrl,
@@ -12,8 +13,11 @@ import {
   updateActiveShareCapabilities,
   updatePendingShareCapabilities,
 } from "../../features/sharing/service";
+import { ASSIGNABLE_SHARE_CAPABILITIES } from "../../features/sharing/capabilities";
 import type { GrantShareResult, OutboundShareRow, SharingPageData } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
+import { clearPortfolioContextRouteCaches } from "../../lib/routeDtoCache";
+import { useAppShellData } from "../layout/AppShellDataContext";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "../ui/Tabs";
@@ -73,6 +77,7 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
   const dict = useMemo(() => getDictionary(locale), [locale]);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const shellData = useAppShellData();
   const [data, setData] = useState<SharingPageData>(EMPTY_DATA);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,10 +92,21 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
   const [showHistory, setShowHistory] = useState(false);
   const [anonymousActiveCount, setAnonymousActiveCount] = useState(0);
 
-  const canGrant = !isDemo && role !== "viewer";
-  const activeTab = normalizeSharingTab(searchParams?.get("tab"), canGrant, isDemo);
+  const isSharedContext = shellData.isSharedContext;
+  const canManageSharing = !isSharedContext || shellData.sharedContextPermissions.canManageSharing;
+  const canGrant = !isDemo && (!isSharedContext ? role !== "viewer" : canManageSharing);
+  const activeTab = isSharedContext
+    ? "outbound"
+    : normalizeSharingTab(searchParams?.get("tab"), canGrant, isDemo);
   const outboundCount = data.outbound.active.length + data.outbound.pending.length + data.outbound.expired.length;
   const inboundCount = data.inbound.active.length + data.inbound.revoked.length;
+  const allowedDelegatedCapabilities = useMemo(() => {
+    if (!isSharedContext) return ASSIGNABLE_SHARE_CAPABILITIES;
+    const allowed = new Set<ShareCapability>(shellData.currentSharedCapabilities);
+    return ASSIGNABLE_SHARE_CAPABILITIES.filter(
+      (capability) => capability !== "sharing:manage" && allowed.has(capability),
+    );
+  }, [isSharedContext, shellData.currentSharedCapabilities]);
 
   function handleTabChange(next: string) {
     const tab = normalizeSharingTab(next, canGrant, isDemo);
@@ -105,6 +121,12 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
   }
 
   const loadData = useCallback(async () => {
+    if (isSharedContext && !canManageSharing) {
+      setData(EMPTY_DATA);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -115,11 +137,18 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [dict.sharing.errors]);
+  }, [canManageSharing, dict.sharing.errors, isSharedContext]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  function openSelfScopedRoute(path: "/sharing" | "/settings/profile") {
+    clearContextCookie();
+    clearPortfolioContextRouteCaches();
+    router.replace(path, { scroll: false });
+    router.refresh();
+  }
 
   async function handleCreated(result: GrantShareResult) {
     await loadData();
@@ -200,14 +229,20 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
               {dict.sharing.pageEyebrow}
             </p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">{dict.sharing.pageTitle}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{dict.sharing.pageIntro}</p>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">
+              {isSharedContext ? dict.sharing.delegatedNamedSharingTitle : dict.sharing.pageTitle}
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              {isSharedContext ? dict.sharing.delegatedNamedSharingDescription : dict.sharing.pageIntro}
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => void loadData()} data-testid="sharing-refresh-button">
-              {dict.sharing.refreshButton}
-            </Button>
+            {canManageSharing ? (
+              <Button variant="secondary" onClick={() => void loadData()} data-testid="sharing-refresh-button">
+                {dict.sharing.refreshButton}
+              </Button>
+            ) : null}
             {canGrant ? (
               <Button
                 onClick={() => {
@@ -222,7 +257,7 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
           </div>
         </div>
 
-        {!canGrant ? (
+        {!canGrant && !isSharedContext ? (
           <div
             className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600"
             data-testid="sharing-role-note"
@@ -247,7 +282,34 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
         </p>
       ) : null}
 
-	      {isLoading ? (
+      {isSharedContext && !canManageSharing ? (
+        <Card className="space-y-4 rounded-[20px] px-5 py-5 sm:px-6 sm:py-5" data-testid="sharing-permission-required">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">{dict.sharing.permissionRequiredTitle}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{dict.sharing.permissionRequiredSharingDescription}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => router.push("/portfolio")} data-testid="sharing-permission-back">
+              {dict.sharing.backToPortfolio}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => openSelfScopedRoute("/sharing")}
+              data-testid="sharing-permission-self"
+            >
+              {dict.switcher.viewMySharing}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {isSharedContext && canManageSharing ? (
+        <Card className="rounded-[20px] border border-slate-200 bg-slate-50/70 px-5 py-4 text-sm text-slate-600" data-testid="sharing-delegated-note">
+          {dict.sharing.delegatedNamedSharingHint}
+        </Card>
+      ) : null}
+
+      {!isSharedContext || canManageSharing ? (isLoading ? (
 	        <Card className="flex items-center justify-center py-12" data-testid="sharing-loading">
 	          <p className="text-sm text-slate-500">{dict.sharing.loading}</p>
 	        </Card>
@@ -258,7 +320,24 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
             {dict.sharing.actions.retry}
           </Button>
         </Card>
-	      ) : (
+      ) : isSharedContext ? (
+        <OutboundSharesTable
+          locale={locale}
+          outbound={data.outbound}
+          showHistory={showHistory}
+          onToggleHistory={() => setShowHistory((current) => !current)}
+          onCopyUrl={(row) => void handleCopyUrl(row)}
+          onEditPermissions={(row) => {
+            setEditError(null);
+            setEditTarget(row);
+          }}
+          onRevoke={setRevokeTarget}
+          onReshare={(row) => {
+            setGrantInitialEmail(row.email);
+            setGrantDialogOpen(true);
+          }}
+        />
+      ) : (
 	        <TabsRoot value={activeTab} onValueChange={handleTabChange} data-testid="sharing-tabs">
 	          <TabsList className="w-full justify-start rounded-[18px] bg-slate-100/80">
 	            <TabsTrigger value="outbound" disabled={!canGrant} data-testid="sharing-tab-outbound">
@@ -311,12 +390,13 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
 	            )}
 	          </TabsContent>
 	        </TabsRoot>
-	      )}
+      )) : null}
 
       <GrantShareDialog
         open={grantDialogOpen}
         locale={locale}
         initialEmail={grantInitialEmail}
+        allowedCapabilities={allowedDelegatedCapabilities}
         onOpenChange={setGrantDialogOpen}
         onCreated={handleCreated}
       />
@@ -324,6 +404,7 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
         open={editTarget !== null}
         locale={locale}
         row={editTarget}
+        allowedCapabilities={allowedDelegatedCapabilities}
         isSubmitting={isEditingPermissions}
         error={editError}
         onSave={(row, capabilities) => void handleSavePermissions(row, capabilities)}

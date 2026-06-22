@@ -12,6 +12,7 @@ const testOAuthConfig: GoogleOAuthConfig = {
 
 describe("shared-context delegated capabilities", () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
+  let userSequence = 0;
 
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
@@ -37,6 +38,20 @@ describe("shared-context delegated capabilities", () => {
       grantedByUserId: "user-1",
     });
     return { shareId: share.id, viewerUserId };
+  }
+
+  async function createUser(label: string) {
+    userSequence += 1;
+    const slug = `${label}-${userSequence}`;
+    const email = `${slug}@example.com`;
+    const result = await app.persistence.resolveOrCreateUser("google", `${slug}-sub`, {
+      email,
+      name: slug,
+    });
+    return {
+      ...result,
+      email,
+    };
   }
 
   it("[shared transaction write]: viewer with transaction:write can create, patch, and delete owner transaction", async () => {
@@ -265,11 +280,259 @@ describe("shared-context delegated capabilities", () => {
     }
   });
 
-  it("[share capability audit]: active and pending updates include old/new capability arrays", async () => {
-    const { userId: granteeUserId } = await app.persistence.resolveOrCreateUser("google", "cap-audit-grantee-sub", {
-      email: "cap-audit-grantee@example.com",
-      name: "Capability Audit Grantee",
+  it("[shared sharing manage]: delegated manager can list and manage owner named shares in shared context", async () => {
+    const { shareId: delegationShareId, viewerUserId } = await createViewerShare([
+      "portfolio:mcp_read",
+      "sharing:manage",
+      "transaction:write",
+    ]);
+    const { userId: activeGranteeUserId, email: activeGranteeEmail } = await createUser("owner-active-grantee");
+    const ownerShare = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: activeGranteeUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
     });
+    await app.persistence.setShareCapabilities({
+      shareId: ownerShare.id,
+      capabilities: ["portfolio:mcp_read"],
+      grantedByUserId: "user-1",
+    });
+    const pendingInvite = await app.persistence.createShareCoupledInvite({
+      ownerUserId: "user-1",
+      email: "owner-pending@example.com",
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      issuedByUserId: "user-1",
+    });
+    await app.persistence.setPendingShareInviteCapabilities({
+      inviteCode: pendingInvite.code,
+      capabilities: ["portfolio:mcp_read"],
+      grantedByUserId: "user-1",
+    });
+
+    const { userId: viewerOwnedTargetUserId } = await createUser("viewer-owned-target");
+    await app.persistence.createShareGrant({
+      ownerUserId: viewerUserId,
+      granteeUserId: viewerOwnedTargetUserId,
+      auditInput: { actorUserId: viewerUserId, ipAddress: "127.0.0.1" },
+    });
+    const { email: delegatedResolvedEmail } = await createUser("delegated-created-target");
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/shares",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toMatchObject({
+      outbound: {
+        active: expect.arrayContaining([
+          expect.objectContaining({ id: ownerShare.id, granteeEmail: activeGranteeEmail }),
+        ]),
+        pending: expect.arrayContaining([
+          expect.objectContaining({ code: pendingInvite.code, email: "owner-pending@example.com" }),
+        ]),
+      },
+      inbound: { active: [], revoked: [] },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/shares",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        email: delegatedResolvedEmail,
+        capabilities: ["portfolio:mcp_read", "transaction:write"],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({
+      type: "resolved",
+      share: expect.objectContaining({
+        ownerUserId: "user-1",
+        capabilities: ["portfolio:mcp_read", "transaction:write"],
+      }),
+    });
+
+    const activeUpdate = await app.inject({
+      method: "PATCH",
+      url: `/shares/${ownerShare.id}/capabilities`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { capabilities: ["portfolio:mcp_read", "transaction:write"] },
+    });
+    expect(activeUpdate.statusCode).toBe(200);
+    expect(activeUpdate.json()).toMatchObject({
+      id: ownerShare.id,
+      ownerUserId: "user-1",
+      capabilities: ["portfolio:mcp_read", "transaction:write"],
+    });
+
+    const pendingUpdate = await app.inject({
+      method: "PATCH",
+      url: `/shares/pending/${pendingInvite.code}/capabilities`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { capabilities: ["portfolio:mcp_read", "transaction:write"] },
+    });
+    expect(pendingUpdate.statusCode).toBe(200);
+
+    const revokePending = await app.inject({
+      method: "DELETE",
+      url: `/shares/pending/${pendingInvite.code}`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+    expect(revokePending.statusCode).toBe(204);
+
+    const revokeActive = await app.inject({
+      method: "DELETE",
+      url: `/shares/${ownerShare.id}`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+    expect(revokeActive.statusCode).toBe(204);
+
+    const auditLog = (app.persistence as unknown as {
+      auditLog: Array<{ action: string; actorUserId: string | null; metadata: Record<string, unknown> }>;
+    }).auditLog;
+    expect(auditLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "share_granted",
+          actorUserId: viewerUserId,
+          metadata: expect.objectContaining({
+            delegatedByUserId: viewerUserId,
+            ownerUserId: "user-1",
+            delegationShareId,
+          }),
+        }),
+        expect.objectContaining({
+          action: "share_revoked",
+          actorUserId: viewerUserId,
+          metadata: expect.objectContaining({
+            delegatedByUserId: viewerUserId,
+            ownerUserId: "user-1",
+            delegationShareId,
+          }),
+        }),
+        expect.objectContaining({
+          action: "admin_invite_revoked",
+          actorUserId: viewerUserId,
+          metadata: expect.objectContaining({
+            delegatedByUserId: viewerUserId,
+            ownerUserId: "user-1",
+            delegationShareId,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("[shared sharing manage]: direct shared-context /shares access requires sharing:manage", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/shares",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        routeKey: "GET /shares",
+        requiredCapability: "sharing:manage",
+      },
+    });
+  });
+
+  it("[shared sharing manage]: delegated manager cannot grant sharing:manage or capabilities outside the active grant set", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "sharing:manage"]);
+    const { userId: granteeUserId } = await createUser("delegation-cap-grantee");
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read"],
+      grantedByUserId: "user-1",
+    });
+
+    const forbiddenWrite = await app.inject({
+      method: "PATCH",
+      url: `/shares/${share.id}/capabilities`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { capabilities: ["portfolio:mcp_read", "transaction:write"] },
+    });
+    expect(forbiddenWrite.statusCode).toBe(403);
+    expect(forbiddenWrite.json()).toMatchObject({
+      error: "share_capability_assignment_forbidden",
+      metadata: {
+        forbiddenCapabilities: ["transaction:write"],
+        assignableCapabilities: ["portfolio:mcp_read"],
+      },
+    });
+
+    const forbiddenManage = await app.inject({
+      method: "POST",
+      url: "/shares",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        email: "forbidden-manage@example.com",
+        capabilities: ["portfolio:mcp_read", "sharing:manage"],
+      },
+    });
+    expect(forbiddenManage.statusCode).toBe(403);
+    expect(forbiddenManage.json()).toMatchObject({
+      error: "share_capability_assignment_forbidden",
+      metadata: {
+        forbiddenCapabilities: ["sharing:manage"],
+      },
+    });
+  });
+
+  it("[share capability audit]: delegated updates include old/new capability arrays and owner/delegated audit metadata", async () => {
+    const { shareId: delegationShareId, viewerUserId } = await createViewerShare([
+      "portfolio:mcp_read",
+      "sharing:manage",
+      "account:manage",
+    ]);
+    const { userId: granteeUserId } = await createUser("cap-audit-grantee");
     const share = await app.persistence.createShareGrant({
       ownerUserId: "user-1",
       granteeUserId,
@@ -284,15 +547,23 @@ describe("shared-context delegated capabilities", () => {
     const activeUpdate = await app.inject({
       method: "PATCH",
       url: `/shares/${share.id}/capabilities`,
-      headers: { "x-user-id": "user-1" },
-      payload: { capabilities: ["portfolio:mcp_read", "transaction:write"] },
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { capabilities: ["account:manage", "portfolio:mcp_read"] },
     });
     expect(activeUpdate.statusCode).toBe(200);
 
     const pendingCreate = await app.inject({
       method: "POST",
       url: "/shares",
-      headers: { "x-user-id": "user-1" },
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
       payload: {
         email: "pending-cap-audit@example.com",
         capabilities: ["portfolio:mcp_read"],
@@ -304,8 +575,12 @@ describe("shared-context delegated capabilities", () => {
     const pendingUpdate = await app.inject({
       method: "PATCH",
       url: `/shares/pending/${pendingCode}/capabilities`,
-      headers: { "x-user-id": "user-1" },
-      payload: { capabilities: ["portfolio:mcp_read", "account:manage"] },
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { capabilities: ["account:manage", "portfolio:mcp_read"] },
     });
     expect(pendingUpdate.statusCode).toBe(200);
 
@@ -319,7 +594,10 @@ describe("shared-context delegated capabilities", () => {
           metadata: expect.objectContaining({
             shareId: share.id,
             oldCapabilities: ["portfolio:mcp_read"],
-            newCapabilities: ["portfolio:mcp_read", "transaction:write"],
+            newCapabilities: ["account:manage", "portfolio:mcp_read"],
+            delegatedByUserId: viewerUserId,
+            ownerUserId: "user-1",
+            delegationShareId,
           }),
         }),
         expect.objectContaining({
@@ -327,6 +605,9 @@ describe("shared-context delegated capabilities", () => {
             inviteCode: pendingCode,
             oldCapabilities: ["portfolio:mcp_read"],
             newCapabilities: ["account:manage", "portfolio:mcp_read"],
+            delegatedByUserId: viewerUserId,
+            ownerUserId: "user-1",
+            delegationShareId,
           }),
         }),
       ]),

@@ -94,16 +94,15 @@ test.describe("sharing delegated capabilities", () => {
     await switchIdentity(page, { userId: grantee.userId, role: "viewer" });
     await sharing.actions.navigateToSharing();
     await appShell.assert.appIsReady();
+    await sharing.actions.navigateToInboundShares();
     await page.getByTestId(`sharing-open-dashboard-${shareId}`).click();
     await appShell.assert.appIsReady();
 
     await transactions.actions.navigateToTransactions();
     await transactions.assert.readOnlyMessageIsVisible();
 
-    await updateActiveShareCapabilities(shareId, testUser.userId, ["transaction:write"]);
-    await sharing.actions.navigateToSharing();
-    await appShell.assert.appIsReady();
-    await page.getByTestId(`sharing-open-dashboard-${shareId}`).click();
+    await updateActiveShareCapabilities(shareId, testUser.userId, ["portfolio:mcp_read", "transaction:write"]);
+    await page.reload({ waitUntil: "domcontentloaded" });
     await appShell.assert.appIsReady();
 
     await transactions.actions.navigateToTransactions();
@@ -136,24 +135,26 @@ test.describe("sharing delegated capabilities", () => {
     await switchIdentity(page, { userId: grantee.userId, role: "viewer" });
     await sharing.actions.navigateToSharing();
     await appShell.assert.appIsReady();
+    await sharing.actions.navigateToInboundShares();
     await page.getByTestId(`sharing-open-dashboard-${shareId}`).click();
     await appShell.assert.appIsReady();
 
     await appShell.actions.openSettingsSection("accounts");
-    await settings.assert.accountCreateFormIsVisible();
-    await appShell.assert.mxAssertTruthy(
-      await page.getByTestId("account-create-name-input").isDisabled(),
-      "account create name input is disabled without account:manage",
+    await page.getByTestId("accounts-permission-back").waitFor({ state: "visible" });
+    await page.getByTestId("accounts-permission-self").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("account-create-form").count(),
+      0,
+      "account create form is hidden without account:manage",
     );
-    await appShell.assert.mxAssertTruthy(
-      await page.getByTestId(`account-delete-btn-${account.id}`).isDisabled(),
-      "account delete button is disabled without account:manage",
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId(`account-delete-btn-${account.id}`).count(),
+      0,
+      "account delete button is hidden without account:manage",
     );
 
-    await updateActiveShareCapabilities(shareId, testUser.userId, ["account:manage"]);
-    await sharing.actions.navigateToSharing();
-    await appShell.assert.appIsReady();
-    await page.getByTestId(`sharing-open-dashboard-${shareId}`).click();
+    await updateActiveShareCapabilities(shareId, testUser.userId, ["portfolio:mcp_read", "account:manage"]);
+    await page.reload({ waitUntil: "domcontentloaded" });
     await appShell.assert.appIsReady();
 
     await appShell.actions.openSettingsSection("accounts");

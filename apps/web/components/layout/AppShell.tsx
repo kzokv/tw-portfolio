@@ -182,7 +182,7 @@ export function AppShell({
 
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
         setReportingCurrency(normalizeReportingCurrency(response?.preferences?.reportingCurrency));
@@ -274,7 +274,7 @@ export function AppShell({
     setReportingCurrencyError("");
 
     try {
-      await patchJson("/user-preferences", { reportingCurrency: next });
+      await patchJson("/user-preferences", { reportingCurrency: next }, { contextScope: "session" });
       handleReportingCurrencySaved();
       router.refresh();
     } catch (error) {
@@ -318,6 +318,8 @@ export function AppShell({
 
   const canUseGlobalQuickActions = isEditableQuickActionsPath(pathname)
     && (!isSharedContext || sharedContextPermissions.canWriteTransactions);
+  const showSharedContextStrip = isSharedContext
+    && (!pathname.startsWith("/settings/") || pathname === "/settings/accounts");
 
   const appShellDataValue = useAppShellDataValue({
     uiDict,
@@ -366,6 +368,11 @@ export function AppShell({
     void recomputeAction.runRecompute({ skipConfirm: true });
   }, [recomputeAction]);
 
+  const handleExitSharedContext = useCallback(() => {
+    handleContextSelect(null);
+    router.push("/portfolio");
+  }, [handleContextSelect, router]);
+
   const commandPaletteContextValue = useMemo(
     () => ({
       open: commandPalette.open,
@@ -404,6 +411,9 @@ export function AppShell({
                 dict={dict}
                 uiDict={uiDict}
                 locale={locale}
+                isSharedContext={showSharedContextStrip}
+                sharedOwnerLabel={currentSharedOwnerLabel}
+                onExitSharedContext={handleExitSharedContext}
                 switcherSlot={portfolioSwitcher}
                 quickSearchItems={quickSearchItems}
                 unreadCount={notificationData.unreadCount}

@@ -143,7 +143,7 @@ export function SortableCardGrid({
   // race on fast unmounts.
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((res) => {
         if (cancelled) return;
         const savedOrder = res?.preferences?.cardOrder?.[orderKey] ?? null;
@@ -191,7 +191,7 @@ export function SortableCardGrid({
       debounceTimerRef.current = setTimeout(() => {
         void patchJson("/user-preferences", {
           cardOrder: { [orderKey]: orderToPersist },
-        })
+        }, { contextScope: "session" })
           .then(() => {
             serverConfirmedOrderRef.current = orderToPersist;
           })

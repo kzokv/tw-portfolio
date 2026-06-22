@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { marketCodeFor, type AiConnectorScope } from "@vakwen/shared-types";
+import {
+  marketCodeFor,
+  type AiConnectorScope,
+  type ShareCapability,
+} from "@vakwen/shared-types";
 import type { FastifyInstance } from "fastify";
 import { routeError } from "../lib/routeError.js";
 import type {
@@ -40,6 +44,26 @@ export interface ResolvedDraftRowNumbers {
   rows: AiTransactionDraftRowRecord[];
 }
 
+const AI_CONNECTOR_SCOPE_VALUES = [
+  "portfolio:mcp_read",
+  "account:manage",
+  "transaction_draft:create",
+  "transaction_draft:edit",
+  "transaction_draft:archive",
+  "transaction_draft:delete",
+  "transaction:write",
+] as const satisfies readonly AiConnectorScope[];
+
+const AI_CONNECTOR_SCOPE_SET: ReadonlySet<ShareCapability> = new Set(AI_CONNECTOR_SCOPE_VALUES);
+
+function isAiConnectorShareCapability(capability: ShareCapability): capability is AiConnectorScope {
+  return AI_CONNECTOR_SCOPE_SET.has(capability);
+}
+
+export function toAiConnectorScopes(capabilities: readonly ShareCapability[]): AiConnectorScope[] {
+  return capabilities.filter(isAiConnectorShareCapability);
+}
+
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -58,9 +82,9 @@ function resolvePortfolioLabel(displayName: string | null, email: string | null,
 
 function intersectCapabilities(
   authScopes: readonly AiConnectorScope[],
-  shareCapabilities: readonly AiConnectorScope[],
+  shareCapabilities: readonly ShareCapability[],
 ): AiConnectorScope[] {
-  const shareSet = new Set(shareCapabilities);
+  const shareSet = new Set(toAiConnectorScopes(shareCapabilities));
   return authScopes.filter((scope) => shareSet.has(scope));
 }
 
@@ -82,7 +106,7 @@ async function selfPortfolioDescriptor(
 function toSharedPortfolioDescriptor(
   auth: McpAuthContext,
   record: ShareGrantRecord,
-  shareCapabilities: AiConnectorScope[],
+  shareCapabilities: ShareCapability[],
 ): PortfolioContextDescriptor {
   return {
     userId: record.ownerUserId,

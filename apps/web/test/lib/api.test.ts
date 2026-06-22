@@ -56,6 +56,24 @@ describe("apps/web/lib/api — context header injection + fallback intercept", (
     expect(headers["x-context-user-id"]).toBeUndefined();
   });
 
+
+  it("suppresses x-context-user-id when a session-scoped request is requested", async () => {
+    document.cookie = `${CONTEXT_USER_ID_COOKIE}=${encodeURIComponent("owner-42")}; Path=/`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getJson("/profile", { contextScope: "session" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-context-user-id"]).toBeUndefined();
+  });
+
   it("injects x-context-user-id header on postJson when context cookie is set", async () => {
     document.cookie = `${CONTEXT_USER_ID_COOKIE}=${encodeURIComponent("owner-7")}; Path=/`;
     const fetchMock = vi.fn().mockResolvedValue(

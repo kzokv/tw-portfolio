@@ -18,7 +18,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const initialState = parseReportRouteState(rawSearchParams);
   const [session, profile, sidebarOpen, settings] = await Promise.all([
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
   ]);

@@ -36,7 +36,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     params,
     searchParams,
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
   ]);

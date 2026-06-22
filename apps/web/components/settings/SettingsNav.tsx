@@ -19,17 +19,8 @@ import { cn } from "../../lib/utils";
 
 export type SettingsNavSlug = "profile" | "general" | "accounts" | "ai-connectors" | "display" | "tickers";
 
-interface NavCopyLabels {
-  profile: string;
-  general: string;
-  accounts: string;
-  "ai-connectors": string;
-  display: string;
-  tickers: string;
-}
-
 interface SettingsNavProps {
-  labels: NavCopyLabels;
+  items: Array<{ slug: SettingsNavSlug; label: string }>;
 }
 
 const ITEMS: Array<{ slug: SettingsNavSlug; icon: typeof UserCircle2 }> = [
@@ -41,7 +32,7 @@ const ITEMS: Array<{ slug: SettingsNavSlug; icon: typeof UserCircle2 }> = [
   { slug: "tickers", icon: ListChecks },
 ];
 
-export function SettingsNav({ labels }: SettingsNavProps) {
+export function SettingsNav({ items }: SettingsNavProps) {
   const pathname = usePathname() ?? "/settings/profile";
   return (
     <aside
@@ -49,7 +40,8 @@ export function SettingsNav({ labels }: SettingsNavProps) {
       className="w-56 shrink-0 border-r border-border bg-card/40 p-3"
     >
       <nav className="flex flex-col gap-1">
-        {ITEMS.map(({ slug, icon: Icon }) => {
+        {items.map(({ slug, label }) => {
+          const Icon = ITEMS.find((item) => item.slug === slug)?.icon ?? UserCircle2;
           const href = `/settings/${slug}`;
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -66,7 +58,7 @@ export function SettingsNav({ labels }: SettingsNavProps) {
               )}
             >
               <Icon className="h-4 w-4" aria-hidden="true" />
-              <span>{labels[slug]}</span>
+              <span>{label}</span>
             </Link>
           );
         })}

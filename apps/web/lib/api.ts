@@ -110,8 +110,14 @@ export interface ApiClientErrorDetail {
  * - tw_e2e_user cookie → x-user-id header for E2E per-test isolation.
  * - OAuth/demo: forward the session cookie so server-side fetches authenticate.
  */
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  if (typeof document !== "undefined") return getClientAuthHeadersSync();
+type RequestContextScope = "portfolio" | "session";
+
+interface AuthHeaderOptions {
+  contextScope?: RequestContextScope;
+}
+
+async function getAuthHeaders(options: AuthHeaderOptions = {}): Promise<Record<string, string>> {
+  if (typeof document !== "undefined") return getClientAuthHeadersSync(options);
 
   const headers: Record<string, string> = {};
 
@@ -148,8 +154,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     }
   }
 
-  const contextUserId = await getContextUserId();
-  if (contextUserId) headers["x-context-user-id"] = contextUserId;
+  if (options.contextScope !== "session") {
+    const contextUserId = await getContextUserId();
+    if (contextUserId) headers["x-context-user-id"] = contextUserId;
+  }
 
   return headers;
 }
@@ -163,7 +171,7 @@ function readClientCookie(name: string): string {
   return cookie ? decodeURIComponent(cookie.slice(name.length + 1)).trim() : "";
 }
 
-function getClientAuthHeadersSync(): Record<string, string> {
+function getClientAuthHeadersSync(options: AuthHeaderOptions = {}): Record<string, string> {
   const headers: Record<string, string> = {};
 
   const runtimeDevUserId = readClientCookie(E2E_USER_COOKIE);
@@ -175,8 +183,10 @@ function getClientAuthHeadersSync(): Record<string, string> {
     }
   }
 
-  const contextUserId = readContextCookie();
-  if (contextUserId) headers["x-context-user-id"] = contextUserId;
+  if (options.contextScope !== "session") {
+    const contextUserId = readContextCookie();
+    if (contextUserId) headers["x-context-user-id"] = contextUserId;
+  }
 
   return headers;
 }
@@ -379,6 +389,7 @@ interface JsonRequestOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   keepalive?: boolean;
+  contextScope?: RequestContextScope;
 }
 
 const DELEGATED_PORTFOLIO_WRITE_PATHS = {
@@ -431,7 +442,7 @@ export async function getJson<T>(path: string, options: JsonRequestOptions = {})
     cache: "no-store",
     credentials: "include",
     signal: options.signal,
-    headers: { ...(options.headers ?? {}), ...(await getAuthHeaders()) },
+    headers: { ...(options.headers ?? {}), ...(await getAuthHeaders({ contextScope: options.contextScope })) },
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
@@ -452,7 +463,7 @@ export async function postJson<T>(
     headers: {
       "content-type": "application/json",
       ...(headers ?? {}),
-      ...(await getAuthHeaders()),
+      ...(await getAuthHeaders({ contextScope: options.contextScope })),
     },
     body: JSON.stringify(body),
   });
@@ -470,7 +481,10 @@ export async function postNoBody<T>(
     method: "POST",
     credentials: "include",
     signal: options.signal,
-    headers: { ...(options.headers ?? {}), ...(await getAuthHeaders()) },
+    headers: {
+      ...(options.headers ?? {}),
+      ...(await getAuthHeaders({ contextScope: options.contextScope })),
+    },
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
@@ -480,8 +494,8 @@ export async function postNoBody<T>(
 
 export async function patchJson<T>(path: string, body: unknown, options: JsonRequestOptions = {}): Promise<T> {
   const authHeaders = options.keepalive && typeof document !== "undefined"
-    ? getClientAuthHeadersSync()
-    : await getAuthHeaders();
+    ? getClientAuthHeadersSync({ contextScope: options.contextScope })
+    : await getAuthHeaders({ contextScope: options.contextScope });
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
     credentials: "include",
@@ -501,7 +515,11 @@ export async function putJson<T>(path: string, body: unknown, options: JsonReque
     method: "PUT",
     credentials: "include",
     signal: options.signal,
-    headers: { "content-type": "application/json", ...(options.headers ?? {}), ...(await getAuthHeaders()) },
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers ?? {}),
+      ...(await getAuthHeaders({ contextScope: options.contextScope })),
+    },
     body: JSON.stringify(body),
   });
   handleContextFallback(res);
@@ -512,7 +530,7 @@ export async function putJson<T>(path: string, body: unknown, options: JsonReque
 
 export async function deleteJson<T>(
   path: string,
-  options?: { body?: unknown; headers?: Record<string, string> },
+  options?: { body?: unknown; headers?: Record<string, string>; contextScope?: RequestContextScope },
 ): Promise<T> {
   const hasBody = options?.body !== undefined;
   const res = await fetch(`${API_BASE}${path}`, {
@@ -521,7 +539,7 @@ export async function deleteJson<T>(
     headers: {
       ...(hasBody ? { "content-type": "application/json" } : {}),
       ...(options?.headers ?? {}),
-      ...(await getAuthHeaders()),
+      ...(await getAuthHeaders({ contextScope: options?.contextScope })),
     },
     ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
   });

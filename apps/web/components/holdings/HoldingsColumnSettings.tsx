@@ -183,7 +183,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
         const parsed = readPreferenceSchema(preferenceNamespace).safeParse(response?.preferences?.[preferenceNamespace]);
@@ -234,7 +234,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>) {
     const payload = buildPreferencePayload(preferenceNamespace, nextContexts);
-    void patchJson("/user-preferences", { [preferenceNamespace]: payload })
+    void patchJson("/user-preferences", { [preferenceNamespace]: payload }, { contextScope: "session" })
       .catch((error) => {
         setSettingsError(error instanceof Error ? error.message : String(error));
       });

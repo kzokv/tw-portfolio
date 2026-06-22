@@ -904,7 +904,10 @@ export class MemoryPersistence implements Persistence {
       ...input.auditInput,
       action: "share_granted",
       targetUserId: input.granteeUserId,
-      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+      metadata: {
+        ...buildShareAuditMetadata(share.id, owner, grantee),
+        ...(input.auditInput.metadata ?? {}),
+      },
     });
     const granteeLocale = this.stores.get(grantee.id)?.settings.locale ?? "en";
     await this.createNotification(
@@ -940,7 +943,10 @@ export class MemoryPersistence implements Persistence {
       ...auditInput,
       action: "share_revoked",
       targetUserId: share.granteeUserId,
-      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+      metadata: {
+        ...buildShareAuditMetadata(share.id, owner, grantee),
+        ...(auditInput.metadata ?? {}),
+      },
     });
     const granteeLocale = this.stores.get(share.granteeUserId)?.settings.locale ?? "en";
     await this.createNotification(
@@ -1116,6 +1122,7 @@ export class MemoryPersistence implements Persistence {
         shareCoupled: true,
         shareOwnerEmail: owner.email,
         shareOwnerDisplayName: owner.displayName,
+        ...(auditInput.metadata ?? {}),
       },
     });
   }

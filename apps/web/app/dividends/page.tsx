@@ -38,7 +38,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const [sp, session, profile, sidebarOpen, settings] = await Promise.all([
     searchParams,
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
   ]);

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { AppDictionary } from "../../lib/i18n";
+import { useAppShellData } from "../layout/AppShellDataContext";
 import { SettingsNav } from "./SettingsNav";
 import { SettingsMobileNav } from "./SettingsMobileNav";
 
@@ -24,14 +25,23 @@ interface SettingsTwoPaneLayoutProps {
  *   - `settings-nav` / `settings-nav-mobile` on the nav surfaces
  */
 export function SettingsTwoPaneLayout({ dict, children }: SettingsTwoPaneLayoutProps) {
-  const labels = {
-    profile: dict.settings.tabProfile,
-    general: dict.settings.tabGeneral,
-    accounts: dict.settings.tabAccounts,
-    "ai-connectors": dict.settings.tabAiConnectors,
-    display: dict.settings.tabDisplay,
-    tickers: dict.settings.tabTickers,
-  };
+  const shellData = useAppShellData();
+  const personalItems = [
+    { slug: "profile" as const, label: dict.settings.tabProfile },
+    { slug: "general" as const, label: dict.settings.tabGeneral },
+    { slug: "accounts" as const, label: dict.settings.tabAccounts },
+    { slug: "ai-connectors" as const, label: dict.settings.tabAiConnectors },
+    { slug: "display" as const, label: dict.settings.tabDisplay },
+    { slug: "tickers" as const, label: dict.settings.tabTickers },
+  ];
+  const sharedItems = [
+    {
+      slug: "accounts" as const,
+      label: dict.settings.tabPortfolioAccounts,
+      hidden: shellData.isSharedContext && !shellData.sharedContextPermissions.canManageAccounts,
+    },
+  ].filter((item) => !item.hidden).map(({ hidden: _hidden, ...item }) => item);
+  const items = shellData.isSharedContext ? sharedItems : personalItems;
 
   return (
     <div
@@ -40,12 +50,12 @@ export function SettingsTwoPaneLayout({ dict, children }: SettingsTwoPaneLayoutP
     >
       {/* Desktop sidebar — ≥md */}
       <div className="hidden md:block">
-        <SettingsNav labels={labels} />
+        <SettingsNav items={items} />
       </div>
 
       {/* Mobile dropdown — <md */}
       <div className="mb-4 md:hidden">
-        <SettingsMobileNav labels={labels} />
+        <SettingsMobileNav items={items} />
       </div>
 
       <main className="flex-1 px-1 py-1 md:px-6 md:py-2">

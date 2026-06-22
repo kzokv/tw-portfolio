@@ -19,7 +19,7 @@ export function useHoldingAllocationBasis(defaultValue: HoldingAllocationBasis =
 
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
         const saved = parseHoldingAllocationBasis(response?.preferences?.holdingAllocationBasis);
@@ -38,7 +38,7 @@ export function useHoldingAllocationBasis(defaultValue: HoldingAllocationBasis =
 
   const persistAllocationBasis = useCallback((next: HoldingAllocationBasis) => {
     setAllocationBasis(next);
-    void patchJson("/user-preferences", { holdingAllocationBasis: next }).catch(() => {
+    void patchJson("/user-preferences", { holdingAllocationBasis: next }, { contextScope: "session" }).catch(() => {
       // The in-memory value remains usable; later GET hydration reconciles from server.
     });
   }, []);
