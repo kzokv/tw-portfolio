@@ -1493,6 +1493,7 @@ export interface AppDictionary {
     columnSettingsButtonLabel: string;
     columnSettingsTitle: string;
     dragColumnTitle: string;
+    dragRowTitle: string;
     fxStatusComplete: string;
     fxStatusPartial: string;
     fxStatusMissing: string;
@@ -1568,9 +1569,17 @@ export interface AppDictionary {
     mobileSummaryCountIncreaseAria: string;
     moveColumnLeftAria: string;
     moveColumnRightAria: string;
+    moveRowUpAria: string;
+    moveRowDownAria: string;
     resizeColumnAria: string;
     resetColumnsLabel: string;
+    resetRowsLabel: string;
+    rowSettingsButtonLabel: string;
+    rowSettingsTitle: string;
     toggleColumnAria: string;
+    topHoldingsLimitLabel: string;
+    topHoldingsLimitDecreaseAria: string;
+    topHoldingsLimitIncreaseAria: string;
     allocationFallbackMissingQuote: string;
     noResults: string;
     showingTickers: string;
