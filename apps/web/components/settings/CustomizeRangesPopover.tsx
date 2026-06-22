@@ -87,7 +87,7 @@ export function CustomizeRangesPopover({
   // toggle). For the inline variant the Display tab mounts once while open.
   useEffect(() => {
     let cancelled = false;
-    void getJson<EffectiveRangesResponse>("/user-preferences/effective-ranges")
+    void getJson<EffectiveRangesResponse>("/user-preferences/effective-ranges", { contextScope: "session" })
       .then((res) => {
         if (cancelled) return;
         const list = Array.isArray(res?.ranges) && res.ranges.length > 0 ? res.ranges : [];
@@ -176,7 +176,7 @@ export function CustomizeRangesPopover({
     try {
       await patchJson("/user-preferences", {
         dashboardPerformanceRanges: activeRanges,
-      });
+      }, { contextScope: "session" });
       setSaveSuccess(copy.saveSuccess);
       onSaved?.();
       // Auto-close the popover variant on successful save. `onClose` is
@@ -196,11 +196,12 @@ export function CustomizeRangesPopover({
     setSaving(true);
     clearFeedback();
     try {
-      await patchJson("/user-preferences", { dashboardPerformanceRanges: null });
+      await patchJson("/user-preferences", { dashboardPerformanceRanges: null }, { contextScope: "session" });
       // After reset, the server-effective list falls back to admin/default.
       // Re-fetch it so the UI reflects the new state without a full reload.
       const res = await getJson<EffectiveRangesResponse>(
         "/user-preferences/effective-ranges",
+        { contextScope: "session" },
       );
       const list = Array.isArray(res?.ranges) && res.ranges.length > 0 ? res.ranges : [];
       setPendingRanges(list);

@@ -19,7 +19,7 @@ export function useProfile(initialProfile: ProfileDto | null = null) {
 
   const refresh = useCallback(async () => {
     try {
-      setProfile(await getJson<ProfileDto>("/profile"));
+      setProfile(await getJson<ProfileDto>("/profile", { contextScope: "session" }));
     } catch {
       // swallow fetch errors — no UI surface for error state
     }

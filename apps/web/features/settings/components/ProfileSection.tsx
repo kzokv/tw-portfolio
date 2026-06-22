@@ -31,7 +31,7 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
     setError("");
     setSaved(false);
     try {
-      await patchJson("/profile", { email: emailDraft });
+      await patchJson("/profile", { email: emailDraft }, { contextScope: "session" });
       setSaved(true);
       onProfileUpdate();
     } catch (error) {

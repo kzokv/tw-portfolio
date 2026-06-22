@@ -37,12 +37,18 @@ export interface AppDictionary {
     retry: string;
   };
   switcher: {
-      triggerLabel: string;
-      self: string;
-      readonlyBadge: string;
-      sharedBadge: string;
-      eyebrow: string;
+    triggerLabel: string;
+    self: string;
+    readonlyBadge: string;
+    sharedBadge: string;
+    eyebrow: string;
+    contextStripTitle: string;
+    contextStripSubtitle: string;
+    contextStripAction: string;
     manageSharing: string;
+    viewMySharing: string;
+    sharedPortfolioSettings: string;
+    sharedPortfolioSharing: string;
     ownerOptionLabel: string;
     readonlyDescription: string;
     revokedFallback: string;
@@ -179,6 +185,7 @@ export interface AppDictionary {
     capabilityLabels: {
       "portfolio:mcp_read": string;
       "account:manage": string;
+      "sharing:manage": string;
       "transaction_draft:create": string;
       "transaction_draft:edit": string;
       "transaction_draft:archive": string;
@@ -217,6 +224,15 @@ export interface AppDictionary {
       invalidEmail: string;
       copyFailed: string;
     };
+    delegatedNamedSharingTitle: string;
+    delegatedNamedSharingDescription: string;
+    delegatedNamedSharingHint: string;
+    delegatedPublicLinksHidden: string;
+    permissionRequiredTitle: string;
+    permissionRequiredSharingDescription: string;
+    permissionRequiredAccountsDescription: string;
+    backToPortfolio: string;
+    viewMySettings: string;
     publicLinks: {
       eyebrow: string;
       title: string;
@@ -825,7 +841,8 @@ export interface AppDictionary {
     // KZO-179: Accounts tab + create-account form (en + zh-TW). Strings only
     // per .claude/rules/nextjs-i18n-serialization.md — `formatAccountOption`
     // helper lives in apps/web/features/cash-ledger/utils/accountOptions.ts.
-    tabAccounts: string;
+      tabAccounts: string;
+      tabPortfolioAccounts: string;
     accountCreateTitle: string;
     accountCreateNameLabel: string;
     accountCreateNamePlaceholder: string;

@@ -188,7 +188,7 @@ export function DashboardHoldingsPreview({
   );
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
         const preference = normalizeDashboardHoldingFocusPreference(response?.preferences?.dashboardHoldingFocus);
@@ -247,7 +247,7 @@ export function DashboardHoldingsPreview({
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, DASHBOARD_MOBILE_FIELD_COLUMNS);
   const persistDashboardHoldingFocus = (preference: DashboardHoldingFocusPreferenceDto) => {
     setPresetError("");
-    void patchJson("/user-preferences", { dashboardHoldingFocus: preference })
+    void patchJson("/user-preferences", { dashboardHoldingFocus: preference }, { contextScope: "session" })
       .catch((error) => {
         setPresetError(error instanceof Error ? error.message : String(error));
       });

@@ -238,8 +238,12 @@ const aiConnectorScopeValues = [
   "transaction_draft:delete",
   "transaction:write",
 ] as const satisfies readonly AiConnectorScope[];
-const shareCapabilitySchema = z.enum(aiConnectorScopeValues);
-const shareCapabilitiesSchema = z.array(shareCapabilitySchema).max(aiConnectorScopeValues.length).default([]);
+const shareCapabilityValues = [
+  ...aiConnectorScopeValues,
+  "sharing:manage",
+] as const satisfies readonly ShareCapability[];
+const shareCapabilitySchema = z.enum(shareCapabilityValues);
+const shareCapabilitiesSchema = z.array(shareCapabilitySchema).max(shareCapabilityValues.length).default([]);
 const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiConnectorScopeValues.length);
 
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
@@ -616,8 +620,11 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "POST /ai/transaction-drafts/:batchId/confirm",
   "PATCH /ai/connectors/:id",
   "DELETE /ai/connectors/:id",
+  "POST /shares",
   "PATCH /shares/:id/capabilities",
   "PATCH /shares/pending/:code/capabilities",
+  "DELETE /shares/pending/:code",
+  "DELETE /shares/:id",
   "POST /share-tokens",
   "DELETE /share-tokens/:id",
   "PUT /monitored-tickers",
@@ -678,6 +685,11 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "POST /ai/transaction-drafts/:batchId/archive",
   "DELETE /ai/transaction-drafts/:batchId",
   "POST /ai/transaction-drafts/:batchId/confirm",
+  "POST /shares",
+  "PATCH /shares/:id/capabilities",
+  "PATCH /shares/pending/:code/capabilities",
+  "DELETE /shares/pending/:code",
+  "DELETE /shares/:id",
   "PUT /monitored-tickers",
   "POST /backfill/retry",
   "POST /backfill/repair",
@@ -703,6 +715,11 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "POST /ai/transaction-drafts/:batchId/reject": "transaction_draft:edit",
   "POST /ai/transaction-drafts/:batchId/archive": "transaction_draft:archive",
   "DELETE /ai/transaction-drafts/:batchId": "transaction_draft:delete",
+  "POST /shares": "sharing:manage",
+  "PATCH /shares/:id/capabilities": "sharing:manage",
+  "PATCH /shares/pending/:code/capabilities": "sharing:manage",
+  "DELETE /shares/pending/:code": "sharing:manage",
+  "DELETE /shares/:id": "sharing:manage",
 };
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
@@ -847,6 +864,142 @@ async function toPendingShareInviteDtoWithCapabilities(
     record,
     status,
     await app.persistence.getPendingShareInviteCapabilities(record.code),
+  );
+}
+
+type NamedShareManagementContext = {
+  actorUserId: string;
+  ownerUserId: string;
+  isDelegated: boolean;
+  delegationShareId: string | null;
+  activeGrantCapabilities: ShareCapability[];
+};
+
+function buildDelegatedShareAuditMetadata(context: NamedShareManagementContext): Record<string, unknown> {
+  if (!context.isDelegated) {
+    return {};
+  }
+
+  return {
+    delegatedByUserId: context.actorUserId,
+    ownerUserId: context.ownerUserId,
+    contextUserId: context.ownerUserId,
+    source: "shared_context",
+    ...(context.delegationShareId ? { delegationShareId: context.delegationShareId } : {}),
+  };
+}
+
+async function resolveNamedShareManagementContext(
+  req: FastifyRequest,
+): Promise<NamedShareManagementContext> {
+  const actorUserId = requireSessionUserId(req);
+
+  if (!req.authContext?.isSharedContext) {
+    requireShareGrantorRole(req);
+    return {
+      actorUserId,
+      ownerUserId: actorUserId,
+      isDelegated: false,
+      delegationShareId: null,
+      activeGrantCapabilities: [],
+    };
+  }
+
+  const sharedContext = await resolveActiveSharedCapabilityContext(req);
+  const routeUrl = req.routeOptions.url ?? req.url.split("?")[0] ?? req.url;
+  const key = routeKey(req.method, routeUrl);
+  if (!sharedContext || !sharedContext.shareCapabilities.includes("sharing:manage")) {
+    throw routeError(
+      403,
+      "shared_capability_required",
+      "Shared portfolio capability sharing:manage is required for this route.",
+      {
+        routeKey: key,
+        requiredCapability: "sharing:manage",
+        shareId: sharedContext?.shareId ?? null,
+        sessionUserId: actorUserId,
+        contextUserId: req.authContext.contextUserId,
+      },
+    );
+  }
+
+  return {
+    actorUserId,
+    ownerUserId: sharedContext.ownerUserId,
+    isDelegated: true,
+    delegationShareId: sharedContext.shareId,
+    activeGrantCapabilities: sharedContext.shareCapabilities,
+  };
+}
+
+async function resolveNamedShareListContext(
+  req: FastifyRequest,
+): Promise<NamedShareManagementContext> {
+  const actorUserId = requireSessionUserId(req);
+
+  if (!req.authContext?.isSharedContext) {
+    return {
+      actorUserId,
+      ownerUserId: actorUserId,
+      isDelegated: false,
+      delegationShareId: null,
+      activeGrantCapabilities: [],
+    };
+  }
+
+  const sharedContext = await resolveActiveSharedCapabilityContext(req);
+  const routeUrl = req.routeOptions.url ?? req.url.split("?")[0] ?? req.url;
+  const key = routeKey(req.method, routeUrl);
+  if (!sharedContext || !sharedContext.shareCapabilities.includes("sharing:manage")) {
+    throw routeError(
+      403,
+      "shared_capability_required",
+      "Shared portfolio capability sharing:manage is required for this route.",
+      {
+        routeKey: key,
+        requiredCapability: "sharing:manage",
+        shareId: sharedContext?.shareId ?? null,
+        sessionUserId: actorUserId,
+        contextUserId: req.authContext.contextUserId,
+      },
+    );
+  }
+
+  return {
+    actorUserId,
+    ownerUserId: sharedContext.ownerUserId,
+    isDelegated: true,
+    delegationShareId: sharedContext.shareId,
+    activeGrantCapabilities: sharedContext.shareCapabilities,
+  };
+}
+
+function assertDelegableShareCapabilities(
+  context: NamedShareManagementContext,
+  capabilities: readonly ShareCapability[],
+): void {
+  if (!context.isDelegated) {
+    return;
+  }
+
+  const forbiddenCapabilities = capabilities.filter(
+    (capability) => capability === "sharing:manage" || !context.activeGrantCapabilities.includes(capability),
+  );
+  if (forbiddenCapabilities.length === 0) {
+    return;
+  }
+
+  throw routeError(
+    403,
+    "share_capability_assignment_forbidden",
+    "Delegated share managers cannot assign capabilities they do not hold or grant sharing:manage onward.",
+    {
+      forbiddenCapabilities,
+      assignableCapabilities: context.activeGrantCapabilities.filter((capability) => capability !== "sharing:manage"),
+      ownerUserId: context.ownerUserId,
+      delegatedByUserId: context.actorUserId,
+      delegationShareId: context.delegationShareId,
+    },
   );
 }
 
@@ -1349,7 +1502,7 @@ export function resolveUserId(req: FastifyRequest, _sessionSecret?: string): Res
 /**
  * Return the session-owner user id (never the shared-context viewer target).
  * Use this for identity/cross-user endpoints (`/profile`, `/notifications/*`,
- * `/shares`, `/sse`, `/admin/*`, invites, audit-log) that must always act on
+ * `/sse`, `/admin/*`, invites, audit-log) that must always act on
  * the authenticated session — not on whichever portfolio the user is viewing.
  */
 export function requireSessionUserId(req: FastifyRequest): string {
@@ -3686,11 +3839,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/shares", async (req) => {
-    const userId = requireSessionUserId(req);
-    const [outbound, inbound] = await Promise.all([
-      app.persistence.listSharesForOwner(userId),
-      app.persistence.listInboundSharesForGrantee(userId),
-    ]);
+    const context = await resolveNamedShareListContext(req);
+    const outbound = await app.persistence.listSharesForOwner(context.ownerUserId);
+    const inbound = context.isDelegated
+      ? { active: [], revoked: [] }
+      : await app.persistence.listInboundSharesForGrantee(context.actorUserId);
 
     return {
       outbound: {
@@ -3710,14 +3863,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/shares", async (req, reply) => {
-    requireShareGrantorRole(req);
-    const sessionUserId = requireSessionUserId(req);
+    const context = await resolveNamedShareManagementContext(req);
     const body = z.object({
       email: z.string().trim().email().transform((value) => value.toLowerCase()),
       capabilities: shareCapabilitiesSchema,
     }).parse(req.body);
+    assertDelegableShareCapabilities(context, body.capabilities);
 
-    const owner = await app.persistence.getAuthUserById(sessionUserId);
+    const owner = await app.persistence.getAuthUserById(context.ownerUserId);
     if (!owner) {
       throw routeError(404, "user_not_found", "User not found");
     }
@@ -3728,17 +3881,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const existingUser = await app.persistence.getAuthUserByEmail(body.email);
     if (existingUser && !existingUser.deletedAt && !existingUser.deactivatedAt) {
       const share = await app.persistence.createShareGrant({
-        ownerUserId: sessionUserId,
+        ownerUserId: context.ownerUserId,
         granteeUserId: existingUser.userId,
         auditInput: {
-          actorUserId: sessionUserId,
+          actorUserId: context.actorUserId,
           ipAddress: req.ip,
+          metadata: buildDelegatedShareAuditMetadata(context),
         },
       });
       const capabilities = await app.persistence.setShareCapabilities({
         shareId: share.id,
         capabilities: body.capabilities,
-        grantedByUserId: sessionUserId,
+        grantedByUserId: context.actorUserId,
       });
       await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
       reply.code(201);
@@ -3749,18 +3903,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const invite = await app.persistence.createShareCoupledInvite({
-      ownerUserId: sessionUserId,
+      ownerUserId: context.ownerUserId,
       email: body.email,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      issuedByUserId: sessionUserId,
+      issuedByUserId: context.actorUserId,
     });
     const capabilities = await app.persistence.setPendingShareInviteCapabilities({
       inviteCode: invite.code,
       capabilities: body.capabilities,
-      grantedByUserId: sessionUserId,
+      grantedByUserId: context.actorUserId,
     });
     await app.persistence.appendAuditLog({
-      actorUserId: sessionUserId,
+      actorUserId: context.actorUserId,
       action: "admin_invite_issued",
       metadata: {
         targetEmail: body.email,
@@ -3769,6 +3923,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         shareCoupled: true,
         shareOwnerEmail: owner.email,
         shareOwnerDisplayName: owner.displayName,
+        ...buildDelegatedShareAuditMetadata(context),
       },
       ipAddress: req.ip,
     });
@@ -3781,11 +3936,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.patch("/shares/:id/capabilities", async (req) => {
-    requireShareGrantorRole(req);
-    const sessionUserId = requireSessionUserId(req);
+    const context = await resolveNamedShareManagementContext(req);
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
     const body = z.object({ capabilities: shareCapabilitiesSchema }).strict().parse(req.body);
-    const outbound = await app.persistence.listSharesForOwner(sessionUserId);
+    assertDelegableShareCapabilities(context, body.capabilities);
+    const outbound = await app.persistence.listSharesForOwner(context.ownerUserId);
     const share = [...outbound.active, ...outbound.revoked.filter(isShareGrantRecord)]
       .find((record) => record.id === params.id) ?? null;
     if (!share) {
@@ -3795,10 +3950,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const capabilities = await app.persistence.setShareCapabilities({
       shareId: params.id,
       capabilities: body.capabilities,
-      grantedByUserId: sessionUserId,
+      grantedByUserId: context.actorUserId,
     });
     await app.persistence.appendAuditLog({
-      actorUserId: sessionUserId,
+      actorUserId: context.actorUserId,
       action: "share_capabilities_updated",
       targetUserId: share.granteeUserId,
       ipAddress: req.ip,
@@ -3806,6 +3961,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         shareId: params.id,
         oldCapabilities,
         newCapabilities: capabilities,
+        ...buildDelegatedShareAuditMetadata(context),
       },
     });
     await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
@@ -3813,13 +3969,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.patch("/shares/pending/:code/capabilities", async (req) => {
-    requireShareGrantorRole(req);
-    const sessionUserId = requireSessionUserId(req);
+    const context = await resolveNamedShareManagementContext(req);
     const params = z.object({
       code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
     }).parse(req.params);
     const body = z.object({ capabilities: shareCapabilitiesSchema }).strict().parse(req.body);
-    const outbound = await app.persistence.listSharesForOwner(sessionUserId);
+    assertDelegableShareCapabilities(context, body.capabilities);
+    const outbound = await app.persistence.listSharesForOwner(context.ownerUserId);
     const invite = [...outbound.pending, ...outbound.expired, ...outbound.revoked.filter((record): record is PendingShareInviteRecord => !isShareGrantRecord(record))]
       .find((record) => !isShareGrantRecord(record) && record.code === params.code) ?? null;
     if (!invite) {
@@ -3829,10 +3985,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const capabilities = await app.persistence.setPendingShareInviteCapabilities({
       inviteCode: params.code,
       capabilities: body.capabilities,
-      grantedByUserId: sessionUserId,
+      grantedByUserId: context.actorUserId,
     });
     await app.persistence.appendAuditLog({
-      actorUserId: sessionUserId,
+      actorUserId: context.actorUserId,
       action: "share_capabilities_updated",
       targetUserId: null,
       ipAddress: req.ip,
@@ -3840,6 +3996,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         inviteCode: params.code,
         oldCapabilities,
         newCapabilities: capabilities,
+        ...buildDelegatedShareAuditMetadata(context),
       },
     });
     const status = invite.revokedAt
@@ -3851,15 +4008,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete("/shares/pending/:code", async (req, reply) => {
-    requireShareGrantorRole(req);
-    const sessionUserId = requireSessionUserId(req);
+    const context = await resolveNamedShareManagementContext(req);
     const params = z.object({
       code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
     }).parse(req.params);
 
-    await app.persistence.revokePendingShareInvite(params.code, sessionUserId, {
-      actorUserId: sessionUserId,
+    await app.persistence.revokePendingShareInvite(params.code, context.ownerUserId, {
+      actorUserId: context.actorUserId,
       ipAddress: req.ip,
+      metadata: buildDelegatedShareAuditMetadata(context),
     });
 
     reply.code(204);
@@ -3867,13 +4024,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete("/shares/:id", async (req, reply) => {
-    requireShareGrantorRole(req);
-    const sessionUserId = requireSessionUserId(req);
+    const context = await resolveNamedShareManagementContext(req);
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
 
-    const outcome = await app.persistence.revokeShareGrant(params.id, sessionUserId, {
-      actorUserId: sessionUserId,
-      ipAddress: req.ip,
+    const outcome = await app.persistence.revokeShareGrant(params.id, {
+      ownerUserId: context.ownerUserId,
+      revokedByUserId: context.actorUserId,
+      auditInput: {
+        actorUserId: context.actorUserId,
+        ipAddress: req.ip,
+        metadata: buildDelegatedShareAuditMetadata(context),
+      },
     });
     if (outcome) {
       await app.eventBus.publishEvent(outcome.granteeUserId, "sharing_notification", { shareId: params.id });
@@ -3929,6 +4090,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // GET /share-tokens — list the session user's own tokens (created within
   // the 30-day retention window). Status is derived server-side.
   app.get("/share-tokens", async (req) => {
+    requireWriteableContext(req);
     const sessionUserId = requireSessionUserId(req);
     const records = await app.persistence.listAnonymousShareTokensForOwner(sessionUserId);
     const now = Date.now();

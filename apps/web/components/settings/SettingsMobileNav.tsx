@@ -10,20 +10,9 @@ import {
 } from "../ui/shadcn/select";
 import type { SettingsNavSlug } from "./SettingsNav";
 
-interface MobileNavLabels {
-  profile: string;
-  general: string;
-  accounts: string;
-  "ai-connectors": string;
-  display: string;
-  tickers: string;
-}
-
 interface SettingsMobileNavProps {
-  labels: MobileNavLabels;
+  items: Array<{ slug: SettingsNavSlug; label: string }>;
 }
-
-const SLUGS: SettingsNavSlug[] = ["profile", "general", "accounts", "ai-connectors", "display", "tickers"];
 
 /**
  * Phase 3d S2 — mobile-viewport section switcher for the `/settings/*` shell.
@@ -37,12 +26,13 @@ const SLUGS: SettingsNavSlug[] = ["profile", "general", "accounts", "ai-connecto
  * /settings/X" rather than "URL synchronously equals X" — no E2E spec races
  * the router commit on a full-page navigation.
  */
-export function SettingsMobileNav({ labels }: SettingsMobileNavProps) {
+export function SettingsMobileNav({ items }: SettingsMobileNavProps) {
   const router = useRouter();
   const pathname = usePathname() ?? "/settings/profile";
-  const current: SettingsNavSlug = SLUGS.find((slug) =>
+  const current = items.find(({ slug }) =>
     pathname === `/settings/${slug}` || pathname.startsWith(`/settings/${slug}/`),
-  ) ?? "profile";
+  )?.slug ?? items[0]?.slug ?? "profile";
+  const currentLabel = items.find((item) => item.slug === current)?.label ?? items[0]?.label ?? "";
 
   return (
     <Select
@@ -52,12 +42,12 @@ export function SettingsMobileNav({ labels }: SettingsMobileNavProps) {
       }}
     >
       <SelectTrigger data-testid="settings-nav-mobile" className="w-full">
-        <SelectValue placeholder={labels[current]} />
+        <SelectValue placeholder={currentLabel} />
       </SelectTrigger>
       <SelectContent>
-        {SLUGS.map((slug) => (
+        {items.map(({ slug, label }) => (
           <SelectItem key={slug} value={slug}>
-            {labels[slug]}
+            {label}
           </SelectItem>
         ))}
       </SelectContent>

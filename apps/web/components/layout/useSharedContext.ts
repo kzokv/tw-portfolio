@@ -66,7 +66,7 @@ export function useSharedContext({
 
   const refreshSwitcherData = useCallback(async () => {
     try {
-      const sharingData = await fetchSharingPageData();
+      const sharingData = await fetchSharingPageData({ contextScope: "session" });
       setInboundShares(sharingData.inbound.active);
     } catch {
       setInboundShares([]);

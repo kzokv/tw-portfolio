@@ -21,6 +21,12 @@ export class SharingActions extends AppBaseActions {
   }
 
   @Step()
+  async navigateToInboundShares(): Promise<void> {
+    await this.mxClick(this.el.inboundTab);
+    await this.el.inboundSection.waitFor({ state: "visible" });
+  }
+
+  @Step()
   async openGrantDialog(): Promise<void> {
     await this.mxClick(this.el.grantButton);
     await this.el.grantDialog.waitFor({ state: "visible" });

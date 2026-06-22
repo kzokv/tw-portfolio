@@ -56,6 +56,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       accountRenameIconLabel: "Rename account",
       // KZO-179: Accounts tab + create-account form copy.
       tabAccounts: "Accounts",
+      tabPortfolioAccounts: "Portfolio settings",
       accountCreateTitle: "Add account",
       accountCreateNameLabel: "Name",
       accountCreateNamePlaceholder: "e.g. USD Brokerage",
@@ -398,6 +399,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       accountRenameIconLabel: "重新命名帳戶",
       // KZO-179: Accounts tab + create-account form copy.
       tabAccounts: "帳戶",
+      tabPortfolioAccounts: "投資組合設定",
       accountCreateTitle: "新增帳戶",
       accountCreateNameLabel: "名稱",
       accountCreateNamePlaceholder: "例：美元券商",

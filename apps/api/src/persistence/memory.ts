@@ -904,7 +904,10 @@ export class MemoryPersistence implements Persistence {
       ...input.auditInput,
       action: "share_granted",
       targetUserId: input.granteeUserId,
-      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+      metadata: {
+        ...buildShareAuditMetadata(share.id, owner, grantee),
+        ...(input.auditInput.metadata ?? {}),
+      },
     });
     const granteeLocale = this.stores.get(grantee.id)?.settings.locale ?? "en";
     await this.createNotification(
@@ -916,11 +919,14 @@ export class MemoryPersistence implements Persistence {
 
   async revokeShareGrant(
     shareId: string,
-    revokedByUserId: string,
-    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+    input: {
+      ownerUserId: string;
+      revokedByUserId: string;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
   ): Promise<{ granteeUserId: string } | null> {
     const share = this.portfolioShares.find((candidate) => candidate.id === shareId);
-    if (!share || share.ownerUserId !== revokedByUserId) {
+    if (!share || share.ownerUserId !== input.ownerUserId) {
       throw routeError(404, "share_not_found", "Share not found");
     }
     if (share.revokedAt !== null) {
@@ -934,13 +940,16 @@ export class MemoryPersistence implements Persistence {
     }
 
     share.revokedAt = new Date().toISOString();
-    share.revokedByUserId = revokedByUserId;
+    share.revokedByUserId = input.revokedByUserId;
 
     await this.appendAuditLog({
-      ...auditInput,
+      ...input.auditInput,
       action: "share_revoked",
       targetUserId: share.granteeUserId,
-      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+      metadata: {
+        ...buildShareAuditMetadata(share.id, owner, grantee),
+        ...(input.auditInput.metadata ?? {}),
+      },
     });
     const granteeLocale = this.stores.get(share.granteeUserId)?.settings.locale ?? "en";
     await this.createNotification(
@@ -1116,6 +1125,7 @@ export class MemoryPersistence implements Persistence {
         shareCoupled: true,
         shareOwnerEmail: owner.email,
         shareOwnerDisplayName: owner.displayName,
+        ...(auditInput.metadata ?? {}),
       },
     });
   }

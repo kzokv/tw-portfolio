@@ -15,6 +15,7 @@ interface GrantShareDialogProps {
   open: boolean;
   locale: LocaleCode;
   initialEmail?: string;
+  allowedCapabilities?: ShareCapability[];
   onOpenChange: (open: boolean) => void;
   onCreated: (result: GrantShareResult) => Promise<void> | void;
 }
@@ -24,6 +25,7 @@ type GrantStep = "form" | "confirm" | "success";
 const CAPABILITY_LABELS: Record<ShareCapability, string> = {
   "portfolio:mcp_read": "App read",
   "account:manage": "Account manage",
+  "sharing:manage": "Share manage",
   "transaction_draft:create": "Draft create",
   "transaction_draft:edit": "Draft edit",
   "transaction_draft:archive": "Draft archive",
@@ -38,7 +40,7 @@ const PRESETS: Array<{
   { key: "viewer", capabilities: [] },
   { key: "aiViewer", capabilities: ["portfolio:mcp_read"] },
   { key: "draftCollaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
-  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "transaction:write"] },
+  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "sharing:manage", "transaction:write"] },
   { key: "fullDelegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
 ];
 
@@ -66,10 +68,12 @@ export function GrantShareDialog({
   open,
   locale,
   initialEmail,
+  allowedCapabilities,
   onOpenChange,
   onCreated,
 }: GrantShareDialogProps) {
   const dict = useMemo(() => getDictionary(locale), [locale]);
+  const capabilityOptions = allowedCapabilities ?? ASSIGNABLE_SHARE_CAPABILITIES;
   const [step, setStep] = useState<GrantStep>("form");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -203,14 +207,16 @@ export function GrantShareDialog({
                       key={preset.key}
                       type="button"
                       className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                      onClick={() => setCapabilities(preset.capabilities)}
+                      onClick={() => {
+                        setCapabilities(preset.capabilities.filter((capability) => capabilityOptions.includes(capability)));
+                      }}
                     >
                       {dict.sharing.grantDialog.presets[preset.key]}
                     </button>
                   ))}
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {ASSIGNABLE_SHARE_CAPABILITIES.map((capability) => (
+                  {capabilityOptions.map((capability) => (
                     <label key={capability} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
                       <span>{dict.sharing.capabilityLabels[capability] ?? CAPABILITY_LABELS[capability]}</span>
                       <input

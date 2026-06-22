@@ -3609,7 +3609,36 @@ describePostgres("postgres migrations", () => {
     expect(capabilityChecks.rows).toHaveLength(3);
     for (const row of capabilityChecks.rows) {
       expect(row.def).toContain("'account:manage'");
+      const shareCapabilityTable = row.table_name === "portfolio_share_capabilities"
+        || row.table_name === "pending_share_invite_capabilities";
+      if (shareCapabilityTable) {
+        expect(row.def).toContain("'sharing:manage'");
+      } else {
+        expect(row.def).not.toContain("'sharing:manage'");
+      }
     }
+
+    await pool.query(
+      `INSERT INTO portfolio_shares (id, owner_user_id, grantee_user_id)
+       VALUES ('mig087-share', 'legacy-fifo', 'legacy-lifo')`,
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO portfolio_share_capabilities (share_id, capability, granted_by_user_id)
+         VALUES ('mig087-share', 'sharing:manage', 'legacy-fifo')`,
+      ),
+    ).resolves.not.toThrow();
+
+    await pool.query(
+      `INSERT INTO invites (code, email, role, expires_at, issued_by_user_id, share_owner_user_id)
+       VALUES ('MIG087SM', 'mig087-share@example.com', 'viewer', NOW() + INTERVAL '7 days', 'legacy-fifo', 'legacy-fifo')`,
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO pending_share_invite_capabilities (invite_code, capability, granted_by_user_id)
+         VALUES ('MIG087SM', 'sharing:manage', 'legacy-fifo')`,
+      ),
+    ).resolves.not.toThrow();
   });
 
   it("KZO-197: migration 070 backfills provider incidents idempotently from error trail", async () => {
