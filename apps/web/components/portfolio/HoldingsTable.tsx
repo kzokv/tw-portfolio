@@ -37,10 +37,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/shadcn/select";
-import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsRowSettingsMenu,
+  applyHoldingsRowOrder,
   holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsColumnSettingsState,
@@ -126,6 +127,7 @@ const MAX_ANIMATED_HOLDING_VALUE_ROWS = 8;
 
 const PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = [];
 const PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = ["avgCost", "unitPnl"];
+const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 function isHoldingsDisplayMode(value: string): value is HoldingsDisplayMode {
   return value === "aggregated" || value === "expanded" || value === "accounts";
@@ -148,6 +150,10 @@ const toolbarButtonClassName = "inline-flex h-10 items-center gap-2 rounded-lg b
 
 function groupLinkHref(group: DashboardOverviewHoldingGroupDto) {
   return `/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`;
+}
+
+function holdingGroupRowId(group: { ticker: string; marketCode: string }) {
+  return `${group.marketCode}:${group.ticker}`;
 }
 
 function childLinkHref(child: DashboardOverviewHoldingChildDto) {
@@ -198,15 +204,15 @@ export function HoldingsTable({
   const setEffectiveAllocationBasis = onAllocationBasisChange ?? setStoredBasis;
 
   const [query, setQuery] = useState("");
-  const [displayMode, setDisplayMode] = useState<HoldingsDisplayMode>(variant === "compact" ? "aggregated" : "expanded");
-  const [marketFilter, setMarketFilter] = useState<string>("ALL");
+  const [displayMode, setDisplayMode] = useState<HoldingsDisplayMode>("aggregated");
+  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<DashboardOverviewHoldingDto["quoteStatus"][]>([]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const deferredQuery = useDeferredValue(query);
   const columnSettings = useHoldingsColumnSettings<HoldingsColumn>({
     columns: PORTFOLIO_HOLDINGS_COLUMNS,
-    contextKey: "portfolio.holdings",
+    contextKey: SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
     defaultLayoutStyle: variant === "compact" ? "dashboard" : "portfolio",
     defaultHiddenColumns: variant === "compact" ? PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS : PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS,
     mobileSummaryColumnIds: PORTFOLIO_MOBILE_FIELD_COLUMNS,
@@ -221,7 +227,7 @@ export function HoldingsTable({
   );
 
   const marketOptions = useMemo(
-    () => ["ALL", ...new Set(groups.map((group) => group.marketCode))],
+    () => [...new Set(groups.map((group) => group.marketCode))],
     [groups],
   );
 
@@ -236,16 +242,21 @@ export function HoldingsTable({
 
   const filteredGroups = useMemo(() => {
     return groups.filter((group) => {
-      if (marketFilter !== "ALL" && group.marketCode !== marketFilter) return false;
+      if (selectedMarketCodes.length > 0 && !selectedMarketCodes.includes(group.marketCode)) return false;
       if (!holdingGroupMatchesStatusFilter(group, selectedStatuses, displayMode)) return false;
       if (selectedAccountIds.length > 0 && !group.children.some((child) => selectedAccountIds.includes(child.accountId))) return false;
       return holdingMatchesQuery(group, deferredQuery.trim());
     });
-  }, [deferredQuery, displayMode, groups, marketFilter, selectedAccountIds, selectedStatuses]);
+  }, [deferredQuery, displayMode, groups, selectedAccountIds, selectedMarketCodes, selectedStatuses]);
+
+  const orderedFilteredGroups = useMemo(
+    () => applyHoldingsRowOrder(filteredGroups, holdingGroupRowId, columnSettings.rowOrder),
+    [columnSettings.rowOrder, filteredGroups],
+  );
 
   const visibleGroupKeys = useMemo(
-    () => new Set(filteredGroups.map((group) => `${group.ticker}::${group.marketCode}`)),
-    [filteredGroups],
+    () => new Set(orderedFilteredGroups.map((group) => `${group.ticker}::${group.marketCode}`)),
+    [orderedFilteredGroups],
   );
 
   const expandedState = useMemo(() => {
@@ -256,7 +267,7 @@ export function HoldingsTable({
   }, [displayMode, expandedKeys, visibleGroupKeys]);
 
   const visibleChildRows = useMemo(() => {
-    return filteredGroups.flatMap((group) =>
+    return orderedFilteredGroups.flatMap((group) =>
       group.children.filter((child) => {
         if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(child.accountId)) return false;
         if (selectedStatuses.length > 0 && !selectedStatuses.includes(child.quoteStatus)) return false;
@@ -267,11 +278,11 @@ export function HoldingsTable({
           || child.accountId.toUpperCase().includes(normalized);
       }),
     );
-  }, [deferredQuery, filteredGroups, selectedAccountIds, selectedStatuses]);
+  }, [deferredQuery, orderedFilteredGroups, selectedAccountIds, selectedStatuses]);
 
   const groupAllocationMap = useMemo(
-    () => buildAllocationPercentages(filteredGroups, effectiveAllocationBasis),
-    [effectiveAllocationBasis, filteredGroups],
+    () => buildAllocationPercentages(orderedFilteredGroups, effectiveAllocationBasis),
+    [effectiveAllocationBasis, orderedFilteredGroups],
   );
 
   const childAllocationMap = useMemo(() => {
@@ -301,6 +312,12 @@ export function HoldingsTable({
     );
   }
 
+  function toggleMarket(marketCode: string) {
+    setSelectedMarketCodes((current) =>
+      current.includes(marketCode) ? current.filter((item) => item !== marketCode) : [...current, marketCode],
+    );
+  }
+
   function toggleAccount(accountId: string) {
     setSelectedAccountIds((current) =>
       current.includes(accountId) ? current.filter((item) => item !== accountId) : [...current, accountId],
@@ -308,8 +325,13 @@ export function HoldingsTable({
   }
 
   const visibleGroupCountLabel = dict.holdings.showingTickers
-    .replace("{visible}", String(filteredGroups.length))
+    .replace("{visible}", String(orderedFilteredGroups.length))
     .replace("{total}", String(groups.length));
+  const marketFilterSummary = selectedMarketCodes.length === 0
+    ? dict.holdings.allMarketsOption
+    : selectedMarketCodes.length === 1
+      ? selectedMarketCodes[0]!
+      : `${selectedMarketCodes.length} ${dict.holdings.marketFilterLabel}`;
 
   return (
     <Tooltip.Provider delayDuration={150}>
@@ -337,7 +359,7 @@ export function HoldingsTable({
               />
             </label>
 
-            <div className="md:hidden">
+            <div className="min-w-0">
               <span className="sr-only">{dict.holdings.displayModeLabel}</span>
               <Select
                 value={displayMode}
@@ -350,48 +372,47 @@ export function HoldingsTable({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="aggregated">{dict.holdings.displayModeAggregated}</SelectItem>
-                    <SelectItem value="expanded">{dict.holdings.displayModeExpanded}</SelectItem>
-                    <SelectItem value="accounts">{dict.holdings.displayModeAccounts}</SelectItem>
+                    <SelectItem value="aggregated" data-testid="holdings-display-mode-aggregated">
+                      {dict.holdings.displayModeAggregated}
+                    </SelectItem>
+                    <SelectItem value="expanded" data-testid="holdings-display-mode-expanded">
+                      {dict.holdings.displayModeExpanded}
+                    </SelectItem>
+                    <SelectItem value="accounts" data-testid="holdings-display-mode-accounts">
+                      {dict.holdings.displayModeAccounts}
+                    </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="hidden min-w-0 overflow-x-auto pb-1 md:block">
-              <span className="sr-only">{dict.holdings.displayModeLabel}</span>
-              <ToggleGroup
-                type="single"
-                aria-label={dict.holdings.displayModeLabel}
-                value={displayMode}
-                onValueChange={(value) => {
-                  if (isHoldingsDisplayMode(value)) setDisplayMode(value);
-                }}
-                className="flex w-max min-w-full flex-nowrap justify-start"
-              >
-                <ToggleGroupItem value="aggregated" data-testid="holdings-display-mode-grouped">{dict.holdings.displayModeAggregated}</ToggleGroupItem>
-                <ToggleGroupItem value="expanded" data-testid="holdings-display-mode-expanded">{dict.holdings.displayModeExpanded}</ToggleGroupItem>
-                <ToggleGroupItem value="accounts" data-testid="holdings-display-mode-account">{dict.holdings.displayModeAccounts}</ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className={toolbarButtonClassName} data-testid="holdings-filter-market">
-                  {dict.holdings.marketFilterLabel}: {marketFilter === "ALL" ? dict.holdings.allMarketsOption : marketFilter}
+                  {dict.holdings.marketFilterLabel}: {marketFilterSummary}
                   <ChevronDown />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{dict.holdings.marketFilterLabel}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={selectedMarketCodes.length === 0}
+                      onCheckedChange={() => setSelectedMarketCodes([])}
+                    />
+                    {dict.holdings.allMarketsOption}
+                  </label>
+                </div>
                 {marketOptions.map((option) => (
                   <DropdownMenuCheckboxItem
                     key={option}
-                    checked={marketFilter === option}
-                    onCheckedChange={() => setMarketFilter(option)}
+                    checked={selectedMarketCodes.includes(option)}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => toggleMarket(option)}
                   >
-                    {option === "ALL" ? dict.holdings.allMarketsOption : option}
+                    {option}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuContent>
@@ -471,8 +492,17 @@ export function HoldingsTable({
                   settings={columnSettings}
                 />
               </div>
+              <HoldingsRowSettingsMenu
+                dict={dict}
+                rows={filteredGroups.map((group) => ({
+                  id: holdingGroupRowId(group),
+                  label: group.ticker,
+                  description: group.instrumentName ? `${group.marketCode} · ${group.instrumentName}` : group.marketCode,
+                }))}
+                settings={columnSettings}
+              />
 
-              <div className="min-w-0 md:hidden">
+              <div className="min-w-0">
                 <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
                 <Select
                   value={effectiveAllocationBasis}
@@ -485,39 +515,27 @@ export function HoldingsTable({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="market_value">{dict.dashboardHome.allocationBasisMarketValue}</SelectItem>
-                      <SelectItem value="cost_basis">{dict.dashboardHome.allocationBasisCostBasis}</SelectItem>
+                      <SelectItem value="market_value" data-testid="holdings-allocation-basis-market-value">
+                        {dict.dashboardHome.allocationBasisMarketValue}
+                      </SelectItem>
+                      <SelectItem value="cost_basis" data-testid="holdings-allocation-basis-cost-basis">
+                        {dict.dashboardHome.allocationBasisCostBasis}
+                      </SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="hidden min-w-0 overflow-x-auto pb-1 md:block">
-                <span className="text-sm text-muted-foreground">{dict.dashboardHome.allocationBasisLabel}</span>
-                <ToggleGroup
-                  type="single"
-                  aria-label={dict.dashboardHome.allocationBasisLabel}
-                  value={effectiveAllocationBasis}
-                  onValueChange={(value) => {
-                    if (isHoldingAllocationBasis(value)) setEffectiveAllocationBasis(value);
-                  }}
-                  className="mt-2 flex w-max flex-nowrap"
-                >
-                  <ToggleGroupItem value="market_value" data-testid="holdings-allocation-basis-market-value">{dict.dashboardHome.allocationBasisMarketValue}</ToggleGroupItem>
-                  <ToggleGroupItem value="cost_basis" data-testid="holdings-allocation-basis-cost-basis">{dict.dashboardHome.allocationBasisCostBasis}</ToggleGroupItem>
-                </ToggleGroup>
               </div>
             </div>
           </div>
         </div>
 
-        {filteredGroups.length === 0 ? (
+        {orderedFilteredGroups.length === 0 ? (
           <HoldingsGridEmptyState className="mt-6 rounded-xl bg-muted/30 px-5">
             {dict.holdings.noResults}
           </HoldingsGridEmptyState>
         ) : (
           <>
-            <CalendarUnknownWarnings className="mt-6" dict={dict} rows={filteredGroups} />
+            <CalendarUnknownWarnings className="mt-6" dict={dict} rows={orderedFilteredGroups} />
             <HoldingsGridMobileList className="mt-6" testId="holdings-mobile-list">
               {displayMode === "accounts"
                 ? visibleChildRows.map((child, index) => (
@@ -535,7 +553,7 @@ export function HoldingsTable({
                       quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
                   ))
-                : filteredGroups.map((group, index) => {
+                : orderedFilteredGroups.map((group, index) => {
                   const groupKey = `${group.ticker}::${group.marketCode}`;
                   const showChildren = expandedState.has(groupKey);
                   const visibleChildren = group.children.filter((child) =>
@@ -589,7 +607,7 @@ export function HoldingsTable({
                     <th
                       key={column.id}
                       className={cn(
-                        "px-4 py-3 align-top font-medium",
+                        "sticky top-0 z-20 px-4 py-3 align-top font-medium",
                         holdingsStickyFirstColumnClassName(column.id === "ticker", "header", "bg-muted/95"),
                         column.align === "right" ? "text-right" : "text-left",
                       )}
@@ -622,7 +640,7 @@ export function HoldingsTable({
                       quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
                   ))
-                  : filteredGroups.map((group, index) => {
+                  : orderedFilteredGroups.map((group, index) => {
                     const groupKey = `${group.ticker}::${group.marketCode}`;
                     const showChildren = expandedState.has(groupKey);
                     const visibleChildren = group.children.filter((child) =>

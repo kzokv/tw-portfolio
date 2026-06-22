@@ -26,11 +26,13 @@ export class PortfolioActions extends AppBaseActions {
 
   @Step()
   async setDisplayModeGrouped(): Promise<void> {
-    await this.mxClick(this.el.displayModeGrouped);
+    await this.mxClick(this.el.displayModeSelect);
+    await this.mxClick(this.el.displayModeAggregated);
   }
 
   @Step()
   async setDisplayModeExpanded(): Promise<void> {
+    await this.mxClick(this.el.displayModeSelect);
     await this.mxClick(this.el.displayModeExpanded);
   }
 
@@ -41,6 +43,7 @@ export class PortfolioActions extends AppBaseActions {
 
   @Step()
   async setAllocationBasisCostBasis(): Promise<void> {
+    await this.mxClick(this.el.allocationBasisSelect);
     await this.mxClick(this.el.allocationBasisCostBasis);
   }
 

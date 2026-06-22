@@ -9,13 +9,15 @@ export interface TPortfolioElements extends TElementLocatorHelpers {
   holdingGroupToggle: (ticker: string, marketCode: string) => Locator;
   holdingChildRow: (ticker: string, marketCode: string, accountId: string) => Locator;
   holdingLink: (symbol: string) => Locator;
-  displayModeGrouped: Locator;
+  displayModeSelect: Locator;
+  displayModeAggregated: Locator;
   displayModeExpanded: Locator;
   displayModeAccount: Locator;
   filterMarket: Locator;
   filterAccount: Locator;
   filterStatus: Locator;
   filterColumns: Locator;
+  allocationBasisSelect: Locator;
   allocationBasisMarketValue: Locator;
   allocationBasisCostBasis: Locator;
 }
@@ -41,13 +43,15 @@ export class PortfolioPage extends BasePage<TPortfolioElements> {
           this.locate("holdings-table").getByRole("link", { name: symbol }),
           `Holding Link ${symbol}`,
         ),
-      displayModeGrouped: this.locate("holdings-display-mode-grouped", "Holdings Display Mode Grouped"),
+      displayModeSelect: this.locate("holdings-display-mode-select", "Holdings Display Mode Select"),
+      displayModeAggregated: this.locate("holdings-display-mode-aggregated", "Holdings Display Mode Aggregated"),
       displayModeExpanded: this.locate("holdings-display-mode-expanded", "Holdings Display Mode Expanded"),
-      displayModeAccount: this.locate("holdings-display-mode-account", "Holdings Display Mode Account"),
+      displayModeAccount: this.locate("holdings-display-mode-accounts", "Holdings Display Mode Account"),
       filterMarket: this.locate("holdings-filter-market", "Holdings Filter Market"),
       filterAccount: this.locate("holdings-filter-account", "Holdings Filter Account"),
       filterStatus: this.locate("holdings-filter-status", "Holdings Filter Status"),
       filterColumns: this.locate("holdings-filter-columns", "Holdings Filter Columns"),
+      allocationBasisSelect: this.locate("holdings-allocation-basis-select", "Holdings Allocation Basis Select"),
       allocationBasisMarketValue: this.locate(
         "holdings-allocation-basis-market-value",
         "Holdings Allocation Basis Market Value",

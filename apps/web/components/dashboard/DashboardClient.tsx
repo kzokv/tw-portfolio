@@ -401,14 +401,16 @@ export function DashboardClient({
               );
             case "holdings-table":
               return (
-                <DashboardHoldingsPreview
-                  fxRates={dashboard.fxRates ?? []}
-                  groups={holdingGroups}
-                  locale={locale}
-                  reportingCurrency={dashboard.summary.reportingCurrency}
-                  quoteRefreshVersion={dashboard.quoteRefreshVersion}
-                  showAdminActivityLinks={sessionUserRole === "admin"}
-                />
+	                <DashboardHoldingsPreview
+	                  fxRates={dashboard.fxRates ?? []}
+	                  groups={holdingGroups}
+	                  locale={locale}
+	                  reportingCurrency={dashboard.summary.reportingCurrency}
+	                  quoteRefreshVersion={dashboard.quoteRefreshVersion}
+                    isRefreshing={dashboard.isRefreshing}
+                    onRefresh={refreshDashboardPrices}
+	                  showAdminActivityLinks={sessionUserRole === "admin"}
+	                />
               );
             case "dividends-section":
               return (

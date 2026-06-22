@@ -2,7 +2,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
-import { useHoldingsColumnSettings, type HoldingsGridColumnDefinition } from "../../../components/holdings/HoldingsColumnSettings";
+import {
+  HoldingsRowSettingsMenu,
+  useHoldingsColumnSettings,
+  type HoldingsColumnSettingsState,
+  type HoldingsGridColumnDefinition,
+} from "../../../components/holdings/HoldingsColumnSettings";
 import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { getJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
@@ -77,7 +82,7 @@ function renderTable(holdingGroups: DashboardOverviewHoldingGroupDto[], options:
 function ColumnSettingsHarness() {
   const settings = useHoldingsColumnSettings<TestColumn>({
     columns: testColumns,
-    contextKey: "portfolio",
+    contextKey: "holdings.shared",
   });
   return (
     <div>
@@ -97,6 +102,28 @@ function renderColumnSettingsHarness() {
     testRoot.render(<ColumnSettingsHarness />);
   });
   return { container: testContainer, root: testRoot };
+}
+
+function pointerDown(el: Element) {
+  act(() => {
+    const event = new MouseEvent("pointerdown", { bubbles: true, button: 0, cancelable: true, ctrlKey: false });
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "ctrlKey", { value: false });
+    el.dispatchEvent(event);
+  });
+}
+
+function click(el: Element) {
+  act(() => {
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true }));
+  });
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
 describe("HoldingsTable", () => {
@@ -172,31 +199,94 @@ describe("HoldingsTable", () => {
     expect(mobileGroupChip?.parentElement?.className).toContain("justify-start");
   });
 
-  it("keeps shadcn single-toggle controls selected when the active item is clicked again", () => {
+  it("renders portfolio holdings with aggregated dropdown defaults and sticky desktop headers", () => {
     const rendered = renderTable([baseGroup], { controlledAllocationBasis: false });
     root = rendered.root;
     container = rendered.container;
 
-    const groupedMode = container.querySelector('[data-testid="holdings-display-mode-expanded"]');
-    const marketValueBasis = container.querySelector('[data-testid="holdings-allocation-basis-market-value"]');
+    const displayMode = container.querySelector('[data-testid="holdings-display-mode-select"]');
+    const allocationBasis = container.querySelector('[data-testid="holdings-allocation-basis-select"]');
     const layoutStyleControl = container.querySelector('[data-testid="holdings-layout-style-control"]');
     const portfolioSection = container.querySelector('[data-testid="portfolio-holdings-section"]');
     const tickerHeader = container.querySelector('[data-testid="holdings-column-drag-ticker"]')?.closest("th");
     const tickerCell = container.querySelector("[data-testid='holding-group-row-AAPL-US'] td");
     expect(portfolioSection).not.toBeNull();
-    expect(groupedMode?.getAttribute("data-state")).toBe("on");
-    expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
+    expect(displayMode?.textContent).toContain(dict.holdings.displayModeAggregated);
+    expect(allocationBasis?.textContent).toContain(dict.dashboardHome.allocationBasisMarketValue);
     expect(layoutStyleControl).toBeNull();
     expect(tickerHeader?.className).toContain("sticky");
     expect(tickerCell?.className).toContain("sticky");
+  });
 
-    act(() => {
-      groupedMode?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      marketValueBasis?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+  it("keeps market filter menu open while selecting multiple markets", async () => {
+    const rendered = renderTable([
+      baseGroup,
+      {
+        ...baseGroup,
+        ticker: "2330",
+        instrumentName: "Taiwan Semiconductor Manufacturing",
+        marketCode: "TW",
+        currency: "TWD",
+      },
+    ]);
+    root = rendered.root;
+    container = rendered.container;
 
-    expect(groupedMode?.getAttribute("data-state")).toBe("on");
-    expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
+    const marketFilter = container.querySelector('[data-testid="holdings-filter-market"]');
+    expect(marketFilter).not.toBeNull();
+    pointerDown(marketFilter!);
+    await flushPromises();
+
+    const usOption = document.body.querySelector('[role="menuitemcheckbox"][data-radix-collection-item]');
+    expect(usOption).not.toBeNull();
+    click(usOption!);
+    await flushPromises();
+
+    expect(document.body.textContent).toContain(dict.holdings.marketFilterLabel);
+    expect(document.body.textContent).toContain("TW");
+  });
+
+  it("preserves hidden row-order entries when visible rows are reordered", async () => {
+    const setRowOrder = vi.fn();
+    const settings = {
+      rowOrder: ["US:AAPL", "JP:7203", "TW:2330", "KR:005930"],
+      setRowOrder,
+      settingsError: "",
+      topHoldingsLimit: 12,
+    } as unknown as HoldingsColumnSettingsState<TestColumn>;
+    const rendered = (() => {
+      const testContainer = document.createElement("div");
+      document.body.appendChild(testContainer);
+      const testRoot = createRoot(testContainer);
+      act(() => {
+        testRoot.render(
+          <HoldingsRowSettingsMenu
+            dict={dict}
+            rows={[
+              { id: "US:AAPL", label: "AAPL", description: "US" },
+              { id: "TW:2330", label: "2330", description: "TW" },
+            ]}
+            settings={settings}
+            testIdPrefix="test-holdings"
+          />,
+        );
+      });
+      return { container: testContainer, root: testRoot };
+    })();
+    root = rendered.root;
+    container = rendered.container;
+
+    const rowSettings = container.querySelector('[data-testid="test-holdings-row-settings"]');
+    expect(rowSettings).not.toBeNull();
+    pointerDown(rowSettings!);
+    await flushPromises();
+
+    const moveAaplDown = document.body.querySelector('[data-testid="test-holdings-row-move-down-US:AAPL"]');
+    expect(moveAaplDown).not.toBeNull();
+    click(moveAaplDown!);
+    await flushPromises();
+
+    expect(setRowOrder).toHaveBeenCalledWith(["TW:2330", "JP:7203", "US:AAPL", "KR:005930"]);
   });
 
   it("does not let late preference hydration overwrite local column edits", async () => {
@@ -222,7 +312,7 @@ describe("HoldingsTable", () => {
           holdingsTableSettings: {
             version: 1,
             contexts: {
-              portfolio: {
+              "holdings.shared": {
                 columnOrder: ["ticker", "marketValue"],
                 columnWidths: {},
                 hiddenColumns: [],
@@ -280,7 +370,7 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
-            "portfolio.holdings": {
+            "holdings.shared": {
               columnOrder: ["price", "unitPnl", "dailyChange", "ticker", "accounts", "quantity", "avgCost", "marketValue", "pnl", "health", "costBasis", "allocation", "nextDividend", "lastDividend"],
               hiddenColumns: [],
               columnWidths: {},
@@ -316,7 +406,7 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
-            "portfolio.holdings": {
+            "holdings.shared": {
               columnOrder: ["quantity", "avgCost", "unitPnl", "price", "dailyChange", "costBasis", "allocation", "ticker", "accounts", "marketValue", "pnl", "health", "nextDividend", "lastDividend"],
               hiddenColumns: ["accounts", "marketValue", "pnl", "health"],
               columnWidths: {},

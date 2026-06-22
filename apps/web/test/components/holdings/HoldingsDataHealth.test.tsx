@@ -55,8 +55,7 @@ describe("HoldingsDataHealthBadges", () => {
     expect(chip!.querySelector("button")).toBeNull();
   });
 
-  it("opens the data-health explanation from keyboard focus", async () => {
-    vi.useFakeTimers();
+  it("opens the data-health explanation as a popover from the trigger", async () => {
     act(() => {
       root.render(
         <HoldingsDataHealthBadges
@@ -77,12 +76,13 @@ describe("HoldingsDataHealthBadges", () => {
 
     const trigger = container.querySelector("button");
     expect(trigger?.getAttribute("aria-label")).toContain("Data health");
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("dialog");
 
-    act(() => {
-      trigger?.focus();
-      vi.advanceTimersByTime(150);
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.querySelector("[role='tooltip']")?.textContent).toContain(dict.holdings.dataHealthDescription);
+    expect(document.body.querySelector("[data-radix-popper-content-wrapper]")).not.toBeNull();
+    expect(document.body.textContent).toContain(dict.holdings.dataHealthDescription);
   });
 });

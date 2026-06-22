@@ -17,10 +17,10 @@ import {
   DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE,
   dashboardHoldingFocusPreferenceSchema,
 } from "@vakwen/shared-types";
-import { ArrowDown, ArrowUp, ChevronRight, RotateCcw, Search, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, RefreshCw, RotateCcw, Search, Settings2 } from "lucide-react";
 import { getJson, patchJson } from "../../lib/api";
 import { getDictionary } from "../../lib/i18n";
-import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { RollingNumber } from "../ui/RollingNumber";
 import { Badge } from "../ui/shadcn/badge";
@@ -34,6 +34,14 @@ import {
 } from "../ui/shadcn/card";
 import { Checkbox } from "../ui/shadcn/checkbox";
 import { Input } from "../ui/shadcn/input";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/shadcn/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -68,6 +76,8 @@ import {
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsRowSettingsMenu,
+  applyHoldingsRowOrder,
   useHoldingsColumnSettings,
   type HoldingsGridColumnDefinition,
   type HoldingsColumnSettingsState,
@@ -96,7 +106,7 @@ import {
 import { buildMissingPriceState, buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
-type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "daily" | "pnl" | "health" | "action";
+type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "daily" | "pnl" | "health" | "action";
 
 const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHoldingsColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
@@ -105,6 +115,7 @@ const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHo
   { id: "price", label: "Price", defaultWidth: 156, align: "right" },
   { id: "unitPnl", label: "Unit P&L", defaultWidth: 156, align: "right" },
   { id: "marketValue", label: "Market value", defaultWidth: 176, align: "right" },
+  { id: "costBasis", label: "Cost basis", defaultWidth: 168, align: "right" },
   { id: "daily", label: "Daily", defaultWidth: 156, align: "right" },
   { id: "pnl", label: "P&L", defaultWidth: 156, align: "right" },
   { id: "health", label: "Data health", defaultWidth: 184 },
@@ -116,14 +127,16 @@ const DASHBOARD_HOLDINGS_MIN_COLUMN_WIDTHS = {
   daily: 152,
   health: 168,
   marketValue: 176,
+  costBasis: 156,
   pnl: 132,
   position: 144,
   price: 136,
   ticker: 176,
   unitPnl: 132,
 } satisfies Record<DashboardHoldingsColumn, number>;
-const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "health"];
+const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health"];
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
+const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
   { id: "largest", label: "Largest", sortMode: "value" },
@@ -149,6 +162,8 @@ interface DashboardHoldingsPreviewProps {
   quoteRefreshVersion?: number;
   settingsContextKey?: string;
   showAdminActivityLinks?: boolean;
+  isRefreshing?: boolean;
+  onRefresh?: () => void;
 }
 
 export function DashboardHoldingsPreview({
@@ -157,16 +172,18 @@ export function DashboardHoldingsPreview({
   locale,
   reportingCurrency,
   quoteRefreshVersion = 0,
-  settingsContextKey = "dashboard.topHoldings",
+  settingsContextKey = SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
   showAdminActivityLinks = false,
+  isRefreshing = false,
+  onRefresh,
 }: DashboardHoldingsPreviewProps) {
   const dict = getDictionary(locale);
-  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<DashboardHoldingFocusPreset>>(
     () => new Set(DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.hiddenPresets),
   );
-  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
   const [presetError, setPresetError] = useState("");
   const [presetOrder, setPresetOrder] = useState<DashboardHoldingFocusPreset[]>(
     () => [...DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.presetOrder],
@@ -194,7 +211,7 @@ export function DashboardHoldingsPreview({
     mobileSummaryColumnIds: DASHBOARD_MOBILE_FIELD_COLUMNS,
   });
   const marketOptions = useMemo(
-    () => ["ALL", ...new Set(groups.map((group) => group.marketCode))],
+    () => [...new Set(groups.map((group) => group.marketCode))],
     [groups],
   );
   useEffect(() => {
@@ -222,15 +239,15 @@ export function DashboardHoldingsPreview({
         accounts.set(child.accountId, child.accountName ?? child.accountId);
       }
     }
-    return [{ id: "ALL", name: dict.dashboardHome.topHoldingsAllAccounts }, ...[...accounts.entries()]
+    return [...accounts.entries()]
       .map(([id, name]) => ({ id, name }))
-      .sort((left, right) => left.name.localeCompare(right.name))];
-  }, [dict.dashboardHome.topHoldingsAllAccounts, groups]);
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [groups]);
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
     const baseGroups = groups.flatMap((group) => {
-      const marketMatches = marketFilter === "ALL" || group.marketCode === marketFilter;
-      const visibleChildren = getVisibleAccountRows(group, accountFilter);
+      const marketMatches = selectedMarketCodes.length === 0 || selectedMarketCodes.includes(group.marketCode);
+      const visibleChildren = getVisibleAccountRows(group, selectedAccountIds);
       const accountMatches = visibleChildren.length > 0;
       const queryMatches = normalizedQuery === ""
         || group.ticker.toUpperCase().includes(normalizedQuery)
@@ -242,19 +259,26 @@ export function DashboardHoldingsPreview({
       return [projectHoldingGroupToChildren(group, visibleChildren)];
     });
     return applyHoldingPreset(recalculateHoldingGroupAllocations(baseGroups), selectedPreset, reportingCurrency);
-  }, [accountFilter, groups, marketFilter, query, reportingCurrency, selectedPreset]);
-  const visibleGroups = useMemo(
+  }, [groups, query, reportingCurrency, selectedAccountIds, selectedMarketCodes, selectedPreset]);
+  const sortedFilteredGroups = useMemo(
     () => filteredGroups
       .slice()
-      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency))
-      .slice(0, 12),
+      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency)),
     [filteredGroups, reportingCurrency, selectedPreset, sortMode],
+  );
+  const visibleGroups = useMemo(
+    () => applyHoldingsRowOrder(
+      sortedFilteredGroups,
+      holdingRowKey,
+      columnSettings.rowOrder,
+    ).slice(0, columnSettings.topHoldingsLimit),
+    [columnSettings.rowOrder, columnSettings.topHoldingsLimit, sortedFilteredGroups],
   );
   const visiblePresets = presetOrder
     .filter((presetId) => !hiddenPresetIds.has(presetId))
     .map((presetId) => HOLDING_FOCUS_PRESET_BY_ID.get(presetId))
     .filter((preset): preset is (typeof HOLDING_FOCUS_PRESETS)[number] => preset !== undefined);
-  const reportScope = marketFilter === "ALL" ? "all" : marketFilter;
+  const reportScope = selectedMarketCodes.length === 1 ? selectedMarketCodes[0]! : "all";
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, DASHBOARD_MOBILE_FIELD_COLUMNS);
   const persistDashboardHoldingFocus = (preference: DashboardHoldingFocusPreferenceDto) => {
     setPresetError("");
@@ -367,45 +391,31 @@ export function DashboardHoldingsPreview({
                 </label>
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsMarketLabel}</span>
-                  <Select value={marketFilter} onValueChange={setMarketFilter}>
-                    <SelectTrigger
-                      aria-label={dict.dashboardHome.topHoldingsMarketLabel}
-                      className="w-full"
-                      data-testid="dashboard-holdings-market-filter"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {marketOptions.map((market) => (
-                          <SelectItem key={market} value={market}>
-                            {market === "ALL" ? dict.dashboardHome.topHoldingsAllMarkets : market}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <DashboardMultiSelectMenu
+                    allLabel={dict.dashboardHome.topHoldingsAllMarkets}
+                    buttonLabel={formatFilterSummary(selectedMarketCodes, dict.dashboardHome.topHoldingsAllMarkets, dict.dashboardHome.topHoldingsMarketLabel)}
+                    label={dict.dashboardHome.topHoldingsMarketLabel}
+                    options={marketOptions.map((market) => ({ id: market, label: market }))}
+                    selectedIds={selectedMarketCodes}
+                    setSelectedIds={setSelectedMarketCodes}
+                    testId="dashboard-holdings-market-filter"
+                  />
                 </div>
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsAccountLabel}</span>
-                  <Select value={accountFilter} onValueChange={setAccountFilter}>
-                    <SelectTrigger
-                      aria-label={dict.dashboardHome.topHoldingsAccountLabel}
-                      className="w-full"
-                      data-testid="dashboard-holdings-account-filter"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {accountOptions.map((account) => (
-                          <SelectItem key={account.id} value={account.id}>
-                            {account.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <DashboardMultiSelectMenu
+                    allLabel={dict.dashboardHome.topHoldingsAllAccounts}
+                    buttonLabel={formatFilterSummary(
+                      selectedAccountIds.map((accountId) => accountOptions.find((account) => account.id === accountId)?.name ?? accountId),
+                      dict.dashboardHome.topHoldingsAllAccounts,
+                      dict.dashboardHome.topHoldingsAccountLabel,
+                    )}
+                    label={dict.dashboardHome.topHoldingsAccountLabel}
+                    options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
+                    selectedIds={selectedAccountIds}
+                    setSelectedIds={setSelectedAccountIds}
+                    testId="dashboard-holdings-account-filter"
+                  />
                 </div>
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsSortLabel}</span>
@@ -471,10 +481,34 @@ export function DashboardHoldingsPreview({
                   </ToggleGroup>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
+                  {onRefresh ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={onRefresh}
+                      disabled={isRefreshing}
+                      data-testid="dashboard-holdings-refresh"
+                    >
+                      <RefreshCw data-icon="inline-start" aria-hidden="true" />
+                      {isRefreshing ? dict.dashboardHome.refreshingLabel : dict.reports.refresh}
+                    </Button>
+                  ) : null}
                   <HoldingsColumnSettingsMenu
                     dict={dict}
                     getColumnLabel={(column) => dashboardColumnLabel(dict, column.id, reportingCurrency)}
                     settings={columnSettings}
+                  />
+                  <HoldingsRowSettingsMenu
+                    dict={dict}
+                    rows={sortedFilteredGroups.map((group) => ({
+                      id: holdingRowKey(group),
+                      label: group.ticker,
+                      description: group.instrumentName ? `${group.marketCode} · ${group.instrumentName}` : group.marketCode,
+                    }))}
+                    settings={columnSettings}
+                    showTopHoldingsLimit
+                    testIdPrefix="dashboard-holdings"
                   />
                   <Popover>
                     <PopoverTrigger asChild>
@@ -582,7 +616,7 @@ export function DashboardHoldingsPreview({
                   locale={locale}
                   onOpen={(group) => setSelected(group)}
                   expandedRows={expandedRows}
-                  accountFilter={accountFilter}
+                  selectedAccountIds={selectedAccountIds}
                   columnSettings={columnSettings}
                   onToggleExpanded={toggleExpandedRow}
                   quoteRefreshVersion={quoteRefreshVersion}
@@ -627,6 +661,66 @@ export function DashboardHoldingsPreview({
       />
     </TooltipProvider>
   );
+}
+
+function DashboardMultiSelectMenu({
+  allLabel,
+  buttonLabel,
+  label,
+  options,
+  selectedIds,
+  setSelectedIds,
+  testId,
+}: {
+  allLabel: string;
+  buttonLabel: string;
+  label: string;
+  options: Array<{ id: string; label: string }>;
+  selectedIds: string[];
+  setSelectedIds: (ids: string[]) => void;
+  testId: string;
+}) {
+  function toggle(id: string) {
+    setSelectedIds(selectedIds.includes(id) ? selectedIds.filter((selectedId) => selectedId !== id) : [...selectedIds, id]);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="w-full justify-between" aria-label={label} data-testid={testId}>
+          <span className="sr-only">{label}</span>
+          <span className="truncate">{buttonLabel}</span>
+          <ChevronDown data-icon="inline-end" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={selectedIds.length === 0} onCheckedChange={() => setSelectedIds([])} />
+            {allLabel}
+          </label>
+        </div>
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.id}
+            checked={selectedIds.includes(option.id)}
+            onSelect={(event) => event.preventDefault()}
+            onCheckedChange={() => toggle(option.id)}
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function formatFilterSummary(selectedIds: string[], allLabel: string, label: string) {
+  if (selectedIds.length === 0) return allLabel;
+  if (selectedIds.length === 1) return selectedIds[0]!;
+  return `${selectedIds.length} ${label}`;
 }
 
 function DashboardHoldingRow({
@@ -716,7 +810,7 @@ function DashboardHoldingRow({
 }
 
 function DashboardHoldingsTable({
-  accountFilter,
+  selectedAccountIds,
   columnSettings,
   dict,
   expandedRows,
@@ -729,7 +823,7 @@ function DashboardHoldingsTable({
   reportingCurrency,
   showAdminActivityLinks,
 }: {
-  accountFilter: string;
+  selectedAccountIds: string[];
   columnSettings: HoldingsColumnSettingsState<DashboardHoldingsColumn>;
   dict: ReturnType<typeof getDictionary>;
   expandedRows: Set<string>;
@@ -780,7 +874,7 @@ function DashboardHoldingsTable({
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
             const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
             const reportingDailyMove = getReportingDailyMove(group);
-            const visibleChildren = getVisibleAccountRows(group, accountFilter);
+            const visibleChildren = getVisibleAccountRows(group, selectedAccountIds);
             const isExpanded = expandedRows.has(rowKey);
             return (
               <Fragment key={rowKey}>
@@ -842,6 +936,8 @@ function dashboardColumnLabel(dict: ReturnType<typeof getDictionary>, column: Da
       return dict.holdings.unitPnlTerm;
     case "marketValue":
       return formatTopHoldingsMessage(dict.dashboardHome.topHoldingsMarketValueWithCurrency, { currency: reportingCurrency });
+    case "costBasis":
+      return dict.holdings.totalCostTerm;
     case "daily":
       return `${dict.reports.dailyChange} (${reportingCurrency})`;
     case "pnl":
@@ -857,7 +953,7 @@ function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string)
   return cn(
     "whitespace-normal break-words align-top",
     holdingsStickyFirstColumnClassName(column === "ticker"),
-    ["avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "action"].includes(column) && "text-right",
+    ["avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "action"].includes(column) && "text-right",
     extra,
   );
 }
@@ -1015,7 +1111,7 @@ function renderDashboardGroupCell({
           <span>
             {group.reportingMarketValueAmount === null ? "-" : (
               <RollingNumber
-                value={formatCompactCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
+                value={formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
                 animateOnKey={quoteRefreshVersion}
               />
             )}
@@ -1026,6 +1122,13 @@ function renderDashboardGroupCell({
             </span>
           )}
         </div>
+      </TableCell>
+    );
+  }
+  if (column === "costBasis") {
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        {group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)}
       </TableCell>
     );
   }
@@ -1159,7 +1262,7 @@ function renderDashboardChildCell({
           <span>
             {child.reportingMarketValueAmount === null ? "-" : (
               <RollingNumber
-                value={formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+                value={formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
                 animateOnKey={quoteRefreshVersion}
               />
             )}
@@ -1170,6 +1273,13 @@ function renderDashboardChildCell({
             </span>
           )}
         </div>
+      </TableCell>
+    );
+  }
+  if (column === "costBasis") {
+    return (
+      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        {child.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(child.reportingCostBasisAmount, reportingCurrency, locale)}
       </TableCell>
     );
   }
@@ -1568,7 +1678,7 @@ function DashboardHoldingDetail({
                   <div className="text-right">
                     {showLegacyColumn("marketValue") ? (
                       <p className="font-mono text-sm font-semibold tabular-nums">
-                        {child.reportingMarketValueAmount === null ? "-" : formatCompactCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
+                        {child.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
                       </p>
                     ) : null}
                     {showLegacyColumn("pnl") ? (
@@ -1740,6 +1850,8 @@ function DashboardMobileColumnMetric({
           )}
         />
       );
+    case "costBasis":
+      return <PreviewMetric label={dict.holdings.totalCostTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
     case "daily":
       return (
         <PreviewMetric
@@ -1803,6 +1915,8 @@ function DashboardDetailColumnMetric({
       return <DetailMetric label={dict.holdings.unitPnlTerm} toneValue={unitPnl.amount} value={unitPnl.amount === null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale)} />;
     case "marketValue":
       return <DetailMetric label={dict.reports.marketValue} value={group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />;
+    case "costBasis":
+      return <DetailMetric label={dict.holdings.totalCostTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
     case "daily":
       return <DetailMetric label={dict.reports.dailyChange} toneValue={reportingDailyMove} value={reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)} />;
     case "pnl":
@@ -1937,9 +2051,9 @@ function holdingRowKey(group: DashboardOverviewHoldingGroupDto): string {
   return `${group.marketCode}:${group.ticker}`;
 }
 
-function getVisibleAccountRows(group: DashboardOverviewHoldingGroupDto, accountFilter: string): DashboardOverviewHoldingChildDto[] {
-  if (accountFilter === "ALL") return group.children;
-  return group.children.filter((child) => child.accountId === accountFilter);
+function getVisibleAccountRows(group: DashboardOverviewHoldingGroupDto, selectedAccountIds: string[]): DashboardOverviewHoldingChildDto[] {
+  if (selectedAccountIds.length === 0) return group.children;
+  return group.children.filter((child) => selectedAccountIds.includes(child.accountId));
 }
 
 function projectHoldingGroupToChildren(
@@ -2185,11 +2299,9 @@ function formatFinanceCurrencyAmount(
   value: number,
   currency: CurrencyCode,
   locale: LocaleCode,
-  compact = false,
+  _compact = false,
 ): string {
-  const formatted = compact
-    ? formatCompactCurrencyAmount(Math.abs(value), currency, locale)
-    : formatCurrencyAmount(Math.abs(value), currency, locale);
+  const formatted = formatCurrencyAmount(Math.abs(value), currency, locale);
   if (value > 0) return `+${formatted}`;
   if (value < 0) return `-${formatted}`;
   return formatted;

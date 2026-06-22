@@ -11,7 +11,7 @@ import {
   adminMarketDataTableSettingsPreferenceSchema,
   holdingsTableSettingsPreferenceSchema,
 } from "@vakwen/shared-types";
-import { ArrowLeft, ArrowRight, GripVertical, Minus, Plus, RotateCcw, Rows3, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GripVertical, ListOrdered, Minus, Plus, RotateCw, RotateCcw, Rows3, Settings2 } from "lucide-react";
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { cn } from "../../lib/utils";
@@ -47,6 +47,7 @@ export interface HoldingsColumnSettingsCopy {
   columnSettingsButtonLabel: string;
   columnSettingsTitle: string;
   dragColumnTitle: string;
+  dragRowTitle: string;
   layoutStyleLabel: string;
   layoutStyleCompact: string;
   layoutStyleDetailed: string;
@@ -56,9 +57,17 @@ export interface HoldingsColumnSettingsCopy {
   mobileSummaryCountIncreaseAria: string;
   moveColumnLeftAria: string;
   moveColumnRightAria: string;
+  moveRowUpAria: string;
+  moveRowDownAria: string;
   resizeColumnAria: string;
   resetColumnsLabel: string;
+  resetRowsLabel: string;
+  rowSettingsButtonLabel: string;
+  rowSettingsTitle: string;
   toggleColumnAria: string;
+  topHoldingsLimitLabel: string;
+  topHoldingsLimitDecreaseAria: string;
+  topHoldingsLimitIncreaseAria: string;
 }
 
 type ColumnSettingsPreferenceNamespace = "holdingsTableSettings" | "adminMarketDataTableSettings";
@@ -80,6 +89,8 @@ interface ColumnRuntimeSettings<ColumnId extends string> {
   columnWidths: Record<ColumnId, number>;
   layoutStyle: HoldingsTableLayoutStyle;
   mobileSummaryCount: number;
+  rowOrder: string[];
+  topHoldingsLimit: number;
 }
 
 export interface HoldingsColumnSettingsState<ColumnId extends string> {
@@ -90,7 +101,9 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   layoutStyle: HoldingsTableLayoutStyle;
   mobileSummaryCount: number;
   mobileSummaryCountMax: number;
+  rowOrder: string[];
   settingsError: string;
+  topHoldingsLimit: number;
   getColumnWidth: (column: ColumnId) => number;
   headerProps: (column: ColumnId) => {
     draggable: true;
@@ -103,13 +116,19 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
     onPointerDown: (event: PointerEvent<HTMLElement>) => void;
   };
   resetColumns: () => void;
+  resetRowOrder: () => void;
   setLayoutStyle: (style: HoldingsTableLayoutStyle) => void;
   setMobileSummaryCount: (count: number) => void;
+  setRowOrder: (rowOrder: string[]) => void;
+  setTopHoldingsLimit: (limit: number) => void;
   toggleColumn: (column: ColumnId) => void;
 }
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 420;
+const MIN_TOP_HOLDINGS_LIMIT = 1;
+const MAX_TOP_HOLDINGS_LIMIT = 100;
+const DEFAULT_TOP_HOLDINGS_LIMIT = 12;
 const EMPTY_DEFAULT_HIDDEN_COLUMNS: never[] = [];
 const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   columnSettingsButtonLabel: "Columns",
@@ -122,6 +141,15 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   mobileSummaryCountHelp: "Choose how many ordered columns appear before Details.",
   mobileSummaryCountDecreaseAria: "Show fewer mobile summary fields",
   mobileSummaryCountIncreaseAria: "Show more mobile summary fields",
+  rowSettingsButtonLabel: "Rows",
+  rowSettingsTitle: "Row settings",
+  dragRowTitle: "Drag to reorder {row}",
+  moveRowUpAria: "Move {row} row up",
+  moveRowDownAria: "Move {row} row down",
+  resetRowsLabel: "Reset rows",
+  topHoldingsLimitLabel: "Top holdings count",
+  topHoldingsLimitDecreaseAria: "Show fewer top holdings",
+  topHoldingsLimitIncreaseAria: "Show more top holdings",
   moveColumnLeftAria: "Move {column} column left",
   moveColumnRightAria: "Move {column} column right",
   resizeColumnAria: "Resize {column} column",
@@ -287,7 +315,15 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   }
 
   function resetColumns() {
-    persist(defaultSettings);
+    persist({
+      ...defaultSettings,
+      rowOrder: settings.rowOrder,
+      topHoldingsLimit: settings.topHoldingsLimit,
+    });
+  }
+
+  function resetRowOrder() {
+    persist({ ...settings, rowOrder: [] });
   }
 
   function setLayoutStyle(style: HoldingsTableLayoutStyle) {
@@ -296,6 +332,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   function setMobileSummaryCount(count: number) {
     persist({ ...settings, mobileSummaryCount: clampMobileSummaryCount(count, mobileSummaryCountMax) });
+  }
+
+  function setRowOrder(rowOrder: string[]) {
+    persist({ ...settings, rowOrder: normalizeRowOrder(rowOrder) });
+  }
+
+  function setTopHoldingsLimit(limit: number) {
+    persist({ ...settings, topHoldingsLimit: clampTopHoldingsLimit(limit) });
   }
 
   function getColumnWidth(column: ColumnId) {
@@ -362,14 +406,19 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     layoutStyle: settings.layoutStyle,
     mobileSummaryCount: clampMobileSummaryCount(settings.mobileSummaryCount, mobileSummaryCountMax),
     mobileSummaryCountMax,
+    rowOrder: settings.rowOrder,
     settingsError,
+    topHoldingsLimit: settings.topHoldingsLimit,
     getColumnWidth,
     headerProps,
     moveColumn,
     resizeProps,
     resetColumns,
+    resetRowOrder,
     setLayoutStyle,
     setMobileSummaryCount,
+    setRowOrder,
+    setTopHoldingsLimit,
     toggleColumn,
   };
 }
@@ -389,7 +438,7 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
   settings: HoldingsColumnSettingsState<ColumnId>;
   testIdPrefix?: string;
 }) {
-  const resolvedCopy = { ...(dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY), ...copy };
+  const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings, ...copy };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -531,6 +580,195 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
   );
 }
 
+export interface HoldingsRowSettingsItem {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export function HoldingsRowSettingsMenu<ColumnId extends string>({
+  dict,
+  rows,
+  settings,
+  showTopHoldingsLimit = false,
+  testIdPrefix = "holdings",
+}: {
+  dict?: AppDictionary;
+  rows: HoldingsRowSettingsItem[];
+  settings: HoldingsColumnSettingsState<ColumnId>;
+  showTopHoldingsLimit?: boolean;
+  testIdPrefix?: string;
+}) {
+  const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings };
+  const [draggedRow, setDraggedRow] = useState<string | null>(null);
+  const orderedRows = applyHoldingsRowOrder(rows, (row) => row.id, settings.rowOrder);
+  const visibleRowIds = useMemo(() => rows.map((row) => row.id), [rows]);
+
+  function moveRow(rowId: string, direction: -1 | 1) {
+    const ids = orderedRows.map((row) => row.id);
+    const index = ids.indexOf(rowId);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ids.length) return;
+    const next = [...ids];
+    const [source] = next.splice(index, 1);
+    if (!source) return;
+    next.splice(targetIndex, 0, source);
+    settings.setRowOrder(mergeVisibleRowOrder(settings.rowOrder, visibleRowIds, next));
+  }
+
+  function moveRowBefore(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    const ids = orderedRows.map((row) => row.id);
+    const withoutSource = ids.filter((rowId) => rowId !== sourceId);
+    const targetIndex = withoutSource.indexOf(targetId);
+    if (targetIndex < 0) return;
+    settings.setRowOrder(mergeVisibleRowOrder(settings.rowOrder, visibleRowIds, [
+      ...withoutSource.slice(0, targetIndex),
+      sourceId,
+      ...withoutSource.slice(targetIndex),
+    ]));
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" data-testid={`${testIdPrefix}-row-settings`}>
+          <ListOrdered data-icon="inline-start" aria-hidden="true" />
+          {resolvedCopy.rowSettingsButtonLabel}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>{resolvedCopy.rowSettingsTitle}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {showTopHoldingsLimit ? (
+          <>
+            <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+              <p className="min-w-0 text-sm font-medium">{resolvedCopy.topHoldingsLimitLabel}</p>
+              <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background p-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  disabled={settings.topHoldingsLimit <= MIN_TOP_HOLDINGS_LIMIT}
+                  onClick={() => settings.setTopHoldingsLimit(settings.topHoldingsLimit - 1)}
+                  aria-label={resolvedCopy.topHoldingsLimitDecreaseAria}
+                  data-testid={`${testIdPrefix}-top-holdings-limit-decrease`}
+                >
+                  <Minus aria-hidden="true" />
+                </Button>
+                <span className="min-w-8 text-center font-mono text-sm tabular-nums" data-testid={`${testIdPrefix}-top-holdings-limit`}>
+                  {settings.topHoldingsLimit}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  disabled={settings.topHoldingsLimit >= MAX_TOP_HOLDINGS_LIMIT}
+                  onClick={() => settings.setTopHoldingsLimit(settings.topHoldingsLimit + 1)}
+                  aria-label={resolvedCopy.topHoldingsLimitIncreaseAria}
+                  data-testid={`${testIdPrefix}-top-holdings-limit-increase`}
+                >
+                  <Plus aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <div className="flex max-h-80 flex-col gap-2 overflow-y-auto px-2 py-1.5">
+          {orderedRows.map((row, index) => {
+            const isFirst = index === 0;
+            const isLast = index === orderedRows.length - 1;
+            return (
+              <div
+                key={row.id}
+                draggable
+                onDragStart={(event) => {
+                  setDraggedRow(row.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", row.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const source = event.dataTransfer.getData("text/plain") || draggedRow;
+                  setDraggedRow(null);
+                  if (source) moveRowBefore(source, row.id);
+                }}
+                className="flex items-center gap-2 rounded-md px-1 py-1 text-sm"
+                data-testid={`${testIdPrefix}-row-drag-${row.id}`}
+                title={resolvedCopy.dragRowTitle.replace("{row}", row.label)}
+              >
+                <GripVertical className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{row.label}</p>
+                  {row.description ? <p className="truncate text-xs text-muted-foreground">{row.description}</p> : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    disabled={isFirst}
+                    onClick={() => moveRow(row.id, -1)}
+                    aria-label={resolvedCopy.moveRowUpAria.replace("{row}", row.label)}
+                    data-testid={`${testIdPrefix}-row-move-up-${row.id}`}
+                  >
+                    <ArrowUp aria-hidden="true" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    disabled={isLast}
+                    onClick={() => moveRow(row.id, 1)}
+                    aria-label={resolvedCopy.moveRowDownAria.replace("{row}", row.label)}
+                    data-testid={`${testIdPrefix}-row-move-down-${row.id}`}
+                  >
+                    <ArrowDown aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <DropdownMenuSeparator />
+        <div className="flex justify-end px-2 py-1.5">
+          <Button type="button" variant="ghost" size="sm" onClick={settings.resetRowOrder}>
+            <RotateCw data-icon="inline-start" aria-hidden="true" />
+            {resolvedCopy.resetRowsLabel}
+          </Button>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function applyHoldingsRowOrder<Row>(
+  rows: Row[],
+  getRowId: (row: Row) => string,
+  rowOrder: string[],
+): Row[] {
+  if (rowOrder.length === 0) return rows;
+  const orderIndex = new Map(rowOrder.map((rowId, index) => [rowId, index]));
+  return rows
+    .map((row, index) => ({ row, index, order: orderIndex.get(getRowId(row)) }))
+    .sort((left, right) => {
+      if (left.order !== undefined && right.order !== undefined) return left.order - right.order;
+      if (left.order !== undefined) return -1;
+      if (right.order !== undefined) return 1;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
 export function HoldingsColumnHeaderContent<ColumnId extends string>({
   align = "left",
   column,
@@ -548,7 +786,7 @@ export function HoldingsColumnHeaderContent<ColumnId extends string>({
   settings: HoldingsColumnSettingsState<ColumnId>;
   testIdPrefix?: string;
 }) {
-  const resolvedCopy = { ...(dict?.holdings ?? HOLDINGS_SETTINGS_FALLBACK_COPY), ...copy };
+  const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings, ...copy };
   return (
     <div
       {...settings.headerProps(column)}
@@ -598,6 +836,8 @@ function buildDefaultSettings<ColumnId extends string>(
     columnWidths: Object.fromEntries(columns.map((column) => [column.id, clampWidth(column.defaultWidth)])) as Record<ColumnId, number>,
     layoutStyle,
     mobileSummaryCount: clampMobileSummaryCount(defaultMobileSummaryCount, mobileSummaryCountMax),
+    rowOrder: [],
+    topHoldingsLimit: DEFAULT_TOP_HOLDINGS_LIMIT,
   };
 }
 
@@ -637,7 +877,11 @@ function normalizeContextSettings<ColumnId extends string>(
   const mobileSummaryCount = typeof rawSettings?.mobileSummaryCount === "number"
     ? clampMobileSummaryCount(rawSettings.mobileSummaryCount, mobileSummaryCountMax)
     : defaults.mobileSummaryCount;
-  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount };
+  const rowOrder = normalizeRowOrder(rawSettings?.rowOrder);
+  const topHoldingsLimit = typeof rawSettings?.topHoldingsLimit === "number"
+    ? clampTopHoldingsLimit(rawSettings.topHoldingsLimit)
+    : defaults.topHoldingsLimit;
+  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount, rowOrder, topHoldingsLimit };
 }
 
 function serializeSettings<ColumnId extends string>(
@@ -649,6 +893,8 @@ function serializeSettings<ColumnId extends string>(
     columnWidths: settings.columnWidths,
     layoutStyle: settings.layoutStyle,
     mobileSummaryCount: settings.mobileSummaryCount,
+    rowOrder: settings.rowOrder,
+    topHoldingsLimit: settings.topHoldingsLimit,
   };
 }
 
@@ -658,8 +904,10 @@ function columnSettingsEqual<ColumnId extends string>(
 ): boolean {
   return left.layoutStyle === right.layoutStyle
     && left.mobileSummaryCount === right.mobileSummaryCount
+    && left.topHoldingsLimit === right.topHoldingsLimit
     && arraysEqual(left.columnOrder, right.columnOrder)
     && arraysEqual(left.hiddenColumns, right.hiddenColumns)
+    && arraysEqual(left.rowOrder, right.rowOrder)
     && recordEqual(left.columnWidths, right.columnWidths);
 }
 
@@ -680,6 +928,45 @@ function clampWidth(width: number) {
 
 function clampMobileSummaryCount(count: number, max: number) {
   return Math.max(1, Math.min(Math.max(1, max), Math.round(count)));
+}
+
+function clampTopHoldingsLimit(count: number) {
+  return Math.max(MIN_TOP_HOLDINGS_LIMIT, Math.min(MAX_TOP_HOLDINGS_LIMIT, Math.round(count)));
+}
+
+function normalizeRowOrder(rowOrder: unknown): string[] {
+  if (!Array.isArray(rowOrder)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const row of rowOrder) {
+    if (typeof row !== "string" || row.length === 0 || seen.has(row)) continue;
+    seen.add(row);
+    normalized.push(row);
+  }
+  return normalized.slice(0, 500);
+}
+
+function mergeVisibleRowOrder(existingOrder: string[], visibleRowIds: string[], nextVisibleOrder: string[]): string[] {
+  const visible = new Set(visibleRowIds);
+  const nextVisible = nextVisibleOrder.filter((rowId) => visible.has(rowId));
+  const merged: string[] = [];
+  let nextIndex = 0;
+  for (const rowId of existingOrder) {
+    if (visible.has(rowId)) {
+      const nextRow = nextVisible[nextIndex];
+      if (nextRow) {
+        merged.push(nextRow);
+        nextIndex += 1;
+      }
+      continue;
+    }
+    merged.push(rowId);
+  }
+  for (; nextIndex < nextVisible.length; nextIndex += 1) {
+    const nextRow = nextVisible[nextIndex];
+    if (nextRow) merged.push(nextRow);
+  }
+  return normalizeRowOrder(merged);
 }
 
 function readPreferenceSchema(namespace: ColumnSettingsPreferenceNamespace) {
