@@ -298,6 +298,40 @@ describe("YahooFinanceAuMarketDataProvider — real provider against mocked yaho
     expect(symbol).toBe("BHP.AX");
   });
 
+  it("fetchBars sends an exclusive period2 for same-day daily close refreshes", async () => {
+    activeSdkStub!.chart.mockResolvedValueOnce({
+      quotes: [
+        {
+          date: new Date("2026-06-19T13:30:00.000Z"),
+          open: 90,
+          high: 91,
+          low: 89,
+          close: 90.5,
+          volume: 12_345,
+        },
+      ],
+      events: { dividends: [] },
+    });
+
+    const provider = await makeProvider();
+    const bars = await provider.fetchBars("ETPMAG", "2026-06-19", "2026-06-19");
+
+    expect(activeSdkStub!.chart).toHaveBeenCalledWith(
+      "ETPMAG.AX",
+      expect.objectContaining({
+        period1: "2026-06-19",
+        period2: "2026-06-20",
+        interval: "1d",
+      }),
+    );
+    expect(bars).toEqual([expect.objectContaining({
+      ticker: "ETPMAG",
+      barDate: "2026-06-19",
+      close: 90.5,
+      sourceId: "yahoo-finance-au",
+    })]);
+  });
+
   // ── Response parsing + sourceId stamp ────────────────────────────────────
 
   it("fetchBars maps r.quotes → RawDailyBar[] with sourceId='yahoo-finance-au'", async () => {
