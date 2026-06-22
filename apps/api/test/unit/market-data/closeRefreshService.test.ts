@@ -26,15 +26,31 @@ function provider(fetchBars = vi.fn().mockResolvedValue([rawBar()])): MarketData
 }
 
 describe("closeRefreshService", () => {
-  it("uses the primary daily provider before close-only fallbacks", async () => {
+  it("uses Yahoo close-only before TWSE and primary when no same-day close exists", async () => {
+    const yahooBar = {
+      ticker: "2330",
+      barDate: "2026-06-17",
+      open: 1010,
+      high: 1010,
+      low: 1010,
+      close: 1010,
+      volume: 0,
+      quality: "close_only" as const,
+      source: "yahoo-chart-close",
+      ingestedAt: "2026-06-17T06:00:00.000Z",
+    };
     const upsertBars = vi.fn().mockResolvedValue(undefined);
+    const fetchBars = vi.fn().mockResolvedValue([rawBar()]);
     const twseStockDay = { fetchCloseOnlyBar: vi.fn() };
     const result = await runCloseRefresh({
       pairs: [{ ticker: "2330", marketCode: "TW" }],
       persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
       tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
-      marketDataProviders: new Map([["TW", provider()]]),
-      fallbackProviders: { twseStockDay },
+      marketDataProviders: new Map([["TW", provider(fetchBars)]]),
+      fallbackProviders: {
+        yahooChartClose: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(yahooBar) },
+        twseStockDay,
+      },
       upsertBars,
       closeRefreshGraceMinutes: 0,
       supportedMarkets: ["TW", "US", "AU", "KR"],
@@ -43,14 +59,13 @@ describe("closeRefreshService", () => {
     });
 
     expect(result.summary.refreshed).toBe(1);
-    expect(upsertBars).toHaveBeenCalledWith(
-      [expect.objectContaining({ quality: "full_bar", source: "primary" })],
-      "TW",
-    );
+    expect(result.items[0]).toMatchObject({ source: "yahoo-chart-close", quality: "close_only" });
+    expect(upsertBars).toHaveBeenCalledWith([yahooBar], "TW");
     expect(twseStockDay.fetchCloseOnlyBar).not.toHaveBeenCalled();
+    expect(fetchBars).not.toHaveBeenCalled();
   });
 
-  it("falls back to TWSE close-only for TW when the primary provider has no bar", async () => {
+  it("falls through Yahoo to TWSE close-only for TW before primary", async () => {
     const closeOnlyBar = {
       ticker: "2330",
       barDate: "2026-06-17",
@@ -64,14 +79,15 @@ describe("closeRefreshService", () => {
       ingestedAt: "2026-06-17T06:00:00.000Z",
     };
     const upsertBars = vi.fn().mockResolvedValue(undefined);
+    const fetchBars = vi.fn().mockResolvedValue([rawBar()]);
     const result = await runCloseRefresh({
       pairs: [{ ticker: "2330", marketCode: "TW" }],
       persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
       tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
-      marketDataProviders: new Map([["TW", provider(vi.fn().mockResolvedValue([]))]]),
+      marketDataProviders: new Map([["TW", provider(fetchBars)]]),
       fallbackProviders: {
         twseStockDay: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(closeOnlyBar) },
-        yahooChartClose: { fetchCloseOnlyBar: vi.fn() },
+        yahooChartClose: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(null) },
       },
       upsertBars,
       closeRefreshGraceMinutes: 0,
@@ -80,12 +96,43 @@ describe("closeRefreshService", () => {
       log: { info: vi.fn(), warn: vi.fn() },
     });
 
+    expect(fetchBars).not.toHaveBeenCalled();
     expect(result.items[0]).toMatchObject({
       status: "refreshed",
       source: "twse-stock-day-close",
       quality: "close_only",
     });
     expect(upsertBars).toHaveBeenCalledWith([closeOnlyBar], "TW");
+  });
+
+  it("uses the primary full-bar provider after close-only fallbacks miss", async () => {
+    const fetchBars = vi.fn().mockResolvedValue([rawBar()]);
+    const upsertBars = vi.fn().mockResolvedValue(undefined);
+    const result = await runCloseRefresh({
+      pairs: [{ ticker: "AAPL", marketCode: "US" }],
+      persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["US", provider(fetchBars)]]),
+      fallbackProviders: {
+        yahooChartClose: { fetchCloseOnlyBar: vi.fn().mockResolvedValue(null) },
+      },
+      upsertBars,
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T21:00:00.000Z"),
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(fetchBars).toHaveBeenCalledWith("AAPL", "2026-06-17", "2026-06-17");
+    expect(result.items[0]).toMatchObject({
+      status: "refreshed",
+      source: "primary",
+      quality: "full_bar",
+    });
+    expect(upsertBars).toHaveBeenCalledWith(
+      [expect.objectContaining({ quality: "full_bar", source: "primary" })],
+      "US",
+    );
   });
 
   it("skips provider calls when an existing daily bar already covers the close date", async () => {
@@ -151,6 +198,88 @@ describe("closeRefreshService", () => {
     expect(upsertBars).toHaveBeenCalledWith(
       [expect.objectContaining({ quality: "full_bar", volume: 54_321 })],
       "TW",
+    );
+  });
+
+  it("falls back after primary misses when an existing same-day close-only row needs upgrade", async () => {
+    const yahooBar = {
+      ticker: "AAPL",
+      barDate: "2026-06-17",
+      open: 111,
+      high: 111,
+      low: 111,
+      close: 111,
+      volume: 0,
+      quality: "close_only" as const,
+      source: "yahoo-chart-close",
+      ingestedAt: "2026-06-17T21:01:00.000Z",
+    };
+    const fetchBars = vi.fn().mockResolvedValue([]);
+    const yahooChartClose = { fetchCloseOnlyBar: vi.fn().mockResolvedValue(yahooBar) };
+    const upsertBars = vi.fn().mockResolvedValue(undefined);
+    const result = await runCloseRefresh({
+      pairs: [{ ticker: "AAPL", marketCode: "US" }],
+      persistence: {
+        getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([{
+          ...rawBar({ ticker: "AAPL", sourceId: "yahoo-chart-close", volume: 0 }),
+          marketCode: "US",
+          source: "yahoo-chart-close",
+          quality: "close_only",
+          ingestedAt: "2026-06-17T21:00:00.000Z",
+        }]),
+      },
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["US", provider(fetchBars)]]),
+      fallbackProviders: { yahooChartClose },
+      upsertBars,
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T21:05:00.000Z"),
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(fetchBars.mock.invocationCallOrder[0]).toBeLessThan(
+      yahooChartClose.fetchCloseOnlyBar.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(result.items[0]).toMatchObject({
+      status: "refreshed",
+      source: "yahoo-chart-close",
+      quality: "close_only",
+    });
+  });
+
+  it("falls through fallback errors and rate limits before reaching the primary provider", async () => {
+    const fetchBars = vi.fn().mockResolvedValue([rawBar()]);
+    const warn = vi.fn();
+    const result = await runCloseRefresh({
+      pairs: [{ ticker: "2330", marketCode: "TW" }],
+      persistence: { getLatestBarsByTickerMarket: vi.fn().mockResolvedValue([]) },
+      tradingCalendar: { isTradingDay: vi.fn().mockResolvedValue(true) },
+      marketDataProviders: new Map([["TW", provider(fetchBars)]]),
+      fallbackProviders: {
+        yahooChartClose: { fetchCloseOnlyBar: vi.fn().mockRejectedValue(new RateLimitedError({ msUntilAvailable: 30_000 })) },
+        twseStockDay: { fetchCloseOnlyBar: vi.fn().mockRejectedValue(new Error("twse unavailable")) },
+      },
+      upsertBars: vi.fn().mockResolvedValue(undefined),
+      closeRefreshGraceMinutes: 0,
+      supportedMarkets: ["TW", "US", "AU", "KR"],
+      now: new Date("2026-06-17T05:45:00.000Z"),
+      log: { info: vi.fn(), warn },
+    });
+
+    expect(fetchBars).toHaveBeenCalledWith("2330", "2026-06-17", "2026-06-17");
+    expect(result.items[0]).toMatchObject({
+      status: "refreshed",
+      source: "primary",
+      quality: "full_bar",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "yahoo-chart-close" }),
+      "close_refresh_fallback_failed",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "twse-stock-day-close" }),
+      "close_refresh_fallback_failed",
     );
   });
 

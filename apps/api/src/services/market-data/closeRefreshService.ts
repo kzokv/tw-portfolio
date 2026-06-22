@@ -38,7 +38,7 @@ interface CloseFallbackProviders {
   yahooChartClose?: {
     fetchCloseOnlyBar(
       ticker: string,
-      marketCode: Extract<RegularSessionMarketCode, "TW" | "US">,
+      marketCode: Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR">,
       barDate: string,
       now?: Date,
     ): Promise<DailyBar | null>;
@@ -94,7 +94,7 @@ export async function runCloseRefresh(input: RunCloseRefreshInput): Promise<Clos
     }
 
     try {
-      const bar = await fetchCloseRefreshBar(input, pair, closeDate, now);
+      const bar = await fetchCloseRefreshBar(input, pair, closeDate, now, latest ?? null);
       if (!bar) {
         const item = buildItem(pair, "missing", closeDate, null, null);
         items.push(item);
@@ -149,25 +149,104 @@ async function fetchCloseRefreshBar(
   pair: CloseRefreshPair & { marketCode: RegularSessionMarketCode },
   barDate: string,
   now: Date,
+  latest: DailyBar | null,
 ): Promise<DailyBar | null> {
-  const primary = input.marketDataProviders.get(pair.marketCode);
-  if (primary) {
-    const rawBars = await primary.fetchBars(pair.ticker, barDate, barDate);
-    const primaryBar = selectRawBar(rawBars, barDate, primary.providerId);
-    if (primaryBar) return primaryBar;
-  }
+  const sameDayStatus = getSameDayStatus(latest, barDate);
+  const operations = sameDayStatus === "close_only"
+    ? buildCloseRefreshOperations(input, pair, barDate, now, ["primary", "yahoo", "twse"])
+    : buildCloseRefreshOperations(input, pair, barDate, now, ["yahoo", "twse", "primary"]);
 
-  if (pair.marketCode === "TW") {
-    const twseBar = await input.fallbackProviders?.twseStockDay?.fetchCloseOnlyBar(pair.ticker, barDate);
-    if (twseBar) return twseBar;
-    return input.fallbackProviders?.yahooChartClose?.fetchCloseOnlyBar(pair.ticker, "TW", barDate, now) ?? null;
-  }
+  for (const operation of operations) {
+    if (operation.kind === "primary") {
+      const bar = await operation.run();
+      if (bar) return bar;
+      continue;
+    }
 
-  if (pair.marketCode === "US") {
-    return input.fallbackProviders?.yahooChartClose?.fetchCloseOnlyBar(pair.ticker, "US", barDate, now) ?? null;
+    try {
+      const bar = await operation.run();
+      if (bar) return bar;
+    } catch (error) {
+      input.log?.warn(
+        {
+          err: error instanceof Error ? error.message : String(error),
+          ticker: pair.ticker,
+          marketCode: pair.marketCode,
+          barDate,
+          provider: operation.provider,
+        },
+        "close_refresh_fallback_failed",
+      );
+    }
   }
 
   return null;
+}
+
+type CloseRefreshOperation = {
+  kind: "primary" | "fallback";
+  provider: string;
+  run: () => Promise<DailyBar | null>;
+};
+
+function buildCloseRefreshOperations(
+  input: RunCloseRefreshInput,
+  pair: CloseRefreshPair & { marketCode: RegularSessionMarketCode },
+  barDate: string,
+  now: Date,
+  order: ReadonlyArray<"primary" | "yahoo" | "twse">,
+): CloseRefreshOperation[] {
+  const operations: CloseRefreshOperation[] = [];
+
+  for (const step of order) {
+    if (step === "primary") {
+      const primary = input.marketDataProviders.get(pair.marketCode);
+      if (!primary) continue;
+      operations.push({
+        kind: "primary",
+        provider: primary.providerId,
+        run: async () => {
+          const rawBars = await primary.fetchBars(pair.ticker, barDate, barDate);
+          return selectRawBar(rawBars, barDate, primary.providerId);
+        },
+      });
+      continue;
+    }
+
+    if (step === "yahoo") {
+      const yahooProvider = input.fallbackProviders?.yahooChartClose;
+      if (!yahooProvider || !supportsYahooChartClose(pair.marketCode)) continue;
+      operations.push({
+        kind: "fallback",
+        provider: "yahoo-chart-close",
+        run: () => yahooProvider.fetchCloseOnlyBar(pair.ticker, pair.marketCode, barDate, now),
+      });
+      continue;
+    }
+
+    if (step === "twse" && pair.marketCode === "TW") {
+      const twseProvider = input.fallbackProviders?.twseStockDay;
+      if (!twseProvider) continue;
+      operations.push({
+        kind: "fallback",
+        provider: "twse-stock-day-close",
+        run: () => twseProvider.fetchCloseOnlyBar(pair.ticker, barDate),
+      });
+    }
+  }
+
+  return operations;
+}
+
+function getSameDayStatus(latest: DailyBar | null, closeDate: string): DailyBar["quality"] | "none" {
+  if (!latest || latest.barDate !== closeDate) return "none";
+  return latest.quality;
+}
+
+function supportsYahooChartClose(
+  marketCode: RegularSessionMarketCode,
+): marketCode is Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR"> {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
 }
 
 function selectRawBar(
