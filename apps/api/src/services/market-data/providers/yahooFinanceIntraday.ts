@@ -24,13 +24,13 @@ interface YahooChartResult {
   meta?: YahooChartMeta;
 }
 
-interface KrResolutionPersistence {
-  getProviderResolutionMapping(
+interface YahooIntradayPersistence {
+  getProviderResolutionMapping?(
     providerId: string,
     marketCode: "KR",
     sourceSymbol: string,
   ): Promise<{ resolvedSymbol: string } | null>;
-  getInstrument(
+  getInstrument?(
     ticker: string,
     marketCode?: string,
   ): Promise<Pick<InstrumentRow, "catalogExchangeRaw" | "catalogMicCode" | "typeRaw"> | null>;
@@ -39,7 +39,7 @@ interface KrResolutionPersistence {
 export interface YahooFinanceIntradayProviderConfig {
   range: YahooIntradayRange;
   interval: YahooIntradayInterval;
-  persistence?: KrResolutionPersistence;
+  persistence?: YahooIntradayPersistence;
 }
 
 export interface YahooIntradayFetchInput {
@@ -78,7 +78,7 @@ export class YahooFinanceIntradayProvider {
   private readonly client: InstanceType<typeof YahooFinance>;
   private readonly range: YahooIntradayRange;
   private readonly interval: YahooIntradayInterval;
-  private readonly persistence?: KrResolutionPersistence;
+  private readonly persistence?: YahooIntradayPersistence;
 
   constructor(config: YahooFinanceIntradayProviderConfig) {
     this.client = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
@@ -95,11 +95,17 @@ export class YahooFinanceIntradayProvider {
       queryOptions: Record<string, unknown>,
       moduleOptions?: { validateResult?: boolean },
     ) => Promise<unknown>;
-    const result = await chart(
-      symbol,
-      buildYahooChartOptions(this.range, this.interval, now),
-      { validateResult: false },
-    ) as YahooChartResult;
+    let result: YahooChartResult;
+    try {
+      result = await chart(
+        symbol,
+        buildYahooChartOptions(this.range, this.interval, now),
+        { validateResult: false },
+      ) as YahooChartResult;
+    } catch (error) {
+      if (isYahooNoDataError(error)) return null;
+      throw error;
+    }
 
     const latest = selectLatestSameMarketDateClose(result.quotes, input.marketCode, now);
     if (!latest) return null;
@@ -121,24 +127,54 @@ export class YahooFinanceIntradayProvider {
 
   private async resolveSymbol(ticker: string, marketCode: RegularSessionMarketCode): Promise<string> {
     const normalized = ticker.trim().toUpperCase();
-    if (marketCode === "TW") return `${normalized}.TW`;
+    if (marketCode === "TW") return this.resolveTwSymbol(normalized);
     if (marketCode === "US") return normalized;
     if (marketCode === "AU") return `${normalized}.AX`;
     return this.resolveKrSymbol(normalized);
   }
 
+  private async resolveTwSymbol(ticker: string): Promise<string> {
+    if (ticker.endsWith(".TW") || ticker.endsWith(".TWO")) return ticker;
+    const instrument = await this.persistence?.getInstrument?.(ticker, "TW");
+    return `${ticker}${isTpexInstrument(instrument) ? ".TWO" : ".TW"}`;
+  }
+
   private async resolveKrSymbol(ticker: string): Promise<string> {
     if (hasKrSuffix(ticker)) return ticker;
     const bare = stripKrSuffix(ticker);
-    const mapped = await this.persistence?.getProviderResolutionMapping("yahoo-finance-kr", "KR", bare);
+    const mapped = await this.persistence?.getProviderResolutionMapping?.("yahoo-finance-kr", "KR", bare);
     if (mapped?.resolvedSymbol) return mapped.resolvedSymbol.trim().toUpperCase();
-    const instrument = await this.persistence?.getInstrument(bare, "KR");
+    const instrument = await this.persistence?.getInstrument?.(bare, "KR");
     const hintedSuffix = yahooSuffixHintFromKrCatalogEvidence(
       instrument?.catalogExchangeRaw ?? instrument?.typeRaw ?? null,
       instrument?.catalogMicCode ?? null,
     );
     return `${bare}${hintedSuffix ?? ".KS"}`;
   }
+}
+
+function isTpexInstrument(
+  instrument: Pick<InstrumentRow, "catalogExchangeRaw" | "catalogMicCode" | "typeRaw"> | null | undefined,
+): boolean {
+  const evidence = [
+    instrument?.typeRaw,
+    instrument?.catalogExchangeRaw,
+    instrument?.catalogMicCode,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().toUpperCase());
+
+  return evidence.some((value) =>
+    value === "TPEX"
+    || value === "ROCO"
+    || value === "TWO"
+    || value.includes("TAIPEI EXCHANGE")
+    || value.includes("TPEX"));
+}
+
+function isYahooNoDataError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("no data found");
 }
 
 export function selectLatestSameMarketDateClose(
