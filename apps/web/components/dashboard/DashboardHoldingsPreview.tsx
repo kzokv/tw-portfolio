@@ -260,15 +260,19 @@ export function DashboardHoldingsPreview({
     });
     return applyHoldingPreset(recalculateHoldingGroupAllocations(baseGroups), selectedPreset, reportingCurrency);
   }, [groups, query, reportingCurrency, selectedAccountIds, selectedMarketCodes, selectedPreset]);
+  const sortedFilteredGroups = useMemo(
+    () => filteredGroups
+      .slice()
+      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency)),
+    [filteredGroups, reportingCurrency, selectedPreset, sortMode],
+  );
   const visibleGroups = useMemo(
     () => applyHoldingsRowOrder(
-      filteredGroups
-        .slice()
-        .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency)),
+      sortedFilteredGroups,
       holdingRowKey,
       columnSettings.rowOrder,
     ).slice(0, columnSettings.topHoldingsLimit),
-    [columnSettings.rowOrder, columnSettings.topHoldingsLimit, filteredGroups, reportingCurrency, selectedPreset, sortMode],
+    [columnSettings.rowOrder, columnSettings.topHoldingsLimit, sortedFilteredGroups],
   );
   const visiblePresets = presetOrder
     .filter((presetId) => !hiddenPresetIds.has(presetId))
@@ -401,7 +405,11 @@ export function DashboardHoldingsPreview({
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsAccountLabel}</span>
                   <DashboardMultiSelectMenu
                     allLabel={dict.dashboardHome.topHoldingsAllAccounts}
-                    buttonLabel={formatFilterSummary(selectedAccountIds, dict.dashboardHome.topHoldingsAllAccounts, dict.dashboardHome.topHoldingsAccountLabel)}
+                    buttonLabel={formatFilterSummary(
+                      selectedAccountIds.map((accountId) => accountOptions.find((account) => account.id === accountId)?.name ?? accountId),
+                      dict.dashboardHome.topHoldingsAllAccounts,
+                      dict.dashboardHome.topHoldingsAccountLabel,
+                    )}
                     label={dict.dashboardHome.topHoldingsAccountLabel}
                     options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
                     selectedIds={selectedAccountIds}
@@ -493,7 +501,7 @@ export function DashboardHoldingsPreview({
                   />
                   <HoldingsRowSettingsMenu
                     dict={dict}
-                    rows={filteredGroups.map((group) => ({
+                    rows={sortedFilteredGroups.map((group) => ({
                       id: holdingRowKey(group),
                       label: group.ticker,
                       description: group.instrumentName ? `${group.marketCode} · ${group.instrumentName}` : group.marketCode,

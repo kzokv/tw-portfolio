@@ -315,7 +315,11 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   }
 
   function resetColumns() {
-    persist(defaultSettings);
+    persist({
+      ...defaultSettings,
+      rowOrder: settings.rowOrder,
+      topHoldingsLimit: settings.topHoldingsLimit,
+    });
   }
 
   function resetRowOrder() {

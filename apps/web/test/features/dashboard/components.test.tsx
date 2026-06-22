@@ -624,6 +624,8 @@ describe("dashboard components", () => {
     click(retirementOption!);
     await flushPromises();
 
+    expect(accountTrigger?.textContent).toContain("Retirement Brokerage");
+    expect(accountTrigger?.textContent).not.toContain("acc-2");
     expect(container.textContent).toContain("500 units");
     expect(container.textContent).toContain("1 acct");
     expect(container.textContent).toContain("A$15,000");
@@ -817,6 +819,8 @@ describe("dashboard components", () => {
             hiddenColumns: [],
             columnWidths: { pnl: 222 },
             layoutStyle: "dashboard",
+            rowOrder: ["US:AAPL", "TW:2330"],
+            topHoldingsLimit: 8,
           },
         },
       },
@@ -863,6 +867,72 @@ describe("dashboard components", () => {
       ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "health", "action"],
     );
     expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnWidths.pnl).toBe(222);
+
+    const resetButton = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes(dict.holdings.resetColumnsLabel));
+    expect(resetButton).toBeDefined();
+    click(resetButton!);
+    await flushPromises();
+
+    const resetPatchBody = JSON.parse(String(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").at(-1)?.[1]?.body)) as {
+      holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; rowOrder: string[]; topHoldingsLimit: number }> };
+    };
+    expect(resetPatchBody.holdingsTableSettings.contexts["holdings.shared"]).toMatchObject({
+      columnOrder: ["ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health", "action"],
+      rowOrder: ["US:AAPL", "TW:2330"],
+      topHoldingsLimit: 8,
+    });
+  });
+
+  it("lists dashboard row settings in the same sorted order as the visible table", async () => {
+    mockUserPreferencesFetch();
+    const groups = buildHoldingGroupsFromHoldings({
+      holdings: [
+        {
+          ...holdings[0]!,
+          accountId: "acc-2",
+          accountName: "US Brokerage",
+          ticker: "AAPL",
+          instrumentName: "Apple Inc.",
+          marketCode: "US",
+          currency: "USD",
+          quantity: 10,
+          costBasisAmount: 1_500,
+          averageCostPerShare: 150,
+          currentUnitPrice: 180,
+          marketValueAmount: 1_800,
+          unrealizedPnlAmount: 300,
+          allocationPct: 1.8,
+        },
+        holdings[0]!,
+      ],
+    });
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={groups}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const visibleRows = [...container.querySelectorAll('[data-testid^="dashboard-holding-preview-"]')];
+    expect(visibleRows[0]?.getAttribute("data-testid")).toBe("dashboard-holding-preview-2330-TW");
+
+    const settingsButton = container.querySelector('[data-testid="dashboard-holdings-row-settings"]');
+    expect(settingsButton).not.toBeNull();
+    pointerDown(settingsButton!);
+    await flushPromises();
+
+    const rowSettingsRows = [...document.body.querySelectorAll('[data-testid^="dashboard-holdings-row-drag-"]')];
+    expect(rowSettingsRows[0]?.getAttribute("data-testid")).toBe("dashboard-holdings-row-drag-TW:2330");
+    expect(rowSettingsRows[1]?.getAttribute("data-testid")).toBe("dashboard-holdings-row-drag-US:AAPL");
   });
 
   it("hydrates and persists shared dashboard row order and top holdings count", async () => {
