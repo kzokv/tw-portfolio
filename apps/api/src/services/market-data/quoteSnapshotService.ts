@@ -393,7 +393,10 @@ function buildDailyPriceState(
   let basis: PriceStateBasisDto = "today_close";
   let chipState: PriceStateDto["chipState"] = "closed";
 
-  if (settled && latest.barDate < settled) {
+  if (isAwaitingTodayClose(latest, session)) {
+    basis = "pending_today_close";
+    chipState = "closed_pending";
+  } else if (settled && latest.barDate < settled) {
     basis = "stale_close";
     chipState = "stale";
   } else if (marketState === "open") {
@@ -422,6 +425,14 @@ function buildDailyPriceState(
     refreshCadenceMinutes,
     latestIntradayAttempt: null,
   };
+}
+
+function isAwaitingTodayClose(
+  latest: SnapshotBar,
+  session: RegularSessionState | undefined,
+): boolean {
+  return session?.marketStateReason === "outside_regular_session"
+    && latest.barDate < session.localDate;
 }
 
 function buildOpenPreviousCloseState(
