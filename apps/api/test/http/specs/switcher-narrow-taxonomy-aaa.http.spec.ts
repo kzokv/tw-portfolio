@@ -38,8 +38,9 @@ test.describe("portfolio switcher: narrow write-block taxonomy", () => {
     );
     sharesApi.arrange.asResolvedBody(createBody);
 
-    // Seed distinct outbound shares for the grantee (to prove /shares returns
-    // grantee's shares, not owner's) by granting from grantee to bystander.
+    // Seed a distinct outbound share for the grantee to prove `/shares` no
+    // longer falls back to session-scoped data while viewing another owner's
+    // portfolio without `sharing:manage`.
     await sharesApi.actions.createShareForCookie(grantee.cookieHeader, bystander.email);
 
     const profileResponse = await request.get(profileUrl, {
@@ -88,33 +89,34 @@ test.describe("portfolio switcher: narrow write-block taxonomy", () => {
       "/notifications returns the grantee's sharing inbox under shared context",
     );
 
-    // /shares — grantee's outbound list must contain the share-to-bystander
-    // grant created above. The owner's outbound list (which has a share to
-    // grantee) must NOT appear here.
+    // /shares — direct access is now owner-scoped and therefore requires the
+    // delegated `sharing:manage` capability. The grantee's own outbound share
+    // must not leak through as a session-scoped fallback.
     const sharesResponse = await request.get(sharesUrl, {
       headers: {
         cookie: grantee.cookieHeader,
         "x-context-user-id": owner.userId,
       },
     });
-    await sharesApi.assert.statusIs(sharesResponse, 200);
+    await sharesApi.assert.statusIs(sharesResponse, 403);
     const sharesBody = await sharesResponse.json() as {
-      outbound: { active: Array<{ granteeEmail: string | null }> };
-      inbound: { active: Array<{ ownerEmail: string | null }> };
+      error: string;
+      metadata?: { routeKey?: string; requiredCapability?: string };
     };
-    const granteeOutboundEmails = sharesBody.outbound.active.map((r) => r.granteeEmail);
-    await sharesApi.assert.mxAssertTruthy(
-      granteeOutboundEmails.includes(bystander.email),
-      "/shares.outbound.active contains the grantee's outbound grant (to bystander)",
+    await sharesApi.assert.mxAssertEqual(
+      sharesBody.error,
+      "shared_capability_required",
+      "/shares returns shared_capability_required without delegated sharing management",
     );
-    await sharesApi.assert.mxAssertTruthy(
-      !granteeOutboundEmails.includes(grantee.email),
-      "/shares does not leak the owner's outbound grant (to grantee)",
+    await sharesApi.assert.mxAssertEqual(
+      sharesBody.metadata?.routeKey,
+      "GET /shares",
+      "/shares denial reports the owner-scoped route key",
     );
-    const granteeInboundEmails = sharesBody.inbound.active.map((r) => r.ownerEmail);
-    await sharesApi.assert.mxAssertTruthy(
-      granteeInboundEmails.includes(owner.email),
-      "/shares.inbound.active contains the grantee's inbound grant from owner",
+    await sharesApi.assert.mxAssertEqual(
+      sharesBody.metadata?.requiredCapability,
+      "sharing:manage",
+      "/shares denial requires sharing:manage",
     );
 
     const blockedWrite = await transactionsApi.actions.createTransactionForCookie(

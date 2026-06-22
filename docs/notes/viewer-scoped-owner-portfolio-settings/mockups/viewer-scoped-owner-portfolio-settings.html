@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Viewer Scoped Owner Portfolio Settings Mockup</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --line: #d7e0eb;
+        --line-strong: #b7c3d1;
+        --text: #182235;
+        --muted: #64748b;
+        --subtle: #8a98aa;
+        --primary: #2563eb;
+        --primary-soft: #eff6ff;
+        --success: #15803d;
+        --success-soft: #ecfdf5;
+        --warning: #b45309;
+        --warning-soft: #fff7ed;
+        --danger: #b91c1c;
+        --danger-soft: #fef2f2;
+        --owner: #be185d;
+        --owner-soft: #fff1f2;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 270px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: #ffffff;
+        padding: 18px 14px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 8px 18px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        background: #111827;
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      .brand-name {
+        font-size: 14px;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      .brand-subtitle {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .switcher {
+        margin: 0 4px 18px;
+        border: 1px solid #f5c7d3;
+        border-radius: 8px;
+        background: var(--owner-soft);
+        padding: 10px;
+      }
+
+      .eyebrow {
+        color: var(--owner);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .switcher-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 6px;
+        min-width: 0;
+      }
+
+      .switcher-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        white-space: nowrap;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .badge.owner {
+        border-color: #f5c7d3;
+        background: #ffffff;
+        color: var(--owner);
+      }
+
+      .badge.green {
+        border-color: #b7e4c7;
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      .badge.blue {
+        border-color: #bfdbfe;
+        background: var(--primary-soft);
+        color: var(--primary);
+      }
+
+      .nav {
+        display: grid;
+        gap: 4px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 38px;
+        border-radius: 8px;
+        padding: 0 10px;
+        color: #3b4658;
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      .nav-item.active {
+        background: var(--primary-soft);
+        color: #1d4ed8;
+        font-weight: 750;
+      }
+
+      .nav-item.hidden-by-grant {
+        color: var(--subtle);
+      }
+
+      .main {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        height: 56px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.96);
+        padding: 0 22px;
+      }
+
+      .crumbs {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .profile {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #334155;
+        font-size: 13px;
+      }
+
+      .avatar {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 999px;
+        background: #e2e8f0;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .scroll {
+        min-width: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 0 24px 34px;
+      }
+
+      .context-strip {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        min-height: 44px;
+        margin: 0 -24px 22px;
+        border-bottom: 1px solid var(--line);
+        background: #ffffff;
+        padding: 8px 24px;
+        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+      }
+
+      .strip-copy {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .strip-dot {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: var(--owner);
+      }
+
+      .strip-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .strip-subtitle {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .strip-action {
+        flex: 0 0 auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 7px 10px;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 18px;
+        max-width: 1180px;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 25px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .page-intro {
+        margin-top: 6px;
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.05);
+      }
+
+      .metric {
+        padding: 14px;
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .metric-value {
+        margin-top: 7px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .finance-gain {
+        color: #15803d;
+      }
+
+      .finance-loss {
+        color: #b91c1c;
+      }
+
+      .section-card {
+        margin-top: 14px;
+        padding: 16px;
+      }
+
+      .table {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) 110px 110px 90px;
+        align-items: center;
+        gap: 10px;
+        min-height: 46px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+
+      .row-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .row-muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .side-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .state-card {
+        padding: 16px;
+      }
+
+      .state-title {
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .state-text {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .state-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .button {
+        min-height: 34px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 0 11px;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .button.primary {
+        border-color: #1d4ed8;
+        background: #2563eb;
+        color: #ffffff;
+      }
+
+      .permission {
+        border-color: #fed7aa;
+        background: var(--warning-soft);
+      }
+
+      .permission .state-title {
+        color: #8a3d08;
+      }
+
+      .mini-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 10px 12px;
+      }
+
+      .mini-title {
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .mini-subtitle {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .cap-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+      }
+
+      @media (max-width: 820px) {
+        .app {
+          display: block;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .topbar {
+          height: 54px;
+          padding: 0 12px;
+        }
+
+        .crumbs {
+          font-size: 12px;
+        }
+
+        .profile span {
+          display: none;
+        }
+
+        .scroll {
+          padding: 0 12px 26px;
+        }
+
+        .context-strip {
+          flex-direction: column;
+          align-items: stretch;
+          margin: 0 -12px 16px;
+          padding: 9px 12px;
+        }
+
+        .strip-copy {
+          align-items: flex-start;
+        }
+
+        .strip-dot {
+          margin-top: 5px;
+        }
+
+        .strip-title {
+          white-space: normal;
+          line-height: 1.3;
+        }
+
+        .strip-action {
+          width: 100%;
+          padding: 9px 10px;
+          line-height: 1.2;
+          text-align: center;
+        }
+
+        .workspace {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+
+        .page-header {
+          display: block;
+        }
+
+        h1 {
+          font-size: 22px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .row {
+          grid-template-columns: minmax(0, 1fr);
+          align-items: start;
+        }
+
+        .side-stack {
+          gap: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" aria-label="Navigation">
+        <div class="brand">
+          <div class="brand-mark">V</div>
+          <div>
+            <div class="brand-name">Vakwen</div>
+            <div class="brand-subtitle">Portfolio workspace</div>
+          </div>
+        </div>
+
+        <div class="switcher">
+          <div class="eyebrow">Shared context</div>
+          <div class="switcher-row">
+            <div class="switcher-name">Alice Chen portfolio</div>
+            <span class="badge owner">Delegated</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item active" href="#">Dashboard</a>
+          <a class="nav-item" href="#">Portfolio</a>
+          <a class="nav-item" href="#">Transactions</a>
+          <a class="nav-item" href="#">Dividends</a>
+          <a class="nav-item" href="#">Portfolio settings <span class="badge blue">account</span></a>
+          <a class="nav-item hidden-by-grant" href="#">Sharing <span class="badge">hidden</span></a>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="crumbs">Portfolio / Alice Chen / Dashboard</div>
+          <div class="profile">
+            <span>Tai Walker</span>
+            <div class="avatar">TW</div>
+          </div>
+        </header>
+
+        <main class="scroll">
+          <div class="context-strip" aria-label="Shared portfolio context">
+            <div class="strip-copy">
+              <span class="strip-dot" aria-hidden="true"></span>
+              <div>
+                <div class="strip-title">Viewing Alice Chen's portfolio</div>
+                <div class="strip-subtitle">Your price color convention stays active while portfolio data is Alice's.</div>
+              </div>
+            </div>
+            <button class="strip-action" type="button">Back to my portfolio</button>
+          </div>
+
+          <div class="workspace">
+            <section>
+              <div class="page-header">
+                <div>
+                  <h1>Portfolio overview</h1>
+                  <p class="page-intro">The shared-owner context is visible but low-noise. Financial colors use the viewer's display preference.</p>
+                </div>
+                <span class="badge green">price colors: viewer scoped</span>
+              </div>
+
+              <div class="grid">
+                <article class="card metric">
+                  <p class="metric-label">Market value</p>
+                  <p class="metric-value">NT$ 4,218,900</p>
+                </article>
+                <article class="card metric">
+                  <p class="metric-label">Daily change</p>
+                  <p class="metric-value finance-gain">+NT$ 18,420</p>
+                </article>
+                <article class="card metric">
+                  <p class="metric-label">Unrealized P/L</p>
+                  <p class="metric-value finance-loss">-NT$ 42,100</p>
+                </article>
+              </div>
+
+              <article class="card section-card">
+                <div class="mini-strip">
+                  <div>
+                    <div class="mini-title">Portfolio settings preview</div>
+                    <div class="mini-subtitle">Visible only with `account:manage` in shared context.</div>
+                  </div>
+                  <span class="badge blue">owner scoped</span>
+                </div>
+
+                <div class="table" aria-label="Account settings table preview">
+                  <div class="row">
+                    <div>
+                      <div class="row-title">TW Broker Main</div>
+                      <div class="row-muted">Default currency TWD</div>
+                    </div>
+                    <div class="row-muted">Weighted avg</div>
+                    <div class="row-muted">Standard fee</div>
+                    <button class="button" type="button">Edit</button>
+                  </div>
+                  <div class="row">
+                    <div>
+                      <div class="row-title">US Growth</div>
+                      <div class="row-muted">Default currency USD</div>
+                    </div>
+                    <div class="row-muted">Weighted avg</div>
+                    <div class="row-muted">US fee</div>
+                    <button class="button" type="button">Edit</button>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <aside class="side-stack" aria-label="Permission states">
+              <article class="card state-card">
+                <p class="state-title">Delegated named sharing</p>
+                <p class="state-text">Shown only when `sharing:manage` is granted. Public link management remains owner-only and is not shown here.</p>
+                <div class="cap-list">
+                  <span class="badge blue">named grants</span>
+                  <span class="badge blue">pending invites</span>
+                  <span class="badge">public links hidden</span>
+                </div>
+              </article>
+
+              <article class="card state-card permission">
+                <p class="state-title">Permission required</p>
+                <p class="state-text">Direct URL access to owner sharing without `sharing:manage` explains the missing grant instead of redirecting.</p>
+                <div class="state-actions">
+                  <button class="button primary" type="button">Back to portfolio</button>
+                  <button class="button" type="button">View my sharing</button>
+                </div>
+              </article>
+
+              <article class="card state-card">
+                <p class="state-title">Constrained delegation</p>
+                <p class="state-text">A delegated sharing manager can grant only capabilities they hold, and cannot grant `sharing:manage` onward.</p>
+              </article>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

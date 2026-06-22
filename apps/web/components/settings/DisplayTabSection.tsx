@@ -128,7 +128,7 @@ export function DisplayTabSection({
   // Initial hydration from GET /user-preferences (once per mount).
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences")
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((res) => {
         if (cancelled) return;
         const saved = res?.preferences?.reportingCurrency;
@@ -178,10 +178,10 @@ export function DisplayTabSection({
       setResetError(null);
       try {
         if (target === "all") {
-          await patchJson("/user-preferences", { cardOrder: null });
+          await patchJson("/user-preferences", { cardOrder: null }, { contextScope: "session" });
           onLayoutReset();
         } else {
-          await patchJson("/user-preferences", { cardOrder: { [target]: null } });
+          await patchJson("/user-preferences", { cardOrder: { [target]: null } }, { contextScope: "session" });
           onPageLayoutReset(target);
         }
         setResetMessage(dict.settings.resetLayoutSuccess);
@@ -210,7 +210,7 @@ export function DisplayTabSection({
       setCurrencyError(null);
       setCurrencySavedFlash(false);
       try {
-        await patchJson("/user-preferences", { reportingCurrency: next });
+        await patchJson("/user-preferences", { reportingCurrency: next }, { contextScope: "session" });
         setCurrencySavedFlash(true);
         if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         flashTimerRef.current = setTimeout(
@@ -243,7 +243,7 @@ export function DisplayTabSection({
       setAccent(next);
       applyAccent(next, resolvedTheme === "dark" ? "dark" : "light");
       try {
-        await patchJson("/user-preferences", { themeAccent: next });
+        await patchJson("/user-preferences", { themeAccent: next }, { contextScope: "session" });
       } catch {
         setAccent(previous);
         applyAccent(previous, resolvedTheme === "dark" ? "dark" : "light");
@@ -258,7 +258,7 @@ export function DisplayTabSection({
       setDensity(next);
       applyDensity(next);
       try {
-        await patchJson("/user-preferences", { density: next });
+        await patchJson("/user-preferences", { density: next }, { contextScope: "session" });
       } catch {
         setDensity(previous);
         applyDensity(previous);
@@ -276,7 +276,7 @@ export function DisplayTabSection({
       setPriceColorError(null);
       setPriceColorSavedFlash(false);
       try {
-        await patchJson("/user-preferences", { priceColorConvention: next });
+        await patchJson("/user-preferences", { priceColorConvention: next }, { contextScope: "session" });
         setPriceColorSavedFlash(true);
         if (priceColorFlashTimerRef.current) clearTimeout(priceColorFlashTimerRef.current);
         priceColorFlashTimerRef.current = setTimeout(

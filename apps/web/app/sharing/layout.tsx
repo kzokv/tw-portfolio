@@ -9,13 +9,13 @@ import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/u
 export default async function SharingLayout({ children }: { children: ReactNode }) {
   const [session, profile, initialSidebarOpen] = await Promise.all([
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
   ]);
 
   let locale: LocaleCode = "en";
   try {
-    const settings = await getJson<UserSettings>("/settings");
+    const settings = await getJson<UserSettings>("/settings", { contextScope: "session" });
     locale = settings.locale;
   } catch {
     locale = "en";

@@ -185,7 +185,7 @@ export function CommandPalette({
         const mode = document.documentElement.classList.contains("dark") ? "dark" : "light";
         applyAccent(next, mode);
         try {
-          await patchJson("/user-preferences", { themeAccent: next });
+          await patchJson("/user-preferences", { themeAccent: next }, { contextScope: "session" });
         } catch {
           // Match DisplayTabSection's rollback semantics — but for the
           // palette we just leave the optimistic UI applied; the next

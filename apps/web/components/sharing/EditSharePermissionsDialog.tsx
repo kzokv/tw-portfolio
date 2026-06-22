@@ -21,6 +21,7 @@ interface EditSharePermissionsDialogProps {
   open: boolean;
   locale: LocaleCode;
   row: OutboundShareRow | null;
+  allowedCapabilities?: ShareCapability[];
   isSubmitting: boolean;
   error: string | null;
   onOpenChange: (open: boolean) => void;
@@ -31,18 +32,20 @@ export function EditSharePermissionsDialog({
   open,
   locale,
   row,
+  allowedCapabilities,
   isSubmitting,
   error,
   onOpenChange,
   onSave,
 }: EditSharePermissionsDialogProps) {
   const dict = useMemo(() => getDictionary(locale), [locale]);
+  const capabilityOptions = allowedCapabilities ?? ASSIGNABLE_SHARE_CAPABILITIES;
   const [selected, setSelected] = useState<ShareCapability[]>([]);
 
   useEffect(() => {
     if (!open) return;
-    setSelected(row?.capabilities ?? []);
-  }, [open, row]);
+    setSelected((row?.capabilities ?? []).filter((capability) => capabilityOptions.includes(capability)));
+  }, [capabilityOptions, open, row]);
 
   function toggleCapability(capability: ShareCapability, checked: boolean) {
     setSelected((current) =>
@@ -72,7 +75,7 @@ export function EditSharePermissionsDialog({
           </Badge>
 
           <div className="grid gap-2 sm:grid-cols-2">
-            {ASSIGNABLE_SHARE_CAPABILITIES.map((capability) => {
+            {capabilityOptions.map((capability) => {
               const checkboxId = `edit-share-capability-${capability.replace(/[^a-z0-9]+/gi, "-")}`;
               return (
                 <label

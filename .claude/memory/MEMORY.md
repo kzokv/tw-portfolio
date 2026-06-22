@@ -123,3 +123,6 @@
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185
+
+## Promoted to .claude/rules/ (viewer-scoped owner portfolio settings, 2026-06-22)
+- `playwright-dnd-kit-drag-readiness.md` — dnd-kit Playwright drag commands need a DOM-order or PATCH readiness signal before persisted-state assertions; use bounded retries for real pointer drags. Promoted after the transactions and portfolio card reorder specs hit the same missed-drop class.

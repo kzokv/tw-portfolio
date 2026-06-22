@@ -22,10 +22,10 @@ interface UserPreferencesResponse {
 export default async function DashboardPage() {
   const [session, profile, sidebarOpen, settings, preferences, initialPrimaryData] = await Promise.all([
     requireSession(),
-    getJson<ProfileWithImpersonationDto>("/profile"),
+    getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
-    getJson<UserSettings>("/settings").catch(() => null),
-    getJson<UserPreferencesResponse>("/user-preferences").catch(() => null),
+    getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
+    getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" }).catch(() => null),
     fetchDashboardPrimaryData().catch(() => null),
   ]);
   const expectedReportingCurrency =

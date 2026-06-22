@@ -1,6 +1,8 @@
 import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../profile/hooks/useProfile";
 
+export type SharingDataContextScope = "portfolio" | "session";
+
 export type ShareListStatus = "active" | "pending" | "expired" | "revoked";
 
 export interface SharingRouteContextValue {

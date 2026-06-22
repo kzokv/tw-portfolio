@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { AccentApplier, shouldSkipPreferenceHydration } from "../../../components/layout/AccentApplier";
+import { CONTEXT_USER_ID_COOKIE } from "../../../lib/context";
 import { applyPriceColorConvention } from "../../../lib/theme";
 
 vi.mock("next-themes", () => ({
@@ -28,6 +29,7 @@ describe("AccentApplier", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    document.cookie = `${CONTEXT_USER_ID_COOKIE}=; Path=/; Max-Age=0`;
     document.documentElement.style.removeProperty("--finance-gain");
     document.documentElement.style.removeProperty("--finance-loss");
     document.documentElement.style.removeProperty("--chart-direction-positive");
@@ -74,6 +76,39 @@ describe("AccentApplier", () => {
 
       expect(document.documentElement.style.getPropertyValue("--finance-gain")).toBe("var(--success)");
       expect(document.documentElement.style.getPropertyValue("--finance-loss")).toBe("var(--destructive)");
+    } finally {
+      act(() => handle.root.unmount());
+      handle.container.remove();
+    }
+  });
+
+  it("hydrates price colors from session-scoped viewer preferences in shared context", async () => {
+    document.cookie = `${CONTEXT_USER_ID_COOKIE}=${encodeURIComponent("owner-42")}; Path=/`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        preferences: { priceColorConvention: "gain_red_loss_green" },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handle = makeContainer();
+    try {
+      act(() => {
+        handle.root.render(createElement(AccentApplier));
+      });
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>)["x-context-user-id"]).toBeUndefined();
+      expect(document.documentElement.style.getPropertyValue("--finance-gain")).toBe("var(--destructive)");
+      expect(document.documentElement.style.getPropertyValue("--finance-loss")).toBe("var(--success)");
     } finally {
       act(() => handle.root.unmount());
       handle.container.remove();

@@ -13,6 +13,7 @@ import type {
   InboundShareCardItem,
   OutboundShareRow,
   ShareListStatus,
+  SharingDataContextScope,
   SharingPageData,
 } from "./types";
 
@@ -79,8 +80,12 @@ export function resolveInviteUrl(inviteCode: string | null, inviteUrl: string | 
   return `${window.location.origin}/invite/${inviteCode}`;
 }
 
-export async function fetchSharingPageData(): Promise<SharingPageData> {
-  const response = await getJson<SharesListResponseDto>("/shares");
+export async function fetchSharingPageData(
+  options: { contextScope?: SharingDataContextScope } = {},
+): Promise<SharingPageData> {
+  const response = await getJson<SharesListResponseDto>("/shares", {
+    contextScope: options.contextScope,
+  });
 
   return {
     outbound: {

@@ -85,6 +85,32 @@ async function getTestUserCookieHeader(page: Page): Promise<string> {
   return `${sc.name}=${sc.value}`;
 }
 
+async function getPortfolioCardDomOrder(page: Page): Promise<string[]> {
+  return page.locator("[data-testid='card-holdings-table'], [data-testid='card-dividends-section']").evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-testid")?.replace("card-", "") ?? ""),
+  );
+}
+
+async function waitForDividendsAboveHoldings(page: Page): Promise<boolean> {
+  return page.waitForFunction(() => {
+    const order = Array.from(document.querySelectorAll("[data-testid='card-holdings-table'], [data-testid='card-dividends-section']"))
+      .map((node) => node.getAttribute("data-testid")?.replace("card-", "") ?? "");
+    return order[0] === "dividends-section" && order[1] === "holdings-table";
+  }, { timeout: 1200 }).then(() => true).catch(() => false);
+}
+
+async function moveDividendsAboveHoldings(page: Page, drag: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await drag();
+    if (await waitForDividendsAboveHoldings(page)) {
+      return;
+    }
+  }
+
+  const order = await getPortfolioCardDomOrder(page);
+  throw new Error(`dividends-section did not move above holdings-table after drag attempts; DOM order: ${order.join(", ")}`);
+}
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 test.describe("portfolio card reorder (KZO-162)", () => {
@@ -112,7 +138,7 @@ test.describe("portfolio card reorder (KZO-162)", () => {
     await appShell.assert.cardDragHandleIsVisible("dividends-section");
 
     // Actions — drag dividends-section above holdings-table.
-    await appShell.actions.dragCard("dividends-section", "holdings-table");
+    await moveDividendsAboveHoldings(page, () => appShell.actions.dragCard("dividends-section", "holdings-table"));
 
     // Assert — after debounce, cardOrder.portfolio reflects the swap.
     await expect

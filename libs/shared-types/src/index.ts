@@ -2051,7 +2051,7 @@ export type AiConnectorScope =
   | "transaction_draft:archive"
   | "transaction_draft:delete"
   | "transaction:write";
-export type ShareCapability = AiConnectorScope;
+export type ShareCapability = AiConnectorScope | "sharing:manage";
 export type AiConnectorAccessKind =
   | "read"
   | "draft_create"

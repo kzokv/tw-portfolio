@@ -41,6 +41,7 @@ import {
   requireMutableRows,
   resolveDraftBatchByLabel,
   resolveRowsByRowNumber,
+  toAiConnectorScopes,
 } from "./mcpNameResolution.js";
 
 interface NameFirstPortfolioRef {
@@ -147,7 +148,7 @@ function toPortfolioRef(deps: McpDraftServiceDeps | McpReadServiceDeps): NameFir
           email: deps.requestContext.portfolioContextDescriptor.email,
           isSelf: deps.requestContext.portfolioContextDescriptor.isSelf,
           shareId: deps.requestContext.resolvedContext.shareId,
-          capabilities: deps.requestContext.resolvedContext.shareCapabilities,
+          capabilities: toAiConnectorScopes(deps.requestContext.resolvedContext.shareCapabilities),
         }
       : null,
   );

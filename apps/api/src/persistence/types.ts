@@ -2180,13 +2180,21 @@ export interface Persistence {
   consumeInvite(code: string, email: string): Promise<ConsumeInviteResult>;
   createShareGrant(input: CreateShareGrantInput): Promise<ShareGrantRecord>;
   /**
-   * Revoke a share grant owned by `revokedByUserId`. Idempotent — already-revoked
-   * shares silently succeed without re-emitting audit or notification. Returns
-   * the grantee user id when the revoke flipped the row from active to revoked,
-   * or null when the call was a no-op (already revoked). Caller uses the return
-   * to decide whether to publish an SSE event.
+   * Revoke a share grant owned by `ownerUserId`. Idempotent — already-revoked
+   * shares silently succeed without re-emitting audit or notification. Records
+   * `revokedByUserId` as the actor that revoked the row. Returns the grantee user
+   * id when the revoke flipped the row from active to revoked, or null when the
+   * call was a no-op (already revoked). Caller uses the return to decide whether
+   * to publish an SSE event.
    */
-  revokeShareGrant(shareId: string, revokedByUserId: string, auditInput: Omit<AuditLogInput, "action" | "targetUserId">): Promise<{ granteeUserId: string } | null>;
+  revokeShareGrant(
+    shareId: string,
+    input: {
+      ownerUserId: string;
+      revokedByUserId: string;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<{ granteeUserId: string } | null>;
   createShareCoupledInvite(input: CreateShareCoupledInviteInput): Promise<PendingShareInviteRecord>;
   countActivePendingShareInvites(ownerUserId: string): Promise<number>;
   listSharesForOwner(ownerUserId: string): Promise<ListSharesForOwnerResult>;
