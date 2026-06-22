@@ -24,6 +24,7 @@ export interface RegularSessionState {
   localDate: string;
   isTradingDay: boolean;
   isOpen: boolean;
+  isAfterRegularSessionClose: boolean;
   marketStateReason: "market_open" | "calendar_unknown" | "not_trading_day" | "outside_regular_session";
   calendarStatus: "confirmed" | "missing" | "unconfirmed" | "invalidated" | "calendar_unknown";
   opensAtLocal: string;
@@ -206,6 +207,17 @@ export function isWithinRegularSessionTime(
   return totalMinutes >= openMinutes && totalMinutes < closeMinutes;
 }
 
+function isAfterRegularSessionClose(
+  marketCode: RegularSessionMarketCode,
+  localHour: number,
+  localMinute: number,
+): boolean {
+  const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
+  const totalMinutes = localHour * 60 + localMinute;
+  const closeMinutes = close.hour * 60 + close.minute;
+  return totalMinutes >= closeMinutes;
+}
+
 export async function getRegularSessionState(
   marketCode: RegularSessionMarketCode,
   clock: RegularSessionClock,
@@ -217,12 +229,14 @@ export async function getRegularSessionState(
   const open = MARKET_OPEN_LOCAL_TIME[marketCode];
   const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
   const isOpen = isTradingDay && isWithinRegularSessionTime(marketCode, localHour, localMinute);
+  const isAfterClose = isTradingDay && isAfterRegularSessionClose(marketCode, localHour, localMinute);
   return {
     marketCode,
     marketTimeZone: MARKET_TIMEZONE[marketCode],
     localDate,
     isTradingDay,
     isOpen,
+    isAfterRegularSessionClose: isAfterClose,
     marketStateReason: isOpen
       ? "market_open"
       : calendar.marketStateReason === "calendar_unknown"
@@ -256,5 +270,20 @@ export async function getRegularSessionCloseRefreshDate(
     }
   }
 
+  return null;
+}
+
+export async function getPreviousRegularSessionTradingDate(
+  marketCode: RegularSessionMarketCode,
+  clock: RegularSessionClock,
+  localDate: string,
+  maxLookbackDays = CLOSE_REFRESH_LOOKBACK_DAYS,
+): Promise<string | null> {
+  for (let offset = 1; offset <= maxLookbackDays; offset += 1) {
+    const candidate = addDaysIsoDate(localDate, -offset);
+    if (await isOfficialOrFallbackTradingDay(clock, marketCode, candidate)) {
+      return candidate;
+    }
+  }
   return null;
 }

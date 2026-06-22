@@ -33,6 +33,12 @@ const dict = {
     priceStateLatestOutcomeLabel: "Latest outcome",
     priceStateActivityHintLabel: "Activity",
     priceStateCloseDetailsLabel: "Close",
+    priceStateFullDailyBarLabel: "Full daily bar",
+    priceStatePendingValue: "Pending",
+    priceStateSourceYahooChart: "Yahoo chart",
+    priceStateSourceYahooClose: "Yahoo close",
+    priceStateSourceTwseClose: "TWSE close",
+    priceStateSourcePrimaryDaily: "Daily bar",
     calendarUnknownWarningTitle: "Market calendar needs attention",
     calendarUnknownWarningMessage: "{market} market calendar for {year} is missing. Today in {location} is {date}. Seed it in Admin Market Data or with the admin MCP calendar tool.",
     priceStateUnknownValue: "Unknown",
@@ -298,6 +304,45 @@ describe("PriceStateChip", () => {
     expect(document.body.textContent).toContain("Market: Closed");
     expect(document.querySelector("[role='dialog']")?.textContent).toContain("Basis: Today close");
     expect(document.querySelector("[role='tooltip']")).toBeNull();
+  });
+
+  it("shows friendly close-only source details while keeping the chip closed", async () => {
+    act(() => {
+      root.render(
+        <PriceStateChip
+          dict={dict}
+          locale="en"
+          testId="price-state-chip"
+          priceState={{
+            basis: "today_close",
+            chipState: "closed",
+            marketState: "closed",
+            source: "yahoo-chart-close",
+            sourceKind: "yahoo_chart_close",
+            asOfDate: "2026-06-17",
+            asOfTimestamp: null,
+            observedAt: "2026-06-17T08:00:00.000Z",
+            delaySeconds: null,
+            marketTimeZone: "Asia/Taipei",
+            quality: "close_only",
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const chip = document.querySelector("[data-testid='price-state-chip']") as HTMLButtonElement | null;
+    expect(chip?.textContent).toContain("Closed");
+
+    await act(async () => {
+      chip?.dispatchEvent(createPointerEvent("pointerdown", "touch"));
+    });
+
+    const dialogText = document.querySelector("[role='dialog']")?.textContent ?? "";
+    expect(dialogText).toContain("Source: Yahoo close");
+    expect(dialogText).toContain("Quality: Close only");
+    expect(dialogText).toContain("Full daily bar: Pending");
   });
 
   it("dismisses touch-opened details when tapping outside or tapping the chip again", async () => {

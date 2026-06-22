@@ -10,6 +10,7 @@ import { resolveTickerPriceFreshnessConfig } from "../appConfig/tickerPriceFresh
 import type { Persistence } from "../../persistence/types.js";
 import { createIntradayOverlayCache } from "./intradayOverlayCache.js";
 import {
+  getPreviousRegularSessionTradingDate,
   getRegularSessionState,
   isRegularSessionMarketCode,
   type RegularSessionClock,
@@ -156,6 +157,7 @@ export async function resolveQuoteSnapshots(
 interface DisplayContext {
   overlaysByKey: Map<string, IntradayPriceOverlay>;
   sessionByMarket: Map<MarketCode, RegularSessionState>;
+  previousTradingDateByMarket: Map<MarketCode, string | null>;
   freshnessToleranceSeconds: number;
   regularSessionOnly: boolean;
   supportedMarkets: Set<MarketCode>;
@@ -176,24 +178,38 @@ async function buildDisplayContext(
     appConfig ?? {},
     APP_CONFIG_BOUNDS,
   );
-  if (!freshnessConfig.effectiveIntradayEnabled) return null;
 
   const regularSessionPairs = pairs.filter((pair) => isRegularSessionMarketCode(pair.marketCode));
   if (regularSessionPairs.length === 0) return null;
 
   const distinctMarkets = [...new Set(regularSessionPairs.map((pair) => pair.marketCode))]
     .filter(isRegularSessionMarketCode);
+  const overlaysPromise = freshnessConfig.effectiveIntradayEnabled
+    ? createIntradayOverlayCache(persistence).getLatestMany(regularSessionPairs)
+    : Promise.resolve(new Map<string, IntradayPriceOverlay>());
   const [overlaysByKey, sessionEntries] = await Promise.all([
-    createIntradayOverlayCache(persistence).getLatestMany(regularSessionPairs),
-    Promise.all(distinctMarkets.map(async (marketCode) => [
-      marketCode,
-      await getRegularSessionState(marketCode, options.tradingCalendar!, now),
-    ] as const)),
+    overlaysPromise,
+    Promise.all(distinctMarkets.map(async (marketCode) => {
+      const session = await getRegularSessionState(marketCode, options.tradingCalendar!, now);
+      return [
+        marketCode,
+        session,
+        await getPreviousRegularSessionTradingDate(
+          marketCode,
+          options.tradingCalendar!,
+          session.localDate,
+        ),
+      ] as const;
+    })),
   ]);
 
   return {
     overlaysByKey,
-    sessionByMarket: new Map(sessionEntries),
+    sessionByMarket: new Map(sessionEntries.map(([marketCode, session]) => [marketCode, session])),
+    previousTradingDateByMarket: new Map(sessionEntries.map(([marketCode, _session, previousTradingDate]) => [
+      marketCode,
+      previousTradingDate,
+    ])),
     freshnessToleranceSeconds: freshnessConfig.effectiveIntradayFreshnessToleranceMinutes * 60,
     regularSessionOnly: freshnessConfig.effectiveRegularSessionOnly,
     supportedMarkets: new Set(freshnessConfig.effectiveSupportedMarkets),
@@ -347,6 +363,9 @@ function buildDailySnapshot(input: {
     ? (change! / previousClose) * 100
     : null;
   const session = pair.marketCode ? displayContext?.sessionByMarket.get(pair.marketCode) : undefined;
+  const previousTradingDate = pair.marketCode
+    ? displayContext?.previousTradingDateByMarket.get(pair.marketCode)
+    : undefined;
 
   return {
     ticker: pair.ticker,
@@ -364,6 +383,7 @@ function buildDailySnapshot(input: {
       pair.marketCode,
       settledByMarket,
       session,
+      previousTradingDate,
       displayContext?.refreshCadenceMinutes ?? null,
     ),
   };
@@ -374,6 +394,7 @@ function buildDailyPriceState(
   marketCode: MarketCode | undefined,
   settledByMarket: ReadonlyMap<MarketCode, string>,
   session: RegularSessionState | undefined,
+  previousTradingDate: string | null | undefined,
   refreshCadenceMinutes: number | null,
 ): PriceStateDto {
   const settled = marketCode ? settledByMarket.get(marketCode) ?? null : null;
@@ -393,7 +414,10 @@ function buildDailyPriceState(
   let basis: PriceStateBasisDto = "today_close";
   let chipState: PriceStateDto["chipState"] = "closed";
 
-  if (settled && latest.barDate < settled) {
+  if (isAwaitingTodayClose(latest, session, previousTradingDate)) {
+    basis = "pending_today_close";
+    chipState = "closed_pending";
+  } else if (settled && latest.barDate < settled) {
     basis = "stale_close";
     chipState = "stale";
   } else if (marketState === "open") {
@@ -422,6 +446,19 @@ function buildDailyPriceState(
     refreshCadenceMinutes,
     latestIntradayAttempt: null,
   };
+}
+
+function isAwaitingTodayClose(
+  latest: SnapshotBar,
+  session: RegularSessionState | undefined,
+  previousTradingDate: string | null | undefined,
+): boolean {
+  return session?.marketStateReason === "outside_regular_session"
+    && session.isAfterRegularSessionClose
+    && latest.barDate < session.localDate
+    && previousTradingDate !== null
+    && previousTradingDate !== undefined
+    && latest.barDate >= previousTradingDate;
 }
 
 function buildOpenPreviousCloseState(
@@ -453,7 +490,7 @@ function buildOpenPreviousCloseState(
   };
 }
 
-function mapDailySourceKind(source: string | null | undefined): PriceStateSourceKindDto {
+export function mapDailySourceKind(source: string | null | undefined): PriceStateSourceKindDto {
   if (source === "twse-stock-day-close") return "twse_stock_day_close";
   if (source === "yahoo-chart-close") return "yahoo_chart_close";
   return source ? "primary_daily" : "missing";

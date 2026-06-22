@@ -745,4 +745,38 @@ describe("buildTickerDetails", () => {
       sourceKind: "intraday_yahoo_chart",
     }));
   });
+
+  it("keeps same-day Yahoo close-only bars closed on ticker details", async () => {
+    const persistence = createPersistence([
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-06-18", open: 48, high: 48, low: 48, close: 48, volume: 0, source: "yahoo-chart-close", quality: "close_only" },
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-06-17", open: 44, high: 46, low: 43, close: 45, volume: 100, source: "daily" },
+    ]);
+
+    const { details } = await buildTickerDetails({
+      persistence,
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      reportingCurrency: "AUD",
+      loadChart: false,
+      fundamentalsRecord: null,
+      getSettledTradingDay: async () => "2026-06-18",
+      tradingCalendar: {
+        isTradingDay: async (_market, date) => date === "2026-06-17" || date === "2026-06-18",
+        getTradingDates: async () => new Set(["2026-06-17", "2026-06-18"]),
+      },
+      now: new Date("2026-06-18T06:30:00.000Z"),
+    });
+
+    expect(details.quote.currentUnitPrice).toBe(48);
+    expect(details.quote.priceState).toEqual(expect.objectContaining({
+      basis: "today_close",
+      chipState: "closed",
+      marketState: "closed",
+      sourceKind: "yahoo_chart_close",
+      sourceId: "yahoo-chart-close",
+      quality: "close_only",
+    }));
+  });
 });

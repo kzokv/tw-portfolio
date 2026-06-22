@@ -290,6 +290,48 @@ describe("yahooFinanceIntradayProvider", () => {
     );
   });
 
+  it("supports Yahoo close fallback for every regular-session market", async () => {
+    const provider = new YahooChartCloseProvider({
+      range: "5d",
+      interval: "15m",
+      persistence: {
+        getInstrument: vi.fn().mockResolvedValue(null),
+        getProviderResolutionMapping: vi.fn().mockResolvedValue(null),
+      },
+    });
+    const cases = [
+      { ticker: "2330", marketCode: "TW" as const, symbol: "2330.TW", quoteDate: "2026-06-17T06:00:00.000Z", close: 1010 },
+      { ticker: "AAPL", marketCode: "US" as const, symbol: "AAPL", quoteDate: "2026-06-17T20:30:00.000Z", close: 111 },
+      { ticker: "BHP", marketCode: "AU" as const, symbol: "BHP.AX", quoteDate: "2026-06-17T06:30:00.000Z", close: 48 },
+      { ticker: "005930", marketCode: "KR" as const, symbol: "005930.KS", quoteDate: "2026-06-17T07:00:00.000Z", close: 72100 },
+    ];
+
+    for (const testCase of cases) {
+      activeSdkStub!.chart.mockResolvedValueOnce({
+        meta: { currency: "USD", previousClose: testCase.close - 1 },
+        quotes: [{ date: new Date(testCase.quoteDate), close: testCase.close }],
+      });
+
+      const bar = await provider.fetchCloseOnlyBar(
+        testCase.ticker,
+        testCase.marketCode,
+        "2026-06-17",
+      );
+
+      expect(bar).toMatchObject({
+        ticker: testCase.ticker,
+        barDate: "2026-06-17",
+        close: testCase.close,
+        quality: "close_only",
+        source: "yahoo-chart-close",
+      });
+    }
+
+    expect(activeSdkStub!.chart.mock.calls.map(([symbol]) => symbol)).toEqual(
+      cases.map((testCase) => testCase.symbol),
+    );
+  });
+
   it("parses TWSE STOCK_DAY rows and synthesizes close-only bars", async () => {
     expect(parseTwseStockDayRow([["115/06/17", "1", "1", "1", "1", "1", "1,010", "1"]], "2026-06-17"))
       .toEqual({ date: "2026-06-17", close: "1,010" });

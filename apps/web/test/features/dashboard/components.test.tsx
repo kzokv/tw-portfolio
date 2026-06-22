@@ -867,6 +867,44 @@ describe("dashboard components", () => {
     expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
   });
 
+  it("keeps saved narrow dashboard holdings widths from collapsing readable columns", async () => {
+    mockUserPreferencesFetch({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["ticker", "position", "marketValue", "price", "avgCost", "unitPnl", "daily", "pnl", "health", "action"],
+            hiddenColumns: [],
+            columnWidths: { price: 72 },
+            layoutStyle: "dashboard",
+          },
+        },
+      },
+    });
+    const group = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!group) throw new Error("Expected holding group");
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={[group]}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    const priceHeader = container
+      .querySelector('[data-testid="holdings-column-drag-price"]')
+      ?.closest("th") as HTMLTableCellElement | null;
+    expect(priceHeader?.style.width).toBe("136px");
+    expect(priceHeader?.style.minWidth).toBe("136px");
+  });
+
   it("keeps hidden dashboard mobile columns out of card and details content", async () => {
     mockUserPreferencesFetch({
       holdingsTableSettings: {

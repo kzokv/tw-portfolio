@@ -1522,6 +1522,12 @@ export interface AppDictionary {
     priceStateLatestOutcomeLabel: string;
     priceStateActivityHintLabel: string;
     priceStateCloseDetailsLabel: string;
+    priceStateFullDailyBarLabel: string;
+    priceStatePendingValue: string;
+    priceStateSourceYahooChart: string;
+    priceStateSourceYahooClose: string;
+    priceStateSourceTwseClose: string;
+    priceStateSourcePrimaryDaily: string;
     calendarUnknownWarningTitle: string;
     calendarUnknownWarningMessage: string;
     priceStateUnknownValue: string;

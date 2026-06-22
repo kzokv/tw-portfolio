@@ -68,7 +68,6 @@ import {
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
-  holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsGridColumnDefinition,
   type HoldingsColumnSettingsState,
@@ -111,6 +110,18 @@ const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHo
   { id: "health", label: "Data health", defaultWidth: 184 },
   { id: "action", label: "Action", defaultWidth: 112, align: "right" },
 ];
+const DASHBOARD_HOLDINGS_MIN_COLUMN_WIDTHS = {
+  action: 112,
+  avgCost: 136,
+  daily: 152,
+  health: 168,
+  marketValue: 176,
+  pnl: 132,
+  position: 144,
+  price: 136,
+  ticker: 176,
+  unitPnl: 132,
+} satisfies Record<DashboardHoldingsColumn, number>;
 const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "daily", "pnl", "health"];
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
 
@@ -340,7 +351,7 @@ export function DashboardHoldingsPreview({
                   {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsDescription, { currency: reportingCurrency })}
                 </CardDescription>
               </div>
-              <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[40rem] xl:grid-cols-4">
+              <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[44rem] xl:grid-cols-[minmax(12rem,1.4fr)_minmax(8.5rem,1fr)_minmax(9rem,1fr)_minmax(7.5rem,0.9fr)]">
                 <label className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsSearchLabel}</span>
                   <div className="relative">
@@ -732,9 +743,13 @@ function DashboardHoldingsTable({
   showAdminActivityLinks: boolean;
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
+  const tableMinWidth = visibleColumns.reduce(
+    (total, column) => total + dashboardColumnWidth(columnSettings, column.id),
+    0,
+  );
   return (
     <HoldingsGridDesktopFrame className="max-h-[34rem]">
-      <Table className="table-fixed">
+      <Table className="w-max min-w-full table-fixed" style={{ minWidth: tableMinWidth }}>
         <TableHeader>
           <TableRow>
             {visibleColumns.map((column) => (
@@ -746,7 +761,7 @@ function DashboardHoldingsTable({
                   holdingsStickyFirstColumnClassName(column.id === "ticker", "header"),
                   column.align === "right" && "text-right",
                 )}
-                style={holdingsColumnCellStyle(columnSettings, column.id)}
+                style={dashboardColumnCellStyle(columnSettings, column.id)}
               >
                 <HoldingsColumnHeaderContent
                   align={column.align}
@@ -847,6 +862,25 @@ function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string)
   );
 }
 
+function dashboardColumnWidth(
+  settings: HoldingsColumnSettingsState<DashboardHoldingsColumn>,
+  column: DashboardHoldingsColumn,
+) {
+  return Math.max(settings.getColumnWidth(column), DASHBOARD_HOLDINGS_MIN_COLUMN_WIDTHS[column]);
+}
+
+function dashboardColumnCellStyle(
+  settings: HoldingsColumnSettingsState<DashboardHoldingsColumn>,
+  column: DashboardHoldingsColumn,
+) {
+  const width = dashboardColumnWidth(settings, column);
+  return {
+    maxWidth: width,
+    minWidth: width,
+    width,
+  };
+}
+
 function renderDashboardGroupCell({
   column,
   columnSettings,
@@ -880,7 +914,7 @@ function renderDashboardGroupCell({
   showAdminActivityLinks: boolean;
   visibleChildren: DashboardOverviewHoldingChildDto[];
 }) {
-  const style = holdingsColumnCellStyle(columnSettings, column);
+  const style = dashboardColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
@@ -1057,7 +1091,7 @@ function renderDashboardChildCell({
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
 }) {
-  const style = holdingsColumnCellStyle(columnSettings, column);
+  const style = dashboardColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
       <TableCell key={column} className={dashboardCellClassName(column, "bg-muted")} style={style}>
