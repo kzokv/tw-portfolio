@@ -118,6 +118,79 @@ describe("yahooFinanceIntradayProvider", () => {
     );
   });
 
+  it("resolves TW TPEx instruments to Yahoo `.TWO` symbols", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "TWD", previousClose: 86.1 },
+      quotes: [{ date: new Date("2026-06-17T02:02:00.000Z"), close: 94.7 }],
+    });
+    const persistence = {
+      getInstrument: vi.fn().mockResolvedValue({ typeRaw: "tpex", catalogExchangeRaw: null, catalogMicCode: null }),
+    };
+    const provider = new YahooFinanceIntradayProvider({
+      range: "1d",
+      interval: "1m",
+      persistence,
+    });
+
+    const overlay = await provider.fetchLatestOverlay({
+      ticker: "6548",
+      marketCode: "TW",
+      now: new Date("2026-06-17T02:03:00.000Z"),
+    });
+
+    expect(persistence.getInstrument).toHaveBeenCalledWith("6548", "TW");
+    expect(activeSdkStub!.chart).toHaveBeenCalledWith(
+      "6548.TWO",
+      expect.any(Object),
+      { validateResult: false },
+    );
+    expect(overlay).toMatchObject({
+      ticker: "6548",
+      marketCode: "TW",
+      price: 94.7,
+      previousClose: 86.1,
+      providerSymbol: "6548.TWO",
+    });
+  });
+
+  it("keeps TWSE instruments on Yahoo `.TW` symbols", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "TWD", previousClose: 2410 },
+      quotes: [{ date: new Date("2026-06-17T02:02:00.000Z"), close: 2495 }],
+    });
+    const persistence = {
+      getInstrument: vi.fn().mockResolvedValue({ typeRaw: "twse", catalogExchangeRaw: null, catalogMicCode: null }),
+    };
+    const provider = new YahooFinanceIntradayProvider({
+      range: "1d",
+      interval: "1m",
+      persistence,
+    });
+
+    await provider.fetchLatestOverlay({
+      ticker: "2330",
+      marketCode: "TW",
+      now: new Date("2026-06-17T02:03:00.000Z"),
+    });
+
+    expect(activeSdkStub!.chart).toHaveBeenCalledWith(
+      "2330.TW",
+      expect.any(Object),
+      { validateResult: false },
+    );
+  });
+
+  it("returns null instead of throwing on permanent Yahoo no-data responses", async () => {
+    activeSdkStub!.chart.mockRejectedValue(new Error("No data found, symbol may be delisted"));
+    const provider = new YahooFinanceIntradayProvider({ range: "1d", interval: "1m" });
+
+    await expect(provider.fetchLatestOverlay({
+      ticker: "MISSING",
+      marketCode: "US",
+      now: new Date("2026-06-17T15:06:00.000Z"),
+    })).resolves.toBeNull();
+  });
+
   it("returns null when no same-market-date close exists", () => {
     const selected = selectLatestSameMarketDateClose(
       [{ date: new Date("2026-06-16T05:00:00.000Z"), close: 100 }],

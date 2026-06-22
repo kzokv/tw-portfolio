@@ -104,6 +104,19 @@ function shiftToSydneyDate(date: Date): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+function addDaysIsoDate(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function buildChartDateOptions(startDate?: string, endDate?: string): { period1: string; period2?: string } {
+  return {
+    period1: startDate ?? "1988-01-28",
+    ...(endDate ? { period2: addDaysIsoDate(endDate, 1) } : {}),
+  };
+}
+
 export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: stable provider identity for log enrichment. */
   readonly providerId = "yahoo-finance-au";
@@ -177,8 +190,7 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
     // resolver doesn't narrow cleanly because every option is optional. Casting to the
     // documented runtime shape per spike §3.
     const result = (await this.client.chart(symbol, {
-      period1: startDate ?? "1988-01-28",
-      ...(endDate ? { period2: endDate } : {}),
+      ...buildChartDateOptions(startDate, endDate),
       interval: "1d",
     })) as YahooChartResult;
 
@@ -210,8 +222,7 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
     this.assertCanConsume();
     const symbol = this.normalizeSymbol(ticker);
     const result = (await this.client.chart(symbol, {
-      period1: startDate ?? "1988-01-28",
-      ...(endDate ? { period2: endDate } : {}),
+      ...buildChartDateOptions(startDate, endDate),
       interval: "1d",
       events: "div",
     })) as YahooChartResult;
