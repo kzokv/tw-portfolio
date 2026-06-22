@@ -66,6 +66,6 @@ export class PortfolioAssert extends BaseAssert {
 
   @Step()
   async allocationBasisCostBasisIsSelected(): Promise<void> {
-    await expect(this.el.allocationBasisCostBasis).toHaveAttribute("aria-pressed", "true");
+    await expect(this.el.allocationBasisSelect).toContainText(/Cost basis/i);
   }
 }

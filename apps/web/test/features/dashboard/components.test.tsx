@@ -369,9 +369,7 @@ describe("dashboard components", () => {
     expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
     expect(html).toContain("Taiwan Semiconductor Manufacturing");
-    expect(html).toContain("AUD 60K");
     expect(html).toContain("A$60,000");
-    expect(html).toContain("+AUD 123");
     expect(html).toContain("+A$123");
     expect(html).toContain("lg:hidden");
     expect(html).toContain("lg:block");
@@ -620,7 +618,7 @@ describe("dashboard components", () => {
     pointerDown(accountTrigger!);
     await flushPromises();
 
-    const retirementOption = [...document.body.querySelectorAll('[role="option"]')]
+    const retirementOption = [...document.body.querySelectorAll('[role="menuitemcheckbox"]')]
       .find((option) => option.textContent?.includes("Retirement Brokerage"));
     expect(retirementOption).toBeDefined();
     click(retirementOption!);
@@ -628,11 +626,11 @@ describe("dashboard components", () => {
 
     expect(container.textContent).toContain("500 units");
     expect(container.textContent).toContain("1 acct");
-    expect(container.textContent).toContain("AUD 15K");
-    expect(container.textContent).toContain("+AUD 500");
+    expect(container.textContent).toContain("A$15,000");
+    expect(container.textContent).toContain("+A$500");
     expect(container.textContent).not.toContain("2,500.00 units");
-    expect(container.textContent).not.toContain("AUD 75K");
-    expect(container.textContent).not.toContain("+AUD 2.5K");
+    expect(container.textContent).not.toContain("A$75,000");
+    expect(container.textContent).not.toContain("+A$2,500");
   });
 
   it("does not mix market-value and cost-basis allocation in dashboard holdings", () => {
@@ -814,8 +812,8 @@ describe("dashboard components", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "dashboard.topHoldings": {
-            columnOrder: ["pnl", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "daily", "health", "action"],
+          "holdings.shared": {
+            columnOrder: ["pnl", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "health", "action"],
             hiddenColumns: [],
             columnWidths: { pnl: 222 },
             layoutStyle: "dashboard",
@@ -861,10 +859,92 @@ describe("dashboard components", () => {
     const patchBody = JSON.parse(String(patchCall?.[1]?.body)) as {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; columnWidths: Record<string, number> }> };
     };
-    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder).toEqual(
-      ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "daily", "health", "action"],
+    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnOrder).toEqual(
+      ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "health", "action"],
     );
-    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
+    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnWidths.pnl).toBe(222);
+  });
+
+  it("hydrates and persists shared dashboard row order and top holdings count", async () => {
+    const fetchMock = mockUserPreferencesFetch({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": {
+            columnOrder: [],
+            hiddenColumns: [],
+            columnWidths: {},
+            layoutStyle: "dashboard",
+            rowOrder: ["US:AAPL", "TW:2330"],
+            topHoldingsLimit: 1,
+          },
+        },
+      },
+    });
+    const groups = buildHoldingGroupsFromHoldings({
+      holdings: [
+        holdings[0]!,
+        {
+          ...holdings[0]!,
+          accountId: "acc-2",
+          accountName: "US Brokerage",
+          ticker: "AAPL",
+          instrumentName: "Apple Inc.",
+          marketCode: "US",
+          currency: "USD",
+          quantity: 10,
+          costBasisAmount: 1_500,
+          averageCostPerShare: 150,
+          currentUnitPrice: 180,
+          marketValueAmount: 1_800,
+          unrealizedPnlAmount: 300,
+          allocationPct: 1.8,
+        },
+      ],
+    });
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <DashboardHoldingsPreview
+          groups={groups}
+          locale="en"
+          reportingCurrency="TWD"
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.querySelector("[data-testid='dashboard-holding-preview-AAPL-US']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='dashboard-holding-preview-2330-TW']")).toBeNull();
+    expect(container.textContent).toContain("Total Cost");
+
+    const settingsButton = container.querySelector('[data-testid="dashboard-holdings-row-settings"]');
+    expect(settingsButton).not.toBeNull();
+    pointerDown(settingsButton!);
+    await flushPromises();
+
+    const increaseLimit = document.body.querySelector('[data-testid="dashboard-holdings-top-holdings-limit-increase"]');
+    expect(increaseLimit).not.toBeNull();
+    click(increaseLimit!);
+    await flushPromises();
+
+    const moveAaplDown = document.body.querySelector('[data-testid="dashboard-holdings-row-move-down-US:AAPL"]');
+    expect(moveAaplDown).not.toBeNull();
+    click(moveAaplDown!);
+    await flushPromises();
+
+    const patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(patchCalls.length).toBeGreaterThan(0);
+    const patchBody = JSON.parse(String(patchCalls.at(-1)?.[1]?.body)) as {
+      holdingsTableSettings: { contexts: Record<string, { rowOrder: string[]; topHoldingsLimit: number }> };
+    };
+    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]).toMatchObject({
+      rowOrder: ["TW:2330", "US:AAPL"],
+      topHoldingsLimit: 2,
+    });
   });
 
   it("keeps saved narrow dashboard holdings widths from collapsing readable columns", async () => {
@@ -872,8 +952,8 @@ describe("dashboard components", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "dashboard.topHoldings": {
-            columnOrder: ["ticker", "position", "marketValue", "price", "avgCost", "unitPnl", "daily", "pnl", "health", "action"],
+          "holdings.shared": {
+            columnOrder: ["ticker", "position", "marketValue", "costBasis", "price", "avgCost", "unitPnl", "daily", "pnl", "health", "action"],
             hiddenColumns: [],
             columnWidths: { price: 72 },
             layoutStyle: "dashboard",
@@ -910,8 +990,8 @@ describe("dashboard components", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "dashboard.topHoldings": {
-            columnOrder: ["position", "avgCost", "unitPnl", "daily", "pnl", "ticker", "price", "marketValue", "health", "action"],
+          "holdings.shared": {
+            columnOrder: ["position", "avgCost", "unitPnl", "daily", "pnl", "ticker", "price", "marketValue", "costBasis", "health", "action"],
             hiddenColumns: ["price", "marketValue", "health"],
             columnWidths: {},
             layoutStyle: "dashboard",
@@ -960,8 +1040,8 @@ describe("dashboard components", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "dashboard.topHoldings": {
-            columnOrder: ["position", "price", "marketValue", "daily", "ticker", "avgCost", "unitPnl", "pnl", "health", "action"],
+          "holdings.shared": {
+            columnOrder: ["position", "price", "marketValue", "costBasis", "daily", "ticker", "avgCost", "unitPnl", "pnl", "health", "action"],
             hiddenColumns: [],
             columnWidths: {},
             layoutStyle: "dashboard",
@@ -1108,7 +1188,7 @@ describe("dashboard components", () => {
       columnWidths: { ticker: 180 },
       layoutStyle: "dashboard",
     });
-    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
+    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
   });
 
   it("does not persist holdings table contexts when preference hydration fails", async () => {
@@ -1439,7 +1519,7 @@ describe("dashboard components", () => {
     expect(html).not.toContain('data-testid="dashboard-intro"');
   });
 
-  it("renders holdings with a current-price column and history link", () => {
+  it("renders aggregated holdings with a current-price column and ticker link", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);
 
     expect(html).toContain("Price");
@@ -1448,7 +1528,7 @@ describe("dashboard components", () => {
     expect(html).toContain("Total Cost");
     expect(html).toContain("Last Posted");
     expect(html).toContain("href=\"/tickers/2330?marketCode=TW\"");
-    expect(html).toContain("href=\"/tickers/2330?marketCode=TW&amp;accountId=acc-1\"");
+    expect(html).not.toContain("href=\"/tickers/2330?marketCode=TW&amp;accountId=acc-1\"");
     expect(html).toContain("NT$610");
     expect(html).toContain("NT$1,220,000");
     expect(html).toContain("NT$1,185,472");
@@ -1608,7 +1688,7 @@ describe("dashboard components", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "portfolio.holdings": {
+          "holdings.shared": {
             columnOrder: ["allocation", "ticker", "quantity", "accounts", "avgCost", "unitPnl", "price", "dailyChange", "marketValue", "pnl", "costBasis", "nextDividend", "lastDividend"],
             hiddenColumns: [],
             columnWidths: { allocation: 211 },

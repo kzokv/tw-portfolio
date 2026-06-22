@@ -4,11 +4,10 @@ import type { AppDictionary } from "../../lib/i18n/types";
 import { Badge } from "../ui/shadcn/badge";
 import { PriceStateChip } from "./PriceStateChip";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/shadcn/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/shadcn/popover";
 import {
   formatPriceStateLabel,
   formatPriceStateTooltip,
@@ -44,13 +43,13 @@ export function HoldingsDataHealthBadges({
   const tooltipLines = priceState ? formatPriceStateTooltip(dict, locale, priceState) : [];
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
+    <Popover>
+        <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex flex-wrap gap-1 rounded-md border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="flex min-h-11 flex-wrap items-center gap-1 rounded-md border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label={formatHoldingsDataHealthTitle(dict, row, locale)}
+            aria-haspopup="dialog"
           >
             <Badge
               variant={row.quoteStatus === "current" ? "secondary" : row.quoteStatus === "missing" ? "destructive" : "outline"}
@@ -73,17 +72,16 @@ export function HoldingsDataHealthBadges({
               </Badge>
             ) : null}
           </button>
-        </TooltipTrigger>
-        <TooltipContent sideOffset={6} className="max-w-xs">
+        </PopoverTrigger>
+        <PopoverContent align="start" collisionPadding={16} className="w-[min(20rem,calc(100vw-2rem))]">
           <div className="flex flex-col gap-1.5 text-xs leading-relaxed">
             <div className="font-medium text-foreground">{dict.holdings.dataHealthTerm}</div>
             <div>{dict.holdings.dataHealthDescription}</div>
             <div>{formatHoldingsDataHealthTitle(dict, row, locale)}</div>
             {tooltipLines.map((line) => <div key={line}>{line}</div>)}
           </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+        </PopoverContent>
+      </Popover>
   );
 }
 

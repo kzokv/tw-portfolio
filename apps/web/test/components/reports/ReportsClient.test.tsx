@@ -603,7 +603,7 @@ describe("ReportsClient", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "reports.dailyReview.holdings": {
+          "holdings.shared": {
             columnOrder: ["health", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
             hiddenColumns: [],
             columnWidths: { health: 234 },
@@ -633,7 +633,7 @@ describe("ReportsClient", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "reports.dailyReview.holdings": {
+          "holdings.shared": {
             columnOrder: ["position", "avgCost", "price", "unitPnl", "costBasis", "unrealized", "daily", "weight", "ticker", "marketValue", "health"],
             hiddenColumns: ["marketValue", "health"],
             columnWidths: {},
@@ -673,7 +673,7 @@ describe("ReportsClient", () => {
       holdingsTableSettings: {
         version: 1,
         contexts: {
-          "reports.dailyReview.holdings": {
+          "holdings.shared": {
             columnOrder: ["position", "price", "marketValue", "costBasis", "daily", "ticker", "avgCost", "unitPnl", "unrealized", "weight", "health"],
             hiddenColumns: [],
             columnWidths: {},
@@ -784,12 +784,12 @@ describe("ReportsClient", () => {
     const tickerLinks = Array.from(document.querySelectorAll("a")).map((anchor) => anchor.getAttribute("href"));
     expect(tickerLinks).toContain("/tickers/BHP?marketCode=AU");
     expect(document.body.textContent).toContain("Open ticker");
-    const topMoversTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.topMovers']");
-    expect(topMoversTable?.parentElement?.parentElement?.getAttribute("class")).toContain("lg:block");
-    expect(topMoversTable?.querySelector("th")?.getAttribute("class")).toContain("left-0");
+    const holdingsTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    expect(holdingsTable?.parentElement?.parentElement?.getAttribute("class")).toContain("lg:block");
+    expect(holdingsTable?.querySelector("th")?.getAttribute("class")).toContain("left-0");
 
     const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
-      node.textContent?.includes("-AUD 10") && String(node.className).includes("text-[hsl(var(--finance-loss))]"));
+      node.textContent?.includes("-A$10") && String(node.className).includes("text-[hsl(var(--finance-loss))]"));
     expect(negativeValue?.className).toContain("text-[hsl(var(--finance-loss))]");
     expect(document.body.textContent).toContain("Native price $150.00");
 

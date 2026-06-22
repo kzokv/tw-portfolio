@@ -77,7 +77,7 @@ function renderTable(holdingGroups: DashboardOverviewHoldingGroupDto[], options:
 function ColumnSettingsHarness() {
   const settings = useHoldingsColumnSettings<TestColumn>({
     columns: testColumns,
-    contextKey: "portfolio",
+    contextKey: "holdings.shared",
   });
   return (
     <div>
@@ -172,31 +172,23 @@ describe("HoldingsTable", () => {
     expect(mobileGroupChip?.parentElement?.className).toContain("justify-start");
   });
 
-  it("keeps shadcn single-toggle controls selected when the active item is clicked again", () => {
+  it("renders portfolio holdings with aggregated dropdown defaults and sticky desktop headers", () => {
     const rendered = renderTable([baseGroup], { controlledAllocationBasis: false });
     root = rendered.root;
     container = rendered.container;
 
-    const groupedMode = container.querySelector('[data-testid="holdings-display-mode-expanded"]');
-    const marketValueBasis = container.querySelector('[data-testid="holdings-allocation-basis-market-value"]');
+    const displayMode = container.querySelector('[data-testid="holdings-display-mode-select"]');
+    const allocationBasis = container.querySelector('[data-testid="holdings-allocation-basis-select"]');
     const layoutStyleControl = container.querySelector('[data-testid="holdings-layout-style-control"]');
     const portfolioSection = container.querySelector('[data-testid="portfolio-holdings-section"]');
     const tickerHeader = container.querySelector('[data-testid="holdings-column-drag-ticker"]')?.closest("th");
     const tickerCell = container.querySelector("[data-testid='holding-group-row-AAPL-US'] td");
     expect(portfolioSection).not.toBeNull();
-    expect(groupedMode?.getAttribute("data-state")).toBe("on");
-    expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
+    expect(displayMode?.textContent).toContain(dict.holdings.displayModeAggregated);
+    expect(allocationBasis?.textContent).toContain(dict.dashboardHome.allocationBasisMarketValue);
     expect(layoutStyleControl).toBeNull();
     expect(tickerHeader?.className).toContain("sticky");
     expect(tickerCell?.className).toContain("sticky");
-
-    act(() => {
-      groupedMode?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      marketValueBasis?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(groupedMode?.getAttribute("data-state")).toBe("on");
-    expect(marketValueBasis?.getAttribute("data-state")).toBe("on");
   });
 
   it("does not let late preference hydration overwrite local column edits", async () => {
@@ -222,7 +214,7 @@ describe("HoldingsTable", () => {
           holdingsTableSettings: {
             version: 1,
             contexts: {
-              portfolio: {
+              "holdings.shared": {
                 columnOrder: ["ticker", "marketValue"],
                 columnWidths: {},
                 hiddenColumns: [],
@@ -280,7 +272,7 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
-            "portfolio.holdings": {
+            "holdings.shared": {
               columnOrder: ["price", "unitPnl", "dailyChange", "ticker", "accounts", "quantity", "avgCost", "marketValue", "pnl", "health", "costBasis", "allocation", "nextDividend", "lastDividend"],
               hiddenColumns: [],
               columnWidths: {},
@@ -316,7 +308,7 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
-            "portfolio.holdings": {
+            "holdings.shared": {
               columnOrder: ["quantity", "avgCost", "unitPnl", "price", "dailyChange", "costBasis", "allocation", "ticker", "accounts", "marketValue", "pnl", "health", "nextDividend", "lastDividend"],
               hiddenColumns: ["accounts", "marketValue", "pnl", "health"],
               columnWidths: {},

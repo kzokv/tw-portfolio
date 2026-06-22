@@ -22,13 +22,22 @@ import {
   type ReportSummaryTotalsDto,
 } from "@vakwen/shared-types";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ExternalLink, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { Button } from "../ui/Button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Badge } from "../ui/shadcn/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
+import { Checkbox } from "../ui/shadcn/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/shadcn/dropdown-menu";
 import { Input } from "../ui/shadcn/input";
 import {
   Select,
@@ -57,6 +66,8 @@ import {
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsRowSettingsMenu,
+  applyHoldingsRowOrder,
   holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsColumnSettingsState,
@@ -137,6 +148,7 @@ const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldings
   { id: "health", label: "Data health", defaultWidth: 192 },
 ];
 const REPORT_MOBILE_FIELD_COLUMNS: ReportHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight", "health"];
+const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsColumn): string {
   switch (column) {
@@ -163,6 +175,10 @@ function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsCol
     case "health":
       return dict.holdings.dataHealthTerm;
   }
+}
+
+function reportHoldingRowId(row: { marketCode: string; ticker: string }): string {
+  return `${row.marketCode}:${row.ticker}`;
 }
 
 function buildPerformanceChartConfig(totalReturnAmount: number | null | undefined): ChartConfig {
@@ -1212,8 +1228,8 @@ function HoldingsCard({
   title: string;
 }) {
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
-  const [accountFilter, setAccountFilter] = useState("ALL");
-  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
   const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
@@ -1238,14 +1254,14 @@ function HoldingsCard({
   );
   const columnSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
     columns,
-    contextKey,
+    contextKey: SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
     defaultLayoutStyle: "portfolio",
     mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
   });
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, REPORT_MOBILE_FIELD_COLUMNS);
   const marketOptions = useMemo(
-    () => ["ALL", ...new Set(rows.rows.map((row) => row.marketCode))],
+    () => [...new Set(rows.rows.map((row) => row.marketCode))].sort((left, right) => left.localeCompare(right)),
     [rows.rows],
   );
   const accountOptions = useMemo(() => {
@@ -1255,15 +1271,25 @@ function HoldingsCard({
         accounts.set(account.id, account.name);
       }
     }
-    return [{ id: "ALL", name: dict.holdings.allAccountsOption }, ...[...accounts.entries()]
+    return [...accounts.entries()]
       .map(([id, name]) => ({ id, name }))
-      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))];
-  }, [dict.holdings.allAccountsOption, rows.rows]);
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  }, [rows.rows]);
+  const marketFilterLabel = formatFilterSummary(
+    selectedMarketCodes,
+    dict.dashboardHome.topHoldingsAllMarkets,
+    dict.dashboardHome.topHoldingsMarketLabel,
+  );
+  const accountFilterLabel = formatFilterSummary(
+    selectedAccountIds.map((accountId) => accountOptions.find((account) => account.id === accountId)?.name ?? accountId),
+    dict.dashboardHome.topHoldingsAllAccounts,
+    dict.dashboardHome.topHoldingsAccountLabel,
+  );
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
     const baseRows = rows.rows.filter((row) => {
-      const marketMatches = marketFilter === "ALL" || row.marketCode === marketFilter;
-      const accountMatches = accountFilter === "ALL" || (row.accounts ?? []).some((account) => account.id === accountFilter);
+      const marketMatches = selectedMarketCodes.length === 0 || selectedMarketCodes.includes(row.marketCode);
+      const accountMatches = selectedAccountIds.length === 0 || (row.accounts ?? []).some((account) => selectedAccountIds.includes(account.id));
       const queryMatches = normalizedQuery === ""
         || row.ticker.toUpperCase().includes(normalizedQuery)
         || row.instrumentName?.toUpperCase().includes(normalizedQuery) === true
@@ -1272,10 +1298,14 @@ function HoldingsCard({
           account.name.toUpperCase().includes(normalizedQuery) || account.id.toUpperCase().includes(normalizedQuery));
       return marketMatches && accountMatches && queryMatches;
     });
-    return applyReportHoldingPreset(baseRows, selectedPreset)
-      .slice()
-      .sort((left, right) => compareReportHoldingRows(left, right, sortMode, selectedPreset));
-  }, [accountFilter, marketFilter, query, rows.rows, selectedPreset, sortMode]);
+    return applyHoldingsRowOrder(
+      applyReportHoldingPreset(baseRows, selectedPreset)
+        .slice()
+        .sort((left, right) => compareReportHoldingRows(left, right, sortMode, selectedPreset)),
+      reportHoldingRowId,
+      columnSettings.rowOrder,
+    );
+  }, [columnSettings.rowOrder, query, rows.rows, selectedAccountIds, selectedMarketCodes, selectedPreset, sortMode]);
   const filteredRowsPage: ReportHoldingRowsPageDto = {
     ...rows,
     limit: filteredRows.length,
@@ -1309,6 +1339,16 @@ function HoldingsCard({
             getColumnLabel={(column) => reportHoldingColumnLabel(dict, column.id)}
             settings={columnSettings}
           />
+          <HoldingsRowSettingsMenu
+            dict={dict}
+            rows={filteredRows.map((row) => ({
+              id: reportHoldingRowId(row),
+              label: row.ticker,
+              description: row.instrumentName ? `${row.marketCode} · ${row.instrumentName}` : row.marketCode,
+            }))}
+            settings={columnSettings}
+            testIdPrefix="reports-holdings"
+          />
           <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
         </div>
       </CardHeader>
@@ -1325,34 +1365,24 @@ function HoldingsCard({
               data-testid={`reports-holdings-search-${contextKey}`}
             />
           </label>
-          <Select value={marketFilter} onValueChange={setMarketFilter}>
-            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsMarketLabel} className="min-w-36" data-testid={`reports-holdings-market-filter-${contextKey}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {marketOptions.map((market) => (
-                  <SelectItem key={market} value={market}>
-                    {market === "ALL" ? dict.dashboardHome.topHoldingsAllMarkets : market}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Select value={accountFilter} onValueChange={setAccountFilter}>
-            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsAccountLabel} className="min-w-36" data-testid={`reports-holdings-account-filter-${contextKey}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {accountOptions.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <ReportsMultiSelectMenu
+            allLabel={dict.dashboardHome.topHoldingsAllMarkets}
+            buttonLabel={marketFilterLabel}
+            label={dict.dashboardHome.topHoldingsMarketLabel}
+            options={marketOptions.map((market) => ({ id: market, label: market }))}
+            selectedIds={selectedMarketCodes}
+            setSelectedIds={setSelectedMarketCodes}
+            testId={`reports-holdings-market-filter-${contextKey}`}
+          />
+          <ReportsMultiSelectMenu
+            allLabel={dict.dashboardHome.topHoldingsAllAccounts}
+            buttonLabel={accountFilterLabel}
+            label={dict.dashboardHome.topHoldingsAccountLabel}
+            options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
+            selectedIds={selectedAccountIds}
+            setSelectedIds={setSelectedAccountIds}
+            testId={`reports-holdings-account-filter-${contextKey}`}
+          />
           <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
             <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
               <SelectValue />
@@ -1485,6 +1515,65 @@ function SectionRefreshButton({
       {dict.reports.refresh}
     </Button>
   );
+}
+
+function ReportsMultiSelectMenu({
+  allLabel,
+  buttonLabel,
+  label,
+  options,
+  selectedIds,
+  setSelectedIds,
+  testId,
+}: {
+  allLabel: string;
+  buttonLabel: string;
+  label: string;
+  options: Array<{ id: string; label: string }>;
+  selectedIds: string[];
+  setSelectedIds: (ids: string[]) => void;
+  testId: string;
+}) {
+  function toggle(id: string) {
+    setSelectedIds(selectedIds.includes(id) ? selectedIds.filter((selectedId) => selectedId !== id) : [...selectedIds, id]);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="w-full justify-between" aria-label={label} data-testid={testId}>
+          <span className="sr-only">{label}</span>
+          <span className="truncate">{buttonLabel}</span>
+          <ChevronDown data-icon="inline-end" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={selectedIds.length === 0} onCheckedChange={() => setSelectedIds([])} />
+            {allLabel}
+          </label>
+        </div>
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.id}
+            checked={selectedIds.includes(option.id)}
+            onCheckedChange={() => toggle(option.id)}
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function formatFilterSummary(selectedLabels: string[], allLabel: string, label: string) {
+  if (selectedLabels.length === 0) return allLabel;
+  if (selectedLabels.length === 1) return selectedLabels[0]!;
+  return `${selectedLabels.length} ${label}`;
 }
 
 function ReportHoldingTableCell({
@@ -1630,9 +1719,7 @@ function ReportMoneyTableCell({
             ? "-"
             : tone
               ? formatFinanceCurrencyAmount(value, currency, locale, compact)
-              : compact
-                ? formatCompactCurrencyAmount(value, currency, locale)
-                : formatCurrencyAmount(value, currency, locale)}
+              : formatCurrencyAmount(value, currency, locale)}
         </span>
         {compact && value !== null ? (
           <span className={cn("text-xs", tone ? holdingsFinanceToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
@@ -2101,7 +2188,7 @@ function CompactFinanceStat({
     <div className="min-w-0 rounded-md border border-border bg-muted/20 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className={cn("mt-1 min-w-0 break-words font-mono text-sm font-semibold tabular-nums", tone ? holdingsFinanceToneClass(value, "text-foreground") : "text-foreground")}>
-        {valueOverride ?? (value === null ? "-" : tone ? formatFinanceCurrencyAmount(value, currency, locale, true) : formatCompactCurrencyAmount(value, currency, locale))}
+        {valueOverride ?? (value === null ? "-" : tone ? formatFinanceCurrencyAmount(value, currency, locale) : formatCurrencyAmount(value, currency, locale))}
       </div>
       {valueOverride === undefined && value !== null ? (
         <p className={cn("mt-1 font-mono text-xs tabular-nums", tone ? holdingsFinanceToneClass(value, "text-muted-foreground") : "text-muted-foreground")}>
@@ -2122,11 +2209,9 @@ function formatFinanceCurrencyAmount(
   value: number,
   currency: CurrencyCode,
   locale: LocaleCode,
-  compact = false,
+  _compact = false,
 ): string {
-  const formatted = compact
-    ? formatCompactCurrencyAmount(Math.abs(value), currency, locale)
-    : formatCurrencyAmount(Math.abs(value), currency, locale);
+  const formatted = formatCurrencyAmount(Math.abs(value), currency, locale);
   if (value > 0) return `+${formatted}`;
   if (value < 0) return `-${formatted}`;
   return formatted;

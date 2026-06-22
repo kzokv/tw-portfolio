@@ -314,11 +314,12 @@ export function PortfolioClient({
                       fxRates={portfolio.data.fxRates ?? []}
                       groups={holdingGroups}
                       locale={locale}
-                      reportingCurrency={effectiveReportingCurrency}
-                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
-                      settingsContextKey="portfolio.topHoldings"
-                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
-                    />
+	                      reportingCurrency={effectiveReportingCurrency}
+	                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
+                        isRefreshing={portfolio.isRefreshing}
+                        onRefresh={refreshPrices}
+	                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
+	                    />
                   ) : (
                     <HoldingsTable
                       holdings={portfolio.data.holdings}
