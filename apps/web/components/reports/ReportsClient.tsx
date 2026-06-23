@@ -660,6 +660,7 @@ function hasIncompleteReportValuation(dataHealth: ReportDataHealthDto): boolean 
   const currentMissingFxCount = dataHealth.currentMissingFxCount ?? dataHealth.missingFxCount;
   return dataHealth.missingQuoteCount > 0
     || dataHealth.provisionalQuoteCount > 0
+    || dataHealth.nonCurrentPriceCount > 0
     || currentMissingFxCount > 0;
 }
 

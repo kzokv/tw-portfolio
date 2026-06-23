@@ -959,6 +959,49 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-strict-totals-alert']")).toBeNull();
   });
 
+  it("keeps valuation summary cards strict when prices are non-current", async () => {
+    const nonCurrentPriceFixture = {
+      ...fixture,
+      dataHealth: {
+        ...fixture.dataHealth,
+        nonCurrentPriceCount: 1,
+      },
+      diagnostics: {
+        ...fixture.diagnostics,
+        nonCurrentPriceCount: 1,
+        knownGapReasons: ["non_current_price"],
+      },
+      holdings: {
+        ...fixture.holdings,
+        rows: [{
+          ...fixture.holdings.rows[0]!,
+          priceState: testPriceState({ basis: "previous_close", chipState: "open_previous_close" }),
+          quoteStatus: "current",
+          fxStatus: "complete",
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={nonCurrentPriceFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const summaryGrid = document.querySelector("[data-testid='reports-summary-grid']");
+    const marketValueCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Market value"));
+    const unrealizedCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Unrealized P&L"));
+    const dailyChangeCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Daily change"));
+
+    expect(marketValueCard?.textContent).toContain("-");
+    expect(unrealizedCard?.textContent).toContain("-");
+    expect(dailyChangeCard?.textContent).toContain("-");
+    expect(document.querySelector("[data-testid='reports-strict-totals-alert']")?.textContent).toContain("Strict totals");
+  });
+
   it("does not render a stale daily-review DTO as another report tab", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
 
