@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import { seedQuoteBars } from "./helpers/anonymousShare.js";
 import { seedTransactionForUser } from "./helpers/sharing.js";
@@ -54,15 +54,97 @@ async function waitForAnimationsToSettle(page: Page, testId: string) {
   }, testId);
 }
 
+async function seedDesktopFitHolding(e2eUserId: string, ticker: string) {
+  await seedTransactionForUser(e2eUserId, {
+    ticker,
+    quantity: 8,
+    unitPrice: 120,
+    tradeDate: "2026-02-04",
+  });
+  await seedQuoteBars([
+    {
+      ticker,
+      barDate: "2026-05-15",
+      open: 150,
+      high: 150,
+      low: 150,
+      close: 150,
+      volume: 1000,
+    },
+  ]);
+}
+
+async function assertStickyHoldingsTable(table: Locator, label: string) {
+  await table.waitFor({ state: "visible" });
+  await table.locator("thead th").first().waitFor({ state: "visible" });
+  await table.locator("tbody tr > :first-child").first().waitFor({ state: "visible" });
+  const stickyState = await table.evaluate((tableElement) => {
+    const frame = tableElement.parentElement as HTMLElement | null;
+    const firstHeader = tableElement.querySelector<HTMLElement>("thead th");
+    const firstBodyCell = tableElement.querySelector<HTMLElement>("tbody tr > :first-child");
+    if (!frame || !firstHeader || !firstBodyCell) {
+      return {
+        missing: {
+          frame: !frame,
+          firstHeader: !firstHeader,
+          firstBodyCell: !firstBodyCell,
+        },
+      };
+    }
+
+    const headerBeforeTop = firstHeader.getBoundingClientRect().top;
+    const firstBodyBeforeLeft = firstBodyCell.getBoundingClientRect().left;
+    frame.scrollTop = Math.min(72, Math.max(0, frame.scrollHeight - frame.clientHeight));
+    frame.scrollLeft = Math.min(72, Math.max(0, frame.scrollWidth - frame.clientWidth));
+
+    const frameStyle = window.getComputedStyle(frame);
+    const headerStyle = window.getComputedStyle(firstHeader);
+    const firstBodyStyle = window.getComputedStyle(firstBodyCell);
+    return {
+      missing: null,
+      frameOverflowX: frameStyle.overflowX,
+      frameOverflowY: frameStyle.overflowY,
+      frameScrollLeft: frame.scrollLeft,
+      frameScrollTop: frame.scrollTop,
+      headerPosition: headerStyle.position,
+      headerTop: headerStyle.top,
+      headerTopDelta: firstHeader.getBoundingClientRect().top - headerBeforeTop,
+      firstBodyLeft: firstBodyStyle.left,
+      firstBodyLeftDelta: firstBodyCell.getBoundingClientRect().left - firstBodyBeforeLeft,
+      firstBodyPosition: firstBodyStyle.position,
+    };
+  });
+
+  if (stickyState.missing) {
+    throw new Error(`${label} missing sticky targets: ${JSON.stringify(stickyState.missing)}`);
+  }
+  if (stickyState.headerPosition !== "sticky" || stickyState.headerTop !== "0px") {
+    throw new Error(`${label} header is not sticky at top: ${JSON.stringify(stickyState)}`);
+  }
+  if (stickyState.firstBodyPosition !== "sticky" || stickyState.firstBodyLeft !== "0px") {
+    throw new Error(`${label} first column is not sticky at left: ${JSON.stringify(stickyState)}`);
+  }
+  if (!["auto", "scroll"].includes(stickyState.frameOverflowY)) {
+    throw new Error(`${label} frame is not vertically scrollable when needed: ${JSON.stringify(stickyState)}`);
+  }
+  if (stickyState.frameScrollLeft > 0 && Math.abs(stickyState.firstBodyLeftDelta) > 1) {
+    throw new Error(`${label} first column moved during horizontal scroll: ${JSON.stringify(stickyState)}`);
+  }
+}
+
 test.describe("frontend redesign desktop fit", () => {
   test("[desktop-fit-dashboard-A]: validate holdings and quick actions -> stay visible without clipping", async ({
     appShell,
+    e2eUserId,
     page,
   }) => {
+    await seedDesktopFitHolding(e2eUserId, "6891");
+
     await appShell.actions.setViewport(1440, 960);
     await appShell.actions.navigateToRoute("/dashboard");
     await page.getByTestId("dashboard-holdings-section").waitFor({ state: "visible" });
 
+    await assertStickyHoldingsTable(page.getByTestId("dashboard-holdings-section").locator("table").first(), "dashboard holdings");
     await assertWithinViewport(page, "dashboard-holdings-section");
     await assertNoClippedControlText(page, "dashboard-holdings-section");
     await page.getByTestId("floating-quick-actions-trigger").click();
@@ -78,29 +160,14 @@ test.describe("frontend redesign desktop fit", () => {
     page,
   }) => {
     const ticker = "6893";
-    await seedTransactionForUser(e2eUserId, {
-      ticker,
-      quantity: 8,
-      unitPrice: 120,
-      tradeDate: "2026-02-04",
-    });
-    await seedQuoteBars([
-      {
-        ticker,
-        barDate: "2026-05-15",
-        open: 150,
-        high: 150,
-        low: 150,
-        close: 150,
-        volume: 1000,
-      },
-    ]);
+    await seedDesktopFitHolding(e2eUserId, ticker);
 
     await appShell.actions.setViewport(1440, 960);
     await appShell.actions.navigateToRoute("/portfolio");
     await page.getByTestId("portfolio-holdings-section").waitFor({ state: "visible" });
     await page.getByTestId("holdings-table").waitFor({ state: "visible" });
 
+    await assertStickyHoldingsTable(page.getByTestId("holdings-table"), "portfolio holdings");
     await assertWithinViewport(page, "portfolio-holdings-section");
     await assertNoClippedControlText(page, "portfolio-holdings-section");
     await assertNoBodyOverflow(page);
@@ -108,13 +175,17 @@ test.describe("frontend redesign desktop fit", () => {
 
   test("[desktop-fit-reports-A]: validate reports holdings cards -> stay visible without clipping", async ({
     appShell,
+    e2eUserId,
     page,
   }) => {
+    await seedDesktopFitHolding(e2eUserId, "6895");
+
     await appShell.actions.setViewport(1440, 960);
     await appShell.actions.navigateToRoute("/reports?tab=portfolio&scope=all&range=1Y");
     await page.getByTestId("reports-page").waitFor({ state: "visible" });
     await page.getByTestId("reports-holdings-table-reports.portfolio.holdings").waitFor({ state: "visible" });
 
+    await assertStickyHoldingsTable(page.getByTestId("reports-holdings-table-reports.portfolio.holdings"), "reports holdings");
     await assertWithinViewport(page, "reports-page");
     await assertNoClippedControlText(page, "reports-page");
     await assertNoBodyOverflow(page);

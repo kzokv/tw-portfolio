@@ -90,6 +90,8 @@ interface ColumnRuntimeSettings<ColumnId extends string> {
   layoutStyle: HoldingsTableLayoutStyle;
   mobileSummaryCount: number;
   rowOrder: string[];
+  selectedMarketCodes: string[];
+  selectedAccountIds: string[];
   topHoldingsLimit: number;
 }
 
@@ -102,6 +104,8 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   mobileSummaryCount: number;
   mobileSummaryCountMax: number;
   rowOrder: string[];
+  selectedMarketCodes: string[];
+  selectedAccountIds: string[];
   settingsError: string;
   topHoldingsLimit: number;
   getColumnWidth: (column: ColumnId) => number;
@@ -120,6 +124,8 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   setLayoutStyle: (style: HoldingsTableLayoutStyle) => void;
   setMobileSummaryCount: (count: number) => void;
   setRowOrder: (rowOrder: string[]) => void;
+  setSelectedMarketCodes: (marketCodes: string[]) => void;
+  setSelectedAccountIds: (accountIds: string[]) => void;
   setTopHoldingsLimit: (limit: number) => void;
   toggleColumn: (column: ColumnId) => void;
 }
@@ -218,13 +224,29 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
         const nextContexts = parsed.success ? parsed.data.contexts : {};
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
+          const localContext = contextsRef.current[contextKey] ?? serializeSettings(settingsRef.current);
           const mergedContexts = {
             ...nextContexts,
             ...contextsRef.current,
-            [contextKey]: serializeSettings(settingsRef.current),
+            [contextKey]: {
+              ...nextContexts[contextKey],
+              ...localContext,
+            },
           };
           contextsRef.current = mergedContexts;
           setContexts(mergedContexts);
+          setSettings((current) => {
+            const next = normalizeContextSettings(
+              mergedContexts[contextKey],
+              columns,
+              defaultLayoutStyle,
+              defaultHiddenColumns,
+              defaultMobileSummaryCount,
+              mobileSummaryCountMax,
+              pinnedLeadingOrder,
+            );
+            return columnSettingsEqual(current, next) ? current : next;
+          });
           persistContexts(mergedContexts);
           return;
         }
@@ -281,6 +303,22 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     }
   }
 
+  function persistContextPatch(next: ColumnRuntimeSettings<ColumnId>, patch: HoldingsTableContextPreferenceDto) {
+    hasLocalEditRef.current = true;
+    const mergedContext = {
+      ...contextsRef.current[contextKey],
+      ...patch,
+    };
+    const mergedContexts = { ...contextsRef.current, [contextKey]: mergedContext };
+    contextsRef.current = mergedContexts;
+    setContexts(mergedContexts);
+    setSettings(next);
+    setSettingsError("");
+    if (hasHydratedPreferencesRef.current) {
+      persistContexts(mergedContexts);
+    }
+  }
+
   function toggleColumn(column: ColumnId) {
     const definition = columns.find((entry) => entry.id === column);
     if (definition?.canHide === false) return;
@@ -318,6 +356,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     persist({
       ...defaultSettings,
       rowOrder: settings.rowOrder,
+      selectedMarketCodes: settings.selectedMarketCodes,
+      selectedAccountIds: settings.selectedAccountIds,
       topHoldingsLimit: settings.topHoldingsLimit,
     });
   }
@@ -336,6 +376,22 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   function setRowOrder(rowOrder: string[]) {
     persist({ ...settings, rowOrder: normalizeRowOrder(rowOrder) });
+  }
+
+  function setSelectedMarketCodes(selectedMarketCodes: string[]) {
+    const nextSelectedMarketCodes = normalizeSelectionValues(selectedMarketCodes);
+    persistContextPatch(
+      { ...settings, selectedMarketCodes: nextSelectedMarketCodes },
+      { selectedMarketCodes: nextSelectedMarketCodes },
+    );
+  }
+
+  function setSelectedAccountIds(selectedAccountIds: string[]) {
+    const nextSelectedAccountIds = normalizeSelectionValues(selectedAccountIds);
+    persistContextPatch(
+      { ...settings, selectedAccountIds: nextSelectedAccountIds },
+      { selectedAccountIds: nextSelectedAccountIds },
+    );
   }
 
   function setTopHoldingsLimit(limit: number) {
@@ -407,6 +463,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     mobileSummaryCount: clampMobileSummaryCount(settings.mobileSummaryCount, mobileSummaryCountMax),
     mobileSummaryCountMax,
     rowOrder: settings.rowOrder,
+    selectedMarketCodes: settings.selectedMarketCodes,
+    selectedAccountIds: settings.selectedAccountIds,
     settingsError,
     topHoldingsLimit: settings.topHoldingsLimit,
     getColumnWidth,
@@ -418,6 +476,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setLayoutStyle,
     setMobileSummaryCount,
     setRowOrder,
+    setSelectedMarketCodes,
+    setSelectedAccountIds,
     setTopHoldingsLimit,
     toggleColumn,
   };
@@ -822,6 +882,12 @@ export function holdingsColumnCellStyle<ColumnId extends string>(
   };
 }
 
+export function filterAvailableHoldingsSelections(selectedIds: string[], availableIds: readonly string[]): string[] {
+  if (selectedIds.length === 0 || availableIds.length === 0) return [];
+  const available = new Set(availableIds);
+  return selectedIds.filter((id) => available.has(id));
+}
+
 function buildDefaultSettings<ColumnId extends string>(
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>,
   layoutStyle: HoldingsTableLayoutStyle,
@@ -837,6 +903,8 @@ function buildDefaultSettings<ColumnId extends string>(
     layoutStyle,
     mobileSummaryCount: clampMobileSummaryCount(defaultMobileSummaryCount, mobileSummaryCountMax),
     rowOrder: [],
+    selectedMarketCodes: [],
+    selectedAccountIds: [],
     topHoldingsLimit: DEFAULT_TOP_HOLDINGS_LIMIT,
   };
 }
@@ -878,10 +946,12 @@ function normalizeContextSettings<ColumnId extends string>(
     ? clampMobileSummaryCount(rawSettings.mobileSummaryCount, mobileSummaryCountMax)
     : defaults.mobileSummaryCount;
   const rowOrder = normalizeRowOrder(rawSettings?.rowOrder);
+  const selectedMarketCodes = normalizeSelectionValues(rawSettings?.selectedMarketCodes);
+  const selectedAccountIds = normalizeSelectionValues(rawSettings?.selectedAccountIds);
   const topHoldingsLimit = typeof rawSettings?.topHoldingsLimit === "number"
     ? clampTopHoldingsLimit(rawSettings.topHoldingsLimit)
     : defaults.topHoldingsLimit;
-  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount, rowOrder, topHoldingsLimit };
+  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount, rowOrder, selectedMarketCodes, selectedAccountIds, topHoldingsLimit };
 }
 
 function serializeSettings<ColumnId extends string>(
@@ -894,6 +964,8 @@ function serializeSettings<ColumnId extends string>(
     layoutStyle: settings.layoutStyle,
     mobileSummaryCount: settings.mobileSummaryCount,
     rowOrder: settings.rowOrder,
+    selectedMarketCodes: settings.selectedMarketCodes,
+    selectedAccountIds: settings.selectedAccountIds,
     topHoldingsLimit: settings.topHoldingsLimit,
   };
 }
@@ -908,6 +980,8 @@ function columnSettingsEqual<ColumnId extends string>(
     && arraysEqual(left.columnOrder, right.columnOrder)
     && arraysEqual(left.hiddenColumns, right.hiddenColumns)
     && arraysEqual(left.rowOrder, right.rowOrder)
+    && arraysEqual(left.selectedMarketCodes, right.selectedMarketCodes)
+    && arraysEqual(left.selectedAccountIds, right.selectedAccountIds)
     && recordEqual(left.columnWidths, right.columnWidths);
 }
 
@@ -942,6 +1016,18 @@ function normalizeRowOrder(rowOrder: unknown): string[] {
     if (typeof row !== "string" || row.length === 0 || seen.has(row)) continue;
     seen.add(row);
     normalized.push(row);
+  }
+  return normalized.slice(0, 500);
+}
+
+function normalizeSelectionValues(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string" || value.length === 0 || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
   }
   return normalized.slice(0, 500);
 }

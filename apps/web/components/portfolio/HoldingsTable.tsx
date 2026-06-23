@@ -42,6 +42,7 @@ import {
   HoldingsColumnSettingsMenu,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
+  filterAvailableHoldingsSelections,
   holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsColumnSettingsState,
@@ -205,8 +206,6 @@ export function HoldingsTable({
 
   const [query, setQuery] = useState("");
   const [displayMode, setDisplayMode] = useState<HoldingsDisplayMode>("aggregated");
-  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<DashboardOverviewHoldingDto["quoteStatus"][]>([]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const deferredQuery = useDeferredValue(query);
@@ -238,6 +237,15 @@ export function HoldingsTable({
       return acc;
     }, []),
     [groups],
+  );
+  const accountOptionIds = useMemo(() => accountOptions.map((option) => option.id), [accountOptions]);
+  const selectedMarketCodes = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedMarketCodes, marketOptions),
+    [columnSettings.selectedMarketCodes, marketOptions],
+  );
+  const selectedAccountIds = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedAccountIds, accountOptionIds),
+    [accountOptionIds, columnSettings.selectedAccountIds],
   );
 
   const filteredGroups = useMemo(() => {
@@ -313,14 +321,18 @@ export function HoldingsTable({
   }
 
   function toggleMarket(marketCode: string) {
-    setSelectedMarketCodes((current) =>
-      current.includes(marketCode) ? current.filter((item) => item !== marketCode) : [...current, marketCode],
+    columnSettings.setSelectedMarketCodes(
+      selectedMarketCodes.includes(marketCode)
+        ? selectedMarketCodes.filter((item) => item !== marketCode)
+        : [...selectedMarketCodes, marketCode],
     );
   }
 
   function toggleAccount(accountId: string) {
-    setSelectedAccountIds((current) =>
-      current.includes(accountId) ? current.filter((item) => item !== accountId) : [...current, accountId],
+    columnSettings.setSelectedAccountIds(
+      selectedAccountIds.includes(accountId)
+        ? selectedAccountIds.filter((item) => item !== accountId)
+        : [...selectedAccountIds, accountId],
     );
   }
 
@@ -400,7 +412,7 @@ export function HoldingsTable({
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox
                       checked={selectedMarketCodes.length === 0}
-                      onCheckedChange={() => setSelectedMarketCodes([])}
+                      onCheckedChange={() => columnSettings.setSelectedMarketCodes([])}
                     />
                     {dict.holdings.allMarketsOption}
                   </label>
@@ -432,7 +444,7 @@ export function HoldingsTable({
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox
                       checked={selectedAccountIds.length === 0}
-                      onCheckedChange={() => setSelectedAccountIds([])}
+                      onCheckedChange={() => columnSettings.setSelectedAccountIds([])}
                     />
                     {dict.holdings.allAccountsOption}
                   </label>
@@ -599,7 +611,7 @@ export function HoldingsTable({
                 })}
             </HoldingsGridMobileList>
 
-            <HoldingsGridDesktopFrame className="mt-6 overflow-x-auto overflow-y-hidden rounded-xl bg-card">
+            <HoldingsGridDesktopFrame className="mt-6 max-h-[42rem] overflow-x-auto rounded-xl bg-card">
             <HoldingsGridNativeTable testId="holdings-table">
               <thead>
                 <tr className="bg-muted/40 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
