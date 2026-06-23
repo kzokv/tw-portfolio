@@ -1137,6 +1137,7 @@ export interface ReportDataHealthDto {
   missingQuoteCount: number;
   provisionalQuoteCount: number;
   missingFxCount: number;
+  currentMissingFxCount?: number;
   nonCurrentPriceCount: number;
 }
 

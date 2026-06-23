@@ -1,6 +1,7 @@
 import type { IntradayPriceOverlay, MarketCode } from "@vakwen/domain";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Persistence } from "../../persistence/types.js";
+import type { YahooIntradayDiagnostic } from "./providers/yahooFinanceIntraday.js";
 import { RateLimitedError } from "./types.js";
 
 export const INTRADAY_REFRESH_QUEUE = "intraday-refresh";
@@ -22,7 +23,7 @@ export interface IntradayRefreshWorkerRuntimeConfig {
 
 export interface IntradayRefreshWorkerDeps {
   cache: { setLatest(overlay: IntradayPriceOverlay): Promise<void> };
-  fetchOverlay(input: { ticker: string; marketCode: MarketCode; now: Date }): Promise<IntradayPriceOverlay | null>;
+  fetchOverlay(input: { ticker: string; marketCode: MarketCode; now: Date }): Promise<IntradayRefreshFetchResult>;
   requestBudget: IntradayRefreshRequestBudget;
   persistence?: Pick<Persistence, "createMarketCalendarActivityEvent">;
   resolveRuntimeConfig?: () => IntradayRefreshWorkerRuntimeConfig;
@@ -31,6 +32,14 @@ export interface IntradayRefreshWorkerDeps {
     warn: (payload: Record<string, unknown>, message: string) => void;
   };
 }
+
+export type IntradayRefreshFetchResult =
+  | IntradayPriceOverlay
+  | null
+  | {
+    overlay: IntradayPriceOverlay | null;
+    diagnostic?: YahooIntradayDiagnostic;
+  };
 
 export interface IntradayRefreshWorkerConfig {
   concurrency: number;
@@ -111,23 +120,32 @@ export function createIntradayRefreshHandler(deps: IntradayRefreshWorkerDeps) {
         message: `${data.ticker} intraday refresh started.`,
       });
       try {
-        const overlay = await deps.fetchOverlay({
+        const result = normalizeIntradayRefreshFetchResult(await deps.fetchOverlay({
           ticker: data.ticker,
           marketCode: data.marketCode,
           now: new Date(),
-        });
+        }));
+        const { overlay, diagnostic } = result;
         if (!overlay) {
           await emitIntradayActivity(deps, {
             marketCode: data.marketCode,
             ticker: data.ticker,
             jobId: job.id ?? null,
+            providerSymbol: diagnostic?.resolvedProviderSymbol,
             result: "warning",
             eventType: "intraday_refresh_no_same_day_quote",
             title: "Intraday quote unavailable",
             message: `${data.ticker} intraday refresh found no same-day quote.`,
+            detail: diagnostic ? { ...diagnostic } : undefined,
           });
           deps.log.warn(
-            { ticker: data.ticker, marketCode: data.marketCode, jobId: job.id },
+            {
+              ticker: data.ticker,
+              marketCode: data.marketCode,
+              jobId: job.id,
+              resolvedProviderSymbol: diagnostic?.resolvedProviderSymbol,
+              diagnosticSummary: diagnostic,
+            },
             "intraday_refresh_no_same_day_quote",
           );
           continue;
@@ -173,6 +191,15 @@ export function createIntradayRefreshHandler(deps: IntradayRefreshWorkerDeps) {
       }
     }
   };
+}
+
+function normalizeIntradayRefreshFetchResult(result: IntradayRefreshFetchResult): {
+  overlay: IntradayPriceOverlay | null;
+  diagnostic?: YahooIntradayDiagnostic;
+} {
+  if (result === null) return { overlay: null };
+  if ("overlay" in result) return result;
+  return { overlay: result };
 }
 
 function resolveIntradayRuntimeConfig(deps: IntradayRefreshWorkerDeps): IntradayRefreshWorkerRuntimeConfig {

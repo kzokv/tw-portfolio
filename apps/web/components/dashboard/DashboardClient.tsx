@@ -176,6 +176,16 @@ export function DashboardClient({
     instruments: dashboard.instruments,
     accounts: dashboard.accounts,
   });
+  const strictSummary = useMemo(() => {
+    const hasUnavailableMarketValue = holdingGroups.some(hasIncompleteDashboardValuation);
+    const hasUnavailableDailyChange = holdingGroups.some(hasIncompleteDashboardDailyChange);
+    return {
+      ...dashboard.summary,
+      dailyChangeAmount: hasUnavailableDailyChange ? null : dashboard.summary.dailyChangeAmount,
+      dailyChangePercent: hasUnavailableDailyChange ? null : dashboard.summary.dailyChangePercent,
+      marketValueAmount: hasUnavailableMarketValue ? null : dashboard.summary.marketValueAmount,
+    };
+  }, [dashboard.summary, holdingGroups]);
   const restoredLabel = dashboard.restoredAt
     ? new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
         hour: "2-digit",
@@ -245,7 +255,7 @@ export function DashboardClient({
           fxRates={dashboard.fxRates ?? []}
           holdingCount={holdingGroups.length}
           marketValues={dashboard.marketValues ?? []}
-          summary={dashboard.summary}
+          summary={strictSummary}
           locale={locale}
           dict={dict}
           quoteRefreshVersion={dashboard.quoteRefreshVersion}
@@ -685,6 +695,18 @@ function DashboardCommandCard({
 
 function formatDashboardMessage(template: string, values: Record<string, string>): string {
   return Object.entries(values).reduce((message, [key, value]) => message.replace(`{${key}}`, value), template);
+}
+
+function hasIncompleteDashboardValuation(group: DashboardOverviewHoldingGroupDto): boolean {
+  return group.quoteStatus !== "current"
+    || group.fxStatus !== "complete"
+    || group.reportingMarketValueAmount === null;
+}
+
+function hasIncompleteDashboardDailyChange(group: DashboardOverviewHoldingGroupDto): boolean {
+  return hasIncompleteDashboardValuation(group)
+    || group.reportingDailyChangeAmount === null
+    || group.changePercent === null;
 }
 
 function resolveTickerPricePollMs(

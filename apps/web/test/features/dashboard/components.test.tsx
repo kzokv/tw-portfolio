@@ -1555,6 +1555,84 @@ describe("dashboard components", () => {
     expect(html).not.toContain('data-testid="dashboard-hero-market-TW"');
   });
 
+  it("keeps dashboard hero totals strict and explains missing valuations in holdings health", () => {
+    const missingQuoteHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      ticker: "AAPL",
+      marketCode: "US",
+      currency: "USD",
+      quantity: 10,
+      costBasisAmount: 1_000,
+      averageCostPerShare: 100,
+      currentUnitPrice: null,
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      change: null,
+      changePercent: null,
+      previousClose: null,
+      quoteStatus: "missing",
+    };
+    const groups = buildHoldingGroupsFromHoldings({ holdings: [holdings[0]!, missingQuoteHolding] })
+      .map((group) => ({
+        ...group,
+        reportingCurrency: "AUD" as const,
+        reportingMarketValueAmount: group.ticker === "2330" ? 60_000 : 1_500,
+        reportingCostBasisAmount: group.ticker === "2330" ? 58_000 : 1_200,
+        reportingUnrealizedPnlAmount: group.ticker === "2330" ? 2_000 : 300,
+        reportingDailyChangeAmount: group.ticker === "2330" ? 120 : 15,
+        reportingAllocationPercent: 50,
+        fxStatus: group.ticker === "2330" ? "complete" as const : "partial" as const,
+        children: group.children.map((child) => ({
+          ...child,
+          reportingCurrency: "AUD" as const,
+          reportingMarketValueAmount: group.ticker === "2330" ? 60_000 : 1_500,
+          reportingCostBasisAmount: group.ticker === "2330" ? 58_000 : 1_200,
+          reportingUnrealizedPnlAmount: group.ticker === "2330" ? 2_000 : 300,
+          reportingDailyChangeAmount: group.ticker === "2330" ? 120 : 15,
+          reportingAllocationPercent: 50,
+          fxStatus: group.ticker === "2330" ? "complete" as const : "partial" as const,
+        })),
+      }));
+
+    const heroHtml = renderToStaticMarkup(
+      <DashboardHero
+        holdingCount={groups.length}
+        marketValues={[{ marketCode: "TW", value: 60_000, reportingCurrency: "AUD" }]}
+        summary={{
+          asOf: "2026-06-08",
+          accountCount: 2,
+          holdingCount: 2,
+          totalCostAmount: 59_200,
+          reportingCurrency: "AUD",
+          fxStatus: "partial",
+          marketValueAmount: null,
+          unrealizedPnlAmount: 2_300,
+          dailyChangeAmount: null,
+          dailyChangePercent: null,
+          upcomingDividendCount: 0,
+          upcomingDividendAmount: null,
+          openIssueCount: 0,
+          priceStateRollup: testPriceStateRollup({ holdingCount: 2, currentPriceCount: 1, missingPriceCount: 1 }),
+        }}
+        locale="en"
+        dict={dict}
+      />,
+    );
+    const holdingsHtml = renderToStaticMarkup(
+      <DashboardHoldingsPreview
+        groups={groups}
+        locale="en"
+        reportingCurrency="AUD"
+      />,
+    );
+
+    expect(heroHtml).toContain(dict.dashboardHome.noMarketValue);
+    expect(holdingsHtml).toContain('data-testid="dashboard-missing-valuation-alert"');
+    expect(holdingsHtml).toContain("Market data needs attention");
+    expect(holdingsHtml).toContain("AAPL (US)");
+    expect(holdingsHtml).toContain("Data health column below");
+  });
+
   it("renders the priority command modules without duplicating the old intro panel", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings });
     const html = renderToStaticMarkup(

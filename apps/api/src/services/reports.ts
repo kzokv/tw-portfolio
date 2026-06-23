@@ -659,11 +659,13 @@ function buildDataHealth(
   groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
   historicalMissingFxCount = 0,
 ): ReportDataHealthDto {
+  const currentMissingFxCount = groups.filter((group) => group.fxStatus !== "complete").length;
   return {
     holdingCount: groups.length,
     missingQuoteCount: groups.filter((group) => group.quoteStatus === "missing").length,
     provisionalQuoteCount: groups.filter((group) => group.quoteStatus === "provisional").length,
-    missingFxCount: groups.filter((group) => group.fxStatus !== "complete").length + historicalMissingFxCount,
+    missingFxCount: currentMissingFxCount + historicalMissingFxCount,
+    currentMissingFxCount,
     nonCurrentPriceCount: groups.filter((group) => !isCurrentPriceState(group.priceState)).length,
   };
 }

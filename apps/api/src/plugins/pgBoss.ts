@@ -371,7 +371,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
               range: currentConfig.yahooChartRange,
               interval: currentConfig.yahooChartInterval,
               persistence: app.persistence,
-            }).fetchLatestOverlay({
+            }).fetchLatestOverlayResult({
               ticker,
               marketCode: marketCode as "TW" | "US" | "AU" | "KR",
               now,

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import {
   createTransactionDraftBatch,
@@ -6,6 +6,7 @@ import {
   preflightTransactionDraftCandidates,
 } from "../../src/services/mcpDrafts.js";
 import { getAccountManagerComponent } from "../../src/services/mcpAccounts.js";
+import { BACKFILL_QUEUE, getBackfillSingletonKey } from "../../src/services/market-data/backfillWorker.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -352,6 +353,8 @@ describe("mcp draft services", () => {
     expect(aggregate).toBeTruthy();
 
     await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const bossSend = vi.fn().mockResolvedValue("backfill-job-1");
+    app.boss = { send: bossSend } as never;
 
     const posted = await postTransactionDraftRows(
       { app, requestContext: createRequestContext() },
@@ -381,6 +384,63 @@ describe("mcp draft services", () => {
         source: "mcp_tool",
         postedRowIds: [aggregate!.rows[0]!.id],
       }),
+    });
+    expect(bossSend).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        userId: "user-1",
+        trigger: "first_trade",
+      },
+      { singletonKey: getBackfillSingletonKey("2330", "TW"), priority: 0 },
+    );
+  });
+
+  it("keeps draft posting successful when first-trade backfill enqueue fails", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+        }],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const bossSend = vi.fn().mockRejectedValue(new Error("pg-boss unavailable"));
+    const warnSpy = vi.spyOn(app.log, "warn").mockImplementation(() => undefined);
+    app.boss = { send: bossSend } as never;
+
+    const posted = await postTransactionDraftRows(
+      { app, requestContext: createRequestContext() },
+      {
+        batchId: created.batch.id,
+        rowIds: [aggregate!.rows[0]!.id],
+        expectedBatchVersion: aggregate!.batch.version,
+        expectedRowVersions: [{ rowId: aggregate!.rows[0]!.id, expectedVersion: aggregate!.rows[0]!.version }],
+        idempotencyKey: "mcp-post-rows-backfill-failure",
+      },
+    );
+
+    expect(posted.outcome).toBe("posted");
+    expect(bossSend).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1", rowCount: 1 }),
+      "mcp_draft_first_trade_backfill_enqueue_failed",
+    );
+    const updated = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    expect(updated?.rows[0]).toMatchObject({
+      state: "confirmed",
+      confirmedTradeEventId: posted.createdTransactionIds[0],
     });
   });
 
@@ -432,5 +492,44 @@ describe("mcp draft services", () => {
     expect(after.accounting.facts.tradeEvents).toHaveLength(before.accounting.facts.tradeEvents.length);
     const refreshed = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
     expect(refreshed?.rows[0]).toMatchObject({ state: "ready", version: row.version });
+  });
+
+  it("skips first-trade backfill enqueue for demo owners", async () => {
+    await app.persistence.markDemoUser("user-1", 300);
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const bossSend = vi.fn().mockResolvedValue("backfill-job-1");
+    app.boss = { send: bossSend } as never;
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+          },
+        ],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+
+    await postTransactionDraftRows(
+      { app, requestContext: createRequestContext() },
+      {
+        batchId: created.batch.id,
+        rowIds: [aggregate!.rows[0]!.id],
+        expectedBatchVersion: aggregate!.batch.version,
+        expectedRowVersions: [{ rowId: aggregate!.rows[0]!.id, expectedVersion: aggregate!.rows[0]!.version }],
+        idempotencyKey: "mcp-post-rows-demo-skip",
+      },
+    );
+
+    expect(bossSend).not.toHaveBeenCalled();
   });
 });

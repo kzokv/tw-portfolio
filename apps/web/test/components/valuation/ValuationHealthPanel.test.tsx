@@ -248,6 +248,28 @@ describe("ValuationHealthPanel", () => {
     expect(document.querySelector("[data-testid='valuation-health-admin-repair']")).toBeNull();
   });
 
+  it("can explain strict valuation totals without introducing a separate page-level banner", async () => {
+    const valuationHealth = buildValuationHealth();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          adminRepairHref={getValuationHealthAdminRepairHref(valuationHealth)}
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          strictTotalsNotice="Main valuation KPIs stay unavailable instead of showing partial totals while one or more affected holdings are still waiting for current reportable valuations."
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='valuation-health-strict-totals-alert']")?.textContent).toContain("partial totals");
+    expect(document.querySelector("[data-testid='valuation-health-panel']")).not.toBeNull();
+  });
+
   it("explains material gaps that are waiting for the next market bar", async () => {
     const valuationHealth = buildValuationHealth({
       affectedHoldings: [

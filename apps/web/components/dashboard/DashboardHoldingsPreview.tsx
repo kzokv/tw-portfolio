@@ -23,6 +23,7 @@ import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { RollingNumber } from "../ui/RollingNumber";
+import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { Badge } from "../ui/shadcn/badge";
 import {
   Card,
@@ -243,6 +244,14 @@ export function DashboardHoldingsPreview({
       .map(([id, name]) => ({ id, name }))
       .sort((left, right) => left.name.localeCompare(right.name));
   }, [groups]);
+  const valuationAttentionGroups = useMemo(
+    () => groups.filter(hasIncompleteDashboardValuation),
+    [groups],
+  );
+  const valuationAttentionLabel = useMemo(
+    () => formatAffectedDashboardTickers(dict, locale, valuationAttentionGroups),
+    [dict, locale, valuationAttentionGroups],
+  );
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
     const baseGroups = groups.flatMap((group) => {
@@ -374,6 +383,19 @@ export function DashboardHoldingsPreview({
                 <CardDescription className="mt-2">
                   {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsDescription, { currency: reportingCurrency })}
                 </CardDescription>
+                {valuationAttentionGroups.length > 0 ? (
+                  <Alert className="max-w-3xl" data-testid="dashboard-missing-valuation-alert">
+                    <AlertTitle>{dict.dashboardHome.missingValuationTitle}</AlertTitle>
+                    <AlertDescription className="space-y-1">
+                      <p>
+                        {formatTopHoldingsMessage(dict.dashboardHome.missingValuationDescription, {
+                          tickers: valuationAttentionLabel,
+                        })}
+                      </p>
+                      <p>{dict.dashboardHome.missingValuationHelp}</p>
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
               </div>
               <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[44rem] xl:grid-cols-[minmax(12rem,1.4fr)_minmax(8.5rem,1fr)_minmax(9rem,1fr)_minmax(7.5rem,0.9fr)]">
                 <label className="flex min-w-0 flex-col gap-1.5">
@@ -2203,6 +2225,28 @@ function formatTopHoldingsMessage(template: string, values: Record<string, strin
     (message, [key, value]) => message.replaceAll(`{${key}}`, value),
     template,
   );
+}
+
+function hasIncompleteDashboardValuation(group: DashboardOverviewHoldingGroupDto): boolean {
+  return group.quoteStatus !== "current"
+    || group.fxStatus !== "complete"
+    || group.reportingMarketValueAmount === null;
+}
+
+function formatAffectedDashboardTickers(
+  dict: ReturnType<typeof getDictionary>,
+  locale: LocaleCode,
+  groups: DashboardOverviewHoldingGroupDto[],
+): string {
+  const tickers = groups.map((group) => `${group.ticker} (${group.marketCode})`);
+  if (tickers.length <= 3) return tickers.join(", ");
+  const visible = tickers.slice(0, 3);
+  visible.push(
+    formatTopHoldingsMessage(dict.dashboardHome.missingValuationMoreHoldings, {
+      count: formatNumber(tickers.length - 3, locale),
+    }),
+  );
+  return visible.join(", ");
 }
 
 function getDailyMetric(
