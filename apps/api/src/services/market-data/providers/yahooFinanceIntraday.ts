@@ -24,6 +24,46 @@ interface YahooChartResult {
   meta?: YahooChartMeta;
 }
 
+export type YahooIntradayRejectionReason =
+  | "provider_no_data"
+  | "no_quotes_returned"
+  | "no_valid_close_quotes"
+  | "no_same_day_valid_close";
+
+export interface YahooIntradayDiagnosticQuote {
+  timestamp: string;
+  value: number;
+}
+
+export interface YahooIntradayDiagnostic {
+  ticker: string;
+  marketCode: RegularSessionMarketCode;
+  resolvedProviderSymbol: string;
+  chartOptions: {
+    period1: string;
+    period2: string;
+    interval: YahooIntradayInterval;
+    includePrePost: false;
+  };
+  quoteCounts: {
+    total: number;
+    timestamped: number;
+    nonNullClose: number;
+    validClose: number;
+    sameDayValidClose: number;
+  };
+  firstValidClose: YahooIntradayDiagnosticQuote | null;
+  lastValidClose: YahooIntradayDiagnosticQuote | null;
+  metaCurrency: string | null;
+  metaPreviousClose: number | null;
+  rejectionReason: YahooIntradayRejectionReason;
+}
+
+export interface YahooIntradayFetchResult {
+  overlay: IntradayPriceOverlay | null;
+  diagnostic?: YahooIntradayDiagnostic;
+}
+
 interface YahooIntradayPersistence {
   getProviderResolutionMapping?(
     providerId: string,
@@ -88,8 +128,13 @@ export class YahooFinanceIntradayProvider {
   }
 
   async fetchLatestOverlay(input: YahooIntradayFetchInput): Promise<IntradayPriceOverlay | null> {
+    return (await this.fetchLatestOverlayResult(input)).overlay;
+  }
+
+  async fetchLatestOverlayResult(input: YahooIntradayFetchInput): Promise<YahooIntradayFetchResult> {
     const now = input.now ?? new Date();
     const symbol = await this.resolveSymbol(input.ticker, input.marketCode);
+    const chartOptions = buildYahooChartOptions(this.range, this.interval, now);
     const chart = this.client.chart.bind(this.client) as unknown as (
       symbol: string,
       queryOptions: Record<string, unknown>,
@@ -99,29 +144,59 @@ export class YahooFinanceIntradayProvider {
     try {
       result = await chart(
         symbol,
-        buildYahooChartOptions(this.range, this.interval, now),
+        chartOptions,
         { validateResult: false },
       ) as YahooChartResult;
     } catch (error) {
-      if (isYahooNoDataError(error)) return null;
+      if (isYahooNoDataError(error)) {
+        return {
+          overlay: null,
+          diagnostic: buildYahooIntradayDiagnostic({
+            ticker: input.ticker,
+            marketCode: input.marketCode,
+            providerSymbol: symbol,
+            chartOptions,
+            quotes: [],
+            meta: undefined,
+            now,
+            rejectionReason: "provider_no_data",
+          }),
+        };
+      }
       throw error;
     }
 
     const latest = selectLatestSameMarketDateClose(result.quotes, input.marketCode, now);
-    if (!latest) return null;
+    if (!latest) {
+      return {
+        overlay: null,
+        diagnostic: buildYahooIntradayDiagnostic({
+          ticker: input.ticker,
+          marketCode: input.marketCode,
+          providerSymbol: symbol,
+          chartOptions,
+          quotes: result.quotes,
+          meta: result.meta,
+          now,
+          rejectionReason: inferYahooIntradayRejectionReason(result.quotes, input.marketCode, now),
+        }),
+      };
+    }
 
     return {
-      ticker: input.ticker,
-      marketCode: input.marketCode,
-      price: latest.close,
-      previousClose: normalizePreviousClose(result.meta),
-      asOfDate: marketLocalDateFromTimestamp(input.marketCode, latest.date),
-      asOfTimestamp: latest.date.toISOString(),
-      observedAt: now.toISOString(),
-      sourceKind: SOURCE_KIND,
-      source: SOURCE,
-      providerSymbol: symbol,
-      currency: result.meta?.currency?.trim().toUpperCase() || currencyFor(input.marketCode),
+      overlay: {
+        ticker: input.ticker,
+        marketCode: input.marketCode,
+        price: latest.close,
+        previousClose: normalizePreviousClose(result.meta),
+        asOfDate: marketLocalDateFromTimestamp(input.marketCode, latest.date),
+        asOfTimestamp: latest.date.toISOString(),
+        observedAt: now.toISOString(),
+        sourceKind: SOURCE_KIND,
+        source: SOURCE,
+        providerSymbol: symbol,
+        currency: result.meta?.currency?.trim().toUpperCase() || currencyFor(input.marketCode),
+      },
     };
   }
 
@@ -185,7 +260,7 @@ export function selectLatestSameMarketDateClose(
   const targetDate = marketLocalDateFromTimestamp(marketCode, now);
   for (let index = quotes.length - 1; index >= 0; index -= 1) {
     const quote = quotes[index];
-    if (!quote?.date || quote.close === null) continue;
+    if (!quote?.date || typeof quote.close !== "number" || !Number.isFinite(quote.close)) continue;
     if (marketLocalDateFromTimestamp(marketCode, quote.date) !== targetDate) continue;
     return { close: quote.close, date: quote.date };
   }
@@ -195,6 +270,72 @@ export function selectLatestSameMarketDateClose(
 function normalizePreviousClose(meta: YahooChartMeta | undefined): number | null {
   const value = meta?.previousClose ?? meta?.chartPreviousClose ?? null;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function inferYahooIntradayRejectionReason(
+  quotes: ReadonlyArray<YahooChartQuote>,
+  marketCode: RegularSessionMarketCode,
+  now: Date,
+): YahooIntradayRejectionReason {
+  if (quotes.length === 0) return "no_quotes_returned";
+  const validCloses = quotes.filter((quote): quote is { date: Date; close: number } =>
+    quote?.date instanceof Date
+    && typeof quote.close === "number"
+    && Number.isFinite(quote.close),
+  );
+  if (validCloses.length === 0) return "no_valid_close_quotes";
+  const targetDate = marketLocalDateFromTimestamp(marketCode, now);
+  const latest = validCloses[validCloses.length - 1]!;
+  return marketLocalDateFromTimestamp(marketCode, latest.date) === targetDate
+    ? "no_valid_close_quotes"
+    : "no_same_day_valid_close";
+}
+
+function buildYahooIntradayDiagnostic(input: {
+  ticker: string;
+  marketCode: RegularSessionMarketCode;
+  providerSymbol: string;
+  chartOptions: YahooChartOptions;
+  quotes: ReadonlyArray<YahooChartQuote>;
+  meta: YahooChartMeta | undefined;
+  now: Date;
+  rejectionReason: YahooIntradayRejectionReason;
+}): YahooIntradayDiagnostic {
+  const validCloses = input.quotes.filter((quote): quote is { date: Date; close: number } =>
+    quote?.date instanceof Date
+    && typeof quote.close === "number"
+    && Number.isFinite(quote.close),
+  );
+  const firstValidClose = validCloses[0] ?? null;
+  const lastValidClose = validCloses[validCloses.length - 1] ?? null;
+  const targetMarketDate = marketLocalDateFromTimestamp(input.marketCode, input.now);
+  return {
+    ticker: input.ticker,
+    marketCode: input.marketCode,
+    resolvedProviderSymbol: input.providerSymbol,
+    chartOptions: {
+      period1: input.chartOptions.period1.toISOString(),
+      period2: input.chartOptions.period2.toISOString(),
+      interval: input.chartOptions.interval,
+      includePrePost: input.chartOptions.includePrePost,
+    },
+    quoteCounts: {
+      total: input.quotes.length,
+      timestamped: input.quotes.filter((quote) => quote?.date instanceof Date).length,
+      nonNullClose: input.quotes.filter((quote) => typeof quote?.close === "number" && Number.isFinite(quote.close)).length,
+      validClose: validCloses.length,
+      sameDayValidClose: validCloses.filter((quote) => marketLocalDateFromTimestamp(input.marketCode, quote.date) === targetMarketDate).length,
+    },
+    firstValidClose: firstValidClose
+      ? { timestamp: firstValidClose.date.toISOString(), value: firstValidClose.close }
+      : null,
+    lastValidClose: lastValidClose
+      ? { timestamp: lastValidClose.date.toISOString(), value: lastValidClose.close }
+      : null,
+    metaCurrency: input.meta?.currency?.trim().toUpperCase() || null,
+    metaPreviousClose: normalizePreviousClose(input.meta),
+    rejectionReason: input.rejectionReason,
+  };
 }
 
 export function buildYahooChartOptions(

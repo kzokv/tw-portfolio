@@ -689,7 +689,7 @@ export class AppShellActions extends AppBaseActions {
   async dragCard(from: string, to: string): Promise<void> {
     await this.dndKitDrag(
       this.el.testId(`card-drag-handle-${from}`),
-      this.el.testId(`card-drag-handle-${to}`),
+      this.el.testId(`card-${to}`),
     );
   }
 

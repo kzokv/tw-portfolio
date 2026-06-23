@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
   } as DashboardSnapshot,
   dashboardRefreshPrices: vi.fn(async () => undefined),
   dashboardRefresh: vi.fn(async () => undefined),
+  dashboardHeroProps: [] as Array<{ summary: DashboardSnapshot["summary"] }>,
   dashboardPerformanceCalls: [] as Array<{ cacheKey?: string; expectedReportingCurrency?: AccountDefaultCurrency | null }>,
   performanceRefresh: vi.fn(async () => undefined),
   performanceIsLoading: false,
@@ -165,7 +166,10 @@ vi.mock("../../../hooks/useEffectiveRanges", () => ({
 }));
 
 vi.mock("../../../components/dashboard/DashboardHero", () => ({
-  DashboardHero: () => <div data-testid="mock-dashboard-hero" />,
+  DashboardHero: (props: { summary: DashboardSnapshot["summary"] }) => {
+    mocks.dashboardHeroProps.push(props);
+    return <div data-testid="mock-dashboard-hero" />;
+  },
 }));
 
 vi.mock("../../../components/dashboard/BiggestMoversCard", () => ({
@@ -190,6 +194,7 @@ describe("DashboardClient", () => {
     root = createRoot(container);
     mocks.dashboardRefresh.mockClear();
     mocks.dashboardRefreshPrices.mockClear();
+    mocks.dashboardHeroProps.length = 0;
     mocks.dashboardPerformanceCalls.length = 0;
     mocks.performanceRefresh.mockClear();
     mocks.performanceIsLoading = false;
@@ -289,6 +294,83 @@ describe("DashboardClient", () => {
 
     const button = container.querySelector("[data-testid='dashboard-refresh-button']") as HTMLButtonElement | null;
     expect(button?.disabled).toBe(true);
+  });
+
+  it("keeps hero valuation KPIs unavailable when a holding lacks a current reportable valuation", () => {
+    mocks.dashboardSnapshot.summary.marketValueAmount = 2500;
+    mocks.dashboardSnapshot.summary.dailyChangeAmount = 120;
+    mocks.dashboardSnapshot.summary.dailyChangePercent = 0.5;
+    mocks.dashboardSnapshot.holdingGroups = [{
+      ticker: "AAPL",
+      instrumentName: "Apple",
+      marketCode: "US",
+      accountCount: 1,
+      quantity: 10,
+      currency: "USD",
+      averageCostPerShare: 100,
+      currentUnitPrice: null,
+      previousClose: null,
+      costBasisAmount: 1000,
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      allocationPct: 1,
+      change: null,
+      changePercent: null,
+      quoteStatus: "missing",
+      nextDividendDate: null,
+      lastDividendPostedDate: null,
+      priceState: {} as NonNullable<DashboardSnapshot["holdingGroups"]>[number]["priceState"],
+      children: [{
+        accountId: "acc-1",
+        accountName: "Main",
+        ticker: "AAPL",
+        instrumentName: "Apple",
+        marketCode: "US",
+        quantity: 10,
+        currency: "USD",
+        averageCostPerShare: 100,
+        currentUnitPrice: null,
+        previousClose: null,
+        costBasisAmount: 1000,
+        marketValueAmount: null,
+        unrealizedPnlAmount: null,
+        allocationPct: 1,
+        change: null,
+        changePercent: null,
+        quoteStatus: "missing",
+        nextDividendDate: null,
+        lastDividendPostedDate: null,
+        priceState: {} as NonNullable<DashboardSnapshot["holdingGroups"]>[number]["children"][number]["priceState"],
+        reportingCurrency: "USD",
+        reportingCurrentUnitPrice: null,
+        reportingCostBasisAmount: 1000,
+        reportingMarketValueAmount: 2500,
+        reportingUnrealizedPnlAmount: 1500,
+        reportingAllocationPercent: 1,
+        reportingDailyChangeAmount: 120,
+        fxStatus: "partial",
+        allocationBasisUsed: "market_value",
+        allocationBasisFallbackReason: null,
+      }],
+      reportingCurrency: "USD",
+      reportingCurrentUnitPrice: null,
+      reportingCostBasisAmount: 1000,
+      reportingMarketValueAmount: 2500,
+      reportingUnrealizedPnlAmount: 1500,
+      reportingAllocationPercent: 1,
+      reportingDailyChangeAmount: 120,
+      fxStatus: "partial",
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    }];
+
+    act(() => {
+      root.render(<DashboardClient />);
+    });
+
+    expect(mocks.dashboardHeroProps.at(-1)?.summary.marketValueAmount).toBeNull();
+    expect(mocks.dashboardHeroProps.at(-1)?.summary.dailyChangeAmount).toBeNull();
+    expect(mocks.dashboardHeroProps.at(-1)?.summary.dailyChangePercent).toBeNull();
   });
 
   it("polls price enrichment at the admin intraday interval without refreshing primary dashboard data", () => {

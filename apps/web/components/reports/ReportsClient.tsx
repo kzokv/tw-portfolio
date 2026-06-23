@@ -608,6 +608,7 @@ function ReportBody({
       ) : null}
       <ReportMeta data={data} dict={uiDict} locale={locale} />
       <SummaryGrid
+        dataHealth={data.dataHealth}
         summary={data.summary}
         currency={data.query.reportingCurrency}
         dict={uiDict}
@@ -655,6 +656,20 @@ function reportDataMatchesTab(data: AnyReportDto, tab: ReportTab): boolean {
   return "performance" in data && "marketSummary" in data && "detail" in data;
 }
 
+function hasIncompleteReportValuation(dataHealth: ReportDataHealthDto): boolean {
+  const currentMissingFxCount = dataHealth.currentMissingFxCount ?? dataHealth.missingFxCount;
+  return dataHealth.missingQuoteCount > 0
+    || dataHealth.provisionalQuoteCount > 0
+    || dataHealth.nonCurrentPriceCount > 0
+    || currentMissingFxCount > 0;
+}
+
+function hasIncompleteReportValuationFromHealth(
+  valuationHealth: DashboardPerformanceDto["valuationHealth"] | undefined,
+): boolean {
+  return valuationHealth != null && valuationHealth.status !== "healthy";
+}
+
 function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDictionary; locale: LocaleCode }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="reports-meta">
@@ -675,22 +690,29 @@ type SummaryMetricItem = {
 };
 
 function SummaryGrid({
+  dataHealth,
   currency,
   dict,
   locale,
   realizedPnlHref,
   summary,
 }: {
+  dataHealth: ReportDataHealthDto;
   currency: AccountDefaultCurrency;
   dict: AppDictionary;
   locale: LocaleCode;
   realizedPnlHref: string;
   summary: ReportSummaryTotalsDto;
 }) {
+  const strictTotalsUnavailable = hasIncompleteReportValuation(dataHealth);
   const items: SummaryMetricItem[] = [
-    { label: dict.reports.marketValue, value: summary.marketValueAmount },
+    { label: dict.reports.marketValue, value: strictTotalsUnavailable ? null : summary.marketValueAmount },
     { label: dict.reports.bookCost, value: summary.costBasisAmount },
-    { label: dict.reports.unrealizedPnl, toneValue: summary.unrealizedPnlAmount, value: summary.unrealizedPnlAmount },
+    {
+      label: dict.reports.unrealizedPnl,
+      toneValue: strictTotalsUnavailable ? null : summary.unrealizedPnlAmount,
+      value: strictTotalsUnavailable ? null : summary.unrealizedPnlAmount,
+    },
     {
       label: dict.reports.realizedPnl,
       toneValue: summary.realizedPnlAmount,
@@ -700,7 +722,12 @@ function SummaryGrid({
         ? formatReportMessage(dict.reports.viewTransactionRecords, { count: formatNumber(summary.realizedPnlTransactionCount, locale) })
         : undefined,
     },
-    { label: dict.reports.dailyChange, detail: summary.dailyChangePercent !== null ? formatPercent(summary.dailyChangePercent, locale) : "-", toneValue: summary.dailyChangeAmount, value: summary.dailyChangeAmount },
+    {
+      label: dict.reports.dailyChange,
+      detail: strictTotalsUnavailable || summary.dailyChangePercent === null ? "-" : formatPercent(summary.dailyChangePercent, locale),
+      toneValue: strictTotalsUnavailable ? null : summary.dailyChangeAmount,
+      value: strictTotalsUnavailable ? null : summary.dailyChangeAmount,
+    },
     { label: dict.reports.income, value: summary.incomeAmount },
     {
       label: dict.reports.upcomingIncome,
@@ -830,13 +857,21 @@ function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto;
         <CardTitle>{dict.holdings.dataHealthTerm}</CardTitle>
         <CardDescription>{dict.holdings.dataHealthDescription}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2">
-        {rows.map((row) => (
-          <div key={row.key} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
-            <span className="text-sm text-muted-foreground">{row.label}</span>
-            <span className="font-mono text-sm font-semibold tabular-nums">{row.value}</span>
-          </div>
-        ))}
+      <CardContent className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {rows.map((row) => (
+            <div key={row.key} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <span className="text-sm text-muted-foreground">{row.label}</span>
+              <span className="font-mono text-sm font-semibold tabular-nums">{row.value}</span>
+            </div>
+          ))}
+        </div>
+        {hasIncompleteReportValuation(dataHealth) ? (
+          <Alert data-testid="reports-strict-totals-alert">
+            <AlertTitle>{dict.reports.strictTotalsNoticeTitle}</AlertTitle>
+            <AlertDescription>{dict.reports.strictTotalsNoticeDescription}</AlertDescription>
+          </Alert>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1172,6 +1207,7 @@ function PerformanceChart({
             copy={dict.valuationHealth}
             locale={locale}
             showAdminActions={showAdminActions}
+            strictTotalsNotice={hasIncompleteReportValuationFromHealth(valuationHealth) ? dict.valuationHealth.strictTotalsNotice : null}
             valuationHealth={valuationHealth}
           />
         ) : null}

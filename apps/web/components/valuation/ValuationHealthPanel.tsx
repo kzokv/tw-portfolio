@@ -18,6 +18,7 @@ interface ValuationHealthPanelProps {
   copy: ValuationHealthCopy;
   locale: LocaleCode;
   showAdminActions?: boolean;
+  strictTotalsNotice?: string | null;
   valuationHealth: ValuationHealthDto | null | undefined;
 }
 
@@ -27,6 +28,7 @@ export function ValuationHealthPanel({
   copy,
   locale,
   showAdminActions = false,
+  strictTotalsNotice = null,
   valuationHealth,
 }: ValuationHealthPanelProps) {
   const [copiedHref, setCopiedHref] = useState<string | null>(null);
@@ -81,6 +83,11 @@ export function ValuationHealthPanel({
           <p className="mt-2 text-sm text-muted-foreground">
             {explanationForReason(copy, valuationHealth.reason)}
           </p>
+          {valuationHealth.status === "unavailable" ? (
+            <p className="mt-2 text-sm text-muted-foreground" data-testid="valuation-health-strict-totals-notice">
+              {copy.strictTotalsNotice}
+            </p>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
             {copy.snapshotOnly}
           </p>
@@ -151,6 +158,13 @@ export function ValuationHealthPanel({
             </table>
           </div>
         </div>
+      ) : null}
+
+      {strictTotalsNotice ? (
+        <Alert className="mt-4" data-testid="valuation-health-strict-totals-alert">
+          <AlertTitle>{panelTitle}</AlertTitle>
+          <AlertDescription>{strictTotalsNotice}</AlertDescription>
+        </Alert>
       ) : null}
 
       {valuationHealth.affectedHoldings.length > 0 ? (
