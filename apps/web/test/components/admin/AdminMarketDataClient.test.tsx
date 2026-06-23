@@ -2242,6 +2242,74 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(secondExecute.disabled).toBe(true);
   });
 
+  it("submits the trimmed typed confirmation from operation history execute", async () => {
+    const operations = auOperations();
+    const typedPurge = marketOperation("OP-TYPED-PURGE", {
+      providerId: "yahoo-finance-au",
+      market: "AU",
+      marketCode: "AU",
+      operationType: "purge_market_data",
+      phase: "preview",
+      execute: {
+        ...marketOperation("OP-TYPED-PURGE").execute,
+        endpoint: "market_purge_execute",
+        canExecute: true,
+        executeMode: "preview",
+        confirmationLevel: "typed",
+        confirmationText: "PURGE AU",
+        previewToken: "purge-history-token",
+      },
+    });
+    operations.items = [typedPurge];
+    operations.total = 1;
+    executeMarketPurgeMock.mockResolvedValueOnce({
+      operationId: "OP-TYPED-PURGE-EXECUTED",
+      marketCode: "AU",
+      providerId: "yahoo-finance-au",
+      status: "completed",
+      categories: ["price_bars"],
+      affectedInstrumentCount: 1,
+      deletedRows: 5,
+      linkedBackfillOperationId: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="operations"
+          overview={{ ...overview(), tabs: ["overview", "operations", "activity"], providers: operations.providers }}
+          actions={actions()}
+          instruments={null}
+          operations={operations}
+          krMappings={null}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector("[data-testid='market-data-operation-row-OP-TYPED-PURGE']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    updateInputValue(
+      document.body.querySelector("[data-testid='provider-console-operation-typed-confirmation']") as HTMLInputElement,
+      " PURGE AU ",
+    );
+    const executeButton = document.body.querySelector("[data-testid='provider-console-operation-execute-button']") as HTMLButtonElement;
+    expect(executeButton.disabled).toBe(false);
+    await act(async () => {
+      executeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(executeMarketPurgeMock).toHaveBeenCalledWith("AU", {
+      operationId: "OP-TYPED-PURGE",
+      previewToken: "purge-history-token",
+      typedConfirmation: "PURGE AU",
+    });
+  });
+
   afterEach(() => {
     act(() => root.unmount());
     container.remove();

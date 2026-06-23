@@ -2034,7 +2034,7 @@ function OperationsPanel({
     setOperationBusyAction("execute");
     setOperationMessage(null);
     try {
-      const typedConfirmation = operation.execution.confirmationLevel === "typed" ? operationTypedConfirmation : undefined;
+      const typedConfirmation = operation.execution.confirmationLevel === "typed" ? operationTypedConfirmation.trim() : undefined;
       if (operation.execution.endpointDiscriminator === "provider_operation" || operation.execution.endpointDiscriminator === "provider_fixer_execute") {
         await executeProviderRepair({
           providerId: operation.providerId,
@@ -2054,7 +2054,7 @@ function OperationsPanel({
         await executeMarketPurge(market, {
           operationId: operation.id,
           previewToken,
-          typedConfirmation: operationTypedConfirmation,
+          typedConfirmation,
         });
       } else {
         setOperationMessage(adminDict.operationCannotExecuteFromHistory);

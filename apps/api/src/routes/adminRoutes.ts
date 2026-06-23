@@ -7690,16 +7690,25 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 	      page: query.page,
 	      limit: query.limit,
 	    });
-	    const availableFilterResult = await app.persistence.listProviderOperations({
-	      providerId,
-	      marketCode: marketCode === "FX" ? undefined : marketCode,
-	      search: query.search,
-	      createdAfter: query.from,
-	      createdBefore,
-	      page: 1,
-	      limit: 500,
-	    });
-	    const availableFilterItems = availableFilterResult.items.filter((operation) =>
+	    const availableFilterItems: ProviderOperationRecord[] = [];
+	    let availableFilterPage = 1;
+	    let availableFilterTotal = Number.POSITIVE_INFINITY;
+	    while (availableFilterItems.length < availableFilterTotal) {
+	      const availableFilterResult = await app.persistence.listProviderOperations({
+	        providerId,
+	        marketCode: marketCode === "FX" ? undefined : marketCode,
+	        search: query.search,
+	        createdAfter: query.from,
+	        createdBefore,
+	        page: availableFilterPage,
+	        limit: 500,
+	      });
+	      availableFilterTotal = availableFilterResult.total;
+	      if (availableFilterResult.items.length === 0) break;
+	      availableFilterItems.push(...availableFilterResult.items);
+	      availableFilterPage += 1;
+	    }
+	    const availableFilterScopedItems = availableFilterItems.filter((operation) =>
 	      marketDataOperationMatchesListFilters(operation, {
 	        workspaceProviderIds,
 	        providerId,
@@ -7710,11 +7719,11 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 	      }),
 	    );
 	    const availableOperationTypes = Array.from(new Set([
-	      ...availableFilterItems.map((operation) => operation.operationType),
+	      ...availableFilterScopedItems.map((operation) => operation.operationType),
 	      ...(query.operationType ? [query.operationType] : []),
 	    ])).sort((a, b) => a.localeCompare(b));
 	    const availablePhases = Array.from(new Set([
-	      ...availableFilterItems.map((operation) => operation.phase),
+	      ...availableFilterScopedItems.map((operation) => operation.phase),
 	      ...(query.phase ? [query.phase as ProviderOperationPhase] : []),
 	    ])).sort((a, b) => a.localeCompare(b));
 	    const items = result.items

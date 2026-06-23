@@ -938,6 +938,48 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("derives market operation filter choices beyond the first 500 matching operations", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-older-renew-evidence",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "renew_evidence",
+      phase: "failed",
+      matchCount: 1,
+    });
+    for (let i = 0; i < 501; i += 1) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 5, 2, 0, i, 0)));
+      await app.persistence.createProviderOperation({
+        id: `provider-op-newer-repair-${i}`,
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        operationType: "repair_mapping",
+        phase: "completed",
+        matchCount: 1,
+      });
+    }
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations?page=1&limit=25",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      total: 502,
+      availableFilters: {
+        operationTypes: expect.arrayContaining(["renew_evidence", "repair_mapping"]),
+        phases: expect.arrayContaining(["failed", "completed"]),
+      },
+    });
+  });
+
   it("returns an included selected operation off-page and filters outcomes by action", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
