@@ -56,18 +56,11 @@ import { Skeleton } from "../ui/shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/shadcn/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/shadcn/table";
-import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
+  filterAvailableHoldingsSelections,
   holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsColumnSettingsState,
@@ -78,6 +71,7 @@ import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
 import {
   HoldingsGridDesktopFrame,
   HoldingsGridEmptyState,
+  HoldingsGridNativeTable,
 } from "../holdings/HoldingsGrid";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import {
@@ -1303,8 +1297,6 @@ function HoldingsCard({
   title: string;
 }) {
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
   const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
@@ -1325,6 +1317,15 @@ function HoldingsCard({
       .map(([id, name]) => ({ id, name }))
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
   }, [rows.rows]);
+  const accountOptionIds = useMemo(() => accountOptions.map((account) => account.id), [accountOptions]);
+  const selectedMarketCodes = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedMarketCodes, marketOptions),
+    [columnSettings.selectedMarketCodes, marketOptions],
+  );
+  const selectedAccountIds = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedAccountIds, accountOptionIds),
+    [accountOptionIds, columnSettings.selectedAccountIds],
+  );
   const marketFilterLabel = formatFilterSummary(
     selectedMarketCodes,
     dict.dashboardHome.topHoldingsAllMarkets,
@@ -1421,7 +1422,7 @@ function HoldingsCard({
             label={dict.dashboardHome.topHoldingsMarketLabel}
             options={marketOptions.map((market) => ({ id: market, label: market }))}
             selectedIds={selectedMarketCodes}
-            setSelectedIds={setSelectedMarketCodes}
+            setSelectedIds={columnSettings.setSelectedMarketCodes}
             testId={`reports-holdings-market-filter-${contextKey}`}
           />
           <ReportsMultiSelectMenu
@@ -1430,7 +1431,7 @@ function HoldingsCard({
             label={dict.dashboardHome.topHoldingsAccountLabel}
             options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
             selectedIds={selectedAccountIds}
-            setSelectedIds={setSelectedAccountIds}
+            setSelectedIds={columnSettings.setSelectedAccountIds}
             testId={`reports-holdings-account-filter-${contextKey}`}
           />
           <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
@@ -1493,11 +1494,11 @@ function HoldingsCard({
           summaryColumns={mobileColumnSplit.summaryColumns}
         />
         <HoldingsGridDesktopFrame className="max-h-[32rem]">
-          <Table className="table-fixed" data-testid={`reports-holdings-table-${contextKey}`}>
-            <TableHeader>
-              <TableRow>
+          <HoldingsGridNativeTable testId={`reports-holdings-table-${contextKey}`}>
+            <thead>
+              <tr>
                 {visibleColumns.map((column) => (
-                  <TableHead
+                  <th
                     key={column.id}
                     className={cn(
                       "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
@@ -1513,13 +1514,13 @@ function HoldingsCard({
                       label={column.label}
                       settings={columnSettings}
                     />
-                  </TableHead>
+                  </th>
                 ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+              </tr>
+            </thead>
+            <tbody>
               {filteredRowsPage.rows.map((row) => (
-                <TableRow key={`${row.ticker}-${row.marketCode}`} className="hover:bg-muted/10">
+                <tr key={`${row.ticker}-${row.marketCode}`} className="hover:bg-muted/10">
                   {visibleColumns.map((column) => (
                     <ReportHoldingTableCell
                       key={column.id}
@@ -1532,10 +1533,10 @@ function HoldingsCard({
                       stickyFirstColumn={stickyFirstColumn}
                     />
                   ))}
-                </TableRow>
+                </tr>
               ))}
-            </TableBody>
-          </Table>
+            </tbody>
+          </HoldingsGridNativeTable>
         </HoldingsGridDesktopFrame>
       </CardContent>
     </Card>
@@ -1648,7 +1649,7 @@ function ReportHoldingTableCell({
   const className = reportHoldingCellClassName(column, stickyFirstColumn);
   if (column === "ticker") {
     return (
-      <TableCell className={className} style={style}>
+      <td className={className} style={style}>
         <div className="flex min-w-0 flex-col gap-1">
           <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
           {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
@@ -1656,24 +1657,24 @@ function ReportHoldingTableCell({
             {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
           </span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "position") {
     return (
-      <TableCell className={className} style={style}>
+      <td className={className} style={style}>
         <div className="flex min-w-0 flex-col gap-1">
           <Badge variant="outline" className="w-fit">{row.marketCode}</Badge>
           <span className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })}</span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "price") {
     return (
-      <TableCell className={className} style={style}>
+      <td className={className} style={style}>
         <PriceDisclosure dict={dict} row={row} locale={locale} align="end" showAdminActivityLinks={showAdminActivityLinks} />
-      </TableCell>
+      </td>
     );
   }
   if (column === "avgCost") {
@@ -1726,18 +1727,18 @@ function ReportHoldingTableCell({
   }
   if (column === "weight") {
     return (
-      <TableCell className={cn(className, "font-mono tabular-nums")} style={style}>
+      <td className={cn(className, "font-mono tabular-nums")} style={style}>
         {row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}
-      </TableCell>
+      </td>
     );
   }
   return (
-    <TableCell
+    <td
       className={className}
       style={style}
     >
       <HoldingsDataHealthBadges dict={dict} locale={locale} row={row} showCurrentFreshness />
-    </TableCell>
+    </td>
   );
 }
 
@@ -1763,7 +1764,7 @@ function ReportMoneyTableCell({
   value: number | null;
 }) {
   return (
-    <TableCell className={cn(className, "font-mono tabular-nums", tone ? holdingsFinanceToneClass(value, "text-foreground") : null)} style={style}>
+    <td className={cn(className, "font-mono tabular-nums", tone ? holdingsFinanceToneClass(value, "text-foreground") : null)} style={style}>
       <div className="flex flex-col items-end gap-1">
         <span>
           {value === null
@@ -1784,7 +1785,7 @@ function ReportMoneyTableCell({
         ) : null}
         {secondary ? <span className="text-xs text-muted-foreground">{secondary}</span> : null}
       </div>
-    </TableCell>
+    </td>
   );
 }
 

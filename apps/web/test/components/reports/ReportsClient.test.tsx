@@ -838,7 +838,8 @@ describe("ReportsClient", () => {
     expect(tickerLinks).toContain("/tickers/BHP?marketCode=AU");
     expect(document.body.textContent).toContain("Open ticker");
     const holdingsTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
-    expect(holdingsTable?.parentElement?.parentElement?.getAttribute("class")).toContain("lg:block");
+    expect(holdingsTable?.parentElement?.getAttribute("class")).toContain("lg:block");
+    expect(holdingsTable?.querySelector("th")?.getAttribute("class")).toContain("sticky");
     expect(holdingsTable?.querySelector("th")?.getAttribute("class")).toContain("left-0");
 
     const negativeValue = Array.from(document.querySelectorAll("p, span, h3, div")).find((node) =>
