@@ -2054,7 +2054,7 @@ function OperationsPanel({
         await executeMarketPurge(market, {
           operationId: operation.id,
           previewToken,
-          typedConfirmation,
+          typedConfirmation: typedConfirmation ?? "",
         });
       } else {
         setOperationMessage(adminDict.operationCannotExecuteFromHistory);
