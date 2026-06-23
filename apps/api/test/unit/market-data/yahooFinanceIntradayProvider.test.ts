@@ -200,6 +200,79 @@ describe("yahooFinanceIntradayProvider", () => {
     expect(selected).toBeNull();
   });
 
+  it("ignores timestamped Yahoo quotes without finite numeric closes", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "AUD", previousClose: 89.74 },
+      quotes: [
+        { date: new Date("2026-06-23T01:00:00.000Z"), close: null },
+        { date: new Date("2026-06-23T01:01:00.000Z"), close: Number.NaN },
+      ],
+    });
+    const provider = new YahooFinanceIntradayProvider({ range: "1d", interval: "1m" });
+
+    const result = await provider.fetchLatestOverlayResult({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      now: new Date("2026-06-23T01:03:00.000Z"),
+    });
+
+    expect(result.overlay).toBeNull();
+    expect(result.diagnostic).toMatchObject({
+      quoteCounts: {
+        total: 2,
+        timestamped: 2,
+        nonNullClose: 0,
+        validClose: 0,
+        sameDayValidClose: 0,
+      },
+      firstValidClose: null,
+      lastValidClose: null,
+      rejectionReason: "no_valid_close_quotes",
+    });
+  });
+
+  it("summarizes Yahoo chart responses when no same-market-date close exists", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "AUD", previousClose: 89.74 },
+      quotes: [
+        { date: new Date("2026-06-18T13:30:00.000Z"), close: 89.74 },
+        { date: new Date("2026-06-22T13:30:00.000Z"), close: 87 },
+      ],
+    });
+    const provider = new YahooFinanceIntradayProvider({ range: "5d", interval: "1m" });
+
+    const result = await provider.fetchLatestOverlayResult({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      now: new Date("2026-06-23T01:03:00.000Z"),
+    });
+
+    expect(result.overlay).toBeNull();
+    expect(result.diagnostic).toEqual({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      resolvedProviderSymbol: "ETPMAG.AX",
+      chartOptions: {
+        period1: "2026-06-18T01:03:00.000Z",
+        period2: "2026-06-23T01:03:00.000Z",
+        interval: "1m",
+        includePrePost: false,
+      },
+      quoteCounts: {
+        total: 2,
+        timestamped: 2,
+        nonNullClose: 2,
+        validClose: 2,
+        sameDayValidClose: 0,
+      },
+      firstValidClose: { timestamp: "2026-06-18T13:30:00.000Z", value: 89.74 },
+      lastValidClose: { timestamp: "2026-06-22T13:30:00.000Z", value: 87 },
+      metaCurrency: "AUD",
+      metaPreviousClose: 89.74,
+      rejectionReason: "no_same_day_valid_close",
+    });
+  });
+
   it("enforces the shared Yahoo chart request budget before close fallback calls Yahoo", async () => {
     const provider = new YahooChartCloseProvider({
       range: "1d",

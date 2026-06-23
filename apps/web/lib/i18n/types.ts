@@ -528,6 +528,10 @@ export interface AppDictionary {
     allocationBasisMarketValue: string;
     allocationBasisCostBasis: string;
     allocationFallbackLabel: string;
+    missingValuationTitle: string;
+    missingValuationDescription: string;
+    missingValuationHelp: string;
+    missingValuationMoreHoldings: string;
   };
   valuationHealth: {
     absoluteExceeded: string;
@@ -575,6 +579,7 @@ export interface AppDictionary {
     userNoRepairTipTitle: string;
     userRepairHelp: string;
     userRepairTipTitle: string;
+    strictTotalsNotice: string;
     waitForBackfill: string;
     withinThreshold: string;
     withinTolerance: string;
@@ -670,6 +675,8 @@ export interface AppDictionary {
     severityInfo: string;
     viewTransactionRecords: string;
     openRealizedPnlTransactions: string;
+    strictTotalsNoticeTitle: string;
+    strictTotalsNoticeDescription: string;
   };
   tickerHistory: {
     eyebrow: string;

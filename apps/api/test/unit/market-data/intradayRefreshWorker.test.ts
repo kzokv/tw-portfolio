@@ -68,18 +68,52 @@ describe("intradayRefreshWorker", () => {
   });
 
   it("emits warning and error activity for missing quotes and worker failures", async () => {
+    const diagnostic = {
+      ticker: "ETPMAG",
+      marketCode: "AU" as const,
+      resolvedProviderSymbol: "ETPMAG.AX",
+      chartOptions: {
+        period1: "2026-06-18T01:03:00.000Z",
+        period2: "2026-06-23T01:03:00.000Z",
+        interval: "1m" as const,
+        includePrePost: false as const,
+      },
+      quoteCounts: {
+        total: 1,
+        timestamped: 1,
+        nonNullClose: 1,
+        validClose: 1,
+        sameDayValidClose: 0,
+      },
+      firstValidClose: { timestamp: "2026-06-22T13:30:00.000Z", value: 87 },
+      lastValidClose: { timestamp: "2026-06-22T13:30:00.000Z", value: 87 },
+      metaCurrency: "AUD",
+      metaPreviousClose: 89.74,
+      rejectionReason: "no_same_day_valid_close" as const,
+    };
     const missingDeps = workerDeps({
-      fetchOverlay: vi.fn().mockResolvedValue(null),
+      fetchOverlay: vi.fn().mockResolvedValue({ overlay: null, diagnostic }),
     });
     await createIntradayRefreshHandler(missingDeps)([{
       id: "job-3",
-      data: { ticker: "2330", marketCode: "TW", requestedAt: "2026-06-19T02:20:00.000Z" },
+      data: { ticker: "ETPMAG", marketCode: "AU", requestedAt: "2026-06-23T01:00:00.000Z" },
     } as never]);
     expect(missingDeps.persistence?.createMarketCalendarActivityEvent).toHaveBeenCalledWith(expect.objectContaining({
       eventType: "intraday_refresh_no_same_day_quote",
       result: "warning",
       jobId: "job-3",
+      providerSymbol: "ETPMAG.AX",
+      detail: diagnostic,
     }));
+    expect(missingDeps.log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ticker: "ETPMAG",
+        marketCode: "AU",
+        resolvedProviderSymbol: "ETPMAG.AX",
+        diagnosticSummary: diagnostic,
+      }),
+      "intraday_refresh_no_same_day_quote",
+    );
 
     const failedDeps = workerDeps({
       fetchOverlay: vi.fn().mockRejectedValue(new Error("yahoo exploded")),

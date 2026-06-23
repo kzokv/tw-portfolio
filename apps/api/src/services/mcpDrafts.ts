@@ -31,6 +31,11 @@ import { resolveAccountDisplayName, toMcpAccountDisplayDto } from "./mcpAccountH
 import { syncAccountingPolicy } from "./accountingStore.js";
 import { createTransaction } from "./portfolio.js";
 import { scheduleReplayWithRetry } from "./replayPositionHistory.js";
+import {
+  BACKFILL_QUEUE,
+  getBackfillSingletonKey,
+  type BackfillJobData,
+} from "./market-data/backfillWorker.js";
 
 type TradeType = "BUY" | "SELL";
 type RowState = AiTransactionDraftRowRecord["state"];
@@ -116,6 +121,41 @@ function buildChatGptTransactionDraftComponentUrl(appBaseUrl: string): string {
 
 function requestSourceLabel(deps: McpDraftServiceDeps): "chatgpt_component" | "mcp_tool" {
   return deps.requestContext.auth.connection?.provider === "chatgpt" ? "chatgpt_component" : "mcp_tool";
+}
+
+async function enqueueFirstTradeBackfillsForDraftRows(
+  deps: McpDraftServiceDeps,
+  input: {
+    rows: ReadonlyArray<AiTransactionDraftRowRecord>;
+    userId: string;
+  },
+): Promise<void> {
+  if (!deps.app.boss) return;
+  const authUser = await deps.app.persistence.getAuthUserById(input.userId);
+  if (authUser?.isDemo) return;
+  const requested = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  for (const row of input.rows) {
+    if (!row.ticker || !row.marketCode) continue;
+    requested.set(`${row.ticker}:${row.marketCode}`, {
+      ticker: row.ticker,
+      marketCode: row.marketCode as MarketCode,
+    });
+  }
+
+  for (const { ticker, marketCode } of requested.values()) {
+    const instrument = await deps.app.persistence.getInstrument(ticker, marketCode);
+    if (!instrument || instrument.barsBackfillStatus === "ready") continue;
+    await deps.app.boss.send(
+      BACKFILL_QUEUE,
+      {
+        ticker,
+        marketCode,
+        userId: input.userId,
+        trigger: "first_trade",
+      } satisfies BackfillJobData,
+      { singletonKey: getBackfillSingletonKey(ticker, marketCode), priority: 0 },
+    );
+  }
 }
 
 function assertNoRawSourcePayload(candidates: DraftCandidateInput[]): void {
@@ -1321,6 +1361,18 @@ export async function postTransactionDraftRows(
       input.idempotencyKey,
     );
     throw error;
+  }
+
+  try {
+    await enqueueFirstTradeBackfillsForDraftRows(deps, {
+      rows: selectedRows,
+      userId: contextUserId,
+    });
+  } catch (error) {
+    deps.requestContext.logger.warn(
+      { error, userId: contextUserId, rowCount: selectedRows.length },
+      "mcp_draft_first_trade_backfill_enqueue_failed",
+    );
   }
 
   const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; marketCode: MarketCode; fromDate: string }>();

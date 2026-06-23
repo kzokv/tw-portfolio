@@ -140,6 +140,8 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         severityInfo: "Info",
         viewTransactionRecords: "View {count} records",
         openRealizedPnlTransactions: "Open realized P&L transactions",
+        strictTotalsNoticeTitle: "Strict totals",
+        strictTotalsNoticeDescription: "Market value, unrealized P&L, and daily change stay unavailable instead of showing partial totals while one or more holdings are still waiting for current reportable valuations.",
       },
       holdings: {
         dataHealthTerm: "Data health",
@@ -201,6 +203,57 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         resetColumnsLabel: "Reset",
         toggleColumnAria: "Show {column} column",
         allocationFallbackMissingQuote: "Missing quote; allocation uses cost basis",
+      },
+      valuationHealth: {
+        absoluteExceeded: "Current valuation and the latest usable snapshot diverge beyond the absolute threshold.",
+        action: "Recommended action",
+        adminHelp: "Admins can open the affected-holdings repair flow and follow market-data remediation with targeted snapshot repair.",
+        adminRepairAction: "Open admin repair",
+        affectedHoldings: "Holdings affecting latest valuation freshness",
+        adminLinkCopied: "Admin link copied",
+        awaitingLatestBar: "Awaiting latest bar",
+        backfillAction: "Run admin backfill",
+        backfillFailed: "Backfill failed",
+        backfillPending: "Backfill pending",
+        chartValue: "Chart valuation",
+        comparableSnapshotDate: "Comparable snapshot",
+        copyAdminHelpLink: "Copy admin link · {market}",
+        currentValue: "Current valuation",
+        delta: "Delta",
+        healthy: "Healthy",
+        latestBarAsOf: "Latest bar date",
+        latestSnapshotDate: "Latest snapshot date",
+        market: "Market",
+        marketFreshness: "Market freshness",
+        material: "Material gap",
+        missing: "Missing",
+        missingCurrentValue: "Current valuation is unavailable, so the gap cannot be compared yet.",
+        missingLatestBar: "Missing latest bar",
+        missingSnapshot: "Missing snapshot",
+        missingSnapshotValue: "The latest snapshot-backed chart point is unavailable.",
+        none: "None",
+        outOfSyncTitle: "Market data out of sync",
+        relativeDelta: "Relative delta",
+        relativeExceeded: "Current valuation and the latest usable snapshot diverge beyond the relative threshold.",
+        partialSnapshotDate: "Partial snapshot",
+        snapshotOnly: "Charts stay snapshot-only and do not inject live holdings into historical points.",
+        snapshotRepairAction: "Repair snapshots",
+        stale: "Stale",
+        staleSnapshot: "Stale snapshot",
+        status: "Status",
+        ticker: "Ticker",
+        title: "Valuation health",
+        unavailable: "Unavailable",
+        userInfoHelp: "Current valuation and snapshot-backed chart values are within the configured threshold; this panel explains the chart data source.",
+        userInfoTipTitle: "No action needed",
+        userNoRepairHelp: "No repair action is available yet. The holding opened after the latest available market bar, so the chart can catch up after the next bar and snapshot run.",
+        userNoRepairTipTitle: "Waiting for market data",
+        userRepairHelp: "No repair action is available here. If the gap persists, wait for market data to settle and refresh again, or ask an admin to repair the affected holdings.",
+        userRepairTipTitle: "Admin repair required",
+        strictTotalsNotice: "Main valuation KPIs stay unavailable instead of showing partial totals while one or more affected holdings are still waiting for current reportable valuations.",
+        waitForBackfill: "Wait for backfill",
+        withinThreshold: "Current valuation and the latest chart snapshot are still within the configured threshold.",
+        withinTolerance: "The difference is only within minor-unit rounding tolerance.",
       },
     },
   }),
@@ -810,6 +863,102 @@ describe("ReportsClient", () => {
     expect(detailPercent?.className).toContain("text-[hsl(var(--finance-loss))]");
   });
 
+  it("keeps valuation summary cards strict and explains why partial totals are hidden", async () => {
+    const strictFixture = {
+      ...fixture,
+      dataHealth: {
+        ...fixture.dataHealth,
+        missingQuoteCount: 1,
+        provisionalQuoteCount: 1,
+      },
+      summary: {
+        ...fixture.summary,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        dailyChangeAmount: 10,
+        dailyChangePercent: 0.8,
+      },
+      holdings: {
+        ...fixture.holdings,
+        rows: [{
+          ...fixture.holdings.rows[0]!,
+          ticker: "AAPL",
+          marketCode: "US",
+          nativeCurrency: "USD",
+          reportingCurrency: "AUD",
+          reportingCurrentUnitPrice: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+          dailyChangeAmount: null,
+          dailyChangePercent: null,
+          quoteStatus: "missing",
+          fxStatus: "partial",
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={strictFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const summaryGrid = document.querySelector("[data-testid='reports-summary-grid']");
+    const marketValueCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Market value"));
+    const unrealizedCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Unrealized P&L"));
+    const dailyChangeCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Daily change"));
+
+    expect(marketValueCard?.textContent).toContain("Market value");
+    expect(marketValueCard?.textContent).toContain("-");
+    expect(unrealizedCard?.textContent).toContain("-");
+    expect(dailyChangeCard?.textContent).toContain("-");
+    expect(document.querySelector("[data-testid='reports-strict-totals-alert']")?.textContent).toContain("Strict totals");
+    expect(document.body.textContent).toContain("partial totals");
+  });
+
+  it("does not hide current valuation totals for historical-only missing FX gaps", async () => {
+    const historicalFxFixture = {
+      ...fixture,
+      dataHealth: {
+        ...fixture.dataHealth,
+        missingFxCount: 1,
+        currentMissingFxCount: 0,
+      },
+      diagnostics: {
+        ...fixture.diagnostics,
+        missingFxCount: 1,
+        knownGapReasons: ["missing_fx"],
+      },
+      fxStatus: {
+        ...fixture.fxStatus,
+        status: "partial",
+        missingRatePairs: [{ from: "USD", to: "AUD" }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={historicalFxFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const summaryGrid = document.querySelector("[data-testid='reports-summary-grid']");
+    const marketValueCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Market value"));
+    const unrealizedCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Unrealized P&L"));
+    const dailyChangeCard = Array.from(summaryGrid?.querySelectorAll("[class*='rounded']") ?? [])
+      .find((node) => node.textContent?.includes("Daily change"));
+
+    expect(marketValueCard?.textContent).toContain("A$1,200");
+    expect(unrealizedCard?.textContent).toContain("A$200");
+    expect(dailyChangeCard?.textContent).toContain("A$10");
+    expect(document.querySelector("[data-testid='reports-strict-totals-alert']")).toBeNull();
+  });
+
   it("does not render a stale daily-review DTO as another report tab", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
 
@@ -856,6 +1005,70 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).toContain("Market data stale since May 29, 2026");
     expect(document.querySelector("[data-testid='reports-performance-stale-warning']")).not.toBeNull();
     expect(document.querySelector("[data-testid='reports-performance-as-of-tooltip-trigger']")).not.toBeNull();
+  });
+
+  it("does not show strict totals notice for healthy valuation health with suppressed affected holdings", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
+    const healthyFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        marketDataStaleSince: null,
+      },
+      performance: {
+        ...portfolioFixture.performance,
+        marketDataStaleSince: null,
+        valuationHealth: {
+          status: "healthy",
+          reason: "within_threshold",
+          reportingCurrency: "AUD",
+          currentValueAmount: 1200,
+          snapshotValueAmount: 1199.99,
+          deltaAmount: 0.01,
+          relativeDeltaBps: 0.1,
+          minorUnitTolerance: 1,
+          thresholds: {
+            relativeBps: 50,
+            absoluteAud: 10,
+            absoluteUsd: 10,
+            absoluteTwd: 300,
+            absoluteKrw: 10_000,
+          },
+          latestBarAsOf: "2026-06-08",
+          latestSnapshotDate: "2026-06-08",
+          latestUsableSnapshotDate: "2026-06-08",
+          latestComparableSnapshotDate: "2026-06-08",
+          latestPartialSnapshotDate: null,
+          expectedLatestValuationDate: "2026-06-08",
+          affectedHoldings: [{
+            ticker: "BHP",
+            marketCode: "AU",
+            currentReportingValueAmount: 1200,
+            latestBarDate: "2026-06-08",
+            latestSnapshotDate: "2026-06-08",
+            backfillStatus: "ready",
+            status: "awaiting_latest_bar",
+            recommendedAction: "none",
+          }],
+          recommendedActions: [],
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={healthyFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='valuation-health-panel']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='valuation-health-strict-totals-alert']")).toBeNull();
+    expect(document.body.textContent).toContain("A$1,200");
+    expect(document.body.textContent).not.toContain("Main valuation KPIs stay unavailable");
   });
 
   it("snaps unsupported report ranges to the configured dashboard ranges", async () => {
