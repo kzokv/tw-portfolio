@@ -1017,7 +1017,7 @@ describe("dashboard components", () => {
     });
   });
 
-  it("keeps saved narrow dashboard holdings widths from collapsing readable columns", async () => {
+  it("allows dashboard holdings widths to shrink to the shared holdings floor", async () => {
     mockUserPreferencesFetch({
       holdingsTableSettings: {
         version: 1,
@@ -1051,8 +1051,8 @@ describe("dashboard components", () => {
     const priceHeader = container
       .querySelector('[data-testid="holdings-column-drag-price"]')
       ?.closest("th") as HTMLTableCellElement | null;
-    expect(priceHeader?.style.width).toBe("136px");
-    expect(priceHeader?.style.minWidth).toBe("136px");
+    expect(priceHeader?.style.width).toBe("72px");
+    expect(priceHeader?.style.minWidth).toBe("72px");
   });
 
   it("keeps hidden dashboard mobile columns out of card and details content", async () => {

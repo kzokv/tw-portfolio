@@ -57,14 +57,6 @@ import {
   SelectValue,
 } from "../ui/shadcn/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/shadcn/table";
-import {
   ToggleGroup,
   ToggleGroupItem,
 } from "../ui/shadcn/toggle-group";
@@ -79,6 +71,8 @@ import {
   HoldingsColumnSettingsMenu,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
+  filterAvailableHoldingsSelections,
+  holdingsColumnCellStyle,
   useHoldingsColumnSettings,
   type HoldingsGridColumnDefinition,
   type HoldingsColumnSettingsState,
@@ -122,19 +116,6 @@ const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHo
   { id: "health", label: "Data health", defaultWidth: 184 },
   { id: "action", label: "Action", defaultWidth: 112, align: "right" },
 ];
-const DASHBOARD_HOLDINGS_MIN_COLUMN_WIDTHS = {
-  action: 112,
-  avgCost: 136,
-  daily: 152,
-  health: 168,
-  marketValue: 176,
-  costBasis: 156,
-  pnl: 132,
-  position: 144,
-  price: 136,
-  ticker: 176,
-  unitPnl: 132,
-} satisfies Record<DashboardHoldingsColumn, number>;
 const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health"];
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
 const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
@@ -179,12 +160,10 @@ export function DashboardHoldingsPreview({
   onRefresh,
 }: DashboardHoldingsPreviewProps) {
   const dict = getDictionary(locale);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<DashboardHoldingFocusPreset>>(
     () => new Set(DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.hiddenPresets),
   );
-  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>([]);
   const [presetError, setPresetError] = useState("");
   const [presetOrder, setPresetOrder] = useState<DashboardHoldingFocusPreset[]>(
     () => [...DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.presetOrder],
@@ -251,6 +230,15 @@ export function DashboardHoldingsPreview({
   const valuationAttentionLabel = useMemo(
     () => formatAffectedDashboardTickers(dict, locale, valuationAttentionGroups),
     [dict, locale, valuationAttentionGroups],
+  );
+  const accountOptionIds = useMemo(() => accountOptions.map((account) => account.id), [accountOptions]);
+  const selectedMarketCodes = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedMarketCodes, marketOptions),
+    [columnSettings.selectedMarketCodes, marketOptions],
+  );
+  const selectedAccountIds = useMemo(
+    () => filterAvailableHoldingsSelections(columnSettings.selectedAccountIds, accountOptionIds),
+    [accountOptionIds, columnSettings.selectedAccountIds],
   );
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
@@ -419,7 +407,7 @@ export function DashboardHoldingsPreview({
                     label={dict.dashboardHome.topHoldingsMarketLabel}
                     options={marketOptions.map((market) => ({ id: market, label: market }))}
                     selectedIds={selectedMarketCodes}
-                    setSelectedIds={setSelectedMarketCodes}
+                    setSelectedIds={columnSettings.setSelectedMarketCodes}
                     testId="dashboard-holdings-market-filter"
                   />
                 </div>
@@ -435,7 +423,7 @@ export function DashboardHoldingsPreview({
                     label={dict.dashboardHome.topHoldingsAccountLabel}
                     options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
                     selectedIds={selectedAccountIds}
-                    setSelectedIds={setSelectedAccountIds}
+                    setSelectedIds={columnSettings.setSelectedAccountIds}
                     testId="dashboard-holdings-account-filter"
                   />
                 </div>
@@ -860,16 +848,19 @@ function DashboardHoldingsTable({
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const tableMinWidth = visibleColumns.reduce(
-    (total, column) => total + dashboardColumnWidth(columnSettings, column.id),
+    (total, column) => total + columnSettings.getColumnWidth(column.id),
     0,
   );
   return (
     <HoldingsGridDesktopFrame className="max-h-[34rem]">
-      <Table className="w-max min-w-full table-fixed" style={{ minWidth: tableMinWidth }}>
-        <TableHeader>
-          <TableRow>
+      <table
+        className="w-max min-w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words"
+        style={{ minWidth: tableMinWidth }}
+      >
+        <thead>
+          <tr>
             {visibleColumns.map((column) => (
-              <TableHead
+              <th
                 key={column.id}
                 data-testid={column.id === "daily" ? "dashboard-holdings-daily-change-label" : undefined}
                 className={cn(
@@ -877,7 +868,7 @@ function DashboardHoldingsTable({
                   holdingsStickyFirstColumnClassName(column.id === "ticker", "header"),
                   column.align === "right" && "text-right",
                 )}
-                style={dashboardColumnCellStyle(columnSettings, column.id)}
+                style={holdingsColumnCellStyle(columnSettings, column.id)}
               >
                 <HoldingsColumnHeaderContent
                   align={column.align}
@@ -886,11 +877,11 @@ function DashboardHoldingsTable({
                   label={dashboardColumnLabel(dict, column.id, reportingCurrency)}
                   settings={columnSettings}
                 />
-              </TableHead>
+              </th>
             ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+          </tr>
+        </thead>
+        <tbody>
           {groups.map((group, index) => {
             const rowKey = holdingRowKey(group);
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
@@ -900,7 +891,7 @@ function DashboardHoldingsTable({
             const isExpanded = expandedRows.has(rowKey);
             return (
               <Fragment key={rowKey}>
-                <TableRow data-testid={`dashboard-holding-table-row-${group.ticker}-${group.marketCode}`}>
+                <tr data-testid={`dashboard-holding-table-row-${group.ticker}-${group.marketCode}`}>
                   {visibleColumns.map((column) => renderDashboardGroupCell({
                     column: column.id,
                     columnSettings,
@@ -918,10 +909,10 @@ function DashboardHoldingsTable({
                     showAdminActivityLinks,
                     visibleChildren,
                   }))}
-                </TableRow>
+                </tr>
                 {isExpanded
                   ? visibleChildren.map((child) => (
-                    <TableRow key={`${rowKey}-${child.accountId}`} className="bg-muted/20" data-testid={`dashboard-holding-account-row-${group.ticker}-${child.accountId}`}>
+                    <tr key={`${rowKey}-${child.accountId}`} className="bg-muted/20" data-testid={`dashboard-holding-account-row-${group.ticker}-${child.accountId}`}>
                       {visibleColumns.map((column) => renderDashboardChildCell({
                         child,
                         column: column.id,
@@ -932,14 +923,14 @@ function DashboardHoldingsTable({
                         quoteRefreshVersion: 0,
                         reportingCurrency,
                       }))}
-                    </TableRow>
+                    </tr>
                   ))
                   : null}
               </Fragment>
             );
           })}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </HoldingsGridDesktopFrame>
   );
 }
@@ -980,25 +971,6 @@ function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string)
   );
 }
 
-function dashboardColumnWidth(
-  settings: HoldingsColumnSettingsState<DashboardHoldingsColumn>,
-  column: DashboardHoldingsColumn,
-) {
-  return Math.max(settings.getColumnWidth(column), DASHBOARD_HOLDINGS_MIN_COLUMN_WIDTHS[column]);
-}
-
-function dashboardColumnCellStyle(
-  settings: HoldingsColumnSettingsState<DashboardHoldingsColumn>,
-  column: DashboardHoldingsColumn,
-) {
-  const width = dashboardColumnWidth(settings, column);
-  return {
-    maxWidth: width,
-    minWidth: width,
-    width,
-  };
-}
-
 function renderDashboardGroupCell({
   column,
   columnSettings,
@@ -1032,10 +1004,10 @@ function renderDashboardGroupCell({
   showAdminActivityLinks: boolean;
   visibleChildren: DashboardOverviewHoldingChildDto[];
 }) {
-  const style = dashboardColumnCellStyle(columnSettings, column);
+  const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <div className="flex items-start gap-2">
           <Button
             size="sm"
@@ -1065,12 +1037,12 @@ function renderDashboardGroupCell({
             <span className="text-xs text-muted-foreground">{group.marketCode}</span>
           </div>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "position") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <div className="flex flex-col gap-1">
           <span className="font-mono text-sm tabular-nums">{formatNumber(group.quantity, locale, 2)} units</span>
           <span className="text-xs text-muted-foreground">
@@ -1078,12 +1050,12 @@ function renderDashboardGroupCell({
             {group.reportingAllocationPercent === null ? "" : ` · ${formatPercent(group.reportingAllocationPercent, locale)}`}
           </span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "price") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <PriceTextButton
           dict={dict}
           fxRate={fxRate}
@@ -1093,27 +1065,27 @@ function renderDashboardGroupCell({
           reportingPrice={reportingPrice}
           showAdminActivityLinks={showAdminActivityLinks}
         />
-      </TableCell>
+      </td>
     );
   }
   if (column === "avgCost") {
     const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}</span>
           {group.currency !== reportingCurrency ? (
             <span className="text-xs text-muted-foreground">{formatCurrencyAmount(group.averageCostPerShare, group.currency, locale)}</span>
           ) : null}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "unitPnl") {
     const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
     const nativeUnitPnl = getNativeUnitPnl(group.currentUnitPrice, group.averageCostPerShare);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
+      <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
           <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
@@ -1123,12 +1095,12 @@ function renderDashboardGroupCell({
             </span>
           ) : null}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "marketValue") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>
             {group.reportingMarketValueAmount === null ? "-" : (
@@ -1144,19 +1116,19 @@ function renderDashboardGroupCell({
             </span>
           )}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "costBasis") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         {group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)}
-      </TableCell>
+      </td>
     );
   }
   if (column === "daily") {
     return (
-      <TableCell
+      <td
         key={column}
         className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(reportingDailyMove ?? group.changePercent)))}
         data-testid={`holding-group-daily-change-${group.ticker}-${group.marketCode}`}
@@ -1171,29 +1143,29 @@ function renderDashboardGroupCell({
           )}
           <span className="text-xs">{group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}</span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "pnl") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(group.reportingUnrealizedPnlAmount)))} style={style}>
+      <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(group.reportingUnrealizedPnlAmount)))} style={style}>
         {group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
-      </TableCell>
+      </td>
     );
   }
   if (column === "health") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showCurrentFreshness={false} />
-      </TableCell>
+      </td>
     );
   }
   return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
       <Button size="sm" variant="ghost" onClick={() => onOpen(group)}>
         {dict.dashboardHome.topHoldingsDetailsLabel}
       </Button>
-    </TableCell>
+    </td>
   );
 }
 
@@ -1216,55 +1188,55 @@ function renderDashboardChildCell({
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
 }) {
-  const style = dashboardColumnCellStyle(columnSettings, column);
+  const style = holdingsColumnCellStyle(columnSettings, column);
   if (column === "ticker") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "bg-muted")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "bg-muted")} style={style}>
         <div className="flex flex-col gap-1 pl-10">
           <span className="font-medium text-foreground">{child.accountName ?? child.accountId}</span>
           <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsAccountPosition}</span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "position") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <div className="flex flex-col gap-1">
           <span className="font-mono text-sm tabular-nums">{formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(child.quantity, locale, 2) })}</span>
           <span className="text-xs text-muted-foreground">
             {child.reportingAllocationPercent === null ? "-" : `${dict.dashboardHome.topHoldingsPortfolioAllocation}: ${formatPercent(child.reportingAllocationPercent, locale)}`}
           </span>
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "price") {
     const price = getReportingChildUnitPrice(child, reportingCurrency);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         {price === null ? "-" : formatUnitPrice(price, reportingCurrency, locale)}
-      </TableCell>
+      </td>
     );
   }
   if (column === "avgCost") {
     const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}</span>
           {child.currency !== reportingCurrency ? (
             <span className="text-xs text-muted-foreground">{formatCurrencyAmount(child.averageCostPerShare, child.currency, locale)}</span>
           ) : null}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "unitPnl") {
     const unitPnl = getDashboardUnitPnl(child, reportingCurrency);
     const nativeUnitPnl = getNativeUnitPnl(child.currentUnitPrice, child.averageCostPerShare);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
+      <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(unitPnl.amount)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{unitPnl.amount == null ? "-" : formatFinanceCurrencyAmount(unitPnl.amount, reportingCurrency, locale, true)}</span>
           <span className="text-xs">{unitPnl.percent == null ? "-" : formatSignedPercent(unitPnl.percent, locale)}</span>
@@ -1274,12 +1246,12 @@ function renderDashboardChildCell({
             </span>
           ) : null}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "marketValue") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>
             {child.reportingMarketValueAmount === null ? "-" : (
@@ -1295,20 +1267,20 @@ function renderDashboardChildCell({
             </span>
           )}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "costBasis") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
         {child.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(child.reportingCostBasisAmount, reportingCurrency, locale)}
-      </TableCell>
+      </td>
     );
   }
   if (column === "daily") {
     const dailyMove = getReportingDailyMove(child);
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(dailyMove)))} style={style}>
+      <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(dailyMove)))} style={style}>
         <div className="flex flex-col items-end gap-1">
           <span>{dailyMove === null ? "-" : formatFinanceCurrencyAmount(dailyMove, reportingCurrency, locale, true)}</span>
           {dailyMove === null ? null : (
@@ -1318,32 +1290,32 @@ function renderDashboardChildCell({
           )}
           {child.changePercent === null ? null : <span className="text-xs">{formatSignedPercent(child.changePercent, locale)}</span>}
         </div>
-      </TableCell>
+      </td>
     );
   }
   if (column === "pnl") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount)))} style={style}>
+      <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount)))} style={style}>
         {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
-      </TableCell>
+      </td>
     );
   }
   if (column === "health") {
     return (
-      <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+      <td key={column} className={dashboardCellClassName(column)} style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={child} showCurrentFreshness={false} />
-      </TableCell>
+      </td>
     );
   }
   return (
-    <TableCell key={column} className={dashboardCellClassName(column)} style={style}>
+    <td key={column} className={dashboardCellClassName(column)} style={style}>
       <Link
         href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
         className="text-sm font-medium text-primary hover:underline"
       >
         {dict.reports.openTicker}
       </Link>
-    </TableCell>
+    </td>
   );
 }
 

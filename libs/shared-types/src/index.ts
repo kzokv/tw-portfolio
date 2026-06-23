@@ -847,6 +847,8 @@ export interface HoldingsTableContextPreferenceDto {
   layoutStyle?: HoldingsTableLayoutStyle;
   mobileSummaryCount?: number;
   rowOrder?: string[];
+  selectedMarketCodes?: string[];
+  selectedAccountIds?: string[];
   topHoldingsLimit?: number;
 }
 
@@ -928,6 +930,14 @@ const holdingsTableRowOrderSchema = z
     (arr) => new Set(arr).size === arr.length,
     { message: "holdings_table_duplicate_row" },
   );
+const holdingsTableSelectionValueSchema = z.string().min(1).max(128);
+const holdingsTableSelectionSchema = z
+  .array(holdingsTableSelectionValueSchema)
+  .max(500)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "holdings_table_duplicate_selection" },
+  );
 
 export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSettingsPreferenceDto> = z
   .object({
@@ -948,6 +958,8 @@ export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSetti
             layoutStyle: z.enum(["dashboard", "portfolio"]).optional(),
             mobileSummaryCount: z.number().int().min(1).max(40).optional(),
             rowOrder: holdingsTableRowOrderSchema.optional(),
+            selectedMarketCodes: holdingsTableSelectionSchema.optional(),
+            selectedAccountIds: holdingsTableSelectionSchema.optional(),
             topHoldingsLimit: z.number().int().min(1).max(100).optional(),
           })
           .strict(),
@@ -982,6 +994,8 @@ export const adminMarketDataTableSettingsPreferenceSchema: z.ZodType<AdminMarket
             layoutStyle: z.enum(["dashboard", "portfolio"]).optional(),
             mobileSummaryCount: z.number().int().min(1).max(40).optional(),
             rowOrder: holdingsTableRowOrderSchema.optional(),
+            selectedMarketCodes: holdingsTableSelectionSchema.optional(),
+            selectedAccountIds: holdingsTableSelectionSchema.optional(),
             topHoldingsLimit: z.number().int().min(1).max(100).optional(),
           })
           .strict(),

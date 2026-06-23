@@ -9,7 +9,7 @@ import {
   type HoldingsGridColumnDefinition,
 } from "../../../components/holdings/HoldingsColumnSettings";
 import { holdingGroupMatchesStatusFilter, HoldingsTable } from "../../../components/portfolio/HoldingsTable";
-import { getJson } from "../../../lib/api";
+import { getJson, patchJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
 import { testPriceState } from "../../fixtures/priceState";
 
@@ -87,8 +87,22 @@ function ColumnSettingsHarness() {
   return (
     <div>
       <p data-testid="visible-columns">{settings.visibleColumns.join(",")}</p>
+      <p data-testid="selected-markets">{settings.selectedMarketCodes.join(",")}</p>
+      <p data-testid="selected-accounts">{settings.selectedAccountIds.join(",")}</p>
       <button type="button" data-testid="toggle-market-value" onClick={() => settings.toggleColumn("marketValue")}>
         Toggle market value
+      </button>
+      <button type="button" data-testid="set-market-filters" onClick={() => settings.setSelectedMarketCodes(["US", "TW", "US"])}>
+        Set market filters
+      </button>
+      <button type="button" data-testid="set-account-filters" onClick={() => settings.setSelectedAccountIds(["acc-1", "acc-2", "acc-1"])}>
+        Set account filters
+      </button>
+      <button type="button" data-testid="set-row-order" onClick={() => settings.setRowOrder(["US:AAPL"])}>
+        Set row order
+      </button>
+      <button type="button" data-testid="set-top-holdings-limit" onClick={() => settings.setTopHoldingsLimit(8)}>
+        Set top holdings limit
       </button>
     </div>
   );
@@ -218,6 +232,34 @@ describe("HoldingsTable", () => {
     expect(tickerCell?.className).toContain("sticky");
   });
 
+  it("ignores stale persisted market filters without cleaning stored preferences", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              selectedMarketCodes: ["JP"],
+              selectedAccountIds: [],
+            },
+          },
+        },
+      },
+    });
+    const rendered = renderTable([baseGroup]);
+    root = rendered.root;
+    container = rendered.container;
+
+    await flushPromises();
+
+    expect(container.querySelector("[data-testid='holding-group-row-AAPL-US']")).not.toBeNull();
+    expect(vi.mocked(patchJson)).not.toHaveBeenCalled();
+  });
+
   it("keeps market filter menu open while selecting multiple markets", async () => {
     const rendered = renderTable([
       baseGroup,
@@ -326,6 +368,245 @@ describe("HoldingsTable", () => {
     });
 
     expect(container.querySelector("[data-testid='visible-columns']")?.textContent).not.toContain("marketValue");
+  });
+
+  it("applies hydrated column preferences after an early filter-only edit", async () => {
+    let resolvePreferences: (value: unknown) => void = () => undefined;
+    vi.mocked(getJson).mockReturnValueOnce(new Promise((resolve) => {
+      resolvePreferences = resolve;
+    }) as ReturnType<typeof getJson>);
+
+    const rendered = renderColumnSettingsHarness();
+    root = rendered.root;
+    container = rendered.container;
+
+    expect(container.querySelector("[data-testid='visible-columns']")?.textContent).toBe("ticker,marketValue");
+
+    await act(async () => {
+      container?.querySelector("[data-testid='set-market-filters']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='selected-markets']")?.textContent).toBe("US,TW");
+
+    await act(async () => {
+      resolvePreferences({
+        preferences: {
+          holdingsTableSettings: {
+            version: 1,
+            contexts: {
+              "holdings.shared": {
+                columnOrder: ["marketValue", "ticker"],
+                hiddenColumns: ["marketValue"],
+                columnWidths: {
+                  ticker: 132,
+                  marketValue: 188,
+                },
+                layoutStyle: "portfolio",
+                selectedMarketCodes: ["JP"],
+                selectedAccountIds: ["acc-9"],
+              },
+            },
+          },
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='visible-columns']")?.textContent).toBe("ticker");
+    expect(container.querySelector("[data-testid='selected-markets']")?.textContent).toBe("US,TW");
+    expect(container.querySelector("[data-testid='selected-accounts']")?.textContent).toBe("acc-9");
+    expect(vi.mocked(patchJson)).toHaveBeenLastCalledWith(
+      "/user-preferences",
+      {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["marketValue", "ticker"],
+              hiddenColumns: ["marketValue"],
+              columnWidths: {
+                ticker: 132,
+                marketValue: 188,
+              },
+              layoutStyle: "portfolio",
+              selectedMarketCodes: ["US", "TW"],
+              selectedAccountIds: ["acc-9"],
+            },
+          },
+        },
+      },
+      { contextScope: "session" },
+    );
+  });
+
+  it("hydrates persisted market/account filters from holdings shared context", async () => {
+    vi.mocked(getJson).mockResolvedValueOnce({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              selectedMarketCodes: ["US", "TW"],
+              selectedAccountIds: ["acc-1", "acc-2"],
+            },
+          },
+        },
+      },
+    });
+
+    const rendered = renderColumnSettingsHarness();
+    root = rendered.root;
+    container = rendered.container;
+
+    await flushPromises();
+
+    expect(container.querySelector("[data-testid='selected-markets']")?.textContent).toBe("US,TW");
+    expect(container.querySelector("[data-testid='selected-accounts']")?.textContent).toBe("acc-1,acc-2");
+  });
+
+  it("persists market/account filter changes through the existing context merge path", async () => {
+    vi.mocked(getJson).mockResolvedValueOnce({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.other": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              selectedMarketCodes: ["JP"],
+              selectedAccountIds: ["acc-9"],
+            },
+          },
+        },
+      },
+    });
+
+    const rendered = renderColumnSettingsHarness();
+    root = rendered.root;
+    container = rendered.container;
+
+    await flushPromises();
+
+    await act(async () => {
+      container?.querySelector("[data-testid='set-row-order']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container?.querySelector("[data-testid='set-top-holdings-limit']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container?.querySelector("[data-testid='set-market-filters']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container?.querySelector("[data-testid='set-account-filters']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='selected-markets']")?.textContent).toBe("US,TW");
+    expect(container.querySelector("[data-testid='selected-accounts']")?.textContent).toBe("acc-1,acc-2");
+    expect(vi.mocked(patchJson)).toHaveBeenLastCalledWith(
+      "/user-preferences",
+      {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.other": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: {},
+              layoutStyle: "portfolio",
+              selectedMarketCodes: ["JP"],
+              selectedAccountIds: ["acc-9"],
+            },
+            "holdings.shared": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: {
+                ticker: 120,
+                marketValue: 160,
+              },
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 2,
+              rowOrder: ["US:AAPL"],
+              selectedMarketCodes: ["US", "TW"],
+              selectedAccountIds: ["acc-1", "acc-2"],
+              topHoldingsLimit: 8,
+            },
+          },
+        },
+      },
+      { contextScope: "session" },
+    );
+  });
+
+  it("persists filter-only changes without rewriting unrelated shared column preferences", async () => {
+    vi.mocked(getJson).mockResolvedValueOnce({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["ticker", "accounts", "quantity", "marketValue"],
+              hiddenColumns: ["quantity"],
+              columnWidths: {
+                ticker: 144,
+                accounts: 116,
+                quantity: 88,
+                marketValue: 176,
+              },
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 3,
+              rowOrder: ["US:AAPL"],
+              selectedMarketCodes: ["JP"],
+              selectedAccountIds: ["acc-9"],
+              topHoldingsLimit: 9,
+            },
+          },
+        },
+      },
+    });
+
+    const rendered = renderColumnSettingsHarness();
+    root = rendered.root;
+    container = rendered.container;
+
+    await flushPromises();
+
+    await act(async () => {
+      container?.querySelector("[data-testid='set-market-filters']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(vi.mocked(patchJson)).toHaveBeenLastCalledWith(
+      "/user-preferences",
+      {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["ticker", "accounts", "quantity", "marketValue"],
+              hiddenColumns: ["quantity"],
+              columnWidths: {
+                ticker: 144,
+                accounts: 116,
+                quantity: 88,
+                marketValue: 176,
+              },
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 3,
+              rowOrder: ["US:AAPL"],
+              selectedMarketCodes: ["US", "TW"],
+              selectedAccountIds: ["acc-9"],
+              topHoldingsLimit: 9,
+            },
+          },
+        },
+      },
+      { contextScope: "session" },
+    );
   });
 
   it("keeps mixed-status tickers visible when account-row status filters match a child row", () => {
