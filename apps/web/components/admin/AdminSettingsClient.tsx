@@ -199,9 +199,26 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Yahoo Finance KR operation budget. Must stay below the configured upstream budget.": "Yahoo Finance 韓國作業配額。必須低於已設定的上游配額。",
   "Frankfurter per-minute cap": "Frankfurter 每分鐘上限",
   "Frankfurter FX refresh operation budget. Must stay below the configured provider ceiling.": "Frankfurter 匯率更新作業配額。必須低於已設定的資料提供者上限。",
-  "ASX GICS hourly cap": "ASX GICS 每小時上限",
-  "ASX GICS CSV refresh pacing. Must stay below the configured provider ceiling.": "ASX GICS CSV 更新節奏。必須低於已設定的資料提供者上限。",
-  "Repair cooldown": "修復冷卻時間",
+	  "ASX GICS hourly cap": "ASX GICS 每小時上限",
+	  "ASX GICS CSV refresh pacing. Must stay below the configured provider ceiling.": "ASX GICS CSV 更新節奏。必須低於已設定的資料提供者上限。",
+	  "Provider pacing": "資料提供者請求節奏",
+	  "Minimum spacing between provider requests. Null uses the default; 0 disables spacing.": "資料提供者請求之間的最小間隔。空值使用預設值；0 會停用間隔。",
+	  "FinMind minimum request interval": "FinMind 最小請求間隔",
+	  "Configured for TW/US market-data provider pacing. Enforcement is not active in this PR.": "用於 TW/US 市場資料提供者請求節奏。本 PR 尚未啟用強制套用。",
+	  "Twelve Data minimum request interval": "Twelve Data 最小請求間隔",
+	  "Configured for AU/KR catalog pacing. Enforcement is not active in this PR.": "用於 AU/KR 目錄請求節奏。本 PR 尚未啟用強制套用。",
+	  "Yahoo AU minimum request interval": "Yahoo AU 最小請求間隔",
+	  "Configured for Yahoo Finance AU pacing. Enforcement is not active in this PR.": "用於 Yahoo Finance AU 請求節奏。本 PR 尚未啟用強制套用。",
+	  "Yahoo KR minimum request interval": "Yahoo KR 最小請求間隔",
+	  "Configured for Yahoo Finance KR pacing. Enforcement is active in this PR.": "用於 Yahoo Finance KR 請求節奏。本 PR 已啟用強制套用。",
+	  "Frankfurter minimum request interval": "Frankfurter 最小請求間隔",
+	  "Configured for FX refresh pacing. Enforcement is not active in this PR.": "用於 FX 匯率更新請求節奏。本 PR 尚未啟用強制套用。",
+	  "ASX GICS minimum request interval": "ASX GICS 最小請求間隔",
+	  "Configured for ASX GICS refresh pacing. Enforcement is not active in this PR.": "用於 ASX GICS 更新請求節奏。本 PR 尚未啟用強制套用。",
+	  "Configured only": "僅可設定",
+	  "Enforced now": "目前已強制套用",
+	  "Status": "狀態",
+	  "Repair cooldown": "修復冷卻時間",
   "Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.": "同一代號兩次修復之間的最短等待時間（分鐘）。關閉時使用環境預設值。",
   "Cooldown": "冷卻時間",
   "Backfill": "回補",
@@ -1516,6 +1533,53 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
     setConfig(updated);
   }
 
+  const extendedConfig = config as AppConfigDto & Record<string, unknown>;
+  const extendedBounds = config.bounds as Record<string, { min: number; max: number } | undefined>;
+  const providerPacingRows = [
+    {
+      field: "finmindProviderMinRequestIntervalMs",
+      effectiveField: "effectiveFinmindProviderMinRequestIntervalMs",
+      label: "FinMind minimum request interval",
+      description: "Configured for TW/US market-data provider pacing. Enforcement is not active in this PR.",
+      status: "Configured only",
+    },
+    {
+      field: "twelveDataProviderMinRequestIntervalMs",
+      effectiveField: "effectiveTwelveDataProviderMinRequestIntervalMs",
+      label: "Twelve Data minimum request interval",
+      description: "Configured for AU/KR catalog pacing. Enforcement is not active in this PR.",
+      status: "Configured only",
+    },
+    {
+      field: "yahooAuProviderMinRequestIntervalMs",
+      effectiveField: "effectiveYahooAuProviderMinRequestIntervalMs",
+      label: "Yahoo AU minimum request interval",
+      description: "Configured for Yahoo Finance AU pacing. Enforcement is not active in this PR.",
+      status: "Configured only",
+    },
+    {
+      field: "yahooKrProviderMinRequestIntervalMs",
+      effectiveField: "effectiveYahooKrProviderMinRequestIntervalMs",
+      label: "Yahoo KR minimum request interval",
+      description: "Configured for Yahoo Finance KR pacing. Enforcement is active in this PR.",
+      status: "Enforced now",
+    },
+    {
+      field: "frankfurterProviderMinRequestIntervalMs",
+      effectiveField: "effectiveFrankfurterProviderMinRequestIntervalMs",
+      label: "Frankfurter minimum request interval",
+      description: "Configured for FX refresh pacing. Enforcement is not active in this PR.",
+      status: "Configured only",
+    },
+    {
+      field: "asxGicsProviderMinRequestIntervalMs",
+      effectiveField: "effectiveAsxGicsProviderMinRequestIntervalMs",
+      label: "ASX GICS minimum request interval",
+      description: "Configured for ASX GICS refresh pacing. Enforcement is not active in this PR.",
+      status: "Configured only",
+    },
+  ].filter((row) => typeof extendedConfig[row.effectiveField] === "number" && extendedBounds[row.field]);
+
   async function handleSaveRouteCacheMode() {
     setRouteCacheModeError(null);
     setRouteCacheModeSuccess(null);
@@ -2054,6 +2118,29 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 inputTestId="admin-settings-input-asxGicsProviderRateLimitPerHour"
                 onSave={(v) => patchAppConfigField("asxGicsProviderRateLimitPerHour", v)}
               />
+              {providerPacingRows.length > 0 ? (
+                <>
+                  <div className="border-t border-slate-200 pt-5">
+                    <h3 className="text-sm font-semibold text-slate-900">{t("Provider pacing")}</h3>
+                    <p className="mt-2 text-sm text-slate-600">{t("Minimum spacing between provider requests. Null uses the default; 0 disables spacing.")}</p>
+                  </div>
+                  {providerPacingRows.map((row) => (
+                    <div key={row.field}>
+                      <NumericOverrideRow
+                        fieldKey={row.field}
+                        label={t(row.label)}
+                        description={`${t(row.description)} ${t("Status")}: ${t(row.status)}.`}
+                        override={(extendedConfig[row.field] as number | null | undefined) ?? null}
+                        effective={extendedConfig[row.effectiveField] as number}
+                        bounds={extendedBounds[row.field]!}
+                        unit="ms"
+                        inputTestId={`admin-settings-input-${row.field}`}
+                        onSave={(v) => patchAppConfigField(row.field, v)}
+                      />
+                    </div>
+                  ))}
+                </>
+              ) : null}
             </div>
           </Card>
           <div className="mt-6">

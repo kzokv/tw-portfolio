@@ -887,6 +887,57 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("returns normalized operation controls and treats date-only end filters as inclusive days", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T18:30:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-running-late-day",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "running",
+      matchCount: 3,
+    });
+    vi.setSystemTime(new Date("2026-06-04T00:05:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-next-day",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations?from=2026-06-03&to=2026-06-03&page=1&limit=10&includeOperationId=provider-op-running-late-day",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      selectedOperation: expect.objectContaining({
+        id: "provider-op-running-late-day",
+        canPause: true,
+        canResume: false,
+        canCancel: true,
+      }),
+      selectedOperationIsOffPage: false,
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: "provider-op-running-late-day",
+          canPause: true,
+          canResume: false,
+          canCancel: true,
+        }),
+      ],
+    });
+  });
+
   it("returns an included selected operation off-page and filters outcomes by action", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -933,13 +984,19 @@ describe("Provider Fixer admin routes", () => {
 
     const operations = await app.inject({
       method: "GET",
-      url: "/admin/providers/yahoo-finance-kr/operations?page=2&limit=1&includeOperationId=provider-op-selected",
+      url: "/admin/market-data/KR/operations?page=2&limit=1&includeOperationId=provider-op-selected",
       headers,
     });
     expect(operations.statusCode).toBe(200);
     expect(operations.json()).toMatchObject({
+      selectedOperationIsOffPage: true,
       selectedOperation: { id: "provider-op-selected", providerId: "yahoo-finance-kr" },
-      operations: [expect.objectContaining({ id: "provider-op-page-2" })],
+      items: [expect.objectContaining({ id: "provider-op-page-2" })],
+      filters: {
+        providerId: null,
+        operationType: null,
+        phase: null,
+      },
       total: 2,
       page: 2,
       limit: 1,
@@ -956,7 +1013,81 @@ describe("Provider Fixer admin routes", () => {
       total: 1,
       items: [expect.objectContaining({ sourceSymbol: "000660", action: "renew_evidence", state: "failed" })],
     });
-  });
+
+    await app.persistence.createProviderOperationLog({
+      operationId: "provider-op-selected",
+      phase: "completed",
+      level: "info",
+      message: "selected_operation_completed",
+      detail: "provider-op-selected completed",
+      context: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolvedSymbol: "005930.KS",
+        ignoredKey: "redacted",
+      },
+    });
+    const logs = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations/provider-op-selected/logs?page=1&limit=10",
+      headers,
+    });
+    expect(logs.statusCode).toBe(200);
+    expect(logs.json()).toMatchObject({
+      marketCode: "KR",
+      operationId: "provider-op-selected",
+      total: 1,
+      items: [
+        expect.objectContaining({
+          level: "info",
+          message: "selected_operation_completed",
+          detail: "provider-op-selected completed",
+          context: {
+            providerId: "yahoo-finance-kr",
+            marketCode: "KR",
+            sourceSymbol: "005930",
+            resolvedSymbol: "005930.KS",
+          },
+        }),
+      ],
+    });
+	    expect((logs.json() as { items: Array<{ context: Record<string, unknown> | null }> }).items[0]?.context).not.toHaveProperty("ignoredKey");
+
+	    const selectedExcludedBySearch = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?page=1&limit=10&search=page-2&includeOperationId=provider-op-selected",
+	      headers,
+	    });
+	    expect(selectedExcludedBySearch.statusCode).toBe(200);
+	    expect(selectedExcludedBySearch.json()).toMatchObject({
+	      selectedOperation: null,
+	      selectedOperationIsOffPage: false,
+	      total: 1,
+	      items: [expect.objectContaining({ id: "provider-op-page-2" })],
+	    });
+
+	    const invalidDate = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?from=not-a-date",
+	      headers,
+	    });
+	    expect(invalidDate.statusCode).toBe(400);
+
+	    const invertedDates = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?from=2026-06-04&to=2026-06-03",
+	      headers,
+	    });
+	    expect(invertedDates.statusCode).toBe(400);
+
+	    const mismatchedWorkspaceLogs = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/FX/operations/provider-op-selected/logs?page=1&limit=10",
+	      headers,
+	    });
+	    expect(mismatchedWorkspaceLogs.statusCode).toBe(404);
+	  });
 
   it("returns preparing_preview for dangerous filter previews and promotes them to preview asynchronously", async () => {
     const admin = await createAdmin(app);
@@ -2033,12 +2164,18 @@ describe("Provider Fixer admin routes", () => {
         providerHealthWarningUnresolvedThreshold: 500,
         providerHealthCriticalUnresolvedThreshold: 5_000,
         providerOperationStaleHeartbeatMinutes: 10,
-        providerOperationSummaryRetentionDays: 120,
-        providerOperationLogRetentionDays: 45,
-        providerIncidentRetentionDays: 240,
-        providerResolvedItemRetentionDays: 60,
-      },
-    });
+	        providerOperationSummaryRetentionDays: 120,
+	        providerOperationLogRetentionDays: 45,
+	        providerIncidentRetentionDays: 240,
+	        providerResolvedItemRetentionDays: 60,
+	        finmindProviderMinRequestIntervalMs: 0,
+	        twelveDataProviderMinRequestIntervalMs: 250,
+	        yahooAuProviderMinRequestIntervalMs: 500,
+	        yahooKrProviderMinRequestIntervalMs: 1_500,
+	        frankfurterProviderMinRequestIntervalMs: 750,
+	        asxGicsProviderMinRequestIntervalMs: 2_000,
+	      },
+	    });
     expect(accepted.statusCode).toBe(200);
     expect(accepted.json()).toMatchObject({
       providerOperationAutoRenewIntervalMinutes: 45,
@@ -2055,11 +2192,23 @@ describe("Provider Fixer admin routes", () => {
       effectiveProviderOperationSummaryRetentionDays: 120,
       providerOperationLogRetentionDays: 45,
       effectiveProviderOperationLogRetentionDays: 45,
-      providerIncidentRetentionDays: 240,
-      effectiveProviderIncidentRetentionDays: 240,
-      providerResolvedItemRetentionDays: 60,
-      effectiveProviderResolvedItemRetentionDays: 60,
-    });
+	      providerIncidentRetentionDays: 240,
+	      effectiveProviderIncidentRetentionDays: 240,
+	      providerResolvedItemRetentionDays: 60,
+	      effectiveProviderResolvedItemRetentionDays: 60,
+	      finmindProviderMinRequestIntervalMs: 0,
+	      effectiveFinmindProviderMinRequestIntervalMs: 0,
+	      twelveDataProviderMinRequestIntervalMs: 250,
+	      effectiveTwelveDataProviderMinRequestIntervalMs: 250,
+	      yahooAuProviderMinRequestIntervalMs: 500,
+	      effectiveYahooAuProviderMinRequestIntervalMs: 500,
+	      yahooKrProviderMinRequestIntervalMs: 1_500,
+	      effectiveYahooKrProviderMinRequestIntervalMs: 1_500,
+	      frankfurterProviderMinRequestIntervalMs: 750,
+	      effectiveFrankfurterProviderMinRequestIntervalMs: 750,
+	      asxGicsProviderMinRequestIntervalMs: 2_000,
+	      effectiveAsxGicsProviderMinRequestIntervalMs: 2_000,
+	    });
 
     const rejected = await app.inject({
       method: "PATCH",
@@ -2074,13 +2223,15 @@ describe("Provider Fixer admin routes", () => {
       method: "PATCH",
       url: "/admin/settings",
       headers,
-      payload: { providerHealthCriticalUnresolvedThreshold: null },
-    });
-    expect(clearedCritical.statusCode).toBe(200);
-    expect(clearedCritical.json()).toMatchObject({
-      providerHealthCriticalUnresolvedThreshold: null,
-      effectiveProviderHealthCriticalUnresolvedThreshold: 10_000,
-    });
+	      payload: { providerHealthCriticalUnresolvedThreshold: null, yahooKrProviderMinRequestIntervalMs: null },
+	    });
+	    expect(clearedCritical.statusCode).toBe(200);
+	    expect(clearedCritical.json()).toMatchObject({
+	      providerHealthCriticalUnresolvedThreshold: null,
+	      effectiveProviderHealthCriticalUnresolvedThreshold: 10_000,
+	      yahooKrProviderMinRequestIntervalMs: null,
+	      effectiveYahooKrProviderMinRequestIntervalMs: 1_000,
+	    });
   });
 
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
@@ -2724,7 +2875,7 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(operationsResponse.statusCode).toBe(200);
     expect(operationsResponse.json().operations).toContainEqual(
-      expect.objectContaining({ id: expired.id, canExecute: false }),
+      expect.objectContaining({ id: expired.id, canExecute: false, canRetry: false }),
     );
 
     const expiredResponse = await app.inject({
@@ -2792,32 +2943,11 @@ describe("Provider Fixer admin routes", () => {
       url: `/admin/providers/yahoo-finance-kr/operations/${expired.id}/retry`,
       headers,
     });
-    expect(retry.statusCode).toBe(201);
-    const retryBody = retry.json() as {
-      retryOfOperationId: string;
-      operation: { id: string; phase: string; canExecute: boolean; canRetry: boolean; preview: { token: string } };
-    };
-    expect(retryBody).toMatchObject({
-      retryOfOperationId: expired.id,
-      operation: {
-        phase: "preview",
-        canExecute: true,
-        canRetry: false,
-      },
-    });
-    expect(retryBody.operation.id).not.toBe(expired.id);
-    expect(retryBody.operation.preview.token).toBeTruthy();
+    expect(retry.statusCode).toBe(400);
+    expect(retry.json()).toMatchObject({ error: "provider_operation_not_retryable" });
     await expect(app.persistence.getProviderOperation(expired.id)).resolves.toMatchObject({
       id: expired.id,
       phase: "cancelled",
-    });
-    await expect(app.persistence.getProviderOperation(retryBody.operation.id)).resolves.toMatchObject({
-      providerId: "yahoo-finance-kr",
-      phase: "preview",
-      metadata: expect.objectContaining({
-        retryOfOperationId: expired.id,
-        retryAttempt: 1,
-      }),
     });
   });
 

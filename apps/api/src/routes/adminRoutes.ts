@@ -47,6 +47,10 @@ import type {
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
   AdminMarketDataActivityResponse,
+  AdminMarketDataOperationDetailValue,
+  AdminMarketDataOperationDto,
+  AdminMarketDataOperationDetailsDto,
+  AdminMarketDataOperationLogsResponse,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketCalendarConfirmRequest,
@@ -63,6 +67,7 @@ import type {
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   AdminMarketDataProviderChipDto,
+  AdminMarketDataPurgeDisabledReasonCode,
   AdminMarketDataPurgeExecuteRequest,
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
@@ -118,6 +123,15 @@ import {
   invalidate as invalidateAppConfigCache,
   refresh as refreshAppConfigCache,
 } from "../services/appConfig/cache.js";
+
+const PROVIDER_MIN_REQUEST_INTERVAL_DEFAULTS = {
+  finmindProviderMinRequestIntervalMs: 0,
+  twelveDataProviderMinRequestIntervalMs: 0,
+  yahooAuProviderMinRequestIntervalMs: 0,
+  yahooKrProviderMinRequestIntervalMs: 1_000,
+  frankfurterProviderMinRequestIntervalMs: 0,
+  asxGicsProviderMinRequestIntervalMs: 0,
+} as const;
 import type {
   AppConfigPlainField,
   ProviderOperationOutcomeRecord,
@@ -178,6 +192,13 @@ import {
 } from "./registerRoutes.js";
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const ISO_DATE_ONLY_FILTER = /^\d{4}-\d{2}-\d{2}$/;
+const isoDateTimeFilterSchema = z.string().trim().max(40).refine((value) => {
+  if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/.test(value)) {
+    return false;
+  }
+  return Number.isFinite(Date.parse(value));
+}, "Must be an ISO date or datetime");
 const fxBaseCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 type StoppedProviderOperationPhase = Extract<ProviderOperationPhase, "cancelled" | "paused">;
@@ -391,6 +412,12 @@ export const patchAdminSettingsSchema = z
     yahooKrProviderRateLimitPerMinute: plainBoundedField("yahooKrProviderRateLimitPerMinute"),
     frankfurterProviderRateLimitPerMinute: plainBoundedField("frankfurterProviderRateLimitPerMinute"),
     asxGicsProviderRateLimitPerHour: plainBoundedField("asxGicsProviderRateLimitPerHour"),
+    finmindProviderMinRequestIntervalMs: plainBoundedField("finmindProviderMinRequestIntervalMs"),
+    twelveDataProviderMinRequestIntervalMs: plainBoundedField("twelveDataProviderMinRequestIntervalMs"),
+    yahooAuProviderMinRequestIntervalMs: plainBoundedField("yahooAuProviderMinRequestIntervalMs"),
+    yahooKrProviderMinRequestIntervalMs: plainBoundedField("yahooKrProviderMinRequestIntervalMs"),
+    frankfurterProviderMinRequestIntervalMs: plainBoundedField("frankfurterProviderMinRequestIntervalMs"),
+    asxGicsProviderMinRequestIntervalMs: plainBoundedField("asxGicsProviderMinRequestIntervalMs"),
 
     // ── KZO-198 Tier 1/2 — backfill ─────────────────────────────────────
     backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
@@ -482,6 +509,12 @@ const TIER1_PLAIN_FIELDS = [
   "yahooKrProviderRateLimitPerMinute",
   "frankfurterProviderRateLimitPerMinute",
   "asxGicsProviderRateLimitPerHour",
+  "finmindProviderMinRequestIntervalMs",
+  "twelveDataProviderMinRequestIntervalMs",
+  "yahooAuProviderMinRequestIntervalMs",
+  "yahooKrProviderMinRequestIntervalMs",
+  "frankfurterProviderMinRequestIntervalMs",
+  "asxGicsProviderMinRequestIntervalMs",
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
@@ -662,6 +695,13 @@ function providerOperationRateCapPerMinute(providerId: string, config: AppConfig
   return 250;
 }
 
+function effectiveProviderMinRequestIntervalMs(
+  key: keyof typeof PROVIDER_MIN_REQUEST_INTERVAL_DEFAULTS,
+  override: number | null,
+): number {
+  return override ?? PROVIDER_MIN_REQUEST_INTERVAL_DEFAULTS[key];
+}
+
 function assertProviderHealthThresholdOverrides(
   body: z.infer<typeof patchAdminSettingsSchema>,
   current: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
@@ -833,6 +873,24 @@ export function buildAppConfigDtoFromRow(
     asxGicsProviderRateLimitPerHour: row.asxGicsProviderRateLimitPerHour,
     effectiveAsxGicsProviderRateLimitPerHour:
       row.asxGicsProviderRateLimitPerHour ?? Env.ASX_GICS_RATE_LIMIT_PER_HOUR,
+    finmindProviderMinRequestIntervalMs: row.finmindProviderMinRequestIntervalMs,
+    effectiveFinmindProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("finmindProviderMinRequestIntervalMs", row.finmindProviderMinRequestIntervalMs),
+    twelveDataProviderMinRequestIntervalMs: row.twelveDataProviderMinRequestIntervalMs,
+    effectiveTwelveDataProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("twelveDataProviderMinRequestIntervalMs", row.twelveDataProviderMinRequestIntervalMs),
+    yahooAuProviderMinRequestIntervalMs: row.yahooAuProviderMinRequestIntervalMs,
+    effectiveYahooAuProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("yahooAuProviderMinRequestIntervalMs", row.yahooAuProviderMinRequestIntervalMs),
+    yahooKrProviderMinRequestIntervalMs: row.yahooKrProviderMinRequestIntervalMs,
+    effectiveYahooKrProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("yahooKrProviderMinRequestIntervalMs", row.yahooKrProviderMinRequestIntervalMs),
+    frankfurterProviderMinRequestIntervalMs: row.frankfurterProviderMinRequestIntervalMs,
+    effectiveFrankfurterProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("frankfurterProviderMinRequestIntervalMs", row.frankfurterProviderMinRequestIntervalMs),
+    asxGicsProviderMinRequestIntervalMs: row.asxGicsProviderMinRequestIntervalMs,
+    effectiveAsxGicsProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("asxGicsProviderMinRequestIntervalMs", row.asxGicsProviderMinRequestIntervalMs),
 
     // KZO-198 Tier 1 — backfill
     backfillRetryLimit: row.backfillRetryLimit,
@@ -1042,6 +1100,57 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
     providers: [{ providerId: "frankfurter", label: "Frankfurter", role: "FX rates" }],
   },
 };
+
+const MARKET_DATA_PURGE_CATEGORIES = [
+  "price_bars",
+  "dividends",
+  "backfill_jobs",
+  "provider_operation_outcomes",
+  "provider_error_trail",
+  "provider_resolution_mappings",
+  "asx_gics_enrichment",
+  "admin_state_reset",
+] as const;
+
+function marketDataPurgeDisabledReason(
+  marketCode: string,
+  category: (typeof MARKET_DATA_PURGE_CATEGORIES)[number],
+): { code: AdminMarketDataPurgeDisabledReasonCode; reason: string } | null {
+  if (category === "provider_resolution_mappings" && marketCode !== "KR") {
+    return {
+      code: "kr_mappings_only",
+      reason: "Only KR Yahoo mappings support durable provider mappings in this scope.",
+    };
+  }
+  if (category === "asx_gics_enrichment" && marketCode !== "AU") {
+    return {
+      code: "au_gics_only",
+      reason: "ASX GICS enrichment is AU-only.",
+    };
+  }
+  if (category === "backfill_jobs") {
+    return {
+      code: "backfill_jobs_not_target_safe",
+      reason: "Refresh batch records are aggregate job history; target-safe deletion needs batch-item provenance and is intentionally skipped.",
+    };
+  }
+  return null;
+}
+
+function marketDataPurgeCategoryCapabilities(
+  marketCode: AdminMarketCode,
+): AdminMarketDataOverviewResponse["purgeCategories"] {
+  if (marketCode === "FX") return [];
+  return MARKET_DATA_PURGE_CATEGORIES.map((category) => {
+    const disabled = marketDataPurgeDisabledReason(marketCode, category);
+    return {
+      category,
+      supported: disabled === null,
+      disabledReasonCode: disabled?.code ?? null,
+      disabledReason: disabled?.reason ?? null,
+    };
+  });
+}
 
 const marketDataWorkspaceParamSchema = z.object({
   marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
@@ -1585,11 +1694,10 @@ async function buildProviderFixerEvidenceSample(
   options: { verifyCandidate?: boolean; operationBudget?: ProviderOperationRecord } = {},
 ): Promise<{ sample: ProviderFixerDashboardEvidenceSampleDto[]; total: number }> {
   const page = scopeItems.slice(0, limit);
-  const rows = await Promise.all(
-    page.map((item) =>
-      buildProviderFixerEvidenceSampleRow(app, providerId, marketCode, item, resolverMode, options),
-    ),
-  );
+  const rows: ProviderFixerDashboardEvidenceSampleDto[] = [];
+  for (const item of page) {
+    rows.push(await buildProviderFixerEvidenceSampleRow(app, providerId, marketCode, item, resolverMode, options));
+  }
   return {
     sample: rows,
     total: scopeItems.length,
@@ -1702,6 +1810,20 @@ function evidenceSampleFromOperation(operation: ProviderOperationRecord): Provid
     .filter((item) => item.symbol.length > 0 && item.providerSymbol.length > 0);
 }
 
+function isKrMappingProviderOperation(operation: Pick<ProviderOperationRecord, "marketCode" | "operationType">): boolean {
+  return operation.marketCode === "KR" && (
+    operation.operationType === "repair_mapping"
+    || operation.operationType === "resolver_repair"
+    || operation.operationType === "reverify_mapping"
+    || operation.operationType === "revert_mapping"
+  );
+}
+
+function normalizeDateOnlyEndFilter(value: string | undefined): string | undefined {
+  if (!value || !ISO_DATE_ONLY_FILTER.test(value)) return value;
+  return new Date(Date.parse(`${value}T00:00:00.000Z`) + 24 * 60 * 60 * 1000 - 1).toISOString();
+}
+
 function providerFixerOperationToDto(
   operation: ProviderOperationRecord,
   guardrails: ProviderFixerDashboardGuardrailSettingsDto,
@@ -1773,12 +1895,275 @@ function providerFixerOperationToDto(
       || operation.phase === "queued"
       || operation.phase === "running"
       || operation.phase === "paused",
-    canRetry: operation.phase === "paused" || operation.phase === "failed" || operation.phase === "cancelled" || operation.phase === "completed",
+    canRetry: !isKrMappingProviderOperation(operation)
+      && (operation.phase === "paused" || operation.phase === "failed" || operation.phase === "cancelled" || operation.phase === "completed"),
     dangerous,
     progressPercent: numberField(metadata.progressPercent),
     autoPauseFailureCount: numberField(metadata.autoPauseFailureCount),
     autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
     effectiveRateCapPerMinute: numberField(metadata.effectiveRateCapPerMinute) ?? 250,
+  };
+}
+
+const MARKET_DATA_OPERATION_DEBUG_ALLOWLIST = new Set([
+  "queuedBehindOperationId",
+  "failureReason",
+  "failureName",
+  "msUntilAvailable",
+  "batchId",
+  "retryOfOperationId",
+  "retryAttempt",
+]);
+
+const MARKET_DATA_OPERATION_DETAIL_ALLOWLIST = new Set([
+  "scope",
+  "scopeType",
+  "scopeSummary",
+  "source",
+  "categories",
+  "dateRange",
+  "batchId",
+  "enqueuedJobCount",
+  "skippedExistingJobCount",
+  "deletedRows",
+  "succeeded",
+  "failed",
+  "mappingSourceSymbol",
+  "mappingResolvedSymbol",
+  "mappingPreviousVerifiedAt",
+  "mappingPreviousEvidence",
+  "resolverMode",
+  "unsupportedRows",
+  "unsupportedCategories",
+  "linkedRefillAvailable",
+  "linkedRefillMode",
+  "linkedRefillRequested",
+]);
+
+const MARKET_DATA_LOG_CONTEXT_ALLOWLIST = new Set([
+  "providerId",
+  "marketCode",
+  "operationType",
+  "sourceSymbol",
+  "resolvedSymbol",
+  "reason",
+  "batchId",
+  "jobId",
+  "matchCount",
+  "enqueuedJobCount",
+  "skippedExistingJobCount",
+  "deletedRows",
+  "scope",
+  "categories",
+  "action",
+  "msUntilAvailable",
+]);
+
+function sanitizeAllowlistedRecord(
+  value: Record<string, unknown> | null | undefined,
+  allowlist: Set<string>,
+): Record<string, unknown> | null {
+  if (!value) return null;
+  const next = Object.fromEntries(Object.entries(value).filter(([key]) => allowlist.has(key)));
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+function marketDataOperationDetailValue(value: unknown): AdminMarketDataOperationDetailValue | undefined {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+  if (asRecord(value)) {
+    const entries = Object.entries(asRecord(value) ?? {}).filter(([, item]) =>
+      item === null || typeof item === "string" || typeof item === "number" || typeof item === "boolean",
+    );
+    return Object.keys(Object.fromEntries(entries)).length > 0
+      ? Object.fromEntries(entries) as Record<string, string | number | boolean | null>
+      : undefined;
+  }
+  return undefined;
+}
+
+function marketDataOperationDetails(
+  operationType: string,
+  record: Record<string, unknown> | null,
+): AdminMarketDataOperationDetailsDto | null {
+  if (!record) return null;
+  const fields = Object.fromEntries(
+    Object.entries(record)
+      .map(([key, value]) => [key, marketDataOperationDetailValue(value)] as const)
+      .filter((entry): entry is readonly [string, AdminMarketDataOperationDetailValue] => entry[1] !== undefined),
+  );
+  if (Object.keys(fields).length === 0) return null;
+  if (operationType === "backfill_catalog_rows") {
+    return { kind: "backfill_catalog_rows", operationType, fields };
+  }
+  if (operationType === "purge_market_data") {
+    return { kind: "purge_market_data", operationType, fields };
+  }
+  if (marketDataOperationHasItemOutcomes(operationType)) {
+    return { kind: "mapping", operationType, fields };
+  }
+  return { kind: "generic", operationType, fields };
+}
+
+function marketDataOperationMatchesListFilters(
+  operation: ProviderOperationRecord,
+  filters: {
+    workspaceProviderIds: string[];
+    providerId?: string;
+    marketCode: AdminMarketCode;
+    operationType?: string;
+    phase?: ProviderOperationPhase;
+    search?: string;
+    from?: string;
+    to?: string;
+  },
+): boolean {
+  if (!filters.workspaceProviderIds.includes(operation.providerId)) return false;
+  if (filters.providerId && operation.providerId !== filters.providerId) return false;
+  if (filters.operationType && operation.operationType !== filters.operationType) return false;
+  if (filters.phase && operation.phase !== filters.phase) return false;
+  if (filters.marketCode !== "FX" && operation.marketCode !== filters.marketCode) return false;
+  if (filters.marketCode === "FX" && operation.marketCode !== "FX") return false;
+  if (filters.from && Date.parse(operation.createdAt) < Date.parse(filters.from)) return false;
+  if (filters.to && Date.parse(operation.createdAt) > Date.parse(filters.to)) return false;
+  const search = filters.search?.trim().toLowerCase();
+  if (search) {
+    const haystack = JSON.stringify([
+      operation.id,
+      operation.providerId,
+      operation.marketCode,
+      operation.operationType,
+      operation.scopeQuery,
+      operation.errorCode,
+    ]).toLowerCase();
+    if (!haystack.includes(search)) return false;
+  }
+  return true;
+}
+
+function marketDataOperationHasItemOutcomes(operationType: string): boolean {
+  return operationType === "repair_mapping"
+    || operationType === "resolver_repair"
+    || operationType === "renew_evidence"
+    || operationType === "rerun_backfill"
+    || operationType === "reverify_mapping"
+    || operationType === "revert_mapping"
+    || operationType === "ignore_unresolved"
+    || operationType === "mark_unsupported"
+    || operationType === "reopen_unresolved";
+}
+
+function marketDataOperationToDto(operation: ProviderOperationRecord, config: AppConfigDto): AdminMarketDataOperationDto {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const previewExpired = operation.previewExpiresAt ? Date.parse(operation.previewExpiresAt) <= Date.now() : false;
+  const categories = Array.isArray(metadata.categories)
+    ? metadata.categories.filter((value): value is string => typeof value === "string")
+    : [];
+  const summary: AdminMarketDataOperationDto["summary"] = {
+    kind: operation.operationType,
+    previewParts: [
+      { kind: "scope" as const, value: stringField(metadata.scope) },
+      { kind: "source" as const, value: stringField(metadata.source) },
+      { kind: "source_symbol" as const, value: stringField(metadata.mappingSourceSymbol) },
+      { kind: "resolved_symbol" as const, value: stringField(metadata.mappingResolvedSymbol) },
+    ].filter((part): part is { kind: "scope" | "source" | "source_symbol" | "resolved_symbol"; value: string } => Boolean(part.value)),
+    counts: {
+      matchCount: operation.matchCount ?? 0,
+      enqueuedJobCount: numberField(metadata.enqueuedJobCount) ?? 0,
+      skippedExistingJobCount: numberField(metadata.skippedExistingJobCount) ?? 0,
+      deletedRows: numberField(metadata.deletedRows) ?? 0,
+      succeeded: numberField(metadata.succeeded) ?? 0,
+      failed: numberField(metadata.failed) ?? 0,
+    },
+    dateRange: asRecord(metadata.dateRange)
+      ? {
+          startDate: stringField(asRecord(metadata.dateRange)?.startDate) ?? null,
+          endDate: stringField(asRecord(metadata.dateRange)?.endDate) ?? null,
+        }
+      : null,
+    batchId: stringField(metadata.batchId) ?? operation.legacyBatchId,
+    categories,
+    rateLimit: {
+      requestsPerMinute: providerOperationRateCapPerMinute(operation.providerId, config),
+    },
+    pacing: {
+      minRequestIntervalMs:
+        operation.providerId === "yahoo-finance-kr"
+          ? config.effectiveYahooKrProviderMinRequestIntervalMs
+          : operation.providerId === "yahoo-finance-au"
+            ? config.effectiveYahooAuProviderMinRequestIntervalMs
+            : operation.providerId === "twelve-data-kr" || operation.providerId === "twelve-data-au"
+              ? config.effectiveTwelveDataProviderMinRequestIntervalMs
+              : operation.providerId === "frankfurter"
+                ? config.effectiveFrankfurterProviderMinRequestIntervalMs
+                : operation.providerId === "asx-gics-csv"
+                  ? config.effectiveAsxGicsProviderMinRequestIntervalMs
+                  : config.effectiveFinmindProviderMinRequestIntervalMs,
+      enforced: operation.providerId === "yahoo-finance-kr",
+    },
+  };
+  return {
+    id: operation.id,
+    providerId: operation.providerId,
+    market: operation.marketCode,
+    marketCode: operation.marketCode as AdminMarketDataOperationDto["marketCode"],
+    operationType: operation.operationType,
+    phase: operation.phase,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    startedAt: operation.startedAt,
+    completedAt: operation.completedAt,
+    cancelledAt: operation.cancelledAt,
+    matchCount: operation.matchCount ?? 0,
+    progressPercent: numberField(metadata.progressPercent),
+    previewExpiresAt: operation.previewExpiresAt,
+    canPause: operation.phase === "running",
+    canResume: operation.phase === "paused",
+    canCancel:
+      operation.phase === "preparing_preview"
+      || operation.phase === "preview"
+      || operation.phase === "staged"
+      || operation.phase === "queued"
+      || operation.phase === "running"
+      || operation.phase === "paused",
+    execute: {
+      canExecute: (operation.phase === "preview" || operation.phase === "staged") && !previewExpired,
+      executeMode:
+        operation.operationType === "backfill_catalog_rows" || operation.operationType === "purge_market_data"
+          ? "preview"
+          : operation.phase === "preview" || operation.phase === "staged"
+            ? "direct"
+            : "none",
+      confirmationLevel:
+        stringField(metadata.confirmationText) ? "typed" : (operation.phase === "preview" || operation.phase === "staged") ? "checkbox" : "none",
+      confirmationText: stringField(metadata.confirmationText),
+      acknowledgementLabel: stringField(metadata.acknowledgementLabel) ?? null,
+      previewToken: stringField(metadata.previewTokenDisplay),
+      previewExpired,
+      blockedReason: previewExpired ? "preview_expired" : null,
+      endpoint:
+        operation.operationType === "backfill_catalog_rows"
+          ? "market_backfill_execute"
+          : operation.operationType === "purge_market_data"
+            ? "market_purge_execute"
+            : operation.metadata && metadata.marketDataBff === true
+              ? "market_action"
+              : "provider_operation",
+    },
+    summary,
+    details: marketDataOperationDetails(
+      operation.operationType,
+      sanitizeAllowlistedRecord(metadata, MARKET_DATA_OPERATION_DETAIL_ALLOWLIST),
+    ),
+    debug: sanitizeAllowlistedRecord(metadata, MARKET_DATA_OPERATION_DEBUG_ALLOWLIST),
+    outcomes: {
+      available: marketDataOperationHasItemOutcomes(operation.operationType),
+      reason: marketDataOperationHasItemOutcomes(operation.operationType) ? null : "operation_has_no_item_level_outcomes",
+    },
   };
 }
 
@@ -4401,7 +4786,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     reply.code(202);
     return {
       operation: providerFixerOperationToDto(completed, guardrails),
-      result: { status: completed.phase, succeeded, failed },
+      result: { status: completed.phase, updatedCount: succeeded, succeeded, failed },
     };
   });
 
@@ -4567,6 +4952,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       .object({
         marketCode: providerFixerMarketCodeSchema,
         sourceSymbol: z.string().trim().min(1).max(80),
+        resolvedSymbol: z.string().trim().min(1).max(80).optional(),
         resolverMode: providerFixerResolverModeSchema.default("quote_first"),
       })
       .strict()
@@ -4655,6 +5041,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       .object({
         marketCode: providerFixerMarketCodeSchema,
         sourceSymbol: z.string().trim().min(1).max(80),
+        resolvedSymbol: z.string().trim().min(1).max(80).optional(),
         typedConfirmation: z.string().trim().min(1).max(120),
       })
       .strict()
@@ -5164,6 +5551,17 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     if (!["paused", "failed", "cancelled", "completed"].includes(existing.phase)) {
       throw routeError(400, "provider_operation_not_retryable", "Selected operation cannot be retried yet");
+    }
+    if (
+      existing.providerId === "yahoo-finance-kr"
+      && (
+        existing.operationType === "repair_mapping"
+        || existing.operationType === "resolver_repair"
+        || existing.operationType === "reverify_mapping"
+        || existing.operationType === "revert_mapping"
+      )
+    ) {
+      throw routeError(400, "provider_operation_not_retryable", "KR mapping operations must use resume or dedicated mapping actions");
     }
     const config = await loadAppConfigDto(app);
     const guardrails = providerFixerGuardrailsFromConfig(config);
@@ -6399,28 +6797,19 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     return allMatchingTargets(marketCode, filters);
   }
 
-  function unsupportedPurgeCategories(marketCode: MarketCode, body: MarketDataPurgeBody): AdminMarketDataPurgePreviewResponse["unsupportedCategories"] {
-    const unsupported: AdminMarketDataPurgePreviewResponse["unsupportedCategories"] = [];
-    if (body.categories.includes("provider_resolution_mappings") && marketCode !== "KR") {
-      unsupported.push({
-        category: "provider_resolution_mappings",
-        reason: "Only KR Yahoo mappings support durable provider mappings in this scope.",
-      });
-    }
-    if (body.categories.includes("asx_gics_enrichment") && marketCode !== "AU") {
-      unsupported.push({
-        category: "asx_gics_enrichment",
-        reason: "ASX GICS enrichment is AU-only.",
-      });
-    }
-    if (body.categories.includes("backfill_jobs")) {
-      unsupported.push({
-        category: "backfill_jobs",
-        reason: "Refresh batch records are aggregate job history; target-safe deletion needs batch-item provenance and is intentionally skipped.",
-      });
-    }
-    return unsupported;
-  }
+	  function unsupportedPurgeCategories(marketCode: MarketCode, body: MarketDataPurgeBody): AdminMarketDataPurgePreviewResponse["unsupportedCategories"] {
+	    const unsupported: AdminMarketDataPurgePreviewResponse["unsupportedCategories"] = [];
+	    for (const category of body.categories) {
+	      const disabled = marketDataPurgeDisabledReason(marketCode, category);
+	      if (disabled) {
+	        unsupported.push({
+	          category,
+	          reason: disabled.reason,
+	        });
+	      }
+	    }
+	    return unsupported;
+	  }
 
   async function buildPurgePreview(
     marketCode: MarketDataWorkspaceMarketCode,
@@ -6750,10 +7139,11 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const tile = await marketTile(marketCode);
     return {
       marketCode,
-      label: tile.label,
-      tabs: MARKET_DATA_WORKSPACES[marketCode].tabs,
-      providers: tile.providers,
-      healthStatus: tile.healthStatus,
+	      label: tile.label,
+	      tabs: MARKET_DATA_WORKSPACES[marketCode].tabs,
+	      providers: tile.providers,
+	      purgeCategories: marketDataPurgeCategoryCapabilities(marketCode),
+	      healthStatus: tile.healthStatus,
       unresolvedCount: tile.unresolvedCount,
       pendingBackfillCount: tile.pendingBackfillCount,
       failedBackfillCount: tile.failedBackfillCount,
@@ -7257,13 +7647,29 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   app.get("/market-data/:marketCode/operations", async (req): Promise<AdminMarketDataOperationsResponse> => {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
-    const query = z
-      .object({
-        providerId: providerFixerProviderSchema.optional(),
-        page: z.coerce.number().int().min(1).default(1),
-        limit: z.coerce.number().int().min(1).max(200).default(25),
-      })
-      .parse(req.query ?? {});
+	    const query = z
+	      .object({
+	        providerId: providerFixerProviderSchema.optional(),
+	        operationType: z.string().trim().min(1).max(120).optional(),
+	        phase: providerFixerPhaseSchema.optional(),
+	        search: z.string().trim().max(120).optional(),
+	        from: isoDateTimeFilterSchema.optional(),
+	        to: isoDateTimeFilterSchema.optional(),
+	        includeOperationId: z.string().trim().min(1).max(120).optional(),
+	        page: z.coerce.number().int().min(1).default(1),
+	        limit: z.coerce.number().int().min(1).max(200).default(25),
+	      })
+	      .superRefine((value, ctx) => {
+	        const normalizedTo = normalizeDateOnlyEndFilter(value.to);
+	        if (value.from && normalizedTo && Date.parse(value.from) > Date.parse(normalizedTo)) {
+	          ctx.addIssue({
+	            code: z.ZodIssueCode.custom,
+	            message: "from must be before or equal to to",
+	            path: ["from"],
+	          });
+	        }
+	      })
+	      .parse(req.query ?? {});
     const workspace = MARKET_DATA_WORKSPACES[marketCode];
     const workspaceProviderIds = providerIdsForMarket(marketCode);
     const providerId = query.providerId ?? (marketCode === "FX" ? workspace.defaultBackfillProviderId ?? workspaceProviderIds[0] : undefined);
@@ -7271,23 +7677,127 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
     }
     const config = await loadAppConfigDto(app);
-    const guardrails = providerFixerGuardrailsFromConfig(config);
-    const result = await app.persistence.listProviderOperations({
-      providerId,
-      marketCode: marketCode === "FX" ? undefined : marketCode,
-      page: query.page,
-      limit: query.limit,
-    });
-    const items = result.items
-      .filter((operation) => workspaceProviderIds.includes(operation.providerId))
-      .map((operation) => providerFixerOperationToDto(operation, guardrails));
+    const createdBefore = normalizeDateOnlyEndFilter(query.to);
+	    const result = await app.persistence.listProviderOperations({
+	      providerId,
+	      marketCode: marketCode === "FX" ? undefined : marketCode,
+	      operationTypes: query.operationType ? [query.operationType] : undefined,
+	      phases: query.phase ? [query.phase as ProviderOperationPhase] : undefined,
+      search: query.search,
+      createdAfter: query.from,
+      createdBefore,
+      includeOperationId: query.includeOperationId,
+	      page: query.page,
+	      limit: query.limit,
+	    });
+	    const availableFilterResult = await app.persistence.listProviderOperations({
+	      providerId,
+	      marketCode: marketCode === "FX" ? undefined : marketCode,
+	      search: query.search,
+	      createdAfter: query.from,
+	      createdBefore,
+	      page: 1,
+	      limit: 500,
+	    });
+	    const availableFilterItems = availableFilterResult.items.filter((operation) =>
+	      marketDataOperationMatchesListFilters(operation, {
+	        workspaceProviderIds,
+	        providerId,
+	        marketCode,
+	        search: query.search,
+	        from: query.from,
+	        to: createdBefore,
+	      }),
+	    );
+	    const availableOperationTypes = Array.from(new Set([
+	      ...availableFilterItems.map((operation) => operation.operationType),
+	      ...(query.operationType ? [query.operationType] : []),
+	    ])).sort((a, b) => a.localeCompare(b));
+	    const availablePhases = Array.from(new Set([
+	      ...availableFilterItems.map((operation) => operation.phase),
+	      ...(query.phase ? [query.phase as ProviderOperationPhase] : []),
+	    ])).sort((a, b) => a.localeCompare(b));
+	    const items = result.items
+	      .filter((operation) => workspaceProviderIds.includes(operation.providerId))
+	      .map((operation) => marketDataOperationToDto(operation, config));
+    const selectedOperationRecord = query.includeOperationId
+      ? result.items.find((operation) => operation.id === query.includeOperationId)
+        ?? await app.persistence.getProviderOperation(query.includeOperationId)
+      : null;
+	    const selectedOperation = selectedOperationRecord
+	      && marketDataOperationMatchesListFilters(selectedOperationRecord, {
+	        workspaceProviderIds,
+	        providerId,
+	        marketCode,
+	        operationType: query.operationType,
+	        phase: query.phase as ProviderOperationPhase | undefined,
+	        search: query.search,
+	        from: query.from,
+	        to: createdBefore,
+	      })
+	        ? marketDataOperationToDto(selectedOperationRecord, config)
+	        : null;
     return {
       marketCode,
       providers: workspace.providers,
+      selectedOperation,
+      selectedOperationIsOffPage:
+        selectedOperation !== null && !items.some((operation) => operation.id === selectedOperation.id),
       items,
-      total: result.total,
+      filters: {
+        providerId: providerId ?? null,
+        operationType: query.operationType ?? null,
+        phase: query.phase ?? null,
+	        search: query.search ?? null,
+	        from: query.from ?? null,
+	        to: query.to ?? null,
+	      },
+	      availableFilters: {
+	        operationTypes: availableOperationTypes,
+	        phases: availablePhases as AdminMarketDataOperationsResponse["availableFilters"]["phases"],
+	      },
+	      total: result.total,
       page: result.page,
       limit: result.limit,
+    };
+  });
+
+  app.get("/market-data/:marketCode/operations/:operationId/logs", async (req): Promise<AdminMarketDataOperationLogsResponse> => {
+    requireAdminRole(req);
+    const { marketCode, operationId } = z.object({
+      marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
+      operationId: z.string().trim().min(1).max(120),
+    }).parse(req.params);
+	    const query = z.object({
+	      page: z.coerce.number().int().min(1).default(1),
+	      limit: z.coerce.number().int().min(1).max(200).default(25),
+	    }).parse(req.query ?? {});
+	    const operation = await app.persistence.getProviderOperation(operationId);
+	    const workspaceProviderIds = providerIdsForMarket(marketCode);
+	    if (
+	      !operation
+	      || !workspaceProviderIds.includes(operation.providerId)
+	      || (marketCode === "FX" ? operation.marketCode !== "FX" : operation.marketCode !== marketCode)
+	    ) {
+	      throw routeError(404, "market_operation_not_found", "Market data operation not found");
+	    }
+    const logs = await app.persistence.listProviderOperationLogs({ operationId, page: query.page, limit: query.limit });
+    return {
+      marketCode: marketCode as AdminMarketDataOperationLogsResponse["marketCode"],
+      operationId,
+      items: logs.items.map((item) => ({
+        id: String(item.id),
+        operationId: item.operationId,
+        level: item.level,
+        occurredAt: item.createdAt,
+        phase: item.phase,
+        message: item.message,
+        detail: item.detail,
+        context: sanitizeAllowlistedRecord(item.context, MARKET_DATA_LOG_CONTEXT_ALLOWLIST),
+      })),
+      total: logs.total,
+      page: logs.page,
+      limit: logs.limit,
     };
   });
 

@@ -4,10 +4,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type {
   AdminMarketDataActionsResponse,
   AdminMarketDataInstrumentsResponse,
+  AdminMarketDataOperationDto,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   ProviderFixerDashboardOperationDto,
-  ProviderFixerDashboardOperationsResponse,
   ProviderOperationOutcomesResponse,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemsResponse,
@@ -44,6 +44,14 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   executeProviderRepair: vi.fn(),
   executeMarketPurge: vi.fn(),
   fetchMarketValuationRepairStatus: vi.fn(),
+  fetchOperationLogs: vi.fn(async () => ({ items: [], total: 0, page: 1, limit: 10 })),
+  fetchOperationOutcomes: vi.fn(async () => ({
+    items: [],
+    summary: { total: 0, processed: 0, pending: 0, running: 0, succeeded: 0, failed: 0, skipped: 0, rateLimited: 0, cancelled: 0, progressPercent: 0 },
+    total: 0,
+    page: 1,
+    limit: 25,
+  })),
   invalidateMarketCalendar: vi.fn(),
   bulkUpdateProviderUnresolvedState: vi.fn(),
   previewMarketCalendarImport: vi.fn(),
@@ -71,7 +79,6 @@ import {
   executeMarketPurge,
   executeProviderRepair,
   fetchMarketValuationRepairStatus,
-  mutateProviderOperation,
   confirmMarketCalendarImport,
   previewMarketBackfill,
   previewMarketCalendarImport,
@@ -79,6 +86,7 @@ import {
   previewProviderRepair,
   renewProviderEvidence,
   rerunProviderResolvedUnresolvedItem,
+  mutateProviderOperation,
   reverifyProviderMapping,
   revertProviderMapping,
   rerunProviderMapping,
@@ -95,7 +103,6 @@ const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);
 const executeMarketSnapshotRepairMock = vi.mocked(executeMarketSnapshotRepair);
 const executeMarketPurgeMock = vi.mocked(executeMarketPurge);
 const fetchMarketValuationRepairStatusMock = vi.mocked(fetchMarketValuationRepairStatus);
-const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
 const confirmMarketCalendarImportMock = vi.mocked(confirmMarketCalendarImport);
 const previewMarketBackfillMock = vi.mocked(previewMarketBackfill);
 const previewMarketCalendarImportMock = vi.mocked(previewMarketCalendarImport);
@@ -103,6 +110,7 @@ const previewMarketPurgeMock = vi.mocked(previewMarketPurge);
 const previewProviderRepairMock = vi.mocked(previewProviderRepair);
 const renewProviderEvidenceMock = vi.mocked(renewProviderEvidence);
 const rerunProviderResolvedUnresolvedItemMock = vi.mocked(rerunProviderResolvedUnresolvedItem);
+const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
 const reverifyProviderMappingMock = vi.mocked(reverifyProviderMapping);
 const rerunProviderMappingMock = vi.mocked(rerunProviderMapping);
 const revertProviderMappingMock = vi.mocked(revertProviderMapping);
@@ -122,9 +130,29 @@ function overview(): AdminMarketDataOverviewResponse {
   return {
     marketCode: "AU",
     label: "Australia",
-    tabs: ["overview", "instruments"],
-    providers: [{ providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog evidence" }],
-    healthStatus: "healthy",
+	    tabs: ["overview", "instruments"],
+	    providers: [{ providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog evidence" }],
+	    purgeCategories: [
+	      { category: "price_bars", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "dividends", supported: true, disabledReasonCode: null, disabledReason: null },
+	      {
+	        category: "backfill_jobs",
+	        supported: false,
+	        disabledReasonCode: "backfill_jobs_not_target_safe",
+	        disabledReason: "Refresh batch records are aggregate job history.",
+	      },
+	      { category: "provider_operation_outcomes", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "provider_error_trail", supported: true, disabledReasonCode: null, disabledReason: null },
+	      {
+	        category: "provider_resolution_mappings",
+	        supported: false,
+	        disabledReasonCode: "kr_mappings_only",
+	        disabledReason: "Only KR Yahoo mappings support durable provider mappings.",
+	      },
+	      { category: "asx_gics_enrichment", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "admin_state_reset", supported: true, disabledReasonCode: null, disabledReason: null },
+	    ],
+	    healthStatus: "healthy",
     unresolvedCount: 0,
     pendingBackfillCount: 1,
     failedBackfillCount: 0,
@@ -195,11 +223,31 @@ function krOverview(): AdminMarketDataOverviewResponse {
     marketCode: "KR",
     label: "Korea",
     tabs: ["overview", "instruments", "backfill", "mappings", "purge", "operations", "activity"],
-    providers: [
-      { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
-      { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
-    ],
-    healthStatus: "awaiting",
+	    providers: [
+	      { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
+	      { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
+	    ],
+	    purgeCategories: [
+	      { category: "price_bars", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "dividends", supported: true, disabledReasonCode: null, disabledReason: null },
+	      {
+	        category: "backfill_jobs",
+	        supported: false,
+	        disabledReasonCode: "backfill_jobs_not_target_safe",
+	        disabledReason: "Refresh batch records are aggregate job history.",
+	      },
+	      { category: "provider_operation_outcomes", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "provider_error_trail", supported: true, disabledReasonCode: null, disabledReason: null },
+	      { category: "provider_resolution_mappings", supported: true, disabledReasonCode: null, disabledReason: null },
+	      {
+	        category: "asx_gics_enrichment",
+	        supported: false,
+	        disabledReasonCode: "au_gics_only",
+	        disabledReason: "ASX GICS enrichment is AU-only.",
+	      },
+	      { category: "admin_state_reset", supported: true, disabledReasonCode: null, disabledReason: null },
+	    ],
+	    healthStatus: "awaiting",
     unresolvedCount: 1,
     pendingBackfillCount: 0,
     failedBackfillCount: 0,
@@ -281,6 +329,67 @@ function operation(id: string): ProviderFixerDashboardOperationDto {
   };
 }
 
+function marketOperation(id: string, overrides: Partial<AdminMarketDataOperationDto> = {}): AdminMarketDataOperationDto {
+  const providerOperation = operation(id);
+  return {
+    id,
+    providerId: providerOperation.providerId,
+    market: "KR",
+    marketCode: "KR",
+    operationType: "repair_mapping",
+    phase: providerOperation.phase,
+    createdAt: "2026-01-02T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:01:00.000Z",
+    startedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    matchCount: providerOperation.matchCount,
+    progressPercent: providerOperation.progressPercent,
+    previewExpiresAt: providerOperation.preview.tokenExpiresAt,
+    canPause: providerOperation.canPause,
+    canResume: providerOperation.canResume,
+    canCancel: providerOperation.canCancel,
+    execute: {
+      canExecute: providerOperation.canExecute,
+      executeMode: "direct",
+      confirmationLevel: "checkbox",
+      confirmationText: null,
+      acknowledgementLabel: "I reviewed this operation preview and understand execution writes provider-owned KR mapping results.",
+      previewToken: providerOperation.preview.token,
+      previewExpired: false,
+      blockedReason: null,
+      endpoint: "provider_operation",
+    },
+    summary: {
+      kind: "repair_mapping",
+      previewParts: [{ kind: "scope", value: providerOperation.preview.scopeSummary }],
+      counts: { matchCount: providerOperation.matchCount, succeeded: 0, failed: 0 },
+      dateRange: null,
+      batchId: null,
+      categories: [],
+      rateLimit: { requestsPerMinute: 250 },
+      pacing: { minRequestIntervalMs: 1500, enforced: true },
+	    },
+	    details: {
+	      kind: "mapping",
+	      operationType: "repair_mapping",
+	      fields: {
+	        mappingSourceSymbol: "005930",
+	        mappingResolvedSymbol: "005930.KS",
+	        resolverMode: "quote_first",
+	      },
+	    },
+    debug: {
+      snapshotHash: providerOperation.preview.snapshotHash,
+    },
+    outcomes: {
+      available: true,
+      reason: null,
+    },
+    ...overrides,
+  };
+}
+
 function krUnresolved(): ProviderUnresolvedItemsResponse {
   return {
     items: [
@@ -349,12 +458,26 @@ function krMappingData() {
 }
 
 function krOperationsData() {
-  const selected = operation("OP-PREVIEW");
-  const operations: ProviderFixerDashboardOperationsResponse = {
-    stagedOperation: selected,
-    selectedOperation: selected,
-    operations: [selected],
-    total: 1,
+  const selected = marketOperation("OP-PREVIEW");
+  const operations: AdminMarketDataOperationsResponse = {
+    marketCode: "KR",
+    providers: [{ providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" }],
+    selectedOperation: null,
+    selectedOperationIsOffPage: false,
+    items: [selected],
+	    filters: {
+	      providerId: null,
+	      operationType: null,
+	      phase: null,
+	      search: null,
+	      from: null,
+	      to: null,
+	    },
+	    availableFilters: {
+	      operationTypes: ["repair_mapping", "renew_evidence"],
+	      phases: ["completed", "preview"],
+	    },
+	    total: 1,
     page: 1,
     limit: 25,
   };
@@ -417,8 +540,39 @@ function auOperations(): AdminMarketDataOperationsResponse {
       { providerId: "yahoo-finance-au", label: "Yahoo Finance AU", role: "Bars, dividends, metadata" },
       { providerId: "asx-gics-csv", label: "ASX GICS CSV", role: "GICS enrichment" },
     ],
-    items: [{ ...operation("OP-AU"), providerId: "yahoo-finance-au", market: "AU", phase: "completed" }],
-    total: 1,
+    items: [marketOperation("OP-AU", {
+      providerId: "yahoo-finance-au",
+      market: "AU",
+      marketCode: "AU",
+      operationType: "backfill_catalog_rows",
+      phase: "completed",
+      execute: {
+        ...marketOperation("OP-AU").execute,
+        canExecute: false,
+        executeMode: "none",
+        confirmationLevel: "none",
+        previewToken: null,
+      },
+      outcomes: {
+        available: false,
+        reason: null,
+      },
+    })],
+    selectedOperation: null,
+    selectedOperationIsOffPage: false,
+	    filters: {
+	      providerId: null,
+	      operationType: null,
+	      phase: null,
+	      search: null,
+	      from: null,
+	      to: null,
+	    },
+	    availableFilters: {
+	      operationTypes: ["backfill_catalog_rows", "purge_market_data"],
+	      phases: ["completed", "preview"],
+	    },
+	    total: 1,
     page: 1,
     limit: 25,
   };
@@ -589,9 +743,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
   });
 
   it("renders market data tabs as a mobile select and desktop tab links", async () => {
-    await act(async () => {
-      root.render(
-        <AdminMarketDataWorkspaceClient
+	    await act(async () => {
+	      root.render(
+	        <AdminMarketDataWorkspaceClient
           marketCode="AU"
           tab="calendar"
           overview={{ ...overview(), tabs: ["overview", "calendar", "instruments", "activity"] as never }}
@@ -1500,12 +1654,22 @@ describe("AdminMarketDataWorkspaceClient", () => {
           instruments={null}
           operations={null}
           krMappings={null}
-        />,
-      );
-    });
+	        />,
+	      );
+	    });
+	    const backfillHistoryCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
+	      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("Backfill job history")) as HTMLInputElement;
+	    const mappingCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
+	      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("Provider resolution mappings")) as HTMLInputElement;
+	    const asxGicsCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
+	      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("ASX GICS enrichment")) as HTMLInputElement;
+	    expect(backfillHistoryCheckbox.disabled).toBe(true);
+	    expect(mappingCheckbox.disabled).toBe(true);
+	    expect(asxGicsCheckbox.disabled).toBe(false);
+	    expect(container.textContent).toContain("Backfill job history is aggregate-only and is not target-safe to purge.");
 
-    const refillCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
-      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("Enqueue backfill")) as HTMLInputElement;
+	    const refillCheckbox = [...container.querySelectorAll("input[type='checkbox']")]
+	      .find((input) => (input as HTMLInputElement).parentElement?.textContent?.includes("Enqueue backfill")) as HTMLInputElement;
     await act(async () => {
       refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -1514,14 +1678,16 @@ describe("AdminMarketDataWorkspaceClient", () => {
         .find((button) => button.textContent === "Preview purge")!
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(previewMarketPurgeMock).toHaveBeenCalledWith("AU", expect.objectContaining({
-      categories: ["price_bars"],
-      fullHistory: true,
-      enqueueBackfillAfterPurge: true,
-    }));
+	    expect(previewMarketPurgeMock).toHaveBeenCalledWith("AU", expect.objectContaining({
+	      categories: ["price_bars"],
+	      fullHistory: true,
+	      enqueueBackfillAfterPurge: true,
+	    }));
+	    expect(container.textContent).toContain("Purge preview is ready.");
+	    expect((container.querySelector("a[href='/admin/market-data/AU/operations?operationId=OP-PURGE-PREVIEW']") as HTMLAnchorElement | null)?.textContent).toBe("Open operation");
 
-    await act(async () => {
-      refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+	    await act(async () => {
+	      refillCheckbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(container.textContent).not.toContain("Purge estimate");
     await act(async () => {
@@ -1542,12 +1708,14 @@ describe("AdminMarketDataWorkspaceClient", () => {
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(executeMarketPurgeMock).toHaveBeenCalledWith("AU", {
-      operationId: "OP-PURGE-PREVIEW",
-      previewToken: "purge-token",
-      typedConfirmation: "PURGE AU",
-    });
-  });
+	    expect(executeMarketPurgeMock).toHaveBeenCalledWith("AU", {
+	      operationId: "OP-PURGE-PREVIEW",
+	      previewToken: "purge-token",
+	      typedConfirmation: "PURGE AU",
+	    });
+	    expect(container.textContent).toContain("Purge operation completed.");
+	    expect((container.querySelector("a[href='/admin/market-data/AU/operations?operationId=OP-PURGE']") as HTMLAnchorElement | null)?.textContent).toBe("Open operation");
+	  });
 
   it("preserves KR unresolved filters, row lifecycle action, and repair preview under market-data mappings", async () => {
     updateProviderUnresolvedStateMock.mockResolvedValueOnce({
@@ -1807,17 +1975,45 @@ describe("AdminMarketDataWorkspaceClient", () => {
     }));
   });
 
-  it("preserves KR operation inspector execution, outcomes, and retry controls", async () => {
+  it("preserves KR operation inspector execution and hides generic retry controls", async () => {
     const data = krOperationsData();
-    const retryable = {
-      ...operation("OP-FAILED"),
+    const retryable = marketOperation("OP-FAILED", {
       phase: "failed" as const,
-      canExecute: false,
-      canRetry: true,
-    };
-    data.operations.operations = [data.operations.operations[0]!, retryable];
+      execute: { ...marketOperation("OP-FAILED").execute, canExecute: false, executeMode: "none", previewToken: null },
+    });
+    const running = marketOperation("OP-RUNNING", {
+      phase: "running" as const,
+      canPause: true,
+      canResume: false,
+      canCancel: true,
+      execute: { ...marketOperation("OP-RUNNING").execute, canExecute: false, executeMode: "none", previewToken: null },
+    });
+    const backfillBase = marketOperation("OP-BACKFILL");
+    const backfillPreview = marketOperation("OP-BACKFILL", {
+      operationType: "backfill_catalog_rows",
+      execute: {
+        ...backfillBase.execute,
+        endpoint: "market_backfill_execute",
+        executeMode: "preview",
+        confirmationLevel: "checkbox",
+        previewToken: "backfill-token",
+      },
+      summary: {
+        ...backfillBase.summary,
+        kind: "backfill_catalog_rows",
+        previewParts: [{ kind: "scope", value: "1 KR instrument" }],
+      },
+      details: {
+        kind: "backfill_catalog_rows",
+        operationType: "backfill_catalog_rows",
+        fields: {
+          scope: "selected_catalog_rows",
+        },
+      },
+    });
+    data.operations.items = [data.operations.items[0]!, retryable, running, backfillPreview];
+    data.operations.total = 4;
     executeProviderRepairMock.mockResolvedValueOnce({ operation: operation("OP-EXECUTED") });
-    mutateProviderOperationMock.mockResolvedValueOnce({ operation: operation("OP-RETRY") });
 
     await act(async () => {
       root.render(
@@ -1827,26 +2023,43 @@ describe("AdminMarketDataWorkspaceClient", () => {
           overview={krOverview()}
           actions={krActions()}
           instruments={null}
-          operations={null}
+          operations={data.operations}
           krMappings={null}
-          krOperations={data}
         />,
       );
     });
 
-    expect(container.querySelector("[data-testid='market-data-kr-operations']")).not.toBeNull();
-    expect(container.textContent).not.toContain("Operation item outcomes");
+    expect(container.querySelector("[data-testid='provider-console-operations']")).not.toBeNull();
+    expect(container.textContent).not.toContain("Outcomes");
+    const krOperationTypeFilter = Array.from(
+      container.querySelectorAll("[data-testid='provider-console-operations'] select"),
+    )[1] as HTMLSelectElement | undefined;
+    expect(Array.from(krOperationTypeFilter?.options ?? []).some((option) => option.value === "renew_evidence")).toBe(true);
 
     act(() => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("repair_mapping");
-    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
+	    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+	    expect(document.body.textContent).toContain("Outcomes");
+	    const logsLimit = document.body.querySelector("[data-testid='market-data-operation-logs-limit']") as HTMLSelectElement | null;
+	    const outcomesLimit = document.body.querySelector("[data-testid='market-data-operation-outcomes-limit']") as HTMLSelectElement | null;
+	    expect(logsLimit?.value).toBe("10");
+	    expect(outcomesLimit?.value).toBe("25");
+	    act(() => {
+	      logsLimit!.value = "25";
+	      logsLimit!.dispatchEvent(new Event("change", { bubbles: true }));
+	    });
+	    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW&operationLogsLimit=25");
+	    act(() => {
+	      outcomesLimit!.value = "50";
+	      outcomesLimit!.dispatchEvent(new Event("change", { bubbles: true }));
+	    });
+	    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW&operationOutcomesLimit=50");
 
-    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
+	    const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
     mockSearchParams.mockReturnValue(selectedOperationParams);
     window.history.pushState({}, "", `/admin/market-data/KR/operations?${selectedOperationParams.toString()}`);
     await act(async () => {
@@ -1857,15 +2070,14 @@ describe("AdminMarketDataWorkspaceClient", () => {
           overview={krOverview()}
           actions={krActions()}
           instruments={null}
-          operations={null}
+          operations={data.operations}
           krMappings={null}
-          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
         />,
       );
     });
 
-    expect(document.body.textContent).toContain("Operation item outcomes");
-    expect(document.body.textContent).toContain("repair_mapping");
+    expect(document.body.textContent).toContain("Outcomes");
+    expect(document.body.textContent).toContain("Reverify Mapping");
 
     act(() => {
       document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1884,15 +2096,52 @@ describe("AdminMarketDataWorkspaceClient", () => {
     act(() => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-FAILED");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-FAILED");
     await act(async () => undefined);
+    expect(document.body.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")).toBeNull();
+
+    mutateProviderOperationMock.mockResolvedValueOnce({ operation: operation("OP-RUNNING") });
     act(() => {
-      document.body.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      container.querySelector("[data-testid='provider-console-operation-select-OP-RUNNING']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const pauseButton = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent === "Pause") as HTMLButtonElement | undefined;
+    expect(pauseButton?.disabled).toBe(false);
+    await act(async () => {
+      pauseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mutateProviderOperationMock).toHaveBeenCalledWith({
       providerId: "yahoo-finance-kr",
-      operationId: "OP-FAILED",
-      action: "retry",
+      operationId: "OP-RUNNING",
+      action: "pause",
+    });
+
+    executeMarketBackfillMock.mockResolvedValueOnce({
+      operationId: "OP-BACKFILL",
+      marketCode: "KR",
+      providerId: "yahoo-finance-kr",
+      scope: "selected_catalog_rows",
+      status: "completed",
+      matchCount: 1,
+      dateRange: auBackfillDateRange,
+      enqueuedJobCount: 0,
+      skippedExistingJobCount: 0,
+      batchId: null,
+    });
+    act(() => {
+      container.querySelector("[data-testid='provider-console-operation-select-OP-BACKFILL']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body.querySelector("[data-testid='provider-console-operation-execute-button']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(executeMarketBackfillMock).toHaveBeenCalledWith("KR", {
+      operationId: "OP-BACKFILL",
+      previewToken: "backfill-token",
+      acknowledged: true,
+      typedConfirmation: "",
     });
   });
 
@@ -1914,12 +2163,83 @@ describe("AdminMarketDataWorkspaceClient", () => {
     });
 
     const filter = container.querySelector("[data-testid='market-data-operations-provider-filter']");
-    expect(filter?.textContent ?? "").toContain("All providers");
-    expect(filter?.textContent ?? "").toContain("Yahoo Finance AU");
-    const yahooLink = [...container.querySelectorAll("a")]
+	    expect(filter?.textContent ?? "").toContain("All providers");
+	    expect(filter?.textContent ?? "").toContain("Yahoo Finance AU");
+	    expect(Array.from(container.querySelectorAll("select")).some((select) =>
+	      Array.from(select.options).some((option) => option.value === "purge_market_data"),
+	    )).toBe(true);
+	    const yahooLink = [...container.querySelectorAll("a")]
       .find((link) => link.textContent === "Yahoo Finance AU");
     expect(yahooLink?.getAttribute("href")).toBe("/admin/market-data/AU/operations?providerId=yahoo-finance-au");
 
+  });
+
+  it("resets operation execution acknowledgement when selecting another history row", async () => {
+    const operations = auOperations();
+    const firstPreview = marketOperation("OP-FIRST", {
+      providerId: "yahoo-finance-au",
+      market: "AU",
+      marketCode: "AU",
+      operationType: "backfill_catalog_rows",
+      phase: "preview",
+      execute: {
+        ...marketOperation("OP-FIRST").execute,
+        endpoint: "market_backfill_execute",
+        canExecute: true,
+        executeMode: "preview",
+        confirmationLevel: "checkbox",
+        previewToken: "first-token",
+      },
+    });
+    const secondPreview = marketOperation("OP-SECOND", {
+      providerId: "yahoo-finance-au",
+      market: "AU",
+      marketCode: "AU",
+      operationType: "purge_market_data",
+      phase: "preview",
+      execute: {
+        ...marketOperation("OP-SECOND").execute,
+        endpoint: "market_purge_execute",
+        canExecute: true,
+        executeMode: "preview",
+        confirmationLevel: "checkbox",
+        previewToken: "second-token",
+      },
+    });
+    operations.items = [firstPreview, secondPreview];
+    operations.total = 2;
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="operations"
+          overview={{ ...overview(), tabs: ["overview", "operations", "activity"], providers: operations.providers }}
+          actions={actions()}
+          instruments={null}
+          operations={operations}
+          krMappings={null}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector("[data-testid='market-data-operation-row-OP-FIRST']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const firstConfirm = document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']") as HTMLInputElement;
+    act(() => {
+      firstConfirm.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect((document.body.querySelector("[data-testid='provider-console-operation-execute-button']") as HTMLButtonElement).disabled).toBe(false);
+
+    act(() => {
+      container.querySelector("[data-testid='market-data-operation-row-OP-SECOND']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const secondConfirm = document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']") as HTMLInputElement;
+    const secondExecute = document.body.querySelector("[data-testid='provider-console-operation-execute-button']") as HTMLButtonElement;
+    expect(secondConfirm.checked).toBe(false);
+    expect(secondExecute.disabled).toBe(true);
   });
 
   afterEach(() => {
@@ -2117,9 +2437,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
           overview={krOverview()}
           actions={krActions()}
           instruments={null}
-          operations={null}
+          operations={data.operations}
           krMappings={null}
-          krOperations={data}
         />,
       );
     });
@@ -2128,10 +2447,10 @@ describe("AdminMarketDataWorkspaceClient", () => {
     act(() => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("Operation item outcomes");
     expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Outcomes");
 
     const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
     mockSearchParams.mockReturnValue(selectedOperationParams);
@@ -2144,31 +2463,18 @@ describe("AdminMarketDataWorkspaceClient", () => {
           overview={krOverview()}
           actions={krActions()}
           instruments={null}
-          operations={null}
+          operations={data.operations}
           krMappings={null}
-          krOperations={{ ...data, explicitOperationId: "OP-PREVIEW", selectedOperationId: "OP-PREVIEW" }}
         />,
       );
     });
     expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.textContent).toContain("Operation item outcomes");
+    expect(document.body.textContent).toContain("Outcomes");
 
-    mockSearchParams.mockReturnValue(new URLSearchParams());
-    window.history.pushState({}, "", "/admin/market-data/KR/operations");
-    await act(async () => {
-      root.render(
-        <AdminMarketDataWorkspaceClient
-          marketCode="KR"
-          tab="operations"
-          overview={krOverview()}
-          actions={krActions()}
-          instruments={null}
-          operations={null}
-          krMappings={null}
-          krOperations={data}
-        />,
-      );
+    act(() => {
+      document.body.querySelector("[data-testid='ui-drawer-close']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    await act(async () => undefined);
     expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
   });
 

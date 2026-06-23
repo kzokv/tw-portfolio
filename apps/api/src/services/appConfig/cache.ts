@@ -66,6 +66,12 @@ export interface AppConfigCacheEntry {
   yahooKrProviderRateLimitPerMinute: number | null;
   frankfurterProviderRateLimitPerMinute: number | null;
   asxGicsProviderRateLimitPerHour: number | null;
+  finmindProviderMinRequestIntervalMs: number | null;
+  twelveDataProviderMinRequestIntervalMs: number | null;
+  yahooAuProviderMinRequestIntervalMs: number | null;
+  yahooKrProviderMinRequestIntervalMs: number | null;
+  frankfurterProviderMinRequestIntervalMs: number | null;
+  asxGicsProviderMinRequestIntervalMs: number | null;
 
   // Tier 1 / 2 — backfill
   backfillRetryLimit: number | null;

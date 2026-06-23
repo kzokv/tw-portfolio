@@ -82,6 +82,12 @@ export type AppConfigPlainField =
   | "yahooKrProviderRateLimitPerMinute"
   | "frankfurterProviderRateLimitPerMinute"
   | "asxGicsProviderRateLimitPerHour"
+  | "finmindProviderMinRequestIntervalMs"
+  | "twelveDataProviderMinRequestIntervalMs"
+  | "yahooAuProviderMinRequestIntervalMs"
+  | "yahooKrProviderMinRequestIntervalMs"
+  | "frankfurterProviderMinRequestIntervalMs"
+  | "asxGicsProviderMinRequestIntervalMs"
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
@@ -190,6 +196,12 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   yahooKrProviderRateLimitPerMinute: "yahoo_kr_provider_rate_limit_per_minute",
   frankfurterProviderRateLimitPerMinute: "frankfurter_provider_rate_limit_per_minute",
   asxGicsProviderRateLimitPerHour: "asx_gics_provider_rate_limit_per_hour",
+  finmindProviderMinRequestIntervalMs: "finmind_provider_min_request_interval_ms",
+  twelveDataProviderMinRequestIntervalMs: "twelve_data_provider_min_request_interval_ms",
+  yahooAuProviderMinRequestIntervalMs: "yahoo_au_provider_min_request_interval_ms",
+  yahooKrProviderMinRequestIntervalMs: "yahoo_kr_provider_min_request_interval_ms",
+  frankfurterProviderMinRequestIntervalMs: "frankfurter_provider_min_request_interval_ms",
+  asxGicsProviderMinRequestIntervalMs: "asx_gics_provider_min_request_interval_ms",
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
@@ -1421,7 +1433,11 @@ export interface UpdateProviderOperationInput {
 export interface ListProviderOperationsOptions {
   providerId?: string;
   marketCode?: ProviderOperationMarketCode;
+  operationTypes?: string[];
   phases?: ProviderOperationPhase[];
+  search?: string;
+  createdAfter?: string;
+  createdBefore?: string;
   includeOperationId?: string;
   page: number;
   limit: number;
@@ -2590,6 +2606,12 @@ export interface Persistence {
     yahooKrProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
+    finmindProviderMinRequestIntervalMs: number | null;
+    twelveDataProviderMinRequestIntervalMs: number | null;
+    yahooAuProviderMinRequestIntervalMs: number | null;
+    yahooKrProviderMinRequestIntervalMs: number | null;
+    frankfurterProviderMinRequestIntervalMs: number | null;
+    asxGicsProviderMinRequestIntervalMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;

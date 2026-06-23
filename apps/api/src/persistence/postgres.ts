@@ -11523,6 +11523,12 @@ export class PostgresPersistence implements Persistence {
     yahooKrProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
+    finmindProviderMinRequestIntervalMs: number | null;
+    twelveDataProviderMinRequestIntervalMs: number | null;
+    yahooAuProviderMinRequestIntervalMs: number | null;
+    yahooKrProviderMinRequestIntervalMs: number | null;
+    frankfurterProviderMinRequestIntervalMs: number | null;
+    asxGicsProviderMinRequestIntervalMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -11609,6 +11615,12 @@ export class PostgresPersistence implements Persistence {
       yahoo_kr_provider_rate_limit_per_minute: number | null;
       frankfurter_provider_rate_limit_per_minute: number | null;
       asx_gics_provider_rate_limit_per_hour: number | null;
+      finmind_provider_min_request_interval_ms: number | string | null;
+      twelve_data_provider_min_request_interval_ms: number | string | null;
+      yahoo_au_provider_min_request_interval_ms: number | string | null;
+      yahoo_kr_provider_min_request_interval_ms: number | string | null;
+      frankfurter_provider_min_request_interval_ms: number | string | null;
+      asx_gics_provider_min_request_interval_ms: number | string | null;
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
@@ -11677,6 +11689,9 @@ export class PostgresPersistence implements Persistence {
          finmind_provider_rate_limit_per_hour, twelve_data_provider_rate_limit_per_minute,
          yahoo_au_provider_rate_limit_per_minute, yahoo_kr_provider_rate_limit_per_minute,
          frankfurter_provider_rate_limit_per_minute, asx_gics_provider_rate_limit_per_hour,
+         finmind_provider_min_request_interval_ms, twelve_data_provider_min_request_interval_ms,
+         yahoo_au_provider_min_request_interval_ms, yahoo_kr_provider_min_request_interval_ms,
+         frankfurter_provider_min_request_interval_ms, asx_gics_provider_min_request_interval_ms,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          ticker_price_close_refresh_grace_minutes, ticker_price_intraday_enabled,
          ticker_price_intraday_refresh_interval_minutes, ticker_price_intraday_freshness_tolerance_minutes,
@@ -11742,6 +11757,12 @@ export class PostgresPersistence implements Persistence {
         yahooKrProviderRateLimitPerMinute: null,
         frankfurterProviderRateLimitPerMinute: null,
         asxGicsProviderRateLimitPerHour: null,
+        finmindProviderMinRequestIntervalMs: null,
+        twelveDataProviderMinRequestIntervalMs: null,
+        yahooAuProviderMinRequestIntervalMs: null,
+        yahooKrProviderMinRequestIntervalMs: null,
+        frankfurterProviderMinRequestIntervalMs: null,
+        asxGicsProviderMinRequestIntervalMs: null,
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
@@ -11836,6 +11857,12 @@ export class PostgresPersistence implements Persistence {
       yahooKrProviderRateLimitPerMinute: row.yahoo_kr_provider_rate_limit_per_minute,
       frankfurterProviderRateLimitPerMinute: row.frankfurter_provider_rate_limit_per_minute,
       asxGicsProviderRateLimitPerHour: row.asx_gics_provider_rate_limit_per_hour,
+      finmindProviderMinRequestIntervalMs: num(row.finmind_provider_min_request_interval_ms),
+      twelveDataProviderMinRequestIntervalMs: num(row.twelve_data_provider_min_request_interval_ms),
+      yahooAuProviderMinRequestIntervalMs: num(row.yahoo_au_provider_min_request_interval_ms),
+      yahooKrProviderMinRequestIntervalMs: num(row.yahoo_kr_provider_min_request_interval_ms),
+      frankfurterProviderMinRequestIntervalMs: num(row.frankfurter_provider_min_request_interval_ms),
+      asxGicsProviderMinRequestIntervalMs: num(row.asx_gics_provider_min_request_interval_ms),
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
@@ -15137,9 +15164,33 @@ export class PostgresPersistence implements Persistence {
       where.push(`market_code = $${i++}`);
       params.push(options.marketCode);
     }
+    if (options.operationTypes && options.operationTypes.length > 0) {
+      where.push(`operation_type = ANY($${i++}::text[])`);
+      params.push(options.operationTypes);
+    }
     if (options.phases && options.phases.length > 0) {
       where.push(`phase = ANY($${i++}::text[])`);
       params.push(options.phases);
+    }
+    if (options.createdAfter) {
+      where.push(`created_at >= $${i++}::timestamptz`);
+      params.push(options.createdAfter);
+    }
+    if (options.createdBefore) {
+      where.push(`created_at <= $${i++}::timestamptz`);
+      params.push(options.createdBefore);
+    }
+    if (options.search && options.search.trim().length > 0) {
+      where.push(`(
+        id ILIKE $${i}
+        OR provider_id ILIKE $${i}
+        OR market_code ILIKE $${i}
+        OR operation_type ILIKE $${i}
+        OR COALESCE(scope_query, '') ILIKE $${i}
+        OR COALESCE(error_code, '') ILIKE $${i}
+      )`);
+      params.push(`%${options.search.trim()}%`);
+      i += 1;
     }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const countResult = await this.pool.query<{ count: string }>(
@@ -15160,17 +15211,6 @@ export class PostgresPersistence implements Persistence {
       [...params, limit, offset],
     );
     const rows = rowsResult.rows.map(mapProviderOperationRow);
-    if (options.includeOperationId && !rows.some((row) => row.id === options.includeOperationId)) {
-      const selected = await this.getProviderOperation(options.includeOperationId);
-      if (
-        selected
-        && (!options.providerId || selected.providerId === options.providerId)
-        && (!options.marketCode || selected.marketCode === options.marketCode)
-        && (!options.phases || options.phases.length === 0 || options.phases.includes(selected.phase))
-      ) {
-        rows.push(selected);
-      }
-    }
     return {
       items: rows,
       total: parseInt(countResult.rows[0]?.count ?? "0", 10),

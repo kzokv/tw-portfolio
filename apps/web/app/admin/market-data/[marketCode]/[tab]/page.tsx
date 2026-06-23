@@ -5,8 +5,6 @@ import type {
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
-  ProviderFixerDashboardOperationsResponse,
-  ProviderOperationOutcomesResponse,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
@@ -51,6 +49,15 @@ interface KrMappingQuery {
 interface KrOperationsQuery {
   operationsPage: number;
   operationsLimit: number;
+  operationId: string;
+  providerId: string;
+  operationType: string;
+  phase: string;
+  search: string;
+  startDate: string;
+  endDate: string;
+  operationLogsPage: number;
+  operationLogsLimit: number;
   operationOutcomesPage: number;
   operationOutcomesLimit: number;
   operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
@@ -166,6 +173,15 @@ function krOperationsQueryFromSearchParams(query: Record<string, string | string
   return {
     operationsPage: positiveIntQueryValue(query.operationsPage ?? query.page, 1),
     operationsLimit: positiveIntQueryValue(query.operationsLimit ?? query.limit, 25),
+    operationId: firstOptionalQueryValue(query.operationId) ?? "",
+    providerId: firstOptionalQueryValue(query.providerId) ?? "",
+    operationType: firstOptionalQueryValue(query.operationType) ?? "",
+    phase: firstOptionalQueryValue(query.phase) ?? "",
+    search: firstOptionalQueryValue(query.search) ?? "",
+    startDate: firstOptionalQueryValue(query.startDate) ?? "",
+    endDate: firstOptionalQueryValue(query.endDate) ?? "",
+    operationLogsPage: positiveIntQueryValue(query.operationLogsPage, 1),
+    operationLogsLimit: positiveIntQueryValue(query.operationLogsLimit, 10),
     operationOutcomesPage: positiveIntQueryValue(query.operationOutcomesPage, 1),
     operationOutcomesLimit: positiveIntQueryValue(query.operationOutcomesLimit, 25),
     operationOutcomeState: operationOutcomeStateQueryValue(query.operationOutcomeState),
@@ -185,6 +201,20 @@ function instrumentQueryString(filters: InstrumentQuery): string {
   if (filters.search.trim()) {
     params.set("search", filters.search.trim());
   }
+  return params.toString();
+}
+
+function operationsQueryString(filters: KrOperationsQuery): string {
+  const params = new URLSearchParams();
+  params.set("page", String(filters.operationsPage));
+  params.set("limit", String(filters.operationsLimit));
+  if (filters.providerId) params.set("providerId", filters.providerId);
+  if (filters.operationId) params.set("includeOperationId", filters.operationId);
+  if (filters.operationType) params.set("operationType", filters.operationType);
+  if (filters.phase) params.set("phase", filters.phase);
+  if (filters.search.trim()) params.set("search", filters.search.trim());
+  if (filters.startDate) params.set("from", filters.startDate);
+  if (filters.endDate) params.set("to", filters.endDate);
   return params.toString();
 }
 
@@ -235,10 +265,7 @@ export default async function AdminMarketDataWorkspacePage({
   const activityQuery = activityQueryFromSearchParams(query);
   const krMappingQuery = krMappingQueryFromSearchParams(query);
   const krOperationsQuery = krOperationsQueryFromSearchParams(query);
-  const page = instrumentQuery.page;
-  const limit = instrumentQuery.limit;
   const providerId = firstOptionalQueryValue(query.providerId);
-  const operationId = firstOptionalQueryValue(query.operationId);
   const repairMode = firstOptionalQueryValue(query.repair);
   const snapshotRepairRequest: SnapshotRepairRequest | null =
     tab === "backfill" && (repairMode === "snapshots" || repairMode === "valuation")
@@ -272,7 +299,7 @@ export default async function AdminMarketDataWorkspacePage({
   const operations =
     tab === "operations"
       ? await getJson<AdminMarketDataOperationsResponse>(
-          `/admin/market-data/${encodeURIComponent(marketCode)}/operations?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}`,
+          `/admin/market-data/${encodeURIComponent(marketCode)}/operations?${operationsQueryString(krOperationsQuery)}`,
         )
       : null;
   const activity =
@@ -301,54 +328,6 @@ export default async function AdminMarketDataWorkspacePage({
           ),
         ]).then(([unresolved, mappings]) => ({ unresolved, mappings, query: krMappingQuery }))
       : null;
-  const krOperations =
-    marketCode === "KR" && tab === "operations"
-      ? await getJson<ProviderFixerDashboardOperationsResponse>(
-          `/admin/providers/yahoo-finance-kr/operations?page=${krOperationsQuery.operationsPage}&limit=${krOperationsQuery.operationsLimit}${operationId ? `&includeOperationId=${encodeURIComponent(operationId)}` : ""}`,
-        ).then(async (providerOperations) => {
-          const operationRows =
-            providerOperations.stagedOperation
-            && !providerOperations.operations.some((operation) => operation.id === providerOperations.stagedOperation?.id)
-              ? [providerOperations.stagedOperation, ...providerOperations.operations]
-              : providerOperations.operations;
-          const selectedOperation =
-            operationId
-              ? providerOperations.selectedOperation
-                ?? operationRows.find((operation) => operation.id === operationId)
-                ?? null
-              : null;
-          const outcomes = selectedOperation
-            ? await getJson<ProviderOperationOutcomesResponse>(
-                `/admin/providers/yahoo-finance-kr/operations/${encodeURIComponent(selectedOperation.id)}/outcomes?page=${krOperationsQuery.operationOutcomesPage}&limit=${krOperationsQuery.operationOutcomesLimit}${krOperationsQuery.operationOutcomeState !== "all" ? `&state=${encodeURIComponent(krOperationsQuery.operationOutcomeState)}` : ""}${krOperationsQuery.operationOutcomeAction.trim() ? `&action=${encodeURIComponent(krOperationsQuery.operationOutcomeAction.trim())}` : ""}`,
-              )
-            : {
-                items: [],
-                summary: {
-                  total: 0,
-                  processed: 0,
-                  pending: 0,
-                  running: 0,
-                  succeeded: 0,
-                  failed: 0,
-                  skipped: 0,
-                  rateLimited: 0,
-                  cancelled: 0,
-                  progressPercent: 0,
-                },
-                total: 0,
-                page: 1,
-                limit: krOperationsQuery.operationOutcomesLimit,
-              };
-          return {
-            operations: providerOperations,
-            explicitOperationId: operationId ?? "",
-            selectedOperationId: selectedOperation?.id ?? "",
-            outcomes,
-            query: krOperationsQuery,
-          };
-        })
-      : null;
-
   return (
     <AdminMarketDataWorkspaceClient
       marketCode={marketCode}
@@ -358,11 +337,11 @@ export default async function AdminMarketDataWorkspacePage({
       instruments={instruments}
       instrumentQuery={instrumentQuery}
       operations={operations}
+      operationsQuery={krOperationsQuery}
       activity={activity}
       calendar={calendar}
       providerFilterId={providerId ?? ""}
       krMappings={krMappings}
-      krOperations={krOperations}
       snapshotRepairRequest={snapshotRepairRequest}
     />
   );

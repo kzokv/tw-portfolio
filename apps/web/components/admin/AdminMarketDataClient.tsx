@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataBackfillTargetDto,
@@ -21,6 +21,7 @@ import type {
   AdminMarketDataLandingResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataPurgeCategory,
+  AdminMarketDataPurgeCategoryCapabilityDto,
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
@@ -32,8 +33,12 @@ import {
   executeMarketAction,
   executeMarketSnapshotRepair,
   executeMarketPurge,
+  executeProviderRepair,
+  fetchOperationLogs,
+  fetchOperationOutcomes,
   fetchMarketValuationRepairStatus,
   invalidateMarketCalendar,
+  mutateProviderOperation,
   previewMarketBackfill,
   previewMarketCalendarImport,
   previewMarketPurge,
@@ -42,6 +47,12 @@ import {
   updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
+import {
+  localizeOperationPhase,
+  localizeOperationType,
+  normalizeOperationPageResponse,
+  type NormalizedOperationItem,
+} from "../../lib/adminMarketDataOperations";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
@@ -54,7 +65,8 @@ import {
   SelectValue,
 } from "../ui/shadcn/select";
 import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
-import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
+import { AdminMarketDataOperationsShell } from "./AdminMarketDataOperationsShell";
+import { KrOperationsPanel, MappingsPanel, type KrMappingsData } from "./AdminMarketDataKrResolver";
 import { Pagination } from "./Pagination";
 import { formatUtcTimestamp } from "./adminFormat";
 import { useAdminI18n } from "./admin-i18n";
@@ -82,11 +94,11 @@ interface AdminMarketDataWorkspaceClientProps {
   instruments: AdminMarketDataInstrumentsResponse | null;
   instrumentQuery?: InstrumentQuery;
   operations: AdminMarketDataOperationsResponse | null;
+  operationsQuery?: OperationsQuery;
   activity?: AdminMarketDataActivityResponse | null;
   calendar?: AdminMarketDataCalendarResponse | null;
   providerFilterId?: string;
   krMappings: KrMappingsData | null;
-  krOperations?: KrOperationsData | null;
   snapshotRepairRequest?: SnapshotRepairRequest | null;
 }
 
@@ -110,6 +122,24 @@ interface InstrumentQuery {
   sort: string;
 }
 
+interface OperationsQuery {
+  operationsPage: number;
+  operationsLimit: number;
+  operationId: string;
+  providerId: string;
+  operationType: string;
+  phase: string;
+  search: string;
+  startDate: string;
+  endDate: string;
+  operationLogsPage: number;
+  operationLogsLimit: number;
+  operationOutcomesPage: number;
+  operationOutcomesLimit: number;
+  operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
+  operationOutcomeAction: string;
+}
+
 const tabLabels: Record<AdminMarketWorkspaceUiTab, string> = {
   overview: "Overview",
   calendar: "Calendar",
@@ -122,15 +152,15 @@ const tabLabels: Record<AdminMarketWorkspaceUiTab, string> = {
   "refresh-rates": "Refresh rates",
 };
 
-const purgeCategories: Array<{ value: AdminMarketDataPurgeCategory; label: string }> = [
-  { value: "price_bars", label: "Price bars" },
-  { value: "dividends", label: "Dividends" },
-  { value: "backfill_jobs", label: "Backfill job history" },
-  { value: "provider_operation_outcomes", label: "Provider operation outcomes" },
-  { value: "provider_error_trail", label: "Provider error trail" },
-  { value: "provider_resolution_mappings", label: "Provider resolution mappings" },
-  { value: "asx_gics_enrichment", label: "ASX GICS enrichment" },
-  { value: "admin_state_reset", label: "Admin state reset" },
+const purgeCategories: AdminMarketDataPurgeCategory[] = [
+  "price_bars",
+  "dividends",
+  "backfill_jobs",
+  "provider_operation_outcomes",
+  "provider_error_trail",
+  "provider_resolution_mappings",
+  "asx_gics_enrichment",
+  "admin_state_reset",
 ];
 
 function marketTone(status: AdminMarketDataLandingResponse["markets"][number]["healthStatus"]): string {
@@ -155,6 +185,43 @@ function marketDataSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["mark
     resetColumnsLabel: adminDict.resetColumnsLabel,
     toggleColumnAria: adminDict.toggleColumnAria,
   };
+}
+
+function purgeCategoryLabel(
+  category: AdminMarketDataPurgeCategory,
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  switch (category) {
+    case "price_bars":
+      return adminDict.purgeCategoryPriceBars;
+    case "dividends":
+      return adminDict.purgeCategoryDividends;
+    case "backfill_jobs":
+      return adminDict.purgeCategoryBackfillJobs;
+    case "provider_operation_outcomes":
+      return adminDict.purgeCategoryProviderOperationOutcomes;
+    case "provider_error_trail":
+      return adminDict.purgeCategoryProviderErrorTrail;
+    case "provider_resolution_mappings":
+      return adminDict.purgeCategoryProviderResolutionMappings;
+    case "asx_gics_enrichment":
+      return adminDict.purgeCategoryAsxGicsEnrichment;
+    case "admin_state_reset":
+      return adminDict.purgeCategoryAdminStateReset;
+  }
+}
+
+function purgeDisabledReason(
+  capability: AdminMarketDataPurgeCategoryCapabilityDto,
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string | null {
+  if (capability.supported) return null;
+  if (capability.disabledReasonCode === "kr_mappings_only") return adminDict.purgeUnsupportedKrMappingsOnly;
+  if (capability.disabledReasonCode === "au_gics_only") return adminDict.purgeUnsupportedAuGicsOnly;
+  if (capability.disabledReasonCode === "backfill_jobs_not_target_safe") {
+    return adminDict.purgeUnsupportedBackfillJobsNotTargetSafe;
+  }
+  return capability.disabledReason;
 }
 
 function detailRow(label: string, value: string | null | undefined) {
@@ -289,11 +356,11 @@ export function AdminMarketDataWorkspaceClient({
   instruments,
   instrumentQuery,
   operations,
+  operationsQuery,
   activity,
   calendar,
   providerFilterId = "",
   krMappings,
-  krOperations,
   snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
   const router = useRouter();
@@ -393,12 +460,51 @@ export function AdminMarketDataWorkspaceClient({
         />
       )}
       {safeTab === "mappings" && <MappingsPanel marketCode={marketCode} actions={actions} krMappings={krMappings} />}
-      {safeTab === "purge" && marketCode !== "FX" && <PurgePanel marketCode={marketCode} />}
+      {safeTab === "purge" && marketCode !== "FX" && (
+        <PurgePanel marketCode={marketCode} categoryCapabilities={overview.purgeCategories} />
+      )}
       {safeTab === "refresh-rates" && <RefreshRatesPanel actions={actions} />}
-      {safeTab === "operations" && marketCode === "KR" && krOperations
-        ? <KrOperationsPanel data={krOperations} />
-        : safeTab === "operations" && operations
-          ? <OperationsPanel operations={operations} currentProviderId={providerFilterId} />
+      {safeTab === "operations" && operations
+          ? marketCode === "KR"
+            ? <KrOperationsPanel data={{
+              operations,
+              explicitOperationId: operationsQuery?.operationId ?? "",
+              selectedOperationId: operationsQuery?.operationId ?? "",
+              query: operationsQuery ?? {
+                operationsPage: operations.page,
+                operationsLimit: operations.limit,
+                operationId: "",
+                providerId: providerFilterId ?? "",
+                operationType: "",
+                phase: "",
+                search: "",
+                startDate: "",
+                endDate: "",
+                operationLogsPage: 1,
+                operationLogsLimit: 10,
+                operationOutcomesPage: 1,
+                operationOutcomesLimit: 25,
+                operationOutcomeState: "all",
+                operationOutcomeAction: "",
+              },
+            }} />
+            : <OperationsPanel operations={operations} query={operationsQuery ?? {
+            operationsPage: operations.page,
+            operationsLimit: operations.limit,
+            operationId: "",
+            providerId: providerFilterId ?? "",
+            operationType: "",
+            phase: "",
+            search: "",
+            startDate: "",
+            endDate: "",
+            operationLogsPage: 1,
+            operationLogsLimit: 10,
+            operationOutcomesPage: 1,
+            operationOutcomesLimit: 25,
+            operationOutcomeState: "all",
+            operationOutcomeAction: "",
+          }} />
           : null}
       {safeTab === "activity" && activity ? <ActivityPanel activity={activity} marketCode={marketCode} /> : null}
     </div>
@@ -464,8 +570,8 @@ function InstrumentsPanel({
   instruments: AdminMarketDataInstrumentsResponse;
   initialQuery: InstrumentQuery;
 }) {
-  const router = useRouter();
   const adminDict = useAdminI18n().marketData;
+  const router = useRouter();
   const [rows, setRows] = useState(instruments.items);
   const [filters, setFilters] = useState<InstrumentQuery>(initialQuery);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
@@ -577,7 +683,7 @@ function InstrumentsPanel({
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-base font-semibold text-foreground">Instruments</h2>
         <p className="mt-1 text-sm text-muted-foreground">Support state is separate from delisting, exclusion, purge, and holdings visibility.</p>
-        <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(5,minmax(9rem,auto))_auto]">
+        <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[minmax(12rem,1.2fr)_repeat(5,minmax(8rem,1fr))] xl:grid-cols-[minmax(14rem,1.4fr)_repeat(5,minmax(8rem,1fr))_auto]">
           <label className="min-w-0 text-sm font-medium text-foreground">
             Search
             <input
@@ -592,11 +698,11 @@ function InstrumentsPanel({
           <FilterSelect label="Type" value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
           <FilterSelect label="Backfill" value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
           <FilterSelect label="Sort" value={filters.sort} options={instruments.filters.sort} onChange={(value) => updateFilter("sort", value)} />
-          <div className="flex items-end gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end sm:justify-end xl:col-start-7">
             <button type="button" onClick={applyFilters} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
               Apply
             </button>
-            <Link href={`/admin/market-data/${instruments.marketCode}/instruments`} className="rounded border border-border px-3 py-2 text-sm text-muted-foreground">
+            <Link href={`/admin/market-data/${instruments.marketCode}/instruments`} className="rounded border border-border px-3 py-2 text-center text-sm text-muted-foreground">
               Reset
             </Link>
           </div>
@@ -880,6 +986,7 @@ function BackfillPanel({
   initialQuery: InstrumentQuery;
   snapshotRepairRequest: SnapshotRepairRequest | null;
 }) {
+  const adminDict = useAdminI18n().marketData;
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
   const guidedValuationRepair = snapshotRepairRequest?.mode === "valuation";
@@ -896,6 +1003,7 @@ function BackfillPanel({
   const [preview, setPreview] = useState<AdminMarketDataBackfillPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataBackfillExecuteResponse | null>(null);
+  const [executeError, setExecuteError] = useState<string | null>(null);
   const [snapshotRepairResult, setSnapshotRepairResult] = useState<AdminMarketDataSnapshotRepairExecuteResponse | null>(null);
   const [snapshotRepairError, setSnapshotRepairError] = useState<string | null>(null);
   const [snapshotRepairRunning, setSnapshotRepairRunning] = useState(false);
@@ -945,6 +1053,7 @@ function BackfillPanel({
     setPreview(null);
     setPreviewError(null);
     setExecuteResult(null);
+    setExecuteError(null);
     setSnapshotRepairResult(null);
     setSnapshotRepairError(null);
     setAcknowledged(false);
@@ -1037,6 +1146,7 @@ function BackfillPanel({
   ) {
     setPreviewError(null);
     setExecuteResult(null);
+    setExecuteError(null);
     try {
       const result = await previewMarketBackfill(marketCode, {
         scope,
@@ -1053,30 +1163,36 @@ function BackfillPanel({
       setPreview(null);
       setAcknowledged(false);
       setTypedConfirmation("");
-      setPreviewError(err instanceof Error ? err.message : "Backfill preview failed");
+      setPreviewError(err instanceof Error ? err.message : adminDict.backfillPreviewFailedTitle);
     }
   }
 
   async function runExecute() {
-    const result = await executeMarketBackfill(marketCode, {
-      operationId: preview?.operationId ?? "",
-      previewToken: preview?.previewToken ?? "",
-      acknowledged,
-      typedConfirmation,
-    });
-    setExecuteResult(result);
-    const status = await refreshValuationRepairStatus(result.operationId);
-    if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
-      const eligibleTickers = status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker);
-      if (eligibleTickers.length > 0) {
-        await runSnapshotRepair(eligibleTickers, result.operationId);
-      } else if ((result.skippedExistingJobCount > 0 || (status.operation.skippedExistingJobCount ?? 0) > 0)
-        && guidedValuationRepair
-        && snapshotRepairRequest?.targetDate) {
+    setExecuteError(null);
+    try {
+      const result = await executeMarketBackfill(marketCode, {
+        operationId: preview?.operationId ?? "",
+        previewToken: preview?.previewToken ?? "",
+        acknowledged,
+        typedConfirmation,
+      });
+      setExecuteResult(result);
+      const status = await refreshValuationRepairStatus(result.operationId);
+      if (status?.operation && isTerminalBackfillPhase(status.operation.phase)) {
+        const eligibleTickers = status.tickers.filter((ticker) => ticker.eligibleForSnapshotRepair).map((ticker) => ticker.ticker);
+        if (eligibleTickers.length > 0) {
+          await runSnapshotRepair(eligibleTickers, result.operationId);
+        } else if ((result.skippedExistingJobCount > 0 || (status.operation.skippedExistingJobCount ?? 0) > 0)
+          && guidedValuationRepair
+          && snapshotRepairRequest?.targetDate) {
+          setTrackedBackfillOperationId(result.operationId);
+        }
+      } else if (guidedValuationRepair && snapshotRepairRequest?.targetDate) {
         setTrackedBackfillOperationId(result.operationId);
       }
-    } else if (guidedValuationRepair && snapshotRepairRequest?.targetDate) {
-      setTrackedBackfillOperationId(result.operationId);
+    } catch (err) {
+      setExecuteResult(null);
+      setExecuteError(err instanceof Error ? err.message : "Backfill execution failed");
     }
   }
 
@@ -1286,8 +1402,8 @@ function BackfillPanel({
       </Card>
     ) : null}
     <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-backfill">
-      <h2 className="text-base font-semibold text-foreground">Backfill preview</h2>
-      <p className="mt-2 text-sm text-muted-foreground">Backfill writes historical bars and dividends from the owning provider. Preview freezes the exact target list before execution.</p>
+      <h2 className="text-base font-semibold text-foreground">{adminDict.backfillPreviewTitle}</h2>
+      <p className="mt-2 text-sm text-muted-foreground">{adminDict.backfillPreviewDescription}</p>
       <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
         <div className="space-y-4">
           <label className="text-sm font-medium text-foreground">
@@ -1388,7 +1504,7 @@ function BackfillPanel({
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
                   <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
-                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">Preview selected</button>
+                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">{adminDict.backfillPreviewSelected}</button>
                   <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">Preview all matching filters</button>
                 </div>
               </div>
@@ -1398,7 +1514,7 @@ function BackfillPanel({
       </div>
       {previewError ? (
         <div className="mt-4 min-w-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-backfill-preview-error">
-          <p className="font-medium">Backfill preview failed</p>
+          <p className="font-medium">{adminDict.backfillPreviewFailedTitle}</p>
           <p className="mt-1 break-words">{previewError}</p>
         </div>
       ) : null}
@@ -1464,11 +1580,11 @@ function BackfillPanel({
             Execute backfill
           </button>
           {targetModalOpen ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-label="Frozen backfill targets">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-label={adminDict.backfillFrozenTargetsTitle}>
               <div className="max-h-full w-full max-w-4xl overflow-hidden rounded bg-background shadow-xl">
                 <div className="border-b border-border px-5 py-4">
                   <div className="flex items-center justify-between gap-4">
-                    <h3 className="text-base font-semibold text-foreground">Frozen backfill targets</h3>
+                    <h3 className="text-base font-semibold text-foreground">{adminDict.backfillFrozenTargetsTitle}</h3>
                     <button type="button" onClick={() => setTargetModalOpen(false)} className="rounded border border-border px-3 py-1.5 text-sm">Close</button>
                   </div>
                   <input value={targetModalFilter} onChange={(event) => setTargetModalFilter(event.target.value)} className="mt-3 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Filter frozen targets" />
@@ -1481,6 +1597,12 @@ function BackfillPanel({
           ) : null}
         </div>
       )}
+      {executeError ? (
+        <div className="mt-4 min-w-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-backfill-execute-error">
+          <p className="font-medium">Backfill execution failed</p>
+          <p className="mt-1 break-words">{executeError}</p>
+        </div>
+      ) : null}
       {executeResult && (
         <div className="mt-4 space-y-3">
           <div
@@ -1509,7 +1631,14 @@ function BackfillPanel({
 }
 
 
-function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX"> }) {
+function PurgePanel({
+  marketCode,
+  categoryCapabilities,
+}: {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  categoryCapabilities: AdminMarketDataPurgeCategoryCapabilityDto[];
+}) {
+  const adminDict = useAdminI18n().marketData;
   const [selected, setSelected] = useState<AdminMarketDataPurgeCategory[]>(["price_bars"]);
   const [enqueueBackfill, setEnqueueBackfill] = useState(false);
   const [fullHistory, setFullHistory] = useState(true);
@@ -1518,14 +1647,44 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [preview, setPreview] = useState<AdminMarketDataPurgePreviewResponse | null>(null);
   const [executeResult, setExecuteResult] = useState<AdminMarketDataPurgeExecuteResponse | null>(null);
+  const [pendingAction, setPendingAction] = useState<"preview" | "execute" | null>(null);
+  const [notice, setNotice] = useState<{
+    kind: "pending" | "success" | "error";
+    message: string;
+    operationId?: string;
+  } | null>(null);
+  const capabilities = useMemo<AdminMarketDataPurgeCategoryCapabilityDto[]>(() => {
+    if (categoryCapabilities.length > 0) return categoryCapabilities;
+    return purgeCategories.map((category) => ({
+      category,
+      supported: true,
+      disabledReasonCode: null,
+      disabledReason: null,
+    }));
+  }, [categoryCapabilities]);
+  const supportedCategories = useMemo(
+    () => new Set(capabilities.filter((capability) => capability.supported).map((capability) => capability.category)),
+    [capabilities],
+  );
+
+	  useEffect(() => {
+	    setSelected((current) => {
+	      const next = current.filter((category) => supportedCategories.has(category));
+	      if (next.length > 0) return next;
+	      const firstSupported = capabilities.find((capability) => capability.supported);
+	      return firstSupported ? [firstSupported.category] : [];
+	    });
+	  }, [capabilities, supportedCategories]);
 
   useEffect(() => {
     setPreview(null);
     setExecuteResult(null);
     setTypedConfirmation("");
+    setNotice(null);
   }, [selected, enqueueBackfill, fullHistory, startDate, endDate]);
 
   function toggle(category: AdminMarketDataPurgeCategory) {
+    if (!supportedCategories.has(category)) return;
     setSelected((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
   }
 
@@ -1540,35 +1699,75 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
   }
 
   async function runPreview() {
+    if (selected.length === 0) {
+      setNotice({ kind: "error", message: adminDict.purgeNoCategoriesSelected });
+      return;
+    }
     const request = buildPurgeRequest();
-    const result = await previewMarketPurge(marketCode, request);
-    setPreview(result);
-    setExecuteResult(null);
-    setTypedConfirmation("");
+    setPendingAction("preview");
+    setNotice({ kind: "pending", message: adminDict.purgePreviewStarted });
+    try {
+      const result = await previewMarketPurge(marketCode, request);
+      setPreview(result);
+      setExecuteResult(null);
+      setTypedConfirmation("");
+      setNotice({ kind: "success", message: adminDict.purgePreviewReady, operationId: result.operationId });
+    } catch (error) {
+      setNotice({ kind: "error", message: error instanceof Error ? error.message : adminDict.purgePreviewFailed });
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function runExecute() {
     if (!preview) return;
-    const result = await executeMarketPurge(marketCode, {
-      operationId: preview.operationId,
-      previewToken: preview.previewToken,
-      typedConfirmation,
-    });
-    setExecuteResult(result);
+    setPendingAction("execute");
+    setNotice({ kind: "pending", message: adminDict.purgeExecuteStarted, operationId: preview.operationId });
+    try {
+      const result = await executeMarketPurge(marketCode, {
+        operationId: preview.operationId,
+        previewToken: preview.previewToken,
+        typedConfirmation,
+      });
+      setExecuteResult(result);
+      setNotice({ kind: "success", message: adminDict.purgeExecuteCompleted, operationId: result.operationId });
+    } catch (error) {
+      setNotice({ kind: "error", message: error instanceof Error ? error.message : adminDict.purgeExecuteFailed, operationId: preview.operationId });
+    } finally {
+      setPendingAction(null);
+    }
   }
 
-  return (
-    <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-purge">
-      <h2 className="text-base font-semibold text-foreground">Purge data preview</h2>
-      <p className="mt-2 text-sm text-muted-foreground">Delete-only removes selected data. Delete-then-refill also queues a backfill when the selected category supports refill.</p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        {purgeCategories.map((category) => (
-          <label key={category.value} className="flex items-center gap-2 rounded border border-border px-3 py-2 text-sm">
-            <input type="checkbox" checked={selected.includes(category.value)} onChange={() => toggle(category.value)} />
-            {category.label}
-          </label>
-        ))}
-      </div>
+	  return (
+	    <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-purge">
+	      <h2 className="text-base font-semibold text-foreground">{adminDict.purgePreviewTitle}</h2>
+	      <p className="mt-2 text-sm text-muted-foreground">{adminDict.purgePreviewDescription}</p>
+	      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+	        {capabilities.map((capability) => {
+	          const reason = purgeDisabledReason(capability, adminDict);
+	          return (
+	            <label
+	              key={capability.category}
+	              className={cn(
+	                "flex min-h-[4rem] items-start gap-2 rounded border border-border px-3 py-2 text-sm",
+	                capability.supported ? "" : "bg-muted/40 text-muted-foreground",
+	              )}
+	            >
+	              <input
+	                type="checkbox"
+	                checked={selected.includes(capability.category)}
+	                disabled={!capability.supported}
+	                onChange={() => toggle(capability.category)}
+	                className="mt-1"
+	              />
+	              <span>
+	                <span className="block font-medium text-foreground">{purgeCategoryLabel(capability.category, adminDict)}</span>
+	                {reason ? <span className="mt-1 block text-xs text-muted-foreground">{reason}</span> : null}
+	              </span>
+	            </label>
+	          );
+	        })}
+	      </div>
       <div className="mt-4 rounded border border-border p-3">
         <p className="text-sm font-medium text-foreground">Price/dividend range</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)_minmax(0,1fr)]">
@@ -1609,11 +1808,39 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
         <input type="checkbox" checked={enqueueBackfill} onChange={(event) => setEnqueueBackfill(event.target.checked)} />
         Enqueue backfill after purge where supported
       </label>
-      <button type="button" onClick={() => void runPreview()} className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-        Preview purge
-      </button>
-      {preview && (
-        <div className="mt-4 space-y-4">
+	      <button
+	        type="button"
+	        onClick={() => void runPreview()}
+	        disabled={selected.length === 0 || pendingAction !== null}
+	        className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+	      >
+	        Preview purge
+	      </button>
+	      {notice ? (
+	        <div
+	          role={notice.kind === "error" ? "alert" : "status"}
+	          className={cn(
+	            "mt-4 rounded border px-3 py-2 text-sm",
+	            notice.kind === "error"
+	              ? "border-rose-300 bg-rose-50 text-rose-900"
+	              : notice.kind === "success"
+	                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+	                : "border-sky-300 bg-sky-50 text-sky-900",
+	          )}
+	        >
+	          <span>{notice.message}</span>
+	          {notice.operationId ? (
+	            <Link
+	              href={`/admin/market-data/${marketCode}/operations?operationId=${encodeURIComponent(notice.operationId)}`}
+	              className="ml-2 font-medium underline"
+	            >
+	              {adminDict.purgeOpenOperation}
+	            </Link>
+	          ) : null}
+	        </div>
+	      ) : null}
+	      {preview && (
+	        <div className="mt-4 space-y-4">
           <PreviewSummary title="Purge estimate" rows={[
             ["Provider", preview.providerId],
             ["Categories", preview.categories.join(", ")],
@@ -1638,13 +1865,13 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
               className="mt-2 w-full rounded border border-border bg-background px-3 py-2 text-sm"
             />
           </label>
-          <button
-            type="button"
-            onClick={() => void runExecute()}
-            disabled={!preview || typedConfirmation !== preview.confirmation.text}
-            className="rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Execute purge
+	          <button
+	            type="button"
+	            onClick={() => void runExecute()}
+	            disabled={!preview || typedConfirmation !== preview.confirmation.text || pendingAction !== null}
+	            className="rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+	          >
+            {adminDict.purgeExecuteButton}
           </button>
         </div>
       )}
@@ -1712,172 +1939,313 @@ function ProviderFilterLinks({
 
 function OperationsPanel({
   operations,
-  currentProviderId,
+  query,
 }: {
   operations: AdminMarketDataOperationsResponse;
-  currentProviderId: string;
+  query: OperationsQuery;
 }) {
-  const adminDict = useAdminI18n().marketData;
-  const [selectedOperation, setSelectedOperation] = useState<AdminMarketDataOperationsResponse["items"][number] | null>(null);
-  type OperationColumnId = "operation" | "phase" | "provider" | "scope" | "matches" | "progress";
-  const settingsCopy = marketDataSettingsCopy(adminDict);
-  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<AdminMarketDataOperationsResponse["items"][number], OperationColumnId>>>(() => [
-    {
-      id: "operation",
-      label: "Operation",
-      defaultWidth: 280,
-      canHide: false,
-      renderCell: (operation) => (
-        <div className="min-w-0">
-          <p className="break-all font-medium text-foreground">{operation.id}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{operation.preview.scopeSummary}</p>
+	  const router = useRouter();
+	  const i18n = useAdminI18n();
+	  const adminDict = i18n.marketData;
+	  const commonDict = i18n.common;
+	  const normalized = normalizeOperationPageResponse(operations, operations.marketCode, operations.providers);
+  const [localSelectedOperationId, setLocalSelectedOperationId] = useState("");
+  const [operationAcknowledged, setOperationAcknowledged] = useState(false);
+  const [operationTypedConfirmation, setOperationTypedConfirmation] = useState("");
+  const [operationBusyAction, setOperationBusyAction] = useState<"execute" | "pause" | "resume" | "cancel" | null>(null);
+  const [operationMessage, setOperationMessage] = useState<string | null>(null);
+	  const providerOptions = [
+	    { value: "", label: adminDict.allProviders },
+	    ...operations.providers.map((provider) => ({ value: provider.providerId, label: provider.label })),
+	  ];
+	  const operationTypeValues = Array.from(new Set([
+	    ...(operations.availableFilters?.operationTypes ?? normalized.items.map((item) => item.operationType)),
+	    ...(query.operationType ? [query.operationType] : []),
+	  ])).filter((value) => value.trim().length > 0);
+	  const phaseValues = Array.from(new Set([
+	    ...(operations.availableFilters?.phases ?? normalized.items.map((item) => item.phase)),
+	    ...(query.phase ? [query.phase] : []),
+	  ])).filter((value) => value.trim().length > 0);
+	  const operationTypeOptions = [
+	    { value: "", label: commonDict.all },
+	    ...operationTypeValues.map((value) => ({ value, label: localizeOperationType(value, adminDict) })),
+	  ];
+	  const phaseOptions = [
+	    { value: "", label: commonDict.all },
+	    ...phaseValues.map((value) => ({ value, label: localizeOperationPhase(value, adminDict) })),
+	  ];
+  const loadOperationLogs = useCallback((operation: NormalizedOperationItem, page: number, limit: number) => fetchOperationLogs({
+    marketCode: operation.marketCode,
+    providerId: operation.providerId,
+    operationId: operation.id,
+    page,
+    limit,
+  }), []);
+  const loadOperationOutcomes = useCallback((operation: NormalizedOperationItem, page: number, limit: number, state: string, action: string) => fetchOperationOutcomes({
+    providerId: operation.providerId,
+    operationId: operation.id,
+    page,
+    limit,
+    state,
+    action,
+  }), []);
+  useEffect(() => {
+    if (!query.operationId) setLocalSelectedOperationId("");
+  }, [query.operationId]);
+
+  function pushOperations(next: Partial<OperationsQuery>) {
+    const merged = { ...query, ...next };
+    const params = new URLSearchParams();
+    params.set("page", String(merged.operationsPage));
+    params.set("limit", String(merged.operationsLimit));
+    if (merged.providerId) params.set("providerId", merged.providerId);
+    if (merged.operationId) params.set("operationId", merged.operationId);
+    if (merged.operationType) params.set("operationType", merged.operationType);
+    if (merged.phase) params.set("phase", merged.phase);
+    if (merged.search.trim()) params.set("search", merged.search.trim());
+    if (merged.startDate) params.set("startDate", merged.startDate);
+    if (merged.endDate) params.set("endDate", merged.endDate);
+    if (merged.operationLogsPage !== 1) params.set("operationLogsPage", String(merged.operationLogsPage));
+    if (merged.operationLogsLimit !== 10) params.set("operationLogsLimit", String(merged.operationLogsLimit));
+    if (merged.operationOutcomesPage !== 1) params.set("operationOutcomesPage", String(merged.operationOutcomesPage));
+    if (merged.operationOutcomesLimit !== 25) params.set("operationOutcomesLimit", String(merged.operationOutcomesLimit));
+    if (merged.operationOutcomeState !== "all") params.set("operationOutcomeState", merged.operationOutcomeState);
+    if (merged.operationOutcomeAction.trim()) params.set("operationOutcomeAction", merged.operationOutcomeAction.trim());
+    router.push(`/admin/market-data/${operations.marketCode}/operations?${params.toString()}`);
+  }
+
+  function selectedMarketCode(operation: NormalizedOperationItem): Exclude<AdminMarketCode, "FX"> | null {
+    return operation.marketCode === "FX" ? null : operation.marketCode;
+  }
+
+  function operationControlLabel(action: "pause" | "resume" | "cancel"): string {
+    if (action === "pause") return adminDict.operationPause;
+    if (action === "resume") return adminDict.operationResume;
+    return adminDict.operationCancel;
+  }
+
+  async function executeSelectedOperation(operation: NormalizedOperationItem) {
+    const previewToken = operation.execution.previewToken;
+    const market = selectedMarketCode(operation);
+    if (!previewToken) {
+      setOperationMessage(adminDict.operationMissingToken);
+      return;
+    }
+    setOperationBusyAction("execute");
+    setOperationMessage(null);
+    try {
+      const typedConfirmation = operation.execution.confirmationLevel === "typed" ? operationTypedConfirmation : undefined;
+      if (operation.execution.endpointDiscriminator === "provider_operation" || operation.execution.endpointDiscriminator === "provider_fixer_execute") {
+        await executeProviderRepair({
+          providerId: operation.providerId,
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation,
+          acknowledged: true,
+        });
+      } else if (operation.execution.endpointDiscriminator === "market_backfill_execute" && market) {
+        await executeMarketBackfill(market, {
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation,
+          acknowledged: true,
+        });
+      } else if (operation.execution.endpointDiscriminator === "market_purge_execute" && market) {
+        await executeMarketPurge(market, {
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation: operationTypedConfirmation,
+        });
+      } else {
+        setOperationMessage(adminDict.operationCannotExecuteFromHistory);
+        return;
+      }
+      setOperationMessage(adminDict.operationExecutionStarted);
+      setOperationAcknowledged(false);
+      setOperationTypedConfirmation("");
+      router.refresh();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : adminDict.operationExecutionFailed);
+    } finally {
+      setOperationBusyAction(null);
+    }
+  }
+
+  async function controlSelectedOperation(operation: NormalizedOperationItem, action: "pause" | "resume" | "cancel") {
+    setOperationBusyAction(action);
+    setOperationMessage(null);
+    try {
+      await mutateProviderOperation({ providerId: operation.providerId, operationId: operation.id, action });
+      setOperationMessage(adminDict.operationControlRequested.replace("{action}", operationControlLabel(action)));
+      router.refresh();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : adminDict.operationControlFailed.replace("{action}", operationControlLabel(action)));
+    } finally {
+      setOperationBusyAction(null);
+    }
+  }
+
+  function renderSharedOperationActions(operation: NormalizedOperationItem) {
+    const execution = operation.execution;
+    const typedRequired = execution.confirmationLevel === "typed";
+    const acknowledgementRequired = execution.confirmationLevel === "checkbox" || execution.confirmationLevel === "typed";
+    const typedSatisfied = !typedRequired || operationTypedConfirmation.trim() === (execution.confirmationText ?? "").trim();
+    const acknowledgementSatisfied = !acknowledgementRequired || operationAcknowledged;
+    const knownEndpoint = execution.endpointDiscriminator === "provider_operation"
+      || execution.endpointDiscriminator === "provider_fixer_execute"
+      || execution.endpointDiscriminator === "market_backfill_execute"
+      || execution.endpointDiscriminator === "market_purge_execute";
+    const executeDisabled =
+      operationBusyAction !== null
+      || !execution.canExecute
+      || execution.previewExpired
+      || !execution.previewToken
+      || !knownEndpoint
+      || !typedSatisfied
+      || !acknowledgementSatisfied;
+    const executeLabel = operation.operationType === "reverify_mapping"
+      || operation.operationType === "repair_mapping"
+      || operation.operationType === "resolver_repair"
+      ? adminDict.operationExecuteMapping
+      : adminDict.operationExecuteGeneric;
+    return (
+      <div className="space-y-3" data-testid="provider-console-operation-panel">
+        {operationMessage ? <p className="text-sm text-muted-foreground">{operationMessage}</p> : null}
+        {execution.canExecute ? (
+          <div className="space-y-3 rounded border border-border bg-background px-3 py-3" data-testid="provider-console-operation-execute-guardrails">
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className={cn("rounded border px-3 py-2", !execution.previewExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                {adminDict.operationTokenValid.replace("{status}", !execution.previewExpired ? adminDict.operationTokenYes : adminDict.operationTokenExpired)}
+              </div>
+              <div className={cn("rounded border px-3 py-2", execution.previewToken ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                {adminDict.operationExecutionToken.replace("{status}", execution.previewToken ? adminDict.operationTokenAvailable : adminDict.operationTokenMissing)}
+              </div>
+            </div>
+            {!knownEndpoint ? (
+              <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {adminDict.operationCannotExecuteFromHistory}
+              </p>
+            ) : null}
+            {acknowledgementRequired ? (
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={operationAcknowledged}
+                  onChange={(event) => setOperationAcknowledged(event.target.checked)}
+                  data-testid="provider-console-operation-confirm-checkbox"
+                />
+                {execution.acknowledgementLabel ?? adminDict.operationAcknowledgementFallback}
+              </label>
+            ) : null}
+            {typedRequired ? (
+              <label className="block text-sm font-medium text-foreground">
+                {adminDict.operationTypeConfirmation}
+                <input
+                  value={operationTypedConfirmation}
+                  onChange={(event) => setOperationTypedConfirmation(event.target.value)}
+                  placeholder={execution.confirmationText ?? ""}
+                  className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-typed-confirmation"
+                />
+              </label>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={executeDisabled}
+              onClick={() => void executeSelectedOperation(operation)}
+              data-testid="provider-console-operation-execute-button"
+            >
+              {executeLabel}
+            </Button>
+          </div>
+        ) : execution.blockedReason ? (
+          <p className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{execution.blockedReason}</p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canPause || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "pause")}>{adminDict.operationPause}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canResume || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "resume")}>{adminDict.operationResume}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canCancel || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "cancel")}>{adminDict.operationCancel}</Button>
         </div>
-      ),
-    },
-    {
-      id: "phase",
-      label: adminDict.phase,
-      defaultWidth: 140,
-      renderCell: (operation) => <span className="text-muted-foreground">{friendlyLabel(operation.phase)}</span>,
-    },
-    {
-      id: "provider",
-      label: adminDict.provider,
-      defaultWidth: 180,
-      renderCell: (operation) => <span className="text-muted-foreground">{operation.providerId}</span>,
-    },
-    {
-      id: "scope",
-      label: adminDict.scope,
-      defaultWidth: 240,
-      renderCell: (operation) => <span className="text-muted-foreground">{operation.preview.scopeSummary}</span>,
-      renderCardValue: (operation) => operation.preview.scopeSummary,
-    },
-    {
-      id: "matches",
-      label: adminDict.matchesLabel,
-      defaultWidth: 130,
-      renderCell: (operation) => <span className="text-muted-foreground">{operation.matchCount.toLocaleString()}</span>,
-    },
-    {
-      id: "progress",
-      label: adminDict.progress,
-      defaultWidth: 150,
-      renderCell: (operation) => (
-        <span className="text-muted-foreground">
-          {operation.progressPercent === null ? adminDict.queued : adminDict.progressPercent.replace("{percent}", String(operation.progressPercent))}
-        </span>
-      ),
-      renderCardValue: (operation) => operation.progressPercent === null ? adminDict.queued : `${operation.progressPercent}%`,
-    },
-  ], [adminDict]);
+      </div>
+    );
+  }
 
   return (
-    <div className="min-w-0" data-testid="market-data-operations">
-      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0">
-        <AdminMarketDataResponsiveTable
-          columns={columns}
-          rows={operations.items}
-          contextKey={`admin.marketData.${operations.marketCode}.operations`}
-          emptyMessage="No provider operations match this page."
-          rowKey={(operation) => operation.id}
-          rowTestId={(operation) => `market-data-operation-row-${operation.id}`}
-          selectedRowKey={selectedOperation?.id ?? null}
-          onRowSelect={setSelectedOperation}
-          settingsCopy={settingsCopy}
-          tableTestId="market-data-operations-table"
-          desktopMinWidthClassName="min-w-[70rem]"
-          defaultMobileSummaryCount={3}
-          toolbar={(
-            <div>
-              <h2 className="text-base font-semibold text-foreground">{adminDict.operationTitle}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{adminDict.operationDescription}</p>
-              <ProviderFilterLinks
-                currentProviderId={currentProviderId}
-                marketCode={operations.marketCode}
-                providers={operations.providers}
-                tab="operations"
-              />
-            </div>
-          )}
-          getCardIdentity={(operation) => ({
-            title: operation.id,
-            subtitle: `${operation.providerId} - ${friendlyLabel(operation.phase)}`,
-            badge: <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{operation.matchCount.toLocaleString()} matches</span>,
-          })}
-        />
-      </Card>
-      <Drawer
-        open={selectedOperation !== null}
-        onOpenChange={(open) => {
-          if (!open) setSelectedOperation(null);
+    <div className="space-y-3">
+      <ProviderFilterLinks
+        currentProviderId={query.providerId}
+        marketCode={operations.marketCode}
+        providers={operations.providers}
+        tab="operations"
+      />
+      <AdminMarketDataOperationsShell
+        dataTestId="market-data-operations"
+        rowTestIdPrefix="market-data-operation-row-"
+        pageData={normalized}
+        title={adminDict.operationTitle}
+        description={adminDict.operationDescription}
+        selectedOperationId={localSelectedOperationId || query.operationId}
+        queryState={{
+          page: query.operationsPage,
+          limit: query.operationsLimit,
+          operationId: localSelectedOperationId || query.operationId,
+          outcomesPage: query.operationOutcomesPage,
+          outcomesLimit: query.operationOutcomesLimit,
+          outcomeState: query.operationOutcomeState,
+          outcomeAction: query.operationOutcomeAction,
+          logsPage: query.operationLogsPage,
+          logsLimit: query.operationLogsLimit,
         }}
-        title={selectedOperation?.id ?? adminDict.operationDetails}
-        closeLabel={adminDict.closeDrawerAriaLabel}
-        bodyClassName="space-y-4"
-      >
-        {selectedOperation ? (
-          <>
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">{adminDict.summary}</h3>
-              <dl className="grid gap-2">
-                {[
-                  [adminDict.provider, selectedOperation.providerId],
-                  [adminDict.market, selectedOperation.market ?? operations.marketCode],
-                  [adminDict.phase, friendlyLabel(selectedOperation.phase)],
-                  [adminDict.matchesLabel, selectedOperation.matchCount.toLocaleString()],
-                  [adminDict.scope, selectedOperation.preview.scopeSummary],
-                ].map(([label, value]) => (
-                  <div key={`${selectedOperation.id}:${label}`} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
-                    <dt className="text-xs text-muted-foreground">{label}</dt>
-                    <dd className="text-sm text-foreground">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">{adminDict.progress}</h3>
-              <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
-                <p>{selectedOperation.progressPercent === null ? adminDict.previewWaiting : adminDict.completePercent.replace("{percent}", String(selectedOperation.progressPercent))}</p>
-                <p className="text-muted-foreground">
-                  {adminDict.autoPauseFailures
-                    .replace("{count}", String(selectedOperation.autoPauseFailureCount ?? 0))
-                    .replace("{threshold}", String(selectedOperation.autoPauseFailureThresholdPerMinute ?? 0))}
-                </p>
-                <p className="text-muted-foreground">
-                  {selectedOperation.effectiveRateCapPerMinute === null
-                    ? adminDict.rateCapNotSet
-                    : adminDict.rateCap.replace("{count}", String(selectedOperation.effectiveRateCapPerMinute))}
-                </p>
-              </div>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">{adminDict.logs}</h3>
-              <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
-                <p>{adminDict.operationLogsRetention}</p>
-                <p className="mt-2">{adminDict.previewTokenExpires.replace("{time}", formatUtcTimestamp(selectedOperation.preview.tokenExpiresAt))}</p>
-              </div>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">{adminDict.outcomes}</h3>
-              <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
-                <p>{adminDict.confirmationMode.replace("{mode}", friendlyLabel(selectedOperation.preview.confirmationMode))}</p>
-                <p className="mt-1">{adminDict.evidenceSampleRows.replace("{count}", String(selectedOperation.preview.evidenceSample.length))}</p>
-              </div>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">{adminDict.relatedActivity}</h3>
-              <Link className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/admin/market-data/${operations.marketCode}/activity?search=${encodeURIComponent(selectedOperation.id)}`}>
-                {adminDict.openFilteredActivity}
-              </Link>
-            </section>
-          </>
-        ) : null}
-      </Drawer>
+        filters={{
+          providerId: query.providerId,
+          operationType: query.operationType,
+          phase: query.phase,
+          search: query.search,
+          startDate: query.startDate,
+          endDate: query.endDate,
+        }}
+        filterOptions={{
+          providers: providerOptions,
+          operationTypes: operationTypeOptions,
+          phases: phaseOptions,
+        }}
+        onApplyFilters={(next) => pushOperations({
+          operationsPage: 1,
+          providerId: next.providerId,
+          operationType: next.operationType,
+          phase: next.phase,
+          search: next.search,
+          startDate: next.startDate,
+          endDate: next.endDate,
+        })}
+        onResetFilters={() => router.push(`/admin/market-data/${operations.marketCode}/operations`)}
+	        onPageChange={(page) => pushOperations({ operationsPage: page })}
+	        onSelectOperationId={(operationId) => {
+	          setOperationAcknowledged(false);
+	          setOperationTypedConfirmation("");
+	          setLocalSelectedOperationId(operationId);
+	          pushOperations({ operationId, operationLogsPage: 1, operationOutcomesPage: 1 });
+	        }}
+	        onClearSelection={() => {
+	          setOperationAcknowledged(false);
+	          setOperationTypedConfirmation("");
+	          setLocalSelectedOperationId("");
+	          pushOperations({ operationId: "" });
+	        }}
+	        onUpdateQueryState={(patch) => pushOperations({
+	          operationId: localSelectedOperationId || query.operationId,
+	          operationLogsPage: patch.logsPage ?? query.operationLogsPage,
+	          operationLogsLimit: patch.logsLimit ?? query.operationLogsLimit,
+	          operationOutcomesPage: patch.outcomesPage ?? query.operationOutcomesPage,
+          operationOutcomesLimit: patch.outcomesLimit ?? query.operationOutcomesLimit,
+          operationOutcomeState: (patch.outcomeState as OperationsQuery["operationOutcomeState"] | undefined) ?? query.operationOutcomeState,
+          operationOutcomeAction: patch.outcomeAction ?? query.operationOutcomeAction,
+        })}
+        loadLogs={loadOperationLogs}
+        loadOutcomes={loadOperationOutcomes}
+        renderOperationActions={renderSharedOperationActions}
+      />
     </div>
   );
 }

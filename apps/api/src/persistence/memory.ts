@@ -4308,6 +4308,12 @@ export class MemoryPersistence implements Persistence {
     yahooKrProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
+    finmindProviderMinRequestIntervalMs: number | null;
+    twelveDataProviderMinRequestIntervalMs: number | null;
+    yahooAuProviderMinRequestIntervalMs: number | null;
+    yahooKrProviderMinRequestIntervalMs: number | null;
+    frankfurterProviderMinRequestIntervalMs: number | null;
+    asxGicsProviderMinRequestIntervalMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -4408,6 +4414,12 @@ export class MemoryPersistence implements Persistence {
       yahooKrProviderRateLimitPerMinute: numberOrNull(p.yahooKrProviderRateLimitPerMinute),
       frankfurterProviderRateLimitPerMinute: numberOrNull(p.frankfurterProviderRateLimitPerMinute),
       asxGicsProviderRateLimitPerHour: numberOrNull(p.asxGicsProviderRateLimitPerHour),
+      finmindProviderMinRequestIntervalMs: numberOrNull(p.finmindProviderMinRequestIntervalMs),
+      twelveDataProviderMinRequestIntervalMs: numberOrNull(p.twelveDataProviderMinRequestIntervalMs),
+      yahooAuProviderMinRequestIntervalMs: numberOrNull(p.yahooAuProviderMinRequestIntervalMs),
+      yahooKrProviderMinRequestIntervalMs: numberOrNull(p.yahooKrProviderMinRequestIntervalMs),
+      frankfurterProviderMinRequestIntervalMs: numberOrNull(p.frankfurterProviderMinRequestIntervalMs),
+      asxGicsProviderMinRequestIntervalMs: numberOrNull(p.asxGicsProviderMinRequestIntervalMs),
       backfillRetryLimit: numberOrNull(p.backfillRetryLimit),
       backfillRetryDelaySeconds: numberOrNull(p.backfillRetryDelaySeconds),
       backfillFinmind402RetryMs: numberOrNull(p.backfillFinmind402RetryMs),
@@ -6743,11 +6755,29 @@ export class MemoryPersistence implements Persistence {
     const page = Math.max(1, Math.floor(options.page) || 1);
     const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
     const phases = options.phases ? new Set(options.phases) : null;
+    const operationTypes = options.operationTypes ? new Set(options.operationTypes) : null;
+    const search = options.search?.trim().toLowerCase() ?? "";
+    const createdAfterMs = options.createdAfter ? Date.parse(options.createdAfter) : Number.NaN;
+    const createdBeforeMs = options.createdBefore ? Date.parse(options.createdBefore) : Number.NaN;
     const filtered = [...this.providerOperations.values()]
       .filter((row) => {
         if (options.providerId && row.providerId !== options.providerId) return false;
         if (options.marketCode && row.marketCode !== options.marketCode) return false;
+        if (operationTypes && !operationTypes.has(row.operationType)) return false;
         if (phases && !phases.has(row.phase)) return false;
+        if (Number.isFinite(createdAfterMs) && Date.parse(row.createdAt) < createdAfterMs) return false;
+        if (Number.isFinite(createdBeforeMs) && Date.parse(row.createdAt) > createdBeforeMs) return false;
+        if (search) {
+          const haystack = JSON.stringify([
+            row.id,
+            row.providerId,
+            row.marketCode,
+            row.operationType,
+            row.scopeQuery,
+            row.errorCode,
+          ]).toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
         return true;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -6756,7 +6786,7 @@ export class MemoryPersistence implements Persistence {
     if (options.includeOperationId) {
       const selected = filtered.find((row) => row.id === options.includeOperationId);
       if (selected && !items.some((row) => row.id === selected.id)) {
-        items.push(selected);
+        // Keep page order truthful; selected off-page is returned separately by the route layer.
       }
     }
     return {

@@ -1855,6 +1855,18 @@ export interface AppConfigDto {
   effectiveFrankfurterProviderRateLimitPerMinute: number;
   asxGicsProviderRateLimitPerHour: number | null;
   effectiveAsxGicsProviderRateLimitPerHour: number;
+  finmindProviderMinRequestIntervalMs: number | null;
+  effectiveFinmindProviderMinRequestIntervalMs: number;
+  twelveDataProviderMinRequestIntervalMs: number | null;
+  effectiveTwelveDataProviderMinRequestIntervalMs: number;
+  yahooAuProviderMinRequestIntervalMs: number | null;
+  effectiveYahooAuProviderMinRequestIntervalMs: number;
+  yahooKrProviderMinRequestIntervalMs: number | null;
+  effectiveYahooKrProviderMinRequestIntervalMs: number;
+  frankfurterProviderMinRequestIntervalMs: number | null;
+  effectiveFrankfurterProviderMinRequestIntervalMs: number;
+  asxGicsProviderMinRequestIntervalMs: number | null;
+  effectiveAsxGicsProviderMinRequestIntervalMs: number;
 
   // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
   backfillRetryLimit: number | null;
@@ -3218,11 +3230,24 @@ export interface AdminMarketDataLandingResponse {
   markets: AdminMarketDataTileDto[];
 }
 
+export type AdminMarketDataPurgeDisabledReasonCode =
+  | "kr_mappings_only"
+  | "au_gics_only"
+  | "backfill_jobs_not_target_safe";
+
+export interface AdminMarketDataPurgeCategoryCapabilityDto {
+  category: AdminMarketDataPurgeCategory;
+  supported: boolean;
+  disabledReasonCode: AdminMarketDataPurgeDisabledReasonCode | null;
+  disabledReason: string | null;
+}
+
 export interface AdminMarketDataOverviewResponse {
   marketCode: AdminMarketCode;
   label: string;
   tabs: AdminMarketWorkspaceTab[];
   providers: AdminMarketDataProviderChipDto[];
+  purgeCategories: AdminMarketDataPurgeCategoryCapabilityDto[];
   healthStatus: ProviderHealthStatus;
   unresolvedCount: number;
   pendingBackfillCount: number;
@@ -3282,19 +3307,167 @@ export interface AdminMarketDataActionExecuteResponse {
   message: string;
 }
 
+export interface AdminMarketDataOperationExecuteDto {
+  canExecute: boolean;
+  executeMode: "none" | "preview" | "direct";
+  confirmationLevel: AdminMarketDataConfirmationLevel;
+  confirmationText: string | null;
+  acknowledgementLabel: string | null;
+  previewToken: string | null;
+  previewExpired: boolean;
+  blockedReason: string | null;
+  endpoint: "market_action" | "market_backfill_execute" | "market_purge_execute" | "provider_operation";
+}
+
+export interface AdminMarketDataOperationSummaryDto {
+  kind: string;
+  previewParts: Array<{
+    kind: "scope" | "source" | "source_symbol" | "resolved_symbol" | "text";
+    value: string;
+  }>;
+  counts: Record<string, number>;
+  dateRange: { startDate: string | null; endDate: string | null } | null;
+  batchId: string | null;
+  categories: string[];
+  rateLimit: { requestsPerMinute: number | null } | null;
+  pacing: { minRequestIntervalMs: number | null; enforced: boolean } | null;
+}
+
+export type AdminMarketDataOperationDetailValue =
+  | string
+  | number
+  | boolean
+  | null
+  | string[]
+  | Record<string, string | number | boolean | null>;
+
+interface AdminMarketDataOperationDetailsBaseDto {
+  operationType: string;
+}
+
+export interface AdminMarketDataBackfillOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "backfill_catalog_rows";
+  fields: {
+    scope?: string | null;
+    scopeType?: string | null;
+    scopeSummary?: string | null;
+    source?: string | null;
+    dateRange?: { startDate: string | null; endDate: string | null };
+    batchId?: string | null;
+    enqueuedJobCount?: number | null;
+    skippedExistingJobCount?: number | null;
+    linkedRefillAvailable?: boolean | null;
+    linkedRefillMode?: string | null;
+    linkedRefillRequested?: boolean | null;
+  };
+}
+
+export interface AdminMarketDataPurgeOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "purge_market_data";
+  fields: {
+    scope?: string | null;
+    scopeType?: string | null;
+    scopeSummary?: string | null;
+    categories?: string[];
+    dateRange?: { startDate: string | null; endDate: string | null };
+    deletedRows?: number | null;
+    unsupportedCategories?: string[];
+  };
+}
+
+export interface AdminMarketDataMappingOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "mapping";
+  fields: {
+    scope?: string | null;
+    scopeType?: string | null;
+    scopeSummary?: string | null;
+    mappingSourceSymbol?: string | null;
+    mappingResolvedSymbol?: string | null;
+    mappingPreviousVerifiedAt?: string | null;
+    resolverMode?: string | null;
+    succeeded?: number | null;
+    failed?: number | null;
+    unsupportedRows?: number | null;
+  };
+}
+
+export interface AdminMarketDataGenericOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "generic";
+  fields: Record<string, AdminMarketDataOperationDetailValue>;
+}
+
+export type AdminMarketDataOperationDetailsDto =
+  | AdminMarketDataBackfillOperationDetailsDto
+  | AdminMarketDataPurgeOperationDetailsDto
+  | AdminMarketDataMappingOperationDetailsDto
+  | AdminMarketDataGenericOperationDetailsDto;
+
+export interface AdminMarketDataOperationDto {
+  id: string;
+  providerId: string;
+  market: string | null;
+  marketCode: AdminMarketCode;
+  operationType: string;
+  phase: ProviderFixerDashboardOperationPhase;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  matchCount: number;
+  progressPercent: number | null;
+  previewExpiresAt: string | null;
+  canPause: boolean;
+  canResume: boolean;
+  canCancel: boolean;
+  execute: AdminMarketDataOperationExecuteDto;
+  summary: AdminMarketDataOperationSummaryDto;
+  details: AdminMarketDataOperationDetailsDto | null;
+  debug: Record<string, unknown> | null;
+  outcomes: {
+    available: boolean;
+    reason: string | null;
+  };
+}
+
 export interface AdminMarketDataOperationsResponse {
   marketCode: AdminMarketCode;
   providers: AdminMarketDataProviderChipDto[];
-  items: ProviderFixerDashboardOperationDto[];
-  total: number;
+  selectedOperation: AdminMarketDataOperationDto | null;
+  selectedOperationIsOffPage: boolean;
+  items: AdminMarketDataOperationDto[];
+	  filters: {
+	    providerId: string | null;
+	    operationType: string | null;
+	    phase: ProviderFixerDashboardOperationPhase | null;
+	    search: string | null;
+	    from: string | null;
+	    to: string | null;
+	  };
+	  availableFilters: {
+	    operationTypes: string[];
+	    phases: ProviderFixerDashboardOperationPhase[];
+	  };
+	  total: number;
   page: number;
   limit: number;
 }
 
-export interface AdminMarketDataLogsResponse {
+export interface AdminMarketDataOperationLogDto {
+  id: string;
+  operationId: string;
+  level: "info" | "warning" | "error";
+  occurredAt: string;
+  phase: ProviderFixerDashboardOperationPhase | null;
+  message: string;
+  detail: string | null;
+  context: Record<string, unknown> | null;
+}
+
+export interface AdminMarketDataOperationLogsResponse {
   marketCode: AdminMarketCode;
-  providers: AdminMarketDataProviderChipDto[];
-  items: ProviderFixerDashboardLogEntryDto[];
+  operationId: string;
+  items: AdminMarketDataOperationLogDto[];
   total: number;
   page: number;
   limit: number;
