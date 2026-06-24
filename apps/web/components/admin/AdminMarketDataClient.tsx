@@ -2341,17 +2341,6 @@ function ProviderFilterLinks({
   );
 }
 
-function operationSummaryText(operation: AdminMarketDataOperationsResponse["items"][number]): string {
-  const parts = operation.summary.previewParts.map((part) => part.value).filter((value) => value.trim().length > 0);
-  if (parts.length > 0) return parts.join(" - ");
-  if (operation.details?.kind && "fields" in operation.details) {
-    const fields = operation.details.fields as Record<string, unknown>;
-    const scope = fields.scopeSummary ?? fields.scope ?? fields.sourceSymbol;
-    if (typeof scope === "string" && scope.trim()) return scope;
-  }
-  return operation.operationType;
-}
-
 function OperationsPanel({
   operations,
   currentProviderId,

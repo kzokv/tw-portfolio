@@ -87,7 +87,6 @@ import {
   revertProviderMapping,
   rerunProviderMapping,
   updateMarketInstrumentDelistingOverride,
-  updateMarketUnresolvedState,
   updateProviderUnresolvedState,
 } from "../../../lib/adminMarketDataService";
 import { getJson, patchJson } from "../../../lib/api";
@@ -95,7 +94,6 @@ import { getJson, patchJson } from "../../../lib/api";
 const bulkUpdateMarketUnresolvedStateMock = vi.mocked(bulkUpdateMarketUnresolvedState);
 const updateMarketInstrumentDelistingOverrideMock = vi.mocked(updateMarketInstrumentDelistingOverride);
 const bulkUpdateProviderUnresolvedStateMock = vi.mocked(bulkUpdateProviderUnresolvedState);
-const updateMarketUnresolvedStateMock = vi.mocked(updateMarketUnresolvedState);
 const updateProviderUnresolvedStateMock = vi.mocked(updateProviderUnresolvedState);
 const executeProviderRepairMock = vi.mocked(executeProviderRepair);
 const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);

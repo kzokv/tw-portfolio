@@ -385,7 +385,7 @@ export default async function AdminMarketDataWorkspacePage({
         )
       : null;
   const operations =
-    tab === "operations"
+    tab === "operations" && marketCode !== "KR"
       ? await getJson<AdminMarketDataOperationsResponse>(
           `/admin/market-data/${encodeURIComponent(marketCode)}/operations?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}`,
         )
