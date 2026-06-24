@@ -238,7 +238,7 @@ const details: TickerDetailsModel = {
     currentUnitPrice: 110,
     marketValueAmount: 1100,
     unrealizedPnlAmount: 100,
-    allocationPct: null,
+    allocationPct: 100,
     change: 1,
     changePercent: 0.92,
     previousClose: 109,
@@ -251,7 +251,8 @@ const details: TickerDetailsModel = {
     reportingCostBasisAmount: 1000,
     reportingMarketValueAmount: 1100,
     reportingUnrealizedPnlAmount: 100,
-    reportingAllocationPercent: null,
+    reportingAllocationPercent: 32.5,
+    reportingMarketAllocationPercent: 32.5,
     fxStatus: "complete",
     allocationBasisUsed: "market_value",
     allocationBasisFallbackReason: null,
@@ -282,6 +283,7 @@ const details: TickerDetailsModel = {
     reportingMarketValueAmount: 1100,
     reportingUnrealizedPnlAmount: 100,
     reportingAllocationPercent: 100,
+    reportingMarketAllocationPercent: 32.5,
     fxStatus: "complete",
     allocationBasisUsed: "market_value",
     allocationBasisFallbackReason: null,
@@ -765,6 +767,22 @@ describe("TickerHistoryClient", () => {
     });
 
     expect(appShellDataMocks.openQuickActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders market-scoped allocation on the position summary and account rows", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient();
+    await flushEffects();
+
+    const summary = element.querySelector('[data-testid="ticker-position-summary-market-allocation"]');
+    const accountRow = element.querySelector('[data-testid="ticker-account-breakdown-row-acc-2"]');
+
+    expect(summary?.textContent).toContain(dict.tickerHistory.marketAllocationLabel);
+    expect(summary?.textContent).toContain("32.5%");
+    expect(accountRow?.textContent).toContain(dict.tickerHistory.marketAllocationLabel);
+    expect(accountRow?.textContent).toContain("32.5%");
+    expect(element.textContent).toContain(dict.tickerHistory.marketAllocationSubtitle);
   });
 
   it("does not relabel native account values as reporting contribution when reporting amounts are missing", async () => {

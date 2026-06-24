@@ -806,11 +806,14 @@ export function TickerHistoryClient({
         currentPrice: child.currentUnitPrice,
         contribution,
         contributionCurrency: reportingCurrency,
+        marketAllocationPercent: child.reportingMarketAllocationPercent ?? child.reportingAllocationPercent ?? null,
         usedCostBasisFallback: marketValue == null && costBasis != null,
       };
     }),
     [accountBreakdownRows],
   );
+  const holdingGroupMarketAllocationPercent = effectiveHoldingGroup?.reportingMarketAllocationPercent ?? effectiveHoldingGroup?.reportingAllocationPercent ?? null;
+  const holdingGroupUsesCostBasisFallback = effectiveHoldingGroup?.allocationBasisFallbackReason === "missing_quote";
   const resolvedReportingCurrency =
     accountContributionData.find((row) => row.contributionCurrency)?.contributionCurrency
     ?? effectiveHoldingGroup?.reportingCurrency
@@ -1399,6 +1402,23 @@ export function TickerHistoryClient({
                     <p className="text-sm text-slate-500">{dict.tickerHistory.aggregateScopeLabel}</p>
                     <p className="mt-1 text-base font-semibold text-slate-950">{aggregateScopeLabel}</p>
                   </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3" data-testid="ticker-position-summary-market-allocation">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.marketAllocationLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{formatPercent(locale, holdingGroupMarketAllocationPercent)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
+                  <p className="font-medium text-slate-900">{dict.tickerHistory.marketAllocationTitle}</p>
+                  <p className="mt-1">{dict.tickerHistory.marketAllocationSubtitle}</p>
+                  <p className="mt-2">
+                    {holdingGroupUsesCostBasisFallback
+                      ? dict.holdings.allocationFallbackMissingQuote
+                      : formatTickerChartMessage(dict.tickerHistory.marketAllocationBasisSummary, {
+                          basis: effectiveHoldingGroup?.allocationBasisUsed === "cost_basis"
+                            ? dict.dashboardHome.allocationBasisCostBasis
+                            : dict.dashboardHome.allocationBasisMarketValue,
+                        })}
+                  </p>
                 </div>
               </Card>
               <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-account-breakdown">
@@ -1453,7 +1473,7 @@ export function TickerHistoryClient({
                               </p>
                               <p className="mt-1 break-words font-semibold text-foreground">{row.label}</p>
                             </div>
-                            <div className="grid min-w-0 gap-3 sm:min-w-[360px] sm:grid-cols-4">
+                            <div className="grid min-w-0 gap-3 sm:min-w-[440px] sm:grid-cols-5">
                               <div className="min-w-0">
                                 <p className="text-xs text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
                                 <p className="mt-1 break-words font-medium text-foreground">{formatNumber(row.quantity, locale)}</p>
@@ -1492,6 +1512,10 @@ export function TickerHistoryClient({
                                     {dict.dashboardHome.allocationFallbackLabel}
                                   </p>
                                 ) : null}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs text-muted-foreground">{dict.tickerHistory.marketAllocationLabel}</p>
+                                <p className="mt-1 break-words font-medium text-foreground">{formatPercent(locale, row.marketAllocationPercent)}</p>
                               </div>
                             </div>
                           </div>
