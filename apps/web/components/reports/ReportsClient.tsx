@@ -1312,7 +1312,6 @@ function TickerAllocationCard({
   const [topN, setTopN] = useState<TickerAllocationTopN>(DEFAULT_TICKER_ALLOCATION_TOP_N);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState("");
-  const [settingsContexts, setSettingsContexts] = useState<Record<string, { tickerAllocationChartMode?: TickerAllocationChartMode; tickerAllocationTopN?: TickerAllocationTopN }>>({});
   const [settingsHydrated, setSettingsHydrated] = useState(false);
 
   useEffect(() => {
@@ -1331,7 +1330,6 @@ function TickerAllocationCard({
         const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
         const contexts = parsed.success ? parsed.data.contexts : {};
         const context = contexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY];
-        setSettingsContexts(contexts);
         setChartMode(context?.tickerAllocationChartMode ?? DEFAULT_TICKER_ALLOCATION_CHART_MODE);
         setTopN(context?.tickerAllocationTopN ?? DEFAULT_TICKER_ALLOCATION_TOP_N);
         setSettingsHydrated(true);
@@ -1384,21 +1382,25 @@ function TickerAllocationCard({
 
   function persistChartSettings(nextMode: TickerAllocationChartMode, nextTopN: TickerAllocationTopN) {
     if (!settingsHydrated) return;
-    const nextContexts = {
-      ...settingsContexts,
-      [TICKER_ALLOCATION_CHART_CONTEXT_KEY]: {
-        ...settingsContexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY],
-        tickerAllocationChartMode: nextMode,
-        tickerAllocationTopN: nextTopN,
-      },
-    };
-    setSettingsContexts(nextContexts);
     setSettingsError("");
-    void patchJson(
-      "/user-preferences",
-      { holdingsTableSettings: { version: 1, contexts: nextContexts } },
-      { contextScope: "session" },
-    ).catch((error) => {
+    void (async () => {
+      const response = await getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" });
+      const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
+      const latestContexts = parsed.success ? parsed.data.contexts : {};
+      const nextContexts = {
+        ...latestContexts,
+        [TICKER_ALLOCATION_CHART_CONTEXT_KEY]: {
+          ...latestContexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY],
+          tickerAllocationChartMode: nextMode,
+          tickerAllocationTopN: nextTopN,
+        },
+      };
+      await patchJson(
+        "/user-preferences",
+        { holdingsTableSettings: { version: 1, contexts: nextContexts } },
+        { contextScope: "session" },
+      );
+    })().catch((error) => {
       setSettingsError(error instanceof Error ? error.message : String(error));
     });
   }

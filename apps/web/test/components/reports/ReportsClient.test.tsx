@@ -683,11 +683,25 @@ describe("ReportsClient", () => {
     const pieButton = Array.from(document.querySelectorAll("[data-testid='reports-ticker-allocation-mode'] button"))
       .find((button) => button.textContent?.includes("Pie"));
     expect(pieButton).toBeDefined();
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": {
+            columnOrder: ["ticker", "health", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+            hiddenColumns: ["health", "daily"],
+            columnWidths: { ticker: 260 },
+            layoutStyle: "portfolio",
+          },
+        },
+      },
+    };
     act(() => {
       pieButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(document.querySelector("[data-testid='reports-ticker-allocation-pie']")).not.toBeNull();
+    await act(async () => {});
     await act(async () => {});
 
     const settingsPatch = fetchMock.mock.calls.find(([_input, init]) => init?.method === "PATCH");
@@ -698,9 +712,9 @@ describe("ReportsClient", () => {
       };
     };
     expect(patchBody.holdingsTableSettings?.contexts?.["holdings.shared"]).toEqual({
-      columnOrder: ["health", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
-      hiddenColumns: ["health"],
-      columnWidths: { ticker: 220 },
+      columnOrder: ["ticker", "health", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+      hiddenColumns: ["health", "daily"],
+      columnWidths: { ticker: 260 },
       layoutStyle: "portfolio",
     });
     expect(patchBody.holdingsTableSettings?.contexts?.["reports.portfolio.tickerAllocation"]).toEqual({
