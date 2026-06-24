@@ -90,6 +90,9 @@ export function buildMarketDataRegistry(
     yahooKrPerMinute: () => getAppConfigCacheEntry()?.yahooKrProviderRateLimitPerMinute ?? env.YAHOO_KR_RATE_LIMIT_PER_MINUTE,
     frankfurterPerMinute: () => getAppConfigCacheEntry()?.frankfurterProviderRateLimitPerMinute ?? env.FRANKFURTER_RATE_LIMIT_PER_MINUTE,
   };
+  const providerMinRequestInterval = {
+    yahooKrMs: () => getAppConfigCacheEntry()?.yahooKrProviderMinRequestIntervalMs ?? 1_000,
+  };
 
   const finmindLimiter = new RateLimiter(providerBudget.finmindPerHour);
 
@@ -222,6 +225,7 @@ export function buildMarketDataRegistry(
     ? new MockYahooFinanceKrMarketDataProvider()
     : new YahooFinanceKrMarketDataProvider({
         rateLimiter: yahooKrLimiter,
+        minRequestIntervalMs: providerMinRequestInterval.yahooKrMs,
         resolverMode: env.YAHOO_KR_RESOLVER_MODE,
         persistence,
       });

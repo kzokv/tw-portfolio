@@ -200,6 +200,70 @@ describe("backfill handler trigger branching", () => {
     }));
   });
 
+  it("auto-resolves non-KR unresolved rows after successful provider-backed work", async () => {
+    const deps = createDeps();
+    deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol = vi.fn().mockResolvedValue(2);
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-resolve",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "running",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-resolve",
+      }) as never,
+    ]);
+
+    expect(deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol).toHaveBeenCalledWith({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      sourceSymbol: "2330",
+      operationId: "provider-op-resolve",
+    });
+  });
+
+  it("does not auto-resolve non-KR unresolved rows when a provider phase partially fails", async () => {
+    const deps = createDeps();
+    deps.provider.fetchDividends.mockRejectedValue(new Error("dividend provider failed"));
+    deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol = vi.fn().mockResolvedValue(2);
+    const providerHealth = { recordOutcome: vi.fn().mockResolvedValue(undefined) };
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-partial",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "running",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerHealth, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-partial",
+      }) as never,
+    ]);
+
+    expect(providerHealth.recordOutcome).toHaveBeenCalledWith("finmind-tw", expect.objectContaining({
+      kind: "error",
+      context: expect.objectContaining({ ticker: "2330", marketCode: "TW", phase: "dividends" }),
+    }));
+    expect(providerHealth.recordOutcome).toHaveBeenCalledWith("finmind-tw", { kind: "success" });
+    expect(deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol).not.toHaveBeenCalled();
+  });
+
   it("completes operation-backed backfill batches after every queued job reports", async () => {
     const deps = createDeps();
     const onBatchComplete = vi.fn().mockResolvedValue(undefined);

@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
+import { MinRequestIntervalPacer } from "../minRequestIntervalPacer.js";
 import type { InstrumentRow } from "../../../persistence/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "./twelveDataKr.js";
 
@@ -53,6 +54,7 @@ interface YahooQuoteResult {
 
 export interface YahooFinanceKrMarketDataProviderConfig {
   rateLimiter: RateLimiter;
+  minRequestIntervalMs?: number | (() => number);
   resolverMode?: YahooKrResolverMode;
   persistence?: {
     getProviderResolutionMapping(
@@ -119,12 +121,14 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   private readonly quoteFirstSymbolCache = new Map<string, string>();
   private readonly resolverMode: YahooKrResolverMode;
   private readonly persistence: YahooFinanceKrMarketDataProviderConfig["persistence"];
+  private readonly pacer: MinRequestIntervalPacer;
 
   constructor(config: YahooFinanceKrMarketDataProviderConfig) {
     this.rateLimiter = config.rateLimiter;
     this.client = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
     this.resolverMode = config.resolverMode ?? DEFAULT_YAHOO_KR_RESOLVER_MODE;
     this.persistence = config.persistence;
+    this.pacer = new MinRequestIntervalPacer(config.minRequestIntervalMs ?? 0);
   }
 
   private consumeOne(): void {
@@ -147,6 +151,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   }
 
   private async quoteRaw(symbol: string): Promise<YahooQuoteResult> {
+    await this.pacer.waitTurn();
     this.consumeOne();
     const quote = this.client.quote.bind(this.client) as unknown as (
       symbol: string,
@@ -157,6 +162,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   }
 
   private async chartRaw(symbol: string, options: Record<string, unknown>): Promise<YahooChartResult> {
+    await this.pacer.waitTurn();
     this.consumeOne();
     const chart = this.client.chart.bind(this.client) as unknown as (
       symbol: string,
@@ -167,6 +173,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   }
 
   private async searchRaw(query: string): Promise<YahooSearchResult> {
+    await this.pacer.waitTurn();
     this.consumeOne();
     const search = this.client.search.bind(this.client) as unknown as (
       query: string,

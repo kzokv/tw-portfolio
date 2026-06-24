@@ -3,13 +3,110 @@ import type {
   AdminMarketCalendarActiveVersionDto,
   AdminMarketDataOverviewResponse,
   AdminMarketDataProviderChipDto,
+  AdminMarketDataUnresolvedResponse as SharedAdminMarketDataUnresolvedResponse,
   AdminMarketWorkspaceTab,
+  ProviderFixerDashboardOperationPhase,
+  ProviderOperationOutcomeDto,
+  ProviderUnresolvedItemState,
+  ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
 
-export type AdminMarketWorkspaceUiTab = AdminMarketWorkspaceTab | "activity" | "calendar";
+export type AdminMarketWorkspaceUiTab = AdminMarketWorkspaceTab | "activity" | "calendar" | "unresolved";
 
 export interface AdminMarketDataOverviewUiResponse extends Omit<AdminMarketDataOverviewResponse, "tabs"> {
   tabs: AdminMarketWorkspaceUiTab[];
+  unresolvedInstrumentCount?: number | null;
+}
+
+export interface AdminMarketDataUnresolvedSummaryCardDto {
+  id: string;
+  label: string;
+  value: string | number;
+  detail?: string | null;
+}
+
+export interface AdminMarketDataUnresolvedFilterOption {
+  value: string;
+  label: string;
+}
+
+export interface AdminMarketDataUnresolvedItemDto {
+  id?: string;
+  providerId: string;
+  providerLabel?: string | null;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  errorCode: string;
+  errorLabel?: string | null;
+  sourceSymbol: string;
+  providerSymbol?: string | null;
+  instrumentName?: string | null;
+  affectedInstrumentCount?: number | null;
+  state: ProviderUnresolvedItemState;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  updatedAt?: string | null;
+  resolvedAt?: string | null;
+  resolvedByOperationId?: string | null;
+  supportState?: string | null;
+  backfillStatus?: string | null;
+  providerIds?: string[];
+  recommendedAction?: "repair_mapping" | "retry_via_backfill" | "ignore" | "mark_unsupported" | "reopen" | "none" | "review";
+  recommendedActionReason?: string | null;
+  recommendedActionLabel?: string | null;
+  evidenceSummary?: string | null;
+  evidence?: unknown;
+  latestEvidence?: string | null;
+  latestError?: string | null;
+  latestOperationOutcome?: ProviderOperationOutcomeDto | null;
+  actions?: Array<"retry_via_backfill" | "ignore" | "unsupported" | "reopen">;
+}
+
+export interface AdminMarketDataUnresolvedBlockingOperationDto {
+  operationId: string;
+  providerId: string;
+  providerLabel?: string | null;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  operationType: string;
+  phase: ProviderFixerDashboardOperationPhase | string;
+  summary: string;
+  detail?: string | null;
+  startedAt?: string | null;
+  updatedAt?: string | null;
+  canResume?: boolean;
+  canCancel?: boolean;
+}
+
+export interface AdminMarketDataUnresolvedQuery {
+  page: number;
+  limit: number;
+  providerId: string;
+  state: ProviderUnresolvedListState;
+  errorCode: string;
+  search: string;
+  sort: "last_seen_desc" | "updated_desc" | "occurrence_count_desc" | "source_symbol_asc";
+}
+
+export interface AdminMarketDataUnresolvedResponse extends Omit<SharedAdminMarketDataUnresolvedResponse, "summary" | "items" | "filters" | "marketCode"> {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  marketLabel?: string | null;
+  summary: AdminMarketDataUnresolvedSummaryCardDto[];
+  activeUnresolvedRowCount: number;
+  affectedInstrumentCount: number;
+  oldestUnresolvedAt?: string | null;
+  providers: AdminMarketDataProviderChipDto[];
+  filters?: {
+    providers?: AdminMarketDataUnresolvedFilterOption[];
+    states?: AdminMarketDataUnresolvedFilterOption[];
+    errorCodes?: AdminMarketDataUnresolvedFilterOption[];
+    sorts?: AdminMarketDataUnresolvedFilterOption[];
+  } | null;
+  blocker?: AdminMarketDataUnresolvedBlockingOperationDto | null;
+  items: AdminMarketDataUnresolvedItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+  query: AdminMarketDataUnresolvedQuery;
 }
 
 export type MarketActivityCategory =

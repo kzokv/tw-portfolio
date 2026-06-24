@@ -110,7 +110,15 @@ export interface BackfillWorkerDeps {
    * `upsertInstrumentCatalog` is needed; the handler keeps `pool`-based bars/dividends
    * writes via `upsertDailyBars` / `upsertDividendEvents` for legacy parity.
    */
-  persistence: { upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> };
+  persistence: {
+    upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
+    autoResolveProviderUnresolvedItemsBySourceSymbol?(input: {
+      providerId: string;
+      marketCode: MarketCode;
+      sourceSymbol: string;
+      operationId?: string | null;
+    }): Promise<number>;
+  };
   eventBus: BufferedEventBus;
   boss: PgBoss;
   /**
@@ -461,6 +469,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
       let barsCount = 0;
       let snapshotRepairFromDate: string | null = null;
+      let partialProviderFailureRecorded = false;
       if (includeBars) {
         const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
         log.info(
@@ -531,6 +540,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           // error_count_24h reflects the dividend fetch failure; the later
           // success call still fires (bars landed) and the resulting status
           // computes as `degraded` (success ≥ settled day AND errors ≥ 1).
+          partialProviderFailureRecorded = true;
           await safeRecordOutcome({
             kind: "error",
             errorClass: classifyProviderError(divErr),
@@ -583,6 +593,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             // KZO-177 (P2 Fix 1): mirror the dividend block — record the
             // partial-error outcome so the health aggregator sees the
             // metadata-enrichment failure even when bars+dividends landed.
+            partialProviderFailureRecorded = true;
             await safeRecordOutcome({
               kind: "error",
               errorClass: classifyProviderError(metaErr),
@@ -597,6 +608,22 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // status updates / SSE fan-out so the health aggregator's status machine
       // sees the success even if a later step throws.
       await safeRecordOutcome({ kind: "success" });
+
+      if (market !== "KR" && !partialProviderFailureRecorded) {
+        try {
+          await persistence.autoResolveProviderUnresolvedItemsBySourceSymbol?.({
+            providerId: healthProviderId,
+            marketCode: market,
+            sourceSymbol: ticker,
+            operationId: providerOperationId ?? null,
+          });
+        } catch (resolveErr) {
+          log.warn(
+            { err: resolveErr, providerId: healthProviderId, marketCode: market, ticker, providerOperationId },
+            "provider_unresolved_auto_resolve_failed",
+          );
+        }
+      }
 
       // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {

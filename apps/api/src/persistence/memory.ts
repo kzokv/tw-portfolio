@@ -129,6 +129,7 @@ import type {
   ListProviderOperationLogsResult,
   ListProviderOperationOutcomesOptions,
   ListProviderOperationOutcomesResult,
+  LatestProviderOperationOutcomeOptions,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
   ListProviderResolutionMappingsOptions,
@@ -435,6 +436,22 @@ function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord
   for (const row of rows) counts[row.state] += 1;
   const processed = counts.succeeded + counts.failed + counts.skipped + counts.rate_limited + counts.cancelled;
   const total = rows.length;
+  const result =
+    total === 0
+      ? "none"
+      : counts.running > 0 || counts.pending > 0
+        ? "running"
+        : counts.rate_limited > 0
+          ? "rate_limited"
+          : counts.failed > 0
+            ? counts.succeeded > 0 ? "partial" : "failed"
+            : counts.succeeded > 0 && (counts.skipped > 0 || counts.cancelled > 0)
+              ? "partial"
+              : counts.succeeded > 0
+                ? "all_succeeded"
+                : processed > 0
+                  ? "none_applied"
+                  : "none";
   return {
     total,
     processed,
@@ -446,6 +463,7 @@ function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord
     rateLimited: counts.rate_limited,
     cancelled: counts.cancelled,
     progressPercent: total > 0 ? Math.round((processed / total) * 100) : 0,
+    result,
   };
 }
 
@@ -4308,6 +4326,12 @@ export class MemoryPersistence implements Persistence {
     yahooKrProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
+    finmindProviderMinRequestIntervalMs: number | null;
+    twelveDataProviderMinRequestIntervalMs: number | null;
+    yahooAuProviderMinRequestIntervalMs: number | null;
+    yahooKrProviderMinRequestIntervalMs: number | null;
+    frankfurterProviderMinRequestIntervalMs: number | null;
+    asxGicsProviderMinRequestIntervalMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -4408,6 +4432,12 @@ export class MemoryPersistence implements Persistence {
       yahooKrProviderRateLimitPerMinute: numberOrNull(p.yahooKrProviderRateLimitPerMinute),
       frankfurterProviderRateLimitPerMinute: numberOrNull(p.frankfurterProviderRateLimitPerMinute),
       asxGicsProviderRateLimitPerHour: numberOrNull(p.asxGicsProviderRateLimitPerHour),
+      finmindProviderMinRequestIntervalMs: numberOrNull(p.finmindProviderMinRequestIntervalMs),
+      twelveDataProviderMinRequestIntervalMs: numberOrNull(p.twelveDataProviderMinRequestIntervalMs),
+      yahooAuProviderMinRequestIntervalMs: numberOrNull(p.yahooAuProviderMinRequestIntervalMs),
+      yahooKrProviderMinRequestIntervalMs: numberOrNull(p.yahooKrProviderMinRequestIntervalMs),
+      frankfurterProviderMinRequestIntervalMs: numberOrNull(p.frankfurterProviderMinRequestIntervalMs),
+      asxGicsProviderMinRequestIntervalMs: numberOrNull(p.asxGicsProviderMinRequestIntervalMs),
       backfillRetryLimit: numberOrNull(p.backfillRetryLimit),
       backfillRetryDelaySeconds: numberOrNull(p.backfillRetryDelaySeconds),
       backfillFinmind402RetryMs: numberOrNull(p.backfillFinmind402RetryMs),
@@ -6648,6 +6678,28 @@ export class MemoryPersistence implements Persistence {
     return updated;
   }
 
+  async autoResolveProviderUnresolvedItemsBySourceSymbol(
+    input: import("./types.js").AutoResolveProviderUnresolvedItemsBySourceSymbolInput,
+  ): Promise<number> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    if (sourceSymbol.length === 0) return 0;
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const [key, row] of this.providerUnresolvedItems.entries()) {
+      if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
+      if (row.sourceSymbol !== sourceSymbol || row.state !== "active") continue;
+      this.providerUnresolvedItems.set(key, {
+        ...row,
+        state: "resolved",
+        resolvedAt: now,
+        resolvedByOperationId: input.operationId ?? null,
+        updatedAt: now,
+      });
+      updated += 1;
+    }
+    return updated;
+  }
+
   async updateProviderUnresolvedItemState(
     input: UpdateProviderUnresolvedItemStateInput,
   ): Promise<ProviderUnresolvedItemRecord> {
@@ -6743,11 +6795,29 @@ export class MemoryPersistence implements Persistence {
     const page = Math.max(1, Math.floor(options.page) || 1);
     const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
     const phases = options.phases ? new Set(options.phases) : null;
+    const operationTypes = options.operationTypes ? new Set(options.operationTypes) : null;
+    const search = options.search?.trim().toLowerCase() ?? "";
+    const createdAfterMs = options.createdAfter ? Date.parse(options.createdAfter) : Number.NaN;
+    const createdBeforeMs = options.createdBefore ? Date.parse(options.createdBefore) : Number.NaN;
     const filtered = [...this.providerOperations.values()]
       .filter((row) => {
         if (options.providerId && row.providerId !== options.providerId) return false;
         if (options.marketCode && row.marketCode !== options.marketCode) return false;
+        if (operationTypes && !operationTypes.has(row.operationType)) return false;
         if (phases && !phases.has(row.phase)) return false;
+        if (Number.isFinite(createdAfterMs) && Date.parse(row.createdAt) < createdAfterMs) return false;
+        if (Number.isFinite(createdBeforeMs) && Date.parse(row.createdAt) > createdBeforeMs) return false;
+        if (search) {
+          const haystack = JSON.stringify([
+            row.id,
+            row.providerId,
+            row.marketCode,
+            row.operationType,
+            row.scopeQuery,
+            row.errorCode,
+          ]).toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
         return true;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -6756,7 +6826,7 @@ export class MemoryPersistence implements Persistence {
     if (options.includeOperationId) {
       const selected = filtered.find((row) => row.id === options.includeOperationId);
       if (selected && !items.some((row) => row.id === selected.id)) {
-        items.push(selected);
+        // Keep page order truthful; selected off-page is returned separately by the route layer.
       }
     }
     return {
@@ -7218,6 +7288,25 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async getLatestProviderOperationOutcome(
+    options: LatestProviderOperationOutcomeOptions,
+  ): Promise<ProviderOperationOutcomeRecord | null> {
+    const sourceSymbol = options.sourceSymbol.trim().toUpperCase();
+    const actions = new Set(options.actions ?? []);
+    const row = [...this.providerOperationOutcomes.values()]
+      .filter((outcome) => outcome.providerId === options.providerId)
+      .filter((outcome) => outcome.marketCode === options.marketCode)
+      .filter((outcome) => outcome.sourceSymbol.toUpperCase() === sourceSymbol)
+      .filter((outcome) => actions.size === 0 || actions.has(outcome.action))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    return row
+      ? {
+          ...row,
+          evidence: row.evidence ? { ...row.evidence } : null,
+        }
+      : null;
   }
 
   async getProviderResolutionMapping(
