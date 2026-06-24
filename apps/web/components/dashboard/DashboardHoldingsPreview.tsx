@@ -120,12 +120,13 @@ const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
 const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
-const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; label: string; sortMode: HoldingsPreviewSort }> = [
-  { id: "largest", label: "Largest", sortMode: "value" },
-  { id: "worst-pnl", label: "Worst P&L first", sortMode: "pnl" },
-  { id: "best-pnl", label: "Best P&L first", sortMode: "pnl" },
-  { id: "fx-exposure", label: "FX exposure", sortMode: "value" },
-  { id: "stale-quotes", label: "Stale quotes", sortMode: "ticker" },
+const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; sortMode: HoldingsPreviewSort }> = [
+  { id: "largest", sortMode: "value" },
+  { id: "highest-allocation", sortMode: "value" },
+  { id: "worst-pnl", sortMode: "pnl" },
+  { id: "best-pnl", sortMode: "pnl" },
+  { id: "fx-exposure", sortMode: "value" },
+  { id: "stale-quotes", sortMode: "ticker" },
 ];
 
 const HOLDING_FOCUS_PRESET_BY_ID = new Map(HOLDING_FOCUS_PRESETS.map((preset) => [preset.id, preset]));
@@ -1966,6 +1967,10 @@ function compareHoldingGroups(
     return (getDashboardUnitPnl(right, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY)
       - (getDashboardUnitPnl(left, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY);
   }
+  if (selectedPreset === "highest-allocation") {
+    return (right.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY)
+      - (left.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY);
+  }
   return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
 }
@@ -2181,6 +2186,8 @@ function holdingPresetLabel(dict: ReturnType<typeof getDictionary>, preset: Dash
   switch (preset) {
     case "largest":
       return dict.dashboardHome.topHoldingsPresetLargest;
+    case "highest-allocation":
+      return dict.dashboardHome.topHoldingsPresetHighestAllocation;
     case "worst-pnl":
       return dict.dashboardHome.topHoldingsPresetWorstPnl;
     case "best-pnl":

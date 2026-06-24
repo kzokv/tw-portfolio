@@ -521,6 +521,7 @@ describe("buildTickerDetails", () => {
     expect(calls.historicalReads).toEqual([]);
     expect(calls.latestReads).toEqual([
       { pairs: [{ ticker: "BHP", marketCode: "AU" }], limit: 2 },
+      { pairs: [{ ticker: "BHP", marketCode: "AU" }], limit: 1 },
     ]);
     expect(details.quote).toEqual(expect.objectContaining({
       currentUnitPrice: 45,
@@ -695,6 +696,74 @@ describe("buildTickerDetails", () => {
       fxStatus: "missing",
       allocationBasisUsed: "cost_basis",
       allocationBasisFallbackReason: "missing_quote",
+    }));
+  });
+
+  it("computes market-scoped allocation percentages for ticker group and account rows", async () => {
+    const store = buildCrossMarketStore();
+    const audFeeProfileTwo = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2",
+      userId: "user-1",
+      name: "Second AU Broker",
+      feeProfileId: audFeeProfileTwo.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(audFeeProfileTwo);
+    setStoreInstruments(store, [
+      ...store.instruments,
+      { ticker: "CBA", type: "STOCK", marketCode: "AU", isProvisional: false },
+    ]);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-au-2",
+      ticker: "CBA",
+      quantity: 4,
+      costBasisAmount: 280,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "cba-au-buy",
+      userId: "user-1",
+      accountId: "acc-au-2",
+      ticker: "CBA",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 4,
+      unitPrice: 70,
+      priceCurrency: "AUD",
+      tradeDate: "2026-02-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: audFeeProfileTwo,
+    });
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence([
+        { ticker: "BHP", marketCode: "AU", barDate: "2026-06-17", open: 44, high: 46, low: 43, close: 45, volume: 100, source: "daily" },
+        { ticker: "BHP", marketCode: "AU", barDate: "2026-06-16", open: 42, high: 45, low: 41, close: 44, volume: 100, source: "daily" },
+        { ticker: "CBA", marketCode: "AU", barDate: "2026-06-17", open: 69, high: 71, low: 68, close: 70, volume: 100, source: "daily" },
+      ]),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      accountId: "acc-au",
+      reportingCurrency: "AUD",
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(details.holdingGroup).toEqual(expect.objectContaining({
+      reportingAllocationPercent: 100,
+      reportingMarketAllocationPercent: 32.5301,
+    }));
+    expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
+      accountId: "acc-au",
+      reportingAllocationPercent: 100,
+      reportingMarketAllocationPercent: 32.5301,
     }));
   });
 

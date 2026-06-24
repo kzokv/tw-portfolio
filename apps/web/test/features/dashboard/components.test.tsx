@@ -748,7 +748,7 @@ describe("dashboard components", () => {
   it("hydrates and persists holding focus chip preferences", async () => {
     const fetchMock = mockUserPreferencesFetch({
       dashboardHoldingFocus: {
-        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl"],
         selectedPreset: "stale-quotes",
       },
@@ -802,7 +802,7 @@ describe("dashboard components", () => {
     expect(patchCall).toBeDefined();
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
       dashboardHoldingFocus: {
-        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl"],
         selectedPreset: "largest",
       },
@@ -1305,7 +1305,7 @@ describe("dashboard components", () => {
   it("selects the next visible chip before hiding the active holding focus preset", async () => {
     const fetchMock = mockUserPreferencesFetch({
       dashboardHoldingFocus: {
-        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl"],
         selectedPreset: "stale-quotes",
       },
@@ -1341,7 +1341,7 @@ describe("dashboard components", () => {
     expect(patchCalls.length).toBeGreaterThan(0);
     expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
       dashboardHoldingFocus: {
-        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl", "stale-quotes"],
         selectedPreset: "largest",
       },
@@ -1351,7 +1351,7 @@ describe("dashboard components", () => {
   it("persists holding focus chip reorder and reset actions", async () => {
     const fetchMock = mockUserPreferencesFetch({
       dashboardHoldingFocus: {
-        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["stale-quotes", "largest", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl"],
         selectedPreset: "stale-quotes",
       },
@@ -1386,7 +1386,7 @@ describe("dashboard components", () => {
     let patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
       dashboardHoldingFocus: {
-        presetOrder: ["largest", "stale-quotes", "worst-pnl", "best-pnl", "fx-exposure"],
+        presetOrder: ["largest", "stale-quotes", "worst-pnl", "best-pnl", "fx-exposure", "highest-allocation"],
         hiddenPresets: ["worst-pnl"],
         selectedPreset: "stale-quotes",
       },
@@ -1400,7 +1400,7 @@ describe("dashboard components", () => {
     patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
       dashboardHoldingFocus: {
-        presetOrder: ["largest", "worst-pnl", "best-pnl", "fx-exposure", "stale-quotes"],
+        presetOrder: ["largest", "highest-allocation", "worst-pnl", "best-pnl", "fx-exposure", "stale-quotes"],
         hiddenPresets: [],
         selectedPreset: "largest",
       },
