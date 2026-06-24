@@ -941,6 +941,19 @@ describe("Provider Fixer admin routes", () => {
         baseCurrency: "USD",
       },
     });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx-refresh-action",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_fx_rates",
+      phase: "completed",
+      matchCount: 4,
+      metadata: {
+        scope: "FX rates",
+        source: "frankfurter",
+        baseCurrency: "USD",
+      },
+    });
 
     const auResponse = await app.inject({
       method: "GET",
@@ -978,6 +991,10 @@ describe("Provider Fixer admin routes", () => {
       items: expect.arrayContaining([
         expect.objectContaining({
           id: "provider-op-fx-refresh",
+          details: expect.objectContaining({ kind: "refresh_rates" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-fx-refresh-action",
           details: expect.objectContaining({ kind: "refresh_rates" }),
         }),
       ]),
@@ -1905,6 +1922,59 @@ describe("Provider Fixer admin routes", () => {
     expect(unresolved.statusCode).toBe(200);
     expect(unresolved.json()).toMatchObject({
       items: [expect.objectContaining({ providerId: "finmind-tw", sourceSymbol: "2330", state: "ignored" })],
+    });
+  });
+
+  it("marks market unresolved single-row operations failed when the target row is stale", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state",
+      headers,
+      payload: {
+        providerId: "finmind-tw",
+        errorCode: "provider_symbol_unresolved",
+        sourceSymbol: "MISSING",
+        state: "ignored",
+        reason: "stale row",
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: "provider_unresolved_item_not_found" });
+    const operations = await app.persistence.listProviderOperations({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      page: 1,
+      limit: 10,
+    });
+    const failedOperation = operations.items.find((operation) => operation.operationType === "ignore_unresolved");
+    expect(failedOperation).toMatchObject({
+      phase: "failed",
+      matchCount: 1,
+      metadata: expect.objectContaining({
+        sourceSymbol: "MISSING",
+        targetState: "ignored",
+        failureReason: "provider unresolved item not found",
+      }),
+    });
+    expect(await app.persistence.hasActiveProviderExecution("finmind-tw", "TW")).toBe(false);
+    const outcomes = await app.persistence.listProviderOperationOutcomes({
+      operationId: failedOperation!.id,
+      page: 1,
+      limit: 10,
+    });
+    expect(outcomes).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "MISSING",
+          state: "failed",
+          errorCode: "provider_unresolved_state_update_failed",
+        }),
+      ],
     });
   });
 

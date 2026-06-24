@@ -2018,7 +2018,7 @@ function marketDataOperationDetails(
   if (operationType === "sync_catalog") {
     return { kind: "sync_catalog", operationType, fields };
   }
-  if (operationType === "refresh_rates") {
+  if (operationType === "refresh_rates" || operationType === "refresh_fx_rates") {
     return { kind: "refresh_rates", operationType, fields };
   }
   if (operationType === "sync_asx_gics") {
@@ -7833,15 +7833,56 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       actorUserId: sessionUserId,
       startedAt: new Date().toISOString(),
     });
-    const updated = await app.persistence.updateProviderUnresolvedItemState({
-      providerId: body.providerId,
-      marketCode,
-      errorCode: body.errorCode,
-      sourceSymbol: body.sourceSymbol,
-      state: body.state,
-      actorUserId: sessionUserId,
-      reason: body.reason ?? null,
-    });
+    let updated: Awaited<ReturnType<typeof app.persistence.updateProviderUnresolvedItemState>>;
+    try {
+      updated = await app.persistence.updateProviderUnresolvedItemState({
+        providerId: body.providerId,
+        marketCode,
+        errorCode: body.errorCode,
+        sourceSymbol: body.sourceSymbol,
+        state: body.state,
+        actorUserId: sessionUserId,
+        reason: body.reason ?? null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Provider unresolved lifecycle update failed.";
+      const failed = await app.persistence.updateProviderOperation({
+        id: operation.id,
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        metadata: {
+          ...(asRecord(operation.metadata) ?? {}),
+          progressPercent: 100,
+          failureReason: message,
+          failureName: err instanceof Error ? err.name : "UnknownError",
+        },
+      });
+      await app.persistence.upsertProviderOperationOutcome({
+        operationId: operation.id,
+        providerId: body.providerId,
+        marketCode,
+        sourceSymbol: body.sourceSymbol,
+        providerSymbol: body.sourceSymbol,
+        action,
+        state: "failed",
+        message,
+        errorCode: "provider_unresolved_state_update_failed",
+        evidence: { targetState: body.state, reason: body.reason ?? null },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: operation.id,
+        phase: failed.phase,
+        level: "error",
+        message: `${action}_failed provider=${body.providerId} market=${marketCode} source_symbol=${body.sourceSymbol} reason=${message}`,
+        context: { providerId: body.providerId, marketCode, errorCode: body.errorCode, sourceSymbol: body.sourceSymbol, errorMessage: message },
+      });
+      await app.eventBus.publishEvent(sessionUserId, "provider_operation_phase_changed", {
+        operationId: operation.id,
+        providerId: body.providerId,
+        phase: failed.phase,
+      });
+      throw err;
+    }
     await app.persistence.upsertProviderOperationOutcome({
       operationId: operation.id,
       providerId: body.providerId,
