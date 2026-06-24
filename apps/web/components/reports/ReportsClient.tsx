@@ -2359,9 +2359,9 @@ function buildOtherTickerAllocationRow(rows: TickerAllocationViewRow[]): TickerA
     marketCode: rows.length === 1 ? rows[0]!.marketCode : "MULTI",
     accountCount: rows.reduce((sum, row) => sum + row.accountCount, 0),
     reportingCurrency: rows[0]?.reportingCurrency ?? "TWD",
-    reportingAmount: rows.reduce((sum, row) => sum + (row.reportingAmount ?? 0), 0),
-    portfolioAllocationPercent: rows.reduce((sum, row) => sum + (row.portfolioAllocationPercent ?? 0), 0),
-    selectedAllocationPercent: rows.reduce((sum, row) => sum + (row.selectedAllocationPercent ?? 0), 0),
+    reportingAmount: sumNullableAllocationMetric(rows, (row) => row.reportingAmount),
+    portfolioAllocationPercent: sumNullableAllocationMetric(rows, (row) => row.portfolioAllocationPercent),
+    selectedAllocationPercent: sumNullableAllocationMetric(rows, (row) => row.selectedAllocationPercent),
     allocationBasisUsed: rows.every((row) => row.allocationBasisUsed === "cost_basis") ? "cost_basis" : "market_value",
     allocationBasisFallbackReason: rows.some((row) => row.allocationBasisFallbackReason === "missing_quote") ? "missing_quote" : null,
     quoteStatus: rows.some((row) => row.quoteStatus === "missing")
@@ -2376,6 +2376,20 @@ function buildOtherTickerAllocationRow(rows: TickerAllocationViewRow[]): TickerA
         : "complete",
     isOther: true,
   };
+}
+
+function sumNullableAllocationMetric(
+  rows: TickerAllocationViewRow[],
+  select: (row: TickerAllocationViewRow) => number | null,
+): number | null {
+  let hasNumericValue = false;
+  const total = rows.reduce((sum, row) => {
+    const value = select(row);
+    if (value === null) return sum;
+    hasNumericValue = true;
+    return sum + value;
+  }, 0);
+  return hasNumericValue ? total : null;
 }
 
 function resolveTickerAllocationTopNLimit(total: number, topN: TickerAllocationTopN): number | null {

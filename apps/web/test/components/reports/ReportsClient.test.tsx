@@ -791,6 +791,112 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-ticker-allocation-market-filter']")?.textContent).toContain("All markets");
   });
 
+  it("keeps unavailable values unavailable when missing rows collapse into the Other allocation bucket", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.portfolio.tickerAllocation": {
+            tickerAllocationChartMode: "bars",
+            tickerAllocationTopN: "5",
+          },
+        },
+      },
+    };
+    const missingOtherFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      allocation: {
+        ...portfolioFixture.allocation,
+        byTicker: [
+          { ...portfolioFixture.allocation.byTicker[0]!, reportingAmount: 1200, portfolioAllocationPercent: 40 },
+          {
+            ticker: "AAPL",
+            instrumentName: "Apple Inc.",
+            marketCode: "US",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: 900,
+            portfolioAllocationPercent: 30,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "complete",
+          },
+          {
+            ticker: "MSFT",
+            instrumentName: "Microsoft Corporation",
+            marketCode: "US",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: 600,
+            portfolioAllocationPercent: 20,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "complete",
+          },
+          {
+            ticker: "VTS",
+            instrumentName: "Vanguard US Total Market Shares Index ETF",
+            marketCode: "AU",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: 200,
+            portfolioAllocationPercent: 7,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "complete",
+          },
+          {
+            ticker: "NDQ",
+            instrumentName: "BetaShares Nasdaq 100 ETF",
+            marketCode: "AU",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: 90,
+            portfolioAllocationPercent: 3,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "complete",
+          },
+          {
+            ticker: "005930",
+            instrumentName: "Samsung Electronics",
+            marketCode: "KR",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: null,
+            portfolioAllocationPercent: null,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "missing",
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={missingOtherFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+    await act(async () => {});
+    await act(async () => {});
+
+    const otherRow = document.querySelector("[data-testid='reports-ticker-allocation-row-other']");
+    expect(otherRow).not.toBeNull();
+    expect(otherRow?.textContent).toContain("Other");
+    expect(otherRow?.textContent).toContain("-");
+    expect(otherRow?.textContent).not.toContain("A$0");
+    expect(otherRow?.textContent).not.toContain("0%");
+  });
+
   it("renders legacy cached portfolio reports without ticker allocation rows", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
     const legacyPortfolioFixture: PortfolioReportDto = {
