@@ -1567,7 +1567,30 @@ function TickerAllocationPieChart({
   selectedKey: string | null;
 }) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slices = useMemo(() => buildTickerAllocationPieSlices(rows), [rows]);
+
+  const cancelPendingClose = useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+  const openSlice = useCallback((key: string) => {
+    cancelPendingClose();
+    onSelect(key);
+    setHoveredKey(key);
+  }, [cancelPendingClose, onSelect]);
+  const scheduleCloseSlice = useCallback((key: string) => {
+    cancelPendingClose();
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredKey((current) => current === key ? null : current);
+      closeTimerRef.current = null;
+    }, 120);
+  }, [cancelPendingClose]);
+
+  useEffect(() => () => {
+    cancelPendingClose();
+  }, [cancelPendingClose]);
 
   return (
     <div className="mx-auto size-56">
@@ -1598,23 +1621,21 @@ function TickerAllocationPieChart({
                   fill={tickerAllocationColor(slice.index)}
                   role="button"
                   tabIndex={0}
-                  onBlur={() => setHoveredKey(null)}
-                  onClick={() => {
-                    onSelect(slice.row.key);
-                    setHoveredKey(slice.row.key);
-                  }}
-                  onFocus={() => {
-                    onSelect(slice.row.key);
-                    setHoveredKey(slice.row.key);
-                  }}
-                  onMouseEnter={() => {
-                    onSelect(slice.row.key);
-                    setHoveredKey(slice.row.key);
-                  }}
-                  onMouseLeave={() => setHoveredKey(null)}
+                  onBlur={() => scheduleCloseSlice(slice.row.key)}
+                  onClick={() => openSlice(slice.row.key)}
+                  onFocus={() => openSlice(slice.row.key)}
+                  onMouseEnter={() => openSlice(slice.row.key)}
+                  onMouseLeave={() => scheduleCloseSlice(slice.row.key)}
                 />
               </PopoverTrigger>
-              <PopoverContent align="center" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+              <PopoverContent
+                align="center"
+                className="w-[min(22rem,calc(100vw-2rem))] p-0"
+                onBlur={() => scheduleCloseSlice(slice.row.key)}
+                onFocus={() => openSlice(slice.row.key)}
+                onMouseEnter={() => openSlice(slice.row.key)}
+                onMouseLeave={() => scheduleCloseSlice(slice.row.key)}
+              >
                 <TickerAllocationDetailPanel dict={dict} locale={locale} row={slice.row} />
               </PopoverContent>
             </Popover>

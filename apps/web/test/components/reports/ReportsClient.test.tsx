@@ -958,6 +958,15 @@ describe("ReportsClient", () => {
     expect(detail?.textContent).toContain("BHP");
     expect(detail?.textContent).toContain("BHP Group");
     expect(detail?.textContent).toContain("100%");
+    act(() => {
+      slice?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+      detail?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-detail']")?.textContent).toContain("BHP");
   });
 
   it("does not patch ticker allocation chart settings after preferences fail to load", async () => {
