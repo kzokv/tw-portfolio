@@ -1019,7 +1019,7 @@ function PortfolioReportView({
         locale={locale}
         onRefresh={onRefresh}
         reportScope={data.query.scope}
-        rows={data.allocation.byTicker}
+        rows={Array.isArray(data.allocation.byTicker) ? data.allocation.byTicker : []}
       />
       <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
@@ -1337,7 +1337,8 @@ function TickerAllocationCard({
         setSettingsHydrated(true);
       })
       .catch(() => {
-        setSettingsHydrated(true);
+        if (cancelled) return;
+        setSettingsError(dict.reports.tickerAllocationSettingsLoadError);
       });
     return () => {
       cancelled = true;
@@ -1492,7 +1493,13 @@ function TickerAllocationCard({
                 </div>
               ) : (
                 <div className="grid gap-4 rounded-xl border border-border p-4" data-testid="reports-ticker-allocation-pie">
-                  <div className="mx-auto size-52 rounded-full border border-border" style={{ background: buildTickerAllocationPieGradient(rowsWithSelectedWeight) }} />
+                  <TickerAllocationPieChart
+                    dict={dict}
+                    locale={locale}
+                    rows={rowsWithSelectedWeight}
+                    selectedKey={selectedRow?.key ?? null}
+                    onSelect={setSelectedKey}
+                  />
                   <div className="grid gap-2">
                     {rowsWithSelectedWeight.map((row, index) => (
                       <Popover key={row.key}>
@@ -1533,6 +1540,91 @@ function TickerAllocationCard({
         {settingsError ? <p className="mt-3 text-xs text-destructive">{settingsError}</p> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function TickerAllocationPieChart({
+  dict,
+  locale,
+  onSelect,
+  rows,
+  selectedKey,
+}: {
+  dict: AppDictionary;
+  locale: LocaleCode;
+  onSelect: (key: string) => void;
+  rows: TickerAllocationViewRow[];
+  selectedKey: string | null;
+}) {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const slices = useMemo(() => buildTickerAllocationPieSlices(rows), [rows]);
+
+  return (
+    <div className="mx-auto size-56">
+      <svg
+        aria-label={dict.reports.tickerAllocationTitle}
+        className="size-full overflow-visible"
+        data-testid="reports-ticker-allocation-pie-chart"
+        role="img"
+        viewBox="0 0 100 100"
+      >
+        <circle cx="50" cy="50" r="48" className="fill-muted stroke-border" />
+        {slices.map((slice) => {
+          const open = hoveredKey === slice.row.key;
+          const label = slice.row.isOther
+            ? dict.reports.tickerAllocationOtherLabel
+            : [slice.row.ticker, slice.row.instrumentName].filter(Boolean).join(" · ");
+          return (
+            <Popover key={slice.row.key} open={open}>
+              <PopoverTrigger asChild>
+                <path
+                  aria-label={`${label}: ${formatPercent(slice.percent, locale)}`}
+                  className={cn(
+                    "cursor-pointer stroke-background stroke-[0.8] outline-none transition-opacity hover:opacity-85 focus-visible:opacity-85 focus-visible:ring-2 focus-visible:ring-primary",
+                    selectedKey === slice.row.key && "stroke-primary stroke-[1.4]",
+                  )}
+                  d={slice.path}
+                  data-testid={`reports-ticker-allocation-pie-slice-${slice.row.key}`}
+                  fill={tickerAllocationColor(slice.index)}
+                  role="button"
+                  tabIndex={0}
+                  onBlur={() => setHoveredKey(null)}
+                  onClick={() => {
+                    onSelect(slice.row.key);
+                    setHoveredKey(slice.row.key);
+                  }}
+                  onFocus={() => {
+                    onSelect(slice.row.key);
+                    setHoveredKey(slice.row.key);
+                  }}
+                  onMouseEnter={() => {
+                    onSelect(slice.row.key);
+                    setHoveredKey(slice.row.key);
+                  }}
+                  onMouseLeave={() => setHoveredKey(null)}
+                />
+              </PopoverTrigger>
+              <PopoverContent align="center" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+                <TickerAllocationDetailPanel dict={dict} locale={locale} row={slice.row} />
+              </PopoverContent>
+            </Popover>
+          );
+        })}
+        {slices.flatMap((slice) => slice.labelLines.map((line, lineIndex) => (
+          <text
+            key={`${slice.row.key}-${lineIndex}`}
+            className="pointer-events-none fill-background text-[4px] font-semibold [paint-order:stroke] [stroke:hsl(var(--foreground))] [stroke-width:0.6px]"
+            data-testid={lineIndex === 0 ? `reports-ticker-allocation-pie-label-${slice.row.key}` : undefined}
+            dominantBaseline="middle"
+            textAnchor="middle"
+            x={slice.labelX}
+            y={slice.labelY + ((lineIndex - ((slice.labelLines.length - 1) / 2)) * 5)}
+          >
+            {line}
+          </text>
+        )))}
+      </svg>
+    </div>
   );
 }
 
@@ -2286,16 +2378,76 @@ function resolveTickerAllocationTopNLimit(total: number, topN: TickerAllocationT
   return 20;
 }
 
-function buildTickerAllocationPieGradient(rows: TickerAllocationViewRow[]): string {
-  if (rows.length === 0) return "conic-gradient(hsl(var(--muted)) 0deg 360deg)";
-  let start = 0;
-  const segments = rows.map((row, index) => {
-    const end = start + (((row.selectedAllocationPercent ?? 0) / 100) * 360);
-    const segment = `${tickerAllocationColor(index)} ${start}deg ${end}deg`;
-    start = end;
-    return segment;
+type TickerAllocationPieSlice = {
+  index: number;
+  labelLines: string[];
+  labelX: number;
+  labelY: number;
+  path: string;
+  percent: number;
+  row: TickerAllocationViewRow;
+};
+
+function buildTickerAllocationPieSlices(rows: TickerAllocationViewRow[]): TickerAllocationPieSlice[] {
+  const positiveRows = rows
+    .map((row, index) => ({ row, index, percent: Math.max(row.selectedAllocationPercent ?? 0, 0) }))
+    .filter((slice) => slice.percent > 0);
+  const totalPercent = positiveRows.reduce((sum, slice) => sum + slice.percent, 0);
+  if (totalPercent <= 0) return [];
+
+  let startAngle = 0;
+  return positiveRows.map((slice) => {
+    const sweep = (slice.percent / totalPercent) * 360;
+    const endAngle = startAngle + sweep;
+    const labelAngle = startAngle + (sweep / 2);
+    const labelPoint = polarToCartesian(50, 50, 29, labelAngle);
+    const result: TickerAllocationPieSlice = {
+      index: slice.index,
+      labelLines: tickerAllocationPieLabelLines(slice.row, slice.percent),
+      labelX: labelPoint.x,
+      labelY: labelPoint.y,
+      path: describePieSlicePath(50, 50, 48, startAngle, endAngle),
+      percent: slice.percent,
+      row: slice.row,
+    };
+    startAngle = endAngle;
+    return result;
   });
-  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function tickerAllocationPieLabelLines(row: TickerAllocationViewRow, percent: number): string[] {
+  if (percent < 8) return [];
+  const percentLabel = `${formatNumber(percent, "en", percent >= 10 ? 0 : 1)}%`;
+  if (row.isOther) return [percent >= 18 ? "Other" : "", percentLabel].filter(Boolean);
+  if (percent >= 28 && row.instrumentName) {
+    return [row.ticker, truncatePieLabel(row.instrumentName), percentLabel];
+  }
+  return [row.ticker, percentLabel];
+}
+
+function truncatePieLabel(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 15)}...` : value;
+}
+
+function describePieSlicePath(centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number): string {
+  const adjustedEndAngle = endAngle - startAngle >= 360 ? startAngle + 359.99 : endAngle;
+  const start = polarToCartesian(centerX, centerY, radius, startAngle);
+  const end = polarToCartesian(centerX, centerY, radius, adjustedEndAngle);
+  const largeArcFlag = adjustedEndAngle - startAngle > 180 ? 1 : 0;
+  return [
+    `M ${centerX} ${centerY}`,
+    `L ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function polarToCartesian(centerX: number, centerY: number, radius: number, angleInDegrees: number): { x: number; y: number } {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: centerX + (radius * Math.cos(angleInRadians)),
+    y: centerY + (radius * Math.sin(angleInRadians)),
+  };
 }
 
 function tickerAllocationColor(index: number): string {

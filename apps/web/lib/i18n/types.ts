@@ -639,6 +639,7 @@ export interface AppDictionary {
     tickerAllocationBasisFallbackSummary: string;
     tickerAllocationFxStatus: string;
     tickerAllocationFallbackNotNeeded: string;
+    tickerAllocationSettingsLoadError: string;
     reportingValue: string;
     incomeTitle: string;
     postedDividendRows: string;

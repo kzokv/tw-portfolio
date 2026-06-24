@@ -112,6 +112,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         tickerAllocationBasisFallbackSummary: "Allocation basis: {basis}. Cost basis fallback used by {count} ticker(s).",
         tickerAllocationFxStatus: "FX status",
         tickerAllocationFallbackNotNeeded: "Not needed",
+        tickerAllocationSettingsLoadError: "Unable to load allocation chart settings.",
         reportingValue: "Reporting value",
         incomeTitle: "Income",
         postedDividendRows: "{count} posted dividend row(s)",
@@ -641,6 +642,19 @@ describe("ReportsClient", () => {
 
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": {
+            columnOrder: ["health", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+            hiddenColumns: ["health"],
+            columnWidths: { ticker: 220 },
+            layoutStyle: "portfolio",
+          },
+        },
+      },
+    };
 
     act(() => {
       root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
@@ -674,6 +688,119 @@ describe("ReportsClient", () => {
     });
 
     expect(document.querySelector("[data-testid='reports-ticker-allocation-pie']")).not.toBeNull();
+    await act(async () => {});
+
+    const settingsPatch = fetchMock.mock.calls.find(([_input, init]) => init?.method === "PATCH");
+    expect(settingsPatch).toBeDefined();
+    const patchBody = JSON.parse(String(settingsPatch?.[1]?.body)) as {
+      holdingsTableSettings?: {
+        contexts?: Record<string, unknown>;
+      };
+    };
+    expect(patchBody.holdingsTableSettings?.contexts?.["holdings.shared"]).toEqual({
+      columnOrder: ["health", "ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
+      hiddenColumns: ["health"],
+      columnWidths: { ticker: 220 },
+      layoutStyle: "portfolio",
+    });
+    expect(patchBody.holdingsTableSettings?.contexts?.["reports.portfolio.tickerAllocation"]).toEqual({
+      tickerAllocationChartMode: "pie",
+      tickerAllocationTopN: "auto",
+    });
+  });
+
+  it("renders legacy cached portfolio reports without ticker allocation rows", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const legacyPortfolioFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      allocation: {
+        byMarket: portfolioFixture.allocation.byMarket,
+        byAccount: portfolioFixture.allocation.byAccount,
+      } as PortfolioReportDto["allocation"],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={legacyPortfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const allocationCard = document.querySelector("[data-testid='reports-ticker-allocation-card']");
+    expect(allocationCard?.textContent).toContain("Ticker allocation");
+    expect(allocationCard?.textContent).toContain("0 bucket(s)");
+  });
+
+  it("shows ticker details and large-slice labels from the pie chart itself", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const pieButton = Array.from(document.querySelectorAll("[data-testid='reports-ticker-allocation-mode'] button"))
+      .find((button) => button.textContent?.includes("Pie"));
+    expect(pieButton).toBeDefined();
+    act(() => {
+      pieButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    const sliceLabel = document.querySelector("[data-testid='reports-ticker-allocation-pie-label-AU:BHP']");
+    expect(sliceLabel?.textContent).toContain("BHP");
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-pie-chart']")?.textContent).toContain("100%");
+
+    const slice = document.querySelector("[data-testid='reports-ticker-allocation-pie-slice-AU:BHP']");
+    expect(slice).not.toBeNull();
+    act(() => {
+      slice?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    const detail = document.querySelector("[data-testid='reports-ticker-allocation-detail']");
+    expect(detail?.textContent).toContain("BHP");
+    expect(detail?.textContent).toContain("BHP Group");
+    expect(detail?.textContent).toContain("100%");
+  });
+
+  it("does not patch ticker allocation chart settings after preferences fail to load", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return new Response(JSON.stringify({ preferences: userPreferencesMock.value }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: "Failed to load settings" }), { status: 500 });
+    });
+
+    act(() => {
+      root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const pieButton = Array.from(document.querySelectorAll("[data-testid='reports-ticker-allocation-mode'] button"))
+      .find((button) => button.textContent?.includes("Pie"));
+    expect(pieButton).toBeDefined();
+    act(() => {
+      pieButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-pie']")).not.toBeNull();
+    expect(fetchMock.mock.calls.some(([_input, init]) => init?.method === "PATCH")).toBe(false);
   });
 
   it("colors Today severity badges by level", async () => {
