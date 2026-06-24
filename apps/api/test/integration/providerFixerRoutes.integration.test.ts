@@ -887,6 +887,103 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("returns typed market operation details for catalog sync, FX refresh, and ASX GICS", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.createProviderOperation({
+      id: "provider-op-catalog-sync",
+      providerId: "twelve-data-au",
+      marketCode: "AU",
+      operationType: "sync_catalog",
+      phase: "completed",
+      matchCount: 2,
+      metadata: {
+        scope: "AU catalog",
+        source: "twelve-data",
+        importedRows: 2,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-asx-gics",
+      providerId: "asx-gics-csv",
+      marketCode: "AU",
+      operationType: "sync_asx_gics",
+      phase: "completed",
+      matchCount: 3,
+      metadata: {
+        scope: "ASX GICS enrichment",
+        source: "asx-csv",
+        importedRows: 3,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-running-au-backfill",
+      providerId: "yahoo-finance-au",
+      marketCode: "AU",
+      operationType: "backfill_catalog_rows",
+      phase: "running",
+      matchCount: 5,
+      metadata: {
+        scope: "AU selected unresolved retry",
+        progressPercent: 25,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx-refresh",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_rates",
+      phase: "completed",
+      matchCount: 4,
+      metadata: {
+        scope: "FX rates",
+        source: "frankfurter",
+        baseCurrency: "USD",
+      },
+    });
+
+    const auResponse = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/AU/operations?page=1&limit=10",
+      headers,
+    });
+    const fxResponse = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/FX/operations?page=1&limit=10",
+      headers,
+    });
+
+    expect(auResponse.statusCode).toBe(200);
+    expect(fxResponse.statusCode).toBe(200);
+    expect(auResponse.json()).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "provider-op-catalog-sync",
+          details: expect.objectContaining({ kind: "sync_catalog" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-asx-gics",
+          details: expect.objectContaining({ kind: "sync_asx_gics" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-running-au-backfill",
+          canPause: false,
+          canResume: false,
+          canCancel: true,
+          details: expect.objectContaining({ kind: "backfill_catalog_rows" }),
+        }),
+      ]),
+    });
+    expect(fxResponse.json()).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "provider-op-fx-refresh",
+          details: expect.objectContaining({ kind: "refresh_rates" }),
+        }),
+      ]),
+    });
+  });
+
   it("returns normalized operation controls and treats date-only end filters as inclusive days", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -1684,6 +1781,316 @@ describe("Provider Fixer admin routes", () => {
         priority: 10,
       }),
     );
+  });
+
+  it("lists market-scoped unresolved rows with summary counts and instrument context", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const unresolved = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/unresolved?state=all&page=1&limit=10",
+      headers,
+    });
+    expect(unresolved.statusCode).toBe(200);
+    expect(unresolved.json()).toMatchObject({
+      marketCode: "TW",
+      summary: {
+        activeRowCount: 1,
+        affectedInstrumentCount: 1,
+        byProvider: [expect.objectContaining({ key: "finmind-tw", count: 1, activeCount: 1 })],
+        byErrorCode: [expect.objectContaining({ key: "provider_symbol_unresolved", count: 1, activeCount: 1 })],
+      },
+      items: [
+        expect.objectContaining({
+          providerId: "finmind-tw",
+          marketCode: "TW",
+          sourceSymbol: "2330",
+          instrumentName: "TSMC",
+          supportState: "supported",
+          backfillStatus: "pending",
+          recommendedAction: "retry_via_backfill",
+        }),
+      ],
+    });
+
+    const overview = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/overview",
+      headers,
+    });
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json()).toMatchObject({
+      marketCode: "TW",
+      unresolvedCount: 1,
+      affectedInstrumentCount: 1,
+    });
+  });
+
+  it("enforces typed confirmation for filter-scoped market unresolved bulk changes", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "filter",
+          filter: { providerId: "finmind-tw", state: "active", errorCode: "provider_symbol_unresolved" },
+        },
+        state: "ignored",
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: "provider_fixer_typed_confirmation_required" });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "filter",
+          filter: { providerId: "finmind-tw", state: "active", errorCode: "provider_symbol_unresolved" },
+        },
+        state: "ignored",
+        typedConfirmation: "IGNORED 1",
+      },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toMatchObject({ updatedCount: 1, succeeded: 1, failed: 0 });
+
+    const unresolved = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/unresolved?state=ignored&page=1&limit=10",
+      headers,
+    });
+    expect(unresolved.statusCode).toBe(200);
+    expect(unresolved.json()).toMatchObject({
+      items: [expect.objectContaining({ providerId: "finmind-tw", sourceSymbol: "2330", state: "ignored" })],
+    });
+  });
+
+  it("dedupes selected unresolved rows into backfill targets for market retry previews and execution", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn().mockResolvedValue("job-unresolved-tw-2330");
+    app.boss = { send: bossSend } as never;
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_history_missing",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "finmind-tw",
+        selectedUnresolvedRows: [
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_history_missing", sourceSymbol: "2330" },
+        ],
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as {
+      operationId: string;
+      previewToken: string;
+      matchCount: number;
+      unresolvedSelection: {
+        selectedRowCount: number;
+        dedupedTargetCount: number;
+        dedupedAwayRowCount: number;
+        skippedRowCount: number;
+      };
+    };
+    expect(previewBody).toMatchObject({
+      matchCount: 1,
+      unresolvedSelection: {
+        selectedRowCount: 2,
+        dedupedTargetCount: 1,
+        dedupedAwayRowCount: 1,
+        skippedRowCount: 0,
+      },
+    });
+
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/execute",
+      headers,
+      payload: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(200);
+    expect(execute.json()).toMatchObject({
+      marketCode: "TW",
+      matchCount: 1,
+      unresolvedSelection: previewBody.unresolvedSelection,
+    });
+    expect(bossSend).toHaveBeenCalledTimes(1);
+    expect(bossSend).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        trigger: "admin_rerun",
+        providerOperationId: previewBody.operationId,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("returns blocking operation details on market unresolved retry conflicts", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "finmind-tw",
+        selectedUnresolvedRows: [
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+        ],
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as { operationId: string; previewToken: string };
+    await app.persistence.createProviderOperation({
+      id: "active-tw-blocker",
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      operationType: "sync_catalog",
+      phase: "running",
+      startedAt: new Date().toISOString(),
+    });
+
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/execute",
+      headers,
+      payload: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(409);
+    expect(execute.json()).toMatchObject({
+      error: "provider_fixer_active_execution_exists",
+      metadata: {
+        blockingOperation: expect.objectContaining({
+          operationId: "active-tw-blocker",
+          providerId: "finmind-tw",
+          marketCode: "TW",
+          operationType: "sync_catalog",
+          phase: "running",
+        }),
+      },
+    });
   });
 
   it("queues mapped provider rerun while another provider operation is active", async () => {

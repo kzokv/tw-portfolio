@@ -1,6 +1,7 @@
 import type {
   AdminInstrumentSupportState,
   AdminMarketCode,
+  AdminMarketDataOperationLogsResponse,
   AdminMarketDataActionExecuteRequest,
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataBackfillExecuteRequest,
@@ -22,18 +23,18 @@ import type {
   AdminMarketCalendarSourceConfigDto,
   AdminMarketDataSupportStateRequest,
   AdminMarketDataSupportStateResponse,
-  ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationDto,
-  ProviderOperationOutcomesResponse,
   ProviderResolutionMappingDto,
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemState,
 } from "@vakwen/shared-types";
-import { ApiError, getJson, patchJson, postJson } from "./api";
+import { getJson, patchJson, postJson } from "./api";
 import type {
   AdminMarketDataActivityResponse,
   AdminMarketDataActivityQuery,
   AdminMarketDataCalendarResponse,
+  AdminMarketDataUnresolvedQuery,
+  AdminMarketDataUnresolvedResponse,
   MarketCalendarConfirmRequest,
   MarketCalendarConfirmResponse,
   MarketCalendarInvalidateRequest,
@@ -43,6 +44,8 @@ import type {
   MarketCalendarSourceConfigUpdateRequest,
   MarketCalendarSourceUpdateRequest,
 } from "./adminMarketDataContracts";
+
+export type { AdminMarketDataOperationLogsResponse };
 
 export function executeMarketAction(
   marketCode: AdminMarketCode,
@@ -108,6 +111,63 @@ export function fetchMarketActivity(
   }
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return getJson(`/admin/market-data/${encodeURIComponent(marketCode)}/activity${suffix}`);
+}
+
+export function fetchMarketUnresolved(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  query: Partial<AdminMarketDataUnresolvedQuery>,
+): Promise<AdminMarketDataUnresolvedResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return getJson(`/admin/market-data/${encodeURIComponent(marketCode)}/unresolved${suffix}`);
+}
+
+export function updateMarketUnresolvedState(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: {
+    providerId: string;
+    errorCode: string;
+    sourceSymbol: string;
+    state: "active" | "ignored" | "unsupported";
+    reason?: string;
+  },
+): Promise<{ item: AdminMarketDataUnresolvedResponse["items"][number] }> {
+  return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/unresolved/state`, input);
+}
+
+export function bulkUpdateMarketUnresolvedState(
+  marketCode: Exclude<AdminMarketCode, "FX">,
+  input: {
+    state: "active" | "ignored" | "unsupported";
+    scope:
+      | {
+          type: "selected_items";
+          items: Array<{
+            providerId: string;
+            marketCode: Exclude<AdminMarketCode, "FX">;
+            errorCode: string;
+            sourceSymbol: string;
+          }>;
+        }
+      | {
+          type: "filter";
+          filter?: {
+            providerId?: string;
+            state?: AdminMarketDataUnresolvedQuery["state"];
+            errorCode?: string;
+            search?: string;
+          };
+        };
+    acknowledged?: boolean;
+    typedConfirmation?: string;
+    reason?: string;
+  },
+): Promise<{ updatedCount: number }> {
+  return postJson(`/admin/market-data/${encodeURIComponent(marketCode)}/unresolved/state/bulk`, input);
 }
 
 export function fetchMarketCalendar(
@@ -252,14 +312,7 @@ export function bulkUpdateProviderUnresolvedState(input: {
   reason?: string;
 }): Promise<{ operation: ProviderFixerDashboardOperationDto; updatedCount: number }> {
   const { providerId, ...body } = input;
-  return postJson<{
-    operation: ProviderFixerDashboardOperationDto;
-    updatedCount?: number;
-    result?: { succeeded?: number; failed?: number };
-  }>(`/admin/providers/${encodeURIComponent(providerId)}/unresolved/state/bulk`, body).then((response) => ({
-    operation: response.operation,
-    updatedCount: response.updatedCount ?? response.result?.succeeded ?? 0,
-  }));
+  return postJson(`/admin/providers/${encodeURIComponent(providerId)}/unresolved/state/bulk`, body);
 }
 
 export function previewProviderRepair(input: {
@@ -340,6 +393,7 @@ export function reverifyProviderMapping(input: {
   return postJson(`/admin/providers/${encodeURIComponent(input.providerId)}/mappings/reverify`, {
     marketCode: input.mapping.marketCode,
     sourceSymbol: input.mapping.sourceSymbol,
+    resolvedSymbol: input.mapping.resolvedSymbol,
     resolverMode: input.resolverMode,
   });
 }
@@ -379,74 +433,7 @@ export function revertProviderMapping(input: {
   return postJson(`/admin/providers/${encodeURIComponent(input.providerId)}/mappings/revert`, {
     marketCode: input.mapping.marketCode,
     sourceSymbol: input.mapping.sourceSymbol,
+    resolvedSymbol: input.mapping.resolvedSymbol,
     typedConfirmation: input.typedConfirmation,
   });
-}
-
-export interface AdminMarketDataOperationLogsResponse {
-  items: Array<{
-    id: string;
-    occurredAt: string;
-    level: string;
-    phase?: string | null;
-    message: string;
-    detail?: string | null;
-    context?: Record<string, unknown> | null;
-    operationId: string | null;
-  }>;
-  total: number;
-  page: number;
-  limit: number;
-}
-
-export async function fetchOperationLogs(input: {
-  marketCode: AdminMarketCode;
-  providerId: string;
-  operationId: string;
-  page: number;
-  limit: number;
-}): Promise<AdminMarketDataOperationLogsResponse> {
-  const marketUrl = `/admin/market-data/${encodeURIComponent(input.marketCode)}/operations/${encodeURIComponent(input.operationId)}/logs?page=${input.page}&limit=${input.limit}`;
-  try {
-    return await getJson<AdminMarketDataOperationLogsResponse>(marketUrl);
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 404) throw error;
-  }
-
-  const fallback = await getJson<ProviderFixerDashboardLogsResponse>(
-    `/admin/providers/${encodeURIComponent(input.providerId)}/logs?operationId=${encodeURIComponent(input.operationId)}&page=${input.page}&limit=${input.limit}`,
-  );
-  return {
-    items: fallback.items.map((item) => ({
-      id: item.id,
-      occurredAt: item.occurredAt,
-      level: item.phase ?? "info",
-      phase: item.phase,
-      message: item.message,
-      detail: null,
-      context: null,
-      operationId: item.operationId,
-    })),
-    total: fallback.total,
-    page: fallback.page,
-    limit: fallback.limit,
-  };
-}
-
-export function fetchOperationOutcomes(input: {
-  providerId: string;
-  operationId: string;
-  page: number;
-  limit: number;
-  state?: string;
-  action?: string;
-}): Promise<ProviderOperationOutcomesResponse> {
-  const params = new URLSearchParams();
-  params.set("page", String(input.page));
-  params.set("limit", String(input.limit));
-  if (input.state && input.state !== "all") params.set("state", input.state);
-  if (input.action?.trim()) params.set("action", input.action.trim());
-  return getJson(
-    `/admin/providers/${encodeURIComponent(input.providerId)}/operations/${encodeURIComponent(input.operationId)}/outcomes?${params.toString()}`,
-  );
 }

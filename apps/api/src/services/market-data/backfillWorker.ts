@@ -110,7 +110,15 @@ export interface BackfillWorkerDeps {
    * `upsertInstrumentCatalog` is needed; the handler keeps `pool`-based bars/dividends
    * writes via `upsertDailyBars` / `upsertDividendEvents` for legacy parity.
    */
-  persistence: { upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> };
+  persistence: {
+    upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
+    autoResolveProviderUnresolvedItemsBySourceSymbol?(input: {
+      providerId: string;
+      marketCode: MarketCode;
+      sourceSymbol: string;
+      operationId?: string | null;
+    }): Promise<number>;
+  };
   eventBus: BufferedEventBus;
   boss: PgBoss;
   /**
@@ -597,6 +605,22 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // status updates / SSE fan-out so the health aggregator's status machine
       // sees the success even if a later step throws.
       await safeRecordOutcome({ kind: "success" });
+
+      if (market !== "KR") {
+        try {
+          await persistence.autoResolveProviderUnresolvedItemsBySourceSymbol?.({
+            providerId: healthProviderId,
+            marketCode: market,
+            sourceSymbol: ticker,
+            operationId: providerOperationId ?? null,
+          });
+        } catch (resolveErr) {
+          log.warn(
+            { err: resolveErr, providerId: healthProviderId, marketCode: market, ticker, providerOperationId },
+            "provider_unresolved_auto_resolve_failed",
+          );
+        }
+      }
 
       // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {

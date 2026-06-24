@@ -1892,6 +1892,13 @@ export interface ResolveProviderUnresolvedItemsInput {
   operationId?: string | null;
 }
 
+export interface AutoResolveProviderUnresolvedItemsBySourceSymbolInput {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  operationId?: string | null;
+}
+
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
 
 /**
@@ -3229,6 +3236,7 @@ export interface Persistence {
   listProviderUnresolvedItems(options: ListProviderUnresolvedItemsOptions): Promise<ListProviderUnresolvedItemsResult>;
   updateProviderUnresolvedItemState(input: UpdateProviderUnresolvedItemStateInput): Promise<ProviderUnresolvedItemRecord>;
   resolveProviderUnresolvedItems(input: ResolveProviderUnresolvedItemsInput): Promise<number>;
+  autoResolveProviderUnresolvedItemsBySourceSymbol(input: AutoResolveProviderUnresolvedItemsBySourceSymbolInput): Promise<number>;
   /**
    * Delete error trail rows older than `olderThanDays` days. Memory backend
    * may behave as a no-op (returns 0). Returns the number of rows deleted.

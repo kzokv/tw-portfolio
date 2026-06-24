@@ -14974,6 +14974,26 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
+  async autoResolveProviderUnresolvedItemsBySourceSymbol(
+    input: import("./types.js").AutoResolveProviderUnresolvedItemsBySourceSymbolInput,
+  ): Promise<number> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    if (sourceSymbol.length === 0) return 0;
+    const result = await this.pool.query(
+      `UPDATE market_data.provider_unresolved_items
+          SET state = 'resolved',
+              resolved_at = NOW(),
+              resolved_by_operation_id = $4,
+              updated_at = NOW()
+        WHERE provider_id = $1
+          AND market_code = $2
+          AND source_symbol = $3
+          AND state = 'active'`,
+      [input.providerId, input.marketCode, sourceSymbol, input.operationId ?? null],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async updateProviderUnresolvedItemState(
     input: UpdateProviderUnresolvedItemStateInput,
   ): Promise<ProviderUnresolvedItemRecord> {

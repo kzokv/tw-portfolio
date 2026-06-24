@@ -6660,6 +6660,28 @@ export class MemoryPersistence implements Persistence {
     return updated;
   }
 
+  async autoResolveProviderUnresolvedItemsBySourceSymbol(
+    input: import("./types.js").AutoResolveProviderUnresolvedItemsBySourceSymbolInput,
+  ): Promise<number> {
+    const sourceSymbol = input.sourceSymbol.trim().toUpperCase();
+    if (sourceSymbol.length === 0) return 0;
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const [key, row] of this.providerUnresolvedItems.entries()) {
+      if (row.providerId !== input.providerId || row.marketCode !== input.marketCode) continue;
+      if (row.sourceSymbol !== sourceSymbol || row.state !== "active") continue;
+      this.providerUnresolvedItems.set(key, {
+        ...row,
+        state: "resolved",
+        resolvedAt: now,
+        resolvedByOperationId: input.operationId ?? null,
+        updatedAt: now,
+      });
+      updated += 1;
+    }
+    return updated;
+  }
+
   async updateProviderUnresolvedItemState(
     input: UpdateProviderUnresolvedItemStateInput,
   ): Promise<ProviderUnresolvedItemRecord> {

@@ -34,6 +34,7 @@ import type {
   AdminMarketDataActionExecuteRequest,
   AdminMarketDataActionExecuteResponse,
   AdminMarketDataActionsResponse,
+  AdminMarketDataBackfillUnresolvedSelectionDto,
   AdminMarketDataBackfillDateRangeDto,
   AdminMarketDataBackfillExecuteRequest,
   AdminMarketDataBackfillExecuteResponse,
@@ -49,6 +50,7 @@ import type {
   AdminMarketDataActivityResponse,
   AdminMarketDataOperationDetailValue,
   AdminMarketDataOperationDto,
+  AdminMarketDataOperationBlockerDto,
   AdminMarketDataOperationDetailsDto,
   AdminMarketDataOperationLogsResponse,
   AdminMarketDataBackfillPreviewRequest,
@@ -74,6 +76,14 @@ import type {
   AdminMarketDataPurgePreviewResponse,
   AdminMarketDataSupportStateRequest,
   AdminMarketDataSupportStateResponse,
+  AdminMarketDataUnresolvedBulkStateRequest,
+  AdminMarketDataUnresolvedBulkStateResponse,
+  AdminMarketDataUnresolvedIdentityDto,
+  AdminMarketDataUnresolvedItemDto,
+  AdminMarketDataUnresolvedResponse,
+  AdminMarketDataUnresolvedSort,
+  AdminMarketDataUnresolvedStateRequest,
+  AdminMarketDataUnresolvedStateResponse,
   AdminMarketWorkspaceTab,
   ProviderOperationAction,
 } from "@vakwen/shared-types";
@@ -1061,21 +1071,21 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
   TW: {
     marketCode: "TW",
     label: "Taiwan",
-    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
+    tabs: ["overview", "calendar", "instruments", "unresolved", "backfill", "purge", "operations", "activity"],
     providers: [{ providerId: "finmind-tw", label: "FinMind TW", role: "Catalog and historical data" }],
     defaultBackfillProviderId: "finmind-tw",
   },
   US: {
     marketCode: "US",
     label: "United States",
-    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
+    tabs: ["overview", "calendar", "instruments", "unresolved", "backfill", "purge", "operations", "activity"],
     providers: [{ providerId: "finmind-us", label: "FinMind US", role: "Catalog and historical data" }],
     defaultBackfillProviderId: "finmind-us",
   },
   AU: {
     marketCode: "AU",
     label: "Australia",
-    tabs: ["overview", "calendar", "instruments", "backfill", "purge", "operations", "activity"],
+    tabs: ["overview", "calendar", "instruments", "unresolved", "backfill", "purge", "operations", "activity"],
     providers: [
       { providerId: "twelve-data-au", label: "Twelve Data AU", role: "Catalog" },
       { providerId: "yahoo-finance-au", label: "Yahoo Finance AU", role: "Bars, dividends, metadata" },
@@ -1086,7 +1096,7 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
   KR: {
     marketCode: "KR",
     label: "Korea",
-    tabs: ["overview", "calendar", "instruments", "backfill", "mappings", "purge", "operations", "activity"],
+    tabs: ["overview", "calendar", "instruments", "unresolved", "backfill", "purge", "operations", "activity"],
     providers: [
       { providerId: "twelve-data-kr", label: "Twelve Data KR", role: "Catalog evidence" },
       { providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings, bars, dividends" },
@@ -1215,6 +1225,7 @@ const marketDataBackfillScopeSchema = z.enum([
   "user_owned_or_monitored",
   "selected_catalog_rows",
   "all_matching",
+  "selected_unresolved_rows",
 ]);
 const marketDataSnapshotRepairExecuteBodySchema = z.object({
   tickers: z.array(z.string().trim().min(1).max(40)).min(1).max(20),
@@ -2006,6 +2017,15 @@ function marketDataOperationDetails(
   if (marketDataOperationHasItemOutcomes(operationType)) {
     return { kind: "mapping", operationType, fields };
   }
+  if (operationType === "sync_catalog") {
+    return { kind: "sync_catalog", operationType, fields };
+  }
+  if (operationType === "refresh_rates") {
+    return { kind: "refresh_rates", operationType, fields };
+  }
+  if (operationType === "sync_asx_gics") {
+    return { kind: "sync_asx_gics", operationType, fields };
+  }
   return { kind: "generic", operationType, fields };
 }
 
@@ -2055,6 +2075,15 @@ function marketDataOperationHasItemOutcomes(operationType: string): boolean {
     || operationType === "ignore_unresolved"
     || operationType === "mark_unsupported"
     || operationType === "reopen_unresolved";
+}
+
+function providerOperationSupportsPauseResume(operationType: string): boolean {
+  return operationType === "renew_evidence"
+    || operationType === "rerun_backfill"
+    || operationType === "reverify_mapping"
+    || operationType === "revert_mapping"
+    || operationType === "resolver_repair"
+    || operationType === "repair_mapping";
 }
 
 function marketDataOperationToDto(operation: ProviderOperationRecord, config: AppConfigDto): AdminMarketDataOperationDto {
@@ -2121,8 +2150,8 @@ function marketDataOperationToDto(operation: ProviderOperationRecord, config: Ap
     matchCount: operation.matchCount ?? 0,
     progressPercent: numberField(metadata.progressPercent),
     previewExpiresAt: operation.previewExpiresAt,
-    canPause: operation.phase === "running",
-    canResume: operation.phase === "paused",
+    canPause: operation.phase === "running" && providerOperationSupportsPauseResume(operation.operationType),
+    canResume: operation.phase === "paused" && providerOperationSupportsPauseResume(operation.operationType),
     canCancel:
       operation.phase === "preparing_preview"
       || operation.phase === "preview"
@@ -2321,6 +2350,21 @@ async function findOtherActiveProviderOperationExecution(
   }) ?? null;
 }
 
+function providerOperationBlockerDto(operation: ProviderOperationRecord): AdminMarketDataOperationBlockerDto {
+  return {
+    operationId: operation.id,
+    providerId: operation.providerId,
+    marketCode: operation.marketCode as AdminMarketDataOperationBlockerDto["marketCode"],
+    operationType: operation.operationType,
+    phase: operation.phase,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    startedAt: operation.startedAt,
+    completedAt: operation.completedAt,
+    cancelledAt: operation.cancelledAt,
+  };
+}
+
 async function assertNoOtherProviderOperationExecution(
   app: FastifyInstance,
   scope: { providerId: string; marketCode: MarketCode; operationId?: string | null },
@@ -2331,6 +2375,9 @@ async function assertNoOtherProviderOperationExecution(
       409,
       "provider_fixer_active_execution_exists",
       "Another provider operation is already active for this provider and market",
+      {
+        blockingOperation: providerOperationBlockerDto(other),
+      },
     );
   }
 }
@@ -4178,6 +4225,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         409,
         "provider_fixer_active_operation_conflict",
         "Another provider operation is already active for this provider and market",
+        { blockingOperation: providerOperationBlockerDto(activeOperation) },
       );
     }
     const scopeItems = await listProviderUnresolvedScopeItems(app, providerId, scope);
@@ -5358,6 +5406,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         409,
         "provider_fixer_active_operation_conflict",
         "Another provider operation is already active for this provider and market",
+        { blockingOperation: providerOperationBlockerDto(activeOperation) },
       );
     }
     const initialPhase: ProviderOperationPhase = "running";
@@ -5455,12 +5504,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       }
       if (
         action === "resume" &&
-        existing.operationType !== "renew_evidence" &&
-        existing.operationType !== "rerun_backfill" &&
-        existing.operationType !== "reverify_mapping" &&
-        existing.operationType !== "revert_mapping" &&
-        existing.operationType !== "resolver_repair" &&
-        existing.operationType !== "repair_mapping"
+        !providerOperationSupportsPauseResume(existing.operationType)
       ) {
         throw routeError(400, "provider_operation_resume_not_supported", "Resume is not supported for this provider operation type");
       }
@@ -5949,6 +5993,12 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       scope: marketDataBackfillScopeSchema,
       providerId: providerFixerProviderSchema.optional(),
       selectedCatalogRows: z.array(marketDataTargetSchema).optional(),
+      selectedUnresolvedRows: z.array(z.object({
+        providerId: providerFixerProviderSchema,
+        marketCode: providerFixerMarketCodeSchema,
+        errorCode: z.string().trim().min(1).max(120),
+        sourceSymbol: z.string().trim().min(1).max(80),
+      }).strict()).optional(),
       filters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
       includeDemoUsers: z.boolean().optional(),
       startDate: isoDateSchema.optional(),
@@ -6078,6 +6128,113 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     };
   }
 
+  function marketUnresolvedIdentityKey(item: {
+    providerId: string;
+    marketCode: string;
+    errorCode: string;
+    sourceSymbol: string;
+  }): string {
+    return [
+      item.providerId,
+      item.marketCode,
+      item.errorCode.trim(),
+      item.sourceSymbol.trim().toUpperCase(),
+    ].join("::");
+  }
+
+  function marketUnresolvedSortComparator(sort: AdminMarketDataUnresolvedSort) {
+    return (
+      a: Awaited<ReturnType<typeof listAllProviderUnresolvedItemsForMarket>>[number],
+      b: Awaited<ReturnType<typeof listAllProviderUnresolvedItemsForMarket>>[number],
+    ) => {
+      if (sort === "updated_desc") return b.updatedAt.localeCompare(a.updatedAt);
+      if (sort === "source_symbol_asc") return a.sourceSymbol.localeCompare(b.sourceSymbol);
+      if (sort === "occurrence_count_desc") {
+        return b.occurrenceCount - a.occurrenceCount || b.lastSeenAt.localeCompare(a.lastSeenAt);
+      }
+      return b.lastSeenAt.localeCompare(a.lastSeenAt);
+    };
+  }
+
+  async function marketUnresolvedItemToDto(
+    item: Awaited<ReturnType<typeof listAllProviderUnresolvedItemsForMarket>>[number],
+  ): Promise<AdminMarketDataUnresolvedItemDto> {
+    const instrument = await app.persistence.instrumentAdminGet(item.sourceSymbol, item.marketCode);
+    const instrumentDto = instrument ? adminInstrumentRowToMarketDataDto(instrument) : null;
+    const evidence = asRecord(item.evidence);
+    const errorMessage = stringField(evidence?.errorMessage)?.toLowerCase() ?? "";
+    const recommendedAction: AdminMarketDataUnresolvedItemDto["recommendedAction"] =
+      item.state !== "active"
+        ? "reopen"
+        : item.marketCode === "KR"
+          ? "repair_mapping"
+          : errorMessage.includes("no data found") || errorMessage.includes("delisted") || errorMessage.includes("unsupported")
+            ? "mark_unsupported"
+            : instrumentDto?.supportState && instrumentDto.supportState !== "supported"
+            ? "mark_unsupported"
+            : "retry_via_backfill";
+    const recommendedActionReason =
+      recommendedAction === "reopen"
+        ? "Inactive unresolved rows can be reopened if they should count toward provider health again."
+        : recommendedAction === "repair_mapping"
+          ? "KR unresolved rows need a verified Yahoo Finance mapping before backfill."
+          : recommendedAction === "mark_unsupported"
+            ? "Provider evidence or instrument support state suggests this row may be unavailable for this provider."
+            : "Retryable provider errors should be rechecked through the guarded backfill flow.";
+    return {
+      providerId: item.providerId,
+      marketCode: item.marketCode as AdminMarketDataUnresolvedItemDto["marketCode"],
+      errorCode: item.errorCode,
+      sourceSymbol: item.sourceSymbol,
+      providerSymbol: item.providerSymbol,
+      state: item.state,
+      severity: item.severity,
+      occurrenceCount: item.occurrenceCount,
+      firstSeenAt: item.firstSeenAt,
+      lastSeenAt: item.lastSeenAt,
+      lastErrorTrailId: item.lastErrorTrailId,
+      evidence: item.evidence,
+      resolvedAt: item.resolvedAt,
+      resolvedByOperationId: item.resolvedByOperationId,
+      updatedAt: item.updatedAt,
+      instrumentName: instrumentDto?.name ?? null,
+      instrumentType: instrumentDto?.instrumentType ?? null,
+      supportState: instrumentDto?.supportState ?? null,
+      backfillStatus: instrumentDto?.backfillStatus ?? null,
+      providerIds: instrumentDto?.providerIds ?? [],
+      recommendedAction,
+      recommendedActionReason,
+    };
+  }
+
+  async function listMarketUnresolvedScopeItems(input: {
+    marketCode: MarketDataWorkspaceMarketCode;
+    scope: AdminMarketDataUnresolvedBulkStateRequest["scope"];
+  }) {
+    if (input.scope.type === "selected_items") {
+      const selected = input.scope.items ?? [];
+      if (selected.length === 0) return [];
+      const items = await listAllProviderUnresolvedItemsForMarket({ marketCode: input.marketCode, state: "all" });
+      const selectedKeys = new Set(selected.map(marketUnresolvedIdentityKey));
+      return items.filter((item) => selectedKeys.has(marketUnresolvedIdentityKey(item)));
+    }
+    const filter = input.scope.filter ?? {};
+    return listAllProviderUnresolvedItemsForMarket({
+      marketCode: input.marketCode,
+      providerId: filter.providerId,
+      state: filter.state ?? "active",
+      errorCode: filter.errorCode,
+      search: filter.search,
+    });
+  }
+
+  function marketBulkUnresolvedStateConfirmationText(
+    state: AdminMarketDataUnresolvedBulkStateRequest["state"],
+    matchCount: number,
+  ): string {
+    return `${state.toUpperCase()} ${matchCount}`;
+  }
+
   function assertMarketDataProvider(marketCode: AdminMarketCode, providerId: string | undefined): string {
     const resolved = providerId ?? MARKET_DATA_WORKSPACES[marketCode].defaultBackfillProviderId ?? providerIdsForMarket(marketCode)[0];
     if (!resolved || !providerIdsForMarket(marketCode).includes(resolved)) {
@@ -6169,6 +6326,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const providerId = assertMarketDataProvider(marketCode, body.providerId);
     let targets: MarketDataTarget[] = [];
     let unsupportedRows: AdminMarketDataBackfillPreviewResponse["unsupportedRows"] = [];
+    let unresolvedSelection: AdminMarketDataBackfillUnresolvedSelectionDto | undefined;
     if (body.scope === "user_owned_or_monitored") {
       const listedTargets = (await app.persistence.listAdminMarketDataBackfillTargets({
         marketCode,
@@ -6177,6 +6335,32 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       const validated = await validateExplicitTargets(marketCode, listedTargets, { requireSupported: true });
       targets = validated.targets;
       unsupportedRows = validated.unsupportedRows;
+    } else if (body.scope === "selected_unresolved_rows") {
+      if (marketCode === "KR") {
+        throw routeError(400, "market_unresolved_retry_not_supported", "KR unresolved rows must use mapping repair, not generic backfill retry");
+      }
+      const selectedRows = body.selectedUnresolvedRows ?? [];
+      if (selectedRows.length === 0) {
+        throw routeError(400, "market_unresolved_rows_required", "selectedUnresolvedRows is required for unresolved retry previews");
+      }
+      const matchingRows = await listMarketUnresolvedScopeItems({
+        marketCode,
+        scope: { type: "selected_items", items: selectedRows },
+      });
+      const activeRows = matchingRows.filter((row) => row.state === "active" && row.providerId === providerId);
+      const dedupedTargets = uniqueMarketDataTargets(activeRows.map((row) => ({
+        ticker: row.sourceSymbol,
+        marketCode,
+      })));
+      const validated = await validateExplicitTargets(marketCode, dedupedTargets, { requireSupported: true });
+      targets = validated.targets;
+      unsupportedRows = validated.unsupportedRows;
+      unresolvedSelection = {
+        selectedRowCount: selectedRows.length,
+        dedupedTargetCount: targets.length,
+        dedupedAwayRowCount: Math.max(0, activeRows.length - dedupedTargets.length),
+        skippedRowCount: Math.max(0, selectedRows.length - activeRows.length) + validated.unsupportedRows.length,
+      };
     } else if (body.scope === "all_matching") {
       targets = await allMatchingTargets(marketCode, body.filters);
     } else {
@@ -6204,6 +6388,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       dateRange,
       providerBudgetNotes: marketDataProviderBudgetNotes(marketCode, "backfill_catalog_rows"),
       unsupportedRows,
+      unresolvedSelection,
       confirmation: {
         level: dangerous ? "typed" : "checkbox",
         text: dangerous ? `BACKFILL ${marketCode} ${matchCount}` : null,
@@ -6221,8 +6406,15 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       filters: body.filters ?? null,
       includeDemoUsers: body.includeDemoUsers === true,
       selectedCatalogRows: body.selectedCatalogRows?.map((target) => ({ ticker: target.ticker, marketCode: target.marketCode })) ?? null,
+      selectedUnresolvedRows: body.selectedUnresolvedRows?.map((item) => ({
+        providerId: item.providerId,
+        marketCode: item.marketCode,
+        errorCode: item.errorCode,
+        sourceSymbol: item.sourceSymbol,
+      })) ?? null,
       frozenBackfillTargets: preview.targets.map(compactBackfillTarget),
       unsupportedRows: preview.unsupportedRows,
+      unresolvedSelection: preview.unresolvedSelection ?? null,
       estimatedStorageRows: preview.estimatedStorageRows,
       dateRange: preview.dateRange,
       affectedUserCount: preview.affectedUserCount,
@@ -6285,6 +6477,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         ? metadata.providerBudgetNotes.flatMap((note) => stringField(note) ?? [])
         : [],
       unsupportedRows,
+      unresolvedSelection: asRecord(metadata?.unresolvedSelection)
+        ? {
+            selectedRowCount: numberField(asRecord(metadata?.unresolvedSelection)?.selectedRowCount) ?? 0,
+            dedupedTargetCount: numberField(asRecord(metadata?.unresolvedSelection)?.dedupedTargetCount) ?? targets.length,
+            dedupedAwayRowCount: numberField(asRecord(metadata?.unresolvedSelection)?.dedupedAwayRowCount) ?? 0,
+            skippedRowCount: numberField(asRecord(metadata?.unresolvedSelection)?.skippedRowCount) ?? unsupportedRows.length,
+          }
+        : undefined,
       confirmation: {
         level: confirmationLevel,
         text: stringField(metadata?.confirmationText),
@@ -6643,6 +6843,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         marketDataBff: true,
         source,
         scope: preview.scope,
+        unresolvedSelection: preview.unresolvedSelection ?? null,
         estimatedStorageRows: preview.estimatedStorageRows,
         affectedUserCount: preview.affectedUserCount,
         affectedAccountCount: preview.affectedAccountCount,
@@ -6666,6 +6867,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         batchId: queued.batchId,
         enqueuedJobCount: queued.enqueuedJobCount,
         skippedExistingJobCount: queued.skippedExistingJobCount,
+        unresolvedSelection: preview.unresolvedSelection ?? null,
         progressPercent: finalPhase === "completed" ? 100 : 0,
       },
     });
@@ -6741,6 +6943,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         batchId: queued.batchId,
         enqueuedJobCount: queued.enqueuedJobCount,
         skippedExistingJobCount: queued.skippedExistingJobCount,
+        unresolvedSelection: preview.unresolvedSelection ?? null,
         progressPercent: finalPhase === "completed" ? 100 : 0,
       },
     });
@@ -7041,21 +7244,82 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     };
   }
 
-  async function unresolvedCountForProviders(providerIds: string[], marketCode: AdminMarketCode): Promise<number> {
-    if (marketCode === "FX") return 0;
-    const totals = await Promise.all(
-      providerIds.map(async (providerId) => {
+  async function listAllProviderUnresolvedItemsForMarket(input: {
+    marketCode: MarketDataWorkspaceMarketCode;
+    providerId?: string;
+    state?: "all" | "active" | "resolved" | "unsupported" | "ignored";
+    errorCode?: string;
+    search?: string;
+  }) {
+    const providerIds = input.providerId ? [input.providerId] : providerIdsForMarket(input.marketCode);
+    const pages = await Promise.all(providerIds.map(async (providerId) => {
+      const items: Awaited<ReturnType<typeof app.persistence.listProviderUnresolvedItems>>["items"] = [];
+      let page = 1;
+      while (true) {
         const result = await app.persistence.listProviderUnresolvedItems({
           providerId,
-          marketCode,
-          state: "active",
-          page: 1,
-          limit: 1,
+          marketCode: input.marketCode,
+          state: input.state ?? "all",
+          errorCode: input.errorCode,
+          search: input.search,
+          sort: "last_seen_desc",
+          page,
+          limit: 500,
         });
-        return result.total;
-      }),
-    );
-    return totals.reduce((sum, count) => sum + count, 0);
+        items.push(...result.items);
+        if (page * result.limit >= result.total || result.items.length === 0) break;
+        page += 1;
+      }
+      return items;
+    }));
+    return pages.flat();
+  }
+
+  function summarizeMarketUnresolvedRows(
+    rows: Awaited<ReturnType<typeof listAllProviderUnresolvedItemsForMarket>>,
+  ): AdminMarketDataUnresolvedResponse["summary"] {
+    const activeRows = rows.filter((row) => row.state === "active");
+    const bucket = (groupedRows: typeof rows) => ({
+      count: groupedRows.length,
+      activeCount: groupedRows.filter((row) => row.state === "active").length,
+    });
+    const groupMap = <T extends string>(values: T[]) => [...new Set(values)].sort();
+    const byProvider = groupMap(rows.map((row) => row.providerId)).map((key) => ({
+      key,
+      ...bucket(rows.filter((row) => row.providerId === key)),
+    }));
+    const byErrorCode = groupMap(rows.map((row) => row.errorCode)).map((key) => ({
+      key,
+      ...bucket(rows.filter((row) => row.errorCode === key)),
+    }));
+    const byState = groupMap(rows.map((row) => row.state)).map((key) => ({
+      key,
+      ...bucket(rows.filter((row) => row.state === key)),
+    }));
+    return {
+      activeRowCount: activeRows.length,
+      affectedInstrumentCount: new Set(activeRows.map((row) => row.sourceSymbol)).size,
+      oldestUnresolvedAt: activeRows.length > 0
+        ? activeRows.reduce((oldest, row) => row.firstSeenAt < oldest ? row.firstSeenAt : oldest, activeRows[0]!.firstSeenAt)
+        : null,
+      byProvider,
+      byErrorCode,
+      byState,
+    };
+  }
+
+  async function unresolvedStatsForProviders(
+    providerIds: string[],
+    marketCode: AdminMarketCode,
+  ): Promise<{ unresolvedCount: number; affectedInstrumentCount: number }> {
+    if (marketCode === "FX") return { unresolvedCount: 0, affectedInstrumentCount: 0 };
+    const rows = await listAllProviderUnresolvedItemsForMarket({ marketCode, state: "active" });
+    return {
+      unresolvedCount: rows.filter((row) => providerIds.includes(row.providerId)).length,
+      affectedInstrumentCount: new Set(
+        rows.filter((row) => providerIds.includes(row.providerId)).map((row) => row.sourceSymbol),
+      ).size,
+    };
   }
 
   async function backfillCount(marketCode: AdminMarketCode, status: "pending" | "failed"): Promise<number> {
@@ -7106,10 +7370,10 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   async function marketTile(marketCode: AdminMarketCode): Promise<AdminMarketDataLandingResponse["markets"][number]> {
     const workspace = MARKET_DATA_WORKSPACES[marketCode];
     const providerIds = providerIdsForMarket(marketCode);
-    const [healthStatus, unresolvedCount, pendingBackfillCount, failedBackfillCount, latestOperation] =
+    const [healthStatus, unresolvedStats, pendingBackfillCount, failedBackfillCount, latestOperation] =
       await Promise.all([
         healthStatusForProviders(providerIds),
-        unresolvedCountForProviders(providerIds, marketCode),
+        unresolvedStatsForProviders(providerIds, marketCode),
         backfillCount(marketCode, "pending"),
         backfillCount(marketCode, "failed"),
         latestMarketOperation(marketCode),
@@ -7120,7 +7384,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       href: `/admin/market-data/${marketCode}/overview`,
       providers: workspace.providers,
       healthStatus,
-      unresolvedCount,
+      unresolvedCount: unresolvedStats.unresolvedCount,
+      affectedInstrumentCount: unresolvedStats.affectedInstrumentCount,
       pendingBackfillCount,
       failedBackfillCount,
       latestOperation,
@@ -7139,12 +7404,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     const tile = await marketTile(marketCode);
     return {
       marketCode,
-	      label: tile.label,
-	      tabs: MARKET_DATA_WORKSPACES[marketCode].tabs,
-	      providers: tile.providers,
-	      purgeCategories: marketDataPurgeCategoryCapabilities(marketCode),
-	      healthStatus: tile.healthStatus,
+      label: tile.label,
+      tabs: MARKET_DATA_WORKSPACES[marketCode].tabs,
+      providers: tile.providers,
+      purgeCategories: marketDataPurgeCategoryCapabilities(marketCode),
+      healthStatus: tile.healthStatus,
       unresolvedCount: tile.unresolvedCount,
+      affectedInstrumentCount: tile.affectedInstrumentCount,
       pendingBackfillCount: tile.pendingBackfillCount,
       failedBackfillCount: tile.failedBackfillCount,
       latestOperation: tile.latestOperation,
@@ -7484,6 +7750,273 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     return marketOverview(marketCode);
+  });
+
+  app.get("/market-data/:marketCode/unresolved", async (req): Promise<AdminMarketDataUnresolvedResponse> => {
+    requireAdminRole(req);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_unresolved_not_supported", "FX does not expose unresolved rows in this scope");
+    }
+    const query = z.object({
+      providerId: providerFixerProviderSchema.optional(),
+      state: z.enum(["all", "active", "resolved", "unsupported", "ignored"]).default("active"),
+      errorCode: z.string().trim().min(1).max(120).optional(),
+      search: z.string().trim().max(120).optional(),
+      sort: z.enum(["last_seen_desc", "updated_desc", "source_symbol_asc", "occurrence_count_desc"]).default("last_seen_desc"),
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(200).default(25),
+    }).parse(req.query ?? {});
+    if (query.providerId && !providerIdsForMarket(marketCode).includes(query.providerId)) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    }
+    const rows = await listAllProviderUnresolvedItemsForMarket({
+      marketCode,
+      providerId: query.providerId,
+      state: query.state,
+      errorCode: query.errorCode,
+      search: query.search,
+    });
+    const sorted = rows.sort(marketUnresolvedSortComparator(query.sort));
+    const offset = (query.page - 1) * query.limit;
+    const items = await Promise.all(sorted.slice(offset, offset + query.limit).map(marketUnresolvedItemToDto));
+    return {
+      marketCode,
+      providers: MARKET_DATA_WORKSPACES[marketCode].providers,
+      filters: {
+        providerId: query.providerId ?? null,
+        state: query.state,
+        errorCode: query.errorCode ?? null,
+        search: query.search ?? null,
+        sort: query.sort,
+      },
+      summary: summarizeMarketUnresolvedRows(rows),
+      items,
+      total: sorted.length,
+      page: query.page,
+      limit: query.limit,
+    };
+  });
+
+  app.post("/market-data/:marketCode/unresolved/state", async (req): Promise<AdminMarketDataUnresolvedStateResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_unresolved_not_supported", "FX does not expose unresolved rows in this scope");
+    }
+    const body = z.object({
+      providerId: providerFixerProviderSchema,
+      errorCode: z.string().trim().min(1).max(120),
+      sourceSymbol: z.string().trim().min(1).max(80),
+      state: z.enum(["active", "ignored", "unsupported"]),
+      reason: z.string().trim().max(240).optional(),
+    }).strict().parse(req.body ?? {});
+    if (!providerIdsForMarket(marketCode).includes(body.providerId)) {
+      throw routeError(400, "provider_market_mismatch", "Provider does not belong to this market workspace");
+    }
+    const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    const operation = await app.persistence.createProviderOperation({
+      providerId: body.providerId,
+      marketCode,
+      operationType: action,
+      phase: "running",
+      errorCode: body.errorCode,
+      scopeQuery: `${marketCode}:unresolved:${action}:${body.sourceSymbol}`,
+      snapshotHash: hashProviderFixerToken(`${body.providerId}:${marketCode}:${body.errorCode}:${body.sourceSymbol}:${body.state}`).slice(0, 12),
+      matchCount: 1,
+      metadata: {
+        marketDataBff: true,
+        sourceSymbol: body.sourceSymbol,
+        targetState: body.state,
+        reason: body.reason ?? null,
+        progressPercent: 0,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    const updated = await app.persistence.updateProviderUnresolvedItemState({
+      providerId: body.providerId,
+      marketCode,
+      errorCode: body.errorCode,
+      sourceSymbol: body.sourceSymbol,
+      state: body.state,
+      actorUserId: sessionUserId,
+      reason: body.reason ?? null,
+    });
+    await app.persistence.upsertProviderOperationOutcome({
+      operationId: operation.id,
+      providerId: body.providerId,
+      marketCode,
+      sourceSymbol: updated.sourceSymbol,
+      providerSymbol: updated.providerSymbol,
+      action,
+      state: "succeeded",
+      message: `Set unresolved item ${updated.sourceSymbol} to ${updated.state}.`,
+      evidence: { targetState: updated.state, reason: body.reason ?? null },
+    });
+    await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        completedState: updated.state,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action,
+        providerId: body.providerId,
+        marketCode,
+        errorCode: updated.errorCode,
+        sourceSymbol: updated.sourceSymbol,
+        state: updated.state,
+      },
+    });
+    return {
+      operationId: operation.id,
+      item: await marketUnresolvedItemToDto(updated),
+    };
+  });
+
+  app.post("/market-data/:marketCode/unresolved/state/bulk", async (req): Promise<AdminMarketDataUnresolvedBulkStateResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_unresolved_not_supported", "FX does not expose unresolved rows in this scope");
+    }
+    const body = z.object({
+      scope: z.object({
+        type: z.enum(["selected_items", "filter"]),
+        items: z.array(z.object({
+          providerId: providerFixerProviderSchema,
+          marketCode: providerFixerMarketCodeSchema,
+          errorCode: z.string().trim().min(1).max(120),
+          sourceSymbol: z.string().trim().min(1).max(80),
+        }).strict()).optional(),
+        filter: z.object({
+          providerId: providerFixerProviderSchema.optional(),
+          state: z.enum(["all", "active", "resolved", "unsupported", "ignored"]).optional(),
+          errorCode: z.string().trim().min(1).max(120).optional(),
+          search: z.string().trim().max(120).optional(),
+        }).strict().optional(),
+      }).strict(),
+      state: z.enum(["active", "ignored", "unsupported"]),
+      acknowledged: z.boolean().optional(),
+      typedConfirmation: z.string().trim().max(160).optional(),
+      reason: z.string().trim().max(240).optional(),
+    }).strict().parse(req.body ?? {}) satisfies AdminMarketDataUnresolvedBulkStateRequest;
+    const scopeItems = (await listMarketUnresolvedScopeItems({ marketCode, scope: body.scope }))
+      .filter((item) => item.marketCode === marketCode)
+      .filter((item) => body.scope.type === "filter" || item.state === "active" || body.state === "active");
+    if (scopeItems.length === 0) {
+      throw routeError(409, "provider_scope_items_not_active", "No unresolved rows match this scope");
+    }
+    const dangerous = body.scope.type === "filter" || scopeItems.length >= 100;
+    const confirmationText = marketBulkUnresolvedStateConfirmationText(body.state, scopeItems.length);
+    if (dangerous) {
+      if (body.typedConfirmation !== confirmationText) {
+        throw routeError(400, "provider_fixer_typed_confirmation_required", "Bulk unresolved state change requires matching typed confirmation");
+      }
+    } else if (body.acknowledged !== true) {
+      throw routeError(400, "provider_fixer_acknowledgement_required", "Bulk unresolved state change requires explicit acknowledgement");
+    }
+    const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
+    const providerId = body.scope.filter?.providerId ?? scopeItems[0]!.providerId;
+    const operation = await app.persistence.createProviderOperation({
+      providerId,
+      marketCode,
+      operationType: action,
+      phase: "running",
+      errorCode: body.scope.filter?.errorCode ?? null,
+      scopeQuery: `${marketCode}:unresolved:${body.scope.type}:${body.state}`,
+      snapshotHash: hashProviderFixerToken(`${marketCode}:${body.state}:${scopeItems.length}:${confirmationText}`).slice(0, 12),
+      matchCount: scopeItems.length,
+      metadata: {
+        marketDataBff: true,
+        targetState: body.state,
+        confirmationText: dangerous ? confirmationText : null,
+        progressPercent: 0,
+      },
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+    });
+    let succeeded = 0;
+    let failed = 0;
+    for (const item of scopeItems) {
+      try {
+        const updated = await app.persistence.updateProviderUnresolvedItemState({
+          providerId: item.providerId,
+          marketCode: item.marketCode,
+          errorCode: item.errorCode,
+          sourceSymbol: item.sourceSymbol,
+          state: body.state,
+          actorUserId: sessionUserId,
+          reason: body.reason ?? null,
+        });
+        succeeded += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: item.providerId,
+          marketCode: item.marketCode,
+          sourceSymbol: updated.sourceSymbol,
+          providerSymbol: updated.providerSymbol,
+          action,
+          state: "succeeded",
+          message: `Set unresolved item ${updated.sourceSymbol} to ${updated.state}.`,
+        });
+      } catch (err) {
+        failed += 1;
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: item.providerId,
+          marketCode: item.marketCode,
+          sourceSymbol: item.sourceSymbol,
+          providerSymbol: item.providerSymbol,
+          action,
+          state: "failed",
+          message: err instanceof Error ? err.message : "Provider unresolved lifecycle update failed.",
+          errorCode: "provider_unresolved_state_update_failed",
+        });
+      }
+    }
+    await app.persistence.updateProviderOperation({
+      id: operation.id,
+      phase: failed > 0 ? "failed" : "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(operation.metadata) ?? {}),
+        progressPercent: 100,
+        succeeded,
+        failed,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: `${action}_bulk`,
+        marketCode,
+        state: body.state,
+        succeeded,
+        failed,
+      },
+    });
+    return {
+      operationId: operation.id,
+      updatedCount: succeeded,
+      succeeded,
+      failed,
+    };
   });
 
   app.get("/market-data/:marketCode/actions", async (req): Promise<AdminMarketDataActionsResponse> => {
@@ -8301,6 +8834,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       enqueuedJobCount: result.enqueuedJobCount,
       skippedExistingJobCount: result.skippedExistingJobCount,
       batchId: result.batchId,
+      unresolvedSelection: preview.unresolvedSelection,
     };
   });
 

@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketCode,
   AdminMarketDataActionDto,
-  AdminMarketDataOperationsResponse,
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
   ProviderOperationOutcomesResponse,
@@ -17,14 +16,11 @@ import type {
   ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
 import { Card } from "../ui/Card";
+import { Drawer } from "../ui/Drawer";
 import { cn } from "../../lib/utils";
 import {
   bulkUpdateProviderUnresolvedState,
-  executeMarketBackfill,
-  executeMarketPurge,
   executeProviderRepair,
-  fetchOperationLogs,
-  fetchOperationOutcomes,
   mutateProviderOperation,
   previewProviderRepair,
   renewProviderEvidence,
@@ -34,15 +30,10 @@ import {
   reverifyProviderMapping,
   updateProviderUnresolvedState,
 } from "../../lib/adminMarketDataService";
-import {
-  localizeOperationPhase,
-  localizeOperationType,
-  normalizeOperationPageResponse,
-  type NormalizedOperationItem,
-} from "../../lib/adminMarketDataOperations";
-import { AdminMarketDataOperationsShell } from "./AdminMarketDataOperationsShell";
+import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
 import { formatUtcTimestamp } from "./adminFormat";
 import { useAdminI18n } from "./admin-i18n";
+import type { AdminMarketDataUnresolvedResponse } from "../../lib/adminMarketDataContracts";
 
 export interface KrMappingsData {
   unresolved: ProviderUnresolvedItemsResponse;
@@ -61,22 +52,13 @@ export interface KrMappingsData {
 }
 
 export interface KrOperationsData {
-  operations: AdminMarketDataOperationsResponse | ProviderFixerDashboardOperationsResponse;
+  operations: ProviderFixerDashboardOperationsResponse;
   explicitOperationId: string;
   selectedOperationId: string;
-  outcomes?: ProviderOperationOutcomesResponse | null;
+  outcomes: ProviderOperationOutcomesResponse;
   query: {
     operationsPage: number;
     operationsLimit: number;
-    operationId?: string;
-    providerId?: string;
-    operationType?: string;
-    phase?: string;
-    search?: string;
-    startDate?: string;
-    endDate?: string;
-    operationLogsPage?: number;
-    operationLogsLimit?: number;
     operationOutcomesPage: number;
     operationOutcomesLimit: number;
     operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
@@ -84,15 +66,24 @@ export interface KrOperationsData {
   };
 }
 
+const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
+  diagnose: "bg-slate-100 text-slate-700",
+  preparing_preview: "bg-indigo-100 text-indigo-800",
+  preview: "bg-sky-100 text-sky-700",
+  staged: "bg-amber-100 text-amber-800",
+  queued: "bg-slate-100 text-slate-800",
+  running: "bg-emerald-100 text-emerald-800",
+  paused: "bg-orange-100 text-orange-800",
+  completed: "bg-emerald-100 text-emerald-800",
+  failed: "bg-rose-100 text-rose-800",
+  cancelled: "bg-slate-200 text-slate-700",
+};
+
 const yahooKrProviderId = "yahoo-finance-kr";
 const yahooKrErrorCode = "yahoo_finance_kr_symbol_unresolved";
 
 function formatTimestamp(value: string | null): string {
   return formatUtcTimestamp(value);
-}
-
-function formatCopy(template: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce((next, [key, value]) => next.replaceAll(`{${key}}`, String(value)), template);
 }
 
 function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
@@ -104,40 +95,42 @@ function mappingLinkedOperation(evidence: Record<string, unknown> | null): strin
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
-function mappingEvidenceSummary(mapping: ProviderResolutionMappingDto, adminDict: ReturnType<typeof useAdminI18n>["marketData"]): string {
+function mappingEvidenceSummary(mapping: ProviderResolutionMappingDto): string {
   const evidence = mapping.evidence;
   for (const key of ["candidate", "candidateSymbol", "exchangeHint", "note"]) {
     const value = evidence?.[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
-  return adminDict.krStoredDurableMapping;
+  return "Stored durable mapping";
 }
 
-function krResolverModeHelp(adminDict: ReturnType<typeof useAdminI18n>["marketData"], mode: KrMappingsData["query"]["resolverMode"]): string {
+function krResolverModeHelp(mode: KrMappingsData["query"]["resolverMode"]): string {
   if (mode === "chart_probe_v1") {
-    return adminDict.krResolverChartProbeHelp;
+    return "Chart-probe verifies chart/backfill readiness with chart requests. It costs more provider budget and is useful when quote evidence is ambiguous.";
   }
-  return adminDict.krResolverQuoteFirstHelp;
-}
-
-function krUnresolvedStateLabel(adminDict: ReturnType<typeof useAdminI18n>["marketData"], state: ProviderUnresolvedListState): string {
-  switch (state) {
-    case "active":
-      return adminDict.krStateActive;
-    case "all":
-      return adminDict.krStateAll;
-    case "resolved":
-      return adminDict.krStateResolved;
-    case "unsupported":
-      return adminDict.krStateUnsupported;
-    case "ignored":
-      return adminDict.krStateIgnored;
-  }
+  return "Quote-first checks quote metadata before chart calls. It is the cheaper default and only writes after guarded preview execution.";
 }
 
 function previewExpired(operation: ProviderFixerDashboardOperationDto | null): boolean {
   if (!operation?.preview.tokenExpiresAt) return true;
   return new Date(operation.preview.tokenExpiresAt).getTime() <= Date.now();
+}
+
+function krSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["marketData"]) {
+  return {
+    columnSettingsButtonLabel: adminDict.columnSettingsButtonLabel,
+    columnSettingsTitle: adminDict.columnSettingsTitle,
+    dragColumnTitle: adminDict.dragColumnTitle,
+    mobileSummaryCountLabel: adminDict.mobileSummaryCountLabel,
+    mobileSummaryCountHelp: adminDict.mobileSummaryCountHelp,
+    mobileSummaryCountDecreaseAria: adminDict.mobileSummaryCountDecreaseAria,
+    mobileSummaryCountIncreaseAria: adminDict.mobileSummaryCountIncreaseAria,
+    moveColumnLeftAria: adminDict.moveColumnLeftAria,
+    moveColumnRightAria: adminDict.moveColumnRightAria,
+    resizeColumnAria: adminDict.resizeColumnAria,
+    resetColumnsLabel: adminDict.resetColumnsLabel,
+    toggleColumnAria: adminDict.toggleColumnAria,
+  };
 }
 
 function csvCell(value: unknown): string {
@@ -208,36 +201,22 @@ function krMappingsPath(query: Partial<KrMappingsData["query"]>): string {
   if (merged.mappingsLimit !== 25) params.set("mappingsLimit", String(merged.mappingsLimit));
   if (merged.mappingsSearch.trim()) params.set("mappingsSearch", merged.mappingsSearch.trim());
   const queryString = params.toString();
-  return `/admin/market-data/KR/mappings${queryString ? `?${queryString}` : ""}`;
+  return `/admin/market-data/KR/unresolved${queryString ? `?${queryString}` : ""}`;
 }
 
 function krOperationsPath(query: Partial<KrOperationsData["query"]> & { operationId?: string; providerId?: string }): string {
   const params = new URLSearchParams();
-  const providerId = query.providerId?.trim() || "";
+  const providerId = query.providerId ?? yahooKrProviderId;
+  if (providerId !== yahooKrProviderId) params.set("providerId", providerId);
+  if (query.operationId) params.set("operationId", query.operationId);
   const operationsPage = query.operationsPage ?? 1;
   const operationsLimit = query.operationsLimit ?? 25;
-  const operationType = query.operationType ?? "";
-  const phase = query.phase ?? "";
-  const search = query.search ?? "";
-  const startDate = query.startDate ?? "";
-  const endDate = query.endDate ?? "";
-  const operationLogsPage = query.operationLogsPage ?? 1;
-  const operationLogsLimit = query.operationLogsLimit ?? 10;
   const operationOutcomesPage = query.operationOutcomesPage ?? 1;
   const operationOutcomesLimit = query.operationOutcomesLimit ?? 25;
   const operationOutcomeState = query.operationOutcomeState ?? "all";
   const operationOutcomeAction = query.operationOutcomeAction ?? "";
-  params.set("page", String(operationsPage));
-  params.set("limit", String(operationsLimit));
-  if (providerId) params.set("providerId", providerId);
-  if (query.operationId) params.set("operationId", query.operationId);
-  if (operationType) params.set("operationType", operationType);
-  if (phase) params.set("phase", phase);
-  if (search.trim()) params.set("search", search.trim());
-  if (startDate) params.set("startDate", startDate);
-  if (endDate) params.set("endDate", endDate);
-  if (operationLogsPage !== 1) params.set("operationLogsPage", String(operationLogsPage));
-  if (operationLogsLimit !== 10) params.set("operationLogsLimit", String(operationLogsLimit));
+  if (operationsPage !== 1) params.set("operationsPage", String(operationsPage));
+  if (operationsLimit !== 25) params.set("operationsLimit", String(operationsLimit));
   if (operationOutcomesPage !== 1) params.set("operationOutcomesPage", String(operationOutcomesPage));
   if (operationOutcomesLimit !== 25) params.set("operationOutcomesLimit", String(operationOutcomesLimit));
   if (operationOutcomeState !== "all") params.set("operationOutcomeState", operationOutcomeState);
@@ -255,21 +234,22 @@ export function MappingsPanel({
   marketCode,
   actions,
   krMappings,
+  unresolved = null,
 }: {
   marketCode: AdminMarketCode;
   actions: AdminMarketDataActionDto[];
   krMappings: KrMappingsData | null;
+  unresolved?: AdminMarketDataUnresolvedResponse | null;
 }) {
-  const adminDict = useAdminI18n().marketData;
   if (marketCode !== "KR" || !krMappings) {
     return (
       <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
-        <h2 className="text-base font-semibold text-foreground">{adminDict.providerMappingsTitle}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{adminDict.providerMappingsUnavailable}</p>
+        <h2 className="text-base font-semibold text-foreground">Unresolved</h2>
+        <p className="mt-2 text-sm text-muted-foreground">Mappings are not available for this market.</p>
       </Card>
     );
   }
-  return <KrMappingsPanel actions={actions} data={krMappings} />;
+  return <KrMappingsPanel actions={actions} data={krMappings} unresolved={unresolved} />;
 }
 
 type KrRepairScope =
@@ -332,11 +312,12 @@ function krPreviewMatchesScope(operation: ProviderFixerDashboardOperationDto | n
 function KrMappingsPanel({
   actions,
   data,
+  unresolved,
 }: {
   actions: AdminMarketDataActionDto[];
   data: KrMappingsData;
+  unresolved: AdminMarketDataUnresolvedResponse | null;
 }) {
-  const adminDict = useAdminI18n().marketData;
   const router = useRouter();
   const mappingAction = actions.find((action) => action.action === "repair_mapping");
   const resolverMode = data.query.resolverMode;
@@ -395,7 +376,7 @@ function KrMappingsPanel({
       return {
         type: "filter",
         count: data.unresolved.total,
-        label: adminDict.krAllMatchingScopeLabel,
+        label: "All active rows matching the current KR unresolved filter",
         fingerprint: krSelectedScopeFingerprint(scope),
         scope,
       };
@@ -413,13 +394,11 @@ function KrMappingsPanel({
     return {
       type: "selected_items",
       count: selectedItems.length,
-      label: selectedItems.length === 1
-        ? adminDict.krSelectedRowLabel
-        : formatCopy(adminDict.krSelectedRowsLabel, { count: selectedItems.length.toLocaleString() }),
+      label: selectedItems.length === 1 ? "1 selected unresolved row" : `${selectedItems.length.toLocaleString()} selected unresolved rows`,
       fingerprint: krSelectedScopeFingerprint(scope),
       scope,
     };
-  }, [adminDict, allMatchingSelected, data.query.unresolvedSearch, data.unresolved.total, selectedItems]);
+  }, [allMatchingSelected, data.query.unresolvedSearch, data.unresolved.total, selectedItems]);
   const selectedCount = selectedScopeDetails?.count ?? 0;
   const previewIsExpired = previewExpired(preview);
   const previewMatchesCurrentScope = krPreviewMatchesScope(preview, previewScopeDetails ?? selectedScopeDetails);
@@ -453,7 +432,7 @@ function KrMappingsPanel({
       setMessage(success(result));
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : formatCopy(adminDict.krActionFailed, { action: label }));
+      setMessage(err instanceof Error ? err.message : `${label} failed`);
     } finally {
       setBusyAction(null);
     }
@@ -469,10 +448,7 @@ function KrMappingsPanel({
         sourceSymbol: item.sourceSymbol,
         state,
       }),
-      (result) => formatCopy(adminDict.krStateUpdated, {
-        sourceSymbol: result.item.sourceSymbol,
-        state: krUnresolvedStateLabel(adminDict, result.item.state),
-      }),
+      (result) => `Set unresolved item ${result.item.sourceSymbol} to ${result.item.state}.`,
     );
   }
 
@@ -488,21 +464,12 @@ function KrMappingsPanel({
     const acknowledged = scope.type === "selected_items";
     let typedConfirmation: string | undefined;
     if (typedConfirmationForFilter) {
-      typedConfirmation = window.prompt(formatCopy(adminDict.krBulkPrompt, {
-        phrase: typedConfirmationForFilter,
-        action: state === "ignored" ? adminDict.krBulkPromptIgnoreAction : adminDict.krBulkPromptUnsupportedAction,
-      }))?.trim();
+      typedConfirmation = window.prompt(`Type ${typedConfirmationForFilter} to ${state === "ignored" ? "ignore" : "mark unsupported"} this all-matching KR scope.`)?.trim();
       if (typedConfirmation !== typedConfirmationForFilter) {
-        setMessage(formatCopy(adminDict.krBulkRequiresPhrase, {
-          state: krUnresolvedStateLabel(adminDict, state),
-          phrase: typedConfirmationForFilter,
-        }));
+        setMessage(`Bulk ${state} requires the exact phrase ${typedConfirmationForFilter}.`);
         return;
       }
-    } else if (!window.confirm(formatCopy(adminDict.krBulkConfirm, {
-      state: krUnresolvedStateLabel(adminDict, state),
-      scope: selectedScopeDetails.label,
-    }))) {
+    } else if (!window.confirm(`Apply ${state} to ${selectedScopeDetails.label}?`)) {
       return;
     }
     await runWithMessage(
@@ -514,7 +481,7 @@ function KrMappingsPanel({
         acknowledged,
         typedConfirmation,
       }),
-      (result) => formatCopy(adminDict.krBulkUpdated, { count: result.updatedCount.toLocaleString() }),
+      (result) => `Updated ${result.updatedCount} unresolved rows.`,
     );
   }
 
@@ -533,7 +500,7 @@ function KrMappingsPanel({
         setPreviewScopeDetails(scopeDetails);
         setTypedConfirmation("");
         setAcknowledged(false);
-        return formatCopy(adminDict.krRepairPreviewCreated, { count: result.operation.matchCount.toLocaleString() });
+        return `Repair preview created for ${result.operation.matchCount} rows.`;
       },
     );
   }
@@ -558,7 +525,7 @@ function KrMappingsPanel({
     await previewRepairScope({
       type: "selected_items",
       count: 1,
-      label: formatCopy(adminDict.krRepairItemLabel, { sourceSymbol: item.sourceSymbol }),
+      label: `Repair ${item.sourceSymbol}`,
       fingerprint: krSelectedScopeFingerprint(scope),
       scope,
     });
@@ -577,7 +544,7 @@ function KrMappingsPanel({
         resolverMode,
         scope,
       }),
-      (result) => formatCopy(adminDict.krRenewEvidenceStarted, { operationId: result.operation.id }),
+      (result) => `Renew evidence started: ${result.operation.id}`,
     );
   }
 
@@ -591,7 +558,7 @@ function KrMappingsPanel({
         sourceSymbol: item.sourceSymbol,
         resolverMode,
       }),
-      (result) => formatCopy(adminDict.krRerunQueued, { operationId: result.operation.id }),
+      (result) => `Rerun queued: ${result.operation.id}`,
     );
   }
 
@@ -608,7 +575,7 @@ function KrMappingsPanel({
       }),
       (result) => {
         setPreview(result.operation);
-        return formatCopy(adminDict.krRepairOperationStarted, { operationId: result.operation.id });
+        return `Repair operation ${result.operation.id} started.`;
       },
     );
   }
@@ -626,16 +593,21 @@ function KrMappingsPanel({
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{adminDict.krMappingRepairTitle}</h2>
+            <h2 className="text-base font-semibold text-foreground">KR unresolved</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              {adminDict.krMappingRepairDescription}
+              Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              {adminDict.krMappingRepairOwnership}
+              Twelve Data KR remains the catalog/evidence source; Yahoo Finance KR owns durable mappings, bars, and dividends.
             </p>
+            {unresolved ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {unresolved.activeUnresolvedRowCount.toLocaleString()} active rows across {unresolved.affectedInstrumentCount.toLocaleString()} affected instruments.
+              </p>
+            ) : null}
           </div>
           <div className="min-w-0 rounded border border-border bg-muted/30 p-3 text-sm">
-            <p className="font-medium text-foreground">{adminDict.resolverMode}</p>
+            <p className="font-medium text-foreground">Resolver mode</p>
             <div className="mt-2 inline-flex max-w-full overflow-hidden rounded border border-border">
               {(["quote_first", "chart_probe_v1"] as const).map((mode) => (
                 <button
@@ -646,14 +618,14 @@ function KrMappingsPanel({
                     "px-3 py-1.5 text-xs font-medium",
                     resolverMode === mode ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground",
                   )}
-                  title={krResolverModeHelp(adminDict, mode)}
+                  title={krResolverModeHelp(mode)}
                   data-testid={`provider-console-resolver-mode-${mode}`}
                 >
-                  {mode === "quote_first" ? adminDict.krResolverQuoteFirst : adminDict.krResolverChartProbe}
+                  {mode === "quote_first" ? "Quote-first" : "Chart-probe"}
                 </button>
               ))}
             </div>
-            <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">{krResolverModeHelp(adminDict, resolverMode)}</p>
+            <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">{krResolverModeHelp(resolverMode)}</p>
             {mappingAction?.disabledReason ? (
               <p className="mt-2 text-xs text-amber-700">{mappingAction.disabledReason}</p>
             ) : null}
@@ -666,9 +638,9 @@ function KrMappingsPanel({
         <div className="border-b border-border px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h3 className="text-base font-semibold text-foreground">{adminDict.krUniqueUnresolvedTitle}</h3>
+              <h3 className="text-base font-semibold text-foreground">Unique unresolved instruments</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {adminDict.krUniqueUnresolvedDescription}
+                Durable unresolved rows from Yahoo Finance KR. Resolver behavior is unchanged; this panel only scopes admin repair work.
               </p>
             </div>
             <button
@@ -677,7 +649,7 @@ function KrMappingsPanel({
               onClick={() => void previewSelectedRepair()}
               className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
-              {adminDict.krRepairSelected}
+              Repair selected
             </button>
           </div>
           <form
@@ -693,42 +665,42 @@ function KrMappingsPanel({
             }}
           >
             <label className="text-sm font-medium text-foreground">
-              {adminDict.search}
+              Search
               <input
                 value={unresolvedSearch}
                 onChange={(event) => setUnresolvedSearch(event.target.value)}
-                placeholder={adminDict.krSearchSymbolPlaceholder}
+                placeholder="Search symbol, provider symbol, error"
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-search"
               />
             </label>
             <label className="text-sm font-medium text-foreground">
-              {adminDict.krStateLabel}
+              State
               <select
                 value={unresolvedState}
                 onChange={(event) => setUnresolvedState(event.target.value as ProviderUnresolvedListState)}
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-state"
               >
-                <option value="active">{adminDict.krStateActive}</option>
-                <option value="all">{adminDict.krStateAll}</option>
-                <option value="resolved">{adminDict.krStateResolved}</option>
-                <option value="unsupported">{adminDict.krStateUnsupported}</option>
-                <option value="ignored">{adminDict.krStateIgnored}</option>
+                <option value="active">active</option>
+                <option value="all">all</option>
+                <option value="resolved">resolved</option>
+                <option value="unsupported">unsupported</option>
+                <option value="ignored">ignored</option>
               </select>
             </label>
             <label className="text-sm font-medium text-foreground">
-              {adminDict.krSortLabel}
+              Sort
               <select
                 value={unresolvedSort}
                 onChange={(event) => setUnresolvedSort(event.target.value as KrMappingsData["query"]["unresolvedSort"])}
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-sort"
               >
-                <option value="last_seen_desc">{adminDict.krSortLastSeen}</option>
-                <option value="updated_desc">{adminDict.krSortRecentlyUpdated}</option>
-                <option value="occurrence_count_desc">{adminDict.krSortMostOccurrences}</option>
-                <option value="source_symbol_asc">{adminDict.krSortSourceSymbol}</option>
+                <option value="last_seen_desc">last seen</option>
+                <option value="updated_desc">recently updated</option>
+                <option value="occurrence_count_desc">most occurrences</option>
+                <option value="source_symbol_asc">source symbol</option>
               </select>
             </label>
             <div className="flex items-end">
@@ -737,12 +709,12 @@ function KrMappingsPanel({
                 className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
                 data-testid="provider-console-unresolved-apply"
               >
-                {adminDict.operationApply}
+                Apply filters
               </button>
             </div>
           </form>
           <div className="mt-4 flex flex-col gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
-            <span>{formatCopy(adminDict.krRowsSelectedSummary, { selected: selectedCount.toLocaleString(), total: data.unresolved.total.toLocaleString() })}</span>
+            <span><strong>{selectedCount.toLocaleString()} rows selected.</strong> {data.unresolved.total.toLocaleString()} rows match this filter.</span>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -754,12 +726,12 @@ function KrMappingsPanel({
                 className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
                 data-testid="provider-console-select-all-matching"
               >
-                {allMatchingSelected ? adminDict.krResolverClearAllMatching : adminDict.krResolverSelectAllMatching}
+                {allMatchingSelected ? "Clear all matching" : "Select all matching"}
               </button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">{adminDict.krRepair}</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">{adminDict.krRenew}</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">{adminDict.krIgnore}</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">{adminDict.krUnsupported}</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Repair</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">Renew</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">Ignore</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">Unsupported</button>
               <button
                 type="button"
                 disabled={visibleItems.length === 0}
@@ -767,18 +739,18 @@ function KrMappingsPanel({
                 className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
                 data-testid="provider-console-unresolved-export"
               >
-                {adminDict.krExportCsv}
+                Export CSV
               </button>
-              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">{adminDict.krClearSelection}</button>
-              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">{adminDict.krRecentlyResolved}</button>
+              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Clear selection</button>
+              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">Recently resolved</button>
             </div>
           </div>
           <div className="mt-4 rounded border border-border bg-muted/20 p-4 text-sm" data-testid="provider-console-repair-scope">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h4 className="font-semibold text-foreground">{adminDict.krResolverSelectedRepairScope}</h4>
+                <h4 className="font-semibold text-foreground">Selected repair scope</h4>
                 <p className="mt-1 text-muted-foreground">
-                  {adminDict.krFrozenScopeDescription}
+                  Execution uses the backend frozen scope from the preview token, not whatever rows happen to be visible later.
                 </p>
               </div>
               <span className={cn(
@@ -789,42 +761,39 @@ function KrMappingsPanel({
                 preview && !previewIsExpired && !previewMatchesCurrentScope && "bg-amber-100 text-amber-800",
               )}>
                 {!preview
-                  ? adminDict.krPreviewNoPreview
+                  ? "No preview"
                   : previewIsExpired
-                    ? adminDict.krPreviewExpired
+                    ? "Preview expired"
                     : previewMatchesCurrentScope
-                      ? adminDict.krPreviewMatchesScope
-                      : adminDict.krPreviewScopeChanged}
+                      ? "Preview matches scope"
+                      : "Preview scope changed"}
               </span>
             </div>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div><dt className="text-xs text-muted-foreground">{adminDict.provider}</dt><dd className="mt-1 font-medium text-foreground">{yahooKrProviderId}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">{adminDict.resolverMode}</dt><dd className="mt-1 font-medium text-foreground">{resolverMode.replace(/_/g, " ")}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">{adminDict.scope}</dt><dd className="mt-1 font-medium text-foreground">{previewScopeDetails?.type === "filter" || selectedScopeDetails?.type === "filter" ? adminDict.krScopeAllMatchingFilter : previewScopeDetails || selectedScopeDetails ? adminDict.krScopeSelectedRows : adminDict.krScopeNoneSelected}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">{adminDict.krCount}</dt><dd className="mt-1 font-medium text-foreground">{(previewScopeDetails?.count ?? selectedCount).toLocaleString()}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Provider</dt><dd className="mt-1 font-medium text-foreground">{yahooKrProviderId}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Resolver mode</dt><dd className="mt-1 font-medium text-foreground">{resolverMode.replace(/_/g, " ")}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Scope</dt><dd className="mt-1 font-medium text-foreground">{previewScopeDetails?.type === "filter" || selectedScopeDetails?.type === "filter" ? "All matching filter" : previewScopeDetails || selectedScopeDetails ? "Selected rows" : "None selected"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Count</dt><dd className="mt-1 font-medium text-foreground">{(previewScopeDetails?.count ?? selectedCount).toLocaleString()}</dd></div>
             </dl>
           </div>
           {preview ? (
             <div className="mt-4 rounded border border-border bg-muted/30 p-4">
-              <h4 className="text-sm font-semibold text-foreground">{adminDict.krRepairPreviewTitle}</h4>
+              <h4 className="text-sm font-semibold text-foreground">Repair preview</h4>
               <p className="mt-1 text-sm text-muted-foreground">
-                {formatCopy(adminDict.krRepairPreviewSummary, {
-                  operationId: preview.id,
-                  count: preview.matchCount.toLocaleString(),
-                })}
+                Operation {preview.id} matches {preview.matchCount.toLocaleString()} rows. Execute uses the frozen preview token.
               </p>
               <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div className={cn("rounded border px-3 py-2", preview.canExecute ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900")}>
-                  {formatCopy(adminDict.krOperationExecutable, { status: preview.canExecute ? adminDict.krStatusYes : adminDict.krStatusNo })}
+                  Operation executable: {preview.canExecute ? "yes" : "no"}
                 </div>
                 <div className={cn("rounded border px-3 py-2", !previewIsExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
-                  {formatCopy(adminDict.krTokenValid, { status: !previewIsExpired ? adminDict.krStatusYes : adminDict.krStatusExpired })}
+                  Token valid: {!previewIsExpired ? "yes" : "expired"}
                 </div>
                 <div className={cn("rounded border px-3 py-2", preview.preview.frozenScope ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
-                  {formatCopy(adminDict.krFrozenScope, { status: preview.preview.frozenScope ? adminDict.krStatusAvailable : adminDict.krStatusMissing })}
+                  Frozen scope: {preview.preview.frozenScope ? "available" : "missing"}
                 </div>
                 <div className={cn("rounded border px-3 py-2", previewMatchesCurrentScope ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900")}>
-                  {formatCopy(adminDict.krScopeMatch, { status: previewMatchesCurrentScope ? adminDict.krStatusYes : adminDict.krStatusRefreshPreview })}
+                  Scope match: {previewMatchesCurrentScope ? "yes" : "refresh preview"}
                 </div>
               </div>
               <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -834,11 +803,11 @@ function KrMappingsPanel({
                   onChange={(event) => setAcknowledged(event.target.checked)}
                   data-testid="provider-console-confirm-checkbox"
                 />
-                {adminDict.krRepairAcknowledgement}
+                I reviewed the frozen scope and understand this writes verified KR mappings only.
               </label>
               {preview.preview.confirmationText ? (
                 <label className="mt-3 block text-sm font-medium text-foreground">
-                  {adminDict.operationTypeConfirmation}
+                  Type confirmation
                   <input
                     value={typedConfirmation}
                     onChange={(event) => setTypedConfirmation(event.target.value)}
@@ -853,11 +822,11 @@ function KrMappingsPanel({
                   <table className="min-w-full text-sm">
                     <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                       <tr>
-                        <th className="px-3 py-2">{adminDict.source}</th>
-                        <th className="px-3 py-2">{adminDict.krPreviewEvidenceProviderSymbol}</th>
-                        <th className="px-3 py-2">{adminDict.krPreviewEvidenceCandidate}</th>
-                        <th className="px-3 py-2">{adminDict.krEvidence}</th>
-                        <th className="px-3 py-2">{adminDict.krStateLabel}</th>
+                        <th className="px-3 py-2">Source</th>
+                        <th className="px-3 py-2">Provider symbol</th>
+                        <th className="px-3 py-2">Candidate</th>
+                        <th className="px-3 py-2">Evidence</th>
+                        <th className="px-3 py-2">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -879,10 +848,10 @@ function KrMappingsPanel({
                 disabled={executeDisabled}
                 onClick={() => void executePreview()}
                 className="mt-3 rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
-                title={executeDisabled ? adminDict.krExecuteDisabledTitle : adminDict.krExecuteReadyTitle}
+                title={executeDisabled ? "Execution requires a valid matching preview, acknowledgement, and typed confirmation when required." : "Execute the frozen KR mapping repair preview."}
                 data-testid="provider-console-execute-button"
               >
-                {adminDict.operationExecuteGeneric}
+                Execute operation
               </button>
             </div>
           ) : null}
@@ -897,14 +866,14 @@ function KrMappingsPanel({
                     checked={allVisibleSelected}
                     disabled={visibleItems.length === 0 || allMatchingSelected}
                     onChange={(event) => toggleVisible(event.target.checked)}
-                    aria-label={adminDict.krSelectVisibleRows}
+                    aria-label="Select visible rows"
                     data-testid="provider-console-select-visible"
                   />
                 </th>
-                <th className="px-5 py-3">{adminDict.sourceSymbol}</th>
-                <th className="px-5 py-3">{adminDict.krStateLabel}</th>
-                <th className="px-5 py-3">{adminDict.krEvidence}</th>
-                <th className="px-5 py-3 text-right">{adminDict.krActions}</th>
+                <th className="px-5 py-3">Source symbol</th>
+                <th className="px-5 py-3">State</th>
+                <th className="px-5 py-3">Evidence</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -926,7 +895,7 @@ function KrMappingsPanel({
                             return next;
                           });
                         }}
-                        aria-label={formatCopy(adminDict.krSelectRow, { sourceSymbol: item.sourceSymbol })}
+                        aria-label={`Select ${item.sourceSymbol}`}
                         data-testid={`provider-console-select-row-${item.sourceSymbol}`}
                       />
                     </td>
@@ -934,22 +903,19 @@ function KrMappingsPanel({
                       <p className="font-mono font-semibold text-foreground">{item.sourceSymbol}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{item.providerSymbol ?? item.sourceSymbol}</p>
                     </td>
-                    <td className="px-5 py-4 text-muted-foreground">{krUnresolvedStateLabel(adminDict, item.state)}</td>
+                    <td className="px-5 py-4 text-muted-foreground">{item.state}</td>
                     <td className="px-5 py-4 text-muted-foreground">
-                      {formatCopy(adminDict.krEvidenceSummary, {
-                        count: item.occurrenceCount.toLocaleString(),
-                        time: formatTimestamp(item.lastSeenAt),
-                      })}
+                      {item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap justify-end gap-2">
                         {item.state !== "active" ? (
-                          <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "active")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-reopen-${item.sourceSymbol}`}>{adminDict.krReopen}</button>
+                          <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "active")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-reopen-${item.sourceSymbol}`}>Reopen</button>
                         ) : (
                           <>
-                            <button type="button" disabled={busyAction !== null} onClick={() => void previewUnresolvedItemRepair(item)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-repair-${item.sourceSymbol}`}>{adminDict.krRepair}</button>
-                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "unsupported")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-unsupported-${item.sourceSymbol}`}>{adminDict.krUnsupported}</button>
-                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "ignored")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-ignore-${item.sourceSymbol}`}>{adminDict.krIgnore}</button>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void previewUnresolvedItemRepair(item)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-repair-${item.sourceSymbol}`}>Repair</button>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "unsupported")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-unsupported-${item.sourceSymbol}`}>Unsupported</button>
+                            <button type="button" disabled={busyAction !== null} onClick={() => void setUnresolvedStateForItem(item, "ignored")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-unresolved-ignore-${item.sourceSymbol}`}>Ignore</button>
                           </>
                         )}
                         <button
@@ -957,33 +923,33 @@ function KrMappingsPanel({
                           disabled={item.state !== "resolved" || busyAction !== null}
                           onClick={() => void rerunUnresolvedItem(item)}
                           className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50"
-                          title={item.state === "resolved" ? adminDict.krRerunResolvedTitle : adminDict.krRerunRequiresResolvedTitle}
+                          title={item.state === "resolved" ? "Create a provider operation that fetches fresh Yahoo KR data for this resolved row." : "Rerun requires a resolved durable mapping."}
                           data-testid={`provider-console-unresolved-rerun-${item.sourceSymbol}`}
                         >
-                          {adminDict.krRerun}
+                          Rerun
                         </button>
                       </div>
-                      <p className="mt-1 text-right text-xs text-muted-foreground">{adminDict.krRerunRequiresResolved}</p>
+                      <p className="mt-1 text-right text-xs text-muted-foreground">Rerun requires resolved mapping.</p>
                     </td>
                   </tr>
                 );
               })}
               {visibleItems.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">{adminDict.krNoUnresolvedRows}</td></tr>
+                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No unresolved rows match this filter.</td></tr>
               ) : null}
             </tbody>
           </table>
         </div>
         <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: Math.max(1, data.query.unresolvedPage - 1) })}>{adminDict.operationPreviousPage}</Link>
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: data.query.unresolvedPage + 1 })}>{adminDict.operationNextPage}</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: Math.max(1, data.query.unresolvedPage - 1) })}>Previous</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, unresolvedPage: data.query.unresolvedPage + 1 })}>Next</Link>
         </div>
       </Card>
 
       <Card className="overflow-hidden p-0 hover:translate-y-0">
         <div className="border-b border-border px-5 py-4">
-          <h3 className="text-base font-semibold text-foreground">{adminDict.krDurableMappingsTitle}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{adminDict.krDurableMappingsDescription}</p>
+          <h3 className="text-base font-semibold text-foreground">Durable KR mappings</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Stored Yahoo Finance KR bindings with evidence and operation links.</p>
           <form
             className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
             onSubmit={(event) => {
@@ -994,22 +960,22 @@ function KrMappingsPanel({
             <input
               value={mappingsSearch}
               onChange={(event) => setMappingsSearch(event.target.value)}
-              placeholder={adminDict.krMappingsSearchPlaceholder}
+              placeholder="Source symbol, provider symbol, or operation ID"
               className="rounded border border-border bg-background px-3 py-2 text-sm"
               data-testid="provider-console-mappings-search"
             />
-            <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">{adminDict.krSearchMappings}</button>
+            <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Search mappings</button>
           </form>
         </div>
         <div className="min-w-0 overflow-x-auto">
           <table className="min-w-[56rem] divide-y divide-border text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
               <tr>
-                <th className="px-5 py-3">{adminDict.source}</th>
-                <th className="px-5 py-3">{adminDict.krResolved}</th>
-                <th className="px-5 py-3">{adminDict.krEvidence}</th>
-                <th className="px-5 py-3">{adminDict.krLinks}</th>
-                <th className="px-5 py-3 text-right">{adminDict.krActions}</th>
+                <th className="px-5 py-3">Source</th>
+                <th className="px-5 py-3">Resolved</th>
+                <th className="px-5 py-3">Evidence</th>
+                <th className="px-5 py-3">Links</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -1023,9 +989,7 @@ function KrMappingsPanel({
                   <tr key={key}>
                     <td className="px-5 py-4 font-mono font-semibold text-foreground">{mapping.sourceSymbol}</td>
                     <td className="px-5 py-4 font-mono text-muted-foreground">{mapping.resolvedSymbol}</td>
-                    <td className="px-5 py-4 text-muted-foreground">
-                      {mappingEvidenceSummary(mapping, adminDict)}; {formatCopy(adminDict.krVerifiedAt, { time: formatTimestamp(mapping.verifiedAt) })}
-                    </td>
+                    <td className="px-5 py-4 text-muted-foreground">{mappingEvidenceSummary(mapping)}; verified {formatTimestamp(mapping.verifiedAt)}</td>
                     <td className="px-5 py-4 text-xs">
                       <button
                         type="button"
@@ -1033,7 +997,7 @@ function KrMappingsPanel({
                         onClick={() => pushQuery({ unresolvedState: "all", unresolvedSearch: mapping.sourceSymbol, unresolvedPage: 1 })}
                         data-testid={`provider-console-mapping-unresolved-link-${mapping.sourceSymbol}`}
                       >
-                        {formatCopy(adminDict.krUnresolvedLink, { sourceSymbol: mapping.sourceSymbol })}
+                        Unresolved: {mapping.sourceSymbol}
                       </button>
                       {linkedOperationId ? (
                         <Link
@@ -1041,19 +1005,19 @@ function KrMappingsPanel({
                           href={`/admin/market-data/KR/operations?providerId=${encodeURIComponent(mapping.providerId)}&operationId=${encodeURIComponent(linkedOperationId)}`}
                           data-testid={`provider-console-mapping-operation-link-${mapping.sourceSymbol}`}
                         >
-                          {formatCopy(adminDict.krOperationLink, { operationId: linkedOperationId })}
+                          Operation: {linkedOperationId}
                         </Link>
                       ) : null}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap justify-end gap-2">
-                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("reverify", () => reverifyProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: mapping.resolverMode ?? resolverMode }), (result) => formatCopy(adminDict.krReverifyStarted, { operationId: result.operation.id }))} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}>{adminDict.krReverify}</button>
-                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("rerun-mapping", () => rerunProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: mapping.resolverMode ?? resolverMode }), (result) => formatCopy(adminDict.krRerunQueued, { operationId: result.operation.id }))} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-rerun-${mapping.sourceSymbol}`}>{adminDict.krRerun}</button>
-                        <button type="button" disabled={busyAction !== null} onClick={() => { setRevertTarget(revertOpen ? null : key); setRevertConfirmation(""); }} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-revert-open-${mapping.sourceSymbol}`}>{adminDict.krRevert}</button>
+                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("reverify", () => reverifyProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: mapping.resolverMode ?? resolverMode }), (result) => `Reverify started: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-reverify-${mapping.sourceSymbol}`}>Reverify</button>
+                        <button type="button" disabled={busyAction !== null} onClick={() => void runWithMessage("rerun-mapping", () => rerunProviderMapping({ providerId: mapping.providerId, mapping, resolverMode: mapping.resolverMode ?? resolverMode }), (result) => `Rerun queued: ${result.operation.id}`)} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-rerun-${mapping.sourceSymbol}`}>Rerun</button>
+                        <button type="button" disabled={busyAction !== null} onClick={() => { setRevertTarget(revertOpen ? null : key); setRevertConfirmation(""); }} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-mapping-revert-open-${mapping.sourceSymbol}`}>Revert</button>
                       </div>
                       {revertOpen ? (
                         <div className="mt-3 grid gap-2">
-                          <p className="text-xs text-red-700">{formatCopy(adminDict.krRevertPrompt, { phrase })}</p>
+                          <p className="text-xs text-red-700">Type {phrase} to remove this mapping.</p>
                           <input
                             value={revertConfirmation}
                             onChange={(event) => setRevertConfirmation(event.target.value)}
@@ -1064,11 +1028,11 @@ function KrMappingsPanel({
                           <button
                             type="button"
                             disabled={!revertReady || busyAction !== null}
-                            onClick={() => void runWithMessage("revert-mapping", () => revertProviderMapping({ providerId: mapping.providerId, mapping, typedConfirmation: revertConfirmation.trim() }), (result) => formatCopy(adminDict.krRevertStarted, { operationId: result.operation.id }))}
+                            onClick={() => void runWithMessage("revert-mapping", () => revertProviderMapping({ providerId: mapping.providerId, mapping, typedConfirmation: revertConfirmation.trim() }), (result) => `Revert started: ${result.operation.id}`)}
                             className="rounded bg-destructive px-3 py-2 text-xs font-medium text-destructive-foreground disabled:opacity-50"
                             data-testid={`provider-console-mapping-revert-execute-${mapping.sourceSymbol}`}
                           >
-                            {adminDict.krExecuteRevert}
+                            Execute revert
                           </button>
                         </div>
                       ) : null}
@@ -1077,14 +1041,14 @@ function KrMappingsPanel({
                 );
               })}
               {data.mappings.items.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">{adminDict.krNoDurableMappings}</td></tr>
+                <tr><td colSpan={5} className="px-5 py-8 text-sm text-muted-foreground">No durable mappings match this filter.</td></tr>
               ) : null}
             </tbody>
           </table>
         </div>
         <div className="flex gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: Math.max(1, data.query.mappingsPage - 1) })}>{adminDict.operationPreviousPage}</Link>
-          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: data.query.mappingsPage + 1 })}>{adminDict.operationNextPage}</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: Math.max(1, data.query.mappingsPage - 1) })}>Previous</Link>
+          <Link className="rounded border border-border px-3 py-2" href={krMappingsPath({ ...data.query, mappingsPage: data.query.mappingsPage + 1 })}>Next</Link>
         </div>
       </Card>
     </div>
@@ -1095,25 +1059,73 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchParamSnapshot = searchParams.toString();
-  const adminI18n = useAdminI18n();
-  const adminDict = adminI18n.marketData;
-  const providers = "providers" in data.operations && Array.isArray(data.operations.providers) && data.operations.providers.length > 0
-    ? data.operations.providers
-    : [{ providerId: yahooKrProviderId, label: "Yahoo Finance KR", role: "mapping_owner" }];
-  const normalized = normalizeOperationPageResponse(data.operations, "KR", providers);
+  const adminDict = useAdminI18n().marketData;
+  const operationRows = useMemo(() => {
+    const rows = [...data.operations.operations];
+    if (data.operations.stagedOperation && !rows.some((operation) => operation.id === data.operations.stagedOperation?.id)) {
+      rows.unshift(data.operations.stagedOperation);
+    }
+    if (data.operations.selectedOperation && !rows.some((operation) => operation.id === data.operations.selectedOperation?.id)) {
+      rows.unshift(data.operations.selectedOperation);
+    }
+    return rows;
+  }, [data.operations.operations, data.operations.selectedOperation, data.operations.stagedOperation]);
   const routeOperationId = useMemo(
     () => browserKrOperationId(data.explicitOperationId),
     [data.explicitOperationId, searchParamSnapshot],
   );
   const [localSelectedOperationId, setLocalSelectedOperationId] = useState<string | null | undefined>(undefined);
-  const selectedOperationId = localSelectedOperationId === undefined ? routeOperationId : localSelectedOperationId ?? "";
-  const selectedOperation = selectedOperationId
-    ? normalized.selectedOperation ?? normalized.items.find((operation) => operation.id === selectedOperationId) ?? null
-    : null;
+  const selectedOperationId = localSelectedOperationId === undefined ? routeOperationId : localSelectedOperationId;
+  const selectedOperation = selectedOperationId ? operationRows.find((operation) => operation.id === selectedOperationId) ?? null : null;
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState("");
+  const [outcomeActionInput, setOutcomeActionInput] = useState(data.query.operationOutcomeAction);
+  const [outcomeStateInput, setOutcomeStateInput] = useState<KrOperationsData["query"]["operationOutcomeState"]>(data.query.operationOutcomeState);
+  type KrOperationColumnId = "operation" | "phase" | "scope" | "preview" | "matches";
+  const settingsCopy = krSettingsCopy(adminDict);
+  const columns = useMemo<Array<AdminMarketDataResponsiveColumn<ProviderFixerDashboardOperationDto, KrOperationColumnId>>>(() => [
+    {
+      id: "operation",
+      label: "Operation",
+      defaultWidth: 280,
+      canHide: false,
+      renderCell: (operation) => <span className="block break-all font-mono text-xs font-semibold text-foreground">{operation.id}</span>,
+    },
+    {
+      id: "phase",
+      label: adminDict.phase,
+      defaultWidth: 140,
+      renderCell: (operation) => <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>,
+      renderCardValue: (operation) => operation.phase,
+    },
+    {
+      id: "scope",
+      label: adminDict.scope,
+      defaultWidth: 180,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.matchCount.toLocaleString()} matches</span>,
+      renderCardValue: (operation) => `${operation.matchCount.toLocaleString()} matches`,
+    },
+    {
+      id: "preview",
+      label: "Preview",
+      defaultWidth: 210,
+      renderCell: (operation) => (
+        <span className="text-muted-foreground">
+          {operation.preview.sampleCount.toLocaleString()} sample / {operation.preview.matchCount.toLocaleString()} matching
+        </span>
+      ),
+      renderCardValue: (operation) => `${operation.preview.sampleCount.toLocaleString()} / ${operation.preview.matchCount.toLocaleString()}`,
+    },
+    {
+      id: "matches",
+      label: adminDict.progress,
+      defaultWidth: 150,
+      renderCell: (operation) => <span className="text-muted-foreground">{operation.progressPercent ?? data.outcomes.summary.progressPercent}%</span>,
+      renderCardValue: (operation) => `${operation.progressPercent ?? data.outcomes.summary.progressPercent}%`,
+    },
+  ], [adminDict, data.outcomes.summary.progressPercent]);
 
   useEffect(() => {
     setLocalSelectedOperationId(undefined);
@@ -1124,17 +1136,20 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
     setTypedConfirmation("");
   }, [selectedOperation?.id]);
 
+  useEffect(() => {
+    setOutcomeActionInput(data.query.operationOutcomeAction);
+    setOutcomeStateInput(data.query.operationOutcomeState);
+  }, [data.query.operationOutcomeAction, data.query.operationOutcomeState]);
+
   function pushOperations(next: Partial<KrOperationsData["query"]> & { operationId?: string; providerId?: string }) {
     router.push(krOperationsPath({
       ...data.query,
-      operationId: selectedOperationId || undefined,
+      operationId: selectedOperationId ?? undefined,
       ...next,
     }));
   }
 
-  function selectOperation(operationId: string) {
-    const operation = normalized.items.find((item) => item.id === operationId);
-    if (!operation) return;
+  function selectOperation(operation: ProviderFixerDashboardOperationDto) {
     setLocalSelectedOperationId(operation.id);
     router.push(krOperationsPath({
       ...data.query,
@@ -1166,125 +1181,56 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
     }
   }
 
-  async function controlOperation(operation: NormalizedOperationItem, action: "pause" | "resume" | "cancel") {
-    const actionLabel = action === "pause"
-      ? adminDict.operationPause
-      : action === "resume"
-        ? adminDict.operationResume
-        : adminDict.operationCancel;
+  async function controlOperation(operation: ProviderFixerDashboardOperationDto, action: "pause" | "resume" | "cancel" | "retry") {
     await runOperationAction(
       `${action}-${operation.id}`,
       () => mutateProviderOperation({ providerId: operation.providerId, operationId: operation.id, action }),
-      (result) => formatCopy(adminDict.operationControlRequested, { action: actionLabel, operationId: result.operation.id }),
+      (result) => {
+        if (action === "retry") {
+          router.push(krOperationsPath({ ...data.query, operationId: result.operation.id, operationOutcomesPage: 1 }));
+          setLocalSelectedOperationId(result.operation.id);
+        }
+        return `${action} updated operation ${result.operation.id}.`;
+      },
     );
   }
 
   async function executeOperation() {
-    const operation = selectedOperation;
-    const previewToken = operation?.legacy?.preview.token ?? operation?.execution.previewToken;
-    if (!operation) return;
-    if (!previewToken) {
-      setMessage(adminDict.operationMissingToken);
-      return;
-    }
-    const typedConfirmationValue = typedConfirmation.trim();
-    const market = operation.marketCode === "FX" ? null : operation.marketCode;
+    if (!selectedOperation?.preview.token) return;
     await runOperationAction(
-      `execute-${operation.id}`,
-      async () => {
-        if (
-          operation.execution.endpointDiscriminator === "provider_operation"
-          || operation.execution.endpointDiscriminator === "provider_fixer_execute"
-        ) {
-          const result = await executeProviderRepair({
-            providerId: operation.providerId,
-            operationId: operation.id,
-            previewToken,
-            acknowledged,
-            typedConfirmation: typedConfirmationValue,
-          });
-          return { operationId: result.operation.id, message: formatCopy(adminDict.operationRepairStarted, { operationId: result.operation.id }) };
-        }
-        if (operation.execution.endpointDiscriminator === "market_backfill_execute" && market) {
-          await executeMarketBackfill(market, {
-            operationId: operation.id,
-            previewToken,
-            acknowledged,
-            typedConfirmation: typedConfirmationValue,
-          });
-          return { operationId: operation.id, message: adminDict.operationExecutionStarted };
-        }
-        if (operation.execution.endpointDiscriminator === "market_purge_execute" && market) {
-          await executeMarketPurge(market, {
-            operationId: operation.id,
-            previewToken,
-            typedConfirmation: typedConfirmationValue,
-          });
-          return { operationId: operation.id, message: adminDict.operationExecutionStarted };
-        }
-        throw new Error(adminDict.operationCannotExecuteFromHistory);
-      },
-      (result) => result.message,
+      `execute-${selectedOperation.id}`,
+      () => executeProviderRepair({
+        providerId: selectedOperation.providerId,
+        operationId: selectedOperation.id,
+        previewToken: selectedOperation.preview.token,
+        acknowledged,
+        typedConfirmation: typedConfirmation.trim(),
+      }),
+      (result) => `Repair operation ${result.operation.id} started.`,
     );
   }
 
-  const selectedPreviewExpired = selectedOperation?.legacy
-    ? previewExpired(selectedOperation.legacy)
-    : selectedOperation?.execution.previewExpired ?? false;
-  const selectedHasFrozenScope = selectedOperation?.legacy?.preview.frozenScope
-    ?? (!!selectedOperation?.execution.canExecute && !!selectedOperation.execution.previewToken);
-  const selectedConfirmationText = selectedOperation?.legacy?.preview.confirmationText
-    ?? selectedOperation?.execution.confirmationText
-    ?? null;
-  const typedConfirmationRequired =
-    (!!selectedOperation?.legacy?.dangerous && !!selectedConfirmationText)
-    || selectedOperation?.execution.confirmationLevel === "typed";
+  const selectedPreviewExpired = previewExpired(selectedOperation);
+  const typedConfirmationRequired = !!selectedOperation?.dangerous && !!selectedOperation.preview.confirmationText;
   const executeDisabled =
     !selectedOperation
     || busyAction !== null
-    || !selectedOperation.execution.canExecute
+    || !selectedOperation.canExecute
     || selectedPreviewExpired
-    || !selectedHasFrozenScope
+    || !selectedOperation.preview.frozenScope
     || !acknowledged
-    || (typedConfirmationRequired && typedConfirmation.trim() !== selectedConfirmationText);
-
-  const availableOperationTypes = "availableFilters" in data.operations
-    ? data.operations.availableFilters?.operationTypes
-    : undefined;
-  const availablePhases = "availableFilters" in data.operations
-    ? data.operations.availableFilters?.phases
-    : undefined;
-  const operationTypeValues = Array.from(new Set([
-    ...(availableOperationTypes ?? normalized.items.map((item) => item.operationType)),
-    ...(data.query.operationType ? [data.query.operationType] : []),
-  ])).filter((value) => value.trim().length > 0);
-  const phaseValues = Array.from(new Set([
-    ...(availablePhases ?? normalized.items.map((item) => item.phase)),
-    ...(data.query.phase ? [data.query.phase] : []),
-  ])).filter((value) => value.trim().length > 0);
-  const operationTypeOptions = [
-    { value: "", label: adminI18n.common.all },
-    ...operationTypeValues.map((value) => ({
-      value,
-      label: localizeOperationType(value, adminDict),
-    })),
-  ];
-  const phaseOptions = [
-    { value: "", label: adminI18n.common.all },
-    ...phaseValues.map((value) => ({
-      value,
-      label: localizeOperationPhase(value, adminDict),
-    })),
-  ];
+    || (typedConfirmationRequired && typedConfirmation.trim() !== selectedOperation.preview.confirmationText);
+  const summary = data.outcomes.summary;
+  const outcomesMatchSelectedOperation = selectedOperation !== null && routeOperationId === selectedOperation.id;
 
   return (
     <div className="min-w-0 space-y-5" data-testid="market-data-kr-operations">
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{adminDict.krOperationsTitle}</h2>
+            <h2 className="text-base font-semibold text-foreground">Yahoo Finance KR operations</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              {adminDict.krOperationsDescription}
+              Provider operations preserve resolver previews, frozen scopes, retries, progress, and item outcomes for KR mapping work.
             </p>
           </div>
           <Link
@@ -1292,163 +1238,210 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
             href={`/admin/market-data/KR/activity?source=yahoo_chart&category=provider_operation${selectedOperation ? `&search=${encodeURIComponent(selectedOperation.id)}` : ""}`}
             data-testid="provider-console-operation-open-activity"
           >
-            {adminDict.openActivity}
+            Open activity
           </Link>
         </div>
         {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
       </Card>
 
-      <AdminMarketDataOperationsShell
-        dataTestId="provider-console-operations"
-        rowTestIdPrefix="provider-console-operation-select-"
-        pageData={normalized}
-        title={adminDict.operationHistory}
-        description={adminDict.krOperationHistoryDescription}
-        selectedOperationId={selectedOperationId ?? ""}
-        queryState={{
-          page: data.query.operationsPage,
-          limit: data.query.operationsLimit,
-          operationId: selectedOperationId ?? "",
-          outcomesPage: data.query.operationOutcomesPage,
-          outcomesLimit: data.query.operationOutcomesLimit,
-          outcomeState: data.query.operationOutcomeState,
-          outcomeAction: data.query.operationOutcomeAction,
-          logsPage: data.query.operationLogsPage ?? 1,
-          logsLimit: data.query.operationLogsLimit ?? 25,
+      <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="provider-console-operations-table">
+        <AdminMarketDataResponsiveTable
+          columns={columns}
+          rows={operationRows}
+          contextKey="admin.marketData.KR.providerOperations"
+          emptyMessage="No KR provider operations match this page."
+          footer={(
+            <div className="flex gap-2 text-sm">
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperationId ?? undefined, operationsPage: Math.max(1, data.query.operationsPage - 1) })}>Previous</Link>
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperationId ?? undefined, operationsPage: data.query.operationsPage + 1 })}>Next</Link>
+            </div>
+          )}
+          rowKey={(operation) => operation.id}
+          rowTestId={(operation) => `provider-console-operation-select-${operation.id}`}
+          selectedRowKey={selectedOperationId}
+          onRowSelect={selectOperation}
+          settingsCopy={settingsCopy}
+          tableTestId="provider-console-operations-history"
+          desktopMinWidthClassName="min-w-[56rem]"
+          defaultMobileSummaryCount={3}
+          toolbar={<h3 className="text-base font-semibold text-foreground">Operation history</h3>}
+          getCardIdentity={(operation) => ({
+            title: operation.id,
+            subtitle: operation.preview.scopeSummary,
+            badge: <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[operation.phase])}>{operation.phase}</span>,
+          })}
+        />
+      </Card>
+
+      <Drawer
+        open={selectedOperation !== null}
+        onOpenChange={(open) => {
+          if (!open) clearSelectedOperation();
         }}
-        filters={{
-          providerId: data.query.providerId ?? "",
-          operationType: data.query.operationType ?? "",
-          phase: data.query.phase ?? "",
-          search: data.query.search ?? "",
-          startDate: data.query.startDate ?? "",
-          endDate: data.query.endDate ?? "",
-        }}
-        filterOptions={{
-          providers: [
-            { value: "", label: adminDict.allProviders },
-            ...normalized.providers.map((provider) => ({ value: provider.providerId, label: provider.label })),
-          ],
-          operationTypes: operationTypeOptions,
-          phases: phaseOptions,
-        }}
-        onApplyFilters={(next) => pushOperations({ ...next, operationsPage: 1 })}
-        onResetFilters={() => router.push("/admin/market-data/KR/operations")}
-        onPageChange={(page) => pushOperations({ operationsPage: page })}
-        onSelectOperationId={selectOperation}
-        onClearSelection={clearSelectedOperation}
-        onUpdateQueryState={(patch) => pushOperations({
-          operationLogsPage: patch.logsPage ?? data.query.operationLogsPage,
-          operationLogsLimit: patch.logsLimit ?? data.query.operationLogsLimit,
-          operationOutcomesPage: patch.outcomesPage ?? data.query.operationOutcomesPage,
-          operationOutcomesLimit: patch.outcomesLimit ?? data.query.operationOutcomesLimit,
-          operationOutcomeState: (patch.outcomeState as KrOperationsData["query"]["operationOutcomeState"] | undefined) ?? data.query.operationOutcomeState,
-          operationOutcomeAction: patch.outcomeAction ?? data.query.operationOutcomeAction,
-        })}
-        loadLogs={(operation, page, limit) => fetchOperationLogs({
-          marketCode: operation.marketCode,
-          providerId: operation.providerId,
-          operationId: operation.id,
-          page,
-          limit,
-        })}
-        loadOutcomes={(operation, page, limit, state, action) => fetchOperationOutcomes({
-          providerId: operation.providerId,
-          operationId: operation.id,
-          page,
-          limit,
-          state,
-          action,
-        })}
-        renderOperationActions={(operation) => {
-          const legacyOperation = operation.legacy;
-          const executableEndpoint =
-            operation.execution.endpointDiscriminator === "provider_operation"
-            || operation.execution.endpointDiscriminator === "provider_fixer_execute"
-            || operation.execution.endpointDiscriminator === "market_backfill_execute"
-            || operation.execution.endpointDiscriminator === "market_purge_execute";
-          const hasControls = operation.controls.canPause || operation.controls.canResume || operation.controls.canCancel;
-          if (!legacyOperation && !executableEndpoint && !hasControls) return null;
-          const operationHasFrozenScope = legacyOperation?.preview.frozenScope
-            ?? (!!operation.execution.canExecute && !!operation.execution.previewToken);
-          const executeActionLabel = operation.sourceSymbol ? adminDict.operationExecuteMapping : adminDict.operationExecuteGeneric;
-          return (
-            <div className="space-y-3" data-testid="provider-console-operation-panel">
-              {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-              {operation.execution.canExecute && executableEndpoint ? (
-                <div className="space-y-3 rounded border border-border bg-background px-3 py-3" data-testid="provider-console-operation-execute-guardrails">
-                  <div className="grid gap-2 text-sm sm:grid-cols-2">
-                    <div className={cn("rounded border px-3 py-2", !selectedPreviewExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
-                      {formatCopy(adminDict.operationTokenValid, { status: !selectedPreviewExpired ? adminDict.operationTokenYes : adminDict.operationTokenExpired })}
-                    </div>
-                    <div className={cn("rounded border px-3 py-2", operationHasFrozenScope ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
-                      {formatCopy(adminDict.operationFrozenScope, { status: operationHasFrozenScope ? adminDict.operationTokenAvailable : adminDict.operationTokenMissing })}
-                    </div>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={acknowledged}
-                      onChange={(event) => setAcknowledged(event.target.checked)}
-                      data-testid="provider-console-operation-confirm-checkbox"
-                    />
-                    {adminDict.krOperationAcknowledgement}
-                  </label>
-                  {typedConfirmationRequired ? (
-                    <label className="block text-sm font-medium text-foreground">
-                      {adminDict.operationTypeConfirmation}
-                      <input
-                        value={typedConfirmation}
-                        onChange={(event) => setTypedConfirmation(event.target.value)}
-                        placeholder={selectedConfirmationText ?? ""}
-                        className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                        data-testid="provider-console-operation-typed-confirmation"
-                      />
-                    </label>
+        title={selectedOperation?.id ?? "Operation inspector"}
+        closeLabel={adminDict.closeDrawerAriaLabel}
+        bodyClassName="space-y-4"
+      >
+        {selectedOperation ? (
+          <div className="space-y-4" data-testid="provider-console-operation-panel">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-foreground">Operation inspector</h3>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">{selectedOperation.id}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className={cn("rounded-full px-2 py-1 text-xs font-medium", phaseTone[selectedOperation.phase])}>{selectedOperation.phase}</span>
+              <span className={cn("rounded-full px-2 py-1 text-xs font-medium", selectedOperation.dangerous ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700")}>
+                {selectedOperation.dangerous ? "Dangerous" : "Small write"}
+              </span>
+            </div>
+          </div>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div><dt className="text-muted-foreground">Provider</dt><dd className="mt-1 font-medium">{selectedOperation.providerId}</dd></div>
+            <div><dt className="text-muted-foreground">Market</dt><dd className="mt-1 font-medium">{selectedOperation.market ?? "none"}</dd></div>
+            <div><dt className="text-muted-foreground">Progress</dt><dd className="mt-1 font-medium">{selectedOperation.progressPercent ?? summary.progressPercent}%</dd></div>
+            <div><dt className="text-muted-foreground">Frozen scope</dt><dd className="mt-1 font-medium">{selectedOperation.preview.frozenScope ? "available" : "missing"}</dd></div>
+          </dl>
+          {selectedOperation.canExecute ? (
+            <div className="rounded border border-border bg-muted/20 p-4" data-testid="provider-console-operation-execute-guardrails">
+              <h4 className="text-sm font-semibold text-foreground">Execute preview guardrails</h4>
+              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <div className={cn("rounded border px-3 py-2", !selectedPreviewExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                  Token valid: {!selectedPreviewExpired ? "yes" : "expired"}
+                </div>
+                <div className={cn("rounded border px-3 py-2", selectedOperation.preview.frozenScope ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                  Frozen scope: {selectedOperation.preview.frozenScope ? "available" : "missing"}
+                </div>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={acknowledged}
+                  onChange={(event) => setAcknowledged(event.target.checked)}
+                  data-testid="provider-console-operation-confirm-checkbox"
+                />
+                I reviewed this operation preview and understand execution writes provider-owned KR mapping results.
+              </label>
+              {typedConfirmationRequired ? (
+                <label className="mt-3 block text-sm font-medium text-foreground">
+                  Type confirmation
+                  <input
+                    value={typedConfirmation}
+                    onChange={(event) => setTypedConfirmation(event.target.value)}
+                    placeholder={selectedOperation.preview.confirmationText ?? ""}
+                  className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-typed-confirmation"
+                />
+                </label>
+              ) : null}
+              <button
+                type="button"
+                disabled={executeDisabled}
+                onClick={() => void executeOperation()}
+                className="mt-3 rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
+                data-testid="provider-console-operation-execute-button"
+              >
+                Execute operation
+              </button>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!selectedOperation.canPause || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Pause</button>
+            <button type="button" disabled={!selectedOperation.canResume || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Resume</button>
+            <button type="button" disabled={!selectedOperation.canRetry || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "retry")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-operation-retry-${selectedOperation.id}`}>Retry</button>
+            <button type="button" disabled={!selectedOperation.canCancel || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">Cancel</button>
+          </div>
+          {outcomesMatchSelectedOperation ? (
+          <div className="rounded border border-border bg-muted/20 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">Operation item outcomes</h4>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {summary.processed.toLocaleString()} processed of {summary.total.toLocaleString()} total; {summary.failed.toLocaleString()} failed.
+                </p>
+              </div>
+              <form
+                className="flex flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  pushOperations({
+                    operationId: selectedOperation.id,
+                    operationOutcomesPage: 1,
+                    operationOutcomeState: outcomeStateInput,
+                    operationOutcomeAction: outcomeActionInput,
+                  });
+                }}
+              >
+                <select
+                  value={outcomeStateInput}
+                  onChange={(event) => setOutcomeStateInput(event.target.value as KrOperationsData["query"]["operationOutcomeState"])}
+                  className="rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-outcome-state"
+                >
+                  <option value="all">all states</option>
+                  <option value="pending">pending</option>
+                  <option value="running">running</option>
+                  <option value="succeeded">succeeded</option>
+                  <option value="failed">failed</option>
+                  <option value="skipped">skipped</option>
+                  <option value="rate_limited">rate limited</option>
+                  <option value="cancelled">cancelled</option>
+                </select>
+                <input
+                  value={outcomeActionInput}
+                  onChange={(event) => setOutcomeActionInput(event.target.value)}
+                  placeholder="Action filter"
+                  className="min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-outcome-action"
+                />
+                <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Apply</button>
+              </form>
+            </div>
+            <div className="mt-4 min-w-0 overflow-x-auto rounded border border-border">
+              <table className="min-w-[52rem] divide-y divide-border text-sm">
+                <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2">Source</th>
+                    <th className="px-3 py-2">Action</th>
+                    <th className="px-3 py-2">State</th>
+                    <th className="px-3 py-2">Message</th>
+                    <th className="px-3 py-2">Updated</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.outcomes.items.map((outcome) => (
+                    <tr key={`${outcome.operationId}:${outcome.sourceSymbol}:${outcome.action}`}>
+                      <td className="px-3 py-2 font-mono">{outcome.sourceSymbol}</td>
+                      <td className="px-3 py-2">{outcome.action}</td>
+                      <td className="px-3 py-2">{outcome.state}</td>
+                      <td className="max-w-[20rem] px-3 py-2 text-muted-foreground">
+                        <span className="block break-words">{outcome.message ?? outcome.errorCode ?? "-"}</span>
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{formatTimestamp(outcome.updatedAt)}</td>
+                    </tr>
+                  ))}
+                  {data.outcomes.items.length === 0 ? (
+                    <tr><td colSpan={5} className="px-3 py-6 text-sm text-muted-foreground">No item outcomes match this operation filter.</td></tr>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={executeDisabled}
-                    onClick={() => void executeOperation()}
-                    className="rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
-                    data-testid="provider-console-operation-execute-button"
-                  >
-                    {executeActionLabel}
-                  </button>
-                </div>
-              ) : null}
-              {hasControls ? (
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" disabled={!operation.controls.canPause || busyAction !== null} onClick={() => void controlOperation(operation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationPause}</button>
-                  <button type="button" disabled={!operation.controls.canResume || busyAction !== null} onClick={() => void controlOperation(operation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationResume}</button>
-                  <button type="button" disabled={!operation.controls.canCancel || busyAction !== null} onClick={() => void controlOperation(operation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">{adminDict.operationCancel}</button>
-                </div>
-              ) : null}
+                </tbody>
+              </table>
             </div>
-          );
-        }}
-        renderExtraInspectorSections={(operation: NormalizedOperationItem) => (
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold text-foreground">{adminDict.krMappingDetails}</h3>
-            <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
-              <dl className="space-y-2">
-                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
-                  <dt className="text-xs text-muted-foreground">{adminDict.sourceSymbol}</dt>
-                  <dd className="break-words text-foreground">{operation.sourceSymbol ?? "—"}</dd>
-                </div>
-                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
-                  <dt className="text-xs text-muted-foreground">{adminDict.resolvedSymbol}</dt>
-                  <dd className="break-words text-foreground">{operation.resolvedSymbol ?? "—"}</dd>
-                </div>
-                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
-                  <dt className="text-xs text-muted-foreground">{adminDict.resolverMode}</dt>
-                  <dd className="break-words text-foreground">{operation.resolverMode ?? "—"}</dd>
-                </div>
-              </dl>
+            <div className="mt-3 flex gap-2 text-sm">
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperation.id, operationOutcomesPage: Math.max(1, data.query.operationOutcomesPage - 1) })}>Previous outcomes</Link>
+              <Link className="rounded border border-border px-3 py-2" href={krOperationsPath({ ...data.query, operationId: selectedOperation.id, operationOutcomesPage: data.query.operationOutcomesPage + 1 })}>Next outcomes</Link>
             </div>
-          </section>
-        )}
-      />
+          </div>
+          ) : (
+            <div
+              className="rounded border border-border bg-muted/20 p-4 text-sm text-muted-foreground"
+              data-testid="provider-console-operation-outcomes-loading"
+            >
+              Loading operation outcomes...
+            </div>
+          )}
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
 }

@@ -200,6 +200,37 @@ describe("backfill handler trigger branching", () => {
     }));
   });
 
+  it("auto-resolves non-KR unresolved rows after successful provider-backed work", async () => {
+    const deps = createDeps();
+    deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol = vi.fn().mockResolvedValue(2);
+    const providerOperationLogger = {
+      getProviderOperation: vi.fn().mockResolvedValue({
+        id: "provider-op-resolve",
+        providerId: "finmind-tw",
+        marketCode: "TW",
+        phase: "running",
+      }),
+      updateProviderOperation: vi.fn(),
+      createProviderOperationLog: vi.fn().mockResolvedValue({}),
+    };
+    const handler = createBackfillHandler({ ...deps, providerOperationLogger } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "admin_rerun",
+        providerOperationId: "provider-op-resolve",
+      }) as never,
+    ]);
+
+    expect(deps.persistence.autoResolveProviderUnresolvedItemsBySourceSymbol).toHaveBeenCalledWith({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      sourceSymbol: "2330",
+      operationId: "provider-op-resolve",
+    });
+  });
+
   it("completes operation-backed backfill batches after every queued job reports", async () => {
     const deps = createDeps();
     const onBatchComplete = vi.fn().mockResolvedValue(undefined);

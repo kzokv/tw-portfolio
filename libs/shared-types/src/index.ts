@@ -3011,6 +3011,19 @@ export interface ProviderUnresolvedItemUpdateResponse {
   item: ProviderUnresolvedItemDto;
 }
 
+export interface AdminMarketDataOperationBlockerDto {
+  operationId: string;
+  providerId: string;
+  marketCode: MarketCode;
+  operationType: string;
+  phase: ProviderFixerDashboardOperationPhase;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+}
+
 export type ProviderIncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
 export type ProviderIncidentSeverity = "info" | "warning" | "critical";
 
@@ -3180,6 +3193,7 @@ export type AdminMarketWorkspaceTab =
   | "overview"
   | "calendar"
   | "instruments"
+  | "unresolved"
   | "backfill"
   | "mappings"
   | "purge"
@@ -3189,7 +3203,8 @@ export type AdminMarketWorkspaceTab =
 export type AdminMarketDataBackfillScope =
   | "user_owned_or_monitored"
   | "selected_catalog_rows"
-  | "all_matching";
+  | "all_matching"
+  | "selected_unresolved_rows";
 export type AdminMarketDataPurgeCategory =
   | "price_bars"
   | "dividends"
@@ -3214,6 +3229,7 @@ export interface AdminMarketDataTileDto {
   providers: AdminMarketDataProviderChipDto[];
   healthStatus: ProviderHealthStatus;
   unresolvedCount: number;
+  affectedInstrumentCount: number;
   pendingBackfillCount: number;
   failedBackfillCount: number;
   latestOperation: {
@@ -3250,6 +3266,7 @@ export interface AdminMarketDataOverviewResponse {
   purgeCategories: AdminMarketDataPurgeCategoryCapabilityDto[];
   healthStatus: ProviderHealthStatus;
   unresolvedCount: number;
+  affectedInstrumentCount: number;
   pendingBackfillCount: number;
   failedBackfillCount: number;
   latestOperation: AdminMarketDataTileDto["latestOperation"];
@@ -3391,6 +3408,21 @@ export interface AdminMarketDataMappingOperationDetailsDto extends AdminMarketDa
   };
 }
 
+export interface AdminMarketDataCatalogSyncOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "sync_catalog";
+  fields: Record<string, AdminMarketDataOperationDetailValue>;
+}
+
+export interface AdminMarketDataFxRefreshOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "refresh_rates";
+  fields: Record<string, AdminMarketDataOperationDetailValue>;
+}
+
+export interface AdminMarketDataAsxGicsOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
+  kind: "sync_asx_gics";
+  fields: Record<string, AdminMarketDataOperationDetailValue>;
+}
+
 export interface AdminMarketDataGenericOperationDetailsDto extends AdminMarketDataOperationDetailsBaseDto {
   kind: "generic";
   fields: Record<string, AdminMarketDataOperationDetailValue>;
@@ -3400,6 +3432,9 @@ export type AdminMarketDataOperationDetailsDto =
   | AdminMarketDataBackfillOperationDetailsDto
   | AdminMarketDataPurgeOperationDetailsDto
   | AdminMarketDataMappingOperationDetailsDto
+  | AdminMarketDataCatalogSyncOperationDetailsDto
+  | AdminMarketDataFxRefreshOperationDetailsDto
+  | AdminMarketDataAsxGicsOperationDetailsDto
   | AdminMarketDataGenericOperationDetailsDto;
 
 export interface AdminMarketDataOperationDto {
@@ -3471,6 +3506,103 @@ export interface AdminMarketDataOperationLogsResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export type AdminMarketDataUnresolvedSort =
+  | "last_seen_desc"
+  | "updated_desc"
+  | "source_symbol_asc"
+  | "occurrence_count_desc";
+
+export type AdminMarketDataUnresolvedRecommendedAction =
+  | "retry_via_backfill"
+  | "repair_mapping"
+  | "ignore"
+  | "mark_unsupported"
+  | "reopen"
+  | "none";
+
+export interface AdminMarketDataUnresolvedIdentityDto {
+  providerId: string;
+  marketCode: MarketCode;
+  errorCode: string;
+  sourceSymbol: string;
+}
+
+export interface AdminMarketDataUnresolvedSummaryBucketDto {
+  key: string;
+  count: number;
+  activeCount: number;
+}
+
+export interface AdminMarketDataUnresolvedItemDto extends ProviderUnresolvedItemDto {
+  instrumentName: string | null;
+  instrumentType: InstrumentType | null;
+  supportState: AdminInstrumentSupportState | null;
+  backfillStatus: AdminMarketDataInstrumentDto["backfillStatus"] | null;
+  providerIds: string[];
+  recommendedAction: AdminMarketDataUnresolvedRecommendedAction;
+  recommendedActionReason: string;
+}
+
+export interface AdminMarketDataUnresolvedResponse {
+  marketCode: Exclude<AdminMarketCode, "FX">;
+  providers: AdminMarketDataProviderChipDto[];
+  filters: {
+    providerId: string | null;
+    state: ProviderUnresolvedListState;
+    errorCode: string | null;
+    search: string | null;
+    sort: AdminMarketDataUnresolvedSort;
+  };
+  summary: {
+    activeRowCount: number;
+    affectedInstrumentCount: number;
+    oldestUnresolvedAt: string | null;
+    byProvider: AdminMarketDataUnresolvedSummaryBucketDto[];
+    byErrorCode: AdminMarketDataUnresolvedSummaryBucketDto[];
+    byState: AdminMarketDataUnresolvedSummaryBucketDto[];
+  };
+  items: AdminMarketDataUnresolvedItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminMarketDataUnresolvedStateRequest extends Omit<AdminMarketDataUnresolvedIdentityDto, "marketCode"> {
+  state: Extract<ProviderUnresolvedItemState, "active" | "ignored" | "unsupported">;
+  reason?: string;
+}
+
+export interface AdminMarketDataUnresolvedStateResponse {
+  operationId: string;
+  item: AdminMarketDataUnresolvedItemDto;
+}
+
+export interface AdminMarketDataUnresolvedBulkScopeDto {
+  type: "selected_items" | "filter";
+  items?: AdminMarketDataUnresolvedIdentityDto[];
+  filter?: {
+    providerId?: string;
+    state?: ProviderUnresolvedListState;
+    errorCode?: string;
+    search?: string;
+  };
+}
+
+export interface AdminMarketDataUnresolvedBulkStateRequest {
+  scope: AdminMarketDataUnresolvedBulkScopeDto;
+  state: Extract<ProviderUnresolvedItemState, "active" | "ignored" | "unsupported">;
+  acknowledged?: boolean;
+  typedConfirmation?: string;
+  reason?: string;
+}
+
+export interface AdminMarketDataUnresolvedBulkStateResponse {
+  operationId: string;
+  updatedCount: number;
+  succeeded: number;
+  failed: number;
 }
 
 export type AdminMarketCalendarYearStatus = "confirmed" | "draft" | "invalidated" | "missing";
@@ -3704,10 +3836,18 @@ export interface AdminMarketDataBackfillTargetDto {
   providerIds?: string[];
 }
 
+export interface AdminMarketDataBackfillUnresolvedSelectionDto {
+  selectedRowCount: number;
+  dedupedTargetCount: number;
+  dedupedAwayRowCount: number;
+  skippedRowCount: number;
+}
+
 export interface AdminMarketDataBackfillPreviewRequest {
   scope: AdminMarketDataBackfillScope;
   providerId?: string;
   selectedCatalogRows?: AdminMarketDataBackfillTargetDto[];
+  selectedUnresolvedRows?: AdminMarketDataUnresolvedIdentityDto[];
   filters?: Record<string, string | number | boolean | null>;
   includeDemoUsers?: boolean;
   startDate?: string;
@@ -3739,6 +3879,7 @@ export interface AdminMarketDataBackfillPreviewResponse {
   providerBudgetNotes: string[];
   targets: AdminMarketDataBackfillTargetDto[];
   unsupportedRows: Array<AdminMarketDataBackfillTargetDto & { reason: string }>;
+  unresolvedSelection?: AdminMarketDataBackfillUnresolvedSelectionDto;
   confirmation: {
     level: AdminMarketDataConfirmationLevel;
     text: string | null;
@@ -3764,6 +3905,7 @@ export interface AdminMarketDataBackfillExecuteResponse {
   enqueuedJobCount: number;
   skippedExistingJobCount: number;
   batchId: string | null;
+  unresolvedSelection?: AdminMarketDataBackfillUnresolvedSelectionDto;
 }
 
 export interface AdminMarketDataSnapshotRepairExecuteRequest {
