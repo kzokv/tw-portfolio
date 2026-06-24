@@ -120,6 +120,28 @@ function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | 
   return `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
 }
 
+function compactLabel(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function latestRepairOutcomeLabel(item: ProviderUnresolvedItemDto): string | null {
+  const outcome = item.latestOperationOutcome;
+  if (!outcome) return null;
+  const evidence = outcome.evidence;
+  const attempts = evidence && Array.isArray(evidence.attemptedCandidates) ? evidence.attemptedCandidates : [];
+  const attemptText = attempts.flatMap((attempt) => {
+    if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) return [];
+    const record = attempt as Record<string, unknown>;
+    const symbol = typeof record.symbol === "string" ? record.symbol : null;
+    const status = typeof record.status === "string" ? record.status : null;
+    const reason = typeof record.reason === "string" ? record.reason : null;
+    if (!symbol || !status) return [];
+    return `${symbol} ${compactLabel(status)}${reason ? ` (${reason})` : ""}`;
+  }).join("; ");
+  const summary = `${compactLabel(outcome.state)}: ${outcome.message ?? outcome.errorCode ?? outcome.action}`;
+  return attemptText ? `${summary} · ${attemptText}` : summary;
+}
+
 function mappingLinkedOperation(evidence: Record<string, unknown> | null): string | null {
   const raw = evidence?.operationId ?? evidence?.providerOperationId ?? evidence?.retryOfOperationId;
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
@@ -950,7 +972,8 @@ function KrMappingsPanel({
                     </td>
                     <td className="px-5 py-4 text-muted-foreground">{item.state}</td>
                     <td className="px-5 py-4 text-muted-foreground">
-                      {item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}
+                      <p>{item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}</p>
+                      {latestRepairOutcomeLabel(item) ? <p className="mt-1 text-xs">{latestRepairOutcomeLabel(item)}</p> : null}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap justify-end gap-2">

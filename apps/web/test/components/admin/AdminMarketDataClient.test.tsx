@@ -293,6 +293,19 @@ function operation(id: string): ProviderFixerDashboardOperationDto {
     autoPauseFailureCount: null,
     autoPauseFailureThresholdPerMinute: null,
     effectiveRateCapPerMinute: null,
+    outcomeSummary: {
+      total: 1,
+      processed: 1,
+      pending: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: 1,
+      rateLimited: 0,
+      cancelled: 0,
+      progressPercent: 100,
+      result: "none_applied",
+    },
   };
 }
 
@@ -314,6 +327,27 @@ function krUnresolved(): ProviderUnresolvedItemsResponse {
         evidence: null,
         resolvedAt: null,
         resolvedByOperationId: null,
+        latestOperationOutcome: {
+          operationId: "OP-SKIPPED",
+          providerId: "yahoo-finance-kr",
+          marketCode: "KR",
+          sourceSymbol: "005930",
+          providerSymbol: "005930",
+          action: "repair_mapping",
+          state: "skipped",
+          message: "All provider symbol candidates were rejected during execution.",
+          errorCode: "candidate_rejected",
+          jobId: null,
+          evidence: {
+            attemptedCandidates: [
+              { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+              { symbol: "005930.KQ", status: "rejected", reason: "no_chart_rows" },
+            ],
+          },
+          startedAt: "2026-01-02T00:00:00.000Z",
+          completedAt: "2026-01-02T00:01:00.000Z",
+          updatedAt: "2026-01-02T00:01:00.000Z",
+        },
         updatedAt: "2026-01-02T00:00:00.000Z",
       },
     ],
@@ -386,7 +420,13 @@ function krOperationsData() {
         message: "Mapping persisted",
         errorCode: null,
         jobId: "job-1",
-        evidence: { operationId: selected.id },
+        evidence: {
+          operationId: selected.id,
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+            { symbol: "005930.KQ", status: "verified", reason: null },
+          ],
+        },
         startedAt: "2026-01-02T00:00:00.000Z",
         completedAt: "2026-01-02T00:01:00.000Z",
         updatedAt: "2026-01-02T00:01:00.000Z",
@@ -403,6 +443,7 @@ function krOperationsData() {
       rateLimited: 0,
       cancelled: 0,
       progressPercent: 100,
+      result: "all_succeeded",
     },
     total: 1,
     page: 1,
@@ -1841,6 +1882,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.textContent).toContain("KR mapping repair");
     expect(container.textContent).toContain("Backfill after mapping is a separate explicit action");
     expect(container.textContent).toContain("005930");
+    expect(container.textContent).toContain("Skipped: All provider symbol candidates were rejected during execution.");
+    expect(container.textContent).toContain("005930.KQ Rejected (no_chart_rows)");
 
     const search = container.querySelector("[data-testid='provider-console-unresolved-search']") as HTMLInputElement;
     const state = container.querySelector("[data-testid='provider-console-unresolved-state']") as HTMLSelectElement;
@@ -2134,6 +2177,11 @@ describe("AdminMarketDataWorkspaceClient", () => {
     await act(async () => undefined);
     expect(document.body.textContent).toContain("Outcomes");
     expect(document.body.textContent).toContain("repair_mapping");
+    expect(document.body.textContent).toContain("Completed with no changes");
+    expect(document.body.textContent).toContain("0 mapped");
+    expect(document.body.textContent).toContain("1 skipped");
+    expect(document.body.textContent).toContain("005930.KS");
+    expect(document.body.textContent).toContain("quote_not_korean_exchange");
 
     act(() => {
       document.body.querySelector("[data-testid='provider-console-operation-confirm-checkbox']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

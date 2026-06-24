@@ -129,6 +129,7 @@ import type {
   ListProviderOperationLogsResult,
   ListProviderOperationOutcomesOptions,
   ListProviderOperationOutcomesResult,
+  LatestProviderOperationOutcomeOptions,
   ListProviderOperationsOptions,
   ListProviderOperationsResult,
   ListProviderResolutionMappingsOptions,
@@ -435,6 +436,22 @@ function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord
   for (const row of rows) counts[row.state] += 1;
   const processed = counts.succeeded + counts.failed + counts.skipped + counts.rate_limited + counts.cancelled;
   const total = rows.length;
+  const result =
+    total === 0
+      ? "none"
+      : counts.running > 0 || counts.pending > 0
+        ? "running"
+        : counts.rate_limited > 0
+          ? "rate_limited"
+          : counts.failed > 0
+            ? counts.succeeded > 0 ? "partial" : "failed"
+            : counts.succeeded > 0 && (counts.skipped > 0 || counts.cancelled > 0)
+              ? "partial"
+              : counts.succeeded > 0
+                ? "all_succeeded"
+                : processed > 0
+                  ? "none_applied"
+                  : "none";
   return {
     total,
     processed,
@@ -446,6 +463,7 @@ function summarizeProviderOperationOutcomes(rows: ProviderOperationOutcomeRecord
     rateLimited: counts.rate_limited,
     cancelled: counts.cancelled,
     progressPercent: total > 0 ? Math.round((processed / total) * 100) : 0,
+    result,
   };
 }
 
@@ -7270,6 +7288,25 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  async getLatestProviderOperationOutcome(
+    options: LatestProviderOperationOutcomeOptions,
+  ): Promise<ProviderOperationOutcomeRecord | null> {
+    const sourceSymbol = options.sourceSymbol.trim().toUpperCase();
+    const actions = new Set(options.actions ?? []);
+    const row = [...this.providerOperationOutcomes.values()]
+      .filter((outcome) => outcome.providerId === options.providerId)
+      .filter((outcome) => outcome.marketCode === options.marketCode)
+      .filter((outcome) => outcome.sourceSymbol.toUpperCase() === sourceSymbol)
+      .filter((outcome) => actions.size === 0 || actions.has(outcome.action))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    return row
+      ? {
+          ...row,
+          evidence: row.evidence ? { ...row.evidence } : null,
+        }
+      : null;
   }
 
   async getProviderResolutionMapping(

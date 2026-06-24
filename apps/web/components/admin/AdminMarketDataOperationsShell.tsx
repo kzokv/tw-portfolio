@@ -10,6 +10,7 @@ import type {
   NormalizedOperationPage,
 } from "../../lib/adminMarketDataOperations";
 import {
+  localizeOperationOutcomeSummary,
   localizeOperationOutcomeState,
   localizeOperationPhase,
   localizeOperationPreview,
@@ -106,6 +107,18 @@ function detailEntries(value: Record<string, unknown> | null, prefix = ""): Arra
 
 function formatCopy(template: string, values: Record<string, string | number>): string {
   return Object.entries(values).reduce((next, [key, value]) => next.replaceAll(`{${key}}`, String(value)), template);
+}
+
+function outcomeCandidateAttempts(evidence: Record<string, unknown> | null): Array<{ symbol: string; status: string; reason: string | null }> {
+  const attempts = Array.isArray(evidence?.attemptedCandidates) ? evidence.attemptedCandidates : [];
+  return attempts.flatMap((attempt) => {
+    if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) return [];
+    const record = attempt as Record<string, unknown>;
+    const symbol = typeof record.symbol === "string" ? record.symbol : null;
+    const status = typeof record.status === "string" ? record.status : null;
+    if (!symbol || !status) return [];
+    return [{ symbol, status, reason: typeof record.reason === "string" ? record.reason : null }];
+  });
 }
 
 const operationInspectorPageSizeOptions = [10, 25, 50, 100];
@@ -236,7 +249,7 @@ export function AdminMarketDataOperationsShell({
     selectedOperation,
   ]);
 
-  type OperationColumnId = "created" | "operation" | "provider" | "phase" | "preview" | "matches" | "progress";
+  type OperationColumnId = "created" | "operation" | "provider" | "phase" | "result" | "preview" | "matches" | "progress";
   const columns = useMemo<Array<AdminMarketDataResponsiveColumn<NormalizedOperationItem, OperationColumnId>>>(() => [
     {
       id: "created",
@@ -270,6 +283,13 @@ export function AdminMarketDataOperationsShell({
       defaultWidth: 140,
       renderCell: (operation) => <span className="text-muted-foreground">{localizeOperationPhase(operation.phase, adminDict)}</span>,
       renderCardValue: (operation) => localizeOperationPhase(operation.phase, adminDict),
+    },
+    {
+      id: "result",
+      label: adminDict.result,
+      defaultWidth: 220,
+      renderCell: (operation) => <span className="text-muted-foreground">{localizeOperationOutcomeSummary(operation, adminDict)}</span>,
+      renderCardValue: (operation) => localizeOperationOutcomeSummary(operation, adminDict),
     },
     {
       id: "preview",
@@ -456,6 +476,7 @@ export function AdminMarketDataOperationsShell({
                   { label: adminDict.provider, value: selectedOperation.providerId },
                   { label: adminDict.market, value: selectedOperation.marketCode },
                   { label: adminDict.phase, value: localizeOperationPhase(selectedOperation.phase, adminDict) },
+                  { label: adminDict.result, value: localizeOperationOutcomeSummary(selectedOperation, adminDict) },
                   { label: adminDict.matchesLabel, value: selectedOperation.matchCount.toLocaleString() },
                   { label: adminDict.summary, value: localizeOperationPreview(selectedOperation, adminDict) },
                   { label: adminDict.operationId, value: selectedOperation.id },
@@ -599,6 +620,15 @@ export function AdminMarketDataOperationsShell({
                                 <span className="text-xs text-muted-foreground">{formatUtcTimestamp(item.updatedAt)}</span>
                               </div>
                               <p className="mt-1 text-sm text-muted-foreground">{item.message ?? item.errorCode ?? "—"}</p>
+                              {outcomeCandidateAttempts(item.evidence).length > 0 ? (
+                                <div className="mt-2 space-y-1">
+                                  {outcomeCandidateAttempts(item.evidence).map((attempt) => (
+                                    <p key={`${item.operationId}:${item.sourceSymbol}:${attempt.symbol}:${attempt.status}`} className="break-words text-xs text-muted-foreground">
+                                      {attempt.symbol} · {friendlyLabel(attempt.status)}{attempt.reason ? ` · ${attempt.reason}` : ""}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>

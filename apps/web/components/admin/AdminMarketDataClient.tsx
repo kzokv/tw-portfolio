@@ -571,6 +571,28 @@ function unresolvedEvidenceLabel(item: AdminMarketDataUnresolvedItemDto): string
   return item.evidenceSummary ?? item.latestEvidence ?? item.latestError ?? "No evidence summary";
 }
 
+function unresolvedOutcomeCandidateAttempts(item: AdminMarketDataUnresolvedItemDto): string {
+  const evidence = item.latestOperationOutcome?.evidence;
+  const attempts = evidence && Array.isArray(evidence.attemptedCandidates) ? evidence.attemptedCandidates : [];
+  return attempts.flatMap((attempt) => {
+    if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) return [];
+    const record = attempt as Record<string, unknown>;
+    const symbol = typeof record.symbol === "string" ? record.symbol : null;
+    const status = typeof record.status === "string" ? record.status : null;
+    const reason = typeof record.reason === "string" ? record.reason : null;
+    if (!symbol || !status) return [];
+    return `${symbol} ${friendlyLabel(status)}${reason ? ` (${reason})` : ""}`;
+  }).join("; ");
+}
+
+function unresolvedLatestOutcomeLabel(item: AdminMarketDataUnresolvedItemDto): string | null {
+  const outcome = item.latestOperationOutcome;
+  if (!outcome) return null;
+  const attempts = unresolvedOutcomeCandidateAttempts(item);
+  const summary = `${friendlyLabel(outcome.state)} · ${outcome.message ?? outcome.errorCode ?? outcome.action}`;
+  return attempts ? `${summary} · ${attempts}` : summary;
+}
+
 function unresolvedOperationPath(marketCode: Exclude<AdminMarketCode, "FX">, blocker: AdminMarketDataUnresolvedBlockingOperationDto): string {
   const params = new URLSearchParams();
   params.set("providerId", blocker.providerId);
@@ -804,8 +826,13 @@ function UnresolvedPanel({
       id: "evidence",
       label: "Evidence",
       defaultWidth: 240,
-      renderCell: (item) => <span className="line-clamp-3 text-muted-foreground">{unresolvedEvidenceLabel(item)}</span>,
-      renderCardValue: unresolvedEvidenceLabel,
+      renderCell: (item) => (
+        <div className="space-y-1 text-muted-foreground">
+          <p className="line-clamp-3">{unresolvedEvidenceLabel(item)}</p>
+          {unresolvedLatestOutcomeLabel(item) ? <p className="line-clamp-3 text-xs">{unresolvedLatestOutcomeLabel(item)}</p> : null}
+        </div>
+      ),
+      renderCardValue: (item) => unresolvedLatestOutcomeLabel(item) ?? unresolvedEvidenceLabel(item),
     },
     {
       id: "occurrence",
@@ -1048,6 +1075,7 @@ function UnresolvedPanel({
                   detailRow("Error code", selectedItem.errorLabel ?? selectedItem.errorCode),
                   detailRow("Recommended", unresolvedRecommendedActionLabel(selectedItem)),
                   detailRow("Evidence", unresolvedEvidenceLabel(selectedItem)),
+                  detailRow("Latest repair outcome", unresolvedLatestOutcomeLabel(selectedItem) ?? "—"),
                   detailRow("First seen", formatUtcTimestamp(selectedItem.firstSeenAt)),
                   detailRow("Last seen", formatUtcTimestamp(selectedItem.lastSeenAt)),
                   detailRow("State", selectedItem.state),

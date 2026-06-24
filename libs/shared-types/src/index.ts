@@ -2879,6 +2879,8 @@ export interface ProviderFixerDashboardEvidenceSampleDto {
   candidateSymbol: string | null;
   exchangeHint: string | null;
   verificationStatus: "verified" | "pending" | "rejected";
+  verificationReason?: string | null;
+  attemptedCandidates?: ProviderOperationCandidateAttemptDto[];
   note: string;
 }
 
@@ -2920,6 +2922,7 @@ export interface ProviderFixerDashboardOperationDto {
   autoPauseFailureCount: number | null;
   autoPauseFailureThresholdPerMinute: number | null;
   effectiveRateCapPerMinute: number | null;
+  outcomeSummary: ProviderOperationOutcomeSummaryDto;
 }
 
 export interface ProviderFixerDashboardLogEntryDto {
@@ -2997,6 +3000,7 @@ export interface ProviderUnresolvedItemDto {
   evidence: Record<string, unknown> | null;
   resolvedAt: string | null;
   resolvedByOperationId: string | null;
+  latestOperationOutcome?: ProviderOperationOutcomeDto | null;
   updatedAt: string;
 }
 
@@ -3070,6 +3074,20 @@ export type ProviderOperationOutcomeState =
   | "rate_limited"
   | "cancelled";
 export type ProviderOperationOutcomeListState = ProviderOperationOutcomeState | "all";
+export type ProviderOperationOutcomeResult =
+  | "none"
+  | "running"
+  | "all_succeeded"
+  | "partial"
+  | "none_applied"
+  | "failed"
+  | "rate_limited";
+
+export interface ProviderOperationCandidateAttemptDto {
+  symbol: string;
+  status: "verified" | "rejected";
+  reason: string | null;
+}
 
 export interface ProviderOperationOutcomeDto {
   operationId: string;
@@ -3099,6 +3117,7 @@ export interface ProviderOperationOutcomeSummaryDto {
   rateLimited: number;
   cancelled: number;
   progressPercent: number;
+  result: ProviderOperationOutcomeResult;
 }
 
 export interface ProviderOperationOutcomesResponse {
@@ -3348,6 +3367,7 @@ export interface AdminMarketDataOperationSummaryDto {
   categories: string[];
   rateLimit: { requestsPerMinute: number | null } | null;
   pacing: { minRequestIntervalMs: number | null; enforced: boolean } | null;
+  outcomeSummary: ProviderOperationOutcomeSummaryDto;
 }
 
 export type AdminMarketDataOperationDetailValue =

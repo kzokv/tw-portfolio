@@ -1754,6 +1754,7 @@ export interface ProviderOperationOutcomeSummary {
   rateLimited: number;
   cancelled: number;
   progressPercent: number;
+  result: "none" | "running" | "all_succeeded" | "partial" | "none_applied" | "failed" | "rate_limited";
 }
 
 export interface ListProviderOperationOutcomesResult {
@@ -1762,6 +1763,13 @@ export interface ListProviderOperationOutcomesResult {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface LatestProviderOperationOutcomeOptions {
+  providerId: string;
+  marketCode: MarketCode;
+  sourceSymbol: string;
+  actions?: string[];
 }
 
 export interface ProviderResolutionMappingRecord {
@@ -3265,6 +3273,9 @@ export interface Persistence {
   listProviderOperationOutcomes(
     options: ListProviderOperationOutcomesOptions,
   ): Promise<ListProviderOperationOutcomesResult>;
+  getLatestProviderOperationOutcome(
+    options: LatestProviderOperationOutcomeOptions,
+  ): Promise<ProviderOperationOutcomeRecord | null>;
   getProviderResolutionMapping(
     providerId: string,
     marketCode: MarketCode,

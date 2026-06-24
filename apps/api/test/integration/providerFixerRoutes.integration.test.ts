@@ -277,7 +277,7 @@ describe("Provider Fixer admin routes", () => {
       ],
     });
     expect(previewBody.operation.preview.evidenceSample[0]?.candidateSymbol).toBe("005930.KS");
-    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("verified");
+    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("pending");
 
     const activeBeforeExecute = await app.inject({
       method: "GET",
@@ -2800,12 +2800,12 @@ describe("Provider Fixer admin routes", () => {
   });
 
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
-    verifyResolvedSymbol.mockResolvedValue({
+    verifyResolvedSymbol.mockImplementation((_ticker: string, candidateSymbol: string) => Promise.resolve({
       verified: false,
-      checkedSymbol: "005930.KS",
+      checkedSymbol: candidateSymbol,
       resolverMode: "quote_first",
       reason: "quote_not_korean_exchange",
-    });
+    }));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -2823,7 +2823,8 @@ describe("Provider Fixer admin routes", () => {
     const previewBody = preview.json() as {
       operation: { id: string; preview: { token: string; evidenceSample: Array<{ verificationStatus: string }> } };
     };
-    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("rejected");
+    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("pending");
+    expect(verifyResolvedSymbol).not.toHaveBeenCalled();
 
     const execute = await app.inject({
       method: "POST",
@@ -2846,23 +2847,227 @@ describe("Provider Fixer admin routes", () => {
       headers,
     });
     expect(outcomes.statusCode).toBe(200);
-    expect(outcomes.json()).toMatchObject({
-      summary: { total: 1, processed: 1, succeeded: 0, skipped: 1 },
-      items: [expect.objectContaining({ sourceSymbol: "005930", state: "skipped", errorCode: "candidate_rejected" })],
+    const outcomesBody = outcomes.json();
+    expect(outcomesBody).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 0, skipped: 1, result: "none_applied" },
+      items: [expect.objectContaining({
+        sourceSymbol: "005930",
+        state: "skipped",
+        errorCode: "candidate_rejected",
+        evidence: expect.objectContaining({
+          verificationStatus: "rejected",
+          verificationReason: "quote_not_korean_exchange",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+            { symbol: "005930.KQ", status: "rejected", reason: "quote_not_korean_exchange" },
+          ],
+        }),
+      })],
     });
+    expect(verifyResolvedSymbol).toHaveBeenCalledTimes(2);
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toBeNull();
   });
 
-  it("marks provider fixer execution failed when Yahoo verification throws a non-rate error", async () => {
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
+  it("tries the alternate KR Yahoo suffix when the catalog-derived candidate is rejected", async () => {
+    verifyResolvedSymbol.mockImplementation((_ticker: string, candidateSymbol: string) => Promise.resolve({
+      verified: candidateSymbol.endsWith(".KQ"),
+      checkedSymbol: candidateSymbol,
+      resolverMode: "quote_first",
+      reason: candidateSymbol.endsWith(".KQ") ? undefined : "quote_not_korean_exchange",
+    }));
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
         resolverMode: "quote_first",
-      })
-      .mockRejectedValueOnce(new Error("Yahoo verifier exploded"));
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930")).resolves.toMatchObject({
+      resolvedSymbol: "005930.KQ",
+    });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { succeeded: 1, result: "all_succeeded" },
+      items: [expect.objectContaining({
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+            { symbol: "005930.KQ", status: "verified", reason: null },
+          ],
+        }),
+      })],
+    });
+  });
+
+  it("resolves an active KR unresolved row when a durable mapping already exists", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { seeded: true },
+      verifiedByUserId: admin.userId,
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).not.toHaveBeenCalled();
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { succeeded: 1, result: "all_succeeded" },
+      items: [expect.objectContaining({
+        state: "succeeded",
+        errorCode: "mapping_already_exists",
+        evidence: expect.objectContaining({
+          verificationStatus: "verified",
+          verificationReason: "mapping_already_exists",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "verified", reason: "mapping_already_exists" },
+          ],
+        }),
+      })],
+    });
+    const unresolved = await app.persistence.listProviderUnresolvedItems({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      state: "resolved",
+      page: 1,
+      limit: 10,
+    });
+    expect(unresolved.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSymbol: "005930", state: "resolved", resolvedByOperationId: previewBody.operation.id }),
+    ]));
+  });
+
+  it("pauses KR repair when the alternate suffix attempt hits the rate limit", async () => {
+    verifyResolvedSymbol
+      .mockImplementationOnce((_ticker: string, candidateSymbol: string) => Promise.resolve({
+        verified: false,
+        checkedSymbol: candidateSymbol,
+        resolverMode: "quote_first",
+        reason: "quote_not_korean_exchange",
+      }))
+      .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 60_000 }));
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("paused");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { rateLimited: 1, result: "rate_limited" },
+      items: [expect.objectContaining({
+        state: "rate_limited",
+        errorCode: "provider_rate_limited",
+        evidence: expect.objectContaining({
+          verificationStatus: "rejected",
+          verificationReason: "quote_not_korean_exchange",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+          ],
+        }),
+      })],
+    });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930")).resolves.toBeNull();
+  });
+
+  it("marks provider fixer execution failed when Yahoo verification throws a non-rate error", async () => {
+    verifyResolvedSymbol.mockRejectedValueOnce(new Error("Yahoo verifier exploded"));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
@@ -2971,13 +3176,7 @@ describe("Provider Fixer admin routes", () => {
   });
 
   it("auto-pauses provider fixer execution when Yahoo verification is rate limited", async () => {
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }));
+    verifyResolvedSymbol.mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -3052,11 +3251,6 @@ describe("Provider Fixer admin routes", () => {
 
   it("resumes paused provider fixer execution and completes background work", async () => {
     verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
       .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }))
       .mockResolvedValueOnce({
         verified: true,
@@ -3258,18 +3452,12 @@ describe("Provider Fixer admin routes", () => {
       resolverMode: "quote_first";
     }) => void = () => undefined;
     const verificationStarted = vi.fn();
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockImplementationOnce(() => {
-        verificationStarted();
-        return new Promise((resolve) => {
-          resolveVerification = resolve;
-        });
+    verifyResolvedSymbol.mockImplementationOnce(() => {
+      verificationStarted();
+      return new Promise((resolve) => {
+        resolveVerification = resolve;
       });
+    });
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -3342,18 +3530,12 @@ describe("Provider Fixer admin routes", () => {
       resolverMode: "quote_first";
     }) => void = () => undefined;
     const verificationStarted = vi.fn();
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockImplementationOnce(() => {
-        verificationStarted();
-        return new Promise((resolve) => {
-          resolveVerification = resolve;
-        });
+    verifyResolvedSymbol.mockImplementationOnce(() => {
+      verificationStarted();
+      return new Promise((resolve) => {
+        resolveVerification = resolve;
       });
+    });
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 

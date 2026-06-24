@@ -156,6 +156,7 @@ import type {
   ListProviderIncidentsResult,
   ListProviderOperationLogsOptions,
   ListProviderOperationLogsResult,
+  LatestProviderOperationOutcomeOptions,
   ListProviderOperationOutcomesOptions,
   ListProviderOperationOutcomesResult,
   ListProviderOperationsOptions,
@@ -15830,6 +15831,35 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
+  async getLatestProviderOperationOutcome(
+    options: LatestProviderOperationOutcomeOptions,
+  ): Promise<ProviderOperationOutcomeRecord | null> {
+    const params: unknown[] = [
+      options.providerId,
+      options.marketCode,
+      options.sourceSymbol.trim().toUpperCase(),
+    ];
+    const where = [
+      "provider_id = $1",
+      "market_code = $2",
+      "upper(source_symbol) = $3",
+    ];
+    if (options.actions && options.actions.length > 0) {
+      params.push(options.actions);
+      where.push(`action = ANY($${params.length}::text[])`);
+    }
+    const result = await this.pool.query<ProviderOperationOutcomeRowSql>(
+      `SELECT operation_id, provider_id, market_code, source_symbol, provider_symbol, action, state,
+              message, error_code, job_id, evidence, started_at, completed_at, created_at, updated_at
+         FROM market_data.provider_operation_outcomes
+        WHERE ${where.join(" AND ")}
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      params,
+    );
+    return result.rows[0] ? mapProviderOperationOutcomeRow(result.rows[0]) : null;
+  }
+
   async getProviderResolutionMapping(
     providerId: string,
     marketCode: MarketCode,
@@ -16430,17 +16460,41 @@ function mapProviderOperationOutcomeRow(row: ProviderOperationOutcomeRowSql): Pr
 function mapProviderOperationOutcomeSummary(row?: ProviderOperationOutcomeSummaryRowSql): ListProviderOperationOutcomesResult["summary"] {
   const total = parseInt(row?.total ?? "0", 10);
   const processed = parseInt(row?.processed ?? "0", 10);
+  const pending = parseInt(row?.pending ?? "0", 10);
+  const running = parseInt(row?.running ?? "0", 10);
+  const succeeded = parseInt(row?.succeeded ?? "0", 10);
+  const failed = parseInt(row?.failed ?? "0", 10);
+  const skipped = parseInt(row?.skipped ?? "0", 10);
+  const rateLimited = parseInt(row?.rate_limited ?? "0", 10);
+  const cancelled = parseInt(row?.cancelled ?? "0", 10);
+  const result =
+    total === 0
+      ? "none"
+      : running > 0 || pending > 0
+        ? "running"
+        : rateLimited > 0
+          ? "rate_limited"
+          : failed > 0
+            ? succeeded > 0 ? "partial" : "failed"
+            : succeeded > 0 && (skipped > 0 || cancelled > 0)
+              ? "partial"
+              : succeeded > 0
+                ? "all_succeeded"
+                : processed > 0
+                  ? "none_applied"
+                  : "none";
   return {
     total,
     processed,
-    pending: parseInt(row?.pending ?? "0", 10),
-    running: parseInt(row?.running ?? "0", 10),
-    succeeded: parseInt(row?.succeeded ?? "0", 10),
-    failed: parseInt(row?.failed ?? "0", 10),
-    skipped: parseInt(row?.skipped ?? "0", 10),
-    rateLimited: parseInt(row?.rate_limited ?? "0", 10),
-    cancelled: parseInt(row?.cancelled ?? "0", 10),
+    pending,
+    running,
+    succeeded,
+    failed,
+    skipped,
+    rateLimited,
+    cancelled,
     progressPercent: total > 0 ? Math.round((processed / total) * 100) : 0,
+    result,
   };
 }
 

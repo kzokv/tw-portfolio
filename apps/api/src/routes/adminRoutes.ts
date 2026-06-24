@@ -19,7 +19,10 @@ import type {
   ProviderIncidentsResponse,
   ProviderLogPurgeExecuteResponse,
   ProviderLogPurgePreviewResponse,
+  ProviderOperationCandidateAttemptDto,
   ProviderOperationOutcomeDto,
+  ProviderOperationOutcomeResult,
+  ProviderOperationOutcomeSummaryDto,
   ProviderOperationOutcomesResponse,
   ProviderResolutionMappingDto,
   ProviderResolutionMappingsResponse,
@@ -1693,6 +1696,21 @@ async function verifyProviderFixerCandidate(
   return provider.verifyResolvedSymbol(ticker, candidateSymbol, { resolverMode });
 }
 
+class ProviderFixerCandidateRateLimitedError extends RateLimitedError {
+  readonly evidence: ProviderFixerDashboardEvidenceSampleDto;
+
+  constructor(cause: RateLimitedError, evidence: ProviderFixerDashboardEvidenceSampleDto) {
+    super({ msUntilAvailable: cause.msUntilAvailable });
+    this.evidence = evidence;
+  }
+}
+
+function alternateYahooKrSuffix(suffix: ".KS" | ".KQ" | null): ".KS" | ".KQ" | null {
+  if (suffix === ".KS") return ".KQ";
+  if (suffix === ".KQ") return ".KS";
+  return null;
+}
+
 async function buildProviderFixerEvidenceSample(
   app: FastifyInstance,
   providerId: string,
@@ -1725,6 +1743,8 @@ async function buildProviderFixerEvidenceSampleRow(
   let candidateSymbol: string | null = null;
   let exchangeHint: string | null = null;
   let verificationStatus: ProviderFixerDashboardEvidenceSampleDto["verificationStatus"] = "pending";
+  let verificationReason: string | null = null;
+  let attemptedCandidates: ProviderOperationCandidateAttemptDto[] = [];
 
   if (providerId === "yahoo-finance-kr" && marketCode === "KR") {
     const existing = await app.persistence.getProviderResolutionMapping(providerId, "KR", bareTicker);
@@ -1732,6 +1752,8 @@ async function buildProviderFixerEvidenceSampleRow(
       candidateSymbol = existing.resolvedSymbol;
       exchangeHint = "durable provider_resolution_mappings row";
       verificationStatus = "verified";
+      verificationReason = "mapping_already_exists";
+      attemptedCandidates = [{ symbol: existing.resolvedSymbol, status: "verified", reason: "mapping_already_exists" }];
     } else {
       const instrument = await app.persistence.getInstrument(bareTicker, "KR");
       const suffix = yahooSuffixHintFromKrCatalogEvidence(
@@ -1739,28 +1761,78 @@ async function buildProviderFixerEvidenceSampleRow(
         instrument?.catalogMicCode ?? null,
       );
       if (suffix) {
-        candidateSymbol = `${bareTicker}${suffix}`;
+        const orderedCandidates = [`${bareTicker}${suffix}`];
+        const alternateSuffix = alternateYahooKrSuffix(suffix);
+        if (alternateSuffix) orderedCandidates.push(`${bareTicker}${alternateSuffix}`);
+        candidateSymbol = orderedCandidates[0] ?? null;
         exchangeHint = [
           instrument?.catalogExchangeRaw ? `Twelve Data exchange=${instrument.catalogExchangeRaw}` : null,
           instrument?.catalogMicCode ? `mic=${instrument.catalogMicCode}` : null,
         ].filter(Boolean).join(" / ") || "Twelve Data catalog hint";
+        if (options.verifyCandidate) {
+          attemptedCandidates = [];
+          for (const orderedCandidate of orderedCandidates) {
+            if (options.operationBudget) {
+              try {
+                await reserveProviderOperationBudget(app, options.operationBudget, 1);
+              } catch (err) {
+                if (err instanceof RateLimitedError) {
+                  throw new ProviderFixerCandidateRateLimitedError(err, {
+                    symbol: bareTicker,
+                    providerSymbol: item.providerSymbol ?? bareTicker,
+                    candidateSymbol,
+                    exchangeHint,
+                    verificationStatus: attemptedCandidates.length > 0 ? "rejected" : "pending",
+                    verificationReason,
+                    attemptedCandidates,
+                    note: "Provider verification paused by rate-limit guardrails.",
+                  });
+                }
+                throw err;
+              }
+            }
+            try {
+              const verification = await verifyProviderFixerCandidate(
+                app,
+                providerId,
+                marketCode,
+                bareTicker,
+                orderedCandidate,
+                resolverMode,
+              );
+              if (verification.verified) {
+                candidateSymbol = verification.checkedSymbol;
+                verificationStatus = "verified";
+                verificationReason = null;
+                attemptedCandidates.push({ symbol: verification.checkedSymbol, status: "verified", reason: null });
+                break;
+              }
+              verificationStatus = "rejected";
+              verificationReason = verification.reason ?? "candidate_rejected";
+              attemptedCandidates.push({
+                symbol: verification.checkedSymbol,
+                status: "rejected",
+                reason: verification.reason ?? "candidate_rejected",
+              });
+            } catch (err) {
+              if (err instanceof RateLimitedError) {
+                throw new ProviderFixerCandidateRateLimitedError(err, {
+                  symbol: bareTicker,
+                  providerSymbol: item.providerSymbol ?? bareTicker,
+                  candidateSymbol,
+                  exchangeHint,
+                  verificationStatus: attemptedCandidates.length > 0 ? "rejected" : "pending",
+                  verificationReason,
+                  attemptedCandidates,
+                  note: "Provider verification paused by rate-limit guardrails.",
+                });
+              }
+              throw err;
+            }
+          }
+        }
       }
     }
-  }
-
-  if (candidateSymbol && options.verifyCandidate && providerId === "yahoo-finance-kr" && marketCode === "KR") {
-    if (options.operationBudget) {
-      await reserveProviderOperationBudget(app, options.operationBudget, 1);
-    }
-    const verification = await verifyProviderFixerCandidate(
-      app,
-      providerId,
-      marketCode,
-      bareTicker,
-      candidateSymbol,
-      resolverMode,
-    );
-    verificationStatus = verification.verified ? "verified" : "rejected";
   }
 
   return {
@@ -1769,10 +1841,14 @@ async function buildProviderFixerEvidenceSampleRow(
     candidateSymbol,
     exchangeHint,
     verificationStatus,
+    verificationReason,
+    attemptedCandidates,
     note: candidateSymbol
       ? verificationStatus === "verified"
         ? "Candidate verified against the provider for this frozen unresolved scope."
-        : "Candidate is display-only until execution re-verifies the frozen unresolved scope."
+        : options.verifyCandidate
+          ? "All provider symbol candidates were rejected during execution."
+          : "Candidate is display-only until execution re-verifies the frozen unresolved scope."
       : "No catalog exchange/MIC hint was available; leave unresolved for manual review.",
   };
 }
@@ -1805,17 +1881,33 @@ function evidenceSampleFromOperation(operation: ProviderOperationRecord): Provid
   return sample
     .map((item) => asRecord(item))
     .filter((item): item is Record<string, unknown> => item !== null)
-    .map((item): ProviderFixerDashboardEvidenceSampleDto => ({
-      symbol: stringField(item.symbol) ?? "",
-      providerSymbol: stringField(item.providerSymbol) ?? "",
-      candidateSymbol: stringField(item.candidateSymbol),
-      exchangeHint: stringField(item.exchangeHint),
-      verificationStatus:
-        item.verificationStatus === "verified" || item.verificationStatus === "rejected"
-          ? item.verificationStatus
-          : "pending",
-      note: stringField(item.note) ?? "",
-    }))
+    .map((item): ProviderFixerDashboardEvidenceSampleDto => {
+      const attemptedCandidates = Array.isArray(item.attemptedCandidates)
+        ? item.attemptedCandidates
+          .map((attempt) => asRecord(attempt))
+          .filter((attempt): attempt is Record<string, unknown> => attempt !== null)
+          .map((attempt): ProviderOperationCandidateAttemptDto | null => {
+            const symbol = stringField(attempt.symbol);
+            const status = attempt.status === "verified" || attempt.status === "rejected" ? attempt.status : null;
+            if (!symbol || !status) return null;
+            return { symbol, status, reason: stringField(attempt.reason) };
+          })
+          .filter((attempt): attempt is ProviderOperationCandidateAttemptDto => attempt !== null)
+        : [];
+      return {
+        symbol: stringField(item.symbol) ?? "",
+        providerSymbol: stringField(item.providerSymbol) ?? "",
+        candidateSymbol: stringField(item.candidateSymbol),
+        exchangeHint: stringField(item.exchangeHint),
+        verificationStatus:
+          item.verificationStatus === "verified" || item.verificationStatus === "rejected"
+            ? item.verificationStatus
+            : "pending",
+        verificationReason: stringField(item.verificationReason),
+        attemptedCandidates,
+        note: stringField(item.note) ?? "",
+      };
+    })
     .filter((item) => item.symbol.length > 0 && item.providerSymbol.length > 0);
 }
 
@@ -1826,6 +1918,64 @@ function isKrMappingProviderOperation(operation: Pick<ProviderOperationRecord, "
     || operation.operationType === "reverify_mapping"
     || operation.operationType === "revert_mapping"
   );
+}
+
+function providerOperationOutcomeResultFromCounts(input: {
+  total: number;
+  processed: number;
+  pending: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  rateLimited: number;
+  cancelled: number;
+}): ProviderOperationOutcomeResult {
+  if (input.total === 0) return "none";
+  if (input.running > 0 || input.pending > 0) return "running";
+  if (input.rateLimited > 0) return "rate_limited";
+  if (input.failed > 0) return input.succeeded > 0 ? "partial" : "failed";
+  if (input.succeeded > 0 && (input.skipped > 0 || input.cancelled > 0)) return "partial";
+  if (input.succeeded > 0) return "all_succeeded";
+  if (input.processed > 0) return "none_applied";
+  return "none";
+}
+
+function providerOperationOutcomeSummaryFromMetadata(operation: ProviderOperationRecord): ProviderOperationOutcomeSummaryDto {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const total = numberField(metadata.outcomeTotalCount) ?? operation.matchCount ?? 0;
+  const processed = numberField(metadata.outcomeProcessedCount) ?? 0;
+  const pending = numberField(metadata.outcomePendingCount) ?? Math.max(0, total - processed);
+  const running = numberField(metadata.outcomeRunningCount) ?? 0;
+  const succeeded = numberField(metadata.outcomeSucceededCount) ?? 0;
+  const failed = numberField(metadata.outcomeFailedCount) ?? 0;
+  const skipped = numberField(metadata.outcomeSkippedCount) ?? 0;
+  const rateLimited = numberField(metadata.outcomeRateLimitedCount) ?? 0;
+  const cancelled = numberField(metadata.outcomeCancelledCount) ?? 0;
+  const progressPercent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  return {
+    total,
+    processed,
+    pending,
+    running,
+    succeeded,
+    failed,
+    skipped,
+    rateLimited,
+    cancelled,
+    progressPercent,
+    result: providerOperationOutcomeResultFromCounts({
+      total,
+      processed,
+      pending,
+      running,
+      succeeded,
+      failed,
+      skipped,
+      rateLimited,
+      cancelled,
+    }),
+  };
 }
 
 function normalizeDateOnlyEndFilter(value: string | undefined): string | undefined {
@@ -1911,6 +2061,7 @@ function providerFixerOperationToDto(
     autoPauseFailureCount: numberField(metadata.autoPauseFailureCount),
     autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
     effectiveRateCapPerMinute: numberField(metadata.effectiveRateCapPerMinute) ?? 250,
+    outcomeSummary: providerOperationOutcomeSummaryFromMetadata(operation),
   };
 }
 
@@ -2132,6 +2283,7 @@ function marketDataOperationToDto(operation: ProviderOperationRecord, config: Ap
                   : config.effectiveFinmindProviderMinRequestIntervalMs,
       enforced: operation.providerId === "yahoo-finance-kr",
     },
+    outcomeSummary: providerOperationOutcomeSummaryFromMetadata(operation),
   };
   return {
     id: operation.id,
@@ -2213,6 +2365,24 @@ function providerOperationOutcomeToDto(record: ProviderOperationOutcomeRecord): 
   };
 }
 
+async function latestProviderRepairOutcomeForUnresolvedItem(
+  app: FastifyInstance,
+  item: {
+    providerId: string;
+    marketCode: MarketCode;
+    sourceSymbol: string;
+  },
+): Promise<ProviderOperationOutcomeDto | null> {
+  if (item.providerId !== "yahoo-finance-kr" || item.marketCode !== "KR") return null;
+  const outcome = await app.persistence.getLatestProviderOperationOutcome({
+    providerId: item.providerId,
+    marketCode: item.marketCode,
+    sourceSymbol: item.sourceSymbol.replace(/\.(KS|KQ)$/i, ""),
+    actions: ["repair_mapping"],
+  });
+  return outcome ? providerOperationOutcomeToDto(outcome) : null;
+}
+
 async function listProviderOperationOutcomeStates(
   app: FastifyInstance,
   operationId: string,
@@ -2251,11 +2421,14 @@ async function refreshProviderOperationProgressFromOutcomes(
       outcomeTotalCount: expectedTotal,
       outcomeRecordedCount: outcomes.summary.total,
       outcomeProcessedCount: outcomes.summary.processed,
+      outcomePendingCount: Math.max(0, expectedTotal - outcomes.summary.processed),
+      outcomeRunningCount: outcomes.summary.running,
       outcomeSucceededCount: outcomes.summary.succeeded,
       outcomeFailedCount: outcomes.summary.failed,
       outcomeSkippedCount: outcomes.summary.skipped,
       outcomeRateLimitedCount: outcomes.summary.rateLimited,
       outcomeCancelledCount: outcomes.summary.cancelled,
+      outcomeResult: outcomes.summary.result,
     },
   });
 }
@@ -2582,6 +2755,33 @@ async function executeProviderFixerMappings(
       evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
     });
     try {
+      const existingMapping = await app.persistence.getProviderResolutionMapping(operation.providerId, "KR", sourceSymbol);
+      if (existingMapping) {
+        applied += 1;
+        mappedTickers.push(sourceSymbol);
+        await app.persistence.upsertProviderOperationOutcome({
+          operationId: operation.id,
+          providerId: operation.providerId,
+          marketCode: operation.marketCode,
+          sourceSymbol,
+          providerSymbol: existingMapping.resolvedSymbol,
+          action: "repair_mapping",
+          state: "succeeded",
+          message: `Existing durable mapping resolves ${sourceSymbol} to ${existingMapping.resolvedSymbol}.`,
+          errorCode: "mapping_already_exists",
+          evidence: {
+            candidateSymbol: existingMapping.resolvedSymbol,
+            exchangeHint: "durable provider_resolution_mappings row",
+            verificationStatus: "verified",
+            verificationReason: "mapping_already_exists",
+            attemptedCandidates: [
+              { symbol: existingMapping.resolvedSymbol, status: "verified", reason: "mapping_already_exists" },
+            ],
+          },
+        });
+        await refreshProviderOperationProgressFromOutcomes(app, operation.id);
+        continue;
+      }
       const [evidence] = (
         await buildProviderFixerEvidenceSample(
           app,
@@ -2605,7 +2805,15 @@ async function executeProviderFixerMappings(
           state: "skipped",
           message: evidence?.note ?? "No verified provider symbol candidate.",
           errorCode: evidence?.verificationStatus === "rejected" ? "candidate_rejected" : "candidate_missing",
-          evidence: evidence ? { candidateSymbol: evidence.candidateSymbol, exchangeHint: evidence.exchangeHint } : null,
+          evidence: evidence
+            ? {
+                candidateSymbol: evidence.candidateSymbol,
+                exchangeHint: evidence.exchangeHint,
+                verificationStatus: evidence.verificationStatus,
+                verificationReason: evidence.verificationReason ?? null,
+                attemptedCandidates: evidence.attemptedCandidates ?? [],
+              }
+            : null,
         });
         await refreshProviderOperationProgressFromOutcomes(app, operation.id);
         continue;
@@ -2637,12 +2845,16 @@ async function executeProviderFixerMappings(
         evidence: {
           candidateSymbol: evidence.candidateSymbol,
           exchangeHint: evidence.exchangeHint,
+          verificationStatus: evidence.verificationStatus,
+          verificationReason: evidence.verificationReason ?? null,
+          attemptedCandidates: evidence.attemptedCandidates ?? [],
           note: evidence.note,
         },
       });
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
     } catch (err) {
       const isRateLimited = err instanceof RateLimitedError;
+      const rateLimitedEvidence = err instanceof ProviderFixerCandidateRateLimitedError ? err.evidence : null;
       await app.persistence.upsertProviderOperationOutcome({
         operationId: operation.id,
         providerId: operation.providerId,
@@ -2653,7 +2865,18 @@ async function executeProviderFixerMappings(
         state: isRateLimited ? "rate_limited" : "failed",
         message: err instanceof Error ? err.message : "Provider verification failed.",
         errorCode: isRateLimited ? "provider_rate_limited" : "provider_verification_failed",
-        evidence: { unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol } },
+        evidence: {
+          unresolvedIdentity: { providerId: row.providerId, marketCode: row.marketCode, errorCode: row.errorCode, sourceSymbol: row.sourceSymbol },
+          ...(rateLimitedEvidence
+            ? {
+                candidateSymbol: rateLimitedEvidence.candidateSymbol,
+                exchangeHint: rateLimitedEvidence.exchangeHint,
+                verificationStatus: rateLimitedEvidence.verificationStatus,
+                verificationReason: rateLimitedEvidence.verificationReason ?? null,
+                attemptedCandidates: rateLimitedEvidence.attemptedCandidates ?? [],
+              }
+            : {}),
+        },
       });
       await refreshProviderOperationProgressFromOutcomes(app, operation.id);
       throw err;
@@ -4247,7 +4470,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
           scopeItems,
           body.resolverMode,
           guardrails.previewSampleLimit,
-          { verifyCandidate: true },
+          { verifyCandidate: false },
         )).sample
       : [];
     const confirmationText = dangerous
@@ -4476,7 +4699,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       limit: query.limit,
     });
     return {
-      items: result.items.map((item) => ({
+      items: await Promise.all(result.items.map(async (item) => ({
         providerId: item.providerId,
         marketCode: item.marketCode as ProviderUnresolvedItemDto["marketCode"],
         errorCode: item.errorCode,
@@ -4491,8 +4714,9 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
         evidence: item.evidence,
         resolvedAt: item.resolvedAt,
         resolvedByOperationId: item.resolvedByOperationId,
+        latestOperationOutcome: await latestProviderRepairOutcomeForUnresolvedItem(app, item),
         updatedAt: item.updatedAt,
-      })),
+      }))),
       total: result.total,
       page: result.page,
       limit: result.limit,
@@ -6159,6 +6383,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   ): Promise<AdminMarketDataUnresolvedItemDto> {
     const instrument = await app.persistence.instrumentAdminGet(item.sourceSymbol, item.marketCode);
     const instrumentDto = instrument ? adminInstrumentRowToMarketDataDto(instrument) : null;
+    const latestOperationOutcome = await latestProviderRepairOutcomeForUnresolvedItem(app, item);
     const evidence = asRecord(item.evidence);
     const errorMessage = stringField(evidence?.errorMessage)?.toLowerCase() ?? "";
     const recommendedAction: AdminMarketDataUnresolvedItemDto["recommendedAction"] =
@@ -6194,6 +6419,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       evidence: item.evidence,
       resolvedAt: item.resolvedAt,
       resolvedByOperationId: item.resolvedByOperationId,
+      latestOperationOutcome,
       updatedAt: item.updatedAt,
       instrumentName: instrumentDto?.name ?? null,
       instrumentType: instrumentDto?.instrumentType ?? null,

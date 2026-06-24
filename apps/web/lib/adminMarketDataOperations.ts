@@ -3,6 +3,7 @@ import type {
   AdminMarketDataOperationsResponse,
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
+  ProviderOperationOutcomeSummaryDto,
   ProviderOperationOutcomesResponse,
 } from "@vakwen/shared-types";
 import type { AdminDictionary } from "../components/admin/admin-i18n";
@@ -60,6 +61,7 @@ export interface NormalizedOperationItem {
   sourceSymbol?: string | null;
   resolvedSymbol?: string | null;
   resolverMode?: string | null;
+  outcomeSummary: ProviderOperationOutcomeSummaryDto;
   legacy: ProviderFixerDashboardOperationDto | null;
   execution: NormalizedOperationExecuteState;
   controls: {
@@ -97,8 +99,54 @@ function booleanValue(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
+function friendlyLabel(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function legacyPreviewText(operation: ProviderFixerDashboardOperationDto): string {
   return operation.preview.scopeSummary || operation.preview.scopeLabel || operation.id;
+}
+
+const emptyOutcomeSummary: ProviderOperationOutcomeSummaryDto = {
+  total: 0,
+  processed: 0,
+  pending: 0,
+  running: 0,
+  succeeded: 0,
+  failed: 0,
+  skipped: 0,
+  rateLimited: 0,
+  cancelled: 0,
+  progressPercent: 0,
+  result: "none",
+};
+
+function outcomeSummaryFromRaw(raw: unknown): ProviderOperationOutcomeSummaryDto {
+  const record = asRecord(raw);
+  if (!record) return emptyOutcomeSummary;
+  const result = stringValue(record.result);
+  return {
+    total: numberValue(record.total) ?? 0,
+    processed: numberValue(record.processed) ?? 0,
+    pending: numberValue(record.pending) ?? 0,
+    running: numberValue(record.running) ?? 0,
+    succeeded: numberValue(record.succeeded) ?? 0,
+    failed: numberValue(record.failed) ?? 0,
+    skipped: numberValue(record.skipped) ?? 0,
+    rateLimited: numberValue(record.rateLimited) ?? 0,
+    cancelled: numberValue(record.cancelled) ?? 0,
+    progressPercent: numberValue(record.progressPercent) ?? 0,
+    result:
+      result === "running"
+      || result === "all_succeeded"
+      || result === "partial"
+      || result === "none_applied"
+      || result === "failed"
+      || result === "rate_limited"
+      || result === "none"
+        ? result
+        : "none",
+  };
 }
 
 function futureSummaryParts(summary: RawRecord | null): NormalizedOperationSummaryPart[] {
@@ -140,6 +188,25 @@ export function localizeOperationPreview(
     const label = dict.operationSummaryPartLabels[part.kind] ?? part.kind.replaceAll("_", " ");
     return `${label}: ${part.value}`;
   }).join(" · ");
+}
+
+export function localizeOperationOutcomeSummary(
+  operation: NormalizedOperationItem,
+  dict: AdminDictionary["marketData"],
+): string {
+  const summary = operation.outcomeSummary;
+  const resultLabel = dict.operationOutcomeResultLabels[summary.result] ?? friendlyLabel(summary.result);
+  if (summary.total === 0) return resultLabel;
+  const parts = [
+    `${summary.succeeded.toLocaleString()} ${dict.operationOutcomeSummaryMapped}`,
+    `${summary.skipped.toLocaleString()} ${dict.operationOutcomeSummarySkipped}`,
+  ];
+  if (summary.failed > 0) parts.push(`${summary.failed.toLocaleString()} ${dict.operationOutcomeSummaryFailed}`);
+  if (summary.rateLimited > 0) parts.push(`${summary.rateLimited.toLocaleString()} ${dict.operationOutcomeSummaryRateLimited}`);
+  if (summary.running > 0 || summary.pending > 0) {
+    parts.push(`${(summary.running + summary.pending).toLocaleString()} ${dict.operationOutcomeSummaryPending}`);
+  }
+  return `${resultLabel} · ${parts.join(" · ")}`;
 }
 
 function normalizeLegacyOperation(
@@ -184,6 +251,7 @@ function normalizeLegacyOperation(
     sourceSymbol: stringValue(operation.preview.evidenceSample[0]?.symbol) ?? null,
     resolvedSymbol: stringValue(operation.preview.evidenceSample[0]?.candidateSymbol) ?? null,
     resolverMode: null,
+    outcomeSummary: operation.outcomeSummary ?? emptyOutcomeSummary,
     legacy: operation,
     execution: {
       canExecute: operation.canExecute,
@@ -217,6 +285,7 @@ function normalizeFutureOperation(raw: RawRecord, fallbackMarketCode: AdminMarke
     ?? (previewExpiresAt ? new Date(previewExpiresAt).getTime() <= Date.now() : false);
   const operationType = stringValue(raw.operationType) ?? "provider_operation";
   const marketCode = (stringValue(raw.marketCode) ?? fallbackMarketCode) as AdminMarketCode;
+  const outcomeSummary = outcomeSummaryFromRaw(asRecord(summary)?.outcomeSummary);
   const previewText = stringValue(raw.previewText)
     ?? futureSummaryParts(summary).map((part) => part.value).join(" · ")
     ?? stringValue(summary?.kind)
@@ -245,6 +314,7 @@ function normalizeFutureOperation(raw: RawRecord, fallbackMarketCode: AdminMarke
     sourceSymbol: stringValue(raw.sourceSymbol) ?? stringValue(details?.sourceSymbol) ?? stringValue(details?.mappingSourceSymbol),
     resolvedSymbol: stringValue(raw.resolvedSymbol) ?? stringValue(details?.resolvedSymbol) ?? stringValue(details?.mappingResolvedSymbol),
     resolverMode: stringValue(raw.resolverMode) ?? stringValue(details?.resolverMode),
+    outcomeSummary,
     legacy: null,
     execution: {
       canExecute: booleanValue(execute?.canExecute) ?? false,
