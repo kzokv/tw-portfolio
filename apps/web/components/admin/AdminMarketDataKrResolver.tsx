@@ -319,6 +319,7 @@ function KrMappingsPanel({
   unresolved: AdminMarketDataUnresolvedResponse | null;
 }) {
   const router = useRouter();
+  const adminDict = useAdminI18n().marketData;
   const mappingAction = actions.find((action) => action.action === "repair_mapping");
   const resolverMode = data.query.resolverMode;
   const [unresolvedSearch, setUnresolvedSearch] = useState(data.query.unresolvedSearch);
@@ -593,12 +594,12 @@ function KrMappingsPanel({
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">KR unresolved</h2>
+            <h2 className="text-base font-semibold text-foreground">{adminDict.krMappingRepairTitle}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.
+              {adminDict.krMappingRepairDescription}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Twelve Data KR remains the catalog/evidence source; Yahoo Finance KR owns durable mappings, bars, and dividends.
+              {adminDict.krMappingRepairOwnership}
             </p>
             {unresolved ? (
               <p className="mt-2 text-xs text-muted-foreground">
