@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1313,13 +1313,21 @@ function TickerAllocationCard({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [settingsHydrated, setSettingsHydrated] = useState(false);
+  const forcedMarketCodeRef = useRef<string | null>(lockedMarketCode);
 
   useEffect(() => {
     if (lockedMarketCode) {
+      forcedMarketCodeRef.current = lockedMarketCode;
       setSelectedMarketCodes([lockedMarketCode]);
       return;
     }
-    setSelectedMarketCodes((current) => filterAvailableHoldingsSelections(current, availableMarketCodes));
+    setSelectedMarketCodes((current) => {
+      const wasForcedScopeSelection = forcedMarketCodeRef.current !== null
+        && current.length === 1
+        && current[0] === forcedMarketCodeRef.current;
+      forcedMarketCodeRef.current = null;
+      return wasForcedScopeSelection ? [] : filterAvailableHoldingsSelections(current, availableMarketCodes);
+    });
   }, [availableMarketCodes, lockedMarketCode]);
 
   useEffect(() => {

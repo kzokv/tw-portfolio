@@ -723,6 +723,74 @@ describe("ReportsClient", () => {
     });
   });
 
+  it("clears a forced market filter when returning ticker allocation to all markets", async () => {
+    const allMarketsFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        scope: "all",
+      },
+      allocation: {
+        ...portfolioFixture.allocation,
+        byTicker: [
+          ...portfolioFixture.allocation.byTicker,
+          {
+            ticker: "AAPL",
+            instrumentName: "Apple Inc.",
+            marketCode: "US",
+            accountCount: 1,
+            reportingCurrency: "AUD",
+            reportingAmount: 800,
+            portfolioAllocationPercent: 40,
+            allocationBasisUsed: "market_value",
+            allocationBasisFallbackReason: null,
+            quoteStatus: "current",
+            fxStatus: "complete",
+          },
+        ],
+      },
+    };
+    const scopedMarketFixture: PortfolioReportDto = {
+      ...allMarketsFixture,
+      query: {
+        ...allMarketsFixture.query,
+        scope: "US",
+      },
+      allocation: {
+        ...allMarketsFixture.allocation,
+        byTicker: allMarketsFixture.allocation.byTicker.filter((row) => row.marketCode === "US"),
+      },
+    };
+
+    searchParamsMock.value = "tab=portfolio&scope=US&range=1Y";
+    act(() => {
+      root.render(<ReportsClient initialReport={scopedMarketFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "US",
+        range: "1Y",
+      })} />);
+    });
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-row-US:AAPL']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-row-AU:BHP']")).toBeNull();
+
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    act(() => {
+      root.render(<ReportsClient initialReport={allMarketsFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-row-US:AAPL']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-row-AU:BHP']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-market-filter']")?.textContent).toContain("All markets");
+  });
+
   it("renders legacy cached portfolio reports without ticker allocation rows", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
     const legacyPortfolioFixture: PortfolioReportDto = {
