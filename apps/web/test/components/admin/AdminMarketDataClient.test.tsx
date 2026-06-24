@@ -1823,7 +1823,7 @@ describe("AdminMarketDataWorkspaceClient", () => {
       );
     });
 
-    expect(container.textContent).toContain("KR unresolved");
+    expect(container.textContent).toContain("KR mapping repair");
     expect(container.textContent).toContain("Backfill after mapping is a separate explicit action");
     expect(container.textContent).toContain("005930");
 
