@@ -232,6 +232,56 @@ function catalogSyncRerunSingletonKey(marketCode: MarketCode): string {
   return `${CATALOG_SYNC_QUEUE}:${marketCode}`;
 }
 
+function duplicateProviderUnresolvedOutcomeSourceSymbols(
+  items: readonly {
+    sourceSymbol: string;
+  }[],
+): ReadonlySet<string> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const sourceSymbol = item.sourceSymbol.trim().toUpperCase();
+    counts.set(sourceSymbol, (counts.get(sourceSymbol) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count > 1).map(([sourceSymbol]) => sourceSymbol));
+}
+
+function providerUnresolvedOutcomeSourceSymbol(
+  item: {
+    providerId: string;
+    errorCode: string;
+    sourceSymbol: string;
+  },
+  duplicateSourceSymbols: ReadonlySet<string>,
+): string {
+  const sourceSymbol = item.sourceSymbol.trim().toUpperCase();
+  if (!duplicateSourceSymbols.has(sourceSymbol)) return sourceSymbol;
+  return [
+    sourceSymbol,
+    item.providerId.trim().toUpperCase(),
+    item.errorCode.trim().toUpperCase(),
+  ].join("::");
+}
+
+function providerUnresolvedOutcomeEvidence(
+  item: {
+    providerId: string;
+    marketCode: string;
+    errorCode: string;
+    sourceSymbol: string;
+  },
+  evidence: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...evidence,
+    unresolvedIdentity: {
+      providerId: item.providerId,
+      marketCode: item.marketCode,
+      errorCode: item.errorCode,
+      sourceSymbol: item.sourceSymbol,
+    },
+  };
+}
+
 const fxRefreshBodySchema = z
   .object({
     startDate: isoDateSchema.optional(),
@@ -4925,6 +4975,7 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
     }
     const action = body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
     const marketCode = providerFixerMarketCodeField(scopeItems[0]?.marketCode, providerFixerMarketCode(providerId));
+    const duplicateOutcomeSourceSymbols = duplicateProviderUnresolvedOutcomeSourceSymbols(scopeItems);
     const startedAt = new Date().toISOString();
     const operation = await app.persistence.createProviderOperation({
       providerId,
@@ -4977,12 +5028,12 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
           operationId: operation.id,
           providerId,
           marketCode: updated.marketCode,
-          sourceSymbol: updated.sourceSymbol,
+          sourceSymbol: providerUnresolvedOutcomeSourceSymbol(updated, duplicateOutcomeSourceSymbols),
           providerSymbol: updated.providerSymbol,
           action,
           state: "succeeded",
           message: `Set unresolved item ${updated.sourceSymbol} to ${updated.state}.`,
-          evidence: { targetState: updated.state, reason: body.reason ?? null },
+          evidence: providerUnresolvedOutcomeEvidence(updated, { targetState: updated.state, reason: body.reason ?? null }),
         });
         await app.eventBus.publishEvent(sessionUserId, "provider_unresolved_item_changed", {
           providerId,
@@ -4998,13 +5049,13 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
           operationId: operation.id,
           providerId,
           marketCode: item.marketCode,
-          sourceSymbol: item.sourceSymbol,
+          sourceSymbol: providerUnresolvedOutcomeSourceSymbol(item, duplicateOutcomeSourceSymbols),
           providerSymbol: item.providerSymbol ?? item.sourceSymbol,
           action,
           state: "failed",
           message,
           errorCode: "provider_unresolved_state_update_failed",
-          evidence: { targetState: body.state, reason: body.reason ?? null },
+          evidence: providerUnresolvedOutcomeEvidence(item, { targetState: body.state, reason: body.reason ?? null }),
         });
       }
       await publishProviderOperationProgress(app, sessionUserId, {
@@ -8211,6 +8262,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     }
     const action = body.state === "active" ? "reopen_unresolved" : body.state === "ignored" ? "ignore_unresolved" : "mark_unsupported";
     const providerId = body.scope.filter?.providerId ?? scopeItems[0]!.providerId;
+    const duplicateOutcomeSourceSymbols = duplicateProviderUnresolvedOutcomeSourceSymbols(scopeItems);
     const operation = await app.persistence.createProviderOperation({
       providerId,
       marketCode,
@@ -8247,11 +8299,12 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
           operationId: operation.id,
           providerId: item.providerId,
           marketCode: item.marketCode,
-          sourceSymbol: updated.sourceSymbol,
+          sourceSymbol: providerUnresolvedOutcomeSourceSymbol(updated, duplicateOutcomeSourceSymbols),
           providerSymbol: updated.providerSymbol,
           action,
           state: "succeeded",
           message: `Set unresolved item ${updated.sourceSymbol} to ${updated.state}.`,
+          evidence: providerUnresolvedOutcomeEvidence(updated, { targetState: updated.state, reason: body.reason ?? null }),
         });
       } catch (err) {
         failed += 1;
@@ -8259,12 +8312,13 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
           operationId: operation.id,
           providerId: item.providerId,
           marketCode: item.marketCode,
-          sourceSymbol: item.sourceSymbol,
+          sourceSymbol: providerUnresolvedOutcomeSourceSymbol(item, duplicateOutcomeSourceSymbols),
           providerSymbol: item.providerSymbol,
           action,
           state: "failed",
           message: err instanceof Error ? err.message : "Provider unresolved lifecycle update failed.",
           errorCode: "provider_unresolved_state_update_failed",
+          evidence: providerUnresolvedOutcomeEvidence(item, { targetState: body.state, reason: body.reason ?? null }),
         });
       }
     }

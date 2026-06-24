@@ -1925,6 +1925,82 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("keeps market bulk unresolved operation outcomes distinct for duplicate source symbols", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_history_missing",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "selected_items",
+          items: [
+            { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+            { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_history_missing", sourceSymbol: "2330" },
+          ],
+        },
+        state: "ignored",
+        acknowledged: true,
+        reason: "admin reviewed duplicate ticker rows",
+      },
+    });
+    expect(accepted.statusCode).toBe(200);
+    const acceptedBody = accepted.json() as { operationId: string; succeeded: number; failed: number };
+    expect(acceptedBody).toMatchObject({ succeeded: 2, failed: 0 });
+
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/finmind-tw/operations/${acceptedBody.operationId}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    const outcomesBody = outcomes.json() as {
+      summary: { total: number; processed: number; succeeded: number };
+      items: Array<{
+        sourceSymbol: string;
+        action: string;
+        state: string;
+        evidence: { unresolvedIdentity?: { errorCode?: string; sourceSymbol?: string } };
+      }>;
+    };
+    expect(outcomesBody.summary).toMatchObject({ total: 2, processed: 2, succeeded: 2 });
+    expect(new Set(outcomesBody.items.map((item) => item.sourceSymbol)).size).toBe(2);
+    expect(outcomesBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSymbol: "2330::FINMIND-TW::PROVIDER_SYMBOL_UNRESOLVED",
+        action: "ignore_unresolved",
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          unresolvedIdentity: expect.objectContaining({ errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" }),
+        }),
+      }),
+      expect.objectContaining({
+        sourceSymbol: "2330::FINMIND-TW::PROVIDER_HISTORY_MISSING",
+        action: "ignore_unresolved",
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          unresolvedIdentity: expect.objectContaining({ errorCode: "provider_history_missing", sourceSymbol: "2330" }),
+        }),
+      }),
+    ]));
+  });
+
   it("marks market unresolved single-row operations failed when the target row is stale", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
