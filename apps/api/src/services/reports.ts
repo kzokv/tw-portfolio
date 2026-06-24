@@ -21,6 +21,7 @@ import {
   type ReportQueryStateDto,
   type ReportScope,
   type ReportSummaryTotalsDto,
+  type ReportTickerAllocationRowDto,
 } from "@vakwen/shared-types";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "./dashboard.js";
 import {
@@ -160,6 +161,7 @@ export async function buildPortfolioReport(
     .slice(0, 10);
   const byMarket = buildMarketAllocations(prepared.translatedHoldingGroups);
   const byAccount = buildAccountAllocations(prepared.scopedStore, prepared.translatedHoldingGroups, prepared.reportQuery.reportingCurrency);
+  const byTicker = buildTickerAllocations(prepared.translatedHoldingGroups);
   const holdings = pageRows(allRows, input.limit, input.offset);
 
   return {
@@ -178,12 +180,14 @@ export async function buildPortfolioReport(
       topHoldings: topHoldings.length,
       marketBuckets: byMarket.length,
       accountBuckets: byAccount.length,
+      tickerBuckets: byTicker.length,
     }),
     performance: valuationHealth ? { ...performance, valuationHealth } : performance,
     ...(valuationHealth ? { valuationHealth } : {}),
     allocation: {
       byMarket,
       byAccount,
+      byTicker,
     },
     concentration: {
       topHoldings,
@@ -703,6 +707,7 @@ function buildReportDiagnostics(
     topHoldings?: number;
     marketBuckets?: number;
     accountBuckets?: number;
+    tickerBuckets?: number;
     suggestions?: number;
   } = {},
 ): ReportDiagnosticsDto {
@@ -748,6 +753,7 @@ function buildReportDiagnostics(
       ...(options.topHoldings !== undefined ? { topHoldings: options.topHoldings } : {}),
       ...(options.marketBuckets !== undefined ? { marketBuckets: options.marketBuckets } : {}),
       ...(options.accountBuckets !== undefined ? { accountBuckets: options.accountBuckets } : {}),
+      ...(options.tickerBuckets !== undefined ? { tickerBuckets: options.tickerBuckets } : {}),
       ...(options.suggestions !== undefined ? { suggestions: options.suggestions } : {}),
     },
   } as ReportDiagnosticsDto;
@@ -1151,6 +1157,31 @@ function buildAccountAllocations(
     }
   }
   return [...byAccount.values()].sort((left, right) => (right.amount ?? 0) - (left.amount ?? 0));
+}
+
+function buildTickerAllocations(
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+): ReportTickerAllocationRowDto[] {
+  return groups
+    .map((group) => ({
+      ticker: group.ticker,
+      instrumentName: group.instrumentName ?? null,
+      marketCode: group.marketCode,
+      accountCount: group.accountCount,
+      reportingCurrency: group.reportingCurrency,
+      reportingAmount: group.reportingMarketValueAmount ?? group.reportingCostBasisAmount,
+      portfolioAllocationPercent: group.reportingAllocationPercent,
+      allocationBasisUsed: group.allocationBasisUsed,
+      allocationBasisFallbackReason: group.allocationBasisFallbackReason,
+      quoteStatus: group.quoteStatus,
+      fxStatus: group.fxStatus,
+    }))
+    .sort((left, right) =>
+      (right.portfolioAllocationPercent ?? Number.NEGATIVE_INFINITY)
+      - (left.portfolioAllocationPercent ?? Number.NEGATIVE_INFINITY)
+      || (right.reportingAmount ?? Number.NEGATIVE_INFINITY) - (left.reportingAmount ?? Number.NEGATIVE_INFINITY)
+      || `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`),
+    );
 }
 
 function buildDailyReviewSuggestions(prepared: PreparedReportData, rows: ReportHoldingRowDto[]) {

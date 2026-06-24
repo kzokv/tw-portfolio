@@ -48,6 +48,15 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         exactAmountInline: "Exact {amount}",
         latestAvailableSnapshot: "Latest available snapshot",
         requestedAsOfLabel: "Requested {date}",
+        topHoldingsAllMarkets: "All markets",
+        topHoldingsMarketLabel: "Market",
+        topHoldingsPresetLargest: "Largest",
+        topHoldingsPresetHighestAllocation: "Highest allocation",
+        topHoldingsPresetWorstPnl: "Worst P&L first",
+        topHoldingsPresetBestPnl: "Best P&L first",
+        topHoldingsPresetFxExposure: "FX exposure",
+        topHoldingsPresetStaleQuotes: "Stale quotes",
+        topHoldingsFocusPresetsAria: "Holding Focus presets",
       },
       reports: {
         tabDailyReview: "Daily Review",
@@ -87,6 +96,23 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         holdingsDetailTitle: "Holdings detail",
         allocationByMarketTitle: "Allocation by market",
         allocationByAccountTitle: "Allocation by account",
+        tickerAllocationTitle: "Ticker allocation",
+        tickerAllocationBars: "Bars",
+        tickerAllocationPie: "Pie",
+        tickerAllocationChartTypeLabel: "Chart type",
+        tickerAllocationTopNLabel: "Top N",
+        tickerAllocationTopNAuto: "Auto",
+        tickerAllocationTopNAll: "All",
+        tickerAllocationPortfolioWeight: "Portfolio weight",
+        tickerAllocationSelectedWeight: "Selected weight",
+        tickerAllocationOtherLabel: "Other",
+        tickerAllocationOtherDescription: "Combined remainder outside the visible top slice.",
+        tickerAllocationDetailTitle: "Allocation details",
+        tickerAllocationBasisSummary: "Allocation basis: {basis}.",
+        tickerAllocationBasisFallbackSummary: "Allocation basis: {basis}. Cost basis fallback used by {count} ticker(s).",
+        tickerAllocationFxStatus: "FX status",
+        tickerAllocationFallbackNotNeeded: "Not needed",
+        reportingValue: "Reporting value",
         incomeTitle: "Income",
         postedDividendRows: "{count} posted dividend row(s)",
         concentrationTitle: "Concentration",
@@ -434,6 +460,7 @@ const portfolioFixture: PortfolioReportDto = {
   allocation: {
     byMarket: [{ key: "AU", label: "Australia", reportingCurrency: "AUD", amount: 1200, allocationPercent: 100 }],
     byAccount: [{ key: "acct-1", label: "Main", reportingCurrency: "AUD", amount: 1200, allocationPercent: 100 }],
+    byTicker: [{ ticker: "BHP", instrumentName: "BHP Group", marketCode: "AU", accountCount: 1, reportingCurrency: "AUD", reportingAmount: 1200, portfolioAllocationPercent: 100, allocationBasisUsed: "market_value", allocationBasisFallbackReason: null, quoteStatus: "current", fxStatus: "complete" }],
   },
   concentration: {
     topHoldings: fixture.holdings.rows,
@@ -610,6 +637,43 @@ describe("ReportsClient", () => {
       .filter((href): href is string => Boolean(href?.includes("/transactions?") && href.includes("pnl=realized")));
 
     expect(drilldownLinks).toHaveLength(0);
+  });
+
+  it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const allocationCard = document.querySelector("[data-testid='reports-ticker-allocation-card']");
+    expect(allocationCard?.textContent).toContain("Ticker allocation");
+    expect(allocationCard?.textContent).toContain("Allocation basis: Market value.");
+    expect(allocationCard?.textContent).not.toContain("Income");
+    expect(allocationCard?.textContent).not.toContain("Concentration");
+
+    const allocationRow = document.querySelector("[data-testid='reports-ticker-allocation-row-AU:BHP']");
+    expect(allocationRow?.textContent).toContain("BHP");
+    expect(allocationRow?.textContent).toContain("BHP Group");
+    act(() => {
+      allocationRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-detail']")?.textContent).toContain("Allocation details");
+
+    const pieButton = Array.from(document.querySelectorAll("[data-testid='reports-ticker-allocation-mode'] button"))
+      .find((button) => button.textContent?.includes("Pie"));
+    expect(pieButton).toBeDefined();
+    act(() => {
+      pieButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.querySelector("[data-testid='reports-ticker-allocation-pie']")).not.toBeNull();
   });
 
   it("colors Today severity badges by level", async () => {

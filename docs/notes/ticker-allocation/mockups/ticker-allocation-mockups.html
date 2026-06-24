@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ticker allocation mockups</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --ink: #172033;
+      --muted: #647083;
+      --line: #dce2ea;
+      --soft: #eef2f7;
+      --primary: #2563eb;
+      --primary-soft: #dbeafe;
+      --success: #047857;
+      --warn: #b45309;
+      --warn-soft: #fef3c7;
+      --danger: #b91c1c;
+      --purple: #7c3aed;
+      --teal: #0f766e;
+      --amber: #d97706;
+      --pink: #db2777;
+      --slate: #475569;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .canvas {
+      width: 1440px;
+      min-height: 1120px;
+      padding: 32px 40px;
+      background: var(--bg);
+    }
+    .mobile-canvas {
+      width: 390px;
+      min-height: 1180px;
+      padding: 14px;
+      background: var(--bg);
+    }
+    #ticker-desktop {
+      min-height: 720px;
+    }
+    #report-pie {
+      width: 1120px;
+      min-height: 620px;
+      padding: 32px 40px;
+      background: var(--bg);
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      font-weight: 800;
+    }
+    .tabs, .toolbar, .segmented, .chips, .inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tab, .chip, .button, .select {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .tab.active, .chip.active, .segmented .active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      color: #1d4ed8;
+    }
+    .button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+    .button.icon {
+      width: 38px;
+      padding: 9px 0;
+      text-align: center;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.report { grid-template-columns: 1fr; }
+    .card {
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .card.pad { padding: 18px; }
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 18px 0;
+    }
+    .card-body { padding: 18px; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 30px; line-height: 1.2; }
+    h2 { font-size: 18px; line-height: 1.25; }
+    h3 { font-size: 14px; line-height: 1.3; }
+    .desc {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 14px;
+    }
+    .metric .label, .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .metric .value {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 20px;
+      font-weight: 800;
+    }
+    .chart-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) 360px;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .bars {
+      display: grid;
+      gap: 11px;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr) 88px 88px;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .ticker {
+      min-width: 0;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .ticker span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .track {
+      position: relative;
+      height: 24px;
+      overflow: hidden;
+      border-radius: 6px;
+      background: var(--soft);
+    }
+    .fill {
+      height: 100%;
+      border-radius: 6px;
+      background: var(--primary);
+    }
+    .fill.teal { background: var(--teal); }
+    .fill.purple { background: var(--purple); }
+    .fill.amber { background: var(--amber); }
+    .fill.pink { background: var(--pink); }
+    .fill.slate { background: var(--slate); }
+    .num {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 750;
+    }
+    .side-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 14px;
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .detail-grid {
+      display: grid;
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: white;
+      font-size: 12px;
+    }
+    .detail strong {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      background: white;
+    }
+    .badge.info { border-color: #bfdbfe; background: var(--primary-soft); color: #1d4ed8; }
+    .badge.warn { border-color: #fde68a; background: var(--warn-soft); color: var(--warn); }
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 12px;
+    }
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      margin-right: 6px;
+      background: var(--primary);
+    }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+    td.right, th.right { text-align: right; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) 390px;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .price {
+      margin-top: 18px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 38px;
+      font-weight: 850;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .mini {
+      background: var(--soft);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .mini strong {
+      display: block;
+      margin-top: 7px;
+      font-size: 16px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .phone-card {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: white;
+      overflow: hidden;
+    }
+    .phone-card .card-head {
+      display: block;
+      padding: 16px 16px 0;
+    }
+    .phone-toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .phone-bars .bar-row {
+      grid-template-columns: 74px minmax(0, 1fr) 62px;
+      gap: 8px;
+      padding: 11px 0;
+      border-top: 1px solid var(--line);
+    }
+    .sheet {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px 12px 8px 8px;
+      background: #fbfcfe;
+      padding: 14px;
+      box-shadow: 0 -8px 28px rgba(15, 23, 42, 0.08);
+    }
+    .pie-wrap {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      align-items: center;
+      gap: 20px;
+    }
+    .pie {
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      background: conic-gradient(var(--primary) 0 36%, var(--teal) 36% 59%, var(--purple) 59% 75%, var(--amber) 75% 86%, var(--pink) 86% 94%, var(--slate) 94% 100%);
+      box-shadow: inset 0 0 0 44px white, 0 0 0 1px var(--line);
+    }
+    .hide { display: none; }
+  </style>
+</head>
+<body>
+  <section id="report-desktop" class="canvas">
+    <div class="topbar">
+      <div class="brand"><span class="mark">V</span> Vakwen Portfolio</div>
+      <div class="tabs">
+        <span class="tab">Daily review</span>
+        <span class="tab active">Portfolio</span>
+        <span class="tab">Market</span>
+      </div>
+    </div>
+
+    <div class="grid report">
+      <div class="card pad">
+        <div class="topbar" style="margin:0">
+          <div>
+            <h1>Portfolio report</h1>
+            <p class="desc">Scope: All markets · Reporting currency: TWD · Range: 1Y</p>
+          </div>
+          <button class="button primary">Refresh</button>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Allocation by market</h2>
+              <p class="desc">3 market buckets</p>
+            </div>
+            <button class="button icon">↻</button>
+          </div>
+          <div class="card-body">
+            <div class="bars">
+              <div class="bar-row"><div class="ticker">TW</div><div class="track"><div class="fill" style="width:62%"></div></div><div class="num">62.0%</div><div class="num">NT$8.1M</div></div>
+              <div class="bar-row"><div class="ticker">US</div><div class="track"><div class="fill teal" style="width:28%"></div></div><div class="num">28.0%</div><div class="num">NT$3.7M</div></div>
+              <div class="bar-row"><div class="ticker">AU</div><div class="track"><div class="fill amber" style="width:10%"></div></div><div class="num">10.0%</div><div class="num">NT$1.3M</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Allocation by account</h2>
+              <p class="desc">4 account buckets</p>
+            </div>
+            <button class="button icon">↻</button>
+          </div>
+          <div class="card-body">
+            <div class="bars">
+              <div class="bar-row"><div class="ticker">Main</div><div class="track"><div class="fill purple" style="width:47%"></div></div><div class="num">47.0%</div><div class="num">NT$6.1M</div></div>
+              <div class="bar-row"><div class="ticker">Retire</div><div class="track"><div class="fill" style="width:31%"></div></div><div class="num">31.0%</div><div class="num">NT$4.0M</div></div>
+              <div class="bar-row"><div class="ticker">IBKR</div><div class="track"><div class="fill teal" style="width:22%"></div></div><div class="num">22.0%</div><div class="num">NT$2.9M</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Ticker allocation</h2>
+            <p class="desc">Basis: market value with cost basis fallback · 12 tickers in selected markets · Portfolio weight stays scoped to all markets.</p>
+            <div class="chips" style="margin-top:10px">
+              <span class="badge info">Portfolio weight</span>
+              <span class="badge">Selected weight</span>
+              <span class="badge warn">2 fallback rows</span>
+            </div>
+          </div>
+          <div class="toolbar">
+            <button class="button">Markets ▾</button>
+            <span class="select">Auto ▾</span>
+            <div class="segmented">
+              <span class="tab active">Bars</span>
+              <span class="tab">Pie</span>
+            </div>
+            <button class="button icon">↻</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="chips" style="margin-bottom:16px">
+            <span class="chip active">TW</span>
+            <span class="chip active">US</span>
+            <span class="chip">AU</span>
+            <span class="chip">Selected value NT$11.8M</span>
+          </div>
+          <div class="chart-layout">
+            <div>
+              <div class="bars">
+                <div class="bar-row"><div class="ticker">2330<span>Taiwan Semiconductor · TW</span></div><div class="track"><div class="fill" style="width:100%"></div></div><div class="num">18.4%</div><div class="num">20.3%</div></div>
+                <div class="bar-row"><div class="ticker">AAPL<span>Apple Inc. · US</span></div><div class="track"><div class="fill teal" style="width:71%"></div></div><div class="num">13.1%</div><div class="num">14.5%</div></div>
+                <div class="bar-row"><div class="ticker">2454<span>MediaTek · TW</span></div><div class="track"><div class="fill purple" style="width:55%"></div></div><div class="num">10.1%</div><div class="num">11.2%</div></div>
+                <div class="bar-row"><div class="ticker">MSFT<span>Microsoft · US</span></div><div class="track"><div class="fill amber" style="width:48%"></div></div><div class="num">8.8%</div><div class="num">9.7%</div></div>
+                <div class="bar-row"><div class="ticker">6505<span>Formosa Petrochemical · TW</span></div><div class="track"><div class="fill pink" style="width:30%"></div></div><div class="num">5.6%</div><div class="num">6.2%</div></div>
+                <div class="bar-row"><div class="ticker">Other<span>7 tickers · TW, US</span></div><div class="track"><div class="fill slate" style="width:77%"></div></div><div class="num">14.2%</div><div class="num">15.6%</div></div>
+              </div>
+              <div class="legend">
+                <span><i class="dot"></i>Portfolio weight</span>
+                <span><i class="dot" style="background:var(--soft); border:1px solid var(--line)"></i>Selected weight shown in right column</span>
+              </div>
+            </div>
+            <div class="side-panel">
+              <div class="panel-title">
+                <div>
+                  <h3>2330 · Taiwan Semiconductor</h3>
+                  <p class="desc">TW · 2 accounts</p>
+                </div>
+                <span class="badge info">Current</span>
+              </div>
+              <div class="detail-grid">
+                <div class="detail"><span>Portfolio weight</span><strong>18.4%</strong></div>
+                <div class="detail"><span>Selected weight</span><strong>20.3%</strong></div>
+                <div class="detail"><span>Reporting market value</span><strong>NT$2,412,000</strong></div>
+                <div class="detail"><span>Basis used</span><strong>Market value</strong></div>
+                <div class="detail"><span>FX status</span><strong>Complete</strong></div>
+              </div>
+              <button class="button primary" style="width:100%; margin-top:12px">Open ticker detail</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Holdings detail</h2>
+            <p class="desc">Quick preset includes Highest allocation, using the allocation shown in this table.</p>
+          </div>
+          <div class="toolbar">
+            <span class="select">Highest allocation ▾</span>
+            <span class="select">Sort: Weight ▾</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <table class="table">
+            <thead><tr><th>Ticker</th><th>Market</th><th class="right">Market value</th><th class="right">Weight</th><th>Data health</th></tr></thead>
+            <tbody>
+              <tr><td><strong>2330</strong><br><span class="label">Taiwan Semiconductor</span></td><td>TW</td><td class="right">NT$2,412,000</td><td class="right">18.4%</td><td><span class="badge info">Current</span></td></tr>
+              <tr><td><strong>AAPL</strong><br><span class="label">Apple Inc.</span></td><td>US</td><td class="right">NT$1,716,000</td><td class="right">13.1%</td><td><span class="badge info">Current</span></td></tr>
+              <tr><td><strong>2454</strong><br><span class="label">MediaTek</span></td><td>TW</td><td class="right">NT$1,323,000</td><td class="right">10.1%</td><td><span class="badge warn">Fallback</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="ticker-desktop" class="canvas">
+    <div class="topbar">
+      <div class="brand"><span class="mark">V</span> Ticker detail</div>
+      <div class="tabs"><span class="tab">Portfolio</span><span class="tab active">2330</span></div>
+    </div>
+    <div class="grid">
+      <div class="hero">
+        <div class="card pad">
+          <div class="chips">
+            <span class="badge info">Current quote</span>
+            <span class="badge">TW · Stock</span>
+            <span class="badge">Reporting currency: TWD</span>
+          </div>
+          <h1 style="margin-top:18px">Taiwan Semiconductor (2330)</h1>
+          <p class="desc">Ticker detail remains market-scoped. Allocation below is measured against TW holdings.</p>
+          <div class="price">NT$1,020.00</div>
+          <p class="desc">Previous close: NT$1,010.00 · +0.99%</p>
+        </div>
+        <div class="card pad">
+          <div class="topbar" style="margin:0">
+            <div>
+              <h2>Position summary</h2>
+              <p class="desc">All accounts · TW market</p>
+            </div>
+            <span class="badge warn">Market value basis</span>
+          </div>
+          <div class="summary-grid">
+            <div class="mini"><span class="label">Quantity</span><strong>2,364</strong></div>
+            <div class="mini"><span class="label">Market value</span><strong>NT$2.41M</strong></div>
+            <div class="mini"><span class="label">Unrealized P&L</span><strong style="color:var(--success)">+NT$418K</strong></div>
+            <div class="mini"><span class="label">Market allocation</span><strong>29.8%</strong><span class="desc">of TW holdings</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Account contribution</h2>
+              <p class="desc">Each row uses the same TW market denominator.</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <table class="table">
+              <thead><tr><th>Account</th><th class="right">Quantity</th><th class="right">Contribution</th><th class="right">Market allocation</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Main TW</strong></td><td class="right">1,530</td><td class="right">NT$1.56M</td><td class="right">19.3%</td></tr>
+                <tr><td><strong>Retirement TW</strong></td><td class="right">834</td><td class="right">NT$851K</td><td class="right">10.5%</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card pad">
+          <h2>Allocation detail</h2>
+          <p class="desc">This callout clarifies scope and basis so users do not confuse market allocation with all-market portfolio weight.</p>
+          <div class="detail-grid">
+            <div class="detail"><span>Scope</span><strong>TW holdings</strong></div>
+            <div class="detail"><span>Basis</span><strong>Market value</strong></div>
+            <div class="detail"><span>Ticker value</span><strong>NT$2.41M</strong></div>
+            <div class="detail"><span>TW denominator</span><strong>NT$8.09M</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="report-pie">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Ticker allocation</h2>
+          <p class="desc">Pie mode uses the same selected markets, Top N, basis disclosure, and details popovers.</p>
+          <div class="chips" style="margin-top:10px">
+            <span class="badge info">Portfolio weight</span>
+            <span class="badge">Selected weight</span>
+            <span class="badge warn">2 fallback rows</span>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="button">Markets ▾</button>
+          <span class="select">Auto ▾</span>
+          <div class="segmented">
+            <span class="tab">Bars</span>
+            <span class="tab active">Pie</span>
+          </div>
+          <button class="button icon">↻</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pie-wrap">
+          <div class="pie"></div>
+          <div class="side-panel">
+            <div class="panel-title">
+              <div>
+                <h3>Selected markets: TW, US</h3>
+                <p class="desc">12 tickers · Top 10 + Other</p>
+              </div>
+              <span class="badge">NT$11.8M</span>
+            </div>
+            <div class="detail-grid">
+              <div class="detail"><span>2330</span><strong>18.4% / 20.3%</strong></div>
+              <div class="detail"><span>AAPL</span><strong>13.1% / 14.5%</strong></div>
+              <div class="detail"><span>2454</span><strong>10.1% / 11.2%</strong></div>
+              <div class="detail"><span>MSFT</span><strong>8.8% / 9.7%</strong></div>
+              <div class="detail"><span>Other</span><strong>14.2% / 15.6%</strong></div>
+            </div>
+            <p class="desc" style="margin-top:12px">Click or tap a slice, legend item, or ranked row to open the same detail popover.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="mobile-report" class="mobile-canvas">
+    <div class="phone-card">
+      <div class="card-head">
+        <div class="topbar" style="margin:0">
+          <div>
+            <h2>Ticker allocation</h2>
+            <p class="desc">Basis: market value with fallback</p>
+          </div>
+          <button class="button icon">↻</button>
+        </div>
+        <div class="phone-toolbar">
+          <button class="button">Markets</button>
+          <span class="select">Auto</span>
+          <button class="button icon">◔</button>
+        </div>
+        <div class="chips" style="margin-top:12px">
+          <span class="chip active">TW</span>
+          <span class="chip active">US</span>
+          <span class="chip">AU</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="phone-bars">
+          <div class="bar-row"><div class="ticker">2330<span>TW</span></div><div class="track"><div class="fill" style="width:100%"></div></div><div class="num">18.4%</div></div>
+          <div class="bar-row"><div class="ticker">AAPL<span>US</span></div><div class="track"><div class="fill teal" style="width:71%"></div></div><div class="num">13.1%</div></div>
+          <div class="bar-row"><div class="ticker">2454<span>TW</span></div><div class="track"><div class="fill purple" style="width:55%"></div></div><div class="num">10.1%</div></div>
+          <div class="bar-row"><div class="ticker">MSFT<span>US</span></div><div class="track"><div class="fill amber" style="width:48%"></div></div><div class="num">8.8%</div></div>
+          <div class="bar-row"><div class="ticker">Other<span>7 tickers</span></div><div class="track"><div class="fill slate" style="width:77%"></div></div><div class="num">14.2%</div></div>
+        </div>
+        <div class="sheet">
+          <div class="panel-title">
+            <div>
+              <h3>2330 · Taiwan Semiconductor</h3>
+              <p class="desc">TW · 2 accounts</p>
+            </div>
+            <span class="badge info">Current</span>
+          </div>
+          <div class="detail-grid">
+            <div class="detail"><span>Portfolio weight</span><strong>18.4%</strong></div>
+            <div class="detail"><span>Selected weight</span><strong>20.3%</strong></div>
+            <div class="detail"><span>Reporting value</span><strong>NT$2.41M</strong></div>
+            <div class="detail"><span>Basis used</span><strong>Market value</strong></div>
+          </div>
+          <button class="button primary" style="width:100%; margin-top:12px">Open ticker detail</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

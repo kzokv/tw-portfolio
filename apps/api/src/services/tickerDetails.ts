@@ -150,7 +150,7 @@ export async function buildTickerDetails(
   );
   const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
   const recentDividends = buildRecentDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
-  const accountBreakdown = buildAccountBreakdown({
+  const rawAccountBreakdown = buildAccountBreakdown({
     holdings: filteredHoldings,
     accountById,
     instrumentName: instrument?.name ?? null,
@@ -161,6 +161,19 @@ export async function buildTickerDetails(
     upcomingDividends,
     recentDividends,
   });
+  const marketAllocationTotal = await buildTickerMarketAllocationTotal({
+    persistence: input.persistence,
+    store: input.store,
+    userId: input.userId,
+    marketCode: resolvedMarketCode,
+    reportingCurrency,
+    selectedTicker: normalizedTicker,
+    selectedCurrentUnitPrice: quote.currentUnitPrice,
+    asOf: quote.asOf ?? filteredTransactions[0]?.tradeDate ?? new Date().toISOString().slice(0, 10),
+  });
+  const accountBreakdown = rawAccountBreakdown
+    .map((row) => applyMarketAllocation(row, marketAllocationTotal))
+    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.accountId.localeCompare(right.accountId));
   const holdingGroup = buildHoldingGroup({
     ticker: normalizedTicker,
     instrumentName: instrument?.name ?? null,
@@ -171,6 +184,7 @@ export async function buildTickerDetails(
     fxRateToReporting,
     accountBreakdown,
   });
+  const allocatedHoldingGroup = holdingGroup ? applyMarketAllocation(holdingGroup, marketAllocationTotal) : null;
 
   const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(input.store.accounting);
 
@@ -206,7 +220,7 @@ export async function buildTickerDetails(
       upcoming: upcomingDividends,
       recent: recentDividends,
     },
-    holdingGroup,
+    holdingGroup: allocatedHoldingGroup,
     accountBreakdown,
     fundamentals: input.fundamentalsRecord?.fundamentals ?? createEmptyTickerFundamentals(),
     fundamentalsRefresh: buildFundamentalsRefresh(input.fundamentalsRecord, input.now ?? new Date()),
@@ -215,6 +229,110 @@ export async function buildTickerDetails(
   return {
     details,
     marketCode: resolvedMarketCode,
+  };
+}
+
+async function buildTickerMarketAllocationTotal(input: {
+  persistence: BuildTickerDetailsInput["persistence"];
+  store: Store;
+  userId: string;
+  marketCode: MarketCode;
+  reportingCurrency: AccountDefaultCurrency;
+  selectedTicker: string;
+  selectedCurrentUnitPrice: number | null;
+  asOf: string;
+}): Promise<number> {
+  const marketAccountIds = new Set(
+    input.store.accounts
+      .filter((account) => marketCodeFor(account.defaultCurrency) === input.marketCode)
+      .map((account) => account.id),
+  );
+  const holdings = listHoldings(input.store, input.userId)
+    .filter((holding) => marketAccountIds.has(holding.accountId));
+  if (holdings.length === 0) return 0;
+
+  const pairs = [...new Set(holdings.map((holding) => holding.ticker))]
+    .map((ticker) => ({ ticker, marketCode: input.marketCode }));
+  const latestBars = await input.persistence.getLatestBarsByTickerMarket(pairs, 1);
+  const latestCloseByTicker = new Map<string, number>();
+  for (const bar of latestBars) {
+    if (bar.marketCode !== input.marketCode) continue;
+    if (!latestCloseByTicker.has(bar.ticker)) {
+      latestCloseByTicker.set(bar.ticker, bar.close);
+    }
+  }
+  if (input.selectedCurrentUnitPrice !== null) {
+    latestCloseByTicker.set(input.selectedTicker, input.selectedCurrentUnitPrice);
+  }
+
+  const fxRateByCurrency = new Map<string, number | null>();
+  const getFxRate = async (currency: string): Promise<number | null> => {
+    if (currency === input.reportingCurrency) return 1;
+    if (fxRateByCurrency.has(currency)) return fxRateByCurrency.get(currency) ?? null;
+    const rate = await input.persistence.getFxRate(
+      currency as AccountDefaultCurrency,
+      input.reportingCurrency,
+      input.asOf,
+    );
+    fxRateByCurrency.set(currency, rate);
+    return rate;
+  };
+
+  let total = 0;
+  for (const holding of holdings) {
+    const fxRate = await getFxRate(holding.currency);
+    if (fxRate === null) continue;
+    const latestClose = latestCloseByTicker.get(holding.ticker) ?? null;
+    if (latestClose !== null) {
+      total += roundToDecimal(holding.quantity * latestClose * fxRate, 2);
+      continue;
+    }
+    total += roundToDecimal(holding.costBasisAmount * fxRate, 2);
+  }
+  return roundToDecimal(total, 2);
+}
+
+function applyMarketAllocation<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(
+  row: T,
+  marketAllocationTotal: number,
+): T {
+  const allocation = resolveTickerDetailsAllocationValue(row);
+  const allocationPercent = marketAllocationTotal > 0 && allocation.value !== null
+    ? roundToDecimal((allocation.value / marketAllocationTotal) * 100, 4)
+    : null;
+  return {
+    ...row,
+    reportingMarketAllocationPercent: allocationPercent,
+    allocationBasisUsed: allocation.allocationBasisUsed,
+    allocationBasisFallbackReason: allocation.allocationBasisFallbackReason,
+  };
+}
+
+function resolveTickerDetailsAllocationValue(
+  row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto,
+): {
+  value: number | null;
+  allocationBasisUsed: DashboardOverviewHoldingGroupDto["allocationBasisUsed"];
+  allocationBasisFallbackReason: DashboardOverviewHoldingGroupDto["allocationBasisFallbackReason"];
+} {
+  if (row.reportingMarketValueAmount !== null) {
+    return {
+      value: row.reportingMarketValueAmount,
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    };
+  }
+  if (row.quoteStatus === "missing") {
+    return {
+      value: row.reportingCostBasisAmount,
+      allocationBasisUsed: "cost_basis",
+      allocationBasisFallbackReason: "missing_quote",
+    };
+  }
+  return {
+    value: null,
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
   };
 }
 
@@ -276,6 +394,7 @@ function buildAccountBreakdown(input: {
         ? null
         : roundToDecimal(input.quote.change * holding.quantity * input.fxRateToReporting, 2),
       reportingAllocationPercent: null,
+      reportingMarketAllocationPercent: null,
       fxStatus: input.fxRateToReporting === null ? "missing" as const : "complete" as const,
       allocationBasisUsed,
       allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" as const : null,
@@ -361,7 +480,10 @@ function buildHoldingGroup(input: {
     reportingDailyChangeAmount: input.accountBreakdown.some((child) => child.reportingDailyChangeAmount == null)
       ? null
       : roundToDecimal(input.accountBreakdown.reduce((sum, child) => sum + (child.reportingDailyChangeAmount ?? 0), 0), 2),
-    reportingAllocationPercent: null,
+    reportingAllocationPercent: input.accountBreakdown.some((child) => child.reportingAllocationPercent === null)
+      ? null
+      : roundToDecimal(input.accountBreakdown.reduce((sum, child) => sum + (child.reportingAllocationPercent ?? 0), 0), 4),
+    reportingMarketAllocationPercent: null,
     fxStatus: input.fxRateToReporting === null ? "missing" : "complete",
     allocationBasisUsed,
     allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" : null,

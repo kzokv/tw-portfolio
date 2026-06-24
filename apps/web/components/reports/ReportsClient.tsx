@@ -20,6 +20,10 @@ import {
   type ReportHoldingRowDto,
   type ReportHoldingRowsPageDto,
   type ReportSummaryTotalsDto,
+  type ReportTickerAllocationRowDto,
+  type TickerAllocationChartMode,
+  type TickerAllocationTopN,
+  holdingsTableSettingsPreferenceSchema,
 } from "@vakwen/shared-types";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronDown, ExternalLink, RefreshCw, Search } from "lucide-react";
@@ -98,6 +102,7 @@ import {
   type ReportTab,
 } from "../../features/reports/reportState";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
+import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n";
 import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
@@ -116,17 +121,28 @@ type OptionalFxRateDto = {
   toCurrency?: string;
 };
 
+interface UserPreferencesResponse {
+  preferences?: {
+    holdingsTableSettings?: unknown;
+  };
+}
+
 type ReportHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "unrealized" | "daily" | "weight" | "health";
-type ReportHoldingFocusPreset = "largest" | "worst-pnl" | "best-pnl" | "stale-quotes" | "fx-exposure";
+type ReportHoldingFocusPreset = "largest" | "highest-allocation" | "worst-pnl" | "best-pnl" | "stale-quotes" | "fx-exposure";
 type ReportHoldingSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 
 const REPORT_HOLDING_FOCUS_PRESETS: Array<{ id: ReportHoldingFocusPreset; sortMode: ReportHoldingSort }> = [
   { id: "largest", sortMode: "value" },
+  { id: "highest-allocation", sortMode: "value" },
   { id: "worst-pnl", sortMode: "pnl" },
   { id: "best-pnl", sortMode: "pnl" },
   { id: "stale-quotes", sortMode: "ticker" },
   { id: "fx-exposure", sortMode: "value" },
 ];
+
+const TICKER_ALLOCATION_CHART_CONTEXT_KEY = "reports.portfolio.tickerAllocation";
+const DEFAULT_TICKER_ALLOCATION_CHART_MODE: TickerAllocationChartMode = "bars";
+const DEFAULT_TICKER_ALLOCATION_TOP_N: TickerAllocationTopN = "auto";
 
 const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
@@ -997,33 +1013,14 @@ function PortfolioReportView({
         <AllocationChart dict={dict} title={dict.reports.allocationByMarketTitle} buckets={data.allocation.byMarket} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <AllocationChart dict={dict} title={dict.reports.allocationByAccountTitle} buckets={data.allocation.byAccount} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{dict.reports.incomeTitle}</CardTitle>
-            <CardDescription>{formatReportMessage(dict.reports.postedDividendRows, { count: formatNumber(data.income.recentDividendCount, locale) })}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl font-semibold tabular-nums">
-              {formatCompactCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale)}
-            </p>
-            <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">
-              {formatExactAmountInline(dict, formatCurrencyAmount(data.income.trailingDividendAmount, data.query.reportingCurrency, locale))}
-            </p>
-          </CardContent>
-        </Card>
-        <HoldingsCard
-          dict={dict}
-          columnSettings={holdingsSettings}
-          title={dict.reports.concentrationTitle}
-          contextKey="reports.portfolio.concentration"
-          rows={{ total: data.concentration.topHoldings.length, limit: data.concentration.topHoldings.length, offset: 0, rows: data.concentration.topHoldings }}
-          isRefreshing={isRefreshing}
-          locale={locale}
-          onRefresh={onRefresh}
-          showAdminActivityLinks={showAdminActions}
-        />
-      </div>
+      <TickerAllocationCard
+        dict={dict}
+        isRefreshing={isRefreshing}
+        locale={locale}
+        onRefresh={onRefresh}
+        reportScope={data.query.scope}
+        rows={data.allocation.byTicker}
+      />
       <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
@@ -1270,6 +1267,364 @@ function AllocationChart({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+type TickerAllocationViewRow = {
+  key: string;
+  ticker: string;
+  instrumentName?: string | null;
+  marketCode: string;
+  accountCount: number;
+  reportingCurrency: AccountDefaultCurrency;
+  reportingAmount: number | null;
+  portfolioAllocationPercent: number | null;
+  selectedAllocationPercent: number | null;
+  allocationBasisUsed: "cost_basis" | "market_value";
+  allocationBasisFallbackReason: "missing_quote" | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  fxStatus: "complete" | "partial" | "missing";
+  isOther: boolean;
+};
+
+function TickerAllocationCard({
+  dict,
+  isRefreshing,
+  locale,
+  onRefresh,
+  reportScope,
+  rows,
+}: {
+  dict: AppDictionary;
+  isRefreshing: boolean;
+  locale: LocaleCode;
+  onRefresh: () => void;
+  reportScope: PortfolioReportDto["query"]["scope"];
+  rows: ReportTickerAllocationRowDto[];
+}) {
+  const lockedMarketCode = reportScope === "all" ? null : reportScope;
+  const availableMarketCodes = useMemo(
+    () => [...new Set(rows.map((row) => row.marketCode))].sort((left, right) => left.localeCompare(right)),
+    [rows],
+  );
+  const [selectedMarketCodes, setSelectedMarketCodes] = useState<string[]>(lockedMarketCode ? [lockedMarketCode] : []);
+  const [chartMode, setChartMode] = useState<TickerAllocationChartMode>(DEFAULT_TICKER_ALLOCATION_CHART_MODE);
+  const [topN, setTopN] = useState<TickerAllocationTopN>(DEFAULT_TICKER_ALLOCATION_TOP_N);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsContexts, setSettingsContexts] = useState<Record<string, { tickerAllocationChartMode?: TickerAllocationChartMode; tickerAllocationTopN?: TickerAllocationTopN }>>({});
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
+
+  useEffect(() => {
+    if (lockedMarketCode) {
+      setSelectedMarketCodes([lockedMarketCode]);
+      return;
+    }
+    setSelectedMarketCodes((current) => filterAvailableHoldingsSelections(current, availableMarketCodes));
+  }, [availableMarketCodes, lockedMarketCode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
+      .then((response) => {
+        if (cancelled) return;
+        const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
+        const contexts = parsed.success ? parsed.data.contexts : {};
+        const context = contexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY];
+        setSettingsContexts(contexts);
+        setChartMode(context?.tickerAllocationChartMode ?? DEFAULT_TICKER_ALLOCATION_CHART_MODE);
+        setTopN(context?.tickerAllocationTopN ?? DEFAULT_TICKER_ALLOCATION_TOP_N);
+        setSettingsHydrated(true);
+      })
+      .catch(() => {
+        setSettingsHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredRows = useMemo(
+    () => rows.filter((row) => lockedMarketCode
+      ? row.marketCode === lockedMarketCode
+      : selectedMarketCodes.length === 0 || selectedMarketCodes.includes(row.marketCode)),
+    [lockedMarketCode, rows, selectedMarketCodes],
+  );
+  const rowsWithSelectedWeight = useMemo(
+    () => buildTickerAllocationRows(filteredRows, topN),
+    [filteredRows, topN],
+  );
+
+  useEffect(() => {
+    if (rowsWithSelectedWeight.length === 0) {
+      setSelectedKey(null);
+      return;
+    }
+    setSelectedKey((current) => rowsWithSelectedWeight.some((row) => row.key === current) ? current : rowsWithSelectedWeight[0]!.key);
+  }, [rowsWithSelectedWeight]);
+
+  const selectedRow = rowsWithSelectedWeight.find((row) => row.key === selectedKey) ?? rowsWithSelectedWeight[0] ?? null;
+  const marketFilterLabel = lockedMarketCode
+    ? lockedMarketCode
+    : formatFilterSummary(selectedMarketCodes, dict.dashboardHome.topHoldingsAllMarkets, dict.dashboardHome.topHoldingsMarketLabel);
+  const fallbackCount = filteredRows.filter((row) => row.allocationBasisFallbackReason !== null).length;
+  const basisSummary = fallbackCount > 0
+    ? formatReportMessage(dict.reports.tickerAllocationBasisFallbackSummary, {
+        basis: filteredRows.some((row) => row.allocationBasisUsed === "market_value")
+          ? dict.dashboardHome.allocationBasisMarketValue
+          : dict.dashboardHome.allocationBasisCostBasis,
+        count: formatNumber(fallbackCount, locale),
+      })
+    : formatReportMessage(dict.reports.tickerAllocationBasisSummary, {
+        basis: filteredRows.some((row) => row.allocationBasisUsed === "market_value")
+          ? dict.dashboardHome.allocationBasisMarketValue
+          : dict.dashboardHome.allocationBasisCostBasis,
+      });
+
+  function persistChartSettings(nextMode: TickerAllocationChartMode, nextTopN: TickerAllocationTopN) {
+    if (!settingsHydrated) return;
+    const nextContexts = {
+      ...settingsContexts,
+      [TICKER_ALLOCATION_CHART_CONTEXT_KEY]: {
+        ...settingsContexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY],
+        tickerAllocationChartMode: nextMode,
+        tickerAllocationTopN: nextTopN,
+      },
+    };
+    setSettingsContexts(nextContexts);
+    setSettingsError("");
+    void patchJson(
+      "/user-preferences",
+      { holdingsTableSettings: { version: 1, contexts: nextContexts } },
+      { contextScope: "session" },
+    ).catch((error) => {
+      setSettingsError(error instanceof Error ? error.message : String(error));
+    });
+  }
+
+  function handleChartModeChange(value: string) {
+    if (value !== "bars" && value !== "pie") return;
+    setChartMode(value);
+    persistChartSettings(value, topN);
+  }
+
+  function handleTopNChange(value: string) {
+    if (value !== "auto" && value !== "5" && value !== "10" && value !== "20" && value !== "all") return;
+    setTopN(value);
+    persistChartSettings(chartMode, value);
+  }
+
+  return (
+    <Card data-testid="reports-ticker-allocation-card">
+      <CardHeader className="flex flex-col items-stretch gap-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <CardTitle>{dict.reports.tickerAllocationTitle}</CardTitle>
+            <CardDescription>{formatReportMessage(dict.reports.allocationBucketCount, { count: formatNumber(filteredRows.length, locale) })}</CardDescription>
+            <p className="mt-2 text-xs text-muted-foreground">{basisSummary}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ReportsMultiSelectMenu
+              allLabel={dict.dashboardHome.topHoldingsAllMarkets}
+              buttonLabel={marketFilterLabel}
+              disabled={lockedMarketCode !== null}
+              label={dict.dashboardHome.topHoldingsMarketLabel}
+              options={availableMarketCodes.map((market) => ({ id: market, label: market }))}
+              selectedIds={selectedMarketCodes}
+              setSelectedIds={setSelectedMarketCodes}
+              testId="reports-ticker-allocation-market-filter"
+            />
+            <ToggleGroup
+              type="single"
+              value={chartMode}
+              onValueChange={handleChartModeChange}
+              aria-label={dict.reports.tickerAllocationChartTypeLabel}
+              data-testid="reports-ticker-allocation-mode"
+            >
+              <ToggleGroupItem value="bars">{dict.reports.tickerAllocationBars}</ToggleGroupItem>
+              <ToggleGroupItem value="pie">{dict.reports.tickerAllocationPie}</ToggleGroupItem>
+            </ToggleGroup>
+            <ToggleGroup
+              type="single"
+              value={topN}
+              onValueChange={handleTopNChange}
+              aria-label={dict.reports.tickerAllocationTopNLabel}
+              data-testid="reports-ticker-allocation-topn"
+            >
+              <ToggleGroupItem value="auto">{dict.reports.tickerAllocationTopNAuto}</ToggleGroupItem>
+              <ToggleGroupItem value="5">5</ToggleGroupItem>
+              <ToggleGroupItem value="10">10</ToggleGroupItem>
+              <ToggleGroupItem value="20">20</ToggleGroupItem>
+              <ToggleGroupItem value="all">{dict.reports.tickerAllocationTopNAll}</ToggleGroupItem>
+            </ToggleGroup>
+            <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId="reports-ticker-allocation-refresh" />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {rowsWithSelectedWeight.length === 0 ? (
+          <HoldingsGridEmptyState className="p-6">{dict.reports.noAllocationBuckets}</HoldingsGridEmptyState>
+        ) : (
+          <div className="grid gap-4">
+            <div className="grid gap-4">
+              {chartMode === "bars" ? (
+                <div className="grid gap-2" data-testid="reports-ticker-allocation-bars">
+                  {rowsWithSelectedWeight.map((row) => (
+                    <Popover key={row.key}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "grid gap-3 rounded-xl border border-border px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_4.75rem_4.75rem]",
+                            selectedRow?.key === row.key && "border-primary/60 bg-primary/5",
+                          )}
+                          onClick={() => setSelectedKey(row.key)}
+                          data-testid={`reports-ticker-allocation-row-${row.key}`}
+                        >
+                          <TickerAllocationRowContent dict={dict} locale={locale} row={row} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+                        <TickerAllocationDetailPanel dict={dict} locale={locale} row={row} />
+                      </PopoverContent>
+                    </Popover>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid gap-4 rounded-xl border border-border p-4" data-testid="reports-ticker-allocation-pie">
+                  <div className="mx-auto size-52 rounded-full border border-border" style={{ background: buildTickerAllocationPieGradient(rowsWithSelectedWeight) }} />
+                  <div className="grid gap-2">
+                    {rowsWithSelectedWeight.map((row, index) => (
+                      <Popover key={row.key}>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-left transition hover:border-primary/40 hover:bg-muted/40",
+                              selectedRow?.key === row.key && "border-primary/60 bg-primary/5",
+                            )}
+                            onClick={() => setSelectedKey(row.key)}
+                            data-testid={`reports-ticker-allocation-pie-row-${row.key}`}
+                          >
+                            <span className="size-3 rounded-full" style={{ backgroundColor: tickerAllocationColor(index) }} />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{row.isOther ? dict.reports.tickerAllocationOtherLabel : `${row.ticker} · ${row.marketCode}`}</span>
+                            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                              {row.selectedAllocationPercent === null ? "-" : formatPercent(row.selectedAllocationPercent, locale)}
+                            </span>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+                          <TickerAllocationDetailPanel dict={dict} locale={locale} row={row} />
+                        </PopoverContent>
+                      </Popover>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-2 rounded-xl border border-border px-3 py-3 text-xs text-muted-foreground md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_4.75rem_4.75rem]">
+                <span>{dict.reports.ticker}</span>
+                <span>{dict.reports.reportingValue}</span>
+                <span className="text-right">{dict.reports.tickerAllocationPortfolioWeight}</span>
+                <span className="text-right">{dict.reports.tickerAllocationSelectedWeight}</span>
+              </div>
+            </div>
+          </div>
+        )}
+        {settingsError ? <p className="mt-3 text-xs text-destructive">{settingsError}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TickerAllocationDetailPanel({
+  dict,
+  locale,
+  row,
+}: {
+  dict: AppDictionary;
+  locale: LocaleCode;
+  row: TickerAllocationViewRow;
+}) {
+  const detailRows = [
+    [dict.reports.reportingValue, row.reportingAmount === null ? "-" : formatCurrencyAmount(row.reportingAmount, row.reportingCurrency, locale)],
+    [dict.reports.tickerAllocationPortfolioWeight, row.portfolioAllocationPercent === null ? "-" : formatPercent(row.portfolioAllocationPercent, locale)],
+    [dict.reports.tickerAllocationSelectedWeight, row.selectedAllocationPercent === null ? "-" : formatPercent(row.selectedAllocationPercent, locale)],
+    [dict.reports.accounts, formatNumber(row.accountCount, locale)],
+    [dict.reports.quoteStatus, reportQuoteStatusLabel(dict, row.quoteStatus)],
+    [dict.reports.tickerAllocationFxStatus, reportFxStatusLabel(dict, row.fxStatus)],
+    [dict.dashboardHome.allocationBasisLabel, row.allocationBasisUsed === "market_value" ? dict.dashboardHome.allocationBasisMarketValue : dict.dashboardHome.allocationBasisCostBasis],
+    [dict.dashboardHome.allocationFallbackLabel, row.allocationBasisFallbackReason === "missing_quote" ? dict.holdings.allocationFallbackMissingQuote : dict.reports.tickerAllocationFallbackNotNeeded],
+  ] as const;
+
+  return (
+    <div className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4" data-testid="reports-ticker-allocation-detail">
+      <div>
+        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{dict.reports.tickerAllocationDetailTitle}</p>
+        <h3 className="mt-2 text-lg font-semibold text-foreground">{row.isOther ? dict.reports.tickerAllocationOtherLabel : row.ticker}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {row.isOther ? dict.reports.tickerAllocationOtherDescription : [row.marketCode, row.instrumentName].filter(Boolean).join(" · ")}
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {detailRows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+            <span className="text-sm text-muted-foreground">{label}</span>
+            <span className="text-right font-mono text-sm font-semibold tabular-nums text-foreground">{value}</span>
+          </div>
+        ))}
+      </div>
+      {!row.isOther ? (
+        <div className="flex justify-end">
+          <Link
+            href={tickerHref(row.ticker, row.marketCode)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary transition hover:bg-muted hover:text-primary"
+          >
+            <ExternalLink data-icon="inline-start" aria-hidden="true" />
+            {dict.reports.openTicker}
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TickerAllocationRowContent({
+  dict,
+  locale,
+  row,
+}: {
+  dict: AppDictionary;
+  locale: LocaleCode;
+  row: TickerAllocationViewRow;
+}) {
+  return (
+    <>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">{row.isOther ? dict.reports.tickerAllocationOtherLabel : row.ticker}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {row.isOther
+            ? dict.reports.tickerAllocationOtherDescription
+            : [row.marketCode, row.instrumentName].filter(Boolean).join(" · ")}
+        </p>
+      </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{ width: `${Math.max(4, row.selectedAllocationPercent ?? 0)}%` }}
+          />
+        </div>
+        <p className="min-w-[7.5rem] text-right font-mono text-xs tabular-nums text-muted-foreground">
+          {row.reportingAmount === null ? "-" : formatCurrencyAmount(row.reportingAmount, row.reportingCurrency, locale)}
+        </p>
+      </div>
+      <p className="text-right font-mono text-xs tabular-nums text-foreground">
+        {row.portfolioAllocationPercent === null ? "-" : formatPercent(row.portfolioAllocationPercent, locale)}
+      </p>
+      <p className="text-right font-mono text-xs tabular-nums text-foreground">
+        {row.selectedAllocationPercent === null ? "-" : formatPercent(row.selectedAllocationPercent, locale)}
+      </p>
+    </>
   );
 }
 
@@ -1571,6 +1926,7 @@ function SectionRefreshButton({
 function ReportsMultiSelectMenu({
   allLabel,
   buttonLabel,
+  disabled = false,
   label,
   options,
   selectedIds,
@@ -1579,6 +1935,7 @@ function ReportsMultiSelectMenu({
 }: {
   allLabel: string;
   buttonLabel: string;
+  disabled?: boolean;
   label: string;
   options: Array<{ id: string; label: string }>;
   selectedIds: string[];
@@ -1592,7 +1949,7 @@ function ReportsMultiSelectMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" size="sm" variant="outline" className="w-full justify-between" aria-label={label} data-testid={testId}>
+        <Button type="button" size="sm" variant="outline" className="w-full justify-between" aria-label={label} data-testid={testId} disabled={disabled}>
           <span className="sr-only">{label}</span>
           <span className="truncate">{buttonLabel}</span>
           <ChevronDown data-icon="inline-end" aria-hidden="true" />
@@ -1839,6 +2196,10 @@ function compareReportHoldingRows(
     return (getReportUnitPnl(right).amount ?? Number.NEGATIVE_INFINITY)
       - (getReportUnitPnl(left).amount ?? Number.NEGATIVE_INFINITY);
   }
+  if (selectedPreset === "highest-allocation") {
+    return (right.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY)
+      - (left.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY);
+  }
   return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
     - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
 }
@@ -1851,6 +2212,8 @@ function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocu
   switch (preset) {
     case "largest":
       return dict.dashboardHome.topHoldingsPresetLargest;
+    case "highest-allocation":
+      return dict.dashboardHome.topHoldingsPresetHighestAllocation;
     case "worst-pnl":
       return dict.dashboardHome.topHoldingsPresetWorstPnl;
     case "best-pnl":
@@ -1859,6 +2222,118 @@ function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocu
       return dict.dashboardHome.topHoldingsPresetStaleQuotes;
     case "fx-exposure":
       return dict.dashboardHome.topHoldingsPresetFxExposure;
+  }
+}
+
+function buildTickerAllocationRows(
+  rows: ReportTickerAllocationRowDto[],
+  topN: TickerAllocationTopN,
+): TickerAllocationViewRow[] {
+  const ranked = rows
+    .slice()
+    .sort((left, right) =>
+      (right.portfolioAllocationPercent ?? right.reportingAmount ?? Number.NEGATIVE_INFINITY)
+      - (left.portfolioAllocationPercent ?? left.reportingAmount ?? Number.NEGATIVE_INFINITY));
+  const denominator = ranked.reduce((sum, row) => sum + (row.reportingAmount ?? 0), 0);
+  const projected = ranked.map((row) => ({
+    ...row,
+    key: `${row.marketCode}:${row.ticker}`,
+    selectedAllocationPercent: denominator > 0 && row.reportingAmount !== null ? (row.reportingAmount / denominator) * 100 : null,
+    isOther: false,
+  } satisfies TickerAllocationViewRow));
+  const limit = resolveTickerAllocationTopNLimit(projected.length, topN);
+  if (limit === null || projected.length <= limit) return projected;
+  return [
+    ...projected.slice(0, limit),
+    buildOtherTickerAllocationRow(projected.slice(limit)),
+  ];
+}
+
+function buildOtherTickerAllocationRow(rows: TickerAllocationViewRow[]): TickerAllocationViewRow {
+  return {
+    key: "other",
+    ticker: "OTHER",
+    instrumentName: null,
+    marketCode: rows.length === 1 ? rows[0]!.marketCode : "MULTI",
+    accountCount: rows.reduce((sum, row) => sum + row.accountCount, 0),
+    reportingCurrency: rows[0]?.reportingCurrency ?? "TWD",
+    reportingAmount: rows.reduce((sum, row) => sum + (row.reportingAmount ?? 0), 0),
+    portfolioAllocationPercent: rows.reduce((sum, row) => sum + (row.portfolioAllocationPercent ?? 0), 0),
+    selectedAllocationPercent: rows.reduce((sum, row) => sum + (row.selectedAllocationPercent ?? 0), 0),
+    allocationBasisUsed: rows.every((row) => row.allocationBasisUsed === "cost_basis") ? "cost_basis" : "market_value",
+    allocationBasisFallbackReason: rows.some((row) => row.allocationBasisFallbackReason === "missing_quote") ? "missing_quote" : null,
+    quoteStatus: rows.some((row) => row.quoteStatus === "missing")
+      ? "missing"
+      : rows.some((row) => row.quoteStatus === "provisional")
+        ? "provisional"
+        : "current",
+    fxStatus: rows.some((row) => row.fxStatus === "missing")
+      ? "missing"
+      : rows.some((row) => row.fxStatus === "partial")
+        ? "partial"
+        : "complete",
+    isOther: true,
+  };
+}
+
+function resolveTickerAllocationTopNLimit(total: number, topN: TickerAllocationTopN): number | null {
+  if (topN === "all") return null;
+  if (topN === "5") return 5;
+  if (topN === "10") return 10;
+  if (topN === "20") return 20;
+  if (total <= 5) return null;
+  if (total <= 15) return 10;
+  return 20;
+}
+
+function buildTickerAllocationPieGradient(rows: TickerAllocationViewRow[]): string {
+  if (rows.length === 0) return "conic-gradient(hsl(var(--muted)) 0deg 360deg)";
+  let start = 0;
+  const segments = rows.map((row, index) => {
+    const end = start + (((row.selectedAllocationPercent ?? 0) / 100) * 360);
+    const segment = `${tickerAllocationColor(index)} ${start}deg ${end}deg`;
+    start = end;
+    return segment;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function tickerAllocationColor(index: number): string {
+  return [
+    "hsl(var(--chart-1))",
+    "hsl(var(--chart-2))",
+    "hsl(var(--chart-3))",
+    "hsl(var(--chart-4))",
+    "hsl(var(--chart-5))",
+    "hsl(var(--chart-primary))",
+  ][index % 6]!;
+}
+
+function reportQuoteStatusLabel(
+  dict: AppDictionary,
+  value: "current" | "provisional" | "missing",
+): string {
+  switch (value) {
+    case "current":
+      return dict.reports.quoteStatusCurrent;
+    case "provisional":
+      return dict.reports.quoteStatusProvisional;
+    case "missing":
+      return dict.reports.quoteStatusMissing;
+  }
+}
+
+function reportFxStatusLabel(
+  dict: AppDictionary,
+  value: "complete" | "partial" | "missing",
+): string {
+  switch (value) {
+    case "complete":
+      return dict.holdings.fxStatusComplete;
+    case "partial":
+      return dict.holdings.fxStatusPartial;
+    case "missing":
+      return dict.holdings.fxStatusMissing;
   }
 }
 

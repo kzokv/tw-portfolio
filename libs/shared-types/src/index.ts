@@ -653,6 +653,7 @@ export interface DashboardOverviewHoldingChildDto {
   reportingUnrealizedPnlAmount: number | null;
   reportingDailyChangeAmount?: number | null;
   reportingAllocationPercent: number | null;
+  reportingMarketAllocationPercent?: number | null;
   fxStatus: "complete" | "partial" | "missing";
   allocationBasisUsed: HoldingAllocationBasis;
   allocationBasisFallbackReason: "missing_quote" | null;
@@ -685,6 +686,7 @@ export interface DashboardOverviewHoldingGroupDto {
   reportingUnrealizedPnlAmount: number | null;
   reportingDailyChangeAmount?: number | null;
   reportingAllocationPercent: number | null;
+  reportingMarketAllocationPercent?: number | null;
   fxStatus: "complete" | "partial" | "missing";
   allocationBasisUsed: HoldingAllocationBasis;
   allocationBasisFallbackReason: "missing_quote" | null;
@@ -821,12 +823,28 @@ export const DEFAULT_HOLDING_ALLOCATION_BASIS: HoldingAllocationBasis = "market_
 
 export const DASHBOARD_HOLDING_FOCUS_PRESETS = [
   "largest",
+  "highest-allocation",
   "worst-pnl",
   "best-pnl",
   "fx-exposure",
   "stale-quotes",
 ] as const;
 export type DashboardHoldingFocusPreset = (typeof DASHBOARD_HOLDING_FOCUS_PRESETS)[number];
+
+export const TICKER_ALLOCATION_CHART_MODES = [
+  "bars",
+  "pie",
+] as const;
+export type TickerAllocationChartMode = (typeof TICKER_ALLOCATION_CHART_MODES)[number];
+
+export const TICKER_ALLOCATION_TOP_N_OPTIONS = [
+  "auto",
+  "5",
+  "10",
+  "20",
+  "all",
+] as const;
+export type TickerAllocationTopN = (typeof TICKER_ALLOCATION_TOP_N_OPTIONS)[number];
 
 export const DEFAULT_DASHBOARD_HOLDING_FOCUS_PRESET_ORDER: DashboardHoldingFocusPreset[] = [
   ...DASHBOARD_HOLDING_FOCUS_PRESETS,
@@ -850,6 +868,8 @@ export interface HoldingsTableContextPreferenceDto {
   selectedMarketCodes?: string[];
   selectedAccountIds?: string[];
   topHoldingsLimit?: number;
+  tickerAllocationChartMode?: TickerAllocationChartMode;
+  tickerAllocationTopN?: TickerAllocationTopN;
 }
 
 export interface HoldingsTableSettingsPreferenceDto {
@@ -938,6 +958,8 @@ const holdingsTableSelectionSchema = z
     (arr) => new Set(arr).size === arr.length,
     { message: "holdings_table_duplicate_selection" },
   );
+const tickerAllocationChartModeSchema = z.enum(TICKER_ALLOCATION_CHART_MODES);
+const tickerAllocationTopNSchema = z.enum(TICKER_ALLOCATION_TOP_N_OPTIONS);
 
 export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSettingsPreferenceDto> = z
   .object({
@@ -961,6 +983,8 @@ export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSetti
             selectedMarketCodes: holdingsTableSelectionSchema.optional(),
             selectedAccountIds: holdingsTableSelectionSchema.optional(),
             topHoldingsLimit: z.number().int().min(1).max(100).optional(),
+            tickerAllocationChartMode: tickerAllocationChartModeSchema.optional(),
+            tickerAllocationTopN: tickerAllocationTopNSchema.optional(),
           })
           .strict(),
       )
@@ -997,6 +1021,8 @@ export const adminMarketDataTableSettingsPreferenceSchema: z.ZodType<AdminMarket
             selectedMarketCodes: holdingsTableSelectionSchema.optional(),
             selectedAccountIds: holdingsTableSelectionSchema.optional(),
             topHoldingsLimit: z.number().int().min(1).max(100).optional(),
+            tickerAllocationChartMode: tickerAllocationChartModeSchema.optional(),
+            tickerAllocationTopN: tickerAllocationTopNSchema.optional(),
           })
           .strict(),
       )
@@ -1202,6 +1228,7 @@ export interface ReportDiagnosticsDto {
     topHoldings?: number;
     marketBuckets?: number;
     accountBuckets?: number;
+    tickerBuckets?: number;
     suggestions?: number;
   };
 }
@@ -1283,6 +1310,20 @@ export interface AllocationBucketDto {
   allocationPercent: number | null;
 }
 
+export interface ReportTickerAllocationRowDto {
+  ticker: string;
+  instrumentName?: string | null;
+  marketCode: MarketCode;
+  accountCount: number;
+  reportingCurrency: AccountDefaultCurrency;
+  reportingAmount: number | null;
+  portfolioAllocationPercent: number | null;
+  allocationBasisUsed: HoldingAllocationBasis;
+  allocationBasisFallbackReason: "missing_quote" | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  fxStatus: "complete" | "partial" | "missing";
+}
+
 export interface PortfolioReportDto {
   query: ReportQueryStateDto;
   summary: ReportSummaryTotalsDto;
@@ -1295,6 +1336,7 @@ export interface PortfolioReportDto {
   allocation: {
     byMarket: AllocationBucketDto[];
     byAccount: AllocationBucketDto[];
+    byTicker: ReportTickerAllocationRowDto[];
   };
   concentration: {
     topHoldings: ReportHoldingRowDto[];
