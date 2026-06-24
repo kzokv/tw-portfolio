@@ -160,11 +160,25 @@ describe("AdminMarketDataPage", () => {
       if (path === "/admin/market-data/KR/actions") {
         return { marketCode: "KR", actions: [] };
       }
-      if (path === "/admin/providers/yahoo-finance-kr/operations?page=1&limit=25") {
+      if (path === "/admin/market-data/KR/operations?page=1&limit=25") {
         return {
-          stagedOperation: null,
+          marketCode: "KR",
+          providers: [{ providerId: "yahoo-finance-kr", label: "Yahoo Finance KR", role: "Mappings" }],
           selectedOperation: null,
-          operations: [{ id: "OP-ROW" }],
+          selectedOperationIsOffPage: false,
+          items: [{ id: "OP-ROW" }],
+          filters: {
+            providerId: null,
+            operationType: null,
+            phase: null,
+            search: null,
+            from: null,
+            to: null,
+          },
+          availableFilters: {
+            operationTypes: [],
+            phases: [],
+          },
           total: 1,
           page: 1,
           limit: 25,
@@ -182,10 +196,9 @@ describe("AdminMarketDataPage", () => {
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
-      "/admin/providers/yahoo-finance-kr/operations?page=1&limit=25",
+      "/admin/market-data/KR/operations?page=1&limit=25",
     ]);
-    expect(html).toContain("&quot;explicitOperationId&quot;:&quot;&quot;");
-    expect(html).toContain("&quot;selectedOperationId&quot;:&quot;&quot;");
+    expect(html).toContain("&quot;operationId&quot;:&quot;&quot;");
   });
 
   it("rejects the legacy logs tab once activity replaces it", async () => {

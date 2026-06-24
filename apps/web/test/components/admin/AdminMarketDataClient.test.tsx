@@ -45,6 +45,8 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   executeMarketSnapshotRepair: vi.fn(),
   executeProviderRepair: vi.fn(),
   executeMarketPurge: vi.fn(),
+  fetchOperationLogs: vi.fn(),
+  fetchOperationOutcomes: vi.fn(),
   fetchMarketValuationRepairStatus: vi.fn(),
   invalidateMarketCalendar: vi.fn(),
   bulkUpdateProviderUnresolvedState: vi.fn(),
@@ -74,6 +76,8 @@ import {
   executeMarketSnapshotRepair,
   executeMarketPurge,
   executeProviderRepair,
+  fetchOperationLogs,
+  fetchOperationOutcomes,
   fetchMarketValuationRepairStatus,
   mutateProviderOperation,
   confirmMarketCalendarImport,
@@ -99,6 +103,8 @@ const executeProviderRepairMock = vi.mocked(executeProviderRepair);
 const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);
 const executeMarketSnapshotRepairMock = vi.mocked(executeMarketSnapshotRepair);
 const executeMarketPurgeMock = vi.mocked(executeMarketPurge);
+const fetchOperationLogsMock = vi.mocked(fetchOperationLogs);
+const fetchOperationOutcomesMock = vi.mocked(fetchOperationOutcomes);
 const fetchMarketValuationRepairStatusMock = vi.mocked(fetchMarketValuationRepairStatus);
 const mutateProviderOperationMock = vi.mocked(mutateProviderOperation);
 const confirmMarketCalendarImportMock = vi.mocked(confirmMarketCalendarImport);
@@ -701,6 +707,15 @@ describe("AdminMarketDataWorkspaceClient", () => {
     mockIsSmallScreen.mockReturnValue(false);
     getJsonMock.mockResolvedValue({ preferences: {} });
     patchJsonMock.mockResolvedValue({ preferences: {} });
+    fetchOperationLogsMock.mockResolvedValue({
+      marketCode: "KR",
+      operationId: "OP-PREVIEW",
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 10,
+    });
+    fetchOperationOutcomesMock.mockResolvedValue(krOperationsData().outcomes);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -2059,12 +2074,13 @@ describe("AdminMarketDataWorkspaceClient", () => {
     }));
   });
 
-  it("preserves KR operation inspector execution, outcomes, and retry controls", async () => {
+  it("preserves KR operation inspector execution, outcomes, and resume controls", async () => {
     const data = krOperationsData();
     const retryable = {
       ...operation("OP-FAILED"),
-      phase: "failed" as const,
+      phase: "paused" as const,
       canExecute: false,
+      canResume: true,
       canRetry: true,
     };
     data.operations.operations = [data.operations.operations[0]!, retryable];
@@ -2093,10 +2109,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("repair_mapping");
     expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
 
     const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
     mockSearchParams.mockReturnValue(selectedOperationParams);
@@ -2116,7 +2131,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("Operation item outcomes");
+    await act(async () => undefined);
+    expect(document.body.textContent).toContain("Outcomes");
     expect(document.body.textContent).toContain("repair_mapping");
 
     act(() => {
@@ -2136,15 +2152,17 @@ describe("AdminMarketDataWorkspaceClient", () => {
     act(() => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-FAILED");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-FAILED");
     await act(async () => undefined);
     act(() => {
-      document.body.querySelector("[data-testid='provider-console-operation-retry-OP-FAILED']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Resume")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mutateProviderOperationMock).toHaveBeenCalledWith({
       providerId: "yahoo-finance-kr",
       operationId: "OP-FAILED",
-      action: "retry",
+      action: "resume",
     });
   });
 
@@ -2380,10 +2398,9 @@ describe("AdminMarketDataWorkspaceClient", () => {
     act(() => {
       container.querySelector("[data-testid='provider-console-operation-select-OP-PREVIEW']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?operationId=OP-PREVIEW");
+    expect(mockPush).toHaveBeenCalledWith("/admin/market-data/KR/operations?page=1&limit=25&operationId=OP-PREVIEW");
     expect(document.body.textContent).not.toContain("Operation item outcomes");
     expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.querySelector("[data-testid='provider-console-operation-outcomes-loading']")).not.toBeNull();
 
     const selectedOperationParams = new URLSearchParams("operationId=OP-PREVIEW");
     mockSearchParams.mockReturnValue(selectedOperationParams);
@@ -2403,7 +2420,8 @@ describe("AdminMarketDataWorkspaceClient", () => {
       );
     });
     expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
-    expect(document.body.textContent).toContain("Operation item outcomes");
+    await act(async () => undefined);
+    expect(document.body.textContent).toContain("Outcomes");
 
     mockSearchParams.mockReturnValue(new URLSearchParams());
     window.history.pushState({}, "", "/admin/market-data/KR/operations");

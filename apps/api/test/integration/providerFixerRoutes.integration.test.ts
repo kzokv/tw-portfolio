@@ -2083,6 +2083,52 @@ describe("Provider Fixer admin routes", () => {
     );
   });
 
+  it("rejects catalog-provider unresolved rows for market retry previews", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "asx-gics-csv",
+      marketCode: "AU",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "BHP.AX",
+      providerSymbol: "BHP.AX",
+    });
+
+    const retryThroughBackfillProvider = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "yahoo-finance-au",
+        selectedUnresolvedRows: [
+          { providerId: "asx-gics-csv", marketCode: "AU", errorCode: "provider_symbol_unresolved", sourceSymbol: "BHP.AX" },
+        ],
+      },
+    });
+    expect(retryThroughBackfillProvider.statusCode).toBe(400);
+    expect(retryThroughBackfillProvider.json()).toMatchObject({
+      error: "market_unresolved_retry_provider_not_supported",
+    });
+
+    const retryThroughCatalogProvider = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "asx-gics-csv",
+        selectedUnresolvedRows: [
+          { providerId: "asx-gics-csv", marketCode: "AU", errorCode: "provider_symbol_unresolved", sourceSymbol: "BHP.AX" },
+        ],
+      },
+    });
+    expect(retryThroughCatalogProvider.statusCode).toBe(400);
+    expect(retryThroughCatalogProvider.json()).toMatchObject({
+      error: "market_unresolved_retry_provider_not_supported",
+    });
+  });
+
   it("returns blocking operation details on market unresolved retry conflicts", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };

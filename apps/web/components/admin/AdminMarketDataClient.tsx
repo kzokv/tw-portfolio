@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataBackfillTargetDto,
@@ -33,6 +33,9 @@ import {
   executeMarketAction,
   executeMarketSnapshotRepair,
   executeMarketPurge,
+  executeProviderRepair,
+  fetchOperationLogs,
+  fetchOperationOutcomes,
   fetchMarketValuationRepairStatus,
   invalidateMarketCalendar,
   mutateProviderOperation,
@@ -45,6 +48,12 @@ import {
   updateMarketInstrumentDelistingOverride,
   updateMarketInstrumentSupportState,
 } from "../../lib/adminMarketDataService";
+import {
+  localizeOperationPhase,
+  localizeOperationType,
+  normalizeOperationPageResponse,
+  type NormalizedOperationItem,
+} from "../../lib/adminMarketDataOperations";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
@@ -57,6 +66,7 @@ import {
   SelectValue,
 } from "../ui/shadcn/select";
 import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
+import { AdminMarketDataOperationsShell } from "./AdminMarketDataOperationsShell";
 import { KrOperationsPanel, MappingsPanel, type KrMappingsData, type KrOperationsData } from "./AdminMarketDataKrResolver";
 import { Pagination } from "./Pagination";
 import { formatUtcTimestamp } from "./adminFormat";
@@ -90,6 +100,7 @@ interface AdminMarketDataWorkspaceClientProps {
   instrumentQuery?: InstrumentQuery;
   unresolved?: AdminMarketDataUnresolvedResponse | null;
   operations: AdminMarketDataOperationsResponse | null;
+  operationsQuery?: OperationsQuery;
   activity?: AdminMarketDataActivityResponse | null;
   calendar?: AdminMarketDataCalendarResponse | null;
   providerFilterId?: string;
@@ -116,6 +127,24 @@ interface InstrumentQuery {
   instrumentType: string;
   backfillStatus: string;
   sort: string;
+}
+
+interface OperationsQuery {
+  operationsPage: number;
+  operationsLimit: number;
+  operationId: string;
+  providerId: string;
+  operationType: string;
+  phase: string;
+  search: string;
+  startDate: string;
+  endDate: string;
+  operationLogsPage: number;
+  operationLogsLimit: number;
+  operationOutcomesPage: number;
+  operationOutcomesLimit: number;
+  operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
+  operationOutcomeAction: string;
 }
 
 const tabLabels: Record<AdminMarketWorkspaceUiTab, string> = {
@@ -299,11 +328,12 @@ export function AdminMarketDataWorkspaceClient({
   instrumentQuery,
   unresolved = null,
   operations,
+  operationsQuery,
   activity,
   calendar,
   providerFilterId = "",
   krMappings,
-  krOperations,
+  krOperations = null,
   snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
   const router = useRouter();
@@ -411,11 +441,54 @@ export function AdminMarketDataWorkspaceClient({
       )}
       {safeTab === "purge" && marketCode !== "FX" && <PurgePanel marketCode={marketCode} />}
       {safeTab === "refresh-rates" && <RefreshRatesPanel actions={actions} />}
-      {safeTab === "operations" && marketCode === "KR" && krOperations
-        ? <KrOperationsPanel data={krOperations} />
-        : safeTab === "operations" && operations
-          ? <OperationsPanel operations={operations} currentProviderId={providerFilterId} />
-          : null}
+      {safeTab === "operations" && (
+        operations
+          ? marketCode === "KR"
+          ? <KrOperationsPanel data={{
+            operations,
+            explicitOperationId: operationsQuery?.operationId ?? "",
+            selectedOperationId: operationsQuery?.operationId ?? "",
+            query: operationsQuery ?? {
+              operationsPage: operations.page,
+              operationsLimit: operations.limit,
+              operationId: "",
+              providerId: providerFilterId ?? "",
+              operationType: "",
+              phase: "",
+              search: "",
+              startDate: "",
+              endDate: "",
+              operationLogsPage: 1,
+              operationLogsLimit: 10,
+              operationOutcomesPage: 1,
+              operationOutcomesLimit: 25,
+              operationOutcomeState: "all",
+              operationOutcomeAction: "",
+            },
+          }} />
+          : marketCode === "FX"
+            ? <LegacyOperationsPanel operations={operations} currentProviderId={providerFilterId} />
+            : <OperationsPanel operations={operations} query={operationsQuery ?? {
+            operationsPage: operations.page,
+            operationsLimit: operations.limit,
+            operationId: "",
+            providerId: providerFilterId ?? "",
+            operationType: "",
+            phase: "",
+            search: "",
+            startDate: "",
+            endDate: "",
+            operationLogsPage: 1,
+            operationLogsLimit: 10,
+            operationOutcomesPage: 1,
+            operationOutcomesLimit: 25,
+            operationOutcomeState: "all",
+            operationOutcomeAction: "",
+          }} />
+          : marketCode === "KR" && krOperations
+            ? <KrOperationsPanel data={krOperations} />
+            : null
+      )}
       {safeTab === "activity" && activity ? <ActivityPanel activity={activity} marketCode={marketCode} /> : null}
     </div>
   );
@@ -2342,6 +2415,320 @@ function ProviderFilterLinks({
 }
 
 function OperationsPanel({
+  operations,
+  query,
+}: {
+  operations: AdminMarketDataOperationsResponse;
+  query: OperationsQuery;
+}) {
+  const router = useRouter();
+  const i18n = useAdminI18n();
+  const adminDict = i18n.marketData;
+  const commonDict = i18n.common;
+  const normalized = normalizeOperationPageResponse(operations, operations.marketCode, operations.providers);
+  const [localSelectedOperationId, setLocalSelectedOperationId] = useState("");
+  const [operationAcknowledged, setOperationAcknowledged] = useState(false);
+  const [operationTypedConfirmation, setOperationTypedConfirmation] = useState("");
+  const [operationBusyAction, setOperationBusyAction] = useState<"execute" | "pause" | "resume" | "cancel" | null>(null);
+  const [operationMessage, setOperationMessage] = useState<string | null>(null);
+  const providerOptions = [
+    { value: "", label: adminDict.allProviders },
+    ...operations.providers.map((provider) => ({ value: provider.providerId, label: provider.label })),
+  ];
+  const operationTypeValues = Array.from(new Set([
+    ...(operations.availableFilters?.operationTypes ?? normalized.items.map((item) => item.operationType)),
+    ...(query.operationType ? [query.operationType] : []),
+  ])).filter((value) => value.trim().length > 0);
+  const phaseValues = Array.from(new Set([
+    ...(operations.availableFilters?.phases ?? normalized.items.map((item) => item.phase)),
+    ...(query.phase ? [query.phase] : []),
+  ])).filter((value) => value.trim().length > 0);
+  const operationTypeOptions = [
+    { value: "", label: commonDict.all },
+    ...operationTypeValues.map((value) => ({ value, label: localizeOperationType(value, adminDict) })),
+  ];
+  const phaseOptions = [
+    { value: "", label: commonDict.all },
+    ...phaseValues.map((value) => ({ value, label: localizeOperationPhase(value, adminDict) })),
+  ];
+  const loadOperationLogs = useCallback((operation: NormalizedOperationItem, page: number, limit: number) => fetchOperationLogs({
+    marketCode: operation.marketCode,
+    providerId: operation.providerId,
+    operationId: operation.id,
+    page,
+    limit,
+  }), []);
+  const loadOperationOutcomes = useCallback((operation: NormalizedOperationItem, page: number, limit: number, state: string, action: string) => fetchOperationOutcomes({
+    providerId: operation.providerId,
+    operationId: operation.id,
+    page,
+    limit,
+    state,
+    action,
+  }), []);
+
+  useEffect(() => {
+    if (!query.operationId) setLocalSelectedOperationId("");
+  }, [query.operationId]);
+
+  function pushOperations(next: Partial<OperationsQuery>) {
+    const merged = { ...query, ...next };
+    const params = new URLSearchParams();
+    params.set("page", String(merged.operationsPage));
+    params.set("limit", String(merged.operationsLimit));
+    if (merged.providerId) params.set("providerId", merged.providerId);
+    if (merged.operationId) params.set("operationId", merged.operationId);
+    if (merged.operationType) params.set("operationType", merged.operationType);
+    if (merged.phase) params.set("phase", merged.phase);
+    if (merged.search.trim()) params.set("search", merged.search.trim());
+    if (merged.startDate) params.set("startDate", merged.startDate);
+    if (merged.endDate) params.set("endDate", merged.endDate);
+    if (merged.operationLogsPage !== 1) params.set("operationLogsPage", String(merged.operationLogsPage));
+    if (merged.operationLogsLimit !== 10) params.set("operationLogsLimit", String(merged.operationLogsLimit));
+    if (merged.operationOutcomesPage !== 1) params.set("operationOutcomesPage", String(merged.operationOutcomesPage));
+    if (merged.operationOutcomesLimit !== 25) params.set("operationOutcomesLimit", String(merged.operationOutcomesLimit));
+    if (merged.operationOutcomeState !== "all") params.set("operationOutcomeState", merged.operationOutcomeState);
+    if (merged.operationOutcomeAction.trim()) params.set("operationOutcomeAction", merged.operationOutcomeAction.trim());
+    router.push(`/admin/market-data/${operations.marketCode}/operations?${params.toString()}`);
+  }
+
+  function selectedMarketCode(operation: NormalizedOperationItem): Exclude<AdminMarketCode, "FX"> | null {
+    return operation.marketCode === "FX" ? null : operation.marketCode;
+  }
+
+  function operationControlLabel(action: "pause" | "resume" | "cancel"): string {
+    if (action === "pause") return adminDict.operationPause;
+    if (action === "resume") return adminDict.operationResume;
+    return adminDict.operationCancel;
+  }
+
+  async function executeSelectedOperation(operation: NormalizedOperationItem) {
+    const previewToken = operation.execution.previewToken;
+    const market = selectedMarketCode(operation);
+    if (!previewToken) {
+      setOperationMessage(adminDict.operationMissingToken);
+      return;
+    }
+    setOperationBusyAction("execute");
+    setOperationMessage(null);
+    try {
+      const typedConfirmation = operation.execution.confirmationLevel === "typed" ? operationTypedConfirmation.trim() : undefined;
+      if (operation.execution.endpointDiscriminator === "provider_operation" || operation.execution.endpointDiscriminator === "provider_fixer_execute") {
+        await executeProviderRepair({
+          providerId: operation.providerId,
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation,
+          acknowledged: true,
+        });
+      } else if (operation.execution.endpointDiscriminator === "market_backfill_execute" && market) {
+        await executeMarketBackfill(market, {
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation,
+          acknowledged: true,
+        });
+      } else if (operation.execution.endpointDiscriminator === "market_purge_execute" && market) {
+        await executeMarketPurge(market, {
+          operationId: operation.id,
+          previewToken,
+          typedConfirmation: typedConfirmation ?? "",
+        });
+      } else {
+        setOperationMessage(adminDict.operationCannotExecuteFromHistory);
+        return;
+      }
+      setOperationMessage(adminDict.operationExecutionStarted);
+      setOperationAcknowledged(false);
+      setOperationTypedConfirmation("");
+      router.refresh();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : adminDict.operationExecutionFailed);
+    } finally {
+      setOperationBusyAction(null);
+    }
+  }
+
+  async function controlSelectedOperation(operation: NormalizedOperationItem, action: "pause" | "resume" | "cancel") {
+    setOperationBusyAction(action);
+    setOperationMessage(null);
+    try {
+      await mutateProviderOperation({ providerId: operation.providerId, operationId: operation.id, action });
+      setOperationMessage(adminDict.operationControlRequested.replace("{action}", operationControlLabel(action)));
+      router.refresh();
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : adminDict.operationControlFailed.replace("{action}", operationControlLabel(action)));
+    } finally {
+      setOperationBusyAction(null);
+    }
+  }
+
+  function renderSharedOperationActions(operation: NormalizedOperationItem) {
+    const execution = operation.execution;
+    const typedRequired = execution.confirmationLevel === "typed";
+    const acknowledgementRequired = execution.confirmationLevel === "checkbox" || execution.confirmationLevel === "typed";
+    const typedSatisfied = !typedRequired || operationTypedConfirmation.trim() === (execution.confirmationText ?? "").trim();
+    const acknowledgementSatisfied = !acknowledgementRequired || operationAcknowledged;
+    const knownEndpoint = execution.endpointDiscriminator === "provider_operation"
+      || execution.endpointDiscriminator === "provider_fixer_execute"
+      || execution.endpointDiscriminator === "market_backfill_execute"
+      || execution.endpointDiscriminator === "market_purge_execute";
+    const executeDisabled =
+      operationBusyAction !== null
+      || !execution.canExecute
+      || execution.previewExpired
+      || !execution.previewToken
+      || !knownEndpoint
+      || !typedSatisfied
+      || !acknowledgementSatisfied;
+    const executeLabel = operation.operationType === "reverify_mapping"
+      || operation.operationType === "repair_mapping"
+      || operation.operationType === "resolver_repair"
+      ? adminDict.operationExecuteMapping
+      : adminDict.operationExecuteGeneric;
+    return (
+      <div className="space-y-3" data-testid="provider-console-operation-panel">
+        {operationMessage ? <p className="text-sm text-muted-foreground">{operationMessage}</p> : null}
+        {execution.canExecute ? (
+          <div className="space-y-3 rounded border border-border bg-background px-3 py-3" data-testid="provider-console-operation-execute-guardrails">
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className={cn("rounded border px-3 py-2", !execution.previewExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                {adminDict.operationTokenValid.replace("{status}", !execution.previewExpired ? adminDict.operationTokenYes : adminDict.operationTokenExpired)}
+              </div>
+              <div className={cn("rounded border px-3 py-2", execution.previewToken ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                {adminDict.operationExecutionToken.replace("{status}", execution.previewToken ? adminDict.operationTokenAvailable : adminDict.operationTokenMissing)}
+              </div>
+            </div>
+            {!knownEndpoint ? (
+              <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {adminDict.operationCannotExecuteFromHistory}
+              </p>
+            ) : null}
+            {acknowledgementRequired ? (
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={operationAcknowledged}
+                  onChange={(event) => setOperationAcknowledged(event.target.checked)}
+                  data-testid="provider-console-operation-confirm-checkbox"
+                />
+                {execution.acknowledgementLabel ?? adminDict.operationAcknowledgementFallback}
+              </label>
+            ) : null}
+            {typedRequired ? (
+              <label className="block text-sm font-medium text-foreground">
+                {adminDict.operationTypeConfirmation}
+                <input
+                  value={operationTypedConfirmation}
+                  onChange={(event) => setOperationTypedConfirmation(event.target.value)}
+                  placeholder={execution.confirmationText ?? ""}
+                  className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  data-testid="provider-console-operation-typed-confirmation"
+                />
+              </label>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={executeDisabled}
+              onClick={() => void executeSelectedOperation(operation)}
+              data-testid="provider-console-operation-execute-button"
+            >
+              {executeLabel}
+            </Button>
+          </div>
+        ) : execution.blockedReason ? (
+          <p className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{execution.blockedReason}</p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canPause || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "pause")}>{adminDict.operationPause}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canResume || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "resume")}>{adminDict.operationResume}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={!operation.controls.canCancel || operationBusyAction !== null} onClick={() => void controlSelectedOperation(operation, "cancel")}>{adminDict.operationCancel}</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <ProviderFilterLinks
+        currentProviderId={query.providerId}
+        marketCode={operations.marketCode}
+        providers={operations.providers}
+        tab="operations"
+      />
+      <AdminMarketDataOperationsShell
+        dataTestId="market-data-operations"
+        rowTestIdPrefix="market-data-operation-row-"
+        pageData={normalized}
+        title={adminDict.operationTitle}
+        description={adminDict.operationDescription}
+        selectedOperationId={localSelectedOperationId || query.operationId}
+        queryState={{
+          page: query.operationsPage,
+          limit: query.operationsLimit,
+          operationId: localSelectedOperationId || query.operationId,
+          outcomesPage: query.operationOutcomesPage,
+          outcomesLimit: query.operationOutcomesLimit,
+          outcomeState: query.operationOutcomeState,
+          outcomeAction: query.operationOutcomeAction,
+          logsPage: query.operationLogsPage,
+          logsLimit: query.operationLogsLimit,
+        }}
+        filters={{
+          providerId: query.providerId,
+          operationType: query.operationType,
+          phase: query.phase,
+          search: query.search,
+          startDate: query.startDate,
+          endDate: query.endDate,
+        }}
+        filterOptions={{
+          providers: providerOptions,
+          operationTypes: operationTypeOptions,
+          phases: phaseOptions,
+        }}
+        onApplyFilters={(next) => pushOperations({
+          operationsPage: 1,
+          providerId: next.providerId,
+          operationType: next.operationType,
+          phase: next.phase,
+          search: next.search,
+          startDate: next.startDate,
+          endDate: next.endDate,
+        })}
+        onResetFilters={() => router.push(`/admin/market-data/${operations.marketCode}/operations`)}
+        onPageChange={(page) => pushOperations({ operationsPage: page })}
+        onSelectOperationId={(operationId) => {
+          setOperationAcknowledged(false);
+          setOperationTypedConfirmation("");
+          setLocalSelectedOperationId(operationId);
+          pushOperations({ operationId, operationLogsPage: 1, operationOutcomesPage: 1 });
+        }}
+        onClearSelection={() => {
+          setOperationAcknowledged(false);
+          setOperationTypedConfirmation("");
+          setLocalSelectedOperationId("");
+          pushOperations({ operationId: "" });
+        }}
+        onUpdateQueryState={(patch) => pushOperations({
+          operationId: localSelectedOperationId || query.operationId,
+          operationLogsPage: patch.logsPage ?? query.operationLogsPage,
+          operationLogsLimit: patch.logsLimit ?? query.operationLogsLimit,
+          operationOutcomesPage: patch.outcomesPage ?? query.operationOutcomesPage,
+          operationOutcomesLimit: patch.outcomesLimit ?? query.operationOutcomesLimit,
+          operationOutcomeState: (patch.outcomeState as OperationsQuery["operationOutcomeState"] | undefined) ?? query.operationOutcomeState,
+          operationOutcomeAction: patch.outcomeAction ?? query.operationOutcomeAction,
+        })}
+        loadLogs={loadOperationLogs}
+        loadOutcomes={loadOperationOutcomes}
+        renderOperationActions={renderSharedOperationActions}
+      />
+    </div>
+  );
+}
+
+function LegacyOperationsPanel({
   operations,
   currentProviderId,
 }: {

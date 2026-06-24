@@ -23,12 +23,14 @@ import type {
   AdminMarketCalendarSourceConfigDto,
   AdminMarketDataSupportStateRequest,
   AdminMarketDataSupportStateResponse,
+  ProviderFixerDashboardLogsResponse,
   ProviderFixerDashboardOperationDto,
+  ProviderOperationOutcomesResponse,
   ProviderResolutionMappingDto,
   ProviderUnresolvedItemDto,
   ProviderUnresolvedItemState,
 } from "@vakwen/shared-types";
-import { getJson, patchJson, postJson } from "./api";
+import { ApiError, getJson, patchJson, postJson } from "./api";
 import type {
   AdminMarketDataActivityResponse,
   AdminMarketDataActivityQuery,
@@ -277,6 +279,60 @@ export function updateMarketInstrumentDelistingOverride(input: {
   return postJson(
     `/admin/market-data/${encodeURIComponent(input.marketCode)}/instruments/delisting-override`,
     body,
+  );
+}
+
+export async function fetchOperationLogs(input: {
+  marketCode: AdminMarketCode;
+  providerId: string;
+  operationId: string;
+  page: number;
+  limit: number;
+}): Promise<AdminMarketDataOperationLogsResponse> {
+  const marketUrl = `/admin/market-data/${encodeURIComponent(input.marketCode)}/operations/${encodeURIComponent(input.operationId)}/logs?page=${input.page}&limit=${input.limit}`;
+  try {
+    return await getJson<AdminMarketDataOperationLogsResponse>(marketUrl);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+  }
+
+  const fallback = await getJson<ProviderFixerDashboardLogsResponse>(
+    `/admin/providers/${encodeURIComponent(input.providerId)}/logs?operationId=${encodeURIComponent(input.operationId)}&page=${input.page}&limit=${input.limit}`,
+  );
+  return {
+    marketCode: input.marketCode,
+    operationId: input.operationId,
+    items: fallback.items.map((item) => ({
+      id: item.id,
+      occurredAt: item.occurredAt,
+      level: "info",
+      phase: item.phase,
+      message: item.message,
+      detail: null,
+      context: null,
+      operationId: item.operationId ?? input.operationId,
+    })),
+    total: fallback.total,
+    page: fallback.page,
+    limit: fallback.limit,
+  };
+}
+
+export function fetchOperationOutcomes(input: {
+  providerId: string;
+  operationId: string;
+  page: number;
+  limit: number;
+  state?: string;
+  action?: string;
+}): Promise<ProviderOperationOutcomesResponse> {
+  const params = new URLSearchParams();
+  params.set("page", String(input.page));
+  params.set("limit", String(input.limit));
+  if (input.state && input.state !== "all") params.set("state", input.state);
+  if (input.action?.trim()) params.set("action", input.action.trim());
+  return getJson(
+    `/admin/providers/${encodeURIComponent(input.providerId)}/operations/${encodeURIComponent(input.operationId)}/outcomes?${params.toString()}`,
   );
 }
 

@@ -169,8 +169,8 @@ export function AdminMarketDataOperationsShell({
   const selectedOperation = useMemo(() => {
     const activeOperationId = typeof selectedOperationId === "string" ? selectedOperationId : "";
     if (activeOperationId.trim().length === 0) return null;
-    return pageData.selectedOperation
-      ?? pageData.items.find((item) => item.id === activeOperationId)
+    return pageData.items.find((item) => item.id === activeOperationId)
+      ?? (pageData.selectedOperation?.id === activeOperationId ? pageData.selectedOperation : null)
       ?? null;
   }, [pageData.items, pageData.selectedOperation, selectedOperationId]);
   const selectedOutsidePage = selectedOperation !== null && !pageData.items.some((item) => item.id === selectedOperation.id);

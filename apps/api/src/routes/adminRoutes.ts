@@ -6337,6 +6337,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       if (marketCode === "KR") {
         throw routeError(400, "market_unresolved_retry_not_supported", "KR unresolved rows must use mapping repair, not generic backfill retry");
       }
+      const defaultBackfillProviderId = MARKET_DATA_WORKSPACES[marketCode].defaultBackfillProviderId;
+      if (!defaultBackfillProviderId || providerId !== defaultBackfillProviderId) {
+        throw routeError(
+          400,
+          "market_unresolved_retry_provider_not_supported",
+          "Unresolved retry is only supported for the market backfill provider; use provider-specific repair for catalog or enrichment providers.",
+        );
+      }
       const selectedRows = body.selectedUnresolvedRows ?? [];
       if (selectedRows.length === 0) {
         throw routeError(400, "market_unresolved_rows_required", "selectedUnresolvedRows is required for unresolved retry previews");
@@ -6345,6 +6353,14 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         marketCode,
         scope: { type: "selected_items", items: selectedRows },
       });
+      const unsupportedProviderRows = matchingRows.filter((row) => row.state === "active" && row.providerId !== providerId);
+      if (unsupportedProviderRows.length > 0) {
+        throw routeError(
+          400,
+          "market_unresolved_retry_provider_not_supported",
+          "Selected unresolved rows include provider-owned catalog or enrichment issues that cannot be retried through market backfill.",
+        );
+      }
       const activeRows = matchingRows.filter((row) => row.state === "active" && row.providerId === providerId);
       const dedupedTargets = uniqueMarketDataTargets(activeRows.map((row) => ({
         ticker: row.sourceSymbol,
