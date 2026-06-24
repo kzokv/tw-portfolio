@@ -6,6 +6,7 @@ import type {
   AdminMarketDataUnresolvedResponse as SharedAdminMarketDataUnresolvedResponse,
   AdminMarketWorkspaceTab,
   ProviderFixerDashboardOperationPhase,
+  ProviderOperationOutcomeDto,
   ProviderUnresolvedItemState,
   ProviderUnresolvedListState,
 } from "@vakwen/shared-types";
@@ -57,6 +58,7 @@ export interface AdminMarketDataUnresolvedItemDto {
   evidence?: unknown;
   latestEvidence?: string | null;
   latestError?: string | null;
+  latestOperationOutcome?: ProviderOperationOutcomeDto | null;
   actions?: Array<"retry_via_backfill" | "ignore" | "unsupported" | "reopen">;
 }
 
