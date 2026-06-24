@@ -431,4 +431,47 @@ describe("YahooFinanceKrMarketDataProvider — real provider against mocked yaho
     const provider = await makeProvider(2);
     expect(() => provider.reserveCapacity(1)).toThrow(RateLimitedError);
   });
+
+  it("waits for the configured minimum request interval between Yahoo KR requests", async () => {
+    vi.useFakeTimers();
+    activeSdkStub!.quote.mockResolvedValue({
+      symbol: "005930.KS",
+      currency: "KRW",
+      exchange: "KSC",
+      shortName: "Samsung Electronics",
+      quoteType: "EQUITY",
+    });
+
+    const provider = await makeProvider(60, { minRequestIntervalMs: 1_000 });
+    await provider.verifyResolvedSymbol("005930", "005930.KS", { resolverMode: "quote_first" });
+
+    const secondVerification = provider.verifyResolvedSymbol("005930", "005930.KS", { resolverMode: "quote_first" });
+    await Promise.resolve();
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await secondVerification;
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("does not delay Yahoo KR requests when the minimum request interval is zero", async () => {
+    vi.useFakeTimers();
+    activeSdkStub!.quote.mockResolvedValue({
+      symbol: "005930.KS",
+      currency: "KRW",
+      exchange: "KSC",
+      shortName: "Samsung Electronics",
+      quoteType: "EQUITY",
+    });
+
+    const provider = await makeProvider(60, { minRequestIntervalMs: 0 });
+    await provider.verifyResolvedSymbol("005930", "005930.KS", { resolverMode: "quote_first" });
+    await provider.verifyResolvedSymbol("005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
 });

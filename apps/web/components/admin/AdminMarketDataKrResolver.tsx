@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AdminMarketCode,
   AdminMarketDataActionDto,
+  AdminMarketDataOperationsResponse,
   ProviderFixerDashboardOperationDto,
   ProviderFixerDashboardOperationsResponse,
   ProviderOperationOutcomesResponse,
@@ -20,7 +21,11 @@ import { Drawer } from "../ui/Drawer";
 import { cn } from "../../lib/utils";
 import {
   bulkUpdateProviderUnresolvedState,
+  executeMarketBackfill,
+  executeMarketPurge,
   executeProviderRepair,
+  fetchOperationLogs,
+  fetchOperationOutcomes,
   mutateProviderOperation,
   previewProviderRepair,
   renewProviderEvidence,
@@ -30,9 +35,17 @@ import {
   reverifyProviderMapping,
   updateProviderUnresolvedState,
 } from "../../lib/adminMarketDataService";
+import {
+  localizeOperationPhase,
+  localizeOperationType,
+  normalizeOperationPageResponse,
+  type NormalizedOperationItem,
+} from "../../lib/adminMarketDataOperations";
 import { AdminMarketDataResponsiveTable, type AdminMarketDataResponsiveColumn } from "./AdminMarketDataResponsiveTable";
+import { AdminMarketDataOperationsShell } from "./AdminMarketDataOperationsShell";
 import { formatUtcTimestamp } from "./adminFormat";
 import { useAdminI18n } from "./admin-i18n";
+import type { AdminMarketDataUnresolvedResponse } from "../../lib/adminMarketDataContracts";
 
 export interface KrMappingsData {
   unresolved: ProviderUnresolvedItemsResponse;
@@ -51,18 +64,32 @@ export interface KrMappingsData {
 }
 
 export interface KrOperationsData {
-  operations: ProviderFixerDashboardOperationsResponse;
+  operations: AdminMarketDataOperationsResponse | ProviderFixerDashboardOperationsResponse;
   explicitOperationId: string;
   selectedOperationId: string;
-  outcomes: ProviderOperationOutcomesResponse;
+  outcomes?: ProviderOperationOutcomesResponse | null;
   query: {
     operationsPage: number;
     operationsLimit: number;
+    operationId?: string;
+    providerId?: string;
+    operationType?: string;
+    phase?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    operationLogsPage?: number;
+    operationLogsLimit?: number;
     operationOutcomesPage: number;
     operationOutcomesLimit: number;
     operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
     operationOutcomeAction: string;
   };
+}
+
+interface LegacyKrOperationsData extends Omit<KrOperationsData, "operations" | "outcomes"> {
+  operations: ProviderFixerDashboardOperationsResponse;
+  outcomes: ProviderOperationOutcomesResponse;
 }
 
 const phaseTone: Record<ProviderFixerDashboardOperationDto["phase"], string> = {
@@ -85,8 +112,34 @@ function formatTimestamp(value: string | null): string {
   return formatUtcTimestamp(value);
 }
 
+function formatCopy(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce((next, [key, value]) => next.replaceAll(`{${key}}`, String(value)), template);
+}
+
 function unresolvedItemKey(item: Pick<ProviderUnresolvedItemDto, "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
   return `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
+}
+
+function compactLabel(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function latestRepairOutcomeLabel(item: ProviderUnresolvedItemDto): string | null {
+  const outcome = item.latestOperationOutcome;
+  if (!outcome) return null;
+  const evidence = outcome.evidence;
+  const attempts = evidence && Array.isArray(evidence.attemptedCandidates) ? evidence.attemptedCandidates : [];
+  const attemptText = attempts.flatMap((attempt) => {
+    if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) return [];
+    const record = attempt as Record<string, unknown>;
+    const symbol = typeof record.symbol === "string" ? record.symbol : null;
+    const status = typeof record.status === "string" ? record.status : null;
+    const reason = typeof record.reason === "string" ? record.reason : null;
+    if (!symbol || !status) return [];
+    return `${symbol} ${compactLabel(status)}${reason ? ` (${reason})` : ""}`;
+  }).join("; ");
+  const summary = `${compactLabel(outcome.state)}: ${outcome.message ?? outcome.errorCode ?? outcome.action}`;
+  return attemptText ? `${summary} · ${attemptText}` : summary;
 }
 
 function mappingLinkedOperation(evidence: Record<string, unknown> | null): string | null {
@@ -200,22 +253,36 @@ function krMappingsPath(query: Partial<KrMappingsData["query"]>): string {
   if (merged.mappingsLimit !== 25) params.set("mappingsLimit", String(merged.mappingsLimit));
   if (merged.mappingsSearch.trim()) params.set("mappingsSearch", merged.mappingsSearch.trim());
   const queryString = params.toString();
-  return `/admin/market-data/KR/mappings${queryString ? `?${queryString}` : ""}`;
+  return `/admin/market-data/KR/unresolved${queryString ? `?${queryString}` : ""}`;
 }
 
 function krOperationsPath(query: Partial<KrOperationsData["query"]> & { operationId?: string; providerId?: string }): string {
   const params = new URLSearchParams();
-  const providerId = query.providerId ?? yahooKrProviderId;
-  if (providerId !== yahooKrProviderId) params.set("providerId", providerId);
-  if (query.operationId) params.set("operationId", query.operationId);
+  const providerId = query.providerId?.trim() || "";
   const operationsPage = query.operationsPage ?? 1;
   const operationsLimit = query.operationsLimit ?? 25;
+  const operationType = query.operationType ?? "";
+  const phase = query.phase ?? "";
+  const search = query.search ?? "";
+  const startDate = query.startDate ?? "";
+  const endDate = query.endDate ?? "";
+  const operationLogsPage = query.operationLogsPage ?? 1;
+  const operationLogsLimit = query.operationLogsLimit ?? 10;
   const operationOutcomesPage = query.operationOutcomesPage ?? 1;
   const operationOutcomesLimit = query.operationOutcomesLimit ?? 25;
   const operationOutcomeState = query.operationOutcomeState ?? "all";
   const operationOutcomeAction = query.operationOutcomeAction ?? "";
-  if (operationsPage !== 1) params.set("operationsPage", String(operationsPage));
-  if (operationsLimit !== 25) params.set("operationsLimit", String(operationsLimit));
+  params.set("page", String(operationsPage));
+  params.set("limit", String(operationsLimit));
+  if (providerId) params.set("providerId", providerId);
+  if (query.operationId) params.set("operationId", query.operationId);
+  if (operationType) params.set("operationType", operationType);
+  if (phase) params.set("phase", phase);
+  if (search.trim()) params.set("search", search.trim());
+  if (startDate) params.set("startDate", startDate);
+  if (endDate) params.set("endDate", endDate);
+  if (operationLogsPage !== 1) params.set("operationLogsPage", String(operationLogsPage));
+  if (operationLogsLimit !== 10) params.set("operationLogsLimit", String(operationLogsLimit));
   if (operationOutcomesPage !== 1) params.set("operationOutcomesPage", String(operationOutcomesPage));
   if (operationOutcomesLimit !== 25) params.set("operationOutcomesLimit", String(operationOutcomesLimit));
   if (operationOutcomeState !== "all") params.set("operationOutcomeState", operationOutcomeState);
@@ -233,20 +300,22 @@ export function MappingsPanel({
   marketCode,
   actions,
   krMappings,
+  unresolved = null,
 }: {
   marketCode: AdminMarketCode;
   actions: AdminMarketDataActionDto[];
   krMappings: KrMappingsData | null;
+  unresolved?: AdminMarketDataUnresolvedResponse | null;
 }) {
   if (marketCode !== "KR" || !krMappings) {
     return (
       <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
-        <h2 className="text-base font-semibold text-foreground">Provider mappings</h2>
+        <h2 className="text-base font-semibold text-foreground">Unresolved</h2>
         <p className="mt-2 text-sm text-muted-foreground">Mappings are not available for this market.</p>
       </Card>
     );
   }
-  return <KrMappingsPanel actions={actions} data={krMappings} />;
+  return <KrMappingsPanel actions={actions} data={krMappings} unresolved={unresolved} />;
 }
 
 type KrRepairScope =
@@ -309,11 +378,14 @@ function krPreviewMatchesScope(operation: ProviderFixerDashboardOperationDto | n
 function KrMappingsPanel({
   actions,
   data,
+  unresolved,
 }: {
   actions: AdminMarketDataActionDto[];
   data: KrMappingsData;
+  unresolved: AdminMarketDataUnresolvedResponse | null;
 }) {
   const router = useRouter();
+  const adminDict = useAdminI18n().marketData;
   const mappingAction = actions.find((action) => action.action === "repair_mapping");
   const resolverMode = data.query.resolverMode;
   const [unresolvedSearch, setUnresolvedSearch] = useState(data.query.unresolvedSearch);
@@ -588,13 +660,18 @@ function KrMappingsPanel({
       <Card className="px-5 py-4 hover:translate-y-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">KR mapping repair</h2>
+            <h2 className="text-base font-semibold text-foreground">{adminDict.krMappingRepairTitle}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Repair persists verified Yahoo Finance KR mappings only. Backfill after mapping is a separate explicit action.
+              {adminDict.krMappingRepairDescription}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Twelve Data KR remains the catalog/evidence source; Yahoo Finance KR owns durable mappings, bars, and dividends.
+              {adminDict.krMappingRepairOwnership}
             </p>
+            {unresolved ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {unresolved.activeUnresolvedRowCount.toLocaleString()} active rows across {unresolved.affectedInstrumentCount.toLocaleString()} affected instruments.
+              </p>
+            ) : null}
           </div>
           <div className="min-w-0 rounded border border-border bg-muted/30 p-3 text-sm">
             <p className="font-medium text-foreground">Resolver mode</p>
@@ -895,7 +972,8 @@ function KrMappingsPanel({
                     </td>
                     <td className="px-5 py-4 text-muted-foreground">{item.state}</td>
                     <td className="px-5 py-4 text-muted-foreground">
-                      {item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}
+                      <p>{item.occurrenceCount.toLocaleString()} occurrences; last seen {formatTimestamp(item.lastSeenAt)}</p>
+                      {latestRepairOutcomeLabel(item) ? <p className="mt-1 text-xs">{latestRepairOutcomeLabel(item)}</p> : null}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap justify-end gap-2">
@@ -1046,6 +1124,370 @@ function KrMappingsPanel({
 }
 
 export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchParamSnapshot = searchParams.toString();
+  const adminI18n = useAdminI18n();
+  const adminDict = adminI18n.marketData;
+  const providers = "providers" in data.operations && Array.isArray(data.operations.providers) && data.operations.providers.length > 0
+    ? data.operations.providers
+    : [{ providerId: yahooKrProviderId, label: "Yahoo Finance KR", role: "mapping_owner" }];
+  const normalized = normalizeOperationPageResponse(data.operations, "KR", providers);
+  const routeOperationId = useMemo(
+    () => browserKrOperationId(data.explicitOperationId),
+    [data.explicitOperationId, searchParamSnapshot],
+  );
+  const [localSelectedOperationId, setLocalSelectedOperationId] = useState<string | null | undefined>(undefined);
+  const selectedOperationId = localSelectedOperationId === undefined ? routeOperationId : localSelectedOperationId ?? "";
+  const selectedOperation = selectedOperationId
+    ? normalized.items.find((operation) => operation.id === selectedOperationId)
+      ?? (normalized.selectedOperation?.id === selectedOperationId ? normalized.selectedOperation : null)
+      ?? null
+    : null;
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [typedConfirmation, setTypedConfirmation] = useState("");
+
+  useEffect(() => {
+    setLocalSelectedOperationId(undefined);
+  }, [routeOperationId]);
+
+  useEffect(() => {
+    setAcknowledged(false);
+    setTypedConfirmation("");
+  }, [selectedOperation?.id]);
+
+  function pushOperations(next: Partial<KrOperationsData["query"]> & { operationId?: string; providerId?: string }) {
+    router.push(krOperationsPath({
+      ...data.query,
+      operationId: selectedOperationId || undefined,
+      ...next,
+    }));
+  }
+
+  function selectOperation(operationId: string) {
+    const operation = normalized.items.find((item) => item.id === operationId);
+    if (!operation) return;
+    setLocalSelectedOperationId(operation.id);
+    router.push(krOperationsPath({
+      ...data.query,
+      operationId: operation.id,
+      operationOutcomesPage: 1,
+    }));
+  }
+
+  function clearSelectedOperation() {
+    setLocalSelectedOperationId(null);
+    router.push(krOperationsPath({
+      ...data.query,
+      operationId: undefined,
+      operationOutcomesPage: 1,
+    }));
+  }
+
+  async function runOperationAction<T>(label: string, task: () => Promise<T>, success: (result: T) => string) {
+    setBusyAction(label);
+    setMessage(null);
+    try {
+      const result = await task();
+      setMessage(success(result));
+      router.refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : `${label} failed`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function controlOperation(operation: NormalizedOperationItem, action: "pause" | "resume" | "cancel") {
+    const actionLabel = action === "pause"
+      ? adminDict.operationPause
+      : action === "resume"
+        ? adminDict.operationResume
+        : adminDict.operationCancel;
+    await runOperationAction(
+      `${action}-${operation.id}`,
+      () => mutateProviderOperation({ providerId: operation.providerId, operationId: operation.id, action }),
+      (result) => formatCopy(adminDict.operationControlRequested, { action: actionLabel, operationId: result.operation.id }),
+    );
+  }
+
+  async function executeOperation() {
+    const operation = selectedOperation;
+    const previewToken = operation?.legacy?.preview.token ?? operation?.execution.previewToken;
+    if (!operation) return;
+    if (!previewToken) {
+      setMessage(adminDict.operationMissingToken);
+      return;
+    }
+    const typedConfirmationValue = typedConfirmation.trim();
+    const market = operation.marketCode === "FX" ? null : operation.marketCode;
+    await runOperationAction(
+      `execute-${operation.id}`,
+      async () => {
+        if (
+          operation.execution.endpointDiscriminator === "provider_operation"
+          || operation.execution.endpointDiscriminator === "provider_fixer_execute"
+        ) {
+          const result = await executeProviderRepair({
+            providerId: operation.providerId,
+            operationId: operation.id,
+            previewToken,
+            acknowledged,
+            typedConfirmation: typedConfirmationValue,
+          });
+          return { operationId: result.operation.id, message: formatCopy(adminDict.operationRepairStarted, { operationId: result.operation.id }) };
+        }
+        if (operation.execution.endpointDiscriminator === "market_backfill_execute" && market) {
+          await executeMarketBackfill(market, {
+            operationId: operation.id,
+            previewToken,
+            acknowledged,
+            typedConfirmation: typedConfirmationValue,
+          });
+          return { operationId: operation.id, message: adminDict.operationExecutionStarted };
+        }
+        if (operation.execution.endpointDiscriminator === "market_purge_execute" && market) {
+          await executeMarketPurge(market, {
+            operationId: operation.id,
+            previewToken,
+            typedConfirmation: typedConfirmationValue,
+          });
+          return { operationId: operation.id, message: adminDict.operationExecutionStarted };
+        }
+        throw new Error(adminDict.operationCannotExecuteFromHistory);
+      },
+      (result) => result.message,
+    );
+  }
+
+  const selectedPreviewExpired = selectedOperation?.legacy
+    ? previewExpired(selectedOperation.legacy)
+    : selectedOperation?.execution.previewExpired ?? false;
+  const selectedHasFrozenScope = selectedOperation?.legacy?.preview.frozenScope
+    ?? (!!selectedOperation?.execution.canExecute && !!selectedOperation.execution.previewToken);
+  const selectedConfirmationText = selectedOperation?.legacy?.preview.confirmationText
+    ?? selectedOperation?.execution.confirmationText
+    ?? null;
+  const typedConfirmationRequired =
+    (!!selectedOperation?.legacy?.dangerous && !!selectedConfirmationText)
+    || selectedOperation?.execution.confirmationLevel === "typed";
+  const executeDisabled =
+    !selectedOperation
+    || busyAction !== null
+    || !selectedOperation.execution.canExecute
+    || selectedPreviewExpired
+    || !selectedHasFrozenScope
+    || !acknowledged
+    || (typedConfirmationRequired && typedConfirmation.trim() !== selectedConfirmationText);
+
+  const availableOperationTypes = "availableFilters" in data.operations
+    ? data.operations.availableFilters?.operationTypes
+    : undefined;
+  const availablePhases = "availableFilters" in data.operations
+    ? data.operations.availableFilters?.phases
+    : undefined;
+  const operationTypeValues = Array.from(new Set([
+    ...(availableOperationTypes ?? normalized.items.map((item) => item.operationType)),
+    ...(data.query.operationType ? [data.query.operationType] : []),
+  ])).filter((value) => value.trim().length > 0);
+  const phaseValues = Array.from(new Set([
+    ...(availablePhases ?? normalized.items.map((item) => item.phase)),
+    ...(data.query.phase ? [data.query.phase] : []),
+  ])).filter((value) => value.trim().length > 0);
+  const operationTypeOptions = [
+    { value: "", label: adminI18n.common.all },
+    ...operationTypeValues.map((value) => ({
+      value,
+      label: localizeOperationType(value, adminDict),
+    })),
+  ];
+  const phaseOptions = [
+    { value: "", label: adminI18n.common.all },
+    ...phaseValues.map((value) => ({
+      value,
+      label: localizeOperationPhase(value, adminDict),
+    })),
+  ];
+
+  return (
+    <div className="min-w-0 space-y-5" data-testid="market-data-kr-operations">
+      <Card className="px-5 py-4 hover:translate-y-0">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{adminDict.krOperationsTitle}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {adminDict.krOperationsDescription}
+            </p>
+          </div>
+          <Link
+            className="rounded border border-border px-3 py-2 text-sm font-medium"
+            href={`/admin/market-data/KR/activity?source=yahoo_chart&category=provider_operation${selectedOperation ? `&search=${encodeURIComponent(selectedOperation.id)}` : ""}`}
+            data-testid="provider-console-operation-open-activity"
+          >
+            {adminDict.openActivity}
+          </Link>
+        </div>
+        {message ? <p className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
+      </Card>
+
+      <AdminMarketDataOperationsShell
+        dataTestId="provider-console-operations"
+        rowTestIdPrefix="provider-console-operation-select-"
+        pageData={normalized}
+        title={adminDict.operationHistory}
+        description={adminDict.krOperationHistoryDescription}
+        selectedOperationId={selectedOperationId ?? ""}
+        queryState={{
+          page: data.query.operationsPage,
+          limit: data.query.operationsLimit,
+          operationId: selectedOperationId ?? "",
+          outcomesPage: data.query.operationOutcomesPage,
+          outcomesLimit: data.query.operationOutcomesLimit,
+          outcomeState: data.query.operationOutcomeState,
+          outcomeAction: data.query.operationOutcomeAction,
+          logsPage: data.query.operationLogsPage ?? 1,
+          logsLimit: data.query.operationLogsLimit ?? 25,
+        }}
+        filters={{
+          providerId: data.query.providerId ?? "",
+          operationType: data.query.operationType ?? "",
+          phase: data.query.phase ?? "",
+          search: data.query.search ?? "",
+          startDate: data.query.startDate ?? "",
+          endDate: data.query.endDate ?? "",
+        }}
+        filterOptions={{
+          providers: [
+            { value: "", label: adminDict.allProviders },
+            ...normalized.providers.map((provider) => ({ value: provider.providerId, label: provider.label })),
+          ],
+          operationTypes: operationTypeOptions,
+          phases: phaseOptions,
+        }}
+        onApplyFilters={(next) => pushOperations({ ...next, operationsPage: 1 })}
+        onResetFilters={() => router.push("/admin/market-data/KR/operations")}
+        onPageChange={(page) => pushOperations({ operationsPage: page })}
+        onSelectOperationId={selectOperation}
+        onClearSelection={clearSelectedOperation}
+        onUpdateQueryState={(patch) => pushOperations({
+          operationLogsPage: patch.logsPage ?? data.query.operationLogsPage,
+          operationLogsLimit: patch.logsLimit ?? data.query.operationLogsLimit,
+          operationOutcomesPage: patch.outcomesPage ?? data.query.operationOutcomesPage,
+          operationOutcomesLimit: patch.outcomesLimit ?? data.query.operationOutcomesLimit,
+          operationOutcomeState: (patch.outcomeState as KrOperationsData["query"]["operationOutcomeState"] | undefined) ?? data.query.operationOutcomeState,
+          operationOutcomeAction: patch.outcomeAction ?? data.query.operationOutcomeAction,
+        })}
+        loadLogs={(operation, page, limit) => fetchOperationLogs({
+          marketCode: operation.marketCode,
+          providerId: operation.providerId,
+          operationId: operation.id,
+          page,
+          limit,
+        })}
+        loadOutcomes={(operation, page, limit, state, action) => fetchOperationOutcomes({
+          providerId: operation.providerId,
+          operationId: operation.id,
+          page,
+          limit,
+          state,
+          action,
+        })}
+        renderOperationActions={(operation) => {
+          const legacyOperation = operation.legacy;
+          const executableEndpoint =
+            operation.execution.endpointDiscriminator === "provider_operation"
+            || operation.execution.endpointDiscriminator === "provider_fixer_execute"
+            || operation.execution.endpointDiscriminator === "market_backfill_execute"
+            || operation.execution.endpointDiscriminator === "market_purge_execute";
+          const hasControls = operation.controls.canPause || operation.controls.canResume || operation.controls.canCancel;
+          if (!legacyOperation && !executableEndpoint && !hasControls) return null;
+          const operationHasFrozenScope = legacyOperation?.preview.frozenScope
+            ?? (!!operation.execution.canExecute && !!operation.execution.previewToken);
+          const executeActionLabel = operation.sourceSymbol ? adminDict.operationExecuteMapping : adminDict.operationExecuteGeneric;
+          return (
+            <div className="space-y-3" data-testid="provider-console-operation-panel">
+              {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+              {operation.execution.canExecute && executableEndpoint ? (
+                <div className="space-y-3 rounded border border-border bg-background px-3 py-3" data-testid="provider-console-operation-execute-guardrails">
+                  <div className="grid gap-2 text-sm sm:grid-cols-2">
+                    <div className={cn("rounded border px-3 py-2", !selectedPreviewExpired ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                      {formatCopy(adminDict.operationTokenValid, { status: !selectedPreviewExpired ? adminDict.operationTokenYes : adminDict.operationTokenExpired })}
+                    </div>
+                    <div className={cn("rounded border px-3 py-2", operationHasFrozenScope ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800")}>
+                      {formatCopy(adminDict.operationFrozenScope, { status: operationHasFrozenScope ? adminDict.operationTokenAvailable : adminDict.operationTokenMissing })}
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={acknowledged}
+                      onChange={(event) => setAcknowledged(event.target.checked)}
+                      data-testid="provider-console-operation-confirm-checkbox"
+                    />
+                    {adminDict.krOperationAcknowledgement}
+                  </label>
+                  {typedConfirmationRequired ? (
+                    <label className="block text-sm font-medium text-foreground">
+                      {adminDict.operationTypeConfirmation}
+                      <input
+                        value={typedConfirmation}
+                        onChange={(event) => setTypedConfirmation(event.target.value)}
+                        placeholder={selectedConfirmationText ?? ""}
+                        className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                        data-testid="provider-console-operation-typed-confirmation"
+                      />
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={executeDisabled}
+                    onClick={() => void executeOperation()}
+                    className="rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50"
+                    data-testid="provider-console-operation-execute-button"
+                  >
+                    {executeActionLabel}
+                  </button>
+                </div>
+              ) : null}
+              {hasControls ? (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={!operation.controls.canPause || busyAction !== null} onClick={() => void controlOperation(operation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationPause}</button>
+                  <button type="button" disabled={!operation.controls.canResume || busyAction !== null} onClick={() => void controlOperation(operation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationResume}</button>
+                  <button type="button" disabled={!operation.controls.canCancel || busyAction !== null} onClick={() => void controlOperation(operation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">{adminDict.operationCancel}</button>
+                </div>
+              ) : null}
+            </div>
+          );
+        }}
+        renderExtraInspectorSections={(operation: NormalizedOperationItem) => (
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-foreground">{adminDict.krMappingDetails}</h3>
+            <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
+              <dl className="space-y-2">
+                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
+                  <dt className="text-xs text-muted-foreground">{adminDict.sourceSymbol}</dt>
+                  <dd className="break-words text-foreground">{operation.sourceSymbol ?? "—"}</dd>
+                </div>
+                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
+                  <dt className="text-xs text-muted-foreground">{adminDict.resolvedSymbol}</dt>
+                  <dd className="break-words text-foreground">{operation.resolvedSymbol ?? "—"}</dd>
+                </div>
+                <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3">
+                  <dt className="text-xs text-muted-foreground">{adminDict.resolverMode}</dt>
+                  <dd className="break-words text-foreground">{operation.resolverMode ?? "—"}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+        )}
+      />
+    </div>
+  );
+}
+
+export function LegacyKrOperationsPanel({ data }: { data: LegacyKrOperationsData }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchParamSnapshot = searchParams.toString();

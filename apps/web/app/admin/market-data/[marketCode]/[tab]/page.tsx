@@ -5,8 +5,7 @@ import type {
   AdminMarketDataInstrumentsResponse,
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
-  ProviderFixerDashboardOperationsResponse,
-  ProviderOperationOutcomesResponse,
+  AdminMarketDataUnresolvedResponse as SharedAdminMarketDataUnresolvedResponse,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemsResponse,
 } from "@vakwen/shared-types";
@@ -17,6 +16,8 @@ import type {
   AdminMarketDataActivityResponse,
   AdminMarketDataCalendarResponse,
   AdminMarketDataOverviewUiResponse,
+  AdminMarketDataUnresolvedQuery,
+  AdminMarketDataUnresolvedResponse as AdminMarketDataUnresolvedUiResponse,
   AdminMarketWorkspaceUiTab,
 } from "../../../../../lib/adminMarketDataContracts";
 
@@ -48,9 +49,20 @@ interface KrMappingQuery {
   mappingsSearch: string;
 }
 
+type UnresolvedQuery = AdminMarketDataUnresolvedQuery;
+
 interface KrOperationsQuery {
   operationsPage: number;
   operationsLimit: number;
+  operationId: string;
+  providerId: string;
+  operationType: string;
+  phase: string;
+  search: string;
+  startDate: string;
+  endDate: string;
+  operationLogsPage: number;
+  operationLogsLimit: number;
   operationOutcomesPage: number;
   operationOutcomesLimit: number;
   operationOutcomeState: "pending" | "running" | "succeeded" | "failed" | "skipped" | "rate_limited" | "cancelled" | "all";
@@ -76,6 +88,7 @@ const tabs = new Set([
   "purge",
   "operations",
   "activity",
+  "unresolved",
   "refresh-rates",
 ]);
 
@@ -123,7 +136,7 @@ function unresolvedStateQueryValue(value: string | string[] | undefined): KrMapp
   return state === "resolved" || state === "unsupported" || state === "ignored" || state === "all" ? state : "active";
 }
 
-function unresolvedSortQueryValue(value: string | string[] | undefined): KrMappingQuery["unresolvedSort"] {
+function krMappingUnresolvedSortQueryValue(value: string | string[] | undefined): KrMappingQuery["unresolvedSort"] {
   const sort = firstOptionalQueryValue(value);
   return sort === "updated_desc" || sort === "source_symbol_asc" || sort === "occurrence_count_desc"
     ? sort
@@ -135,6 +148,27 @@ function resolverModeQueryValue(value: string | string[] | undefined): KrMapping
   return mode === "chart_probe_v1" ? mode : "quote_first";
 }
 
+function unresolvedTableSortQueryValue(value: string | string[] | undefined): UnresolvedQuery["sort"] {
+  const sort = firstOptionalQueryValue(value);
+  return sort === "updated_desc"
+    || sort === "occurrence_count_desc"
+    || sort === "source_symbol_asc"
+    ? sort
+    : "last_seen_desc";
+}
+
+function unresolvedQueryFromSearchParams(query: Record<string, string | string[] | undefined>): UnresolvedQuery {
+  return {
+    page: positiveIntQueryValue(query.page, 1),
+    limit: positiveIntQueryValue(query.limit, 25),
+    providerId: firstOptionalQueryValue(query.providerId) ?? "",
+    state: unresolvedStateQueryValue(query.state ?? query.unresolvedState),
+    errorCode: firstOptionalQueryValue(query.errorCode) ?? "",
+    search: firstOptionalQueryValue(query.search ?? query.unresolvedSearch) ?? "",
+    sort: unresolvedTableSortQueryValue(query.sort ?? query.unresolvedSort),
+  };
+}
+
 function krMappingQueryFromSearchParams(query: Record<string, string | string[] | undefined>): KrMappingQuery {
   return {
     resolverMode: resolverModeQueryValue(query.resolverMode),
@@ -142,7 +176,7 @@ function krMappingQueryFromSearchParams(query: Record<string, string | string[] 
     unresolvedLimit: positiveIntQueryValue(query.unresolvedLimit, 25),
     unresolvedState: unresolvedStateQueryValue(query.unresolvedState),
     unresolvedSearch: firstOptionalQueryValue(query.unresolvedSearch) ?? "",
-    unresolvedSort: unresolvedSortQueryValue(query.unresolvedSort),
+    unresolvedSort: krMappingUnresolvedSortQueryValue(query.unresolvedSort),
     mappingsPage: positiveIntQueryValue(query.mappingsPage, 1),
     mappingsLimit: positiveIntQueryValue(query.mappingsLimit, 25),
     mappingsSearch: firstOptionalQueryValue(query.mappingsSearch) ?? "",
@@ -166,6 +200,15 @@ function krOperationsQueryFromSearchParams(query: Record<string, string | string
   return {
     operationsPage: positiveIntQueryValue(query.operationsPage ?? query.page, 1),
     operationsLimit: positiveIntQueryValue(query.operationsLimit ?? query.limit, 25),
+    operationId: firstOptionalQueryValue(query.operationId) ?? "",
+    providerId: firstOptionalQueryValue(query.providerId) ?? "",
+    operationType: firstOptionalQueryValue(query.operationType) ?? "",
+    phase: firstOptionalQueryValue(query.phase) ?? "",
+    search: firstOptionalQueryValue(query.search) ?? "",
+    startDate: firstOptionalQueryValue(query.startDate) ?? "",
+    endDate: firstOptionalQueryValue(query.endDate) ?? "",
+    operationLogsPage: positiveIntQueryValue(query.operationLogsPage, 1),
+    operationLogsLimit: positiveIntQueryValue(query.operationLogsLimit, 10),
     operationOutcomesPage: positiveIntQueryValue(query.operationOutcomesPage, 1),
     operationOutcomesLimit: positiveIntQueryValue(query.operationOutcomesLimit, 25),
     operationOutcomeState: operationOutcomeStateQueryValue(query.operationOutcomeState),
@@ -185,6 +228,20 @@ function instrumentQueryString(filters: InstrumentQuery): string {
   if (filters.search.trim()) {
     params.set("search", filters.search.trim());
   }
+  return params.toString();
+}
+
+function operationsQueryString(filters: KrOperationsQuery): string {
+  const params = new URLSearchParams();
+  params.set("page", String(filters.operationsPage));
+  params.set("limit", String(filters.operationsLimit));
+  if (filters.providerId) params.set("providerId", filters.providerId);
+  if (filters.operationId) params.set("includeOperationId", filters.operationId);
+  if (filters.operationType) params.set("operationType", filters.operationType);
+  if (filters.phase) params.set("phase", filters.phase);
+  if (filters.search.trim()) params.set("search", filters.search.trim());
+  if (filters.startDate) params.set("from", filters.startDate);
+  if (filters.endDate) params.set("to", filters.endDate);
   return params.toString();
 }
 
@@ -216,6 +273,90 @@ function activityQueryString(query: AdminMarketDataActivityQuery): string {
   return params.toString();
 }
 
+function stringifyEvidence(evidence: unknown): string {
+  if (!evidence) return "No evidence summary";
+  if (typeof evidence === "string") return evidence;
+  if (typeof evidence === "object") {
+    const record = evidence as Record<string, unknown>;
+    for (const key of ["errorMessage", "message", "reason", "status"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+    return JSON.stringify(record);
+  }
+  return String(evidence);
+}
+
+function unresolvedActionLabel(action: SharedAdminMarketDataUnresolvedResponse["items"][number]["recommendedAction"]): string {
+  if (action === "repair_mapping") return "Repair mapping";
+  if (action === "retry_via_backfill") return "Retry via backfill";
+  if (action === "mark_unsupported") return "Mark unsupported";
+  if (action === "reopen") return "Reopen";
+  if (action === "ignore") return "Ignore";
+  return "Review";
+}
+
+function adaptMarketUnresolvedResponse(
+  response: SharedAdminMarketDataUnresolvedResponse,
+): AdminMarketDataUnresolvedUiResponse {
+  const providerLabels = new Map(response.providers.map((provider) => [provider.providerId, provider.label]));
+  return {
+    ...response,
+    marketCode: response.marketCode,
+    summary: [
+      { id: "active", label: "Active unresolved rows", value: response.summary.activeRowCount },
+      { id: "affected", label: "Affected instruments", value: response.summary.affectedInstrumentCount },
+      {
+        id: "oldest",
+        label: "Oldest unresolved",
+        value: response.summary.oldestUnresolvedAt ? response.summary.oldestUnresolvedAt.slice(0, 10) : "none",
+        detail: response.summary.oldestUnresolvedAt,
+      },
+    ],
+    activeUnresolvedRowCount: response.summary.activeRowCount,
+    affectedInstrumentCount: response.summary.affectedInstrumentCount,
+    oldestUnresolvedAt: response.summary.oldestUnresolvedAt,
+    filters: {
+      providers: response.providers.map((provider) => ({ value: provider.providerId, label: provider.label })),
+      states: response.summary.byState.map((bucket) => ({ value: bucket.key, label: `${bucket.key} (${bucket.count})` })),
+      errorCodes: response.summary.byErrorCode.map((bucket) => ({ value: bucket.key, label: `${bucket.key} (${bucket.count})` })),
+      sorts: [
+        { value: "last_seen_desc", label: "Last seen" },
+        { value: "updated_desc", label: "Recently updated" },
+        { value: "occurrence_count_desc", label: "Most occurrences" },
+        { value: "source_symbol_asc", label: "Source symbol" },
+      ],
+    },
+    blocker: null,
+    items: response.items.map((item) => {
+      const activeActions = item.state === "active"
+        ? (item.marketCode === "KR"
+            ? ["ignore", "unsupported"] as const
+            : ["retry_via_backfill", "ignore", "unsupported"] as const)
+        : ["reopen"] as const;
+      return {
+        ...item,
+        id: `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`,
+        providerLabel: providerLabels.get(item.providerId) ?? item.providerId,
+        errorLabel: item.errorCode,
+        affectedInstrumentCount: 1,
+        recommendedActionLabel: unresolvedActionLabel(item.recommendedAction),
+        evidenceSummary: item.recommendedActionReason || stringifyEvidence(item.evidence),
+        actions: [...activeActions],
+      };
+    }),
+    query: {
+      page: response.page,
+      limit: response.limit,
+      providerId: response.filters.providerId ?? "",
+      state: response.filters.state,
+      errorCode: response.filters.errorCode ?? "",
+      search: response.filters.search ?? "",
+      sort: response.filters.sort,
+    },
+  };
+}
+
 export default async function AdminMarketDataWorkspacePage({
   params,
   searchParams,
@@ -227,7 +368,8 @@ export default async function AdminMarketDataWorkspacePage({
   }
 
   const marketCode = resolvedParams.marketCode as AdminMarketCode;
-  const tab = resolvedParams.tab as AdminMarketWorkspaceUiTab;
+  const requestedTab = resolvedParams.tab as AdminMarketWorkspaceUiTab;
+  const tab = (marketCode === "KR" && requestedTab === "mappings" ? "unresolved" : requestedTab) as AdminMarketWorkspaceUiTab;
   const instrumentQuery = instrumentQueryFromSearchParams(
     query,
     tab === "backfill" ? { status: "listed", supportState: "supported" } : undefined,
@@ -235,10 +377,8 @@ export default async function AdminMarketDataWorkspacePage({
   const activityQuery = activityQueryFromSearchParams(query);
   const krMappingQuery = krMappingQueryFromSearchParams(query);
   const krOperationsQuery = krOperationsQueryFromSearchParams(query);
-  const page = instrumentQuery.page;
-  const limit = instrumentQuery.limit;
+  const unresolvedQuery = unresolvedQueryFromSearchParams(query);
   const providerId = firstOptionalQueryValue(query.providerId);
-  const operationId = firstOptionalQueryValue(query.operationId);
   const repairMode = firstOptionalQueryValue(query.repair);
   const snapshotRepairRequest: SnapshotRepairRequest | null =
     tab === "backfill" && (repairMode === "snapshots" || repairMode === "valuation")
@@ -258,9 +398,11 @@ export default async function AdminMarketDataWorkspacePage({
   ]);
   const overviewTabs = new Set<AdminMarketWorkspaceUiTab>(overview.tabs as AdminMarketWorkspaceUiTab[]);
   if (tab === "activity" || tab === "calendar") overviewTabs.add(tab);
+  if (marketCode !== "FX") overviewTabs.add("unresolved");
   const overviewWithUiTabs: AdminMarketDataOverviewUiResponse = {
     ...overview,
     tabs: [...overviewTabs],
+    unresolvedInstrumentCount: overview.affectedInstrumentCount ?? null,
   };
 
   const instruments =
@@ -272,7 +414,7 @@ export default async function AdminMarketDataWorkspacePage({
   const operations =
     tab === "operations"
       ? await getJson<AdminMarketDataOperationsResponse>(
-          `/admin/market-data/${encodeURIComponent(marketCode)}/operations?page=${page}&limit=${limit}${providerId ? `&providerId=${encodeURIComponent(providerId)}` : ""}`,
+          `/admin/market-data/${encodeURIComponent(marketCode)}/operations?${operationsQueryString(krOperationsQuery)}`,
         )
       : null;
   const activity =
@@ -290,8 +432,14 @@ export default async function AdminMarketDataWorkspacePage({
           `/admin/market-data/${encodeURIComponent(marketCode)}/calendar`,
         )
       : null;
+  const unresolved =
+    tab === "unresolved" && marketCode !== "FX"
+      ? await getJson<SharedAdminMarketDataUnresolvedResponse>(
+          `/admin/market-data/${encodeURIComponent(marketCode)}/unresolved?page=${unresolvedQuery.page}&limit=${unresolvedQuery.limit}&state=${encodeURIComponent(unresolvedQuery.state)}&sort=${encodeURIComponent(unresolvedQuery.sort)}${unresolvedQuery.providerId ? `&providerId=${encodeURIComponent(unresolvedQuery.providerId)}` : ""}${unresolvedQuery.errorCode ? `&errorCode=${encodeURIComponent(unresolvedQuery.errorCode)}` : ""}${unresolvedQuery.search.trim() ? `&search=${encodeURIComponent(unresolvedQuery.search.trim())}` : ""}`,
+        ).then(adaptMarketUnresolvedResponse)
+      : null;
   const krMappings =
-    marketCode === "KR" && tab === "mappings"
+    marketCode === "KR" && tab === "unresolved"
       ? await Promise.all([
           getJson<ProviderUnresolvedItemsResponse>(
             `/admin/providers/yahoo-finance-kr/unresolved?state=${encodeURIComponent(krMappingQuery.unresolvedState)}&errorCode=yahoo_finance_kr_symbol_unresolved&search=${encodeURIComponent(krMappingQuery.unresolvedSearch)}&sort=${encodeURIComponent(krMappingQuery.unresolvedSort)}&page=${krMappingQuery.unresolvedPage}&limit=${krMappingQuery.unresolvedLimit}`,
@@ -301,54 +449,6 @@ export default async function AdminMarketDataWorkspacePage({
           ),
         ]).then(([unresolved, mappings]) => ({ unresolved, mappings, query: krMappingQuery }))
       : null;
-  const krOperations =
-    marketCode === "KR" && tab === "operations"
-      ? await getJson<ProviderFixerDashboardOperationsResponse>(
-          `/admin/providers/yahoo-finance-kr/operations?page=${krOperationsQuery.operationsPage}&limit=${krOperationsQuery.operationsLimit}${operationId ? `&includeOperationId=${encodeURIComponent(operationId)}` : ""}`,
-        ).then(async (providerOperations) => {
-          const operationRows =
-            providerOperations.stagedOperation
-            && !providerOperations.operations.some((operation) => operation.id === providerOperations.stagedOperation?.id)
-              ? [providerOperations.stagedOperation, ...providerOperations.operations]
-              : providerOperations.operations;
-          const selectedOperation =
-            operationId
-              ? providerOperations.selectedOperation
-                ?? operationRows.find((operation) => operation.id === operationId)
-                ?? null
-              : null;
-          const outcomes = selectedOperation
-            ? await getJson<ProviderOperationOutcomesResponse>(
-                `/admin/providers/yahoo-finance-kr/operations/${encodeURIComponent(selectedOperation.id)}/outcomes?page=${krOperationsQuery.operationOutcomesPage}&limit=${krOperationsQuery.operationOutcomesLimit}${krOperationsQuery.operationOutcomeState !== "all" ? `&state=${encodeURIComponent(krOperationsQuery.operationOutcomeState)}` : ""}${krOperationsQuery.operationOutcomeAction.trim() ? `&action=${encodeURIComponent(krOperationsQuery.operationOutcomeAction.trim())}` : ""}`,
-              )
-            : {
-                items: [],
-                summary: {
-                  total: 0,
-                  processed: 0,
-                  pending: 0,
-                  running: 0,
-                  succeeded: 0,
-                  failed: 0,
-                  skipped: 0,
-                  rateLimited: 0,
-                  cancelled: 0,
-                  progressPercent: 0,
-                },
-                total: 0,
-                page: 1,
-                limit: krOperationsQuery.operationOutcomesLimit,
-              };
-          return {
-            operations: providerOperations,
-            explicitOperationId: operationId ?? "",
-            selectedOperationId: selectedOperation?.id ?? "",
-            outcomes,
-            query: krOperationsQuery,
-          };
-        })
-      : null;
-
   return (
     <AdminMarketDataWorkspaceClient
       marketCode={marketCode}
@@ -357,12 +457,13 @@ export default async function AdminMarketDataWorkspacePage({
       actions={actions.actions}
       instruments={instruments}
       instrumentQuery={instrumentQuery}
+      unresolved={unresolved}
       operations={operations}
+      operationsQuery={krOperationsQuery}
       activity={activity}
       calendar={calendar}
       providerFilterId={providerId ?? ""}
       krMappings={krMappings}
-      krOperations={krOperations}
       snapshotRepairRequest={snapshotRepairRequest}
     />
   );

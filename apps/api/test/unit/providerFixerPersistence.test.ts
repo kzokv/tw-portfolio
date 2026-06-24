@@ -284,12 +284,9 @@ describe("Provider Fixer persistence contract", () => {
         page: 1,
         limit: 1,
       }),
-    ).resolves.toMatchObject({
-      total: 2,
-      items: expect.arrayContaining([
-        expect.objectContaining({ id: "op-kr-selected" }),
-        expect.objectContaining({ id: "op-kr-older" }),
-      ]),
-    });
+	    ).resolves.toMatchObject({
+	      total: 2,
+	      items: [expect.objectContaining({ id: "op-kr-selected" })],
+	    });
   });
 });

@@ -55,6 +55,18 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("provider min-request-interval settings accept null, zero, and bounded values", () => {
+      const result = patchAdminSettingsSchema.safeParse({
+        finmindProviderMinRequestIntervalMs: null,
+        twelveDataProviderMinRequestIntervalMs: 0,
+        yahooAuProviderMinRequestIntervalMs: 250,
+        yahooKrProviderMinRequestIntervalMs: 1_000,
+        frankfurterProviderMinRequestIntervalMs: 5_000,
+        asxGicsProviderMinRequestIntervalMs: 60_000,
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("rejects", () => {
@@ -95,6 +107,11 @@ describe("patchAdminSettingsSchema (KZO-142)", () => {
 
     it("valuationHealthRelativeBps rejects values above max", () => {
       const result = patchAdminSettingsSchema.safeParse({ valuationHealthRelativeBps: 10_001 });
+      expect(result.success).toBe(false);
+    });
+
+    it("provider min-request-interval settings reject values above max", () => {
+      const result = patchAdminSettingsSchema.safeParse({ yahooKrProviderMinRequestIntervalMs: 60_001 });
       expect(result.success).toBe(false);
     });
 

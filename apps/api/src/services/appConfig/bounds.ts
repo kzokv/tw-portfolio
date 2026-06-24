@@ -53,6 +53,12 @@ export const APP_CONFIG_BOUNDS = {
   yahooKrProviderRateLimitPerMinute: { min: 1, max: 10_000 },
   frankfurterProviderRateLimitPerMinute: { min: 1, max: 10_000 },
   asxGicsProviderRateLimitPerHour: { min: 1, max: 10_000 },
+  finmindProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
+  twelveDataProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
+  yahooAuProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
+  yahooKrProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
+  frankfurterProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
+  asxGicsProviderMinRequestIntervalMs: { min: 0, max: 60_000 },
 
   // Tier 1 — backfill (UI-editable subset)
   backfillRetryLimit: { min: 0, max: 10 },

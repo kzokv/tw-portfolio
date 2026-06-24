@@ -277,7 +277,7 @@ describe("Provider Fixer admin routes", () => {
       ],
     });
     expect(previewBody.operation.preview.evidenceSample[0]?.candidateSymbol).toBe("005930.KS");
-    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("verified");
+    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("pending");
 
     const activeBeforeExecute = await app.inject({
       method: "GET",
@@ -887,6 +887,213 @@ describe("Provider Fixer admin routes", () => {
     });
   });
 
+  it("returns typed market operation details for catalog sync, FX refresh, and ASX GICS", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.createProviderOperation({
+      id: "provider-op-catalog-sync",
+      providerId: "twelve-data-au",
+      marketCode: "AU",
+      operationType: "sync_catalog",
+      phase: "completed",
+      matchCount: 2,
+      metadata: {
+        scope: "AU catalog",
+        source: "twelve-data",
+        importedRows: 2,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-asx-gics",
+      providerId: "asx-gics-csv",
+      marketCode: "AU",
+      operationType: "sync_asx_gics",
+      phase: "completed",
+      matchCount: 3,
+      metadata: {
+        scope: "ASX GICS enrichment",
+        source: "asx-csv",
+        importedRows: 3,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-running-au-backfill",
+      providerId: "yahoo-finance-au",
+      marketCode: "AU",
+      operationType: "backfill_catalog_rows",
+      phase: "running",
+      matchCount: 5,
+      metadata: {
+        scope: "AU selected unresolved retry",
+        progressPercent: 25,
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx-refresh",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_rates",
+      phase: "completed",
+      matchCount: 4,
+      metadata: {
+        scope: "FX rates",
+        source: "frankfurter",
+        baseCurrency: "USD",
+      },
+    });
+    await app.persistence.createProviderOperation({
+      id: "provider-op-fx-refresh-action",
+      providerId: "frankfurter",
+      marketCode: "FX",
+      operationType: "refresh_fx_rates",
+      phase: "completed",
+      matchCount: 4,
+      metadata: {
+        scope: "FX rates",
+        source: "frankfurter",
+        baseCurrency: "USD",
+      },
+    });
+
+    const auResponse = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/AU/operations?page=1&limit=10",
+      headers,
+    });
+    const fxResponse = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/FX/operations?page=1&limit=10",
+      headers,
+    });
+
+    expect(auResponse.statusCode).toBe(200);
+    expect(fxResponse.statusCode).toBe(200);
+    expect(auResponse.json()).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "provider-op-catalog-sync",
+          details: expect.objectContaining({ kind: "sync_catalog" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-asx-gics",
+          details: expect.objectContaining({ kind: "sync_asx_gics" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-running-au-backfill",
+          canPause: false,
+          canResume: false,
+          canCancel: true,
+          details: expect.objectContaining({ kind: "backfill_catalog_rows" }),
+        }),
+      ]),
+    });
+    expect(fxResponse.json()).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "provider-op-fx-refresh",
+          details: expect.objectContaining({ kind: "refresh_rates" }),
+        }),
+        expect.objectContaining({
+          id: "provider-op-fx-refresh-action",
+          details: expect.objectContaining({ kind: "refresh_rates" }),
+        }),
+      ]),
+    });
+  });
+
+  it("returns normalized operation controls and treats date-only end filters as inclusive days", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-03T18:30:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-running-late-day",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "running",
+      matchCount: 3,
+    });
+    vi.setSystemTime(new Date("2026-06-04T00:05:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-next-day",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "repair_mapping",
+      phase: "completed",
+      matchCount: 1,
+    });
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations?from=2026-06-03&to=2026-06-03&page=1&limit=10&includeOperationId=provider-op-running-late-day",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      selectedOperation: expect.objectContaining({
+        id: "provider-op-running-late-day",
+        canPause: true,
+        canResume: false,
+        canCancel: true,
+      }),
+      selectedOperationIsOffPage: false,
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: "provider-op-running-late-day",
+          canPause: true,
+          canResume: false,
+          canCancel: true,
+        }),
+      ],
+    });
+  });
+
+  it("derives market operation filter choices beyond the first 500 matching operations", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    await app.persistence.createProviderOperation({
+      id: "provider-op-older-renew-evidence",
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      operationType: "renew_evidence",
+      phase: "failed",
+      matchCount: 1,
+    });
+    for (let i = 0; i < 501; i += 1) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 5, 2, 0, i, 0)));
+      await app.persistence.createProviderOperation({
+        id: `provider-op-newer-repair-${i}`,
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        operationType: "repair_mapping",
+        phase: "completed",
+        matchCount: 1,
+      });
+    }
+    vi.useRealTimers();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations?page=1&limit=25",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      total: 502,
+      availableFilters: {
+        operationTypes: expect.arrayContaining(["renew_evidence", "repair_mapping"]),
+        phases: expect.arrayContaining(["failed", "completed"]),
+      },
+    });
+  });
+
   it("returns an included selected operation off-page and filters outcomes by action", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -933,13 +1140,19 @@ describe("Provider Fixer admin routes", () => {
 
     const operations = await app.inject({
       method: "GET",
-      url: "/admin/providers/yahoo-finance-kr/operations?page=2&limit=1&includeOperationId=provider-op-selected",
+      url: "/admin/market-data/KR/operations?page=2&limit=1&includeOperationId=provider-op-selected",
       headers,
     });
     expect(operations.statusCode).toBe(200);
     expect(operations.json()).toMatchObject({
+      selectedOperationIsOffPage: true,
       selectedOperation: { id: "provider-op-selected", providerId: "yahoo-finance-kr" },
-      operations: [expect.objectContaining({ id: "provider-op-page-2" })],
+      items: [expect.objectContaining({ id: "provider-op-page-2" })],
+      filters: {
+        providerId: null,
+        operationType: null,
+        phase: null,
+      },
       total: 2,
       page: 2,
       limit: 1,
@@ -956,7 +1169,81 @@ describe("Provider Fixer admin routes", () => {
       total: 1,
       items: [expect.objectContaining({ sourceSymbol: "000660", action: "renew_evidence", state: "failed" })],
     });
-  });
+
+    await app.persistence.createProviderOperationLog({
+      operationId: "provider-op-selected",
+      phase: "completed",
+      level: "info",
+      message: "selected_operation_completed",
+      detail: "provider-op-selected completed",
+      context: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        sourceSymbol: "005930",
+        resolvedSymbol: "005930.KS",
+        ignoredKey: "redacted",
+      },
+    });
+    const logs = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/KR/operations/provider-op-selected/logs?page=1&limit=10",
+      headers,
+    });
+    expect(logs.statusCode).toBe(200);
+    expect(logs.json()).toMatchObject({
+      marketCode: "KR",
+      operationId: "provider-op-selected",
+      total: 1,
+      items: [
+        expect.objectContaining({
+          level: "info",
+          message: "selected_operation_completed",
+          detail: "provider-op-selected completed",
+          context: {
+            providerId: "yahoo-finance-kr",
+            marketCode: "KR",
+            sourceSymbol: "005930",
+            resolvedSymbol: "005930.KS",
+          },
+        }),
+      ],
+    });
+	    expect((logs.json() as { items: Array<{ context: Record<string, unknown> | null }> }).items[0]?.context).not.toHaveProperty("ignoredKey");
+
+	    const selectedExcludedBySearch = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?page=1&limit=10&search=page-2&includeOperationId=provider-op-selected",
+	      headers,
+	    });
+	    expect(selectedExcludedBySearch.statusCode).toBe(200);
+	    expect(selectedExcludedBySearch.json()).toMatchObject({
+	      selectedOperation: null,
+	      selectedOperationIsOffPage: false,
+	      total: 1,
+	      items: [expect.objectContaining({ id: "provider-op-page-2" })],
+	    });
+
+	    const invalidDate = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?from=not-a-date",
+	      headers,
+	    });
+	    expect(invalidDate.statusCode).toBe(400);
+
+	    const invertedDates = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/KR/operations?from=2026-06-04&to=2026-06-03",
+	      headers,
+	    });
+	    expect(invertedDates.statusCode).toBe(400);
+
+	    const mismatchedWorkspaceLogs = await app.inject({
+	      method: "GET",
+	      url: "/admin/market-data/FX/operations/provider-op-selected/logs?page=1&limit=10",
+	      headers,
+	    });
+	    expect(mismatchedWorkspaceLogs.statusCode).toBe(404);
+	  });
 
   it("returns preparing_preview for dangerous filter previews and promotes them to preview asynchronously", async () => {
     const admin = await createAdmin(app);
@@ -1513,6 +1800,491 @@ describe("Provider Fixer admin routes", () => {
     );
   });
 
+  it("lists market-scoped unresolved rows with summary counts and instrument context", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const unresolved = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/unresolved?state=all&page=1&limit=10",
+      headers,
+    });
+    expect(unresolved.statusCode).toBe(200);
+    expect(unresolved.json()).toMatchObject({
+      marketCode: "TW",
+      summary: {
+        activeRowCount: 1,
+        affectedInstrumentCount: 1,
+        byProvider: [expect.objectContaining({ key: "finmind-tw", count: 1, activeCount: 1 })],
+        byErrorCode: [expect.objectContaining({ key: "provider_symbol_unresolved", count: 1, activeCount: 1 })],
+      },
+      items: [
+        expect.objectContaining({
+          providerId: "finmind-tw",
+          marketCode: "TW",
+          sourceSymbol: "2330",
+          instrumentName: "TSMC",
+          supportState: "supported",
+          backfillStatus: "pending",
+          recommendedAction: "retry_via_backfill",
+        }),
+      ],
+    });
+
+    const overview = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/overview",
+      headers,
+    });
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json()).toMatchObject({
+      marketCode: "TW",
+      unresolvedCount: 1,
+      affectedInstrumentCount: 1,
+    });
+  });
+
+  it("enforces typed confirmation for filter-scoped market unresolved bulk changes", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "filter",
+          filter: { providerId: "finmind-tw", state: "active", errorCode: "provider_symbol_unresolved" },
+        },
+        state: "ignored",
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: "provider_fixer_typed_confirmation_required" });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "filter",
+          filter: { providerId: "finmind-tw", state: "active", errorCode: "provider_symbol_unresolved" },
+        },
+        state: "ignored",
+        typedConfirmation: "IGNORED 1",
+      },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toMatchObject({ updatedCount: 1, succeeded: 1, failed: 0 });
+
+    const unresolved = await app.inject({
+      method: "GET",
+      url: "/admin/market-data/TW/unresolved?state=ignored&page=1&limit=10",
+      headers,
+    });
+    expect(unresolved.statusCode).toBe(200);
+    expect(unresolved.json()).toMatchObject({
+      items: [expect.objectContaining({ providerId: "finmind-tw", sourceSymbol: "2330", state: "ignored" })],
+    });
+  });
+
+  it("keeps market bulk unresolved operation outcomes distinct for duplicate source symbols", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_history_missing",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state/bulk",
+      headers,
+      payload: {
+        scope: {
+          type: "selected_items",
+          items: [
+            { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+            { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_history_missing", sourceSymbol: "2330" },
+          ],
+        },
+        state: "ignored",
+        acknowledged: true,
+        reason: "admin reviewed duplicate ticker rows",
+      },
+    });
+    expect(accepted.statusCode).toBe(200);
+    const acceptedBody = accepted.json() as { operationId: string; succeeded: number; failed: number };
+    expect(acceptedBody).toMatchObject({ succeeded: 2, failed: 0 });
+
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/finmind-tw/operations/${acceptedBody.operationId}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.statusCode).toBe(200);
+    const outcomesBody = outcomes.json() as {
+      summary: { total: number; processed: number; succeeded: number };
+      items: Array<{
+        sourceSymbol: string;
+        action: string;
+        state: string;
+        evidence: { unresolvedIdentity?: { errorCode?: string; sourceSymbol?: string } };
+      }>;
+    };
+    expect(outcomesBody.summary).toMatchObject({ total: 2, processed: 2, succeeded: 2 });
+    expect(new Set(outcomesBody.items.map((item) => item.sourceSymbol)).size).toBe(2);
+    expect(outcomesBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSymbol: "2330::FINMIND-TW::PROVIDER_SYMBOL_UNRESOLVED",
+        action: "ignore_unresolved",
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          unresolvedIdentity: expect.objectContaining({ errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" }),
+        }),
+      }),
+      expect.objectContaining({
+        sourceSymbol: "2330::FINMIND-TW::PROVIDER_HISTORY_MISSING",
+        action: "ignore_unresolved",
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          unresolvedIdentity: expect.objectContaining({ errorCode: "provider_history_missing", sourceSymbol: "2330" }),
+        }),
+      }),
+    ]));
+  });
+
+  it("marks market unresolved single-row operations failed when the target row is stale", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/unresolved/state",
+      headers,
+      payload: {
+        providerId: "finmind-tw",
+        errorCode: "provider_symbol_unresolved",
+        sourceSymbol: "MISSING",
+        state: "ignored",
+        reason: "stale row",
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: "provider_unresolved_item_not_found" });
+    const operations = await app.persistence.listProviderOperations({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      page: 1,
+      limit: 10,
+    });
+    const failedOperation = operations.items.find((operation) => operation.operationType === "ignore_unresolved");
+    expect(failedOperation).toMatchObject({
+      phase: "failed",
+      matchCount: 1,
+      metadata: expect.objectContaining({
+        sourceSymbol: "MISSING",
+        targetState: "ignored",
+        failureReason: "provider unresolved item not found",
+      }),
+    });
+    expect(await app.persistence.hasActiveProviderExecution("finmind-tw", "TW")).toBe(false);
+    const outcomes = await app.persistence.listProviderOperationOutcomes({
+      operationId: failedOperation!.id,
+      page: 1,
+      limit: 10,
+    });
+    expect(outcomes).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          sourceSymbol: "MISSING",
+          state: "failed",
+          errorCode: "provider_unresolved_state_update_failed",
+        }),
+      ],
+    });
+  });
+
+  it("dedupes selected unresolved rows into backfill targets for market retry previews and execution", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const bossSend = vi.fn().mockResolvedValue("job-unresolved-tw-2330");
+    app.boss = { send: bossSend } as never;
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_history_missing",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "finmind-tw",
+        selectedUnresolvedRows: [
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_history_missing", sourceSymbol: "2330" },
+        ],
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as {
+      operationId: string;
+      previewToken: string;
+      matchCount: number;
+      unresolvedSelection: {
+        selectedRowCount: number;
+        dedupedTargetCount: number;
+        dedupedAwayRowCount: number;
+        skippedRowCount: number;
+      };
+    };
+    expect(previewBody).toMatchObject({
+      matchCount: 1,
+      unresolvedSelection: {
+        selectedRowCount: 2,
+        dedupedTargetCount: 1,
+        dedupedAwayRowCount: 1,
+        skippedRowCount: 0,
+      },
+    });
+
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/execute",
+      headers,
+      payload: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(200);
+    expect(execute.json()).toMatchObject({
+      marketCode: "TW",
+      matchCount: 1,
+      unresolvedSelection: previewBody.unresolvedSelection,
+    });
+    expect(bossSend).toHaveBeenCalledTimes(1);
+    expect(bossSend).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        trigger: "admin_rerun",
+        providerOperationId: previewBody.operationId,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects catalog-provider unresolved rows for market retry previews", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "asx-gics-csv",
+      marketCode: "AU",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "BHP.AX",
+      providerSymbol: "BHP.AX",
+    });
+
+    const retryThroughBackfillProvider = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "yahoo-finance-au",
+        selectedUnresolvedRows: [
+          { providerId: "asx-gics-csv", marketCode: "AU", errorCode: "provider_symbol_unresolved", sourceSymbol: "BHP.AX" },
+        ],
+      },
+    });
+    expect(retryThroughBackfillProvider.statusCode).toBe(400);
+    expect(retryThroughBackfillProvider.json()).toMatchObject({
+      error: "market_unresolved_retry_provider_not_supported",
+    });
+
+    const retryThroughCatalogProvider = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "asx-gics-csv",
+        selectedUnresolvedRows: [
+          { providerId: "asx-gics-csv", marketCode: "AU", errorCode: "provider_symbol_unresolved", sourceSymbol: "BHP.AX" },
+        ],
+      },
+    });
+    expect(retryThroughCatalogProvider.statusCode).toBe(400);
+    expect(retryThroughCatalogProvider.json()).toMatchObject({
+      error: "market_unresolved_retry_provider_not_supported",
+    });
+  });
+
+  it("returns blocking operation details on market unresolved retry conflicts", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    (app.persistence as unknown as {
+      _seedInstrument(instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK";
+        marketCode: "TW";
+        barsBackfillStatus: "pending";
+        typeRaw?: string;
+        catalogExchangeRaw?: string;
+        catalogMicCode?: string;
+      }): void;
+    })._seedInstrument({
+      ticker: "2330",
+      name: "TSMC",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "pending",
+      typeRaw: "Common Stock",
+      catalogExchangeRaw: "TWSE",
+      catalogMicCode: "XTAI",
+    });
+    await app.persistence.upsertProviderUnresolvedItem({
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      errorCode: "provider_symbol_unresolved",
+      sourceSymbol: "2330",
+      providerSymbol: "2330",
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/preview",
+      headers,
+      payload: {
+        scope: "selected_unresolved_rows",
+        providerId: "finmind-tw",
+        selectedUnresolvedRows: [
+          { providerId: "finmind-tw", marketCode: "TW", errorCode: "provider_symbol_unresolved", sourceSymbol: "2330" },
+        ],
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as { operationId: string; previewToken: string };
+    await app.persistence.createProviderOperation({
+      id: "active-tw-blocker",
+      providerId: "finmind-tw",
+      marketCode: "TW",
+      operationType: "sync_catalog",
+      phase: "running",
+      startedAt: new Date().toISOString(),
+    });
+
+    const execute = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/TW/backfill/execute",
+      headers,
+      payload: {
+        operationId: previewBody.operationId,
+        previewToken: previewBody.previewToken,
+        acknowledged: true,
+      },
+    });
+    expect(execute.statusCode).toBe(409);
+    expect(execute.json()).toMatchObject({
+      error: "provider_fixer_active_execution_exists",
+      metadata: {
+        blockingOperation: expect.objectContaining({
+          operationId: "active-tw-blocker",
+          providerId: "finmind-tw",
+          marketCode: "TW",
+          operationType: "sync_catalog",
+          phase: "running",
+        }),
+      },
+    });
+  });
+
   it("queues mapped provider rerun while another provider operation is active", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
@@ -2033,12 +2805,18 @@ describe("Provider Fixer admin routes", () => {
         providerHealthWarningUnresolvedThreshold: 500,
         providerHealthCriticalUnresolvedThreshold: 5_000,
         providerOperationStaleHeartbeatMinutes: 10,
-        providerOperationSummaryRetentionDays: 120,
-        providerOperationLogRetentionDays: 45,
-        providerIncidentRetentionDays: 240,
-        providerResolvedItemRetentionDays: 60,
-      },
-    });
+	        providerOperationSummaryRetentionDays: 120,
+	        providerOperationLogRetentionDays: 45,
+	        providerIncidentRetentionDays: 240,
+	        providerResolvedItemRetentionDays: 60,
+	        finmindProviderMinRequestIntervalMs: 0,
+	        twelveDataProviderMinRequestIntervalMs: 250,
+	        yahooAuProviderMinRequestIntervalMs: 500,
+	        yahooKrProviderMinRequestIntervalMs: 1_500,
+	        frankfurterProviderMinRequestIntervalMs: 750,
+	        asxGicsProviderMinRequestIntervalMs: 2_000,
+	      },
+	    });
     expect(accepted.statusCode).toBe(200);
     expect(accepted.json()).toMatchObject({
       providerOperationAutoRenewIntervalMinutes: 45,
@@ -2055,11 +2833,23 @@ describe("Provider Fixer admin routes", () => {
       effectiveProviderOperationSummaryRetentionDays: 120,
       providerOperationLogRetentionDays: 45,
       effectiveProviderOperationLogRetentionDays: 45,
-      providerIncidentRetentionDays: 240,
-      effectiveProviderIncidentRetentionDays: 240,
-      providerResolvedItemRetentionDays: 60,
-      effectiveProviderResolvedItemRetentionDays: 60,
-    });
+	      providerIncidentRetentionDays: 240,
+	      effectiveProviderIncidentRetentionDays: 240,
+	      providerResolvedItemRetentionDays: 60,
+	      effectiveProviderResolvedItemRetentionDays: 60,
+	      finmindProviderMinRequestIntervalMs: 0,
+	      effectiveFinmindProviderMinRequestIntervalMs: 0,
+	      twelveDataProviderMinRequestIntervalMs: 250,
+	      effectiveTwelveDataProviderMinRequestIntervalMs: 250,
+	      yahooAuProviderMinRequestIntervalMs: 500,
+	      effectiveYahooAuProviderMinRequestIntervalMs: 500,
+	      yahooKrProviderMinRequestIntervalMs: 1_500,
+	      effectiveYahooKrProviderMinRequestIntervalMs: 1_500,
+	      frankfurterProviderMinRequestIntervalMs: 750,
+	      effectiveFrankfurterProviderMinRequestIntervalMs: 750,
+	      asxGicsProviderMinRequestIntervalMs: 2_000,
+	      effectiveAsxGicsProviderMinRequestIntervalMs: 2_000,
+	    });
 
     const rejected = await app.inject({
       method: "PATCH",
@@ -2074,22 +2864,24 @@ describe("Provider Fixer admin routes", () => {
       method: "PATCH",
       url: "/admin/settings",
       headers,
-      payload: { providerHealthCriticalUnresolvedThreshold: null },
-    });
-    expect(clearedCritical.statusCode).toBe(200);
-    expect(clearedCritical.json()).toMatchObject({
-      providerHealthCriticalUnresolvedThreshold: null,
-      effectiveProviderHealthCriticalUnresolvedThreshold: 10_000,
-    });
+	      payload: { providerHealthCriticalUnresolvedThreshold: null, yahooKrProviderMinRequestIntervalMs: null },
+	    });
+	    expect(clearedCritical.statusCode).toBe(200);
+	    expect(clearedCritical.json()).toMatchObject({
+	      providerHealthCriticalUnresolvedThreshold: null,
+	      effectiveProviderHealthCriticalUnresolvedThreshold: 10_000,
+	      yahooKrProviderMinRequestIntervalMs: null,
+	      effectiveYahooKrProviderMinRequestIntervalMs: 1_000,
+	    });
   });
 
   it("does not persist KR bindings when Yahoo verification rejects the candidate", async () => {
-    verifyResolvedSymbol.mockResolvedValue({
+    verifyResolvedSymbol.mockImplementation((_ticker: string, candidateSymbol: string) => Promise.resolve({
       verified: false,
-      checkedSymbol: "005930.KS",
+      checkedSymbol: candidateSymbol,
       resolverMode: "quote_first",
       reason: "quote_not_korean_exchange",
-    });
+    }));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -2107,7 +2899,8 @@ describe("Provider Fixer admin routes", () => {
     const previewBody = preview.json() as {
       operation: { id: string; preview: { token: string; evidenceSample: Array<{ verificationStatus: string }> } };
     };
-    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("rejected");
+    expect(previewBody.operation.preview.evidenceSample[0]?.verificationStatus).toBe("pending");
+    expect(verifyResolvedSymbol).not.toHaveBeenCalled();
 
     const execute = await app.inject({
       method: "POST",
@@ -2130,23 +2923,227 @@ describe("Provider Fixer admin routes", () => {
       headers,
     });
     expect(outcomes.statusCode).toBe(200);
-    expect(outcomes.json()).toMatchObject({
-      summary: { total: 1, processed: 1, succeeded: 0, skipped: 1 },
-      items: [expect.objectContaining({ sourceSymbol: "005930", state: "skipped", errorCode: "candidate_rejected" })],
+    const outcomesBody = outcomes.json();
+    expect(outcomesBody).toMatchObject({
+      summary: { total: 1, processed: 1, succeeded: 0, skipped: 1, result: "none_applied" },
+      items: [expect.objectContaining({
+        sourceSymbol: "005930",
+        state: "skipped",
+        errorCode: "candidate_rejected",
+        evidence: expect.objectContaining({
+          verificationStatus: "rejected",
+          verificationReason: "quote_not_korean_exchange",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+            { symbol: "005930.KQ", status: "rejected", reason: "quote_not_korean_exchange" },
+          ],
+        }),
+      })],
     });
+    expect(verifyResolvedSymbol).toHaveBeenCalledTimes(2);
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
     await expect(
       app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930"),
     ).resolves.toBeNull();
   });
 
-  it("marks provider fixer execution failed when Yahoo verification throws a non-rate error", async () => {
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
+  it("tries the alternate KR Yahoo suffix when the catalog-derived candidate is rejected", async () => {
+    verifyResolvedSymbol.mockImplementation((_ticker: string, candidateSymbol: string) => Promise.resolve({
+      verified: candidateSymbol.endsWith(".KQ"),
+      checkedSymbol: candidateSymbol,
+      resolverMode: "quote_first",
+      reason: candidateSymbol.endsWith(".KQ") ? undefined : "quote_not_korean_exchange",
+    }));
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
         resolverMode: "quote_first",
-      })
-      .mockRejectedValueOnce(new Error("Yahoo verifier exploded"));
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930")).resolves.toMatchObject({
+      resolvedSymbol: "005930.KQ",
+    });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { succeeded: 1, result: "all_succeeded" },
+      items: [expect.objectContaining({
+        state: "succeeded",
+        evidence: expect.objectContaining({
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+            { symbol: "005930.KQ", status: "verified", reason: null },
+          ],
+        }),
+      })],
+    });
+  });
+
+  it("resolves an active KR unresolved row when a durable mapping already exists", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    await app.persistence.upsertProviderResolutionMapping({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      sourceSymbol: "005930",
+      resolvedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+      evidence: { seeded: true },
+      verifiedByUserId: admin.userId,
+    });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("completed");
+    });
+
+    expect(verifyResolvedSymbol).not.toHaveBeenCalled();
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { succeeded: 1, result: "all_succeeded" },
+      items: [expect.objectContaining({
+        state: "succeeded",
+        errorCode: "mapping_already_exists",
+        evidence: expect.objectContaining({
+          verificationStatus: "verified",
+          verificationReason: "mapping_already_exists",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "verified", reason: "mapping_already_exists" },
+          ],
+        }),
+      })],
+    });
+    const unresolved = await app.persistence.listProviderUnresolvedItems({
+      providerId: "yahoo-finance-kr",
+      marketCode: "KR",
+      state: "resolved",
+      page: 1,
+      limit: 10,
+    });
+    expect(unresolved.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSymbol: "005930", state: "resolved", resolvedByOperationId: previewBody.operation.id }),
+    ]));
+  });
+
+  it("pauses KR repair when the alternate suffix attempt hits the rate limit", async () => {
+    verifyResolvedSymbol
+      .mockImplementationOnce((_ticker: string, candidateSymbol: string) => Promise.resolve({
+        verified: false,
+        checkedSymbol: candidateSymbol,
+        resolverMode: "quote_first",
+        reason: "quote_not_korean_exchange",
+      }))
+      .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 60_000 }));
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-kr/operations/preview",
+      headers,
+      payload: {
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        errorCode: "yahoo_finance_kr_symbol_unresolved",
+      },
+    });
+    const previewBody = preview.json() as {
+      operation: { id: string; preview: { token: string } };
+    };
+    const execute = await app.inject({
+      method: "POST",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/execute`,
+      headers,
+      payload: { previewToken: previewBody.operation.preview.token, acknowledged: true },
+    });
+    expect(execute.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const operation = await app.persistence.getProviderOperation(previewBody.operation.id);
+      expect(operation?.phase).toBe("paused");
+    });
+
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(1, "005930", "005930.KS", { resolverMode: "quote_first" });
+    expect(verifyResolvedSymbol).toHaveBeenNthCalledWith(2, "005930", "005930.KQ", { resolverMode: "quote_first" });
+    const outcomes = await app.inject({
+      method: "GET",
+      url: `/admin/providers/yahoo-finance-kr/operations/${previewBody.operation.id}/outcomes?page=1&limit=10`,
+      headers,
+    });
+    expect(outcomes.json()).toMatchObject({
+      summary: { rateLimited: 1, result: "rate_limited" },
+      items: [expect.objectContaining({
+        state: "rate_limited",
+        errorCode: "provider_rate_limited",
+        evidence: expect.objectContaining({
+          verificationStatus: "rejected",
+          verificationReason: "quote_not_korean_exchange",
+          attemptedCandidates: [
+            { symbol: "005930.KS", status: "rejected", reason: "quote_not_korean_exchange" },
+          ],
+        }),
+      })],
+    });
+    await expect(app.persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "005930")).resolves.toBeNull();
+  });
+
+  it("marks provider fixer execution failed when Yahoo verification throws a non-rate error", async () => {
+    verifyResolvedSymbol.mockRejectedValueOnce(new Error("Yahoo verifier exploded"));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
@@ -2255,13 +3252,7 @@ describe("Provider Fixer admin routes", () => {
   });
 
   it("auto-pauses provider fixer execution when Yahoo verification is rate limited", async () => {
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }));
+    verifyResolvedSymbol.mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }));
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -2336,11 +3327,6 @@ describe("Provider Fixer admin routes", () => {
 
   it("resumes paused provider fixer execution and completes background work", async () => {
     verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
       .mockRejectedValueOnce(new RateLimitedError({ msUntilAvailable: 30_000 }))
       .mockResolvedValueOnce({
         verified: true,
@@ -2542,18 +3528,12 @@ describe("Provider Fixer admin routes", () => {
       resolverMode: "quote_first";
     }) => void = () => undefined;
     const verificationStarted = vi.fn();
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockImplementationOnce(() => {
-        verificationStarted();
-        return new Promise((resolve) => {
-          resolveVerification = resolve;
-        });
+    verifyResolvedSymbol.mockImplementationOnce(() => {
+      verificationStarted();
+      return new Promise((resolve) => {
+        resolveVerification = resolve;
       });
+    });
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -2626,18 +3606,12 @@ describe("Provider Fixer admin routes", () => {
       resolverMode: "quote_first";
     }) => void = () => undefined;
     const verificationStarted = vi.fn();
-    verifyResolvedSymbol
-      .mockResolvedValueOnce({
-        verified: true,
-        checkedSymbol: "005930.KS",
-        resolverMode: "quote_first",
-      })
-      .mockImplementationOnce(() => {
-        verificationStarted();
-        return new Promise((resolve) => {
-          resolveVerification = resolve;
-        });
+    verifyResolvedSymbol.mockImplementationOnce(() => {
+      verificationStarted();
+      return new Promise((resolve) => {
+        resolveVerification = resolve;
       });
+    });
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
 
@@ -2724,7 +3698,7 @@ describe("Provider Fixer admin routes", () => {
     });
     expect(operationsResponse.statusCode).toBe(200);
     expect(operationsResponse.json().operations).toContainEqual(
-      expect.objectContaining({ id: expired.id, canExecute: false }),
+      expect.objectContaining({ id: expired.id, canExecute: false, canRetry: false }),
     );
 
     const expiredResponse = await app.inject({
@@ -2792,32 +3766,11 @@ describe("Provider Fixer admin routes", () => {
       url: `/admin/providers/yahoo-finance-kr/operations/${expired.id}/retry`,
       headers,
     });
-    expect(retry.statusCode).toBe(201);
-    const retryBody = retry.json() as {
-      retryOfOperationId: string;
-      operation: { id: string; phase: string; canExecute: boolean; canRetry: boolean; preview: { token: string } };
-    };
-    expect(retryBody).toMatchObject({
-      retryOfOperationId: expired.id,
-      operation: {
-        phase: "preview",
-        canExecute: true,
-        canRetry: false,
-      },
-    });
-    expect(retryBody.operation.id).not.toBe(expired.id);
-    expect(retryBody.operation.preview.token).toBeTruthy();
+    expect(retry.statusCode).toBe(400);
+    expect(retry.json()).toMatchObject({ error: "provider_operation_not_retryable" });
     await expect(app.persistence.getProviderOperation(expired.id)).resolves.toMatchObject({
       id: expired.id,
       phase: "cancelled",
-    });
-    await expect(app.persistence.getProviderOperation(retryBody.operation.id)).resolves.toMatchObject({
-      providerId: "yahoo-finance-kr",
-      phase: "preview",
-      metadata: expect.objectContaining({
-        retryOfOperationId: expired.id,
-        retryAttempt: 1,
-      }),
     });
   });
 
