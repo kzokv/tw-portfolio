@@ -469,6 +469,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
       let barsCount = 0;
       let snapshotRepairFromDate: string | null = null;
+      let partialProviderFailureRecorded = false;
       if (includeBars) {
         const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
         log.info(
@@ -539,6 +540,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           // error_count_24h reflects the dividend fetch failure; the later
           // success call still fires (bars landed) and the resulting status
           // computes as `degraded` (success ≥ settled day AND errors ≥ 1).
+          partialProviderFailureRecorded = true;
           await safeRecordOutcome({
             kind: "error",
             errorClass: classifyProviderError(divErr),
@@ -591,6 +593,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             // KZO-177 (P2 Fix 1): mirror the dividend block — record the
             // partial-error outcome so the health aggregator sees the
             // metadata-enrichment failure even when bars+dividends landed.
+            partialProviderFailureRecorded = true;
             await safeRecordOutcome({
               kind: "error",
               errorClass: classifyProviderError(metaErr),
@@ -606,7 +609,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // sees the success even if a later step throws.
       await safeRecordOutcome({ kind: "success" });
 
-      if (market !== "KR") {
+      if (market !== "KR" && !partialProviderFailureRecorded) {
         try {
           await persistence.autoResolveProviderUnresolvedItemsBySourceSymbol?.({
             providerId: healthProviderId,
