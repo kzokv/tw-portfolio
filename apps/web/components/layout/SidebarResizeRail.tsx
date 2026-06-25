@@ -3,6 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useSidebar } from "../ui/shadcn/sidebar";
 import { cn } from "../../lib/utils";
+import { getLayoutShellLabels } from "./i18n";
 
 const KEY_RESIZE_STEP_PX = 16;
 
@@ -11,6 +12,15 @@ const MAX_WIDTH_PX = 400;
 const DEFAULT_WIDTH_PX = 256;
 const STORAGE_KEY = "vakwen-sidebar-width";
 const CLICK_THRESHOLD_PX = 4;
+const DEFAULT_LABELS = getLayoutShellLabels("en").sidebarResizeRail;
+
+interface SidebarResizeRailProps {
+  labels?: {
+    ariaLabel?: string;
+    expandedTitle?: string;
+    collapsedTitle?: string;
+  };
+}
 
 /**
  * Mutate the SidebarProvider wrapper's `--sidebar-width` CSS variable. The
@@ -60,7 +70,7 @@ function readPersistedWidth(): number | null {
  * Mobile (`<md`): the entire `<Sidebar>` is rendered inside a Radix `Sheet`
  * and this rail is hidden (responsive class `hidden md:flex`).
  */
-export function SidebarResizeRail() {
+export function SidebarResizeRail({ labels }: SidebarResizeRailProps) {
   const { toggleSidebar, state, isMobile } = useSidebar();
   const widthRef = useRef<number>(DEFAULT_WIDTH_PX);
 
@@ -161,8 +171,10 @@ export function SidebarResizeRail() {
       type="button"
       data-sidebar="rail"
       data-testid="app-sidebar-resize-handle"
-      aria-label="Resize or toggle sidebar"
-      title="Drag to resize · click to toggle · arrow keys to resize"
+      aria-label={labels?.ariaLabel ?? DEFAULT_LABELS.ariaLabel}
+      title={state === "collapsed"
+        ? (labels?.collapsedTitle ?? DEFAULT_LABELS.collapsedTitle)
+        : (labels?.expandedTitle ?? DEFAULT_LABELS.expandedTitle)}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       className={cn(

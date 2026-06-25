@@ -21,6 +21,7 @@ import type { useProfile as useProfileType } from "../../features/profile/hooks/
 import { useNavigationFeedback } from "./NavigationFeedbackContext";
 import { ShellNavigationFeedback } from "./ShellNavigationFeedback";
 import type { IntegrityIssue } from "../../features/dashboard/types";
+import { getLayoutShellLabels } from "./i18n";
 
 interface AppShellLayoutProps {
   initialSidebarOpen: boolean;
@@ -114,6 +115,7 @@ export function AppShellLayout({
 }: AppShellLayoutProps) {
   const router = useRouter();
   const { isPending } = useNavigationFeedback();
+  const shellLabels = getLayoutShellLabels(locale);
   // Phase 3d — avatar-menu Profile entry routes directly to /settings/profile.
   // (Drawer-open path retired in S10.)
   const openProfile = useCallback(() => router.push("/settings/profile"), [router]);
@@ -128,6 +130,7 @@ export function AppShellLayout({
           brandDesktopAria: uiDict.topBar.titleTooltip,
           dashboardFeedbackLabel: uiDict.navigation.dashboardLabel,
           operatorGroupLabel: uiDict.commandPalette.groupActions,
+          resizeRail: shellLabels.sidebarResizeRail,
           nav: {
             dashboard: uiDict.navigation.dashboardLabel,
             reports: uiDict.navigation.reportsLabel,
@@ -150,6 +153,7 @@ export function AppShellLayout({
           pictureUrl={profileData.profile?.providerPictureUrl}
           email={profileData.profile?.email}
           role={profileData.profile?.role}
+          locale={locale}
           uiDict={uiDict}
           quickSearchItems={quickSearchItems}
           unreadCount={unreadCount}

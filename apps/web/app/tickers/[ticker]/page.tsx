@@ -43,6 +43,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
+  const locale = settings?.locale ?? "en";
+  const dict = getDictionary(locale);
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardPrimaryData>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
@@ -63,21 +65,21 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
       <Suspense fallback={<DashboardLoading standalone />}>
         <AppShell
           isDemo={session.isDemo}
-          localeOverride={settings?.locale ?? "en"}
+          localeOverride={locale}
           initialProfile={profile}
           initialSidebarOpen={sidebarOpen}
         >
           <p>
-            Failed to load data for {ticker}.{" "}
-            <Link href="/portfolio">Back to portfolio</Link>
+            {locale === "zh-TW" ? `無法載入 ${ticker} 的資料。` : `Failed to load data for ${ticker}.`}{" "}
+            <Link href="/portfolio">{locale === "zh-TW" ? `返回${dict.navigation.portfolioLabel}` : "Back to portfolio"}</Link>
           </p>
         </AppShell>
       </Suspense>
     );
   }
 
-  const locale = settings?.locale ?? dashboard.settings?.locale ?? "en";
-  const dict = getDictionary(locale);
+  const resolvedLocale = settings?.locale ?? dashboard.settings?.locale ?? locale;
+  const resolvedDict = getDictionary(resolvedLocale);
   const primaryDetails = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
@@ -106,15 +108,15 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     <Suspense fallback={<DashboardLoading standalone />}>
       <AppShell
         isDemo={session.isDemo}
-        localeOverride={locale}
+        localeOverride={resolvedLocale}
         initialProfile={profile}
         initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
         <TickerHistoryClient
           transactions={transactions}
-          dict={dict}
-          locale={locale}
+          dict={resolvedDict}
+          locale={resolvedLocale}
           ticker={ticker}
           instrument={instrument}
           isDemo={session.isDemo}

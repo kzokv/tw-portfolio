@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { LocaleCode } from "@vakwen/shared-types";
 
 export interface BreadcrumbItem {
   label: string;
@@ -11,6 +12,7 @@ export interface BreadcrumbItem {
 interface BreadcrumbContextValue {
   /** Items registered by the most recently-mounted `useBreadcrumb([...])` caller, or `null` if no page registered. */
   items: BreadcrumbItem[] | null;
+  locale: LocaleCode;
   /** Internal — replaces the items list. Most callers should use `useBreadcrumb([...])`. */
   setItems: (items: BreadcrumbItem[] | null) => void;
 }
@@ -26,9 +28,15 @@ const BreadcrumbContext = createContext<BreadcrumbContextValue | null>(null);
  * that don't call `useBreadcrumb` simply leave `items === null`, and the
  * fallback map drives the rendered chrome.
  */
-export function BreadcrumbProvider({ children }: { children: ReactNode }) {
+export function BreadcrumbProvider({
+  children,
+  locale = "en",
+}: {
+  children: ReactNode;
+  locale?: LocaleCode;
+}) {
   const [items, setItems] = useState<BreadcrumbItem[] | null>(null);
-  const value = useMemo<BreadcrumbContextValue>(() => ({ items, setItems }), [items]);
+  const value = useMemo<BreadcrumbContextValue>(() => ({ items, locale, setItems }), [items, locale]);
   return <BreadcrumbContext.Provider value={value}>{children}</BreadcrumbContext.Provider>;
 }
 

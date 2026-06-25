@@ -31,11 +31,11 @@ import {
  */
 export function Breadcrumb() {
   const pathname = usePathname() ?? "/";
-  const { items } = useBreadcrumbContext();
+  const { items, locale } = useBreadcrumbContext();
   const shellData = useOptionalAppShellData();
   const resolved = items && items.length > 0
     ? items
-    : buildFallbackItems(pathname, shellData?.uiDict);
+    : buildFallbackItems(pathname, shellData?.uiDict, shellData?.locale ?? locale);
 
   if (resolved.length === 0) {
     // Render the nav anyway so the testid is always present for E2E waits.
@@ -98,7 +98,11 @@ export function Breadcrumb() {
   );
 }
 
-function buildFallbackItems(pathname: string, dict: AppDictionary | undefined): BreadcrumbItem[] {
+function buildFallbackItems(
+  pathname: string,
+  dict: AppDictionary | undefined,
+  locale: "en" | "zh-TW",
+): BreadcrumbItem[] {
   // Walk each prefix of the path so multi-segment routes render a real chain
   // (e.g. `/settings/display` → `Settings › Display`). Each prefix resolves
   // its own label via the same precedence as a top-level path. The terminal
@@ -110,7 +114,7 @@ function buildFallbackItems(pathname: string, dict: AppDictionary | undefined): 
   for (let i = 0; i < segments.length; i += 1) {
     const prefix = `/${segments.slice(0, i + 1).join("/")}`;
     const isLast = i === segments.length - 1;
-    const label = resolveSegmentLabel(prefix, segments[i], dict);
+    const label = resolveSegmentLabel(prefix, segments[i], dict, locale);
     items.push({
       label,
       href: isLast ? undefined : prefix,
@@ -123,10 +127,11 @@ function resolveSegmentLabel(
   prefix: string,
   segment: string,
   dict: AppDictionary | undefined,
+  locale: "en" | "zh-TW",
 ): string {
   const localized = dict ? resolveLocalizedLabel(prefix, dict) : null;
   if (localized) return localized;
-  const fallback = resolveExactBreadcrumbTitle(prefix);
+  const fallback = resolveExactBreadcrumbTitle(prefix, { dict, locale });
   if (fallback) return fallback;
   return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
 }
@@ -137,11 +142,19 @@ function resolveSegmentLabel(
  * sub-routes); the static fallback map takes over for those.
  */
 function resolveLocalizedLabel(pathname: string, dict: AppDictionary): string | null {
-  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return dict.navigation.dashboardLabel;
-  if (pathname === "/reports" || pathname.startsWith("/reports/")) return dict.navigation.reportsLabel;
-  if (pathname === "/portfolio" || pathname.startsWith("/portfolio/")) return dict.navigation.portfolioLabel;
-  if (pathname === "/transactions" || pathname.startsWith("/transactions/")) return dict.navigation.transactionsLabel;
-  if (pathname === "/cash-ledger" || pathname.startsWith("/cash-ledger/")) return dict.navigation.cashLedgerLabel;
-  if (pathname === "/dividends" || pathname.startsWith("/dividends/")) return dict.navigation.dividendsLabel;
+  if (pathname === "/dashboard") return dict.commandPalette.routeDashboard;
+  if (pathname === "/reports") return dict.commandPalette.routeReports;
+  if (pathname === "/portfolio") return dict.commandPalette.routePortfolio;
+  if (pathname === "/transactions") return dict.commandPalette.routeTransactions;
+  if (pathname === "/cash-ledger") return dict.commandPalette.routeCashLedger;
+  if (pathname === "/dividends") return dict.commandPalette.routeDividends;
+  if (pathname === "/sharing") return dict.sharing.pageTitle;
+  if (pathname === "/tickers") return dict.commandPalette.groupTickers;
+  if (pathname === "/settings/profile") return dict.settings.tabProfile;
+  if (pathname === "/settings/general") return dict.settings.tabGeneral;
+  if (pathname === "/settings/accounts") return dict.settings.tabAccounts;
+  if (pathname === "/settings/display") return dict.settings.tabDisplay;
+  if (pathname === "/settings/tickers") return dict.commandPalette.groupTickers;
+  if (pathname === "/settings") return dict.settings.title;
   return null;
 }
