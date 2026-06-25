@@ -4717,7 +4717,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
 
     const lookbackStartDate = daysBeforeIsoDate(query.date, 7);
-    const storedBars = await app.persistence.getDailyBarsForTicker(query.ticker, lookbackStartDate, query.date);
+    const storedBars = await app.persistence.getDailyBarsForTickerMarket(
+      query.ticker,
+      query.market_code,
+      lookbackStartDate,
+      query.date,
+    );
     const storedMatch = findMostRecentBar(storedBars, query.date);
     if (storedMatch) {
       return buildPriceLookupResponse(storedMatch, query.date, requestedDateIsTradingDay);

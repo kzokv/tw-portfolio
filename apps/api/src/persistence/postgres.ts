@@ -237,6 +237,13 @@ function computeChecksum(content: string): string {
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_LENGTH = 8;
 const PENDING_SHARE_INVITE_LIMIT = 10;
+const STRICT_TICKER_RE = /^[A-Za-z0-9]{1,16}$/;
+const JP_RELAXED_TICKER_RE = /^[A-Za-z0-9@]{1,16}$/;
+
+function isPersistedInstrumentTicker(ticker: string, marketCode: string): boolean {
+  if (marketCode === "JP") return JP_RELAXED_TICKER_RE.test(ticker);
+  return STRICT_TICKER_RE.test(ticker);
+}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -4564,7 +4571,7 @@ export class PostgresPersistence implements Persistence {
       hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
     );
     const instruments = symbolsResult.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -4980,7 +4987,7 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
     }));
     const instruments = symbolsResult.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -5076,7 +5083,7 @@ export class PostgresPersistence implements Persistence {
        ORDER BY market_code, ticker`,
     );
     const instruments = result.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker, String(row.market_code)))
       .map((row): InstrumentDef => ({
         ticker: row.ticker,
         type: row.instrument_type,
@@ -5502,7 +5509,7 @@ export class PostgresPersistence implements Persistence {
     const instruments = symbolsResult.rows
       // Guard against index tickers (e.g. ^DJI) that may have been stored by an
       // earlier catalog sync before the deduplicateInstruments filter was in place.
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -16816,7 +16823,7 @@ function validateMarketDataInvariants(marketData: MarketDataFacts): void {
   }
 
   for (const instrument of marketData.instruments) {
-    if (!/^[A-Za-z0-9]{1,16}$/.test(instrument.ticker)) {
+    if (!isPersistedInstrumentTicker(instrument.ticker, instrument.marketCode)) {
       throw new Error(`instrument ${instrument.ticker} has invalid ticker`);
     }
     if (!/^[A-Z]{2,8}$/.test(instrument.marketCode)) {

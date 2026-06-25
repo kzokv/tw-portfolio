@@ -3586,6 +3586,81 @@ describePostgres("postgres migrations", () => {
       numeric_scale: 2,
     });
 
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const baseProfile = store.feeProfiles[0]!;
+    store.accounts.push({
+      id: "user-1-jp-acc",
+      userId: "user-1",
+      name: "JP Account",
+      feeProfileId: "user-1-jp-fp",
+      defaultCurrency: "JPY",
+      accountType: "broker",
+    });
+    store.feeProfiles.push({
+      ...baseProfile,
+      id: "user-1-jp-fp",
+      accountId: "user-1-jp-acc",
+      name: "JP Broker",
+      minimumCommissionAmount: 0,
+      commissionCurrency: "JPY",
+    });
+    store.marketData.instruments.push({
+      ticker: "7203@JP",
+      name: "Toyota Special",
+      instrumentType: "STOCK",
+      marketCode: "JP",
+      isProvisional: false,
+      lastSyncedAt: "2026-06-25T00:00:00.000Z",
+    });
+    store.instruments.push({
+      ticker: "7203@JP",
+      type: "STOCK",
+      marketCode: "JP",
+      isProvisional: false,
+      lastSyncedAt: "2026-06-25T00:00:00.000Z",
+    });
+    createTransaction(store, "user-1", {
+      id: "trade-jp-at-symbol",
+      accountId: "user-1-jp-acc",
+      ticker: "7203@JP",
+      marketCode: "JP",
+      quantity: 1,
+      unitPrice: 3200,
+      priceCurrency: "JPY",
+      tradeDate: "2026-06-25",
+      tradeTimestamp: "2026-06-25T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.saveStore(store);
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.marketData.instruments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ticker: "7203@JP",
+          marketCode: "JP",
+          instrumentType: "STOCK",
+        }),
+      ]),
+    );
+    expect(reloaded.accounting.facts.tradeEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ticker: "7203@JP",
+          marketCode: "JP",
+        }),
+      ]),
+    );
+
     const policyRow = await pool.query<{
       enabled: boolean;
       read_tools_enabled: boolean;
