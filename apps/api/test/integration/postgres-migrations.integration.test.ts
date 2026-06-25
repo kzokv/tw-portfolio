@@ -3569,6 +3569,23 @@ describePostgres("postgres migrations", () => {
     );
     expect(appConfigMcpSecret.rows).toHaveLength(1);
 
+    const appConfigJpyThreshold = await pool.query<{
+      data_type: string;
+      numeric_precision: number;
+      numeric_scale: number;
+    }>(
+      `SELECT data_type, numeric_precision, numeric_scale
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'app_config'
+         AND column_name = 'valuation_health_absolute_jpy'`,
+    );
+    expect(appConfigJpyThreshold.rows[0]).toMatchObject({
+      data_type: "numeric",
+      numeric_precision: 18,
+      numeric_scale: 2,
+    });
+
     const policyRow = await pool.query<{
       enabled: boolean;
       read_tools_enabled: boolean;

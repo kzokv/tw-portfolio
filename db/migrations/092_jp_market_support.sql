@@ -107,7 +107,7 @@ ALTER TABLE public.app_config
   ADD COLUMN IF NOT EXISTS jp_catalog_allowed_stock_types TEXT[] NULL,
   ADD COLUMN IF NOT EXISTS jp_catalog_include_depositary_receipts BOOLEAN NULL,
   ADD COLUMN IF NOT EXISTS jp_catalog_include_at_symbols BOOLEAN NULL,
-  ADD COLUMN IF NOT EXISTS valuation_health_absolute_jpy BIGINT NULL;
+  ADD COLUMN IF NOT EXISTS valuation_health_absolute_jpy NUMERIC(18,2) NULL;
 
 ALTER TABLE public.app_config
   DROP CONSTRAINT IF EXISTS app_config_yahoo_jp_provider_rate_limit_per_minute_check,

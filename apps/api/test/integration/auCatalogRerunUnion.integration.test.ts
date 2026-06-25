@@ -297,6 +297,56 @@ describe("KZO-197 — AU rerun union (catalog warm-up + monitored refresh)", () 
     expect(meta.tickerCount).toBe(0);
   });
 
+  it("Twelve Data JP rerun dispatches JP catalog sync instead of falling through to US refresh", async () => {
+    const admin = await createAdmin(app);
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "twelve-data-jp",
+      status: "down",
+      lastSuccessfulRun: null,
+      lastFailedRun: null,
+      lastManualRerunAt: null,
+    });
+    const bossSend = vi.fn().mockResolvedValue("catalog-sync-jp");
+    app.boss = { send: bossSend } as never;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/admin/providers/twelve-data-jp/rerun",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(202);
+
+    const body = res.json() as { status: string; tickerCount: number; jobId: string | null };
+    expect(body).toMatchObject({
+      status: "queued",
+      tickerCount: 0,
+      jobId: "catalog-sync-jp",
+    });
+    expect(bossSend).toHaveBeenCalledTimes(1);
+    expect(bossSend).toHaveBeenCalledWith(
+      "catalog-sync",
+      { pendingMarkets: ["JP"] },
+      expect.objectContaining({ singletonKey: "catalog-sync:JP", priority: 5 }),
+    );
+
+    const auditResp = await app.persistence.listAuditLog({
+      page: 1,
+      limit: 10,
+      actions: ["provider_health_rerun"],
+    });
+    const entry = auditResp.items.find(
+      (e) => (e.metadata as { providerId?: string }).providerId === "twelve-data-jp",
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.metadata).toMatchObject({
+      providerId: "twelve-data-jp",
+      marketCode: "JP",
+      tickerCount: 0,
+      jobId: "catalog-sync-jp",
+    });
+  });
+
   it("non-AU provider audit metadata stays flat (back-compat)", async () => {
     const admin = await createAdmin(app);
     await app.persistence.upsertProviderHealthStatus({

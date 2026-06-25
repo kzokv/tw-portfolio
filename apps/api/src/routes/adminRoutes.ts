@@ -10115,6 +10115,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "yahoo-finance-kr"
       | "twelve-data-kr"
       | "yahoo-finance-jp"
+      | "twelve-data-jp"
       | "frankfurter"
       // KZO-196 — ASX GICS catalog provider; admin "Run now" enqueues the
       // singleton-keyed `asx-gics-sync` queue (same job pg-boss runs on cron).
@@ -10253,6 +10254,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           CATALOG_SYNC_QUEUE,
           { pendingMarkets: ["KR"] },
           { singletonKey: catalogSyncRerunSingletonKey("KR"), priority: 5 },
+        );
+      }
+      tickerCount = 0;
+    } else if (providerId === "twelve-data-jp") {
+      marketCode = "JP";
+      if (app.boss) {
+        jobId = await app.boss.send(
+          CATALOG_SYNC_QUEUE,
+          { pendingMarkets: ["JP"] },
+          { singletonKey: catalogSyncRerunSingletonKey("JP"), priority: 5 },
         );
       }
       tickerCount = 0;
