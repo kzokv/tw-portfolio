@@ -663,6 +663,8 @@ export class MemoryPersistence implements Persistence {
         "twelve-data-au",
         "yahoo-finance-kr",
         "twelve-data-kr",
+        "yahoo-finance-jp",
+        "twelve-data-jp",
         "frankfurter",
         // KZO-196 — ASX GICS catalog provider seed row.
         "asx-gics-csv",

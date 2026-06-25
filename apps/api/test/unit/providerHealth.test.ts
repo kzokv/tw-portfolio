@@ -55,6 +55,8 @@ const PROVIDERS = [
   "twelve-data-au",
   "yahoo-finance-kr",
   "twelve-data-kr",
+  "yahoo-finance-jp",
+  "twelve-data-jp",
   "frankfurter",
   "asx-gics-csv",
 ] as const;
@@ -105,6 +107,23 @@ describe("recordOutcome — state machine", () => {
 
   afterEach(async () => {
     await persistence.close();
+  });
+
+  it("seeds JP provider health rows in memory mode", async () => {
+    const rows = await persistence.getAllProviderHealthStatuses();
+    const providerIds = rows.map((row) => row.providerId);
+
+    expect(providerIds).toEqual(
+      expect.arrayContaining(["yahoo-finance-jp", "twelve-data-jp"]),
+    );
+    expect(rows.find((row) => row.providerId === "yahoo-finance-jp")).toMatchObject({
+      status: "down",
+      lastSuccessfulRun: null,
+    });
+    expect(rows.find((row) => row.providerId === "twelve-data-jp")).toMatchObject({
+      status: "down",
+      lastSuccessfulRun: null,
+    });
   });
 
   it("U1: first-ever success on null row → healthy, no notification", async () => {
