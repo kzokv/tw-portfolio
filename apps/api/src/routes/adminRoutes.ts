@@ -6623,7 +6623,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       ? filters.backfillStatus as "pending" | "backfilling" | "ready" | "failed" | "all"
       : undefined;
     const defaultBackfillStatuses: Array<"pending" | "failed"> =
-      filterBackfillStatus === undefined && (marketCode === "AU" || marketCode === "KR")
+      filterBackfillStatus === undefined && (marketCode === "AU" || marketCode === "KR" || marketCode === "JP")
         ? ["pending", "failed"]
         : [];
     const statuses = defaultBackfillStatuses.length > 0
@@ -10114,6 +10114,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "twelve-data-au"
       | "yahoo-finance-kr"
       | "twelve-data-kr"
+      | "yahoo-finance-jp"
       | "frankfurter"
       // KZO-196 — ASX GICS catalog provider; admin "Run now" enqueues the
       // singleton-keyed `asx-gics-sync` queue (same job pg-boss runs on cron).
@@ -10301,6 +10302,27 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
               marketFilter: "KR",
               trigger: "admin_rerun",
               resolverMode: effectiveKrResolverMode,
+            }),
+          ])
+        : [
+            { tickerCount: 0, batchId: null as string | null },
+            { tickerCount: 0, batchId: null as string | null },
+          ];
+      marketCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
+      marketMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
+      tickerCount = catalog.tickerCount + monitored.tickerCount;
+      jobId = catalog.batchId ?? monitored.batchId ?? null;
+    } else if (providerId === "yahoo-finance-jp") {
+      marketCode = "JP";
+      const [catalog, monitored] = app.boss
+        ? await Promise.all([
+            enqueueAuCatalogBarsBackfill(app.boss, app.persistence, app.log, {
+              trigger: "admin_rerun",
+              marketCode: "JP",
+            }),
+            enqueueDailyRefresh(app.boss, app.persistence, app.log, {
+              marketFilter: "JP",
+              trigger: "admin_rerun",
             }),
           ])
         : [
