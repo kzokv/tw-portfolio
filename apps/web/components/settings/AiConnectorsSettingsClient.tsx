@@ -30,7 +30,7 @@ import {
   updateAiConnector,
   type AiConnectorSummaryResponse,
 } from "../../features/ai-inbox/service";
-import { AI_CONNECTOR_SCOPE_LABELS } from "../connectors/scopeLabels";
+import { getAiConnectorScopeLabel } from "../connectors/i18n";
 
 type AiConnectorTab = "connections" | "tools" | "access";
 type ToolGroupFilter = "all" | AiConnectorToolGroup;
@@ -280,7 +280,7 @@ function toolUnavailableReason(
     return formatMessage(COPY[locale].connectorInactive, { status: connection.status });
   }
   if (!canConnectionUseTool(connection, tool)) {
-    return formatMessage(COPY[locale].requiresScope, { scope: AI_CONNECTOR_SCOPE_LABELS[tool.scope] });
+    return formatMessage(COPY[locale].requiresScope, { scope: getAiConnectorScopeLabel(locale, tool.scope) });
   }
   return null;
 }
@@ -359,14 +359,14 @@ export function AiConnectorsSettingsClient() {
       if (!query) return true;
       return tool.name.toLowerCase().includes(query)
         || tool.description.toLowerCase().includes(query)
-        || AI_CONNECTOR_SCOPE_LABELS[tool.scope].toLowerCase().includes(query);
+        || getAiConnectorScopeLabel(locale, tool.scope).toLowerCase().includes(query);
     });
     return {
       read: filterTools("read"),
       drafts: filterTools("drafts"),
       write: filterTools("write"),
     };
-  }, [groupedTools, toolAvailabilityFilter, toolGroupFilter, toolSearch]);
+  }, [groupedTools, locale, toolAvailabilityFilter, toolGroupFilter, toolSearch]);
 
   const scopeEnabledByGroup = useMemo(() => ({
     read: data?.policy.groupToggles.read ?? false,
@@ -800,7 +800,7 @@ function ScopeGroupCard({
           return (
             <label key={scope} className="flex items-start justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-background/80">
               <span className="min-w-0 break-words">
-                {AI_CONNECTOR_SCOPE_LABELS[scope]}
+                {getAiConnectorScopeLabel(locale, scope)}
                 {policyDisabled ? (
                   <span className="block text-xs text-slate-500">{copy.disabledByPolicy}</span>
                 ) : null}
@@ -876,7 +876,7 @@ function ToolSurfaceCard({
                         </div>
                         <p className="mt-1 break-words text-xs text-muted-foreground">{tool.description}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{AI_CONNECTOR_SCOPE_LABELS[tool.scope]}</span>
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{getAiConnectorScopeLabel(locale, tool.scope)}</span>
                           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{accessKindLabel(copy, tool.accessKind)}</span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">

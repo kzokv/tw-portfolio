@@ -140,4 +140,18 @@ describe("ChatGptAccountManagerWidget", () => {
     expect(callTool).toHaveBeenNthCalledWith(2, "get_account_manager_component", {});
     expect(document.body.textContent).toContain("Cathay TW Brokerage Prime");
   });
+
+  it("renders zh-TW frontend copy when locale is explicit", async () => {
+    const initial = buildMockAccountManagerWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: initial,
+    };
+
+    await act(async () => root.render(<ChatGptAccountManagerWidget locale="zh-TW" />));
+
+    expect(document.body.textContent).toContain("account:manage 權限");
+    expect(document.body.textContent).toContain("新增帳戶");
+    expect(document.body.textContent).toContain("權限防護說明");
+  });
 });

@@ -154,4 +154,17 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(accountCheckbox?.checked).toBe(true);
     expect(accountCheckbox?.disabled).toBe(false);
   });
+
+  it("renders zh-TW connector labels and scope copy when locale is explicit", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      scopes: ["portfolio:mcp_read", "account:manage", "transaction:write"],
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient locale="zh-TW" />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("連接 ChatGPT");
+    expect(document.body.textContent).toContain("管理帳戶");
+    expect(document.body.textContent).toContain("送出已確認交易");
+  });
 });

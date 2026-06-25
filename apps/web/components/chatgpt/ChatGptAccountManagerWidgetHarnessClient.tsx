@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { ChatGptAccountManagerWidget } from "./ChatGptAccountManagerWidget";
 import { buildMockAccountManagerWidgetData } from "./mockAccountManagerWidgetData";
 import type { OpenAiBridge, OpenAiToolCallResult } from "./openaiBridge";
 import type { ChatGptAccountManagerWidgetPayload } from "./chatGptWidgetTypes";
+import { normalizeChatGptLocale } from "./i18n";
 
 function clonePayload(payload: ChatGptAccountManagerWidgetPayload): ChatGptAccountManagerWidgetPayload {
   return JSON.parse(JSON.stringify(payload)) as ChatGptAccountManagerWidgetPayload;
 }
 
-export function ChatGptAccountManagerWidgetHarnessClient() {
+export function ChatGptAccountManagerWidgetHarnessClient({ locale = "en" }: { locale?: LocaleCode | string }) {
+  const resolvedLocale = normalizeChatGptLocale(locale);
   const widget = useMemo(() => buildMockAccountManagerWidgetData(), []);
 
   useEffect(() => {
@@ -18,6 +21,7 @@ export function ChatGptAccountManagerWidgetHarnessClient() {
     const bridge: OpenAiBridge = {
       toolOutput: current,
       toolResponseMetadata: current,
+      locale: resolvedLocale,
       async callTool(name, args): Promise<OpenAiToolCallResult> {
         current = clonePayload(current);
         switch (name) {
@@ -70,7 +74,7 @@ export function ChatGptAccountManagerWidgetHarnessClient() {
     return () => {
       delete window.openai;
     };
-  }, [widget]);
+  }, [resolvedLocale, widget]);
 
-  return <ChatGptAccountManagerWidget fallbackData={widget} />;
+  return <ChatGptAccountManagerWidget fallbackData={widget} locale={resolvedLocale} />;
 }
