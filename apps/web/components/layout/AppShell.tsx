@@ -398,7 +398,7 @@ export function AppShell({
         onRefreshContext={refreshContextDependentData}
       />
 
-      <BreadcrumbProvider>
+      <BreadcrumbProvider locale={locale}>
         <AppShellDataProvider value={appShellDataValue}>
           <CommandPaletteProvider value={commandPaletteContextValue}>
             <NavigationFeedbackProvider>

@@ -30,7 +30,7 @@ import {
   updateAiConnector,
   type AiConnectorSummaryResponse,
 } from "../../features/ai-inbox/service";
-import { AI_CONNECTOR_SCOPE_LABELS } from "../connectors/scopeLabels";
+import { getAiConnectorScopeLabel } from "../connectors/i18n";
 
 type AiConnectorTab = "connections" | "tools" | "access";
 type ToolGroupFilter = "all" | AiConnectorToolGroup;
@@ -118,6 +118,9 @@ const COPY = {
     requiresScope: "Requires {scope}.",
     connectorInactive: "Connector is {status}; only active connectors can call tools.",
     draftGroupDisabled: "Draft tools are disabled by policy.",
+    reconnectPostingScope: "Reconnect or re-consent in ChatGPT to enable posting.",
+    reconnectAccountManageScope: "Reconnect or re-consent in ChatGPT to enable account management tools.",
+    daySuffix: " days",
     historyLabel: "{count} hidden connection(s)",
   },
   "zh-TW": {
@@ -192,6 +195,9 @@ const COPY = {
     requiresScope: "需要 {scope}。",
     connectorInactive: "連接器狀態為 {status}；只有啟用中的連接器可以呼叫工具。",
     draftGroupDisabled: "草稿工具已被策略停用。",
+    reconnectPostingScope: "此範圍需在 ChatGPT 重新同意後啟用。",
+    reconnectAccountManageScope: "請在 ChatGPT 重新連線或重新同意後啟用帳戶管理工具。",
+    daySuffix: " 天",
     historyLabel: "隱藏 {count} 個歷史連線",
   },
 } as const;
@@ -260,14 +266,9 @@ function scopeNeedsReconnect(connection: AiConnectorConnectionDto, scope: AiConn
 }
 
 function reconnectCopy(locale: keyof typeof COPY, scope: AiConnectorScope): string {
-  if (locale === "zh-TW") {
-    return scope === "transaction:write"
-      ? "此範圍需在 ChatGPT 重新同意後啟用。"
-      : "請在 ChatGPT 重新連線或重新同意後啟用帳戶管理工具。";
-  }
   return scope === "transaction:write"
-    ? "Reconnect or re-consent in ChatGPT to enable posting."
-    : "Reconnect or re-consent in ChatGPT to enable account management tools.";
+    ? COPY[locale].reconnectPostingScope
+    : COPY[locale].reconnectAccountManageScope;
 }
 
 function toolUnavailableReason(
@@ -280,7 +281,7 @@ function toolUnavailableReason(
     return formatMessage(COPY[locale].connectorInactive, { status: connection.status });
   }
   if (!canConnectionUseTool(connection, tool)) {
-    return formatMessage(COPY[locale].requiresScope, { scope: AI_CONNECTOR_SCOPE_LABELS[tool.scope] });
+    return formatMessage(COPY[locale].requiresScope, { scope: getAiConnectorScopeLabel(locale, tool.scope) });
   }
   return null;
 }
@@ -359,14 +360,14 @@ export function AiConnectorsSettingsClient() {
       if (!query) return true;
       return tool.name.toLowerCase().includes(query)
         || tool.description.toLowerCase().includes(query)
-        || AI_CONNECTOR_SCOPE_LABELS[tool.scope].toLowerCase().includes(query);
+        || getAiConnectorScopeLabel(locale, tool.scope).toLowerCase().includes(query);
     });
     return {
       read: filterTools("read"),
       drafts: filterTools("drafts"),
       write: filterTools("write"),
     };
-  }, [groupedTools, toolAvailabilityFilter, toolGroupFilter, toolSearch]);
+  }, [groupedTools, locale, toolAvailabilityFilter, toolGroupFilter, toolSearch]);
 
   const scopeEnabledByGroup = useMemo(() => ({
     read: data?.policy.groupToggles.read ?? false,
@@ -472,8 +473,8 @@ export function AiConnectorsSettingsClient() {
           <div className="grid gap-3 md:grid-cols-4">
             <CompactPolicyStat label={copy.deployment} value={data ? data.policy.enabled ? copy.available : copy.unavailable : "-"} />
             <CompactPolicyStat label={copy.activeCap} value={policyValue(data?.policy.maxActiveConnectionsPerUser)} />
-            <CompactPolicyStat label={copy.inactivityExpiry} value={policyValue(data?.policy.inactivityExpiryDays, locale === "zh-TW" ? " 天" : " days")} />
-            <CompactPolicyStat label={copy.expiryWarning} value={policyValue(data?.policy.expirationWarningDays, locale === "zh-TW" ? " 天" : " days")} />
+            <CompactPolicyStat label={copy.inactivityExpiry} value={policyValue(data?.policy.inactivityExpiryDays, copy.daySuffix)} />
+            <CompactPolicyStat label={copy.expiryWarning} value={policyValue(data?.policy.expirationWarningDays, copy.daySuffix)} />
           </div>
         </div>
       </Card>
@@ -800,7 +801,7 @@ function ScopeGroupCard({
           return (
             <label key={scope} className="flex items-start justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-background/80">
               <span className="min-w-0 break-words">
-                {AI_CONNECTOR_SCOPE_LABELS[scope]}
+                {getAiConnectorScopeLabel(locale, scope)}
                 {policyDisabled ? (
                   <span className="block text-xs text-slate-500">{copy.disabledByPolicy}</span>
                 ) : null}
@@ -876,7 +877,7 @@ function ToolSurfaceCard({
                         </div>
                         <p className="mt-1 break-words text-xs text-muted-foreground">{tool.description}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{AI_CONNECTOR_SCOPE_LABELS[tool.scope]}</span>
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{getAiConnectorScopeLabel(locale, tool.scope)}</span>
                           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{accessKindLabel(copy, tool.accessKind)}</span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">

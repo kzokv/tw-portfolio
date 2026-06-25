@@ -9,6 +9,7 @@ import { DashboardHoldingsPreview } from "../dashboard/DashboardHoldingsPreview"
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
+import { getRouteLoadingLabels } from "../layout/i18n";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import { HoldingsTable } from "./HoldingsTable";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
@@ -102,7 +103,7 @@ export function PortfolioClient({
     return (
       <>
         <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-        <DashboardLoading />
+        <DashboardLoading locale={locale} loadingCopy={getRouteLoadingLabels(locale).portfolio} />
       </>
     );
   }

@@ -11,6 +11,7 @@ import { ProfileMenu } from "../profile/ProfileMenu";
 import { type QuickSearchItem } from "./QuickSearchPanel";
 import { TopBarSearch } from "./TopBarSearch";
 import { ThemeToggle } from "./ThemeToggle";
+import type { LayoutShellLabels } from "./i18n";
 
 // Re-export so existing AppShell imports (`import type { QuickSearchItem } from "./TopBar"`)
 // continue to resolve. The canonical home is `./QuickSearchPanel`.
@@ -37,6 +38,11 @@ interface TopBarProps {
   searchTickersLabel: string;
   openSearchLabel: string;
   closeSearchLabel: string;
+  toggleSidebarLabel: string;
+  openNavigationLabel: string;
+  commandPaletteLabel: string;
+  commandPaletteAriaLabel: string;
+  shellLabels: LayoutShellLabels;
   /** Hide the inline search input (admin variant). */
   hideSearch?: boolean;
 
@@ -84,6 +90,11 @@ export function TopBar({
   searchTickersLabel,
   openSearchLabel,
   closeSearchLabel,
+  toggleSidebarLabel,
+  openNavigationLabel,
+  commandPaletteLabel,
+  commandPaletteAriaLabel,
+  shellLabels,
   hideSearch = false,
   unreadCount = 0,
   notifications = [],
@@ -106,7 +117,7 @@ export function TopBar({
       <SidebarTrigger
         data-testid="app-sidebar-trigger"
         className="shrink-0"
-        aria-label="Toggle sidebar"
+        aria-label={toggleSidebarLabel}
       />
       {isMobile ? (
         // Preserves §8 item 13 — mobile brand-as-trigger. Tapping opens the
@@ -119,7 +130,7 @@ export function TopBar({
           className="h-9 shrink-0 px-1.5 text-xs font-semibold"
           onClick={() => setOpenMobile(true)}
           data-testid="app-sidebar-brand"
-          aria-label="Open navigation"
+          aria-label={openNavigationLabel}
         >
           V
         </Button>
@@ -142,7 +153,10 @@ export function TopBar({
         />
       ) : null}
 
-      <CommandPaletteTrigger />
+      <CommandPaletteTrigger
+        label={commandPaletteLabel}
+        ariaLabel={commandPaletteAriaLabel}
+      />
 
       {!hideNotifications
         && notificationDict
@@ -163,7 +177,7 @@ export function TopBar({
       ) : null}
 
       <div className="hidden shrink-0 md:block" data-testid="topbar-theme-toggle">
-        <ThemeToggle />
+        <ThemeToggle labels={shellLabels.themeToggle} />
       </div>
 
       <ProfileMenu
@@ -174,6 +188,16 @@ export function TopBar({
         role={role}
         onOpenProfile={onOpenProfile}
         signOutHref={signOutHref}
+        labels={{
+          triggerLabel: shellLabels.profileMenu.triggerLabel,
+          profileLink: shellLabels.profileMenu.profileLink,
+          adminLink: shellLabels.profileMenu.adminLink,
+          signOut: shellLabels.profileMenu.signOut,
+          themeGroupLabel: shellLabels.profileMenu.themeGroupLabel,
+          themeLight: shellLabels.themeToggle.light,
+          themeSystem: shellLabels.themeToggle.system,
+          themeDark: shellLabels.themeToggle.dark,
+        }}
       />
     </header>
   );

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API_CLIENT_ERROR_EVENT, type ApiClientErrorDetail } from "../../lib/api";
+import { getDictionary } from "../../lib/i18n";
+import { resolveClientLocale } from "../../lib/i18n/clientLocale";
 import { StatusToast } from "../ui/StatusToast";
 
 const TOAST_CLEAR_DELAY_MS = 5000;
-const DEFAULT_IMPERSONATION_BLOCKED_MESSAGE = "Writes are disabled while impersonating. Exit impersonation to make changes.";
 
 export function ApiClientErrorToast() {
   const [message, setMessage] = useState("");
@@ -15,7 +16,7 @@ export function ApiClientErrorToast() {
     function handleClientError(event: Event): void {
       const detail = (event as CustomEvent<ApiClientErrorDetail>).detail;
       const resolvedMessage = detail.code === "impersonation_write_blocked"
-        ? DEFAULT_IMPERSONATION_BLOCKED_MESSAGE
+        ? getDictionary(resolveClientLocale()).appError.impersonationWriteBlocked
         : detail.message;
 
       setMessage(resolvedMessage);

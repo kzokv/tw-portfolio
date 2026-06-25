@@ -491,7 +491,7 @@ function TickerBooleanOverrideRow({
     setSaving(true);
     try {
       await onSave(next);
-      setSuccess("Saved.");
+      setSuccess(dict.common.saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
     } finally {
@@ -599,7 +599,7 @@ function TickerSelectOverrideRow<T extends string>({
     setSaving(true);
     try {
       await onSave(next);
-      setSuccess("Saved.");
+      setSuccess(dict.common.saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
     } finally {
@@ -706,13 +706,13 @@ function TickerMarketListOverrideRow({
     setError(null);
     setSuccess(null);
     if (next && next.length === 0) {
-      setError("Select at least one market.");
+      setError(dict.inputs.selectAtLeastOneMarket);
       return;
     }
     setSaving(true);
     try {
       await onSave(next);
-      setSuccess("Saved.");
+      setSuccess(dict.common.saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
     } finally {
@@ -1083,9 +1083,9 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
       setIssuerDraft(updated.oauthPublicIssuer ?? "");
       setRedirectAllowlistDraft(redirectAllowlistDraftFromSettings(updated));
       setNumericDrafts(numericDraftsFromSettings(updated));
-      setSuccess("MCP settings saved.");
+      setSuccess(adminDict.inputs.mcpSettingsSaved);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save MCP settings.");
+      setError(err instanceof Error ? err.message : adminDict.inputs.mcpSaveFailed);
     } finally {
       setSaving(false);
     }
@@ -1100,7 +1100,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           aria-live="polite"
           aria-busy={error ? undefined : true}
         >
-          {error ?? (isZhTW ? "MCP 設定載入中..." : "Loading MCP settings...")}
+          {error ?? adminDict.inputs.mcpLoading}
         </p>
       </Card>
     );
@@ -1115,7 +1115,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
   try {
     numericPatch = parseMcpNumericDrafts(currentNumericDrafts);
   } catch (err) {
-    numericValidation = err instanceof Error ? err.message : "Numeric MCP settings are invalid.";
+    numericValidation = err instanceof Error ? err.message : adminDict.inputs.mcpNumericInvalid;
   }
   const numericDirty = MCP_NUMERIC_FIELDS.some((field) => currentNumericDrafts[field.key] !== String(settings[field.key]));
   let redirectAllowlistValidation: string | null = null;

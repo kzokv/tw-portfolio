@@ -41,6 +41,7 @@ import {
 } from "./openaiBridge";
 import { accountDisplayName } from "./accountDisplay";
 import { readAccountOptions, readPostingPreview, type ChatGptPostingPreviewSection } from "./chatGptWidgetTypes";
+import { chatGptTransactionDraftCopy, normalizeChatGptLocale } from "./i18n";
 
 interface ChatGptTransactionDraftWidgetProps {
   fallbackData?: ChatGptTransactionDraftWidgetDto | null;
@@ -123,8 +124,8 @@ function stateClassName(state: TransactionDraftRowDto["state"]): string {
   return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
-function compactState(value: string): string {
-  return value.replace(/_/g, " ");
+function compactState(value: string, locale: LocaleCode): string {
+  return chatGptTransactionDraftCopy[locale].rowStateLabels[value] ?? value.replace(/_/g, " ");
 }
 
 function rowGross(row: TransactionDraftRowDto): number {
@@ -159,14 +160,16 @@ function rowAccountName(row: TransactionDraftRowDto): string {
   });
 }
 
-function rowFeeSourceLabel(row: TransactionDraftRowDto): string {
-  if (row.feesSource === "MANUAL") return "Manual";
-  if (row.feesSource === "SOURCE_PROVIDED") return "Source provided";
-  if (row.feesSource === "CALCULATED") return "Calculated";
-  return "N/A";
+function rowFeeSourceLabel(row: TransactionDraftRowDto, locale: LocaleCode): string {
+  const copy = chatGptTransactionDraftCopy[locale];
+  if (row.feesSource === "MANUAL") return copy.manualFeeSource;
+  if (row.feesSource === "SOURCE_PROVIDED") return copy.sourceProvidedFeeSource;
+  if (row.feesSource === "CALCULATED") return copy.calculatedFeeSource;
+  return copy.feeSourceFallback;
 }
 
-function buildFallbackPostingPreview(rows: TransactionDraftRowDto[]): ChatGptPostingPreviewSection {
+function buildFallbackPostingPreview(rows: TransactionDraftRowDto[], locale: LocaleCode): ChatGptPostingPreviewSection {
+  const copy = chatGptTransactionDraftCopy[locale];
   const previewRows = rows.map((row) => {
     const gross = (row.quantity ?? 0) * (row.unitPrice ?? 0);
     const commission = row.commissionAmount ?? 0;
@@ -183,17 +186,17 @@ function buildFallbackPostingPreview(rows: TransactionDraftRowDto[]): ChatGptPos
       priceCurrency: row.priceCurrency,
       commissionAmount: row.commissionAmount,
       taxAmount: row.taxAmount,
-      feeSourceLabel: rowFeeSourceLabel(row),
+      feeSourceLabel: rowFeeSourceLabel(row, locale),
       netCashImpactAmount: direction * gross - commission - tax,
       netCashImpactCurrency: row.priceCurrency,
       warnings: [
         ...row.warnings.map(issueText),
-        ...(row.feesSource === "MANUAL" && row.commissionAmount === 0 ? ["Manual zero commission differs from calculated fee"] : []),
+        ...(row.feesSource === "MANUAL" && row.commissionAmount === 0 ? [copy.manualZeroCommissionWarning] : []),
       ],
     };
   });
   return {
-    title: "Draft posting preview",
+    title: copy.draftPostingPreview,
     rows: previewRows,
     summaryRows: buildPostingPreviewSummaryRows(previewRows),
     warnings: [],
@@ -231,16 +234,18 @@ function buildPostingPreviewSummaryRows(
 function buildPostingPreviewForRows(
   data: ChatGptTransactionDraftWidgetDto | null,
   rows: TransactionDraftRowDto[],
+  locale: LocaleCode,
 ): ChatGptPostingPreviewSection {
   const serverPreview = readPostingPreview(data);
-  if (!serverPreview) return buildFallbackPostingPreview(rows);
+  const copy = chatGptTransactionDraftCopy[locale];
+  if (!serverPreview) return buildFallbackPostingPreview(rows, locale);
 
-  const fallbackRowsById = new Map(buildFallbackPostingPreview(rows).rows.map((row) => [row.rowId, row]));
+  const fallbackRowsById = new Map(buildFallbackPostingPreview(rows, locale).rows.map((row) => [row.rowId, row]));
   const serverRowsById = new Map(serverPreview.rows.map((row) => [row.rowId, row]));
   const previewRows = rows.flatMap((row) => serverRowsById.get(row.id) ?? fallbackRowsById.get(row.id) ?? []);
 
   return {
-    title: serverPreview.title ?? "Draft posting preview",
+    title: serverPreview.title ?? copy.draftPostingPreview,
     rows: previewRows,
     summaryRows: buildPostingPreviewSummaryRows(previewRows),
     warnings: serverPreview.warnings,
@@ -250,17 +255,20 @@ function buildPostingPreviewForRows(
 function previewAccountLabel(
   row: Pick<ChatGptPostingPreviewSection["rows"][number], "accountId" | "accountName">,
   accountNameById: Map<string, string>,
+  locale: LocaleCode,
 ): string {
   const accountName = row.accountName?.trim();
   if (accountName) return accountName;
   const mappedName = row.accountId ? accountNameById.get(row.accountId) : null;
-  return mappedName?.trim() || "Unassigned";
+  return mappedName?.trim() || chatGptTransactionDraftCopy[locale].unassigned;
 }
 
 export function ChatGptTransactionDraftWidget({
   fallbackData = null,
   locale = "en",
 }: ChatGptTransactionDraftWidgetProps) {
+  const resolvedLocale = normalizeChatGptLocale(locale);
+  const copy = chatGptTransactionDraftCopy[resolvedLocale];
   const bridge = getOpenAiBridge();
   const bridgedData = readWidgetPayloadFromBridge();
   const bridgedViewState = readWidgetViewStateFromBridge();
@@ -326,8 +334,8 @@ export function ChatGptTransactionDraftWidget({
     [accountOptions],
   );
   const postingPreview = useMemo(
-    () => buildPostingPreviewForRows(data, readySelectedRows),
-    [data, readySelectedRows],
+    () => buildPostingPreviewForRows(data, readySelectedRows, resolvedLocale),
+    [data, readySelectedRows, resolvedLocale],
   );
   const needsReviewCount = data?.rows.filter((row) => row.state !== "ready" && row.state !== "confirmed").length ?? 0;
   const readySelectedTwdGross = twdGross(readySelectedRows);
@@ -374,7 +382,7 @@ export function ChatGptTransactionDraftWidget({
         setPostingResult(payload.postingResult);
         if (options?.onPostingResult && payload.postingResult.requiresTypedConfirmation) {
           setMode("post");
-          nextMessage = "Typed confirmation required before posting.";
+          nextMessage = copy.typedConfirmationRequired;
         }
       }
       if (options?.onPostingResult && data?.tools.refresh) {
@@ -386,7 +394,7 @@ export function ChatGptTransactionDraftWidget({
       }
       setMessage(nextMessage);
     } catch (toolError) {
-      setError(toolError instanceof Error ? toolError.message : "Widget action failed.");
+      setError(toolError instanceof Error ? toolError.message : copy.widgetActionFailed);
     } finally {
       setBusyAction(null);
     }
@@ -422,7 +430,7 @@ export function ChatGptTransactionDraftWidget({
           patch: buildEditDraftPatch(editDraft),
         }],
       },
-      "Row saved.",
+      copy.rowSaved,
       { keepMode: true },
     );
   }
@@ -439,7 +447,7 @@ export function ChatGptTransactionDraftWidget({
         typedConfirmation: requiresTypedConfirmation ? confirmText : undefined,
         idempotencyKey: buildIdempotencyKey(),
       },
-      "Selected rows posted.",
+      copy.rowsPosted,
       { keepMode: true, onPostingResult: true },
     );
   }
@@ -452,9 +460,9 @@ export function ChatGptTransactionDraftWidget({
             <div className="flex items-start gap-3">
               <WandSparkles className="mt-0.5 h-5 w-5 text-sky-300" aria-hidden="true" />
               <div>
-                <h1 className="text-lg font-semibold text-white">Vakwen transaction draft</h1>
+                <h1 className="text-lg font-semibold text-white">{copy.shellTitle}</h1>
                 <p className="mt-1 text-sm text-slate-300">
-                  Waiting for the MCP Apps bridge to provide draft state.
+                  {copy.waitingForBridge}
                 </p>
               </div>
             </div>
@@ -475,19 +483,19 @@ export function ChatGptTransactionDraftWidget({
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200">
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                MCP Apps bridge only
+                {copy.bridgeOnly}
               </div>
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{data.title}</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-300 sm:text-base">{data.subtitle}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-                  No raw file sent to Vakwen
+                  {copy.noRawFile}
                 </span>
                 <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
-                  {formatNumber(data.rows.length, locale as LocaleCode)} rows
+                  {formatNumber(data.rows.length, resolvedLocale)} {copy.rows}
                 </span>
                 <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
-                  {formatNumber(needsReviewCount, locale as LocaleCode)} need review
+                  {formatNumber(needsReviewCount, resolvedLocale)} {copy.needsReview}
                 </span>
                 <span
                   className={cn(
@@ -497,20 +505,19 @@ export function ChatGptTransactionDraftWidget({
                       : "border border-slate-700 bg-slate-800 text-slate-300",
                   )}
                 >
-                  {data.permissions.writeScopeGranted ? "transaction:write enabled" : "transaction:write not granted"}
+                  {data.permissions.writeScopeGranted ? copy.writeEnabled : copy.writeNotGranted}
                 </span>
               </div>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Bridge note</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{copy.bridgeNote}</p>
               <p className="mt-3 text-sm leading-6 text-slate-200">
-                Actions in this component use `window.openai.callTool(...)` and `window.openai.setWidgetState(...)`.
-                The iframe does not call the Vakwen API directly and does not depend on a Vakwen web session.
+                {copy.bridgeDescription}
               </p>
               {data.permissions.requiresWriteReconsent ? (
                 <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                  `transaction:write` remains an advanced scope. Reconnect or re-consent in ChatGPT before this widget can post rows.
+                  {copy.requiresWriteReconsent}
                 </div>
               ) : null}
             </div>
@@ -536,19 +543,19 @@ export function ChatGptTransactionDraftWidget({
                   <FileSpreadsheet className="h-5 w-5" aria-hidden="true" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-950">Vakwen transaction draft</h2>
-                  <p className="text-sm text-slate-600">Connector-mediated import from ChatGPT with guarded posting.</p>
+                  <h2 className="text-lg font-semibold text-slate-950">{copy.shellTitle}</h2>
+                  <p className="text-sm text-slate-600">{copy.shellDescription}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void callTool(data.tools.refresh, { batchId: data.batch.id }, "Draft refreshed.", { keepMode: true })}
+                  onClick={() => void callTool(data.tools.refresh, { batchId: data.batch.id }, copy.draftRefreshed, { keepMode: true })}
                   disabled={busyAction !== null || !data.tools.refresh}
                 >
                   <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Refresh
+                  {copy.refresh}
                 </Button>
                 <Button
                   variant="outline"
@@ -558,7 +565,7 @@ export function ChatGptTransactionDraftWidget({
                   data-testid="chatgpt-widget-open-vakwen"
                 >
                   <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Open in Vakwen
+                  {copy.openInVakwen}
                 </Button>
               </div>
             </div>
@@ -566,9 +573,9 @@ export function ChatGptTransactionDraftWidget({
 
           <TabsRoot value={mode} onValueChange={(value) => setMode(value === "import" || value === "post" ? value : "review")}>
             <TabsList className="mx-5 mt-4 sm:mx-6" data-testid="chatgpt-widget-tabs">
-              <TabsTrigger value="import">Import</TabsTrigger>
-              <TabsTrigger value="review">Review</TabsTrigger>
-              <TabsTrigger value="post">Post</TabsTrigger>
+              <TabsTrigger value="import">{copy.tabImport}</TabsTrigger>
+              <TabsTrigger value="review">{copy.tabReview}</TabsTrigger>
+              <TabsTrigger value="post">{copy.tabPost}</TabsTrigger>
             </TabsList>
 
             <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -577,18 +584,18 @@ export function ChatGptTransactionDraftWidget({
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Source</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.source}</p>
                         <h3 className="mt-2 text-lg font-semibold text-slate-950">
-                          {data.provenance.sourceLabel ?? data.provenance.sourceFilename ?? "Temporary ChatGPT import"}
+                          {data.provenance.sourceLabel ?? data.provenance.sourceFilename ?? copy.temporaryChatGptImport}
                         </h3>
                         <p className="mt-2 max-w-3xl text-sm text-slate-600">{data.provenance.sourceSummary}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                          preflight complete
+                          {copy.preflightComplete}
                         </span>
                         <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                          batch v{data.batch.version}
+                          {copy.batch} v{data.batch.version}
                         </span>
                       </div>
                     </div>
@@ -596,10 +603,10 @@ export function ChatGptTransactionDraftWidget({
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     {[
-                      { label: "Rows", value: formatNumber(data.rows.length, locale as LocaleCode), detail: `${formatNumber(selectedRowIds.size, locale as LocaleCode)} selected` },
-                      { label: "Ready", value: formatNumber(data.rows.filter((row) => row.state === "ready").length, locale as LocaleCode), detail: data.permissions.canPost ? "Eligible to post" : "Review only" },
-                      { label: "Needs review", value: formatNumber(needsReviewCount, locale as LocaleCode), detail: "Clarifications or conflicts" },
-                      { label: "Gross value", value: data.grossValueText, detail: requiresTypedConfirmation ? "Typed confirmation required" : "Button confirmation" },
+                      { label: copy.rowsMetricLabel, value: formatNumber(data.rows.length, resolvedLocale), detail: copy.selectedCount(formatNumber(selectedRowIds.size, resolvedLocale)) },
+                      { label: copy.readyMetricLabel, value: formatNumber(data.rows.filter((row) => row.state === "ready").length, resolvedLocale), detail: data.permissions.canPost ? copy.readyEligible : copy.readyReviewOnly },
+                      { label: copy.needsReviewMetricLabel, value: formatNumber(needsReviewCount, resolvedLocale), detail: copy.needsReviewDetail },
+                      { label: copy.grossValueMetricLabel, value: data.grossValueText, detail: requiresTypedConfirmation ? copy.typedConfirmationRequiredDetail : copy.buttonConfirmationDetail },
                     ].map((item) => (
                       <Card key={item.label} className="rounded-3xl border-slate-200 px-4 py-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
@@ -610,25 +617,27 @@ export function ChatGptTransactionDraftWidget({
                   </div>
 
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">Connector provenance</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.connectorProvenance}</h3>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Channel</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.channel}</p>
                         <p className="mt-1 text-sm text-slate-700">{data.provenance.sourceChannelLabel}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Row mappings</p>
-                        <p className="mt-1 text-sm text-slate-700">{data.provenance.rowMappingCount ?? "Not provided"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.rowMappings}</p>
+                        <p className="mt-1 text-sm text-slate-700">{data.provenance.rowMappingCount ?? copy.notProvided}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Structured payload</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.structuredPayload}</p>
                         <p className="mt-1 text-sm text-slate-700">
-                          {data.provenance.structuredCandidatesOnly ? "Structured candidates plus capped provenance only" : "Includes additional component metadata"}
+                          {data.provenance.structuredCandidatesOnly
+                            ? copy.structuredCandidatesOnly
+                            : copy.additionalComponentMetadata}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Snippet cap</p>
-                        <p className="mt-1 text-sm text-slate-700">{data.provenance.snippetCharacterCap} characters per row</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.snippetCap}</p>
+                        <p className="mt-1 text-sm text-slate-700">{copy.snippetCapValue(data.provenance.snippetCharacterCap)}</p>
                       </div>
                     </div>
                   </Card>
@@ -638,9 +647,9 @@ export function ChatGptTransactionDraftWidget({
                       <div className="flex items-start gap-3">
                         <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" aria-hidden="true" />
                         <div>
-                          <h3 className="text-base font-semibold text-amber-900">Unsupported rows kept for review</h3>
+                          <h3 className="text-base font-semibold text-amber-900">{copy.unsupportedRowsTitle}</h3>
                           <p className="mt-1 text-sm text-amber-800">
-                            Vakwen preserved non-trade lines for audit, but they will not post as transactions.
+                            {copy.unsupportedRowsDescription}
                           </p>
                         </div>
                       </div>
@@ -655,15 +664,15 @@ export function ChatGptTransactionDraftWidget({
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-12" />
-                            <TableHead>Account</TableHead>
-                            <TableHead>Ticker</TableHead>
-                            <TableHead>Side</TableHead>
-                            <TableHead>Quantity</TableHead>
-                            <TableHead>Price</TableHead>
-                            <TableHead>Fees</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{copy.account}</TableHead>
+                            <TableHead>{copy.ticker}</TableHead>
+                            <TableHead>{copy.side}</TableHead>
+                            <TableHead>{copy.quantity}</TableHead>
+                            <TableHead>{copy.price}</TableHead>
+                            <TableHead>{copy.fees}</TableHead>
+                            <TableHead>{copy.date}</TableHead>
+                            <TableHead>{copy.status}</TableHead>
+                            <TableHead className="text-right">{copy.actions}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -673,7 +682,7 @@ export function ChatGptTransactionDraftWidget({
                               <TableRow key={row.id} data-testid={`chatgpt-widget-row-${row.id}`}>
                                 <TableCell>
                                   <input
-                                    aria-label={`Select draft row ${row.rowNumber}`}
+                                    aria-label={copy.selectDraftRow(row.rowNumber)}
                                     checked={selectedRowIds.has(row.id)}
                                     disabled={!selectable}
                                     onChange={(event) => toggleRow(row.id, event.target.checked)}
@@ -684,8 +693,8 @@ export function ChatGptTransactionDraftWidget({
                                   <div className="font-medium text-slate-900">{rowAccountName(row)}</div>
                                   <div className="text-xs text-slate-500">
                                     {row.accountNameInput && row.accountNameInput !== rowAccountName(row)
-                                      ? `Input: ${row.accountNameInput}`
-                                      : row.accountId ? "Matched account" : "Unassigned"}
+                                      ? `${copy.inputValuePrefix}: ${row.accountNameInput}`
+                                      : row.accountId ? copy.matchedAccount : copy.unassigned}
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -693,13 +702,13 @@ export function ChatGptTransactionDraftWidget({
                                   <div className="text-xs text-slate-500">{row.marketCode ?? "-"}</div>
                                 </TableCell>
                                 <TableCell>{row.type ?? "-"}</TableCell>
-                                <TableCell>{row.quantity === null ? "-" : formatNumber(row.quantity, locale as LocaleCode)}</TableCell>
-                                <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, locale as LocaleCode) : "-"}</TableCell>
+                                <TableCell>{row.quantity === null ? "-" : formatNumber(row.quantity, resolvedLocale)}</TableCell>
+                                <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, resolvedLocale) : "-"}</TableCell>
                                 <TableCell>
                                   <div className="text-slate-900">
                                     {row.commissionAmount ?? 0} / {row.taxAmount ?? 0}
                                   </div>
-                                  <div className="text-xs text-slate-500">{rowFeeSourceLabel(row)}</div>
+                                  <div className="text-xs text-slate-500">{rowFeeSourceLabel(row, resolvedLocale)}</div>
                                 </TableCell>
                                 <TableCell>{row.tradeDate ?? "-"}</TableCell>
                                 <TableCell>
@@ -707,7 +716,7 @@ export function ChatGptTransactionDraftWidget({
                                     className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize", stateClassName(row.state))}
                                     data-testid={`chatgpt-widget-row-state-${row.id}`}
                                   >
-                                    {compactState(row.state)}
+                                    {compactState(row.state, resolvedLocale)}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right">
@@ -719,7 +728,7 @@ export function ChatGptTransactionDraftWidget({
                                     data-testid={`chatgpt-widget-edit-${row.id}`}
                                   >
                                     <Pencil className="h-4 w-4" aria-hidden="true" />
-                                    <span className="sr-only">Edit row</span>
+                                    <span className="sr-only">{copy.editRowSr}</span>
                                   </Button>
                                 </TableCell>
                               </TableRow>
@@ -735,45 +744,45 @@ export function ChatGptTransactionDraftWidget({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void callTool(data.tools.excludeRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, "Rows excluded.", { keepMode: true })}
+                        onClick={() => void callTool(data.tools.excludeRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, copy.rowsExcluded, { keepMode: true })}
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
                         <XCircle className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Exclude
+                        {copy.exclude}
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void callTool(data.tools.reincludeRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, "Rows re-included.", { keepMode: true })}
+                        onClick={() => void callTool(data.tools.reincludeRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, copy.rowsReincluded, { keepMode: true })}
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
-                        Reinclude
+                        {copy.reinclude}
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void callTool(data.tools.rejectRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, "Rows rejected.", { keepMode: true })}
+                        onClick={() => void callTool(data.tools.rejectRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, copy.rowsRejected, { keepMode: true })}
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
-                        Reject
+                        {copy.reject}
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void callTool(data.tools.archiveBatch, { batchId: data.batch.id, expectedBatchVersion: data.batch.version }, "Batch archived.", { keepMode: true })}
+                        onClick={() => void callTool(data.tools.archiveBatch, { batchId: data.batch.id, expectedBatchVersion: data.batch.version }, copy.batchArchived, { keepMode: true })}
                         disabled={busyAction !== null || !data.permissions.canArchive}
                       >
                         <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Archive
+                        {copy.archive}
                       </Button>
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => void callTool(data.tools.deleteBatch, { batchId: data.batch.id, expectedBatchVersion: data.batch.version }, "Batch deleted.", { keepMode: true })}
+                        onClick={() => void callTool(data.tools.deleteBatch, { batchId: data.batch.id, expectedBatchVersion: data.batch.version }, copy.batchDeleted, { keepMode: true })}
                         disabled={busyAction !== null || !data.permissions.canDelete}
                       >
                         <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Delete
+                        {copy.delete}
                       </Button>
                     </div>
                   </Card>
@@ -781,28 +790,28 @@ export function ChatGptTransactionDraftWidget({
 
                 <TabsContent value="post" className="mt-0 space-y-5">
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">Post selected rows</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.postSelectedRows}</h3>
                     <p className="mt-2 text-sm text-slate-600">
-                      Posting reuses Vakwen&apos;s canonical transaction creation path. Deterministic validation runs again before any write succeeds.
+                      {copy.postDescription}
                     </p>
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Selected ready rows</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.selectedReadyRows}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{readySelectedRows.length}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Gross value</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.grossValueMetricLabel}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{postingPreview.rows.length > 0 ? data.grossValueText : "0"}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmed rows</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.confirmedRows}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{confirmedRowCount}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Posting scope</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.postingScope}</p>
                         <p className="mt-2 text-sm font-semibold text-slate-950">
-                          {data.permissions.writeScopeGranted ? "Granted" : "Not granted"}
+                          {data.permissions.writeScopeGranted ? copy.granted : copy.notGranted}
                         </p>
                       </div>
                     </div>
@@ -811,40 +820,40 @@ export function ChatGptTransactionDraftWidget({
                       <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <h4 className="text-base font-semibold text-slate-950">{postingPreview.title ?? "Draft posting preview"}</h4>
-                            <p className="mt-1 text-sm text-slate-600">Server-computed account confirmation, fee source, and net cash impact before posting.</p>
+                            <h4 className="text-base font-semibold text-slate-950">{postingPreview.title ?? copy.draftPostingPreview}</h4>
+                            <p className="mt-1 text-sm text-slate-600">{copy.postingPreviewDescription}</p>
                           </div>
                         </div>
                         <div className="mt-4 overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Account</TableHead>
-                                <TableHead>Ticker</TableHead>
-                                <TableHead>Side</TableHead>
-                                <TableHead>Quantity</TableHead>
-                                <TableHead>Price</TableHead>
-                                <TableHead>Commission</TableHead>
-                                <TableHead>Tax</TableHead>
-                                <TableHead>Fee source</TableHead>
-                                <TableHead className="text-right">Net cash impact</TableHead>
+                                <TableHead>{copy.account}</TableHead>
+                                <TableHead>{copy.ticker}</TableHead>
+                                <TableHead>{copy.side}</TableHead>
+                                <TableHead>{copy.quantity}</TableHead>
+                                <TableHead>{copy.price}</TableHead>
+                                <TableHead>{copy.commission}</TableHead>
+                                <TableHead>{copy.tax}</TableHead>
+                                <TableHead>{copy.feeSource}</TableHead>
+                                <TableHead className="text-right">{copy.netCashImpact}</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {postingPreview.rows.map((row) => (
                                 <TableRow key={row.rowId} data-testid={`chatgpt-widget-preview-row-${row.rowId}`}>
                                   <TableCell>
-                                    <div className="font-medium text-slate-900">{previewAccountLabel(row, accountNameById)}</div>
+                                    <div className="font-medium text-slate-900">{previewAccountLabel(row, accountNameById, resolvedLocale)}</div>
                                     {row.warnings?.length ? <div className="mt-1 text-xs text-amber-700">{row.warnings[0]}</div> : null}
                                   </TableCell>
                                   <TableCell>{row.ticker}</TableCell>
                                   <TableCell>{row.side}</TableCell>
                                   <TableCell>{row.quantity ?? "-"}</TableCell>
-                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, locale as LocaleCode) : "-"}</TableCell>
-                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.commissionAmount ?? 0, row.priceCurrency, locale as LocaleCode) : row.commissionAmount ?? "-"}</TableCell>
-                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.taxAmount ?? 0, row.priceCurrency, locale as LocaleCode) : row.taxAmount ?? "-"}</TableCell>
-                                  <TableCell>{row.feeSourceLabel ?? "N/A"}</TableCell>
-                                  <TableCell className="text-right">{row.netCashImpactCurrency ? formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.netCashImpactCurrency, locale as LocaleCode) : "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, resolvedLocale) : "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.commissionAmount ?? 0, row.priceCurrency, resolvedLocale) : row.commissionAmount ?? "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.taxAmount ?? 0, row.priceCurrency, resolvedLocale) : row.taxAmount ?? "-"}</TableCell>
+                                  <TableCell>{row.feeSourceLabel ?? copy.feeSourceFallback}</TableCell>
+                                  <TableCell className="text-right">{row.netCashImpactCurrency ? formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.netCashImpactCurrency, resolvedLocale) : "-"}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -855,25 +864,25 @@ export function ChatGptTransactionDraftWidget({
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead>Account</TableHead>
-                                  <TableHead>Currency</TableHead>
-                                  <TableHead>Total buys</TableHead>
-                                  <TableHead>Total sells</TableHead>
-                                  <TableHead>Total commission</TableHead>
-                                  <TableHead>Total tax</TableHead>
-                                  <TableHead className="text-right">Net cash impact</TableHead>
+                                  <TableHead>{copy.account}</TableHead>
+                                  <TableHead>{copy.currency}</TableHead>
+                                  <TableHead>{copy.totalBuys}</TableHead>
+                                  <TableHead>{copy.totalSells}</TableHead>
+                                  <TableHead>{copy.totalCommission}</TableHead>
+                                  <TableHead>{copy.totalTax}</TableHead>
+                                  <TableHead className="text-right">{copy.netCashImpact}</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {postingPreview.summaryRows.map((row, index) => (
                                   <TableRow key={`${row.accountId ?? "summary"}-${row.currency}-${index}`}>
-                                    <TableCell>{previewAccountLabel(row, accountNameById)}</TableCell>
+                                    <TableCell>{previewAccountLabel(row, accountNameById, resolvedLocale)}</TableCell>
                                     <TableCell>{row.currency}</TableCell>
-                                    <TableCell>{formatCurrencyAmount(row.totalBuysAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
-                                    <TableCell>{formatCurrencyAmount(row.totalSellsAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
-                                    <TableCell>{formatCurrencyAmount(row.totalCommissionAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
-                                    <TableCell>{formatCurrencyAmount(row.totalTaxAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
-                                    <TableCell className="text-right">{formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalBuysAmount ?? 0, row.currency, resolvedLocale)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalSellsAmount ?? 0, row.currency, resolvedLocale)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalCommissionAmount ?? 0, row.currency, resolvedLocale)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalTaxAmount ?? 0, row.currency, resolvedLocale)}</TableCell>
+                                    <TableCell className="text-right">{formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.currency, resolvedLocale)}</TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -885,7 +894,7 @@ export function ChatGptTransactionDraftWidget({
 
                     {data.permissions.requiresWriteReconsent ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                        `transaction:write` is off by default. Reconnect in ChatGPT and opt in during consent before this widget can post.
+                        {copy.requiresWriteReconsentDefault}
                       </div>
                     ) : null}
 
@@ -895,17 +904,17 @@ export function ChatGptTransactionDraftWidget({
                         <div className="space-y-3">
                           <div>
                             <p className="font-semibold text-amber-950">
-                              {requiresTypedConfirmation ? "High-value confirmation" : "Posting confirmation"}
+                              {requiresTypedConfirmation ? copy.highValueConfirmation : copy.postingConfirmation}
                             </p>
                             <p className="mt-1 text-sm text-amber-800">
                               {requiresTypedConfirmation
-                                ? "This batch crosses the current risk threshold. Type the confirmation phrase before posting."
-                                : "Up to five low-risk rows can post after one explicit confirmation."}
+                                ? copy.highValueConfirmationDescription
+                                : copy.postingConfirmationDescription}
                             </p>
                           </div>
                           {requiresTypedConfirmation ? (
                             <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-amber-900">
-                              Required phrase
+                              {copy.requiredPhrase}
                               <input
                                 className="mt-2 block w-full rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950"
                                 onChange={(event) => setConfirmText(event.target.value)}
@@ -925,7 +934,7 @@ export function ChatGptTransactionDraftWidget({
                             data-testid="chatgpt-widget-post-button"
                           >
                             <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                            Post selected
+                            {copy.postSelected}
                           </Button>
                         </div>
                       </div>
@@ -942,21 +951,21 @@ export function ChatGptTransactionDraftWidget({
                           "text-base font-semibold",
                           postingNeedsConfirmation ? "text-amber-950" : "text-emerald-950",
                         )}>
-                          {postingNeedsConfirmation ? "Confirmation required" : "Latest posting result"}
+                          {postingNeedsConfirmation ? copy.confirmationRequired : copy.latestPostingResult}
                         </h4>
                         <p className={cn(
                           "mt-2 text-sm",
                           postingNeedsConfirmation ? "text-amber-800" : "text-emerald-800",
                         )}>
                           {postingNeedsConfirmation && postingResult.typedConfirmationPhrase
-                            ? `Type ${postingResult.typedConfirmationPhrase} before posting these rows.`
-                            : `Posted ${postingResult.postedRowIds.length} rows and created ${postingResult.createdTransactionIds.length} transactions.`}
+                            ? copy.typePhraseBeforePosting(postingResult.typedConfirmationPhrase)
+                            : copy.postedRowsCreatedTransactions(postingResult.postedRowIds.length, postingResult.createdTransactionIds.length)}
                         </p>
                         <p className={cn(
                           "mt-2 text-sm",
                           postingNeedsConfirmation ? "text-amber-800" : "text-emerald-800",
                         )}>
-                          Remaining unresolved rows: {postingResult.remainingUnresolvedRowIds.length}
+                          {copy.remainingUnresolvedRows}: {postingResult.remainingUnresolvedRowIds.length}
                         </p>
                       </Card>
                     ) : null}
@@ -969,14 +978,14 @@ export function ChatGptTransactionDraftWidget({
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-semibold text-slate-950">Selected row edit</h3>
+                        <h3 className="text-base font-semibold text-slate-950">{copy.selectedRowEdit}</h3>
                         <p className="mt-1 text-sm text-slate-600">
-                          Saving re-runs deterministic preflight and returns the current row state.
+                          {copy.selectedRowEditDescription}
                         </p>
                       </div>
                       {activeEditRow ? (
                         <Button variant="ghost" size="sm" onClick={() => setEditRowId(null)}>
-                          Close
+                          {copy.close}
                         </Button>
                       ) : null}
                     </div>
@@ -985,12 +994,12 @@ export function ChatGptTransactionDraftWidget({
                       <>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
                           {([
-                            ["accountName", "Account"],
-                            ["marketCode", "Market"],
-                            ["quantity", "Quantity"],
-                            ["unitPrice", "Unit price"],
-                            ["commissionAmount", "Commission"],
-                            ["taxAmount", "Tax"],
+                            ["accountName", copy.editFieldLabels.accountName],
+                            ["marketCode", copy.editFieldLabels.marketCode],
+                            ["quantity", copy.editFieldLabels.quantity],
+                            ["unitPrice", copy.editFieldLabels.unitPrice],
+                            ["commissionAmount", copy.editFieldLabels.commissionAmount],
+                            ["taxAmount", copy.editFieldLabels.taxAmount],
                           ] as Array<[EditableField, string]>).map(([field, label]) => (
                             <label key={field} className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                               {label}
@@ -1000,7 +1009,7 @@ export function ChatGptTransactionDraftWidget({
                                   onChange={(event) => setEditDraft((current) => ({ ...current, accountName: event.target.value }))}
                                   value={editDraft.accountName}
                                 >
-                                  <option value="">Select account</option>
+                                  <option value="">{copy.selectAccount}</option>
                                   {accountSelectOptions.map((account) => (
                                     <option key={account.id} value={account.name}>{account.name}</option>
                                   ))}
@@ -1015,7 +1024,7 @@ export function ChatGptTransactionDraftWidget({
                             </label>
                           ))}
                           <label className="sm:col-span-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Note
+                            {copy.note}
                             <textarea
                               className="mt-2 block min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
                               onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))}
@@ -1023,7 +1032,7 @@ export function ChatGptTransactionDraftWidget({
                             />
                           </label>
                           <label className="sm:col-span-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Source snippet
+                            {copy.sourceSnippet}
                             <textarea
                               className="mt-2 block min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
                               onChange={(event) => setEditDraft((current) => ({ ...current, sourceSnippet: event.target.value }))}
@@ -1033,17 +1042,17 @@ export function ChatGptTransactionDraftWidget({
                         </div>
                         <div className="mt-4 flex justify-end">
                           <Button onClick={() => void saveEdit()} disabled={busyAction !== null}>
-                            Save row
+                            {copy.saveRow}
                           </Button>
                         </div>
                       </>
                     ) : (
-                      <p className="mt-4 text-sm text-slate-500">Choose a row from Review to edit it here.</p>
+                      <p className="mt-4 text-sm text-slate-500">{copy.chooseRowToEdit}</p>
                     )}
 
                     {activeIssues.length > 0 ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                        <h4 className="text-sm font-semibold text-amber-950">Validation details</h4>
+                        <h4 className="text-sm font-semibold text-amber-950">{copy.validationDetails}</h4>
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
                           {activeIssues.map((item, index) => (
                             <li key={`${activeEditRow?.id ?? "row"}-issue-${index}`}>{item}</li>
@@ -1053,13 +1062,13 @@ export function ChatGptTransactionDraftWidget({
                     ) : null}
                     {activeEditRow?.feesSource === "MANUAL" && (activeEditRow.commissionAmount === 0 || activeEditRow.taxAmount === 0) ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                        Manual zero-fee overrides remain explicit and will not be recalculated unless you clear them.
+                        {copy.manualZeroFeeOverrideWarning}
                       </div>
                     ) : null}
                   </Card>
 
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">Audit preview</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.auditPreview}</h3>
                     <div className="mt-4 space-y-3">
                       {data.auditPreview.map((item, index) => (
                         <div key={`${item.message}-${index}`} className="grid grid-cols-[12px_minmax(0,1fr)] gap-3 text-sm text-slate-700">
@@ -1083,7 +1092,7 @@ export function ChatGptTransactionDraftWidget({
                     className="flex w-full items-center justify-between gap-3 rounded-3xl border border-sky-200 bg-sky-50 px-4 py-4 text-left text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
                     disabled={!data.deepLinkUrl}
                   >
-                    <span>Review or continue in Vakwen</span>
+                    <span>{copy.reviewOrContinueInVakwen}</span>
                     <span className="truncate text-xs text-sky-600">{data.deepLinkUrl ?? "/transactions?tab=ai-inbox"}</span>
                   </button>
                 </div>

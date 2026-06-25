@@ -244,6 +244,24 @@ describe("ChatGptTransactionDraftWidget", () => {
     expect(document.body.textContent).toContain("Post selected");
   });
 
+  it("renders zh-TW widget chrome when locale is explicit", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "review", selectedRowIds: initial.selectedRowIds, editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget locale="zh-TW" />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Vakwen 交易草稿");
+    expect(document.body.textContent).toContain("僅限 MCP Apps bridge");
+    expect(document.body.textContent).toContain("在 Vakwen 開啟");
+  });
+
   it("filters the server posting preview to the current ready selection", async () => {
     const initial = buildMockTransactionDraftWidgetData();
     window.openai = {

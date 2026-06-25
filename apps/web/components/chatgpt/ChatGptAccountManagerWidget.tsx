@@ -2,15 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Archive, Plus, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { formatAccountOption } from "../../features/cash-ledger/utils/accountOptions";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { extractToolPayload, getOpenAiBridge } from "./openaiBridge";
 import type { ChatGptAccountManagerWidgetPayload, ChatGptAccountManagerWidgetAccount } from "./chatGptWidgetTypes";
 import { readAccountManagerPayload } from "./chatGptWidgetTypes";
+import { chatGptAccountManagerCopy, normalizeChatGptLocale } from "./i18n";
+import { chatGptConnectorAuthorizeCopy } from "../connectors/i18n";
 
 interface ChatGptAccountManagerWidgetProps {
   fallbackData?: ChatGptAccountManagerWidgetPayload | null;
+  locale?: LocaleCode | string;
 }
 
 interface AccountDraft {
@@ -19,25 +23,27 @@ interface AccountDraft {
   accountType: "broker" | "bank" | "wallet";
 }
 
-const ACCOUNT_TYPE_LABELS = {
-  accountTypeBroker: "Broker",
-  accountTypeBank: "Bank",
-  accountTypeWallet: "Wallet",
-};
-
 const EMPTY_DRAFT: AccountDraft = {
   name: "",
   defaultCurrency: "TWD",
   accountType: "broker",
 };
 
-function accountSummary(account: ChatGptAccountManagerWidgetAccount): string {
-  return formatAccountOption(account, ACCOUNT_TYPE_LABELS);
+function accountSummary(account: ChatGptAccountManagerWidgetAccount, locale: LocaleCode): string {
+  const copy = chatGptAccountManagerCopy[locale];
+  return formatAccountOption(account, {
+    accountTypeBroker: copy.broker,
+    accountTypeBank: copy.bank,
+    accountTypeWallet: copy.wallet,
+  });
 }
 
 export function ChatGptAccountManagerWidget({
   fallbackData = null,
+  locale = "en",
 }: ChatGptAccountManagerWidgetProps) {
+  const resolvedLocale = normalizeChatGptLocale(locale);
+  const copy = chatGptAccountManagerCopy[resolvedLocale];
   const bridge = getOpenAiBridge();
   const [data, setData] = useState<ChatGptAccountManagerWidgetPayload | null>(
     readAccountManagerPayload(bridge?.toolResponseMetadata) ?? readAccountManagerPayload(bridge?.toolOutput) ?? fallbackData,
@@ -89,11 +95,11 @@ export function ChatGptAccountManagerWidget({
           refreshFailed = true;
         }
       }
-      setMessage(refreshFailed ? `${successMessage} Refresh accounts to see the latest account list.` : successMessage);
+      setMessage(refreshFailed ? `${successMessage} ${copy.refreshHint}` : successMessage);
       setEditingId(null);
       setDraft(EMPTY_DRAFT);
     } catch (toolError) {
-      setError(toolError instanceof Error ? toolError.message : "Account action failed.");
+      setError(toolError instanceof Error ? toolError.message : copy.accountActionFailed);
     } finally {
       setBusyAction(null);
     }
@@ -112,8 +118,8 @@ export function ChatGptAccountManagerWidget({
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 text-sky-300" aria-hidden="true" />
               <div>
-                <h1 className="text-lg font-semibold text-white">Vakwen account manager</h1>
-                <p className="mt-1 text-sm text-slate-300">Waiting for the MCP Apps bridge to provide account state.</p>
+                <h1 className="text-lg font-semibold text-white">{copy.shellTitle}</h1>
+                <p className="mt-1 text-sm text-slate-300">{copy.waitingForBridge}</p>
               </div>
             </div>
           </Card>
@@ -130,7 +136,7 @@ export function ChatGptAccountManagerWidget({
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-teal-400/30 bg-teal-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal-100">
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                account:manage scope
+                {copy.scopeBadge}
               </div>
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{data.title}</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-300 sm:text-base">{data.subtitle}</p>
@@ -139,17 +145,17 @@ export function ChatGptAccountManagerWidget({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void callTool(data.tools.refresh, {}, "Account manager refreshed.")}
+                onClick={() => void callTool(data.tools.refresh, {}, copy.refreshed)}
                 disabled={busyAction !== null || !data.tools.refresh}
               >
                 <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                Refresh
+                {copy.refresh}
               </Button>
             </div>
           </div>
           {data.permissions.requiresManageReconsent ? (
             <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-              Reconnect in ChatGPT and grant `account:manage` before this widget can create or change accounts.
+              {chatGptConnectorAuthorizeCopy[resolvedLocale].requiresManageReconsent}
             </div>
           ) : null}
         </section>
@@ -162,12 +168,12 @@ export function ChatGptAccountManagerWidget({
             <header className="border-b border-slate-200 bg-slate-50/85 px-5 py-4 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-950">Accounts</h2>
-                  <p className="text-sm text-slate-600">Visible names are what ChatGPT shows to users; IDs stay hidden for routing and tool calls.</p>
+                  <h2 className="text-lg font-semibold text-slate-950">{copy.accountsTitle}</h2>
+                  <p className="text-sm text-slate-600">{copy.accountsDescription}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
-                  <span>{data.activeAccounts.length} active</span>
-                  <span>{data.deletedAccounts.length} deleted</span>
+                  <span>{data.activeAccounts.length} {copy.activeCount}</span>
+                  <span>{data.deletedAccounts.length} {copy.deletedCount}</span>
                 </div>
               </div>
             </header>
@@ -176,8 +182,8 @@ export function ChatGptAccountManagerWidget({
                 <div key={account.id} className="flex flex-col gap-4 px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-base font-semibold text-slate-950">{account.name}</p>
-                    <p className="mt-1 text-sm text-slate-600">{accountSummary(account)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{account.feeProfileName ?? "No fee profile linked"}</p>
+                    <p className="mt-1 text-sm text-slate-600">{accountSummary(account, resolvedLocale)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{account.feeProfileName ?? copy.noFeeProfile}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -187,17 +193,17 @@ export function ChatGptAccountManagerWidget({
                       disabled={busyAction !== null || !data.permissions.canEdit}
                       data-testid={`chatgpt-account-edit-${account.id}`}
                     >
-                      Edit
+                      {copy.edit}
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void callTool(data.tools.deleteAccount, { accountId: account.id }, "Account archived.")}
+                      onClick={() => void callTool(data.tools.deleteAccount, { accountId: account.id }, copy.accountArchived)}
                       disabled={busyAction !== null || !data.permissions.canDelete}
                       data-testid={`chatgpt-account-archive-${account.id}`}
                     >
                       <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
-                      Archive
+                      {copy.archive}
                     </Button>
                   </div>
                 </div>
@@ -205,23 +211,23 @@ export function ChatGptAccountManagerWidget({
             </div>
             {data.deletedAccounts.length > 0 ? (
               <div className="border-t border-slate-200 bg-slate-50/65 px-5 py-4 sm:px-6">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Recently deleted</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.recentlyDeleted}</h3>
                 <div className="mt-3 grid gap-3">
                   {data.deletedAccounts.map((account) => (
                     <div key={account.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-medium text-slate-900">{account.name}</p>
-                        <p className="text-sm text-slate-600">{accountSummary(account)}</p>
+                        <p className="text-sm text-slate-600">{accountSummary(account, resolvedLocale)}</p>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void callTool(data.tools.restoreAccount, { accountId: account.id }, "Account restored.")}
+                        onClick={() => void callTool(data.tools.restoreAccount, { accountId: account.id }, copy.accountRestored)}
                         disabled={busyAction !== null || !data.permissions.canRestore}
                         data-testid={`chatgpt-account-restore-${account.id}`}
                       >
                         <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Restore
+                        {copy.restore}
                       </Button>
                     </div>
                   ))}
@@ -234,16 +240,16 @@ export function ChatGptAccountManagerWidget({
             <Card className="rounded-3xl border-slate-200 px-5 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-950">{editingId ? "Edit account" : "Add account"}</h2>
-                  <p className="mt-1 text-sm text-slate-600">Currency is fixed after creation in this MCP flow, so editing only changes the visible name.</p>
+                  <h2 className="text-base font-semibold text-slate-950">{editingId ? copy.editAccount : copy.addAccount}</h2>
+                  <p className="mt-1 text-sm text-slate-600">{copy.composerDescription}</p>
                 </div>
                 {editingId ? (
-                  <Button variant="ghost" size="sm" onClick={resetComposer}>Cancel</Button>
+                  <Button variant="ghost" size="sm" onClick={resetComposer}>{copy.cancel}</Button>
                 ) : null}
               </div>
               <div className="mt-4 grid gap-3">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Account name
+                  {copy.accountName}
                   <input
                     className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
                     onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
@@ -251,7 +257,7 @@ export function ChatGptAccountManagerWidget({
                   />
                 </label>
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Currency
+                  {copy.currency}
                   <select
                     className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 disabled:bg-slate-100"
                     onChange={(event) => setDraft((current) => ({ ...current, defaultCurrency: event.target.value as AccountDraft["defaultCurrency"] }))}
@@ -262,26 +268,26 @@ export function ChatGptAccountManagerWidget({
                   </select>
                 </label>
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Account type
+                  {copy.accountType}
                   <select
                     className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 disabled:bg-slate-100"
                     onChange={(event) => setDraft((current) => ({ ...current, accountType: event.target.value as AccountDraft["accountType"] }))}
                     value={draft.accountType}
                     disabled={editingId !== null}
                   >
-                    <option value="broker">Broker</option>
-                    <option value="bank">Bank</option>
-                    <option value="wallet">Wallet</option>
+                    <option value="broker">{copy.broker}</option>
+                    <option value="bank">{copy.bank}</option>
+                    <option value="wallet">{copy.wallet}</option>
                   </select>
                 </label>
               </div>
               <div className="mt-4 flex justify-end gap-2">
                 {editingId ? (
                   <Button
-                    onClick={() => void callTool(data.tools.updateAccount, { accountId: editingId, name: draft.name.trim() }, "Account updated.")}
+                    onClick={() => void callTool(data.tools.updateAccount, { accountId: editingId, name: draft.name.trim() }, copy.accountUpdated)}
                     disabled={busyAction !== null || !draft.name.trim() || !data.permissions.canEdit}
                   >
-                    Save changes
+                    {copy.saveChanges}
                   </Button>
                 ) : (
                   <Button
@@ -289,22 +295,22 @@ export function ChatGptAccountManagerWidget({
                       name: draft.name.trim(),
                       defaultCurrency: draft.defaultCurrency,
                       accountType: draft.accountType,
-                    }, "Account created.")}
+                    }, copy.accountCreated)}
                     disabled={busyAction !== null || !draft.name.trim() || !data.permissions.canCreate}
                   >
                     <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Add account
+                    {copy.addAccount}
                   </Button>
                 )}
               </div>
             </Card>
 
             <Card className="rounded-3xl border-slate-200 px-5 py-5">
-              <h3 className="text-base font-semibold text-slate-950">Scope guardrails</h3>
+              <h3 className="text-base font-semibold text-slate-950">{copy.scopeGuardrails}</h3>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                <li>Account names are user-facing labels; IDs remain internal.</li>
-                <li>Currency and account type are fixed once created in this pass.</li>
-                <li>Soft delete keeps historical transactions addressable.</li>
+                <li>{copy.guardrailName}</li>
+                <li>{copy.guardrailImmutable}</li>
+                <li>{copy.guardrailSoftDelete}</li>
               </ul>
             </Card>
           </aside>

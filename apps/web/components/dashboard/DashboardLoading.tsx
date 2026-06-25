@@ -1,5 +1,8 @@
 "use client";
 
+import type { LocaleCode } from "@vakwen/shared-types";
+import { getRouteLoadingLabels, type RouteLoadingCopy } from "../layout/i18n";
+
 /**
  * Unified loading state for the dashboard: skeleton layout + in-content progress bar.
  * Used for initial load (Suspense fallback), bootstrap, and refresh.
@@ -18,14 +21,23 @@ function SkeletonCard({
   );
 }
 
-export function DashboardLoading({ standalone = false }: { standalone?: boolean }) {
+export function DashboardLoading({
+  loadingCopy,
+  locale = "en",
+  standalone = false,
+}: {
+  loadingCopy?: RouteLoadingCopy;
+  locale?: LocaleCode | string;
+  standalone?: boolean;
+}) {
+  const copy = loadingCopy ?? getRouteLoadingLabels(locale).dashboard;
   const content = (
     <>
       <div
         className="dashboard-loading-bar"
         role="progressbar"
         aria-valuetext="indeterminate"
-        aria-label="Loading dashboard"
+        aria-label={copy.ariaLabel}
       />
       <div className="grid gap-6 xl:grid-cols-12" aria-hidden="true">
         <SkeletonCard delayClass="dashboard-skeleton-card--delay-1" className="xl:col-span-12">

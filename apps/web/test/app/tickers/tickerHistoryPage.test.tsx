@@ -33,6 +33,8 @@ vi.mock("../../../components/dashboard/DashboardLoading", () => ({
   DashboardLoading: () => <div data-testid="dashboard-loading" />,
 }));
 
+vi.mock("recharts", () => ({}));
+
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
     details,
@@ -252,5 +254,23 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain("Failed to load data for NVDA.");
     expect(html).toContain("Back to portfolio");
     expect(html).not.toContain('data-testid="ticker-history-client"');
+  });
+
+  it("renders zh-TW fallback copy when dashboard loading fails for a zh-TW session", async () => {
+    getJsonMock.mockImplementation(async (path: string) => {
+      if (path === "/profile") return {};
+      if (path === "/settings") return { locale: "zh-TW", quotePollIntervalSeconds: 10 };
+      return {};
+    });
+    fetchDashboardPrimaryDataMock.mockRejectedValue(new Error("dashboard unavailable"));
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("無法載入 2330 的資料。");
+    expect(html).toContain("返回持倉");
   });
 });

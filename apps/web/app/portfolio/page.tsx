@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { UserSettings } from "@vakwen/shared-types";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../components/layout/i18n";
 import { PortfolioClient } from "../../components/portfolio/PortfolioClient";
 import { fetchPortfolioPrimaryData } from "../../features/portfolio/services/portfolioService";
 import { requireSession } from "../../lib/auth";
@@ -25,12 +26,14 @@ export default async function PortfolioPage() {
       integrityIssue: initialPrimaryData.integrityIssue,
     }
     : null;
+  const locale = settings?.locale ?? "en";
+  const loadingCopy = getRouteLoadingLabels(locale).portfolio;
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
       <AppShell
         section="portfolio"
         isDemo={session.isDemo}
-        localeOverride={settings?.locale ?? "en"}
+        localeOverride={locale}
         initialProfile={profile}
         initialSettings={settings}
         initialPortfolioConfig={initialPortfolioConfig}

@@ -5,6 +5,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
     appError: {
       title: "Something went wrong",
       retry: "Try again",
+      impersonationWriteBlocked: "Writes are disabled while impersonating. Exit impersonation to make changes.",
     },
     feedback: {
       requestFailedPrefix: "Request failed",
@@ -37,6 +38,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
     appError: {
       title: "發生錯誤",
       retry: "再試一次",
+      impersonationWriteBlocked: "模擬登入期間無法寫入。請先結束模擬登入再進行變更。",
     },
     feedback: {
       requestFailedPrefix: "請求失敗",

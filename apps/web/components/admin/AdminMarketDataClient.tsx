@@ -147,19 +147,6 @@ interface OperationsQuery {
   operationOutcomeAction: string;
 }
 
-const tabLabels: Record<AdminMarketWorkspaceUiTab, string> = {
-  overview: "Overview",
-  calendar: "Calendar",
-  instruments: "Instruments",
-  unresolved: "Unresolved",
-  backfill: "Backfill",
-  mappings: "Mappings",
-  purge: "Purge data",
-  operations: "Operations",
-  activity: "Activity",
-  "refresh-rates": "Refresh rates",
-};
-
 const purgeCategories: Array<{ value: AdminMarketDataPurgeCategory; label: string }> = [
   { value: "price_bars", label: "Price bars" },
   { value: "dividends", label: "Dividends" },
@@ -176,6 +163,20 @@ function marketTone(status: AdminMarketDataLandingResponse["markets"][number]["h
   if (status === "degraded") return "bg-amber-500";
   if (status === "down") return "bg-rose-500";
   return "bg-slate-400";
+}
+
+function marketTabLabel(
+  dict: ReturnType<typeof useAdminI18n>["marketData"],
+  tab: AdminMarketWorkspaceUiTab,
+): string {
+  return dict.tabs[tab] ?? tab;
+}
+
+function marketHealthLabel(
+  dict: ReturnType<typeof useAdminI18n>["marketData"],
+  status: AdminMarketDataLandingResponse["markets"][number]["healthStatus"],
+): string {
+  return dict.marketHealthLabels[status] ?? status;
 }
 
 function marketDataSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["marketData"]): Partial<HoldingsColumnSettingsCopy> {
@@ -265,13 +266,14 @@ function ActionChips({ marketCode, actions }: { marketCode: AdminMarketCode; act
 }
 
 export function AdminMarketDataLandingClient({ data }: AdminMarketDataLandingClientProps) {
+  const adminDict = useAdminI18n().marketData;
   return (
     <div className="space-y-6" data-testid="admin-market-data-page">
       <div>
-        <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Market data</p>
-        <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">Market workspaces</h1>
+        <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">{adminDict.landingEyebrow}</p>
+        <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{adminDict.landingTitle}</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Catalog state, provider ownership, backfill, mappings, purge, and operations are grouped by market.
+          {adminDict.landingDescription}
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
@@ -293,20 +295,20 @@ export function AdminMarketDataLandingClient({ data }: AdminMarketDataLandingCli
                   </div>
                 </div>
                 <span className="rounded bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-                  {market.healthStatus}
+                  {marketHealthLabel(adminDict, market.healthStatus)}
                 </span>
               </div>
               <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
                 <div>
-                  <dt className="text-muted-foreground">Unresolved</dt>
+                  <dt className="text-muted-foreground">{adminDict.tileUnresolved}</dt>
                   <dd className="mt-1 font-semibold text-foreground">{market.unresolvedCount.toLocaleString()}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Pending</dt>
+                  <dt className="text-muted-foreground">{adminDict.tilePending}</dt>
                   <dd className="mt-1 font-semibold text-foreground">{market.pendingBackfillCount.toLocaleString()}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Failed</dt>
+                  <dt className="text-muted-foreground">{adminDict.tileFailed}</dt>
                   <dd className="mt-1 font-semibold text-foreground">{market.failedBackfillCount.toLocaleString()}</dd>
                 </div>
               </dl>
@@ -337,6 +339,7 @@ export function AdminMarketDataWorkspaceClient({
   snapshotRepairRequest = null,
 }: AdminMarketDataWorkspaceClientProps) {
   const router = useRouter();
+  const adminDict = useAdminI18n().marketData;
   const tabSet = new Set<AdminMarketWorkspaceUiTab>(overview.tabs);
   if (calendar) tabSet.add("calendar");
   if (activity) tabSet.add("activity");
@@ -358,26 +361,28 @@ export function AdminMarketDataWorkspaceClient({
     <div className="min-w-0 space-y-5" data-testid={`admin-market-data-${marketCode}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Market data</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">{adminDict.landingEyebrow}</p>
           <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">
             {marketCode} - {overview.label}
           </h1>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {overview.providers.map((provider) => (
               <span key={provider.providerId} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                {provider.providerId}: {provider.role}
+                {adminDict.workspaceRoleLabel
+                  .replace("{providerId}", provider.providerId)
+                  .replace("{role}", provider.role)}
               </span>
             ))}
           </div>
         </div>
         <Link href="/admin/market-data" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
-          All markets
+          {adminDict.allMarkets}
         </Link>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-3 md:hidden">
         <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="admin-market-data-mobile-tabs">
-          Section
+          {adminDict.sectionLabel}
         </label>
         <Select
           value={safeTab}
@@ -386,13 +391,13 @@ export function AdminMarketDataWorkspaceClient({
           }}
         >
           <SelectTrigger id="admin-market-data-mobile-tabs" className="w-full" data-testid="admin-market-data-mobile-tabs">
-            <SelectValue placeholder={tabLabels[safeTab]} />
+            <SelectValue placeholder={marketTabLabel(adminDict, safeTab)} />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
               {orderedTabs.map((item) => (
                 <SelectItem key={item} value={item}>
-                  {tabLabels[item]}
+                  {marketTabLabel(adminDict, item)}
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -400,7 +405,7 @@ export function AdminMarketDataWorkspaceClient({
         </Select>
       </div>
 
-      <nav className="hidden gap-2 overflow-x-auto border-b border-border pb-2 md:flex" aria-label="Market data tabs">
+      <nav className="hidden gap-2 overflow-x-auto border-b border-border pb-2 md:flex" aria-label={adminDict.tabsLabel}>
         {orderedTabs.map((item) => (
           <Link
             key={item}
@@ -410,7 +415,7 @@ export function AdminMarketDataWorkspaceClient({
               item === safeTab ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary",
             )}
           >
-            {tabLabels[item]}
+            {marketTabLabel(adminDict, item)}
           </Link>
         ))}
       </nav>
@@ -549,26 +554,50 @@ function exportMarketUnresolvedCsv(items: AdminMarketDataUnresolvedItemDto[], fi
   URL.revokeObjectURL(href);
 }
 
-function unresolvedRecommendedActionLabel(item: AdminMarketDataUnresolvedItemDto): string {
+function unresolvedRecommendedActionLabel(
+  item: AdminMarketDataUnresolvedItemDto,
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
   if (item.recommendedActionLabel?.trim()) return item.recommendedActionLabel.trim();
   switch (item.recommendedAction) {
     case "repair_mapping":
-      return "Repair mapping";
+      return adminDict.unresolvedRecommendedRepairMapping;
     case "retry_via_backfill":
-      return "Retry via backfill";
+      return adminDict.unresolvedRecommendedRetryViaBackfill;
     case "ignore":
-      return "Ignore";
+      return adminDict.unresolvedRecommendedIgnore;
     case "mark_unsupported":
-      return "Mark unsupported";
+      return adminDict.unresolvedRecommendedMarkUnsupported;
     case "reopen":
-      return "Reopen";
+      return adminDict.unresolvedRecommendedReopen;
     default:
-      return item.state === "resolved" ? "Resolved" : "Review";
+      return item.state === "resolved" ? adminDict.unresolvedRecommendedResolved : adminDict.unresolvedRecommendedReview;
   }
 }
 
-function unresolvedEvidenceLabel(item: AdminMarketDataUnresolvedItemDto): string {
-  return item.evidenceSummary ?? item.latestEvidence ?? item.latestError ?? "No evidence summary";
+function unresolvedEvidenceLabel(
+  item: AdminMarketDataUnresolvedItemDto,
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  return item.evidenceSummary ?? item.latestEvidence ?? item.latestError ?? adminDict.unresolvedNoEvidence;
+}
+
+function unresolvedStateLabel(
+  state: AdminMarketDataUnresolvedItemDto["state"],
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  switch (state) {
+    case "active":
+      return adminDict.unresolvedStateLabelActive;
+    case "resolved":
+      return adminDict.unresolvedStateLabelResolved;
+    case "ignored":
+      return adminDict.unresolvedStateLabelIgnored;
+    case "unsupported":
+      return adminDict.unresolvedStateLabelUnsupported;
+    default:
+      return state;
+  }
 }
 
 function unresolvedOutcomeCandidateAttempts(item: AdminMarketDataUnresolvedItemDto): string {
@@ -600,6 +629,13 @@ function unresolvedOperationPath(marketCode: Exclude<AdminMarketCode, "FX">, blo
   return `/admin/market-data/${marketCode}/operations?${params.toString()}`;
 }
 
+function unresolvedBlockerActionLabel(
+  action: "resume" | "cancel",
+  dict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  return action === "resume" ? dict.operationResume : dict.operationCancel;
+}
+
 function unresolvedItemId(item: Pick<AdminMarketDataUnresolvedItemDto, "id" | "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
   return item.id ?? `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
 }
@@ -627,7 +663,9 @@ function UnresolvedPanel({
   unresolved: AdminMarketDataUnresolvedResponse | null;
 }) {
   const router = useRouter();
-  const adminDict = useAdminI18n().marketData;
+  const adminI18n = useAdminI18n();
+  const adminDict = adminI18n.marketData;
+  const commonDict = adminI18n.common;
   const [providerId, setProviderId] = useState(unresolved?.query.providerId ?? "");
   const [state, setState] = useState(unresolved?.query.state ?? "active");
   const [errorCode, setErrorCode] = useState(unresolved?.query.errorCode ?? "");
@@ -690,10 +728,12 @@ function UnresolvedPanel({
         sourceSymbol: item.sourceSymbol,
         state: nextState,
       });
-      setMessage(`Updated ${result.item.sourceSymbol} to ${result.item.state}.`);
+      setMessage(adminDict.unresolvedStateUpdated
+        .replace("{symbol}", result.item.sourceSymbol)
+        .replace("{state}", unresolvedStateLabel(result.item.state, adminDict)));
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unresolved lifecycle update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedLifecycleUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -717,11 +757,11 @@ function UnresolvedPanel({
         },
         acknowledged: true,
       });
-      setMessage(`Updated ${result.updatedCount.toLocaleString()} unresolved rows.`);
+      setMessage(adminDict.unresolvedBulkUpdated.replace("{count}", result.updatedCount.toLocaleString()));
       setSelectedKeys(new Set());
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Bulk unresolved lifecycle update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedBulkUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -737,10 +777,12 @@ function UnresolvedPanel({
         operationId: unresolved.blocker.operationId,
         action,
       });
-      setMessage(`${action} updated operation ${unresolved.blocker.operationId}.`);
+      setMessage(adminDict.unresolvedOperationUpdated
+        .replace("{action}", unresolvedBlockerActionLabel(action, adminDict))
+        .replace("{operationId}", unresolved.blocker.operationId));
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Operation update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedOperationUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -766,9 +808,11 @@ function UnresolvedPanel({
       });
       setRetryPreview(result);
       setRetryAcknowledged(false);
-      setMessage(`Retry preview created for ${retryableItems.length.toLocaleString()} selected unresolved rows across ${result.matchCount.toLocaleString()} deduped targets.`);
+      setMessage(adminDict.unresolvedRetryPreviewCreated
+        .replace("{selectedRows}", retryableItems.length.toLocaleString())
+        .replace("{targets}", result.matchCount.toLocaleString()));
     } catch (error) {
-      setRetryError(error instanceof Error ? error.message : "Backfill preview failed.");
+      setRetryError(error instanceof Error ? error.message : adminDict.unresolvedRetryPreviewFailed);
     } finally {
       setBusyAction(null);
     }
@@ -786,10 +830,10 @@ function UnresolvedPanel({
         acknowledged: retryAcknowledged,
       });
       setRetryExecute(result);
-      setMessage(`Retry via backfill queued for ${retryableItems.length.toLocaleString()} selected unresolved rows.`);
+      setMessage(adminDict.unresolvedRetryQueuedMessage.replace("{count}", retryableItems.length.toLocaleString()));
       router.refresh();
     } catch (error) {
-      setRetryError(error instanceof Error ? error.message : "Backfill execution failed.");
+      setRetryError(error instanceof Error ? error.message : adminDict.unresolvedRetryExecutionFailed);
     } finally {
       setBusyAction(null);
     }
@@ -798,7 +842,7 @@ function UnresolvedPanel({
   const columns: AdminMarketDataResponsiveColumn<AdminMarketDataUnresolvedItemDto, "symbol" | "provider" | "recommended" | "evidence" | "occurrence" | "state" | "actions">[] = [
     {
       id: "symbol",
-      label: "Instrument",
+      label: adminDict.unresolvedTableInstrument,
       defaultWidth: 220,
       renderCell: (item) => (
         <div className="space-y-1">
@@ -810,46 +854,46 @@ function UnresolvedPanel({
     },
     {
       id: "provider",
-      label: "Provider",
+      label: adminDict.unresolvedTableProvider,
       defaultWidth: 160,
       renderCell: (item) => <span className="text-muted-foreground">{item.providerLabel ?? item.providerId}</span>,
       renderCardValue: (item) => item.providerLabel ?? item.providerId,
     },
     {
       id: "recommended",
-      label: "Recommended action",
+      label: adminDict.unresolvedTableRecommended,
       defaultWidth: 170,
-      renderCell: (item) => <span className="font-medium text-foreground">{unresolvedRecommendedActionLabel(item)}</span>,
-      renderCardValue: unresolvedRecommendedActionLabel,
+      renderCell: (item) => <span className="font-medium text-foreground">{unresolvedRecommendedActionLabel(item, adminDict)}</span>,
+      renderCardValue: (item) => unresolvedRecommendedActionLabel(item, adminDict),
     },
     {
       id: "evidence",
-      label: "Evidence",
+      label: adminDict.unresolvedTableEvidence,
       defaultWidth: 240,
       renderCell: (item) => (
         <div className="space-y-1 text-muted-foreground">
-          <p className="line-clamp-3">{unresolvedEvidenceLabel(item)}</p>
+          <p className="line-clamp-3">{unresolvedEvidenceLabel(item, adminDict)}</p>
           {unresolvedLatestOutcomeLabel(item) ? <p className="line-clamp-3 text-xs">{unresolvedLatestOutcomeLabel(item)}</p> : null}
         </div>
       ),
-      renderCardValue: (item) => unresolvedLatestOutcomeLabel(item) ?? unresolvedEvidenceLabel(item),
+      renderCardValue: (item) => unresolvedLatestOutcomeLabel(item) ?? unresolvedEvidenceLabel(item, adminDict),
     },
     {
       id: "occurrence",
-      label: "Occurrence",
+      label: adminDict.unresolvedTableOccurrence,
       defaultWidth: 180,
       renderCell: (item) => (
         <div className="space-y-1 text-muted-foreground">
-          <div>{item.occurrenceCount.toLocaleString()} occurrences</div>
-          <div>First {formatUtcTimestamp(item.firstSeenAt)}</div>
-          <div>Last {formatUtcTimestamp(item.lastSeenAt)}</div>
+          <div>{adminDict.unresolvedOccurrences.replace("{count}", item.occurrenceCount.toLocaleString())}</div>
+          <div>{adminDict.unresolvedFirstSeen.replace("{time}", formatUtcTimestamp(item.firstSeenAt))}</div>
+          <div>{adminDict.unresolvedLastSeen.replace("{time}", formatUtcTimestamp(item.lastSeenAt))}</div>
         </div>
       ),
       renderCardValue: (item) => `${item.occurrenceCount.toLocaleString()} / ${formatUtcTimestamp(item.lastSeenAt)}`,
     },
     {
       id: "state",
-      label: "State",
+      label: adminDict.unresolvedTableState,
       defaultWidth: 140,
       renderCell: (item) => (
         <div className="space-y-1">
@@ -860,16 +904,18 @@ function UnresolvedPanel({
             item.state === "ignored" && "bg-slate-100 text-slate-700",
             item.state === "unsupported" && "bg-rose-100 text-rose-800",
           )}>
-            {item.state}
+            {unresolvedStateLabel(item.state, adminDict)}
           </span>
-          <div className="text-xs text-muted-foreground">{item.affectedInstrumentCount ?? 1} affected</div>
+          <div className="text-xs text-muted-foreground">
+            {adminDict.unresolvedAffected.replace("{count}", String(item.affectedInstrumentCount ?? 1))}
+          </div>
         </div>
       ),
-      renderCardValue: (item) => item.state,
+      renderCardValue: (item) => unresolvedStateLabel(item.state, adminDict),
     },
     {
       id: "actions",
-      label: "Actions",
+      label: adminDict.unresolvedTableActions,
       defaultWidth: 220,
       renderCell: (item) => (
         <div className="flex flex-wrap gap-2">
@@ -884,35 +930,35 @@ function UnresolvedPanel({
                 setSelectedRowKey(unresolvedItemId(item));
               }}
             >
-              Stage retry
+              {adminDict.unresolvedStageRetry}
             </button>
           ) : null}
           {item.actions?.includes("ignore") ? (
             <button type="button" className="rounded border border-border px-2 py-1 text-xs" disabled={busyAction !== null} onClick={(event) => { event.stopPropagation(); void runRowState(item, "ignored"); }}>
-              Ignore
+              {adminDict.unresolvedBulkIgnore}
             </button>
           ) : null}
           {item.actions?.includes("unsupported") ? (
             <button type="button" className="rounded border border-border px-2 py-1 text-xs" disabled={busyAction !== null} onClick={(event) => { event.stopPropagation(); void runRowState(item, "unsupported"); }}>
-              Unsupported
+              {adminDict.unresolvedBulkUnsupported}
             </button>
           ) : null}
           {item.actions?.includes("reopen") ? (
             <button type="button" className="rounded border border-border px-2 py-1 text-xs" disabled={busyAction !== null} onClick={(event) => { event.stopPropagation(); void runRowState(item, "active"); }}>
-              Reopen
+              {adminDict.unresolvedBulkReopen}
             </button>
           ) : null}
         </div>
       ),
-      renderCardValue: (item) => item.actions?.join(", ") ?? "No actions",
+      renderCardValue: (item) => item.actions?.join(", ") ?? adminDict.unresolvedNoActions,
     },
   ];
 
   if (!unresolved) {
     return (
       <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-unresolved">
-        <h2 className="text-base font-semibold text-foreground">Unresolved</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Unresolved data is not available for this market.</p>
+        <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedTitle}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{adminDict.unresolvedUnavailable}</p>
       </Card>
     );
   }
@@ -933,26 +979,26 @@ function UnresolvedPanel({
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-unresolved-blocker">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Active operation blocker</h2>
+              <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedBlockerTitle}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{unresolved.blocker.summary}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {unresolved.blocker.providerLabel ?? unresolved.blocker.providerId} · {unresolved.blocker.operationType} · {unresolved.blocker.phase}
-                {unresolved.blocker.updatedAt ? ` · updated ${formatUtcTimestamp(unresolved.blocker.updatedAt)}` : ""}
+                {unresolved.blocker.providerLabel ?? unresolved.blocker.providerId} · {localizeOperationType(unresolved.blocker.operationType, adminDict)} · {localizeOperationPhase(unresolved.blocker.phase, adminDict)}
+                {unresolved.blocker.updatedAt ? ` · ${adminDict.unresolvedBlockerUpdated.replace("{time}", formatUtcTimestamp(unresolved.blocker.updatedAt))}` : ""}
               </p>
               {unresolved.blocker.detail ? <p className="mt-1 text-xs text-muted-foreground">{unresolved.blocker.detail}</p> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href={unresolvedOperationPath(marketCode, unresolved.blocker)} className="rounded border border-border px-3 py-2 text-sm">
-                Open operation
+                {adminDict.unresolvedOpenOperation}
               </Link>
               {unresolved.blocker.canResume ? (
                 <button type="button" className="rounded border border-border px-3 py-2 text-sm" disabled={busyAction !== null} onClick={() => void controlBlocker("resume")}>
-                  Resume
+                  {adminDict.operationResume}
                 </button>
               ) : null}
               {unresolved.blocker.canCancel ? (
                 <button type="button" className="rounded border border-border px-3 py-2 text-sm" disabled={busyAction !== null} onClick={() => void controlBlocker("cancel")}>
-                  Cancel
+                  {adminDict.operationCancel}
                 </button>
               ) : null}
             </div>
@@ -964,9 +1010,9 @@ function UnresolvedPanel({
         <div className="border-b border-border px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Triage queue</h2>
+              <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedTitle}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Review active unresolved rows, confirm evidence, and route supported retries through the guarded backfill preview flow.
+                {adminDict.unresolvedDescription}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -986,53 +1032,56 @@ function UnresolvedPanel({
             }}
           >
             <label className="text-sm font-medium text-foreground">
-              Search
+              {adminDict.unresolvedSearch}
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={adminDict.searchPlaceholder} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm" />
             </label>
             <label className="text-sm font-medium text-foreground">
-              Provider
+              {adminDict.unresolvedProvider}
               <select value={providerId} onChange={(event) => setProviderId(event.target.value)} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm">
-                <option value="">All</option>
+                <option value="">{commonDict.all}</option>
                 {(unresolved.filters?.providers ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="text-sm font-medium text-foreground">
-              State
+              {adminDict.unresolvedState}
               <select value={state} onChange={(event) => setState(event.target.value as AdminMarketDataUnresolvedQuery["state"])} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm">
-                <option value="active">active</option>
-                <option value="all">all</option>
-                <option value="resolved">resolved</option>
-                <option value="ignored">ignored</option>
-                <option value="unsupported">unsupported</option>
+                <option value="active">{adminDict.unresolvedStateLabelActive}</option>
+                <option value="all">{commonDict.all}</option>
+                <option value="resolved">{adminDict.unresolvedStateLabelResolved}</option>
+                <option value="ignored">{adminDict.unresolvedStateLabelIgnored}</option>
+                <option value="unsupported">{adminDict.unresolvedStateLabelUnsupported}</option>
               </select>
             </label>
             <label className="text-sm font-medium text-foreground">
-              Error code
+              {adminDict.unresolvedErrorCode}
               <select value={errorCode} onChange={(event) => setErrorCode(event.target.value)} className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm">
-                <option value="">All</option>
+                <option value="">{commonDict.all}</option>
                 {(unresolved.filters?.errorCodes ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <div className="flex items-end gap-2">
-              <select value={sort} onChange={(event) => setSort(event.target.value as AdminMarketDataUnresolvedQuery["sort"])} className="w-full rounded border border-border bg-background px-3 py-2 text-sm">
+              <select aria-label={adminDict.unresolvedSort} value={sort} onChange={(event) => setSort(event.target.value as AdminMarketDataUnresolvedQuery["sort"])} className="w-full rounded border border-border bg-background px-3 py-2 text-sm">
                 {(unresolved.filters?.sorts ?? [
-                  { value: "last_seen_desc", label: "Last seen" },
-                  { value: "occurrence_count_desc", label: "Most occurrences" },
-                  { value: "updated_desc", label: "Recently updated" },
-                  { value: "source_symbol_asc", label: "Source symbol" },
+                  { value: "last_seen_desc", label: adminDict.unresolvedSortLastSeen },
+                  { value: "occurrence_count_desc", label: adminDict.unresolvedSortMostOccurrences },
+                  { value: "updated_desc", label: adminDict.unresolvedSortRecentlyUpdated },
+                  { value: "source_symbol_asc", label: adminDict.unresolvedSortSourceSymbol },
                 ]).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
-              <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Apply</button>
+              <button type="submit" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">{adminDict.unresolvedApply}</button>
             </div>
           </form>
           <div className="mt-4 flex flex-col gap-3 rounded border border-border bg-muted/20 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <span><strong>{selectedItems.length.toLocaleString()} selected.</strong> {unresolved.total.toLocaleString()} rows match this filter. {unresolved.affectedInstrumentCount.toLocaleString()} instruments are affected.</span>
+            <span>{adminDict.unresolvedSelectedSummary
+              .replace("{selected}", selectedItems.length.toLocaleString())
+              .replace("{rows}", unresolved.total.toLocaleString())
+              .replace("{instruments}", unresolved.affectedInstrumentCount.toLocaleString())}</span>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => setSelectedKeys(new Set(unresolved.items.map(unresolvedItemSelectionKey)))} disabled={unresolved.items.length === 0} data-testid="market-data-unresolved-select-visible">Select visible</button>
-              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => setSelectedKeys(new Set())} disabled={selectedItems.length === 0} data-testid="market-data-unresolved-clear-selection">Clear</button>
-              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("ignored")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-ignore">Ignore</button>
-              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("unsupported")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-unsupported">Unsupported</button>
-              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("active")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-reopen">Reopen</button>
+              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => setSelectedKeys(new Set(unresolved.items.map(unresolvedItemSelectionKey)))} disabled={unresolved.items.length === 0} data-testid="market-data-unresolved-select-visible">{adminDict.unresolvedSelectVisible}</button>
+              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => setSelectedKeys(new Set())} disabled={selectedItems.length === 0} data-testid="market-data-unresolved-clear-selection">{adminDict.unresolvedClearSelection}</button>
+              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("ignored")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-ignore">{adminDict.unresolvedBulkIgnore}</button>
+              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("unsupported")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-unsupported">{adminDict.unresolvedBulkUnsupported}</button>
+              <button type="button" className="rounded border border-border bg-background px-2 py-1 text-xs" onClick={() => void runBulkState("active")} disabled={selectedItems.length === 0 || busyAction !== null} data-testid="market-data-unresolved-bulk-reopen">{adminDict.unresolvedBulkReopen}</button>
             </div>
           </div>
           {message ? <p className="mt-3 rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
@@ -1041,7 +1090,7 @@ function UnresolvedPanel({
           columns={columns}
           rows={unresolved.items}
           contextKey={`admin.marketData.${marketCode}.unresolved`}
-          emptyMessage="No unresolved rows match this filter."
+          emptyMessage={adminDict.unresolvedEmpty}
           rowKey={unresolvedItemId}
           rowTestId={(item) => `market-data-unresolved-row-${item.sourceSymbol}`}
           selectedRowKey={selectedRowKey}
@@ -1052,14 +1101,14 @@ function UnresolvedPanel({
           getCardIdentity={(item) => ({
             title: item.sourceSymbol,
             subtitle: item.instrumentName ?? item.providerLabel ?? item.providerId,
-            badge: <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-foreground">{item.state}</span>,
+            badge: <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-foreground">{unresolvedStateLabel(item.state, adminDict)}</span>,
           })}
           defaultHiddenColumns={["provider"]}
           defaultMobileSummaryCount={4}
         />
         <div className="flex flex-wrap gap-2 border-t border-border px-5 py-4 text-sm">
-          <Link className="rounded border border-border px-3 py-2" href={unresolvedPath(marketCode, { ...unresolved.query, page: Math.max(1, unresolved.page - 1) })}>Previous</Link>
-          <Link className="rounded border border-border px-3 py-2" href={unresolvedPath(marketCode, { ...unresolved.query, page: unresolved.page + 1 })}>Next</Link>
+          <Link className="rounded border border-border px-3 py-2" href={unresolvedPath(marketCode, { ...unresolved.query, page: Math.max(1, unresolved.page - 1) })}>{commonDict.previousPage}</Link>
+          <Link className="rounded border border-border px-3 py-2" href={unresolvedPath(marketCode, { ...unresolved.query, page: unresolved.page + 1 })}>{commonDict.nextPage}</Link>
         </div>
       </Card>
 
@@ -1071,15 +1120,15 @@ function UnresolvedPanel({
               <p className="mt-1 text-sm text-muted-foreground">{selectedItem.instrumentName ?? selectedItem.providerLabel ?? selectedItem.providerId}</p>
               <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                 {[
-                  detailRow("Provider", selectedItem.providerLabel ?? selectedItem.providerId),
-                  detailRow("Error code", selectedItem.errorLabel ?? selectedItem.errorCode),
-                  detailRow("Recommended", unresolvedRecommendedActionLabel(selectedItem)),
-                  detailRow("Evidence", unresolvedEvidenceLabel(selectedItem)),
-                  detailRow("Latest repair outcome", unresolvedLatestOutcomeLabel(selectedItem) ?? "—"),
-                  detailRow("First seen", formatUtcTimestamp(selectedItem.firstSeenAt)),
-                  detailRow("Last seen", formatUtcTimestamp(selectedItem.lastSeenAt)),
-                  detailRow("State", selectedItem.state),
-                  detailRow("Affected instruments", String(selectedItem.affectedInstrumentCount ?? 1)),
+                  detailRow(adminDict.unresolvedDetailProvider, selectedItem.providerLabel ?? selectedItem.providerId),
+                  detailRow(adminDict.unresolvedDetailErrorCode, selectedItem.errorLabel ?? selectedItem.errorCode),
+                  detailRow(adminDict.unresolvedDetailRecommended, unresolvedRecommendedActionLabel(selectedItem, adminDict)),
+                  detailRow(adminDict.unresolvedDetailEvidence, unresolvedEvidenceLabel(selectedItem, adminDict)),
+                  detailRow(adminDict.unresolvedDetailLatestOutcome, unresolvedLatestOutcomeLabel(selectedItem) ?? "—"),
+                  detailRow(adminDict.unresolvedDetailFirstSeen, formatUtcTimestamp(selectedItem.firstSeenAt)),
+                  detailRow(adminDict.unresolvedDetailLastSeen, formatUtcTimestamp(selectedItem.lastSeenAt)),
+                  detailRow(adminDict.unresolvedDetailState, unresolvedStateLabel(selectedItem.state, adminDict)),
+                  detailRow(adminDict.unresolvedDetailAffectedInstruments, String(selectedItem.affectedInstrumentCount ?? 1)),
                 ].map((row) => (
                   <div key={row.label}>
                     <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{row.label}</dt>
@@ -1091,43 +1140,46 @@ function UnresolvedPanel({
           ) : null}
 
           <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-unresolved-retry-bridge">
-            <h2 className="text-base font-semibold text-foreground">Retry via backfill</h2>
+            <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedRetryTitle}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Selected unresolved rows are deduped by provider, market, and source symbol before preview. Execution still runs through the existing backfill preview and guardrail flow.
+              {adminDict.unresolvedRetryDescription}
             </p>
             <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-              <div><p className="text-muted-foreground">Selected rows</p><p className="mt-1 font-medium text-foreground">{retryableItems.length.toLocaleString()}</p></div>
-              <div><p className="text-muted-foreground">Deduped targets</p><p className="mt-1 font-medium text-foreground">{dedupedRetryTargets.length.toLocaleString()}</p></div>
-              <div><p className="text-muted-foreground">Target symbols</p><p className="mt-1 font-medium text-foreground">{dedupedRetryTargets.length > 0 ? dedupedRetryTargets.map((item) => item.ticker).join(", ") : "none"}</p></div>
+              <div><p className="text-muted-foreground">{adminDict.unresolvedRetrySelectedRows}</p><p className="mt-1 font-medium text-foreground">{retryableItems.length.toLocaleString()}</p></div>
+              <div><p className="text-muted-foreground">{adminDict.unresolvedRetryDedupedTargets}</p><p className="mt-1 font-medium text-foreground">{dedupedRetryTargets.length.toLocaleString()}</p></div>
+              <div><p className="text-muted-foreground">{adminDict.unresolvedRetryTargetSymbols}</p><p className="mt-1 font-medium text-foreground">{dedupedRetryTargets.length > 0 ? dedupedRetryTargets.map((item) => item.ticker).join(", ") : adminDict.unresolvedRetryNone}</p></div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={dedupedRetryTargets.length === 0 || busyAction !== null} onClick={() => void previewRetryBackfill()} data-testid="market-data-unresolved-retry-preview">
-                Preview retry
+                {adminDict.unresolvedRetryPreview}
               </button>
               <Link href={`/admin/market-data/${marketCode}/backfill${dedupedRetryTargets.length > 0 ? `?search=${encodeURIComponent(dedupedRetryTargets.map((item) => item.ticker).join(","))}` : ""}`} className="rounded border border-border px-3 py-2 text-sm">
-                Open backfill workspace
+                {adminDict.unresolvedRetryOpenBackfillWorkspace}
               </Link>
             </div>
             {retryPreview ? (
               <div className="mt-4 rounded border border-border bg-muted/20 p-4">
                 <p className="text-sm text-muted-foreground">
-                  Preview {retryPreview.operationId} covers {retryableItems.length.toLocaleString()} selected unresolved rows and {retryPreview.matchCount.toLocaleString()} deduped retry targets.
+                  {adminDict.unresolvedRetryPreviewSummary
+                    .replace("{operationId}", retryPreview.operationId)
+                    .replace("{selectedRows}", retryableItems.length.toLocaleString())
+                    .replace("{targets}", retryPreview.matchCount.toLocaleString())}
                 </p>
                 <div className="mt-3 space-y-1 text-sm text-muted-foreground">
-                  <div>Provider: {retryPreview.providerId}</div>
-                  <div>Frozen targets: {retryPreview.targets.map((target) => target.ticker).join(", ") || "none"}</div>
-                  <div>Estimated jobs: {retryPreview.estimatedJobCount.toLocaleString()}</div>
+                  <div>{adminDict.unresolvedRetryProvider.replace("{providerId}", retryPreview.providerId)}</div>
+                  <div>{adminDict.unresolvedRetryFrozenTargets.replace("{targets}", retryPreview.targets.map((target) => target.ticker).join(", ") || adminDict.unresolvedRetryNone)}</div>
+                  <div>{adminDict.unresolvedRetryEstimatedJobs.replace("{count}", retryPreview.estimatedJobCount.toLocaleString())}</div>
                 </div>
                 <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                   <input type="checkbox" checked={retryAcknowledged} onChange={(event) => setRetryAcknowledged(event.target.checked)} />
-                  I reviewed the preview and understand retry uses the same provider-owned backfill execution flow.
+                  {adminDict.unresolvedRetryAcknowledgement}
                 </label>
                 <button type="button" className="mt-3 rounded bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50" disabled={!retryAcknowledged || busyAction !== null} onClick={() => void executeRetryBackfill()} data-testid="market-data-unresolved-retry-execute">
-                  Execute retry
+                  {adminDict.unresolvedRetryExecute}
                 </button>
               </div>
             ) : null}
-            {retryExecute ? <p className="mt-3 text-sm text-muted-foreground">Operation {retryExecute.operationId} is {retryExecute.status}. Enqueued {retryExecute.enqueuedJobCount.toLocaleString()} jobs.</p> : null}
+            {retryExecute ? <p className="mt-3 text-sm text-muted-foreground">{adminDict.unresolvedRetryQueued.replace("{operationId}", retryExecute.operationId).replace("{status}", retryExecute.status).replace("{count}", retryExecute.enqueuedJobCount.toLocaleString())}</p> : null}
             {retryError ? <p className="mt-3 text-sm text-destructive">{retryError}</p> : null}
           </Card>
         </div>
@@ -1137,24 +1189,25 @@ function UnresolvedPanel({
 }
 
 function OverviewPanel({ overview, actions }: { overview: AdminMarketDataOverviewUiResponse; actions: AdminMarketDataActionDto[] }) {
+  const adminDict = useAdminI18n().marketData;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <Card className="px-5 py-4 hover:translate-y-0">
-        <h2 className="text-base font-semibold text-foreground">State</h2>
+        <h2 className="text-base font-semibold text-foreground">{adminDict.stateTitle}</h2>
         <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
-          <div><dt className="text-muted-foreground">Health</dt><dd className="mt-1 font-semibold">{overview.healthStatus}</dd></div>
-          <div><dt className="text-muted-foreground">Unresolved</dt><dd className="mt-1 font-semibold">{overview.unresolvedCount}</dd></div>
-          <div><dt className="text-muted-foreground">Affected instruments</dt><dd className="mt-1 font-semibold">{overview.unresolvedInstrumentCount ?? "—"}</dd></div>
-          <div><dt className="text-muted-foreground">Pending</dt><dd className="mt-1 font-semibold">{overview.pendingBackfillCount}</dd></div>
-          <div><dt className="text-muted-foreground">Failed</dt><dd className="mt-1 font-semibold">{overview.failedBackfillCount}</dd></div>
+          <div><dt className="text-muted-foreground">{adminDict.stateHealth}</dt><dd className="mt-1 font-semibold">{marketHealthLabel(adminDict, overview.healthStatus)}</dd></div>
+          <div><dt className="text-muted-foreground">{adminDict.stateUnresolved}</dt><dd className="mt-1 font-semibold">{overview.unresolvedCount}</dd></div>
+          <div><dt className="text-muted-foreground">{adminDict.stateAffectedInstruments}</dt><dd className="mt-1 font-semibold">{overview.unresolvedInstrumentCount ?? "—"}</dd></div>
+          <div><dt className="text-muted-foreground">{adminDict.statePending}</dt><dd className="mt-1 font-semibold">{overview.pendingBackfillCount}</dd></div>
+          <div><dt className="text-muted-foreground">{adminDict.stateFailed}</dt><dd className="mt-1 font-semibold">{overview.failedBackfillCount}</dd></div>
         </dl>
         <div className="mt-4 space-y-2 text-sm text-muted-foreground">
           {overview.guidance.map((line) => <p key={line}>{line}</p>)}
         </div>
       </Card>
       <Card className="px-5 py-4 hover:translate-y-0">
-        <h2 className="text-base font-semibold text-foreground">Provider-owned actions</h2>
-        <p className="mt-2 text-sm text-muted-foreground">The market workspace previews scope and guardrails; execution remains attributed to the owning provider.</p>
+        <h2 className="text-base font-semibold text-foreground">{adminDict.providerOwnedActionsTitle}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{adminDict.providerOwnedActionsDescription}</p>
         <div className="mt-4"><ActionChips marketCode={overview.marketCode} actions={actions} /></div>
       </Card>
     </div>
@@ -1211,38 +1264,38 @@ function InstrumentsPanel({
   const columns = useMemo<Array<AdminMarketDataResponsiveColumn<AdminMarketDataInstrumentDto, InstrumentColumnId>>>(() => [
     {
       id: "ticker",
-      label: "Ticker",
+      label: adminDict.instrumentsTicker,
       defaultWidth: 240,
       canHide: false,
       renderCell: (row) => (
         <div>
           <p className="font-medium text-foreground">{row.ticker}</p>
-          <p className="mt-1 max-w-[20rem] truncate text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+          <p className="mt-1 max-w-[20rem] truncate text-xs text-muted-foreground">{row.name ?? adminDict.instrumentsUnnamed}</p>
         </div>
       ),
     },
     {
       id: "status",
-      label: "Status",
+      label: adminDict.instrumentsStatus,
       defaultWidth: 140,
       renderCell: (row) => <span className="text-muted-foreground">{row.status}</span>,
     },
     {
       id: "support",
-      label: "Support",
+      label: adminDict.instrumentsSupport,
       defaultWidth: 170,
       renderCell: (row) => <span className="text-muted-foreground">{row.supportState}</span>,
     },
     {
       id: "backfill",
-      label: "Backfill",
+      label: adminDict.instrumentsBackfill,
       defaultWidth: 150,
       renderCell: (row) => <span className="text-muted-foreground">{row.backfillStatus}</span>,
       renderCardValue: (row) => row.backfillStatus,
     },
     {
       id: "providers",
-      label: "Providers",
+      label: adminDict.provider,
       defaultWidth: 220,
       renderCell: (row) => (
         <div className="flex flex-wrap gap-1">
@@ -1255,7 +1308,7 @@ function InstrumentsPanel({
     },
     {
       id: "lastSeen",
-      label: "Last seen",
+      label: adminDict.instrumentsLastSeen,
       defaultWidth: 170,
       renderCell: (row) => <span className="text-muted-foreground">{formatUtcTimestamp(row.lastSeenInCatalogAt)}</span>,
       renderCardValue: (row) => formatUtcTimestamp(row.lastSeenInCatalogAt),
@@ -1307,29 +1360,29 @@ function InstrumentsPanel({
   return (
     <Card className="min-w-0 overflow-hidden p-0 hover:translate-y-0" data-testid="market-data-instruments">
       <div className="border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-foreground">Instruments</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Support state is separate from delisting, exclusion, purge, and holdings visibility.</p>
+        <h2 className="text-base font-semibold text-foreground">{adminDict.instrumentsTitle}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{adminDict.instrumentsDescription}</p>
         <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[minmax(10rem,1fr)_repeat(5,minmax(9rem,auto))_auto]">
           <label className="min-w-0 text-sm font-medium text-foreground">
-            Search
+            {adminDict.unresolvedSearch}
             <input
               value={filters.search}
               onChange={(event) => updateFilter("search", event.target.value)}
               className="mt-1 w-full min-w-0 rounded border border-border bg-background px-3 py-2 text-sm"
-              placeholder="Ticker or name"
+              placeholder={adminDict.instrumentsSearchPlaceholder}
             />
           </label>
-          <FilterSelect label="Status" value={filters.status} options={instruments.filters.status} onChange={(value) => updateFilter("status", value)} />
-          <FilterSelect label="Support" value={filters.supportState} options={instruments.filters.supportState} onChange={(value) => updateFilter("supportState", value)} />
-          <FilterSelect label="Type" value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
-          <FilterSelect label="Backfill" value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
-          <FilterSelect label="Sort" value={filters.sort} options={instruments.filters.sort} onChange={(value) => updateFilter("sort", value)} />
+          <FilterSelect label={adminDict.instrumentsStatus} value={filters.status} options={instruments.filters.status} onChange={(value) => updateFilter("status", value)} />
+          <FilterSelect label={adminDict.instrumentsSupport} value={filters.supportState} options={instruments.filters.supportState} onChange={(value) => updateFilter("supportState", value)} />
+          <FilterSelect label={adminDict.instrumentsType} value={filters.instrumentType} options={instruments.filters.instrumentType} onChange={(value) => updateFilter("instrumentType", value)} />
+          <FilterSelect label={adminDict.instrumentsBackfill} value={filters.backfillStatus} options={instruments.filters.backfillStatus} onChange={(value) => updateFilter("backfillStatus", value)} />
+          <FilterSelect label={adminDict.instrumentsSort} value={filters.sort} options={instruments.filters.sort} onChange={(value) => updateFilter("sort", value)} />
           <div className="flex items-end gap-2">
             <button type="button" onClick={applyFilters} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
-              Apply
+              {adminDict.instrumentsApply}
             </button>
             <Link href={`/admin/market-data/${instruments.marketCode}/instruments`} className="rounded border border-border px-3 py-2 text-sm text-muted-foreground">
-              Reset
+              {adminDict.instrumentsReset}
             </Link>
           </div>
         </div>
@@ -1338,11 +1391,15 @@ function InstrumentsPanel({
         columns={columns}
         rows={rows}
         contextKey={`admin.marketData.${instruments.marketCode}.instruments`}
-        emptyMessage="No instruments match this filter."
+        emptyMessage={adminDict.instrumentsEmpty}
         footer={(
           <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Showing {rows.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}
+              {adminDict.instrumentsSummary
+                .replace("{shown}", rows.length.toLocaleString())
+                .replace("{total}", instruments.total.toLocaleString())
+                .replace("{page}", instruments.page.toLocaleString())
+                .replace("{pages}", totalPages.toLocaleString())}
             </p>
             <div className="flex gap-2">
               <Link
@@ -1372,7 +1429,7 @@ function InstrumentsPanel({
         defaultMobileSummaryCount={3}
         getCardIdentity={(row) => ({
           title: row.ticker,
-          subtitle: row.name ?? "Unnamed",
+          subtitle: row.name ?? adminDict.instrumentsUnnamed,
           badge: <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{row.backfillStatus}</span>,
         })}
       />
@@ -1381,7 +1438,9 @@ function InstrumentsPanel({
         onOpenChange={(open) => {
           if (!open) setSelectedTicker(null);
         }}
-        title={selectedInstrument ? `${selectedInstrument.ticker} details` : "Instrument details"}
+        title={selectedInstrument
+          ? adminDict.instrumentsDetailsTitle.replace("{ticker}", selectedInstrument.ticker)
+          : adminDict.instrumentsDetailsFallbackTitle}
         closeLabel={adminDict.closeDrawerAriaLabel}
         bodyClassName="space-y-4"
       >
@@ -1392,16 +1451,16 @@ function InstrumentsPanel({
               <dl className="grid gap-2">
                 {[
                   detailRow("Ticker", selectedInstrument.ticker),
-                  detailRow("Name", selectedInstrument.name ?? "Unnamed"),
-                  detailRow("Market", selectedInstrument.marketCode),
-                  detailRow("Type", selectedInstrument.instrumentType),
-                  detailRow("Status", selectedInstrument.status),
-                  detailRow("Support", selectedInstrument.supportState),
-                  detailRow("Backfill", selectedInstrument.backfillStatus),
-                  detailRow("Providers", selectedInstrument.providerIds.join(", ")),
-                  detailRow("Last seen", formatUtcTimestamp(selectedInstrument.lastSeenInCatalogAt)),
-                  detailRow("Delisted at", selectedInstrument.delistedAt ? formatUtcTimestamp(selectedInstrument.delistedAt) : null),
-                  detailRow("Absence streak", selectedInstrument.absenceStreak.toLocaleString()),
+                  detailRow(adminDict.instrumentsName, selectedInstrument.name ?? adminDict.instrumentsUnnamed),
+                  detailRow(adminDict.instrumentsMarket, selectedInstrument.marketCode),
+                  detailRow(adminDict.instrumentsType, selectedInstrument.instrumentType),
+                  detailRow(adminDict.instrumentsStatus, selectedInstrument.status),
+                  detailRow(adminDict.instrumentsSupport, selectedInstrument.supportState),
+                  detailRow(adminDict.instrumentsBackfill, selectedInstrument.backfillStatus),
+                  detailRow(adminDict.provider, selectedInstrument.providerIds.join(", ")),
+                  detailRow(adminDict.instrumentsLastSeen, formatUtcTimestamp(selectedInstrument.lastSeenInCatalogAt)),
+                  detailRow(adminDict.instrumentsDelistedAt, selectedInstrument.delistedAt ? formatUtcTimestamp(selectedInstrument.delistedAt) : null),
+                  detailRow(adminDict.instrumentsAbsenceStreak, selectedInstrument.absenceStreak.toLocaleString()),
                 ].map((row) => (
                   <div key={`${selectedInstrument.ticker}:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                     <dt className="text-xs text-muted-foreground">{row.label}</dt>
@@ -1412,7 +1471,7 @@ function InstrumentsPanel({
             </section>
 
             <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">Support controls</h3>
+              <h3 className="text-sm font-semibold text-foreground">{adminDict.instrumentsSupportControls}</h3>
               <div className="flex flex-wrap gap-2 rounded-md border border-border/70 bg-muted/20 p-3">
                 {(["supported", "retired_by_admin", "unsupported_by_provider"] as const).map((state) => (
                   <button
@@ -1429,7 +1488,7 @@ function InstrumentsPanel({
             </section>
 
             <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">Delisting override</h3>
+              <h3 className="text-sm font-semibold text-foreground">{adminDict.instrumentsDelistingOverride}</h3>
               {delistingOverrideSupported ? (
                 <div className="flex flex-wrap gap-2 rounded-md border border-border/70 bg-muted/20 p-3">
                   <button
@@ -1438,7 +1497,7 @@ function InstrumentsPanel({
                     onClick={() => void setDelistingOverride(selectedInstrument, "exclude_from_delisting_detection")}
                     className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
                   >
-                    Exclude detection
+                    {adminDict.instrumentsExcludeDetection}
                   </button>
                   <button
                     type="button"
@@ -1446,7 +1505,7 @@ function InstrumentsPanel({
                     onClick={() => void setDelistingOverride(selectedInstrument, "include_in_delisting_detection")}
                     className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
                   >
-                    Include detection
+                    {adminDict.instrumentsIncludeDetection}
                   </button>
                   <button
                     type="button"
@@ -1454,11 +1513,11 @@ function InstrumentsPanel({
                     onClick={() => void setDelistingOverride(selectedInstrument, "clear_delisted_state")}
                     className="rounded border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-50"
                   >
-                    Clear delisted
+                    {adminDict.instrumentsClearDelisted}
                   </button>
                 </div>
               ) : (
-                <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">AU/KR only</p>
+                <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">{adminDict.instrumentsDelistingOverrideUnavailable}</p>
               )}
             </section>
           </>
@@ -1518,14 +1577,15 @@ function BackfillInstrumentRows({
   selectedTickers: string[];
   onToggleTicker: (ticker: string) => void;
 }) {
+  const adminDict = useAdminI18n().marketData;
   return (
     <div className="min-w-0 overflow-hidden rounded border border-border" data-testid="market-data-backfill-supported-list">
       <div className="hidden grid-cols-[minmax(7rem,0.75fr)_minmax(12rem,1.25fr)_minmax(7rem,0.8fr)_minmax(7rem,0.8fr)_minmax(10rem,1fr)] gap-3 border-b border-border bg-muted/40 px-4 py-3 text-xs uppercase text-muted-foreground md:grid">
-        <span>Select</span>
-        <span>Ticker</span>
-        <span>Support</span>
-        <span>Backfill</span>
-        <span>Providers</span>
+        <span>{adminDict.instrumentsSelect}</span>
+        <span>{adminDict.instrumentsTicker}</span>
+        <span>{adminDict.instrumentsSupport}</span>
+        <span>{adminDict.instrumentsBackfill}</span>
+        <span>{adminDict.instrumentsProviders}</span>
       </div>
       <div className="divide-y divide-border">
         {instruments.map((row) => (
@@ -1535,20 +1595,20 @@ function BackfillInstrumentRows({
           >
             <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
               <input
-                aria-label={`Select ${row.ticker}`}
+                aria-label={`${adminDict.instrumentsSelect} ${row.ticker}`}
                 type="checkbox"
                 checked={selectedTickers.includes(row.ticker)}
                 onChange={() => onToggleTicker(row.ticker)}
               />
-              <span className="md:hidden">Select</span>
+              <span className="md:hidden">{adminDict.instrumentsSelect}</span>
             </label>
             <div className="min-w-0">
               <p className="break-all font-medium text-foreground">{row.ticker}</p>
-              <p className="mt-1 break-words text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">{row.name ?? adminDict.instrumentsUnnamed}</p>
             </div>
-            <BackfillRowFact label="Support" value={row.supportState} />
-            <BackfillRowFact label="Backfill" value={row.backfillStatus} />
-            <BackfillRowFact label="Providers" value={row.providerIds.join(", ") || "none"} />
+            <BackfillRowFact label={adminDict.instrumentsSupport} value={row.supportState} />
+            <BackfillRowFact label={adminDict.instrumentsBackfill} value={row.backfillStatus} />
+            <BackfillRowFact label={adminDict.instrumentsProviders} value={row.providerIds.join(", ") || adminDict.instrumentsNone} />
           </div>
         ))}
       </div>
@@ -1558,20 +1618,22 @@ function BackfillInstrumentRows({
 
 function BackfillTargetRows({
   targets,
+  adminDict,
   className,
   testId,
 }: {
   targets: AdminMarketDataBackfillTargetDto[];
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"];
   className?: string;
   testId: string;
 }) {
   return (
     <div className={cn("min-w-0 overflow-hidden rounded border border-border", className)} data-testid={testId}>
       <div className="hidden grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs uppercase text-muted-foreground md:grid">
-        <span>Ticker</span>
-        <span>Name</span>
-        <span>Backfill</span>
-        <span>Support</span>
+        <span>{adminDict.instrumentsTicker}</span>
+        <span>{adminDict.instrumentsName}</span>
+        <span>{adminDict.instrumentsBackfill}</span>
+        <span>{adminDict.instrumentsSupport}</span>
       </div>
       <div className="divide-y divide-border">
         {targets.map((target) => (
@@ -1580,9 +1642,9 @@ function BackfillTargetRows({
             className="grid min-w-0 gap-3 px-3 py-3 text-sm md:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] md:items-center"
           >
             <p className="break-all font-medium text-foreground">{target.ticker}</p>
-            <BackfillRowFact label="Name" value={target.name ?? "Unnamed"} />
-            <BackfillRowFact label="Backfill" value={target.backfillStatus ?? "unknown"} />
-            <BackfillRowFact label="Support" value={target.supportState ?? "unknown"} />
+            <BackfillRowFact label={adminDict.instrumentsName} value={target.name ?? adminDict.instrumentsUnnamed} />
+            <BackfillRowFact label={adminDict.instrumentsBackfill} value={target.backfillStatus ?? adminDict.instrumentsUnknown} />
+            <BackfillRowFact label={adminDict.instrumentsSupport} value={target.supportState ?? adminDict.instrumentsUnknown} />
           </div>
         ))}
       </div>
@@ -1612,6 +1674,7 @@ function BackfillPanel({
   initialQuery: InstrumentQuery;
   snapshotRepairRequest: SnapshotRepairRequest | null;
 }) {
+  const adminDict = useAdminI18n().marketData;
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
   const guidedValuationRepair = snapshotRepairRequest?.mode === "valuation";
@@ -1785,7 +1848,7 @@ function BackfillPanel({
       setPreview(null);
       setAcknowledged(false);
       setTypedConfirmation("");
-      setPreviewError(err instanceof Error ? err.message : "Backfill preview failed");
+      setPreviewError(err instanceof Error ? err.message : adminDict.backfillPreviewFailedTitle);
     }
   }
 
@@ -2116,12 +2179,19 @@ function BackfillPanel({
                 onToggleTicker={toggleTicker}
               />
               <div className="flex min-w-0 flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <p className="min-w-0 break-words">Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
+                <p className="min-w-0 break-words">
+                  {adminDict.instrumentsSummary
+                    .replace("{shown}", instruments.items.length.toLocaleString())
+                    .replace("{total}", instruments.total.toLocaleString())
+                    .replace("{page}", String(instruments.page))
+                    .replace("{pages}", String(totalPages))}
+                  . {adminDict.selectedLabel}: {selectedTickers.length.toLocaleString()}.
+                </p>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
-                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
-                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">Preview selected</button>
-                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">Preview all matching filters</button>
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>{adminDict.previous}</Link>
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>{adminDict.nextPage}</Link>
+                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">{adminDict.backfillPreviewSelected}</button>
+                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">{adminDict.backfillPreviewAllMatching}</button>
                 </div>
               </div>
             </div>
@@ -2130,7 +2200,7 @@ function BackfillPanel({
       </div>
       {previewError ? (
         <div className="mt-4 min-w-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-backfill-preview-error">
-          <p className="font-medium">Backfill preview failed</p>
+          <p className="font-medium">{adminDict.backfillPreviewFailedTitle}</p>
           <p className="mt-1 break-words">{previewError}</p>
         </div>
       ) : null}
@@ -2166,7 +2236,7 @@ function BackfillPanel({
               ) : null}
             </div>
             {previewTargets.length <= 100 ? (
-              <BackfillTargetRows targets={previewTargets} className="mt-3" testId="market-data-backfill-preview-targets" />
+              <BackfillTargetRows targets={previewTargets} adminDict={adminDict} className="mt-3" testId="market-data-backfill-preview-targets" />
             ) : (
               <p className="mt-2 text-sm text-muted-foreground">Large previews show a summary by default. Open details to filter the frozen list before executing.</p>
             )}
@@ -2206,7 +2276,7 @@ function BackfillPanel({
                   <input value={targetModalFilter} onChange={(event) => setTargetModalFilter(event.target.value)} className="mt-3 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Filter frozen targets" />
                 </div>
                 <div className="max-h-[70vh] overflow-auto p-4">
-                  <BackfillTargetRows targets={filteredPreviewTargets} testId="market-data-backfill-modal-targets" />
+                  <BackfillTargetRows targets={filteredPreviewTargets} adminDict={adminDict} testId="market-data-backfill-modal-targets" />
                 </div>
               </div>
             </div>
@@ -2242,6 +2312,7 @@ function BackfillPanel({
 
 
 function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX"> }) {
+  const adminDict = useAdminI18n().marketData;
   const [selected, setSelected] = useState<AdminMarketDataPurgeCategory[]>(["price_bars"]);
   const [enqueueBackfill, setEnqueueBackfill] = useState(false);
   const [fullHistory, setFullHistory] = useState(true);
@@ -2350,7 +2421,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
             ["Provider", preview.providerId],
             ["Categories", preview.categories.join(", ")],
             ["Affected instruments", String(preview.affectedInstrumentCount)],
-            ["Estimated rows", preview.estimatedRows == null ? "unknown" : String(preview.estimatedRows)],
+            ["Estimated rows", preview.estimatedRows == null ? adminDict.instrumentsUnknown : String(preview.estimatedRows)],
             ["Linked refill", preview.linkedRefill.available ? preview.linkedRefill.mode ?? "available" : preview.linkedRefill.warning ?? "not available"],
             ["Confirmation", preview.confirmation.text ?? preview.confirmation.level],
           ]} />
@@ -2382,7 +2453,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
       )}
       {executeResult && <PreviewSummary title="Purge operation" rows={[
         ["Operation", executeResult.operationId],
-        ["Deleted rows", executeResult.deletedRows == null ? "unknown" : String(executeResult.deletedRows)],
+        ["Deleted rows", executeResult.deletedRows == null ? adminDict.instrumentsUnknown : String(executeResult.deletedRows)],
         ["Affected instruments", String(executeResult.affectedInstrumentCount)],
         ["Linked backfill", executeResult.linkedBackfillOperationId ?? "none"],
       ]} />}

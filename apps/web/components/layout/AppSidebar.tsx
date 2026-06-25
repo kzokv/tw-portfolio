@@ -88,6 +88,11 @@ export interface AppSidebarLabels {
   operatorGroupLabel?: string;
   backToApp?: string;
   dashboardFeedbackLabel?: string;
+  resizeRail?: {
+    ariaLabel?: string;
+    expandedTitle?: string;
+    collapsedTitle?: string;
+  };
   nav?: Partial<Record<NavKey, string>>;
 }
 
@@ -396,7 +401,7 @@ export function AppSidebar({
       {/* Click-to-toggle + drag-to-resize rail. Lives inside the
           `display:contents` wrapper so the absolute-positioned strip
           aligns to the sidebar's right edge. */}
-      <SidebarResizeRail />
+      <SidebarResizeRail labels={labels?.resizeRail} />
       </div>
     </Sidebar>
   );

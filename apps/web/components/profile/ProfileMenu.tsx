@@ -57,9 +57,11 @@ interface ProfileMenuProps {
   signOutHref: string;
   /** Optional copy overrides; defaults match the locked English wording. */
   labels?: {
+    triggerLabel?: string;
     profileLink?: string;
     adminLink?: string;
     signOut?: string;
+    themeGroupLabel?: string;
     themeLight?: string;
     themeSystem?: string;
     themeDark?: string;
@@ -101,6 +103,8 @@ export function ProfileMenu({
   const profileLinkLabel = labels?.profileLink ?? "Profile";
   const adminLinkLabel = labels?.adminLink ?? "Admin";
   const signOutLabel = labels?.signOut ?? "Sign out";
+  const triggerLabel = labels?.triggerLabel ?? "User menu";
+  const themeGroupLabel = labels?.themeGroupLabel ?? "Theme";
   const themeLight = labels?.themeLight ?? "Light";
   const themeSystem = labels?.themeSystem ?? "System";
   const themeDark = labels?.themeDark ?? "Dark";
@@ -117,7 +121,7 @@ export function ProfileMenu({
         <Button
           variant="ghost"
           className="flex h-10 items-center gap-1 rounded-full border border-border bg-card p-0 pr-1 shadow-sm hover:bg-card/90"
-          aria-label="User menu"
+          aria-label={triggerLabel}
           data-testid="topbar-profile-menu-trigger"
         >
           <Avatar className="h-9 w-9">
@@ -192,7 +196,7 @@ export function ProfileMenu({
 
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Theme
+          {themeGroupLabel}
         </DropdownMenuLabel>
         <DropdownMenuItem
           onSelect={(event) => {

@@ -3,12 +3,14 @@
 import { useEffect, useMemo } from "react";
 import type {
   ChatGptTransactionDraftWidgetDto,
+  LocaleCode,
   TransactionDraftPostingResultDto,
 } from "@vakwen/shared-types";
 import { ChatGptTransactionDraftWidget } from "./ChatGptTransactionDraftWidget";
 import type { OpenAiBridge, OpenAiToolCallResult } from "./openaiBridge";
 import { readAccountOptions, readPostingPreview } from "./chatGptWidgetTypes";
 import { buildMockTransactionDraftWidgetData } from "./mockTransactionDraftWidgetData";
+import { normalizeChatGptLocale } from "./i18n";
 
 function cloneWidget(widget: ChatGptTransactionDraftWidgetDto): ChatGptTransactionDraftWidgetDto {
   return JSON.parse(JSON.stringify(widget)) as ChatGptTransactionDraftWidgetDto;
@@ -30,7 +32,8 @@ function buildPostingResult(widget: ChatGptTransactionDraftWidgetDto, rowIds: st
   };
 }
 
-export function ChatGptTransactionDraftWidgetHarnessClient() {
+export function ChatGptTransactionDraftWidgetHarnessClient({ locale = "en" }: { locale?: LocaleCode | string }) {
+  const resolvedLocale = normalizeChatGptLocale(locale);
   const widget = useMemo(() => buildMockTransactionDraftWidgetData(), []);
 
   useEffect(() => {
@@ -44,7 +47,7 @@ export function ChatGptTransactionDraftWidgetHarnessClient() {
         mode: current.mode,
         selectedRowIds: current.selectedRowIds,
       },
-      locale: "en",
+      locale: resolvedLocale,
       setWidgetState(state) {
         bridge.widgetState = state;
       },
@@ -173,7 +176,7 @@ export function ChatGptTransactionDraftWidgetHarnessClient() {
     return () => {
       delete window.openai;
     };
-  }, [widget]);
+  }, [resolvedLocale, widget]);
 
-  return <ChatGptTransactionDraftWidget fallbackData={widget} />;
+  return <ChatGptTransactionDraftWidget fallbackData={widget} locale={resolvedLocale} />;
 }

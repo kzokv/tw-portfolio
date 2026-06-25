@@ -6,6 +6,7 @@ import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import { DashboardLoading } from "../../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../../components/layout/i18n";
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
@@ -43,6 +44,9 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
+  const locale = settings?.locale ?? "en";
+  const dict = getDictionary(locale);
+  const loadingCopy = getRouteLoadingLabels(locale).tickerDetail;
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardPrimaryData>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
@@ -60,24 +64,24 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   if (!dashboard) {
     return (
-      <Suspense fallback={<DashboardLoading standalone />}>
+      <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
         <AppShell
           isDemo={session.isDemo}
-          localeOverride={settings?.locale ?? "en"}
+          localeOverride={locale}
           initialProfile={profile}
           initialSidebarOpen={sidebarOpen}
         >
           <p>
-            Failed to load data for {ticker}.{" "}
-            <Link href="/portfolio">Back to portfolio</Link>
+            {dict.tickerHistory.loadError.replace("{ticker}", ticker)}{" "}
+            <Link href="/portfolio">{dict.tickerHistory.backToPortfolio}</Link>
           </p>
         </AppShell>
       </Suspense>
     );
   }
 
-  const locale = settings?.locale ?? dashboard.settings?.locale ?? "en";
-  const dict = getDictionary(locale);
+  const resolvedLocale = settings?.locale ?? dashboard.settings?.locale ?? locale;
+  const resolvedDict = getDictionary(resolvedLocale);
   const primaryDetails = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
@@ -103,18 +107,18 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const initialTradeDate = new Date().toISOString().slice(0, 10);
 
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={resolvedLocale} loadingCopy={getRouteLoadingLabels(resolvedLocale).tickerDetail} />}>
       <AppShell
         isDemo={session.isDemo}
-        localeOverride={locale}
+        localeOverride={resolvedLocale}
         initialProfile={profile}
         initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
         <TickerHistoryClient
           transactions={transactions}
-          dict={dict}
-          locale={locale}
+          dict={resolvedDict}
+          locale={resolvedLocale}
           ticker={ticker}
           instrument={instrument}
           isDemo={session.isDemo}

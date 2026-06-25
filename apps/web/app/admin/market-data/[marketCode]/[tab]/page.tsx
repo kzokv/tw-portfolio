@@ -6,11 +6,14 @@ import type {
   AdminMarketDataOperationsResponse,
   AdminMarketDataOverviewResponse,
   AdminMarketDataUnresolvedResponse as SharedAdminMarketDataUnresolvedResponse,
+  LocaleCode,
   ProviderResolutionMappingsResponse,
   ProviderUnresolvedItemsResponse,
+  UserSettings,
 } from "@vakwen/shared-types";
 import { getJson } from "../../../../../lib/api";
 import { AdminMarketDataWorkspaceClient } from "../../../../../components/admin/AdminMarketDataClient";
+import { adminI18n } from "../../../../../components/admin/admin-i18n-data";
 import type {
   AdminMarketDataActivityQuery,
   AdminMarketDataActivityResponse,
@@ -273,8 +276,10 @@ function activityQueryString(query: AdminMarketDataActivityQuery): string {
   return params.toString();
 }
 
-function stringifyEvidence(evidence: unknown): string {
-  if (!evidence) return "No evidence summary";
+type AdminDict = typeof adminI18n.en;
+
+function stringifyEvidence(evidence: unknown, dict: AdminDict): string {
+  if (!evidence) return dict.marketData.unresolvedNoEvidence;
   if (typeof evidence === "string") return evidence;
   if (typeof evidence === "object") {
     const record = evidence as Record<string, unknown>;
@@ -287,29 +292,30 @@ function stringifyEvidence(evidence: unknown): string {
   return String(evidence);
 }
 
-function unresolvedActionLabel(action: SharedAdminMarketDataUnresolvedResponse["items"][number]["recommendedAction"]): string {
-  if (action === "repair_mapping") return "Repair mapping";
-  if (action === "retry_via_backfill") return "Retry via backfill";
-  if (action === "mark_unsupported") return "Mark unsupported";
-  if (action === "reopen") return "Reopen";
-  if (action === "ignore") return "Ignore";
-  return "Review";
+function unresolvedActionLabel(action: SharedAdminMarketDataUnresolvedResponse["items"][number]["recommendedAction"], dict: AdminDict): string {
+  if (action === "repair_mapping") return dict.marketData.unresolvedRecommendedRepairMapping;
+  if (action === "retry_via_backfill") return dict.marketData.unresolvedRecommendedRetryViaBackfill;
+  if (action === "mark_unsupported") return dict.marketData.unresolvedRecommendedMarkUnsupported;
+  if (action === "reopen") return dict.marketData.unresolvedRecommendedReopen;
+  if (action === "ignore") return dict.marketData.unresolvedRecommendedIgnore;
+  return dict.marketData.unresolvedRecommendedReview;
 }
 
 function adaptMarketUnresolvedResponse(
   response: SharedAdminMarketDataUnresolvedResponse,
+  dict: AdminDict,
 ): AdminMarketDataUnresolvedUiResponse {
   const providerLabels = new Map(response.providers.map((provider) => [provider.providerId, provider.label]));
   return {
     ...response,
     marketCode: response.marketCode,
     summary: [
-      { id: "active", label: "Active unresolved rows", value: response.summary.activeRowCount },
-      { id: "affected", label: "Affected instruments", value: response.summary.affectedInstrumentCount },
+      { id: "active", label: dict.marketData.unresolvedSummaryActiveRows, value: response.summary.activeRowCount },
+      { id: "affected", label: dict.marketData.unresolvedSummaryAffectedInstruments, value: response.summary.affectedInstrumentCount },
       {
         id: "oldest",
-        label: "Oldest unresolved",
-        value: response.summary.oldestUnresolvedAt ? response.summary.oldestUnresolvedAt.slice(0, 10) : "none",
+        label: dict.marketData.unresolvedSummaryOldest,
+        value: response.summary.oldestUnresolvedAt ? response.summary.oldestUnresolvedAt.slice(0, 10) : dict.marketData.unresolvedNone,
         detail: response.summary.oldestUnresolvedAt,
       },
     ],
@@ -321,10 +327,10 @@ function adaptMarketUnresolvedResponse(
       states: response.summary.byState.map((bucket) => ({ value: bucket.key, label: `${bucket.key} (${bucket.count})` })),
       errorCodes: response.summary.byErrorCode.map((bucket) => ({ value: bucket.key, label: `${bucket.key} (${bucket.count})` })),
       sorts: [
-        { value: "last_seen_desc", label: "Last seen" },
-        { value: "updated_desc", label: "Recently updated" },
-        { value: "occurrence_count_desc", label: "Most occurrences" },
-        { value: "source_symbol_asc", label: "Source symbol" },
+        { value: "last_seen_desc", label: dict.marketData.unresolvedSortLastSeen },
+        { value: "updated_desc", label: dict.marketData.unresolvedSortRecentlyUpdated },
+        { value: "occurrence_count_desc", label: dict.marketData.unresolvedSortMostOccurrences },
+        { value: "source_symbol_asc", label: dict.marketData.unresolvedSortSourceSymbol },
       ],
     },
     blocker: null,
@@ -340,8 +346,8 @@ function adaptMarketUnresolvedResponse(
         providerLabel: providerLabels.get(item.providerId) ?? item.providerId,
         errorLabel: item.errorCode,
         affectedInstrumentCount: 1,
-        recommendedActionLabel: unresolvedActionLabel(item.recommendedAction),
-        evidenceSummary: item.recommendedActionReason || stringifyEvidence(item.evidence),
+        recommendedActionLabel: unresolvedActionLabel(item.recommendedAction, dict),
+        evidenceSummary: item.recommendedActionReason || stringifyEvidence(item.evidence, dict),
         actions: [...activeActions],
       };
     }),
@@ -391,6 +397,10 @@ export default async function AdminMarketDataWorkspacePage({
           endDate: firstOptionalQueryValue(query.endDate) ?? firstOptionalQueryValue(query.targetDate) ?? null,
         }
       : null;
+  const locale: LocaleCode = await getJson<UserSettings>("/settings")
+    .then((settings) => settings.locale)
+    .catch(() => "en");
+  const dict = adminI18n[locale === "zh-TW" ? "zh-TW" : "en"];
 
   const [overview, actions] = await Promise.all([
     getJson<AdminMarketDataOverviewResponse>(`/admin/market-data/${encodeURIComponent(marketCode)}/overview`),
@@ -436,7 +446,7 @@ export default async function AdminMarketDataWorkspacePage({
     tab === "unresolved" && marketCode !== "FX"
       ? await getJson<SharedAdminMarketDataUnresolvedResponse>(
           `/admin/market-data/${encodeURIComponent(marketCode)}/unresolved?page=${unresolvedQuery.page}&limit=${unresolvedQuery.limit}&state=${encodeURIComponent(unresolvedQuery.state)}&sort=${encodeURIComponent(unresolvedQuery.sort)}${unresolvedQuery.providerId ? `&providerId=${encodeURIComponent(unresolvedQuery.providerId)}` : ""}${unresolvedQuery.errorCode ? `&errorCode=${encodeURIComponent(unresolvedQuery.errorCode)}` : ""}${unresolvedQuery.search.trim() ? `&search=${encodeURIComponent(unresolvedQuery.search.trim())}` : ""}`,
-        ).then(adaptMarketUnresolvedResponse)
+        ).then((response) => adaptMarketUnresolvedResponse(response, dict))
       : null;
   const krMappings =
     marketCode === "KR" && tab === "unresolved"

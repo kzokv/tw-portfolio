@@ -9,20 +9,23 @@ import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { getLayoutShellLabels } from "./i18n";
 
-const OPTIONS: ReadonlyArray<{ value: "light" | "system" | "dark"; label: string; Icon: typeof Sun }> = [
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "system", label: "System", Icon: Monitor },
-  { value: "dark", label: "Dark", Icon: Moon },
-];
+const DEFAULT_LABELS = getLayoutShellLabels("en").themeToggle;
 
 interface ThemeToggleProps {
   className?: string;
   /** When true (default in TopBar), render icon-only buttons. */
   iconOnly?: boolean;
+  labels?: {
+    groupLabel?: string;
+    light?: string;
+    system?: string;
+    dark?: string;
+  };
 }
 
-export function ThemeToggle({ className, iconOnly = true }: ThemeToggleProps) {
+export function ThemeToggle({ className, iconOnly = true, labels }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -32,18 +35,23 @@ export function ThemeToggle({ className, iconOnly = true }: ThemeToggleProps) {
   }, []);
 
   const active = (mounted ? theme : "system") ?? "system";
+  const options = [
+    { value: "light" as const, label: labels?.light ?? DEFAULT_LABELS.light, Icon: Sun },
+    { value: "system" as const, label: labels?.system ?? DEFAULT_LABELS.system, Icon: Monitor },
+    { value: "dark" as const, label: labels?.dark ?? DEFAULT_LABELS.dark, Icon: Moon },
+  ];
 
   return (
     <div
       role="radiogroup"
-      aria-label="Theme"
+      aria-label={labels?.groupLabel ?? DEFAULT_LABELS.groupLabel}
       className={cn(
         "inline-flex h-9 items-center rounded-full border border-border bg-card p-0.5 shadow-sm",
         className,
       )}
       data-testid="theme-toggle"
     >
-      {OPTIONS.map(({ value, label, Icon }) => {
+      {options.map(({ value, label, Icon }) => {
         const on = active === value;
         return (
           <button
