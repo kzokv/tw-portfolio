@@ -90,7 +90,10 @@ function createDeps() {
     // metadata enrichment. The default catalogProvider returns null so this is
     // never called in the existing tests; tests targeting the enrichment branch
     // override the catalogProvider mock.
-    persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] }) },
+    persistence: {
+      upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] }),
+      autoResolveProviderUnresolvedItemsBySourceSymbol: vi.fn().mockResolvedValue(0),
+    },
     // KZO-170: `resolveMarketCode` was deleted entirely (heuristic removed).
     // Producers now stamp `marketCode` directly on `BackfillJobData`, and the
     // worker validates via Zod schema at handler entry.
