@@ -87,6 +87,7 @@ describe("AdminMarketDataPage", () => {
 
     expect(html).toContain("admin-market-data-workspace");
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/settings",
       "/admin/market-data/AU/overview",
       "/admin/market-data/AU/actions",
       "/admin/market-data/AU/instruments?page=3&limit=25&status=listed&supportState=supported&instrumentType=ETF&backfillStatus=failed&sort=updated_desc&search=BHP",
@@ -120,6 +121,7 @@ describe("AdminMarketDataPage", () => {
     });
 
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/settings",
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
       "/admin/market-data/KR/activity?page=2&limit=10&search=2330&sourceKind=yahoo_chart&category=intraday_price&timeRange=48h",
@@ -146,6 +148,7 @@ describe("AdminMarketDataPage", () => {
     });
 
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/settings",
       "/admin/market-data/AU/overview",
       "/admin/market-data/AU/actions",
       "/admin/market-data/AU/activity?page=1&limit=25&timeRange=24h",
@@ -194,6 +197,7 @@ describe("AdminMarketDataPage", () => {
     const html = renderToStaticMarkup(element);
 
     expect(getJsonMock.mock.calls.map(([path]) => path)).toEqual([
+      "/settings",
       "/admin/market-data/KR/overview",
       "/admin/market-data/KR/actions",
       "/admin/market-data/KR/operations?page=1&limit=25",

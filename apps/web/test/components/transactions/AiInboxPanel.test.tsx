@@ -118,4 +118,13 @@ describe("AiInboxPanel", () => {
         .every((input) => (input as HTMLInputElement).disabled),
     ).toBe(true);
   });
+
+  it("renders zh-TW AI Inbox copy when locale is explicit", async () => {
+    await act(async () => root.render(<AiInboxPanel locale="zh-TW" />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("草稿批次");
+    expect(document.body.textContent).toContain("連接器來源");
+    expect(document.body.textContent).toContain("開啟深層連結");
+  });
 });

@@ -4,20 +4,20 @@ import { useState } from "react";
 
 interface DemoButtonProps {
   className?: string;
-  label?: string;
-  loadingLabel?: string;
-  rateLimitedMessage?: string;
-  fallbackErrorMessage?: string;
-  networkErrorMessage?: string;
+  label: string;
+  loadingLabel: string;
+  rateLimitedMessage: string;
+  fallbackErrorMessage: string;
+  networkErrorMessage: string;
 }
 
 export function DemoButton({
   className,
-  label = "Try it - no sign-up needed",
-  loadingLabel = "Starting demo...",
-  rateLimitedMessage = "Too many demo sessions. Please wait a minute and try again.",
-  fallbackErrorMessage = "Failed to start demo session.",
-  networkErrorMessage = "Cannot reach the server. Please try again.",
+  label,
+  loadingLabel,
+  rateLimitedMessage,
+  fallbackErrorMessage,
+  networkErrorMessage,
 }: DemoButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

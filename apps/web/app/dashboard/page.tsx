@@ -7,6 +7,7 @@ import {
 import { DashboardClient } from "../../components/dashboard/DashboardClient";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../components/layout/i18n";
 import { fetchDashboardPrimaryData } from "../../features/dashboard/services/dashboardService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
@@ -39,12 +40,14 @@ export default async function DashboardPage() {
       integrityIssue: initialPrimaryData.actions.integrityIssue,
     }
     : null;
+  const locale = settings?.locale ?? "en";
+  const loadingCopy = getRouteLoadingLabels(locale).dashboard;
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
       <AppShell
         section="dashboard"
         isDemo={session.isDemo}
-        localeOverride={settings?.locale ?? "en"}
+        localeOverride={locale}
         initialProfile={profile}
         initialSettings={settings}
         initialPortfolioConfig={initialPortfolioConfig}

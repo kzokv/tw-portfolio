@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { LocaleCode } from "@vakwen/shared-types";
+import { getRouteLoadingLabels } from "../layout/i18n";
+import { resolveClientLocale } from "../../lib/i18n/clientLocale";
 
 /**
  * Top-of-page loading progress bar shown during initial document load.
@@ -14,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 export function LoadingProgressBar() {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
+  const [locale, setLocale] = useState<LocaleCode>("en");
 
   const rafIdRef = useRef<number | null>(null);
   const slowIntervalRef = useRef<number | null>(null);
@@ -21,6 +25,10 @@ export function LoadingProgressBar() {
   const slowStartTimeoutRef = useRef<number | null>(null);
   const visibleSinceRef = useRef<number | null>(null);
   const loadHandledRef = useRef(false);
+
+  useEffect(() => {
+    setLocale(resolveClientLocale());
+  }, []);
 
   useEffect(() => {
     if (done) return;
@@ -155,6 +163,7 @@ export function LoadingProgressBar() {
   }, [done]);
 
   if (done) return null;
+  const copy = getRouteLoadingLabels(locale).dashboard;
 
   return (
     <div
@@ -163,7 +172,7 @@ export function LoadingProgressBar() {
       aria-valuenow={Math.round(progress)}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label="Loading dashboard"
+      aria-label={copy.ariaLabel}
       aria-live="off"
     >
       <div className="loading-progress__bar" style={{ width: `${progress}%` }} />

@@ -4,6 +4,10 @@ import { Search } from "lucide-react";
 import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";
 import { useCommandPaletteContext, useHasCommandPalette } from "./CommandPaletteContext";
+import { getLayoutShellLabels, layoutI18n } from "./i18n";
+
+const DEFAULT_LABEL = layoutI18n.en.commandPalette.placeholder;
+const DEFAULT_ARIA_LABEL = getLayoutShellLabels("en").commandPaletteTrigger.ariaLabel;
 
 interface CommandPaletteTriggerProps {
   className?: string;
@@ -21,8 +25,8 @@ interface CommandPaletteTriggerProps {
  */
 export function CommandPaletteTrigger({
   className,
-  label = "Search anything…",
-  ariaLabel = "Open command palette",
+  label = DEFAULT_LABEL,
+  ariaLabel = DEFAULT_ARIA_LABEL,
 }: CommandPaletteTriggerProps) {
   const hasPalette = useHasCommandPalette();
   const { setOpen } = useCommandPaletteContext();

@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback } from "react";
-import type { NotificationDto } from "@vakwen/shared-types";
+import type { LocaleCode, NotificationDto } from "@vakwen/shared-types";
 import { API_PUBLIC } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { TopBar } from "./TopBar";
+import { getLayoutShellLabels } from "./i18n";
 import type { QuickSearchItem } from "./QuickSearchPanel";
 
 interface AppShellTopBarSlotProps {
@@ -13,6 +14,7 @@ interface AppShellTopBarSlotProps {
   pictureUrl?: string | null;
   email?: string | null;
   role?: string;
+  locale: LocaleCode;
   uiDict: AppDictionary;
   quickSearchItems: QuickSearchItem[];
   unreadCount: number;
@@ -36,6 +38,7 @@ export function AppShellTopBarSlot({
   pictureUrl,
   email,
   role,
+  locale,
   uiDict,
   quickSearchItems,
   unreadCount,
@@ -50,6 +53,7 @@ export function AppShellTopBarSlot({
   const handleMarkRead = useCallback((id: string) => { void markRead(id); }, [markRead]);
   const handleMarkAllRead = useCallback(() => { void markAllRead(); }, [markAllRead]);
   const handleDismiss = useCallback((id: string) => { void dismiss(id); }, [dismiss]);
+  const shellLabels = getLayoutShellLabels(locale);
 
   return (
     <TopBar
@@ -67,6 +71,11 @@ export function AppShellTopBarSlot({
       searchTickersLabel={uiDict.topBar.searchTickersLabel}
       openSearchLabel={uiDict.topBar.openSearchLabel}
       closeSearchLabel={uiDict.topBar.closeSearchLabel}
+      toggleSidebarLabel={shellLabels.topBar.toggleSidebarLabel}
+      openNavigationLabel={shellLabels.topBar.openNavigationLabel}
+      commandPaletteLabel={uiDict.commandPalette.placeholder}
+      commandPaletteAriaLabel={shellLabels.commandPaletteTrigger.ariaLabel}
+      shellLabels={shellLabels}
       searchItems={quickSearchItems}
       unreadCount={unreadCount}
       notifications={notifications}

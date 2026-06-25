@@ -29,6 +29,7 @@ import { buildRouteDtoCacheKey, getRouteDtoContextScope } from "../../lib/routeD
 import { refreshPortfolioCloses } from "../../features/portfolio/services/portfolioService";
 import type { AppDictionary } from "../../lib/i18n";
 import { Badge } from "../ui/shadcn/badge";
+import { getRouteLoadingLabels } from "../layout/i18n";
 import type { TimelineMode } from "../../lib/timelineAxis";
 import { hydrateDashboardMarketStates, shouldPollForOpenMarket, type DashboardMarketStateLike } from "../../features/price-state/priceState";
 import {
@@ -216,7 +217,7 @@ export function DashboardClient({
     return (
       <>
         <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-        <DashboardLoading />
+        <DashboardLoading locale={locale} loadingCopy={getRouteLoadingLabels(locale).dashboard} />
       </>
     );
   }

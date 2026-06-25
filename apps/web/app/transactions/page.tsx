@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { UserSettings } from "@vakwen/shared-types";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../components/layout/i18n";
 import { TransactionsClient } from "../../components/transactions/TransactionsClient";
 import { fetchTransactionsPrimaryData } from "../../features/portfolio/services/portfolioService";
 import { requireSession } from "../../lib/auth";
@@ -31,12 +32,14 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
   const batchId = firstParam(sp.batch);
   const contextId = firstParam(sp.context);
   const initialPortfolioConfig = initialPrimaryData?.portfolioConfig ?? null;
+  const locale = settings?.locale ?? "en";
+  const loadingCopy = getRouteLoadingLabels(locale).transactions;
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
       <AppShell
         section="transactions"
         isDemo={session.isDemo}
-        localeOverride={settings?.locale ?? "en"}
+        localeOverride={locale}
         initialProfile={profile}
         initialSettings={settings}
         initialPortfolioConfig={initialPortfolioConfig}

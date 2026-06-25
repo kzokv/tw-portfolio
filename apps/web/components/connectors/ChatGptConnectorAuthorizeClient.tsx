@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bot, Check, ExternalLink, ShieldCheck, X } from "lucide-react";
-import type { AiConnectorScope, McpOAuthConsentRequestDto } from "@vakwen/shared-types";
+import type { AiConnectorScope, LocaleCode, McpOAuthConsentRequestDto } from "@vakwen/shared-types";
 import { API_PUBLIC } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -11,7 +11,15 @@ import {
   denyMcpOAuthConsent,
   fetchMcpOAuthConsent,
 } from "../../features/ai-inbox/service";
-import { AI_CONNECTOR_SCOPE_LABELS } from "./scopeLabels";
+import { chatGptConnectorAuthorizeCopy, getAiConnectorScopeLabel } from "./i18n";
+
+interface ChatGptConnectorAuthorizeClientProps {
+  locale?: LocaleCode | string;
+}
+
+function normalizeLocale(locale?: LocaleCode | string): LocaleCode {
+  return locale === "zh-TW" ? "zh-TW" : "en";
+}
 
 function scopeEnabledByPolicy(scope: AiConnectorScope, consent: McpOAuthConsentRequestDto): boolean {
   if (scope === "portfolio:mcp_read") return consent.policy.groupToggles.read;
@@ -33,7 +41,9 @@ function redirectToAuthorizeEndpoint(): void {
   window.location.href = `${API_PUBLIC}/oauth/authorize${query ? `?${query}` : ""}`;
 }
 
-export function ChatGptConnectorAuthorizeClient() {
+export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnectorAuthorizeClientProps) {
+  const resolvedLocale = normalizeLocale(locale);
+  const copy = chatGptConnectorAuthorizeCopy[resolvedLocale];
   const [consent, setConsent] = useState<McpOAuthConsentRequestDto | null>(null);
   const [selectedScopes, setSelectedScopes] = useState<Set<AiConnectorScope>>(new Set());
   const [lifetimeDays, setLifetimeDays] = useState(30);
@@ -53,9 +63,9 @@ export function ChatGptConnectorAuthorizeClient() {
       setSelectedScopes(new Set(next.scopes.filter((scope) => scopeEnabledByPolicy(scope, next) && scopeDefaultsGranted(scope))));
       setLifetimeDays(Math.min(30, next.policy.maxConnectorLifetimeDays));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connector authorization request could not be loaded.");
+      setError(err instanceof Error ? err.message : copy.loadError);
     }
-  }, []);
+  }, [copy.loadError]);
 
   useEffect(() => {
     void load();
@@ -90,7 +100,7 @@ export function ChatGptConnectorAuthorizeClient() {
       });
       window.location.href = result.redirectUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connector approval failed.");
+      setError(err instanceof Error ? err.message : copy.approveError);
       setBusy(null);
     }
   }
@@ -103,7 +113,7 @@ export function ChatGptConnectorAuthorizeClient() {
       const result = await denyMcpOAuthConsent(consent.requestId, consent.csrfToken);
       window.location.href = result.redirectUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connector denial failed.");
+      setError(err instanceof Error ? err.message : copy.denyError);
       setBusy(null);
     }
   }
@@ -116,8 +126,8 @@ export function ChatGptConnectorAuthorizeClient() {
             <Bot className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
-            <h1 className="text-2xl font-semibold">Connect ChatGPT</h1>
-            <p className="text-sm text-slate-600">Authorize ChatGPT to use Vakwen MCP tools for your account.</p>
+            <h1 className="text-2xl font-semibold">{copy.title}</h1>
+            <p className="text-sm text-slate-600">{copy.description}</p>
           </div>
         </div>
 
@@ -128,10 +138,10 @@ export function ChatGptConnectorAuthorizeClient() {
               {!consent ? (
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button variant="secondary" onClick={() => void load()}>
-                    Retry request
+                    {copy.retryRequest}
                   </Button>
                   <Button variant="outline" onClick={() => { window.location.href = "https://chatgpt.com/"; }}>
-                    Start again in ChatGPT
+                    {copy.startAgainInChatGpt}
                   </Button>
                 </div>
               ) : null}
@@ -141,7 +151,7 @@ export function ChatGptConnectorAuthorizeClient() {
 
         {!consent && !error ? (
           <Card className="rounded-lg" role="status" aria-live="polite" aria-busy="true">
-            <p className="text-sm text-slate-600">Loading authorization request...</p>
+            <p className="text-sm text-slate-600">{copy.loadingRequest}</p>
           </Card>
         ) : null}
 
@@ -150,15 +160,15 @@ export function ChatGptConnectorAuthorizeClient() {
             <div className="space-y-6">
               <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm md:grid-cols-2">
                 <div>
-                  <p className="text-xs uppercase text-slate-500">Client</p>
+                  <p className="text-xs uppercase text-slate-500">{copy.client}</p>
                   <p className="mt-1 font-medium text-slate-900">{consent.clientId}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase text-slate-500">MCP resource</p>
+                  <p className="text-xs uppercase text-slate-500">{copy.resource}</p>
                   <p className="mt-1 select-all break-all font-medium text-slate-900">{consent.resource}</p>
                 </div>
                 <div className="md:col-span-2">
-                  <p className="text-xs uppercase text-slate-500">Redirect</p>
+                  <p className="text-xs uppercase text-slate-500">{copy.redirect}</p>
                   <a
                     href={consent.redirectUri}
                     target="_blank"
@@ -174,11 +184,11 @@ export function ChatGptConnectorAuthorizeClient() {
               <div>
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-5 w-5 text-emerald-600" aria-hidden="true" />
-                  <h2 className="text-base font-semibold">Permissions</h2>
+                  <h2 className="text-base font-semibold">{copy.permissions}</h2>
                 </div>
                 {allScopesDisabled ? (
                   <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
-                    Admin policy has disabled every requested MCP tool group. Deny this request or ask an admin to re-enable at least one MCP tool group before approving.
+                    {copy.policyDisabled}
                   </div>
                 ) : null}
                 <div className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
@@ -188,11 +198,11 @@ export function ChatGptConnectorAuthorizeClient() {
                     return (
                       <label key={scope} className="flex min-h-12 items-center justify-between gap-4 px-4 py-3 text-sm">
                         <span className={disabled ? "text-slate-400" : "text-slate-800"}>
-                          {AI_CONNECTOR_SCOPE_LABELS[scope]}
-                          {policyDisabled ? <span className="block text-xs text-slate-500">Disabled by admin policy</span> : null}
+                          {getAiConnectorScopeLabel(resolvedLocale, scope)}
+                          {policyDisabled ? <span className="block text-xs text-slate-500">{copy.disabledByPolicy}</span> : null}
                           {scope === "transaction:write" ? (
                             <span className="mt-1 block text-xs text-amber-700">
-                              Advanced scope. Off by default and requires fresh auth or re-consent to grant.
+                              {copy.advancedScope}
                             </span>
                           ) : null}
                         </span>
@@ -211,8 +221,7 @@ export function ChatGptConnectorAuthorizeClient() {
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                       <span>
-                        Posting is an advanced opt-in. Leave it unchecked unless you want ChatGPT to call the guarded
-                        `post_transaction_draft_rows` tool after typed or explicit confirmation.
+                        {copy.postingOptIn}
                       </span>
                     </div>
                   </div>
@@ -220,7 +229,7 @@ export function ChatGptConnectorAuthorizeClient() {
               </div>
 
               <label className="block text-sm font-medium text-slate-700">
-                Connector lifetime
+                {copy.connectorLifetime}
                 <input
                   type="number"
                   min={1}
@@ -235,16 +244,16 @@ export function ChatGptConnectorAuthorizeClient() {
                 />
               </label>
 
-              {busy ? <p className="sr-only" role="status" aria-live="polite">{busy === "approve" ? "Approving connector request" : "Denying connector request"}</p> : null}
+              {busy ? <p className="sr-only" role="status" aria-live="polite">{busy === "approve" ? copy.connectorApprovalBusy : copy.connectorDenialBusy}</p> : null}
 
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <Button variant="secondary" onClick={() => void deny()} disabled={busy !== null}>
                   <X className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Deny
+                  {copy.deny}
                 </Button>
                 <Button onClick={() => void approve()} disabled={!canApprove}>
                   <Check className="mr-2 h-4 w-4" aria-hidden="true" />
-                  {busy === "approve" ? "Approving..." : "Approve"}
+                  {busy === "approve" ? copy.approving : copy.approve}
                 </Button>
               </div>
             </div>
