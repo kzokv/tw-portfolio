@@ -1012,7 +1012,7 @@ function UnresolvedPanel({
             <div>
               <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedTitle}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {adminDict.krUniqueUnresolvedDescription}
+                {adminDict.unresolvedDescription}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
