@@ -316,16 +316,20 @@ describePostgres("KZO-183: post-migration triggers reject market mismatch (MTR-3
     await pool.end();
   });
 
-  it("currency_to_market('TWD') = 'TW', ('USD') = 'US', ('AUD') = 'AU' (MTR-6)", async () => {
-    const { rows } = await pool.query<{ twd: string; usd: string; aud: string }>(
+  it("currency_to_market maps every account currency to its market 1:1 (MTR-6)", async () => {
+    const { rows } = await pool.query<{ twd: string; usd: string; aud: string; krw: string; jpy: string }>(
       `SELECT
          currency_to_market('TWD') AS twd,
          currency_to_market('USD') AS usd,
-         currency_to_market('AUD') AS aud`,
+         currency_to_market('AUD') AS aud,
+         currency_to_market('KRW') AS krw,
+         currency_to_market('JPY') AS jpy`,
     );
     expect(rows[0].twd).toBe("TW");
     expect(rows[0].usd).toBe("US");
     expect(rows[0].aud).toBe("AU");
+    expect(rows[0].krw).toBe("KR");
+    expect(rows[0].jpy).toBe("JP");
   });
 
   it("currency_to_market raises invalid_currency_for_market for unknown currency (MTR-6)", async () => {

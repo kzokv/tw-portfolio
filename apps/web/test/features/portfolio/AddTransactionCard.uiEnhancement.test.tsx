@@ -67,6 +67,13 @@ const KRW_ACCOUNT: TransactionAccountOption = {
   defaultCurrency: "KRW",
   accountType: "broker",
 };
+const JPY_ACCOUNT: TransactionAccountOption = {
+  id: "acc-jp",
+  name: "JP Broker",
+  feeProfileName: "JP Broker",
+  defaultCurrency: "JPY",
+  accountType: "broker",
+};
 
 function valueWith(overrides: Partial<TransactionInput> = {}): TransactionInput {
   return {
@@ -92,6 +99,7 @@ describe("ui-enhancement — deriveDefaultMarketChip (scope item 21)", () => {
     expect(deriveDefaultMarketChip([USD_ACCOUNT, TWD_ACCOUNT, AUD_ACCOUNT])).toBe("US");
     expect(deriveDefaultMarketChip([AUD_ACCOUNT, TWD_ACCOUNT])).toBe("AU");
     expect(deriveDefaultMarketChip([KRW_ACCOUNT, TWD_ACCOUNT])).toBe("KR");
+    expect(deriveDefaultMarketChip([JPY_ACCOUNT, TWD_ACCOUNT])).toBe("JP");
   });
 
   it("returns 'TW' fallback when accounts list is empty", () => {
@@ -122,6 +130,7 @@ describe("ui-enhancement — Market chip rendering (Item 4)", () => {
     expect(html).toContain('data-testid="tx-market-chip-US"');
     expect(html).toContain('data-testid="tx-market-chip-AU"');
     expect(html).toContain('data-testid="tx-market-chip-KR"');
+    expect(html).toContain('data-testid="tx-market-chip-JP"');
   });
 });
 

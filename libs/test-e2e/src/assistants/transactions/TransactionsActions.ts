@@ -1,7 +1,10 @@
 import { TestEnv } from "@vakwen/config/test";
+import type { MarketCode } from "@vakwen/shared-types";
 import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { TransactionsPage } from "../../pages/transactions/TransactionsPage.js";
+
+type TransactionFormMarket = MarketCode | "ALL";
 
 export class TransactionsActions extends AppBaseActions {
   declare protected readonly _instance: TransactionsPage;
@@ -77,12 +80,12 @@ export class TransactionsActions extends AppBaseActions {
   }
 
   @Step()
-  async selectMarketChip(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+  async selectMarketChip(market: TransactionFormMarket): Promise<void> {
     await this.uiActions.click.perform(this.el.transactionForm.marketChip(market));
   }
 
   @Step()
-  async selectTickerOption(ticker: string, marketCode?: "TW" | "US" | "AU"): Promise<void> {
+  async selectTickerOption(ticker: string, marketCode?: MarketCode): Promise<void> {
     await this.uiActions.click.perform(this.el.transactionForm.tickerOption(ticker, marketCode));
   }
 

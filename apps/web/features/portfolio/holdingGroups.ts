@@ -29,7 +29,7 @@ const ACCOUNT_TYPE_ORDER: Record<AccountDto["accountType"], number> = {
   wallet: 2,
 };
 
-const REPORTING_CURRENCIES = new Set(["TWD", "USD", "AUD", "KRW"]);
+const REPORTING_CURRENCIES = new Set(["TWD", "USD", "AUD", "KRW", "JPY"]);
 
 function resolveHoldingMarketCode(
   holding: DashboardOverviewHoldingDto,

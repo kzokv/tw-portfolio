@@ -56,7 +56,7 @@ export interface TSeededAccount {
   userId: string;
   name: string;
   feeProfileId: string;
-  defaultCurrency: "TWD" | "USD" | "AUD" | "KRW";
+  defaultCurrency: "TWD" | "USD" | "AUD" | "KRW" | "JPY";
   accountType: "broker" | "bank" | "wallet";
 }
 

@@ -2279,7 +2279,7 @@ async function buildDashboardHeldMarketStates(
   regularSessionOnly: boolean,
   now: Date = new Date(),
 ): Promise<DashboardMarketStateDto[]> {
-  const order: MarketCode[] = ["TW", "US", "AU", "KR"];
+  const order: MarketCode[] = ["TW", "US", "AU", "KR", "JP"];
   const marketCodes = [...new Set(holdings.map((holding) => holding.marketCode as MarketCode))]
     .filter(isRegularSessionMarketCode)
     .sort((left, right) => order.indexOf(left) - order.indexOf(right));
@@ -4794,6 +4794,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const provider = app.marketDataRegistry.catalog.get(query.market_code);
     if (!provider) {
       throw routeError(404, "market_not_supported", "market not supported");
+    }
+
+    if (query.market_code === "JP") {
+      const catalogMatches = await app.persistence.listInstrumentsCatalog(query.q, undefined, "JP");
+      if (catalogMatches.length > 0) {
+        return {
+          instruments: catalogMatches.map((row) => ({
+            ticker: row.ticker,
+            name: row.name,
+            instrumentType: row.instrumentType ?? classifyInstrument(null, row.ticker, "JP"),
+            sector: row.sector,
+            marketCode: "JP" as const,
+            barsBackfillStatus: row.barsBackfillStatus,
+            lastRepairAt: row.lastRepairAt,
+            repairAvailableAt: null,
+          })),
+        };
+      }
     }
 
     let raws: Awaited<ReturnType<typeof provider.searchInstruments>>;

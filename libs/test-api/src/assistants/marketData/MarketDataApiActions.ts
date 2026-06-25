@@ -3,6 +3,8 @@ import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseActions } from "../../mixins/index.js";
 import type { MarketDataEndpoint } from "../../endpoints/MarketDataEndpoint.js";
 
+type TestMarketCode = "TW" | "US" | "AU" | "KR" | "JP";
+
 /**
  * KZO-170 (G-NC-6): actions wrapper for `/market-data/price`.
  *
@@ -16,7 +18,7 @@ export class MarketDataApiActions extends ApiBaseActions {
   async getPrice(
     ticker: string,
     date: string,
-    marketCode: "TW" | "US" | "AU",
+    marketCode: TestMarketCode,
   ): Promise<APIResponse> {
     return this._instance.getPrice(ticker, date, marketCode, this.authHeaders);
   }
@@ -34,7 +36,7 @@ export class MarketDataApiActions extends ApiBaseActions {
   async seedDailyBars(
     bars: {
       ticker: string;
-      marketCode?: "TW" | "US" | "AU";
+      marketCode?: TestMarketCode;
       barDate: string;
       open: number;
       high: number;
@@ -54,7 +56,7 @@ export class MarketDataApiActions extends ApiBaseActions {
   @Step()
   async searchInstruments(
     q: string,
-    marketCode: "TW" | "US" | "AU",
+    marketCode: TestMarketCode,
   ): Promise<APIResponse> {
     return this._instance.searchInstruments(q, marketCode, this.authHeaders);
   }
@@ -73,7 +75,7 @@ export class MarketDataApiActions extends ApiBaseActions {
    * confirms the route requires `q`.
    */
   @Step()
-  async searchInstrumentsMissingQuery(marketCode: "TW" | "US" | "AU"): Promise<APIResponse> {
+  async searchInstrumentsMissingQuery(marketCode: TestMarketCode): Promise<APIResponse> {
     return this._instance.searchInstruments(undefined, marketCode, this.authHeaders);
   }
 

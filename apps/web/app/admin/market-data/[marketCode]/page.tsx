@@ -5,7 +5,7 @@ interface AdminMarketDataMarketPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-const marketCodes = new Set(["TW", "US", "AU", "KR", "FX"]);
+const marketCodes = new Set(["TW", "US", "AU", "KR", "JP", "FX"]);
 
 export default async function AdminMarketDataMarketPage({
   params,

@@ -17,23 +17,30 @@ export function buildFundamentalsRegistry(env?: Pick<EnvConfig,
   "NODE_ENV"
   | "AU_PROVIDER_MOCK"
   | "KR_PROVIDER_MOCK"
+  | "JP_PROVIDER_MOCK"
   | "YAHOO_AU_RATE_LIMIT_PER_MINUTE"
   | "YAHOO_KR_RATE_LIMIT_PER_MINUTE"
+  | "YAHOO_JP_RATE_LIMIT_PER_MINUTE"
 >): FundamentalsRegistry {
   if (env?.NODE_ENV !== "test") {
     const yahooAuLimiter = new RateLimiter(env?.YAHOO_AU_RATE_LIMIT_PER_MINUTE ?? 60, 60_000);
     const yahooKrLimiter = new RateLimiter(env?.YAHOO_KR_RATE_LIMIT_PER_MINUTE ?? 60, 60_000);
+    const yahooJpLimiter = new RateLimiter(env?.YAHOO_JP_RATE_LIMIT_PER_MINUTE ?? 60, 60_000);
     const auLikeProvider = env?.AU_PROVIDER_MOCK
       ? new NullFundamentalsProvider("mock-fundamentals-au")
       : new YahooFundamentalsProvider({ marketCode: "AU", rateLimiter: yahooAuLimiter });
     const krProvider = env?.KR_PROVIDER_MOCK
       ? new NullFundamentalsProvider("mock-fundamentals-kr")
       : new YahooFundamentalsProvider({ marketCode: "KR", rateLimiter: yahooKrLimiter });
+    const jpProvider = env?.JP_PROVIDER_MOCK
+      ? new NullFundamentalsProvider("mock-fundamentals-jp")
+      : new YahooFundamentalsProvider({ marketCode: "JP", rateLimiter: yahooJpLimiter });
     return new Map<MarketCode, FundamentalsProvider>([
       ["TW", env?.AU_PROVIDER_MOCK ? new NullFundamentalsProvider("mock-fundamentals-tw") : new YahooFundamentalsProvider({ marketCode: "TW", rateLimiter: yahooAuLimiter })],
       ["US", env?.AU_PROVIDER_MOCK ? new NullFundamentalsProvider("mock-fundamentals-us") : new YahooFundamentalsProvider({ marketCode: "US", rateLimiter: yahooAuLimiter })],
       ["AU", auLikeProvider],
       ["KR", krProvider],
+      ["JP", jpProvider],
     ]);
   }
 
@@ -42,5 +49,6 @@ export function buildFundamentalsRegistry(env?: Pick<EnvConfig,
     ["US", new NullFundamentalsProvider("mock-fundamentals-us")],
     ["AU", new NullFundamentalsProvider("mock-fundamentals-au")],
     ["KR", new NullFundamentalsProvider("mock-fundamentals-kr")],
+    ["JP", new NullFundamentalsProvider("mock-fundamentals-jp")],
   ]);
 }

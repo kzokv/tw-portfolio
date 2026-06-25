@@ -63,6 +63,7 @@ describe("buildAppConfigDtoFromRow — ticker price freshness", () => {
       valuationHealthAbsoluteUsd: null,
       valuationHealthAbsoluteTwd: null,
       valuationHealthAbsoluteKrw: null,
+      valuationHealthAbsoluteJpy: null,
       routeCachePolicyMode: null,
       routeCacheDashboardPrimaryTtlMs: null,
       routeCacheDashboardEnrichmentTtlMs: null,
@@ -89,7 +90,7 @@ describe("buildAppConfigDtoFromRow — ticker price freshness", () => {
     expect(dto.tickerPriceFreshness.effectiveActivityDetailedRetentionDays).toBe(14);
     expect(dto.tickerPriceFreshness.effectiveActivitySummaryRetentionDays).toBe(120);
     expect(dto.tickerPriceFreshness.effectiveCalendarHistoryRetentionDays).toBe(900);
-    expect(dto.tickerPriceFreshness.options.supportedMarkets).toEqual(["TW", "US", "AU", "KR"]);
+    expect(dto.tickerPriceFreshness.options.supportedMarkets).toEqual(["TW", "US", "AU", "KR", "JP"]);
     expect(dto.tickerPriceFreshness.bounds.syncTickerCap).toEqual({ min: 1, max: 10000 });
     expect(dto.tickerPriceFreshness.bounds.activityDetailedRetentionDays).toEqual({ min: 1, max: 365 });
   });

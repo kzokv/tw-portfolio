@@ -7,12 +7,13 @@ import type {
 
 export function inferProviderMarketCode(providerId: string, context: Record<string, unknown> | null): MarketCode {
   const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
-  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR" || contextMarket === "JP") {
     return contextMarket;
   }
   if (providerId.endsWith("-tw")) return "TW";
   if (providerId.endsWith("-us")) return "US";
   if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
+  if (providerId.endsWith("-jp")) return "JP";
   return "KR";
 }
 
@@ -21,12 +22,13 @@ export function inferProviderIncidentMarketCode(
   context: Record<string, unknown> | null,
 ): MarketCode | null {
   const contextMarket = typeof context?.marketCode === "string" ? context.marketCode.toUpperCase() : null;
-  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR") {
+  if (contextMarket === "TW" || contextMarket === "US" || contextMarket === "AU" || contextMarket === "KR" || contextMarket === "JP") {
     return contextMarket;
   }
   if (providerId.endsWith("-tw")) return "TW";
   if (providerId.endsWith("-us")) return "US";
   if (providerId.endsWith("-kr")) return "KR";
+  if (providerId.endsWith("-jp")) return "JP";
   if (providerId.endsWith("-au") || providerId === "asx-gics-csv") return "AU";
   return null;
 }

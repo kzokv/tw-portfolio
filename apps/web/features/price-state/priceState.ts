@@ -54,7 +54,7 @@ export function buildPriceStateActivityPath({
   priceState: PriceStateDtoLike | null | undefined;
   ticker?: string | null;
 }): string | null {
-  if (!marketCode || !["TW", "US", "AU", "KR"].includes(marketCode)) return null;
+  if (!marketCode || !["TW", "US", "AU", "KR", "JP"].includes(marketCode)) return null;
   if (!priceState || priceState.sourceKind === "missing") return null;
 
   const params = new URLSearchParams();

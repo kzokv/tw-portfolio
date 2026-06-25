@@ -49,6 +49,7 @@ const TIER_1_NUMERIC_FIELDS = [
   "valuationHealthAbsoluteUsd",
   "valuationHealthAbsoluteTwd",
   "valuationHealthAbsoluteKrw",
+  "valuationHealthAbsoluteJpy",
   "routeCacheDashboardPrimaryTtlMs",
   "routeCacheDashboardEnrichmentTtlMs",
   "routeCacheDashboardPerformanceTtlMs",

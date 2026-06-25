@@ -142,7 +142,7 @@ test.describe("GET /market-data/search (KZO-172)", () => {
   }) => {
     const response = await marketDataApi.actions.searchInstruments(
       "BHP",
-      "JP" as unknown as "AU",
+      "ZZ" as unknown as "AU",
     );
     await marketDataApi.assert.statusIs(response, 400);
   });
@@ -172,6 +172,32 @@ test.describe("GET /market-data/search (KZO-172)", () => {
       Array.isArray(body["instruments"]) && (body["instruments"] as unknown[]).length === 0,
       true,
       "body.instruments is an empty array on US (no-op stub)",
+    );
+  });
+
+  test("[/market-data/search]: market_code=JP returns synced catalog matches before provider fallback", async ({
+    instrumentsApi,
+    marketDataApi,
+  }) => {
+    const seedResp = await instrumentsApi.actions.seedInstruments([
+      {
+        ticker: "7203",
+        name: "Toyota Motor Corporation",
+        instrumentType: "STOCK",
+        marketCode: "JP",
+        barsBackfillStatus: "ready",
+      },
+    ]);
+    await instrumentsApi.assert.statusIs(seedResp, 200);
+
+    const response = await marketDataApi.actions.searchInstruments("7203", "JP");
+    await marketDataApi.assert.statusIs(response, 200);
+    const body = await marketDataApi.assert.priceBody(response);
+    const instruments = body["instruments"] as Array<Record<string, unknown>>;
+    await marketDataApi.assert.mxAssertEqual(
+      instruments.some((row) => row["ticker"] === "7203" && row["marketCode"] === "JP"),
+      true,
+      "body.instruments contains synced JP catalog row",
     );
   });
 

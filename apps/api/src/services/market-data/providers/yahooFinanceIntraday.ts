@@ -205,6 +205,7 @@ export class YahooFinanceIntradayProvider {
     if (marketCode === "TW") return this.resolveTwSymbol(normalized);
     if (marketCode === "US") return normalized;
     if (marketCode === "AU") return `${normalized}.AX`;
+    if (marketCode === "JP") return normalized.endsWith(".T") ? normalized : `${normalized}.T`;
     return this.resolveKrSymbol(normalized);
   }
 

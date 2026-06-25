@@ -10,7 +10,7 @@ import {
   updateAdminMarketCalendarSource,
 } from "../services/market-data/marketCalendarService.js";
 
-const marketCodeSchema = z.enum(["TW", "US", "AU", "KR"]);
+const marketCodeSchema = z.enum(["TW", "US", "AU", "KR", "JP"]);
 
 const sourceUpdateInputSchema = z.object({
   marketCode: marketCodeSchema,
@@ -74,18 +74,18 @@ async function assertMcpAdminCalendarAccess(
 
 export async function getAdminMarketCalendarStatusTool(
   context: McpToolHandlerContext,
-  args: { marketCode: "TW" | "US" | "AU" | "KR" },
+  args: { marketCode: "TW" | "US" | "AU" | "KR" | "JP" },
 ) {
   await assertMcpAdminCalendarAccess(context);
   if (!isOfficialCalendarMarketCode(args.marketCode)) {
-    throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+    throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
   }
   return buildAdminMarketCalendarStatus(context.app.persistence, args.marketCode, new Date());
 }
 
 export async function listAdminMarketCalendarSourcesTool(
   context: McpToolHandlerContext,
-  args: { marketCode: "TW" | "US" | "AU" | "KR" },
+  args: { marketCode: "TW" | "US" | "AU" | "KR" | "JP" },
 ) {
   await assertMcpAdminCalendarAccess(context);
   const sources = await context.app.persistence.listMarketCalendarSources(args.marketCode);

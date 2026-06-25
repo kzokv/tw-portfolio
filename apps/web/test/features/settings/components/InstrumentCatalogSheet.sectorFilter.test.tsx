@@ -123,6 +123,9 @@ describe("InstrumentCatalogSheet sector filtering", () => {
     clickMarketChip("AU");
     expect(container.querySelector('[data-testid="catalog-sector-filter"]')).not.toBeNull();
 
+    clickMarketChip("JP");
+    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
+
     clickMarketChip("ALL");
     expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
   });

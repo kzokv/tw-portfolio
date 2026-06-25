@@ -71,10 +71,23 @@ describe("resolveReportContext", () => {
     });
   });
 
+  it("uses JPY as the native reporting currency for JP scope", () => {
+    expect(resolveReportContext({
+      scope: "JP",
+      defaultReportingCurrency: "USD",
+    })).toEqual({
+      scope: "JP",
+      currencyMode: "auto",
+      currency: null,
+      reportingCurrency: "JPY",
+      nativeCurrency: "JPY",
+    });
+  });
+
   it("rejects unsupported scope values", () => {
     expect(() => resolveReportContext({
       scope: "EU",
       defaultReportingCurrency: "TWD",
-    })).toThrow(/scope must be all, TW, US, AU, or KR/);
+    })).toThrow(/scope must be all, TW, US, AU, KR, or JP/);
   });
 });

@@ -16,12 +16,16 @@ import {
   MockFinMindUsStockMarketDataProvider,
   MockFrankfurterFxRateProvider,
   MockTwelveDataAuCatalogProvider,
+  MockTwelveDataJpCatalogProvider,
   MockTwelveDataKrCatalogProvider,
   MockYahooFinanceAuMarketDataProvider,
+  MockYahooFinanceJpMarketDataProvider,
   MockYahooFinanceKrMarketDataProvider,
   TwelveDataAuCatalogProvider,
+  TwelveDataJpCatalogProvider,
   TwelveDataKrCatalogProvider,
   YahooFinanceAuMarketDataProvider,
+  YahooFinanceJpMarketDataProvider,
   YahooFinanceKrMarketDataProvider,
 } from "./providers/index.js";
 
@@ -88,10 +92,12 @@ export function buildMarketDataRegistry(
     twelveDataPerMinute: () => getAppConfigCacheEntry()?.twelveDataProviderRateLimitPerMinute ?? env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE,
     yahooAuPerMinute: () => getAppConfigCacheEntry()?.yahooAuProviderRateLimitPerMinute ?? env.YAHOO_AU_RATE_LIMIT_PER_MINUTE,
     yahooKrPerMinute: () => getAppConfigCacheEntry()?.yahooKrProviderRateLimitPerMinute ?? env.YAHOO_KR_RATE_LIMIT_PER_MINUTE,
+    yahooJpPerMinute: () => getAppConfigCacheEntry()?.yahooJpProviderRateLimitPerMinute ?? env.YAHOO_JP_RATE_LIMIT_PER_MINUTE,
     frankfurterPerMinute: () => getAppConfigCacheEntry()?.frankfurterProviderRateLimitPerMinute ?? env.FRANKFURTER_RATE_LIMIT_PER_MINUTE,
   };
   const providerMinRequestInterval = {
     yahooKrMs: () => getAppConfigCacheEntry()?.yahooKrProviderMinRequestIntervalMs ?? 1_000,
+    yahooJpMs: () => getAppConfigCacheEntry()?.yahooJpProviderMinRequestIntervalMs ?? 0,
   };
 
   const finmindLimiter = new RateLimiter(providerBudget.finmindPerHour);
@@ -256,6 +262,45 @@ export function buildMarketDataRegistry(
 
   marketData.set("KR", yahooKrProvider);
   catalog.set("KR", twelveDataKrCatalog);
+
+  // JP: locked v1 split-provider model. Twelve Data owns JPX catalog
+  // enumeration (`/stocks?country=Japan` + `/etf?country=Japan`) while Yahoo
+  // Finance owns bars, cash dividends, intraday, metadata, and search fallback
+  // via deterministic `.T` suffix normalization. No KR-style mapping repair.
+  const yahooJpLimiter = new RateLimiter(providerBudget.yahooJpPerMinute, 60_000);
+  const yahooJpProvider: MarketDataProvider & InstrumentCatalogProvider = env.JP_PROVIDER_MOCK
+    ? new MockYahooFinanceJpMarketDataProvider()
+    : new YahooFinanceJpMarketDataProvider({
+        rateLimiter: yahooJpLimiter,
+        minRequestIntervalMs: providerMinRequestInterval.yahooJpMs,
+      });
+  emit(
+    "yahoo-finance-jp",
+    env.JP_PROVIDER_MOCK ? "mock_forced_by_env" : "real",
+    null,
+  );
+
+  const twelveDataJpCatalog: InstrumentCatalogProvider =
+    env.JP_CATALOG_PROVIDER_MOCK || !twelveDataBootstrapKey
+      ? new MockTwelveDataJpCatalogProvider({ yahooFallback: yahooJpProvider })
+      : new TwelveDataJpCatalogProvider({
+          apiKey: twelveDataBootstrapKey,
+          baseUrl: env.TWELVE_DATA_BASE_URL,
+          rateLimiter: twelveDataRateLimiter,
+          yahooFallback: yahooJpProvider,
+        });
+  emit(
+    "twelve-data-jp",
+    env.JP_CATALOG_PROVIDER_MOCK
+      ? "mock_forced_by_env"
+      : !twelveDataBootstrapKey
+        ? "mock_no_key"
+        : "real",
+    twelveDataKeySource,
+  );
+
+  marketData.set("JP", yahooJpProvider);
+  catalog.set("JP", twelveDataJpCatalog);
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()

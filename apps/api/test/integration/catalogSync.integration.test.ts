@@ -81,6 +81,11 @@ describePostgres("catalog sync persistence", () => {
     { ticker: "020000", name: "富邦ETN", typeRaw: "twse", industryCategoryRaw: "指數投資證券(ETN)", finmindDate: "2026-03-31", instrumentType: null, marketCode: "TW" },
   ];
 
+  const jpCatalog: CatalogInstrument[] = [
+    { ticker: "7203", name: "Toyota Motor Corporation", typeRaw: "JPX", industryCategoryRaw: "Common Stock", finmindDate: "2026-06-25", instrumentType: "STOCK", marketCode: "JP" },
+    { ticker: "1306", name: "NEXT FUNDS TOPIX ETF", typeRaw: "JPX", industryCategoryRaw: "ETF", finmindDate: "2026-06-25", instrumentType: "ETF", marketCode: "JP" },
+  ];
+
   it("upserts catalog instruments with correct columns", async () => {
     const result = await persistence!.upsertInstrumentCatalog(sampleCatalog, []);
     expect(result.upserted).toBe(4);
@@ -173,6 +178,96 @@ describePostgres("catalog sync persistence", () => {
     const row = await persistence!.getInstrument("TESTX");
     expect(row).not.toBeNull();
     expect(row!.instrumentType).toBeNull();
+  });
+
+  it("persists JP catalog rows with market-scoped search, backfill, monitoring, provider, and calendar state", async () => {
+    await persistence!.upsertInstrumentCatalog([
+      ...jpCatalog,
+      {
+        ticker: "7203",
+        name: "Toyota ADR Fixture",
+        typeRaw: "nyse",
+        industryCategoryRaw: "Auto Manufacturers",
+        finmindDate: "2026-06-25",
+        instrumentType: "STOCK",
+        marketCode: "US",
+      },
+    ], []);
+
+    const jpRows = await persistence!.listInstrumentsCatalog("Toyota", undefined, "JP");
+    expect(jpRows.map((row) => `${row.marketCode}:${row.ticker}`)).toEqual(["JP:7203"]);
+    const usRows = await persistence!.listInstrumentsCatalog("Toyota", undefined, "US");
+    expect(usRows.map((row) => `${row.marketCode}:${row.ticker}`)).toEqual(["US:7203"]);
+
+    await persistence!.updateBackfillStatus("7203", "JP", "failed");
+    await persistence!.updateBackfillStatus("7203", "US", "ready");
+    const backfillCandidates = await persistence!.listCatalogBarsBackfillCandidates("JP");
+    expect(backfillCandidates).toContainEqual({ ticker: "7203", marketCode: "JP" });
+    expect(backfillCandidates).toContainEqual({ ticker: "1306", marketCode: "JP" });
+    expect(backfillCandidates).not.toContainEqual({ ticker: "7203", marketCode: "US" });
+
+    const jpToyota = await persistence!.getInstrument("7203", "JP");
+    const usToyota = await persistence!.getInstrument("7203", "US");
+    expect(jpToyota?.barsBackfillStatus).toBe("failed");
+    expect(usToyota?.barsBackfillStatus).toBe("ready");
+
+    await persistence!.loadStore("user-1");
+    await persistence!.replaceManualSelections("user-1", [
+      { ticker: "7203", marketCode: "JP", name: "Toyota Motor Corporation", instrumentType: "STOCK" },
+      { ticker: "1306", marketCode: "JP", name: "NEXT FUNDS TOPIX ETF", instrumentType: "ETF" },
+    ]);
+    expect(await persistence!.getManualSelections("user-1")).toEqual([
+      expect.objectContaining({ ticker: "7203", marketCode: "JP" }),
+      expect.objectContaining({ ticker: "1306", marketCode: "JP" }),
+    ]);
+
+    const unresolved = await persistence!.upsertProviderUnresolvedItem({
+      providerId: "yahoo-finance-jp",
+      marketCode: "JP",
+      errorCode: "bars_unpriceable",
+      sourceSymbol: "9999",
+      providerSymbol: "9999.T",
+      severity: "warning",
+      evidence: { reason: "relaxed catalog row is not priceable" },
+    });
+    expect(unresolved).toEqual(
+      expect.objectContaining({
+        providerId: "yahoo-finance-jp",
+        marketCode: "JP",
+        sourceSymbol: "9999",
+        providerSymbol: "9999.T",
+        state: "active",
+      }),
+    );
+
+    const operation = await persistence!.createProviderOperation({
+      id: "jp-catalog-sync-test-op",
+      providerId: "twelve-data-jp",
+      marketCode: "JP",
+      operationType: "catalog_sync",
+      phase: "completed",
+      matchCount: 2,
+      sample: [{ ticker: "7203" }, { ticker: "1306" }],
+      metadata: { source: "integration-test" },
+    });
+    expect(operation).toEqual(
+      expect.objectContaining({
+        providerId: "twelve-data-jp",
+        marketCode: "JP",
+        operationType: "catalog_sync",
+        phase: "completed",
+      }),
+    );
+
+    const sources = await persistence!.listMarketCalendarSources("JP");
+    expect(sources).toContainEqual(
+      expect.objectContaining({
+        id: "official-jp",
+        marketCode: "JP",
+        suggestedSourceUrl: "https://www.jpx.co.jp/english/corporate/about-jpx/calendar/",
+        isDefault: true,
+      }),
+    );
   });
 
   // ── QA coverage gaps ────────────────────────────────────────────────────

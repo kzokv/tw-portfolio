@@ -394,7 +394,7 @@ export function buildDashboardMarketStates(
     });
   }
 
-  const order: MarketCode[] = ["TW", "US", "AU", "KR"];
+  const order: MarketCode[] = ["TW", "US", "AU", "KR", "JP"];
   return [...byMarket.values()].sort(
     (left, right) => order.indexOf(left.marketCode) - order.indexOf(right.marketCode),
   );

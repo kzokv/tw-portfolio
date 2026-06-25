@@ -58,6 +58,22 @@ function makeSectorFixture() {
       barsBackfillStatus: "ready",
       gicsIndustryGroup: "Banks",
     },
+    {
+      ticker: "7203",
+      name: "Toyota Motor Corporation",
+      instrumentType: "STOCK" as const,
+      marketCode: "JP",
+      barsBackfillStatus: "ready",
+      industryCategoryRaw: "Common Stock",
+    },
+    {
+      ticker: "1306",
+      name: "NEXT FUNDS TOPIX Exchange Traded Fund",
+      instrumentType: "ETF" as const,
+      marketCode: "JP",
+      barsBackfillStatus: "ready",
+      industryCategoryRaw: "ETF",
+    },
   ];
 }
 
@@ -104,5 +120,24 @@ test.describe("normalized sector filter", () => {
     await settings.assert.catalogItemIsVisible("AAPL");
     await settings.assert.catalogItemIsHidden("JPM");
     await settings.assert.catalogItemIsHidden("BND");
+  });
+
+  test("[JP]: JP chip shows JPX catalog rows without sector narrowing", async ({
+    appShell,
+    settings,
+  }) => {
+    await settings.arrange.seedInstruments(makeSectorFixture());
+
+    await appShell.actions.navigateToRoute("/dashboard");
+    await appShell.actions.openSettingsDrawer();
+    await settings.actions.openTickersTab();
+    await settings.actions.openCatalog();
+
+    await settings.actions.clickMarketChip("JP");
+    await settings.assert.sectorFilterIsHidden();
+    await settings.assert.catalogItemIsVisible("7203");
+    await settings.assert.catalogItemIsVisible("1306");
+    await settings.assert.catalogItemIsHidden("2330");
+    await settings.assert.catalogItemIsHidden("AAPL");
   });
 });

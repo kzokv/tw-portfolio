@@ -4,7 +4,7 @@ vi.mock("@vakwen/config", async (importOriginal) => {
   const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
-    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const },
+    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const, FINMIND_API_TOKEN: undefined },
   };
 });
 

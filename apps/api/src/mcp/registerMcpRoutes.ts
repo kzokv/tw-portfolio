@@ -434,7 +434,7 @@ export async function registerMcpRoutes(
         case "search_instruments":
           result = await searchInstruments(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
-            args as { query: string; markets?: Array<"TW" | "US" | "AU">; limit: number },
+            args as { query: string; markets?: Array<"TW" | "US" | "AU" | "KR" | "JP">; limit: number },
           );
           break;
         case "list_accounts":

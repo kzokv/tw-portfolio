@@ -894,10 +894,12 @@ export interface AppDictionary {
     accountCreateMarketUnitedStates: string;
     accountCreateMarketAustralia: string;
     accountCreateMarketKorea: string;
+    accountCreateMarketJapan: string;
     accountCreateMarketTaiwanSubtext: string;
     accountCreateMarketUnitedStatesSubtext: string;
     accountCreateMarketAustraliaSubtext: string;
     accountCreateMarketKoreaSubtext: string;
+    accountCreateMarketJapanSubtext: string;
     // KZO-183: per-account expandable cards (Accounts tab body).
     accountsTabSearchLabel: string;
     accountsTabSearchPlaceholder: string;
@@ -905,6 +907,7 @@ export interface AppDictionary {
     accountsListMarketBadgeUS: string;
     accountsListMarketBadgeAU: string;
     accountsListMarketBadgeKR: string;
+    accountsListMarketBadgeJP: string;
     accountsListAccountTypeBroker: string;
     accountsListAccountTypeBank: string;
     accountsListAccountTypeWallet: string;
@@ -1019,6 +1022,7 @@ export interface AppDictionary {
     tickersMarketChipUs: string;
     tickersMarketChipAu: string;
     tickersMarketChipKr: string;
+    tickersMarketChipJp: string;
     tickersCatalogCount: string;
     tickersCatalogShowingOf: string;
     tickersSaveSelections: string;
@@ -1468,6 +1472,7 @@ export interface AppDictionary {
     marketChipUS: string;
     marketChipAU: string;
     marketChipKR: string;
+    marketChipJP: string;
     marketChipAll: string;
     noAccountForCurrency: string;
     createAccountLink: string;

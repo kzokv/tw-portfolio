@@ -175,6 +175,7 @@ export function providerIdForMarket(market: MarketCode): ProviderId {
   if (market === "US") return "finmind-us";
   if (market === "AU") return "yahoo-finance-au";
   if (market === "KR") return "yahoo-finance-kr";
+  if (market === "JP") return "yahoo-finance-jp";
   return "finmind-tw";
 }
 

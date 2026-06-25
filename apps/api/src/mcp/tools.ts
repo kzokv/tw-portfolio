@@ -57,7 +57,7 @@ const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const marketCodeSchema = z.enum(MARKET_CODES);
 const reportScopeSchema = z.enum(REPORT_SCOPES);
 const reportCurrencyModeSchema = z.enum(REPORT_CURRENCY_MODES);
-const adminCalendarMarketCodeSchema = z.enum(["TW", "US", "AU", "KR"]);
+const adminCalendarMarketCodeSchema = z.enum(["TW", "US", "AU", "KR", "JP"]);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
@@ -310,7 +310,7 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   search_instruments: {
-    description: `Search supported instruments across TW, US, AU, and KR catalogs for descriptive analysis workflows. ${adviceBoundary}`,
+    description: `Search supported instruments across TW, US, AU, KR, and JP catalogs for descriptive analysis workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       query: z.string().trim().min(1).max(100),
       markets: z.array(marketCodeSchema).max(MARKET_CODES.length).optional(),

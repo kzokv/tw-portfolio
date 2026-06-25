@@ -12,6 +12,7 @@
  *   - US: "2019-06-01" (FinMind USStockPrice earliest)
  *   - AU: "1988-01-28" (Yahoo Finance — BHP.AX firstTradeDate per spike §8)
  *   - KR: "2000-01-04" (Yahoo Finance — 005930.KS observed daily bar boundary)
+ *   - JP: "2000-01-04" (Yahoo Finance `.T` chart floor per JP scope lock)
  *
  * Mirror precedent: `apps/api/test/unit/finmind-provider-reserveCapacity.test.ts`
  * (pure unit test against a helper, no infra deps).
@@ -36,6 +37,10 @@ describe("historyStartFor", () => {
   it("returns 2000-01-04 for KR (Yahoo Finance 005930.KS observed daily bar boundary)", () => {
     expect(historyStartFor("KR")).toBe("2000-01-04");
   });
+
+  it("returns 2000-01-04 for JP (Yahoo Finance .T observed daily bar boundary)", () => {
+    expect(historyStartFor("JP")).toBe("2000-01-04");
+  });
 });
 
 describe("HISTORY_START_BY_MARKET", () => {
@@ -44,9 +49,10 @@ describe("HISTORY_START_BY_MARKET", () => {
     expect(HISTORY_START_BY_MARKET.US).toBe("2019-06-01");
     expect(HISTORY_START_BY_MARKET.AU).toBe("1988-01-28");
     expect(HISTORY_START_BY_MARKET.KR).toBe("2000-01-04");
+    expect(HISTORY_START_BY_MARKET.JP).toBe("2000-01-04");
   });
 
-  it("covers exactly the four supported MarketCode values (no extras)", () => {
-    expect(Object.keys(HISTORY_START_BY_MARKET).sort()).toEqual(["AU", "KR", "TW", "US"]);
+  it("covers exactly the five supported MarketCode values (no extras)", () => {
+    expect(Object.keys(HISTORY_START_BY_MARKET).sort()).toEqual(["AU", "JP", "KR", "TW", "US"]);
   });
 });

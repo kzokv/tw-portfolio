@@ -23,13 +23,14 @@ export interface OfficialCalendarDayStatus {
   reason: "not_trading_day" | "calendar_unknown";
 }
 
-const SUPPORTED_MARKETS = new Set<RegularSessionMarketCode>(["TW", "US", "AU", "KR"]);
+const SUPPORTED_MARKETS = new Set<RegularSessionMarketCode>(["TW", "US", "AU", "KR", "JP"]);
 
 const DEFAULT_SOURCE_URLS: Record<RegularSessionMarketCode, string> = {
   TW: "https://www.twse.com.tw/en/trading/holiday.html",
   US: "https://www.nasdaqtrader.com/trader.aspx?id=Calendar",
   AU: "https://www.asx.com.au/markets/market-resources/trading-hours-calendar/cash-market-trading-hours/trading-calendar",
   KR: "https://global.krx.co.kr/contents/GLB/05/0501/0501110000/GLB0501110000.jsp",
+  JP: "https://www.jpx.co.jp/english/corporate/about-jpx/calendar/",
 };
 
 const LOW_EXCEPTION_WARNING_THRESHOLD = 2;

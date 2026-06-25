@@ -1,8 +1,11 @@
 import { expect } from "@playwright/test";
+import type { MarketCode } from "@vakwen/shared-types";
 import { Step } from "@vakwen/test-framework/decorators";
 import { BaseAssert } from "@vakwen/test-framework/mixins";
 
 import type { TransactionsPage } from "../../pages/transactions/TransactionsPage.js";
+
+type TransactionFormMarket = MarketCode | "ALL";
 
 export class TransactionsAssert extends BaseAssert {
   declare protected readonly _instance: TransactionsPage;
@@ -62,7 +65,7 @@ export class TransactionsAssert extends BaseAssert {
   }
 
   @Step()
-  async selectedMarketChipIs(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+  async selectedMarketChipIs(market: TransactionFormMarket): Promise<void> {
     await expect(this.el.transactionForm.marketChip(market)).toHaveAttribute("aria-checked", "true");
   }
 
@@ -189,12 +192,12 @@ export class TransactionsAssert extends BaseAssert {
   }
 
   @Step()
-  async marketChipIsVisible(market: "TW" | "US" | "AU"): Promise<void> {
+  async marketChipIsVisible(market: MarketCode): Promise<void> {
     await expect(this.el.transactionForm.marketChip(market)).toBeVisible();
   }
 
   @Step()
-  async marketChipIsAbsent(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+  async marketChipIsAbsent(market: TransactionFormMarket): Promise<void> {
     await expect(this.el.transactionForm.marketChip(market)).toHaveCount(0);
   }
 

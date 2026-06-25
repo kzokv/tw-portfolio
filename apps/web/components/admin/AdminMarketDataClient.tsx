@@ -3539,6 +3539,7 @@ const SUGGESTED_CALENDAR_SOURCE_URLS: Record<string, string> = {
   US: "https://www.nasdaqtrader.com/trader.aspx?id=Calendar",
   AU: "https://www.asx.com.au/markets/market-resources/trading-hours-calendar/cash-market-trading-hours/trading-calendar",
   KR: "https://global.krx.co.kr/contents/GLB/05/0501/0501110000/GLB0501110000.jsp",
+  JP: "https://www.jpx.co.jp/english/corporate/about-jpx/calendar/",
 };
 
 const CALENDAR_JSON_EXAMPLE = `{

@@ -33,6 +33,8 @@ export type ProviderId =
   | "twelve-data-au"
   | "yahoo-finance-kr"
   | "twelve-data-kr"
+  | "yahoo-finance-jp"
+  | "twelve-data-jp"
   | "frankfurter"
   // KZO-196 — ASX GICS catalog provider. Runs weekly (Sun 02:00 UTC) and
   // performs enrichment-only UPDATEs on AU instrument rows. Health
@@ -84,6 +86,10 @@ export function calendarMarketForProvider(providerId: ProviderId): MarketCode | 
       return "KR";
     case "twelve-data-kr":
       return "KR";
+    case "yahoo-finance-jp":
+      return "JP";
+    case "twelve-data-jp":
+      return "JP";
     // KZO-196 — ASX GICS catalog runs against ASX, calendar-aligned with AU.
     case "asx-gics-csv":
       return "AU";

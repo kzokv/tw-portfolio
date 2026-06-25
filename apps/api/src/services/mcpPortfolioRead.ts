@@ -121,7 +121,7 @@ function resolveRequestedReportingCurrency(
 ): AccountDefaultCurrency {
   if (!requested) return fallback;
   if ((ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(requested)) return requested as AccountDefaultCurrency;
-  throw routeError(400, "mcp_invalid_reporting_currency", "reportingCurrency must be TWD, USD, AUD, or KRW");
+  throw routeError(400, "mcp_invalid_reporting_currency", "reportingCurrency must be TWD, USD, AUD, KRW, or JPY");
 }
 
 function resolveOverrides(prefs: Record<string, unknown>, overrides: ReadOverrides): {
