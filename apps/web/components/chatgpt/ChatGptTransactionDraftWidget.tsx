@@ -125,18 +125,7 @@ function stateClassName(state: TransactionDraftRowDto["state"]): string {
 }
 
 function compactState(value: string, locale: LocaleCode): string {
-  if (locale === "zh-TW") {
-    const labels: Record<string, string> = {
-      ready: "可送出",
-      confirmed: "已確認",
-      excluded: "已排除",
-      rejected: "已拒絕",
-      unsupported: "不支援",
-      needs_clarification: "需釐清",
-    };
-    return labels[value] ?? value.replace(/_/g, " ");
-  }
-  return value.replace(/_/g, " ");
+  return chatGptTransactionDraftCopy[locale].rowStateLabels[value] ?? value.replace(/_/g, " ");
 }
 
 function rowGross(row: TransactionDraftRowDto): number {
@@ -555,18 +544,18 @@ export function ChatGptTransactionDraftWidget({
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-slate-950">{copy.shellTitle}</h2>
-                  <p className="text-sm text-slate-600">{resolvedLocale === "zh-TW" ? "由 ChatGPT 經連接器匯入，並以防護機制控管送出。" : "Connector-mediated import from ChatGPT with guarded posting."}</p>
+                  <p className="text-sm text-slate-600">{copy.shellDescription}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void callTool(data.tools.refresh, { batchId: data.batch.id }, resolvedLocale === "zh-TW" ? "已重新整理草稿。" : "Draft refreshed.", { keepMode: true })}
+                  onClick={() => void callTool(data.tools.refresh, { batchId: data.batch.id }, copy.draftRefreshed, { keepMode: true })}
                   disabled={busyAction !== null || !data.tools.refresh}
                 >
                   <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                  {resolvedLocale === "zh-TW" ? "重新整理" : "Refresh"}
+                  {copy.refresh}
                 </Button>
                 <Button
                   variant="outline"
@@ -576,7 +565,7 @@ export function ChatGptTransactionDraftWidget({
                   data-testid="chatgpt-widget-open-vakwen"
                 >
                   <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
-                  {resolvedLocale === "zh-TW" ? "在 Vakwen 開啟" : "Open in Vakwen"}
+                  {copy.openInVakwen}
                 </Button>
               </div>
             </div>
@@ -584,9 +573,9 @@ export function ChatGptTransactionDraftWidget({
 
           <TabsRoot value={mode} onValueChange={(value) => setMode(value === "import" || value === "post" ? value : "review")}>
             <TabsList className="mx-5 mt-4 sm:mx-6" data-testid="chatgpt-widget-tabs">
-              <TabsTrigger value="import">{resolvedLocale === "zh-TW" ? "匯入" : "Import"}</TabsTrigger>
-              <TabsTrigger value="review">{resolvedLocale === "zh-TW" ? "檢查" : "Review"}</TabsTrigger>
-              <TabsTrigger value="post">{resolvedLocale === "zh-TW" ? "送出" : "Post"}</TabsTrigger>
+              <TabsTrigger value="import">{copy.tabImport}</TabsTrigger>
+              <TabsTrigger value="review">{copy.tabReview}</TabsTrigger>
+              <TabsTrigger value="post">{copy.tabPost}</TabsTrigger>
             </TabsList>
 
             <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -595,18 +584,18 @@ export function ChatGptTransactionDraftWidget({
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "來源" : "Source"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.source}</p>
                         <h3 className="mt-2 text-lg font-semibold text-slate-950">
-                          {data.provenance.sourceLabel ?? data.provenance.sourceFilename ?? (resolvedLocale === "zh-TW" ? "暫時 ChatGPT 匯入" : "Temporary ChatGPT import")}
+                          {data.provenance.sourceLabel ?? data.provenance.sourceFilename ?? copy.temporaryChatGptImport}
                         </h3>
                         <p className="mt-2 max-w-3xl text-sm text-slate-600">{data.provenance.sourceSummary}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                          {resolvedLocale === "zh-TW" ? "預檢完成" : "preflight complete"}
+                          {copy.preflightComplete}
                         </span>
                         <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                          {resolvedLocale === "zh-TW" ? "批次" : "batch"} v{data.batch.version}
+                          {copy.batch} v{data.batch.version}
                         </span>
                       </div>
                     </div>
@@ -614,10 +603,10 @@ export function ChatGptTransactionDraftWidget({
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     {[
-                      { label: resolvedLocale === "zh-TW" ? "資料列" : "Rows", value: formatNumber(data.rows.length, resolvedLocale), detail: resolvedLocale === "zh-TW" ? `${formatNumber(selectedRowIds.size, resolvedLocale)} 筆已選取` : `${formatNumber(selectedRowIds.size, resolvedLocale)} selected` },
-                      { label: resolvedLocale === "zh-TW" ? "可送出" : "Ready", value: formatNumber(data.rows.filter((row) => row.state === "ready").length, resolvedLocale), detail: data.permissions.canPost ? (resolvedLocale === "zh-TW" ? "可送出" : "Eligible to post") : (resolvedLocale === "zh-TW" ? "僅供檢查" : "Review only") },
-                      { label: resolvedLocale === "zh-TW" ? "待檢查" : "Needs review", value: formatNumber(needsReviewCount, resolvedLocale), detail: resolvedLocale === "zh-TW" ? "需要釐清或有衝突" : "Clarifications or conflicts" },
-                      { label: resolvedLocale === "zh-TW" ? "總額" : "Gross value", value: data.grossValueText, detail: requiresTypedConfirmation ? (resolvedLocale === "zh-TW" ? "需要輸入確認字串" : "Typed confirmation required") : (resolvedLocale === "zh-TW" ? "按鈕確認" : "Button confirmation") },
+                      { label: copy.rowsMetricLabel, value: formatNumber(data.rows.length, resolvedLocale), detail: copy.selectedCount(formatNumber(selectedRowIds.size, resolvedLocale)) },
+                      { label: copy.readyMetricLabel, value: formatNumber(data.rows.filter((row) => row.state === "ready").length, resolvedLocale), detail: data.permissions.canPost ? copy.readyEligible : copy.readyReviewOnly },
+                      { label: copy.needsReviewMetricLabel, value: formatNumber(needsReviewCount, resolvedLocale), detail: copy.needsReviewDetail },
+                      { label: copy.grossValueMetricLabel, value: data.grossValueText, detail: requiresTypedConfirmation ? copy.typedConfirmationRequiredDetail : copy.buttonConfirmationDetail },
                     ].map((item) => (
                       <Card key={item.label} className="rounded-3xl border-slate-200 px-4 py-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
@@ -628,27 +617,27 @@ export function ChatGptTransactionDraftWidget({
                   </div>
 
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">{resolvedLocale === "zh-TW" ? "連接器來源" : "Connector provenance"}</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.connectorProvenance}</h3>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "通道" : "Channel"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.channel}</p>
                         <p className="mt-1 text-sm text-slate-700">{data.provenance.sourceChannelLabel}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "資料列對應" : "Row mappings"}</p>
-                        <p className="mt-1 text-sm text-slate-700">{data.provenance.rowMappingCount ?? (resolvedLocale === "zh-TW" ? "未提供" : "Not provided")}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.rowMappings}</p>
+                        <p className="mt-1 text-sm text-slate-700">{data.provenance.rowMappingCount ?? copy.notProvided}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "結構化內容" : "Structured payload"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.structuredPayload}</p>
                         <p className="mt-1 text-sm text-slate-700">
                           {data.provenance.structuredCandidatesOnly
-                            ? (resolvedLocale === "zh-TW" ? "只包含結構化候選資料與截斷來源資訊" : "Structured candidates plus capped provenance only")
-                            : (resolvedLocale === "zh-TW" ? "包含額外元件中繼資料" : "Includes additional component metadata")}
+                            ? copy.structuredCandidatesOnly
+                            : copy.additionalComponentMetadata}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "片段上限" : "Snippet cap"}</p>
-                        <p className="mt-1 text-sm text-slate-700">{resolvedLocale === "zh-TW" ? `每筆資料列 ${data.provenance.snippetCharacterCap} 個字元` : `${data.provenance.snippetCharacterCap} characters per row`}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.snippetCap}</p>
+                        <p className="mt-1 text-sm text-slate-700">{copy.snippetCapValue(data.provenance.snippetCharacterCap)}</p>
                       </div>
                     </div>
                   </Card>
@@ -658,9 +647,9 @@ export function ChatGptTransactionDraftWidget({
                       <div className="flex items-start gap-3">
                         <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" aria-hidden="true" />
                         <div>
-                          <h3 className="text-base font-semibold text-amber-900">{resolvedLocale === "zh-TW" ? "保留供檢查的不支援資料列" : "Unsupported rows kept for review"}</h3>
+                          <h3 className="text-base font-semibold text-amber-900">{copy.unsupportedRowsTitle}</h3>
                           <p className="mt-1 text-sm text-amber-800">
-                            {resolvedLocale === "zh-TW" ? "Vakwen 會為了稽核保留非交易資料列，但這些資料不會送出為交易。" : "Vakwen preserved non-trade lines for audit, but they will not post as transactions."}
+                            {copy.unsupportedRowsDescription}
                           </p>
                         </div>
                       </div>
@@ -675,15 +664,15 @@ export function ChatGptTransactionDraftWidget({
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-12" />
-                            <TableHead>{resolvedLocale === "zh-TW" ? "帳戶" : "Account"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "代號" : "Ticker"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "方向" : "Side"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "數量" : "Quantity"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "價格" : "Price"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "費用" : "Fees"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "日期" : "Date"}</TableHead>
-                            <TableHead>{resolvedLocale === "zh-TW" ? "狀態" : "Status"}</TableHead>
-                            <TableHead className="text-right">{resolvedLocale === "zh-TW" ? "操作" : "Actions"}</TableHead>
+                            <TableHead>{copy.account}</TableHead>
+                            <TableHead>{copy.ticker}</TableHead>
+                            <TableHead>{copy.side}</TableHead>
+                            <TableHead>{copy.quantity}</TableHead>
+                            <TableHead>{copy.price}</TableHead>
+                            <TableHead>{copy.fees}</TableHead>
+                            <TableHead>{copy.date}</TableHead>
+                            <TableHead>{copy.status}</TableHead>
+                            <TableHead className="text-right">{copy.actions}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -693,7 +682,7 @@ export function ChatGptTransactionDraftWidget({
                               <TableRow key={row.id} data-testid={`chatgpt-widget-row-${row.id}`}>
                                 <TableCell>
                                   <input
-                                    aria-label={`${resolvedLocale === "zh-TW" ? "選取草稿資料列" : "Select draft row"} ${row.rowNumber}`}
+                                    aria-label={copy.selectDraftRow(row.rowNumber)}
                                     checked={selectedRowIds.has(row.id)}
                                     disabled={!selectable}
                                     onChange={(event) => toggleRow(row.id, event.target.checked)}
@@ -704,8 +693,8 @@ export function ChatGptTransactionDraftWidget({
                                   <div className="font-medium text-slate-900">{rowAccountName(row)}</div>
                                   <div className="text-xs text-slate-500">
                                     {row.accountNameInput && row.accountNameInput !== rowAccountName(row)
-                                      ? `${resolvedLocale === "zh-TW" ? "輸入值" : "Input"}: ${row.accountNameInput}`
-                                      : row.accountId ? (resolvedLocale === "zh-TW" ? "已配對帳戶" : "Matched account") : copy.unassigned}
+                                      ? `${copy.inputValuePrefix}: ${row.accountNameInput}`
+                                      : row.accountId ? copy.matchedAccount : copy.unassigned}
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -739,7 +728,7 @@ export function ChatGptTransactionDraftWidget({
                                     data-testid={`chatgpt-widget-edit-${row.id}`}
                                   >
                                     <Pencil className="h-4 w-4" aria-hidden="true" />
-                                    <span className="sr-only">{resolvedLocale === "zh-TW" ? "編輯資料列" : "Edit row"}</span>
+                                    <span className="sr-only">{copy.editRowSr}</span>
                                   </Button>
                                 </TableCell>
                               </TableRow>
@@ -759,7 +748,7 @@ export function ChatGptTransactionDraftWidget({
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
                         <XCircle className="mr-2 h-4 w-4" aria-hidden="true" />
-                        {resolvedLocale === "zh-TW" ? "排除" : "Exclude"}
+                        {copy.exclude}
                       </Button>
                       <Button
                         variant="outline"
@@ -767,7 +756,7 @@ export function ChatGptTransactionDraftWidget({
                         onClick={() => void callTool(data.tools.reincludeRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, copy.rowsReincluded, { keepMode: true })}
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
-                        {resolvedLocale === "zh-TW" ? "重新納入" : "Reinclude"}
+                        {copy.reinclude}
                       </Button>
                       <Button
                         variant="outline"
@@ -775,7 +764,7 @@ export function ChatGptTransactionDraftWidget({
                         onClick={() => void callTool(data.tools.rejectRows, { batchId: data.batch.id, rowIds: [...selectedRowIds], expectedBatchVersion: data.batch.version }, copy.rowsRejected, { keepMode: true })}
                         disabled={busyAction !== null || selectedRowIds.size === 0}
                       >
-                        {resolvedLocale === "zh-TW" ? "拒絕" : "Reject"}
+                        {copy.reject}
                       </Button>
                       <Button
                         variant="outline"
@@ -784,7 +773,7 @@ export function ChatGptTransactionDraftWidget({
                         disabled={busyAction !== null || !data.permissions.canArchive}
                       >
                         <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
-                        {resolvedLocale === "zh-TW" ? "封存" : "Archive"}
+                        {copy.archive}
                       </Button>
                       <Button
                         variant="destructive"
@@ -793,7 +782,7 @@ export function ChatGptTransactionDraftWidget({
                         disabled={busyAction !== null || !data.permissions.canDelete}
                       >
                         <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                        {resolvedLocale === "zh-TW" ? "刪除" : "Delete"}
+                        {copy.delete}
                       </Button>
                     </div>
                   </Card>
@@ -801,30 +790,28 @@ export function ChatGptTransactionDraftWidget({
 
                 <TabsContent value="post" className="mt-0 space-y-5">
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">{resolvedLocale === "zh-TW" ? "送出所選資料列" : "Post selected rows"}</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.postSelectedRows}</h3>
                     <p className="mt-2 text-sm text-slate-600">
-                      {resolvedLocale === "zh-TW"
-                        ? "送出流程會重用 Vakwen 的正式交易建立路徑，任何寫入成功前都會再次執行確定性驗證。"
-                        : "Posting reuses Vakwen's canonical transaction creation path. Deterministic validation runs again before any write succeeds."}
+                      {copy.postDescription}
                     </p>
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "已選可送出資料列" : "Selected ready rows"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.selectedReadyRows}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{readySelectedRows.length}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "總額" : "Gross value"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.grossValueMetricLabel}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{postingPreview.rows.length > 0 ? data.grossValueText : "0"}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "已確認資料列" : "Confirmed rows"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.confirmedRows}</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{confirmedRowCount}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{resolvedLocale === "zh-TW" ? "送出權限" : "Posting scope"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{copy.postingScope}</p>
                         <p className="mt-2 text-sm font-semibold text-slate-950">
-                          {data.permissions.writeScopeGranted ? (resolvedLocale === "zh-TW" ? "已授權" : "Granted") : (resolvedLocale === "zh-TW" ? "未授權" : "Not granted")}
+                          {data.permissions.writeScopeGranted ? copy.granted : copy.notGranted}
                         </p>
                       </div>
                     </div>
@@ -834,22 +821,22 @@ export function ChatGptTransactionDraftWidget({
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <h4 className="text-base font-semibold text-slate-950">{postingPreview.title ?? copy.draftPostingPreview}</h4>
-                            <p className="mt-1 text-sm text-slate-600">{resolvedLocale === "zh-TW" ? "送出前先確認由伺服器計算的帳戶、費用來源與淨現金影響。" : "Server-computed account confirmation, fee source, and net cash impact before posting."}</p>
+                            <p className="mt-1 text-sm text-slate-600">{copy.postingPreviewDescription}</p>
                           </div>
                         </div>
                         <div className="mt-4 overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "帳戶" : "Account"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "代號" : "Ticker"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "方向" : "Side"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "數量" : "Quantity"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "價格" : "Price"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "手續費" : "Commission"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "稅額" : "Tax"}</TableHead>
-                                <TableHead>{resolvedLocale === "zh-TW" ? "費用來源" : "Fee source"}</TableHead>
-                                <TableHead className="text-right">{resolvedLocale === "zh-TW" ? "淨現金影響" : "Net cash impact"}</TableHead>
+                                <TableHead>{copy.account}</TableHead>
+                                <TableHead>{copy.ticker}</TableHead>
+                                <TableHead>{copy.side}</TableHead>
+                                <TableHead>{copy.quantity}</TableHead>
+                                <TableHead>{copy.price}</TableHead>
+                                <TableHead>{copy.commission}</TableHead>
+                                <TableHead>{copy.tax}</TableHead>
+                                <TableHead>{copy.feeSource}</TableHead>
+                                <TableHead className="text-right">{copy.netCashImpact}</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -877,13 +864,13 @@ export function ChatGptTransactionDraftWidget({
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "帳戶" : "Account"}</TableHead>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "幣別" : "Currency"}</TableHead>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "買入總額" : "Total buys"}</TableHead>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "賣出總額" : "Total sells"}</TableHead>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "手續費總額" : "Total commission"}</TableHead>
-                                  <TableHead>{resolvedLocale === "zh-TW" ? "稅額總額" : "Total tax"}</TableHead>
-                                  <TableHead className="text-right">{resolvedLocale === "zh-TW" ? "淨現金影響" : "Net cash impact"}</TableHead>
+                                  <TableHead>{copy.account}</TableHead>
+                                  <TableHead>{copy.currency}</TableHead>
+                                  <TableHead>{copy.totalBuys}</TableHead>
+                                  <TableHead>{copy.totalSells}</TableHead>
+                                  <TableHead>{copy.totalCommission}</TableHead>
+                                  <TableHead>{copy.totalTax}</TableHead>
+                                  <TableHead className="text-right">{copy.netCashImpact}</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -907,7 +894,7 @@ export function ChatGptTransactionDraftWidget({
 
                     {data.permissions.requiresWriteReconsent ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                        {resolvedLocale === "zh-TW" ? "`transaction:write` 預設關閉。請先在 ChatGPT 重新連線並於同意流程中選取此權限，此元件才能送出。" : "`transaction:write` is off by default. Reconnect in ChatGPT and opt in during consent before this widget can post."}
+                        {copy.requiresWriteReconsentDefault}
                       </div>
                     ) : null}
 
@@ -917,17 +904,17 @@ export function ChatGptTransactionDraftWidget({
                         <div className="space-y-3">
                           <div>
                             <p className="font-semibold text-amber-950">
-                              {requiresTypedConfirmation ? (resolvedLocale === "zh-TW" ? "高金額確認" : "High-value confirmation") : (resolvedLocale === "zh-TW" ? "送出確認" : "Posting confirmation")}
+                              {requiresTypedConfirmation ? copy.highValueConfirmation : copy.postingConfirmation}
                             </p>
                             <p className="mt-1 text-sm text-amber-800">
                               {requiresTypedConfirmation
-                                ? (resolvedLocale === "zh-TW" ? "此批次已超過目前風險門檻。送出前請輸入確認字串。" : "This batch crosses the current risk threshold. Type the confirmation phrase before posting.")
-                                : (resolvedLocale === "zh-TW" ? "最多五筆低風險資料列可在一次明確確認後送出。" : "Up to five low-risk rows can post after one explicit confirmation.")}
+                                ? copy.highValueConfirmationDescription
+                                : copy.postingConfirmationDescription}
                             </p>
                           </div>
                           {requiresTypedConfirmation ? (
                             <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-amber-900">
-                              {resolvedLocale === "zh-TW" ? "必要字串" : "Required phrase"}
+                              {copy.requiredPhrase}
                               <input
                                 className="mt-2 block w-full rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950"
                                 onChange={(event) => setConfirmText(event.target.value)}
@@ -947,7 +934,7 @@ export function ChatGptTransactionDraftWidget({
                             data-testid="chatgpt-widget-post-button"
                           >
                             <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                            {resolvedLocale === "zh-TW" ? "送出所選項目" : "Post selected"}
+                            {copy.postSelected}
                           </Button>
                         </div>
                       </div>
@@ -964,21 +951,21 @@ export function ChatGptTransactionDraftWidget({
                           "text-base font-semibold",
                           postingNeedsConfirmation ? "text-amber-950" : "text-emerald-950",
                         )}>
-                          {postingNeedsConfirmation ? (resolvedLocale === "zh-TW" ? "需要確認" : "Confirmation required") : (resolvedLocale === "zh-TW" ? "最新送出結果" : "Latest posting result")}
+                          {postingNeedsConfirmation ? copy.confirmationRequired : copy.latestPostingResult}
                         </h4>
                         <p className={cn(
                           "mt-2 text-sm",
                           postingNeedsConfirmation ? "text-amber-800" : "text-emerald-800",
                         )}>
                           {postingNeedsConfirmation && postingResult.typedConfirmationPhrase
-                            ? (resolvedLocale === "zh-TW" ? `送出這些資料列前，請輸入 ${postingResult.typedConfirmationPhrase}。` : `Type ${postingResult.typedConfirmationPhrase} before posting these rows.`)
-                            : (resolvedLocale === "zh-TW" ? `已送出 ${postingResult.postedRowIds.length} 筆資料列，並建立 ${postingResult.createdTransactionIds.length} 筆交易。` : `Posted ${postingResult.postedRowIds.length} rows and created ${postingResult.createdTransactionIds.length} transactions.`)}
+                            ? copy.typePhraseBeforePosting(postingResult.typedConfirmationPhrase)
+                            : copy.postedRowsCreatedTransactions(postingResult.postedRowIds.length, postingResult.createdTransactionIds.length)}
                         </p>
                         <p className={cn(
                           "mt-2 text-sm",
                           postingNeedsConfirmation ? "text-amber-800" : "text-emerald-800",
                         )}>
-                          {resolvedLocale === "zh-TW" ? "剩餘未解決資料列" : "Remaining unresolved rows"}: {postingResult.remainingUnresolvedRowIds.length}
+                          {copy.remainingUnresolvedRows}: {postingResult.remainingUnresolvedRowIds.length}
                         </p>
                       </Card>
                     ) : null}
@@ -991,14 +978,14 @@ export function ChatGptTransactionDraftWidget({
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-semibold text-slate-950">{resolvedLocale === "zh-TW" ? "編輯已選資料列" : "Selected row edit"}</h3>
+                        <h3 className="text-base font-semibold text-slate-950">{copy.selectedRowEdit}</h3>
                         <p className="mt-1 text-sm text-slate-600">
-                          {resolvedLocale === "zh-TW" ? "儲存後會重新執行確定性預檢，並回傳目前資料列狀態。" : "Saving re-runs deterministic preflight and returns the current row state."}
+                          {copy.selectedRowEditDescription}
                         </p>
                       </div>
                       {activeEditRow ? (
                         <Button variant="ghost" size="sm" onClick={() => setEditRowId(null)}>
-                          {resolvedLocale === "zh-TW" ? "關閉" : "Close"}
+                          {copy.close}
                         </Button>
                       ) : null}
                     </div>
@@ -1007,12 +994,12 @@ export function ChatGptTransactionDraftWidget({
                       <>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
                           {([
-                            ["accountName", resolvedLocale === "zh-TW" ? "帳戶" : "Account"],
-                            ["marketCode", resolvedLocale === "zh-TW" ? "市場" : "Market"],
-                            ["quantity", resolvedLocale === "zh-TW" ? "數量" : "Quantity"],
-                            ["unitPrice", resolvedLocale === "zh-TW" ? "單價" : "Unit price"],
-                            ["commissionAmount", resolvedLocale === "zh-TW" ? "手續費" : "Commission"],
-                            ["taxAmount", resolvedLocale === "zh-TW" ? "稅額" : "Tax"],
+                            ["accountName", copy.editFieldLabels.accountName],
+                            ["marketCode", copy.editFieldLabels.marketCode],
+                            ["quantity", copy.editFieldLabels.quantity],
+                            ["unitPrice", copy.editFieldLabels.unitPrice],
+                            ["commissionAmount", copy.editFieldLabels.commissionAmount],
+                            ["taxAmount", copy.editFieldLabels.taxAmount],
                           ] as Array<[EditableField, string]>).map(([field, label]) => (
                             <label key={field} className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                               {label}
@@ -1022,7 +1009,7 @@ export function ChatGptTransactionDraftWidget({
                                   onChange={(event) => setEditDraft((current) => ({ ...current, accountName: event.target.value }))}
                                   value={editDraft.accountName}
                                 >
-                                  <option value="">{resolvedLocale === "zh-TW" ? "選擇帳戶" : "Select account"}</option>
+                                  <option value="">{copy.selectAccount}</option>
                                   {accountSelectOptions.map((account) => (
                                     <option key={account.id} value={account.name}>{account.name}</option>
                                   ))}
@@ -1037,7 +1024,7 @@ export function ChatGptTransactionDraftWidget({
                             </label>
                           ))}
                           <label className="sm:col-span-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            {resolvedLocale === "zh-TW" ? "備註" : "Note"}
+                            {copy.note}
                             <textarea
                               className="mt-2 block min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
                               onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))}
@@ -1045,7 +1032,7 @@ export function ChatGptTransactionDraftWidget({
                             />
                           </label>
                           <label className="sm:col-span-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            {resolvedLocale === "zh-TW" ? "來源片段" : "Source snippet"}
+                            {copy.sourceSnippet}
                             <textarea
                               className="mt-2 block min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
                               onChange={(event) => setEditDraft((current) => ({ ...current, sourceSnippet: event.target.value }))}
@@ -1055,17 +1042,17 @@ export function ChatGptTransactionDraftWidget({
                         </div>
                         <div className="mt-4 flex justify-end">
                           <Button onClick={() => void saveEdit()} disabled={busyAction !== null}>
-                            {resolvedLocale === "zh-TW" ? "儲存資料列" : "Save row"}
+                            {copy.saveRow}
                           </Button>
                         </div>
                       </>
                     ) : (
-                      <p className="mt-4 text-sm text-slate-500">{resolvedLocale === "zh-TW" ? "請先在「檢查」分頁選取資料列，再於此編輯。" : "Choose a row from Review to edit it here."}</p>
+                      <p className="mt-4 text-sm text-slate-500">{copy.chooseRowToEdit}</p>
                     )}
 
                     {activeIssues.length > 0 ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                        <h4 className="text-sm font-semibold text-amber-950">{resolvedLocale === "zh-TW" ? "驗證細節" : "Validation details"}</h4>
+                        <h4 className="text-sm font-semibold text-amber-950">{copy.validationDetails}</h4>
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
                           {activeIssues.map((item, index) => (
                             <li key={`${activeEditRow?.id ?? "row"}-issue-${index}`}>{item}</li>
@@ -1075,13 +1062,13 @@ export function ChatGptTransactionDraftWidget({
                     ) : null}
                     {activeEditRow?.feesSource === "MANUAL" && (activeEditRow.commissionAmount === 0 || activeEditRow.taxAmount === 0) ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                        {resolvedLocale === "zh-TW" ? "手動指定的零費用覆寫會維持明確狀態，除非你清除它們，否則不會重新計算。" : "Manual zero-fee overrides remain explicit and will not be recalculated unless you clear them."}
+                        {copy.manualZeroFeeOverrideWarning}
                       </div>
                     ) : null}
                   </Card>
 
                   <Card className="rounded-3xl border-slate-200 px-5 py-5">
-                    <h3 className="text-base font-semibold text-slate-950">{resolvedLocale === "zh-TW" ? "稽核預覽" : "Audit preview"}</h3>
+                    <h3 className="text-base font-semibold text-slate-950">{copy.auditPreview}</h3>
                     <div className="mt-4 space-y-3">
                       {data.auditPreview.map((item, index) => (
                         <div key={`${item.message}-${index}`} className="grid grid-cols-[12px_minmax(0,1fr)] gap-3 text-sm text-slate-700">
@@ -1105,7 +1092,7 @@ export function ChatGptTransactionDraftWidget({
                     className="flex w-full items-center justify-between gap-3 rounded-3xl border border-sky-200 bg-sky-50 px-4 py-4 text-left text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
                     disabled={!data.deepLinkUrl}
                   >
-                    <span>{resolvedLocale === "zh-TW" ? "在 Vakwen 檢查或繼續處理" : "Review or continue in Vakwen"}</span>
+                    <span>{copy.reviewOrContinueInVakwen}</span>
                     <span className="truncate text-xs text-sky-600">{data.deepLinkUrl ?? "/transactions?tab=ai-inbox"}</span>
                   </button>
                 </div>
