@@ -1,4 +1,5 @@
 import type { AppDictionary } from "../../lib/i18n/types";
+import type { LocaleCode } from "@vakwen/shared-types";
 
 /**
  * Layout/chrome i18n — strings that belong to the outer shell (TopBar, sidebar,
@@ -150,3 +151,92 @@ export const layoutI18n: Record<
     },
   },
 };
+
+export interface LayoutShellLabels {
+  themeToggle: {
+    groupLabel: string;
+    light: string;
+    system: string;
+    dark: string;
+  };
+  commandPaletteTrigger: {
+    ariaLabel: string;
+  };
+  topBar: {
+    toggleSidebarLabel: string;
+    openNavigationLabel: string;
+  };
+  profileMenu: {
+    triggerLabel: string;
+    profileLink: string;
+    adminLink: string;
+    signOut: string;
+    themeGroupLabel: string;
+  };
+  sidebarResizeRail: {
+    ariaLabel: string;
+    expandedTitle: string;
+    collapsedTitle: string;
+  };
+}
+
+const layoutShellLabels: Record<"en" | "zh-TW", LayoutShellLabels> = {
+  en: {
+    themeToggle: {
+      groupLabel: "Theme",
+      light: "Light",
+      system: "System",
+      dark: "Dark",
+    },
+    commandPaletteTrigger: {
+      ariaLabel: "Open command palette",
+    },
+    topBar: {
+      toggleSidebarLabel: "Toggle sidebar",
+      openNavigationLabel: "Open navigation",
+    },
+    profileMenu: {
+      triggerLabel: "User menu",
+      profileLink: "Profile",
+      adminLink: "Admin",
+      signOut: "Sign out",
+      themeGroupLabel: "Theme",
+    },
+    sidebarResizeRail: {
+      ariaLabel: "Resize or toggle sidebar",
+      expandedTitle: "Drag to resize; click to collapse; arrow keys adjust width",
+      collapsedTitle: "Click to expand sidebar",
+    },
+  },
+  "zh-TW": {
+    themeToggle: {
+      groupLabel: "主題",
+      light: "淺色",
+      system: "系統",
+      dark: "深色",
+    },
+    commandPaletteTrigger: {
+      ariaLabel: "開啟指令面板",
+    },
+    topBar: {
+      toggleSidebarLabel: "切換側邊欄",
+      openNavigationLabel: "開啟導覽",
+    },
+    profileMenu: {
+      triggerLabel: "使用者選單",
+      profileLink: "個人資料",
+      adminLink: "管理",
+      signOut: "登出",
+      themeGroupLabel: "主題",
+    },
+    sidebarResizeRail: {
+      ariaLabel: "調整或切換側邊欄",
+      expandedTitle: "拖曳可調整寬度；點擊可收合；可用方向鍵微調寬度",
+      collapsedTitle: "點擊以展開側邊欄",
+    },
+  },
+};
+
+export function getLayoutShellLabels(locale: LocaleCode): LayoutShellLabels {
+  return layoutShellLabels[locale === "zh-TW" ? "zh-TW" : "en"];
+}
