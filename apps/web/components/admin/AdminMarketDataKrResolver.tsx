@@ -166,6 +166,17 @@ function krResolverModeHelp(
   return adminDict.krResolverQuoteFirstHelp;
 }
 
+function krUnresolvedStateLabel(
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+  state: ProviderUnresolvedItemDto["state"] | "all",
+): string {
+  if (state === "active") return adminDict.krStateActive;
+  if (state === "resolved") return adminDict.krStateResolved;
+  if (state === "unsupported") return adminDict.krStateUnsupported;
+  if (state === "ignored") return adminDict.krStateIgnored;
+  return adminDict.krStateAll;
+}
+
 function previewExpired(operation: ProviderFixerDashboardOperationDto | null): boolean {
   if (!operation?.preview.tokenExpiresAt) return true;
   return new Date(operation.preview.tokenExpiresAt).getTime() <= Date.now();
@@ -505,7 +516,7 @@ function KrMappingsPanel({
       setMessage(success(result));
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : `${label} failed`);
+      setMessage(err instanceof Error ? err.message : adminDict.krActionFailed.replace("{action}", adminDict.krActions));
     } finally {
       setBusyAction(null);
     }
@@ -521,7 +532,9 @@ function KrMappingsPanel({
         sourceSymbol: item.sourceSymbol,
         state,
       }),
-      (result) => `Set unresolved item ${result.item.sourceSymbol} to ${result.item.state}.`,
+      (result) => adminDict.krStateUpdated
+        .replace("{sourceSymbol}", result.item.sourceSymbol)
+        .replace("{state}", krUnresolvedStateLabel(adminDict, result.item.state)),
     );
   }
 
@@ -537,12 +550,19 @@ function KrMappingsPanel({
     const acknowledged = scope.type === "selected_items";
     let typedConfirmation: string | undefined;
     if (typedConfirmationForFilter) {
-      typedConfirmation = window.prompt(`Type ${typedConfirmationForFilter} to ${state === "ignored" ? "ignore" : "mark unsupported"} this all-matching KR scope.`)?.trim();
+      const action = state === "ignored" ? adminDict.krBulkPromptIgnoreAction : adminDict.krBulkPromptUnsupportedAction;
+      typedConfirmation = window.prompt(adminDict.krBulkPrompt
+        .replace("{phrase}", typedConfirmationForFilter)
+        .replace("{action}", action))?.trim();
       if (typedConfirmation !== typedConfirmationForFilter) {
-        setMessage(adminDict.krBulkRequiresPhrase.replace("{state}", state).replace("{phrase}", typedConfirmationForFilter));
+        setMessage(adminDict.krBulkRequiresPhrase
+          .replace("{state}", krUnresolvedStateLabel(adminDict, state))
+          .replace("{phrase}", typedConfirmationForFilter));
         return;
       }
-    } else if (!window.confirm(`Apply ${state} to ${selectedScopeDetails.label}?`)) {
+    } else if (!window.confirm(adminDict.krBulkConfirm
+      .replace("{state}", krUnresolvedStateLabel(adminDict, state))
+      .replace("{scope}", selectedScopeDetails.label))) {
       return;
     }
     await runWithMessage(
@@ -554,7 +574,7 @@ function KrMappingsPanel({
         acknowledged,
         typedConfirmation,
       }),
-      (result) => `Updated ${result.updatedCount} unresolved rows.`,
+      (result) => adminDict.krBulkUpdated.replace("{count}", result.updatedCount.toLocaleString()),
     );
   }
 
@@ -1198,7 +1218,7 @@ export function KrOperationsPanel({ data }: { data: KrOperationsData }) {
       setMessage(success(result));
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : `${label} failed`);
+      setMessage(err instanceof Error ? err.message : adminDict.krActionFailed.replace("{action}", adminDict.operationActions));
     } finally {
       setBusyAction(null);
     }
@@ -1611,7 +1631,7 @@ export function LegacyKrOperationsPanel({ data }: { data: LegacyKrOperationsData
       setMessage(success(result));
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : `${label} failed`);
+      setMessage(err instanceof Error ? err.message : adminDict.krActionFailed.replace("{action}", adminDict.operationActions));
     } finally {
       setBusyAction(null);
     }
@@ -1782,10 +1802,10 @@ export function LegacyKrOperationsPanel({ data }: { data: LegacyKrOperationsData
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={!selectedOperation.canPause || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Pause</button>
-            <button type="button" disabled={!selectedOperation.canResume || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">Resume</button>
-            <button type="button" disabled={!selectedOperation.canRetry || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "retry")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-operation-retry-${selectedOperation.id}`}>Retry</button>
-            <button type="button" disabled={!selectedOperation.canCancel || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">Cancel</button>
+            <button type="button" disabled={!selectedOperation.canPause || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "pause")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationPause}</button>
+            <button type="button" disabled={!selectedOperation.canResume || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "resume")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50">{adminDict.operationResume}</button>
+            <button type="button" disabled={!selectedOperation.canRetry || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "retry")} className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50" data-testid={`provider-console-operation-retry-${selectedOperation.id}`}>{adminDict.operationRetry}</button>
+            <button type="button" disabled={!selectedOperation.canCancel || busyAction !== null} onClick={() => void controlOperation(selectedOperation, "cancel")} className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 disabled:opacity-50">{adminDict.operationCancel}</button>
           </div>
           {outcomesMatchSelectedOperation ? (
           <div className="rounded border border-border bg-muted/20 p-4">

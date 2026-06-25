@@ -7,6 +7,7 @@ import {
 } from "../../components/dividends/dividendsTabsUtils";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../components/layout/i18n";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
@@ -46,6 +47,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const locale: LocaleCode = settings?.locale ?? "en";
   const resolvedInitialTab = resolveInitialDividendsTab(sp);
   const dict = getDictionary(locale);
+  const loadingCopy = getRouteLoadingLabels(locale).dividends;
   const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
   const accounts: AccountDto[] = initialTab === "ledger"
     ? await getJson<ShellPortfolioConfigDto>("/settings/fee-config")
@@ -54,7 +56,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
     : [];
 
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
       <AppShell
         section="dividends"
         isDemo={session.isDemo}

@@ -95,7 +95,7 @@ export function RecordFxTransferDialog({
   }, [accounts, initialValue, open]);
 
   const input = useMemo(() => toInput(value), [value]);
-  const estimateState = useFxTransferEstimate(input);
+  const estimateState = useFxTransferEstimate(input, locale);
   const submitDisabled = !isComplete(input) || estimateState.loading || estimateState.hardBlocked;
 
   async function submit(): Promise<void> {

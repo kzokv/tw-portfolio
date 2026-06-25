@@ -15,6 +15,7 @@ export const aiInboxCopy: Record<LocaleCode, {
   sourceChannelWeb: string;
   selectBatch: string;
   draftBatchFallback: string;
+  rowsLabel: string;
   unsupportedLabel: string;
   statusLabel: string;
   versionLabel: string;
@@ -72,8 +73,12 @@ export const aiInboxCopy: Record<LocaleCode, {
   commission: string;
   tax: string;
   dayTrade: string;
+  unset: string;
+  no: string;
+  yes: string;
   note: string;
   sourceSnippet: string;
+  validationDetails: string;
   archiveConfirm: string;
   deleteConfirm: string;
   notProvided: string;
@@ -94,6 +99,7 @@ export const aiInboxCopy: Record<LocaleCode, {
     sourceChannelWeb: "Vakwen web",
     selectBatch: "Select an AI draft batch to review.",
     draftBatchFallback: "AI draft batch",
+    rowsLabel: "rows",
     unsupportedLabel: "unsupported",
     statusLabel: "status",
     versionLabel: "version",
@@ -151,8 +157,12 @@ export const aiInboxCopy: Record<LocaleCode, {
     commission: "Commission",
     tax: "Tax",
     dayTrade: "Day trade",
+    unset: "Unset",
+    no: "No",
+    yes: "Yes",
     note: "Note",
     sourceSnippet: "Source snippet",
+    validationDetails: "Validation details",
     archiveConfirm: "Archive this AI draft batch?",
     deleteConfirm: "Delete this AI draft batch? Unposted rows will be removed.",
     notProvided: "not provided",
@@ -173,6 +183,7 @@ export const aiInboxCopy: Record<LocaleCode, {
     sourceChannelWeb: "Vakwen 網頁",
     selectBatch: "請選取要檢查的 AI 草稿批次。",
     draftBatchFallback: "AI 草稿批次",
+    rowsLabel: "筆資料列",
     unsupportedLabel: "不支援",
     statusLabel: "狀態",
     versionLabel: "版本",
@@ -230,8 +241,12 @@ export const aiInboxCopy: Record<LocaleCode, {
     commission: "手續費",
     tax: "稅額",
     dayTrade: "當沖",
+    unset: "未設定",
+    no: "否",
+    yes: "是",
     note: "備註",
     sourceSnippet: "來源片段",
+    validationDetails: "驗證細節",
     archiveConfirm: "要封存這個 AI 草稿批次嗎？",
     deleteConfirm: "要刪除這個 AI 草稿批次嗎？未送出的資料列將一併移除。",
     notProvided: "未提供",

@@ -35,6 +35,7 @@ export interface AppDictionary {
   appError: {
     title: string;
     retry: string;
+    impersonationWriteBlocked: string;
   };
   switcher: {
     triggerLabel: string;
@@ -703,6 +704,8 @@ export interface AppDictionary {
     accountScopeLabel: string;
     allAccountsLabel: string;
     backToDashboard: string;
+    loadError: string;
+    backToPortfolio: string;
     entriesLabel: string;
     emptyState: string;
     tradeDateLabel: string;
@@ -1352,6 +1355,7 @@ export interface AppDictionary {
     fxSummaryRealizedImpact: string;
     fxSummaryDeferredImpact: string;
     fxEstimateLoading: string;
+    fxEstimateError: string;
     fxInsufficientBalance: string;
     fxCreatedMessage: string;
     fxUpdatedMessage: string;

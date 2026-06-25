@@ -88,7 +88,7 @@ export function AdminShell({
                 users: dict.shell.nav.users,
                 invites: dict.shell.nav.invites,
                 "audit-log": dict.shell.nav.auditLog,
-                "market-data": locale === "zh-TW" ? "市場資料" : "Market Data",
+                "market-data": dict.shell.nav.marketData,
                 settings: dict.shell.nav.settings,
               },
             }}

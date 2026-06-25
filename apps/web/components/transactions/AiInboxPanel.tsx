@@ -334,7 +334,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                 >
                   <span className="block font-medium text-slate-900">{batch.sourceLabel ?? batch.sourceFilename ?? copy.draftBatchFallback}</span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    {batch.rowCount} {locale === "zh-TW" ? "筆資料列" : "rows"} · {batch.unsupportedCount} {copy.unsupportedLabel} · v{batch.version}
+                    {batch.rowCount} {copy.rowsLabel} · {batch.unsupportedCount} {copy.unsupportedLabel} · v{batch.version}
                   </span>
                   <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
                     {sourceChannelLabel(batch.sourceChannel, locale)}
@@ -358,7 +358,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                   <div>
                     <h3 className="text-lg font-semibold text-slate-950">{detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? copy.draftBatchFallback}</h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {detail.batch.rowCount} {locale === "zh-TW" ? "筆資料列" : "rows"} · {detail.batch.unsupportedCount} {copy.unsupportedLabel} · {copy.statusLabel} {detail.batch.status} · {copy.versionLabel} {detail.batch.version}
+                      {detail.batch.rowCount} {copy.rowsLabel} · {detail.batch.unsupportedCount} {copy.unsupportedLabel} · {copy.statusLabel} {detail.batch.status} · {copy.versionLabel} {detail.batch.version}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -637,9 +637,9 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                         onChange={(event) => setEditDraft((current) => ({ ...current, isDayTrade: event.target.value }))}
                         className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       >
-                        <option value="">{locale === "zh-TW" ? "未設定" : "Unset"}</option>
-                        <option value="false">{locale === "zh-TW" ? "否" : "No"}</option>
-                        <option value="true">{locale === "zh-TW" ? "是" : "Yes"}</option>
+                        <option value="">{copy.unset}</option>
+                        <option value="false">{copy.no}</option>
+                        <option value="true">{copy.yes}</option>
                       </select>
                     </label>
                     <label className="text-xs font-medium text-slate-600 md:col-span-3">
@@ -672,7 +672,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                   </div>
                   {activeEditIssues.length > 0 ? (
                     <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
-                      <h4 className="text-sm font-semibold text-amber-900">{locale === "zh-TW" ? "驗證細節" : "Validation details"}</h4>
+                      <h4 className="text-sm font-semibold text-amber-900">{copy.validationDetails}</h4>
                       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
                         {activeEditIssues.map((item, index) => (
                           <li key={`${activeEditRow.id}-issue-${index}`}>{item}</li>

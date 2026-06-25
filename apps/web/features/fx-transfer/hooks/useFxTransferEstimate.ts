@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { ApiError } from "../../../lib/api";
+import { getDictionary } from "../../../lib/i18n";
 import {
   estimateFxTransfer,
   type FxTransferEstimate,
@@ -26,7 +28,7 @@ function hasCompleteInput(input: FxTransferInput): boolean {
   );
 }
 
-export function useFxTransferEstimate(input: FxTransferInput): UseFxTransferEstimateResult {
+export function useFxTransferEstimate(input: FxTransferInput, locale: LocaleCode = "en"): UseFxTransferEstimateResult {
   const [estimate, setEstimate] = useState<FxTransferEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -55,7 +57,7 @@ export function useFxTransferEstimate(input: FxTransferInput): UseFxTransferEsti
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
           setEstimate(null);
-          setError(cause instanceof ApiError ? cause.message : "Could not estimate this FX transfer.");
+          setError(cause instanceof ApiError ? cause.message : getDictionary(locale).cashLedger.fxEstimateError);
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);
@@ -66,7 +68,7 @@ export function useFxTransferEstimate(input: FxTransferInput): UseFxTransferEsti
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [key]);
+  }, [key, locale]);
 
   // Treat "complete input but no fresh estimate yet" as a soft block so the
   // submit button does not let the user race ahead of the server's

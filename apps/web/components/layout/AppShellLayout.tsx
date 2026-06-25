@@ -139,7 +139,7 @@ export function AppShellLayout({
             "cash-ledger": uiDict.navigation.cashLedgerLabel,
             dividends: uiDict.navigation.dividendsLabel,
             sharing: uiDict.commandPalette.routeSharing,
-            admin: locale === "zh-TW" ? "管理" : "Admin",
+            admin: shellLabels.profileMenu.adminLink,
             settings: uiDict.settings.title,
           },
         }}

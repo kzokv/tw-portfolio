@@ -629,6 +629,13 @@ function unresolvedOperationPath(marketCode: Exclude<AdminMarketCode, "FX">, blo
   return `/admin/market-data/${marketCode}/operations?${params.toString()}`;
 }
 
+function unresolvedBlockerActionLabel(
+  action: "resume" | "cancel",
+  dict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  return action === "resume" ? dict.operationResume : dict.operationCancel;
+}
+
 function unresolvedItemId(item: Pick<AdminMarketDataUnresolvedItemDto, "id" | "providerId" | "marketCode" | "errorCode" | "sourceSymbol">): string {
   return item.id ?? `${item.providerId}:${item.marketCode}:${item.errorCode}:${item.sourceSymbol}`;
 }
@@ -721,10 +728,12 @@ function UnresolvedPanel({
         sourceSymbol: item.sourceSymbol,
         state: nextState,
       });
-      setMessage(`Updated ${result.item.sourceSymbol} to ${unresolvedStateLabel(result.item.state, adminDict)}.`);
+      setMessage(adminDict.unresolvedStateUpdated
+        .replace("{symbol}", result.item.sourceSymbol)
+        .replace("{state}", unresolvedStateLabel(result.item.state, adminDict)));
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unresolved lifecycle update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedLifecycleUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -748,11 +757,11 @@ function UnresolvedPanel({
         },
         acknowledged: true,
       });
-      setMessage(`Updated ${result.updatedCount.toLocaleString()} unresolved rows.`);
+      setMessage(adminDict.unresolvedBulkUpdated.replace("{count}", result.updatedCount.toLocaleString()));
       setSelectedKeys(new Set());
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Bulk unresolved lifecycle update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedBulkUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -768,10 +777,12 @@ function UnresolvedPanel({
         operationId: unresolved.blocker.operationId,
         action,
       });
-      setMessage(`${action} updated operation ${unresolved.blocker.operationId}.`);
+      setMessage(adminDict.unresolvedOperationUpdated
+        .replace("{action}", unresolvedBlockerActionLabel(action, adminDict))
+        .replace("{operationId}", unresolved.blocker.operationId));
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Operation update failed.");
+      setMessage(error instanceof Error ? error.message : adminDict.unresolvedOperationUpdateFailed);
     } finally {
       setBusyAction(null);
     }
@@ -797,9 +808,11 @@ function UnresolvedPanel({
       });
       setRetryPreview(result);
       setRetryAcknowledged(false);
-      setMessage(`Retry preview created for ${retryableItems.length.toLocaleString()} selected unresolved rows across ${result.matchCount.toLocaleString()} deduped targets.`);
+      setMessage(adminDict.unresolvedRetryPreviewCreated
+        .replace("{selectedRows}", retryableItems.length.toLocaleString())
+        .replace("{targets}", result.matchCount.toLocaleString()));
     } catch (error) {
-      setRetryError(error instanceof Error ? error.message : "Backfill preview failed.");
+      setRetryError(error instanceof Error ? error.message : adminDict.unresolvedRetryPreviewFailed);
     } finally {
       setBusyAction(null);
     }
@@ -817,10 +830,10 @@ function UnresolvedPanel({
         acknowledged: retryAcknowledged,
       });
       setRetryExecute(result);
-      setMessage(`Retry via backfill queued for ${retryableItems.length.toLocaleString()} selected unresolved rows.`);
+      setMessage(adminDict.unresolvedRetryQueuedMessage.replace("{count}", retryableItems.length.toLocaleString()));
       router.refresh();
     } catch (error) {
-      setRetryError(error instanceof Error ? error.message : "Backfill execution failed.");
+      setRetryError(error instanceof Error ? error.message : adminDict.unresolvedRetryExecutionFailed);
     } finally {
       setBusyAction(null);
     }
@@ -829,11 +842,11 @@ function UnresolvedPanel({
   const columns: AdminMarketDataResponsiveColumn<AdminMarketDataUnresolvedItemDto, "symbol" | "provider" | "recommended" | "evidence" | "occurrence" | "state" | "actions">[] = [
     {
       id: "symbol",
-      label: "Instrument",
+      label: adminDict.unresolvedTableInstrument,
       defaultWidth: 220,
       renderCell: (item) => (
         <div className="space-y-1">
-        <div className="font-mono font-semibold text-foreground">{item.sourceSymbol}</div>
+          <div className="font-mono font-semibold text-foreground">{item.sourceSymbol}</div>
           <div className="text-sm text-muted-foreground">{item.instrumentName ?? item.providerSymbol ?? item.errorCode}</div>
         </div>
       ),
@@ -966,26 +979,26 @@ function UnresolvedPanel({
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-unresolved-blocker">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Active operation blocker</h2>
+              <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedBlockerTitle}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{unresolved.blocker.summary}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {unresolved.blocker.providerLabel ?? unresolved.blocker.providerId} · {unresolved.blocker.operationType} · {unresolved.blocker.phase}
-                {unresolved.blocker.updatedAt ? ` · updated ${formatUtcTimestamp(unresolved.blocker.updatedAt)}` : ""}
+                {unresolved.blocker.providerLabel ?? unresolved.blocker.providerId} · {localizeOperationType(unresolved.blocker.operationType, adminDict)} · {localizeOperationPhase(unresolved.blocker.phase, adminDict)}
+                {unresolved.blocker.updatedAt ? ` · ${adminDict.unresolvedBlockerUpdated.replace("{time}", formatUtcTimestamp(unresolved.blocker.updatedAt))}` : ""}
               </p>
               {unresolved.blocker.detail ? <p className="mt-1 text-xs text-muted-foreground">{unresolved.blocker.detail}</p> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href={unresolvedOperationPath(marketCode, unresolved.blocker)} className="rounded border border-border px-3 py-2 text-sm">
-                Open operation
+                {adminDict.unresolvedOpenOperation}
               </Link>
               {unresolved.blocker.canResume ? (
                 <button type="button" className="rounded border border-border px-3 py-2 text-sm" disabled={busyAction !== null} onClick={() => void controlBlocker("resume")}>
-                  Resume
+                  {adminDict.operationResume}
                 </button>
               ) : null}
               {unresolved.blocker.canCancel ? (
                 <button type="button" className="rounded border border-border px-3 py-2 text-sm" disabled={busyAction !== null} onClick={() => void controlBlocker("cancel")}>
-                  Cancel
+                  {adminDict.operationCancel}
                 </button>
               ) : null}
             </div>
@@ -1564,14 +1577,15 @@ function BackfillInstrumentRows({
   selectedTickers: string[];
   onToggleTicker: (ticker: string) => void;
 }) {
+  const adminDict = useAdminI18n().marketData;
   return (
     <div className="min-w-0 overflow-hidden rounded border border-border" data-testid="market-data-backfill-supported-list">
       <div className="hidden grid-cols-[minmax(7rem,0.75fr)_minmax(12rem,1.25fr)_minmax(7rem,0.8fr)_minmax(7rem,0.8fr)_minmax(10rem,1fr)] gap-3 border-b border-border bg-muted/40 px-4 py-3 text-xs uppercase text-muted-foreground md:grid">
-        <span>Select</span>
-        <span>Ticker</span>
-        <span>Support</span>
-        <span>Backfill</span>
-        <span>Providers</span>
+        <span>{adminDict.instrumentsSelect}</span>
+        <span>{adminDict.instrumentsTicker}</span>
+        <span>{adminDict.instrumentsSupport}</span>
+        <span>{adminDict.instrumentsBackfill}</span>
+        <span>{adminDict.instrumentsProviders}</span>
       </div>
       <div className="divide-y divide-border">
         {instruments.map((row) => (
@@ -1581,20 +1595,20 @@ function BackfillInstrumentRows({
           >
             <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
               <input
-                aria-label={`Select ${row.ticker}`}
+                aria-label={`${adminDict.instrumentsSelect} ${row.ticker}`}
                 type="checkbox"
                 checked={selectedTickers.includes(row.ticker)}
                 onChange={() => onToggleTicker(row.ticker)}
               />
-              <span className="md:hidden">Select</span>
+              <span className="md:hidden">{adminDict.instrumentsSelect}</span>
             </label>
             <div className="min-w-0">
               <p className="break-all font-medium text-foreground">{row.ticker}</p>
-              <p className="mt-1 break-words text-xs text-muted-foreground">{row.name ?? "Unnamed"}</p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">{row.name ?? adminDict.instrumentsUnnamed}</p>
             </div>
-            <BackfillRowFact label="Support" value={row.supportState} />
-            <BackfillRowFact label="Backfill" value={row.backfillStatus} />
-            <BackfillRowFact label="Providers" value={row.providerIds.join(", ") || "none"} />
+            <BackfillRowFact label={adminDict.instrumentsSupport} value={row.supportState} />
+            <BackfillRowFact label={adminDict.instrumentsBackfill} value={row.backfillStatus} />
+            <BackfillRowFact label={adminDict.instrumentsProviders} value={row.providerIds.join(", ") || adminDict.instrumentsNone} />
           </div>
         ))}
       </div>
@@ -1604,20 +1618,22 @@ function BackfillInstrumentRows({
 
 function BackfillTargetRows({
   targets,
+  adminDict,
   className,
   testId,
 }: {
   targets: AdminMarketDataBackfillTargetDto[];
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"];
   className?: string;
   testId: string;
 }) {
   return (
     <div className={cn("min-w-0 overflow-hidden rounded border border-border", className)} data-testid={testId}>
       <div className="hidden grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs uppercase text-muted-foreground md:grid">
-        <span>Ticker</span>
-        <span>Name</span>
-        <span>Backfill</span>
-        <span>Support</span>
+        <span>{adminDict.instrumentsTicker}</span>
+        <span>{adminDict.instrumentsName}</span>
+        <span>{adminDict.instrumentsBackfill}</span>
+        <span>{adminDict.instrumentsSupport}</span>
       </div>
       <div className="divide-y divide-border">
         {targets.map((target) => (
@@ -1626,9 +1642,9 @@ function BackfillTargetRows({
             className="grid min-w-0 gap-3 px-3 py-3 text-sm md:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.4fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)] md:items-center"
           >
             <p className="break-all font-medium text-foreground">{target.ticker}</p>
-            <BackfillRowFact label="Name" value={target.name ?? "Unnamed"} />
-            <BackfillRowFact label="Backfill" value={target.backfillStatus ?? "unknown"} />
-            <BackfillRowFact label="Support" value={target.supportState ?? "unknown"} />
+            <BackfillRowFact label={adminDict.instrumentsName} value={target.name ?? adminDict.instrumentsUnnamed} />
+            <BackfillRowFact label={adminDict.instrumentsBackfill} value={target.backfillStatus ?? adminDict.instrumentsUnknown} />
+            <BackfillRowFact label={adminDict.instrumentsSupport} value={target.supportState ?? adminDict.instrumentsUnknown} />
           </div>
         ))}
       </div>
@@ -1658,6 +1674,7 @@ function BackfillPanel({
   initialQuery: InstrumentQuery;
   snapshotRepairRequest: SnapshotRepairRequest | null;
 }) {
+  const adminDict = useAdminI18n().marketData;
   const router = useRouter();
   const backfillActions = actions.filter((item) => item.action === "backfill_catalog_rows" && item.supported);
   const guidedValuationRepair = snapshotRepairRequest?.mode === "valuation";
@@ -1831,7 +1848,7 @@ function BackfillPanel({
       setPreview(null);
       setAcknowledged(false);
       setTypedConfirmation("");
-      setPreviewError(err instanceof Error ? err.message : "Backfill preview failed");
+      setPreviewError(err instanceof Error ? err.message : adminDict.backfillPreviewFailedTitle);
     }
   }
 
@@ -2162,12 +2179,19 @@ function BackfillPanel({
                 onToggleTicker={toggleTicker}
               />
               <div className="flex min-w-0 flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <p className="min-w-0 break-words">Showing {instruments.items.length.toLocaleString()} of {instruments.total.toLocaleString()} instruments, page {instruments.page} of {totalPages}. Selected {selectedTickers.length.toLocaleString()}.</p>
+                <p className="min-w-0 break-words">
+                  {adminDict.instrumentsSummary
+                    .replace("{shown}", instruments.items.length.toLocaleString())
+                    .replace("{total}", instruments.total.toLocaleString())
+                    .replace("{page}", String(instruments.page))
+                    .replace("{pages}", String(totalPages))}
+                  . {adminDict.selectedLabel}: {selectedTickers.length.toLocaleString()}.
+                </p>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>Previous</Link>
-                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>Next</Link>
-                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">Preview selected</button>
-                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">Preview all matching filters</button>
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.max(1, instruments.page - 1))} aria-disabled={instruments.page <= 1} className={cn("rounded border border-border px-3 py-2", instruments.page <= 1 && "pointer-events-none opacity-50")}>{adminDict.previous}</Link>
+                  <Link href={queryPath(instruments.marketCode, "backfill", filters, Math.min(totalPages, instruments.page + 1))} aria-disabled={instruments.page >= totalPages} className={cn("rounded border border-border px-3 py-2", instruments.page >= totalPages && "pointer-events-none opacity-50")}>{adminDict.nextPage}</Link>
+                  <button type="button" onClick={() => void runPreview("selected_catalog_rows")} disabled={selectedRows.length === 0} className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:w-auto">{adminDict.backfillPreviewSelected}</button>
+                  <button type="button" onClick={() => void runPreview("all_matching")} className="rounded border border-border px-3 py-2 text-sm font-medium text-foreground sm:w-auto">{adminDict.backfillPreviewAllMatching}</button>
                 </div>
               </div>
             </div>
@@ -2176,7 +2200,7 @@ function BackfillPanel({
       </div>
       {previewError ? (
         <div className="mt-4 min-w-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-backfill-preview-error">
-          <p className="font-medium">Backfill preview failed</p>
+          <p className="font-medium">{adminDict.backfillPreviewFailedTitle}</p>
           <p className="mt-1 break-words">{previewError}</p>
         </div>
       ) : null}
@@ -2212,7 +2236,7 @@ function BackfillPanel({
               ) : null}
             </div>
             {previewTargets.length <= 100 ? (
-              <BackfillTargetRows targets={previewTargets} className="mt-3" testId="market-data-backfill-preview-targets" />
+              <BackfillTargetRows targets={previewTargets} adminDict={adminDict} className="mt-3" testId="market-data-backfill-preview-targets" />
             ) : (
               <p className="mt-2 text-sm text-muted-foreground">Large previews show a summary by default. Open details to filter the frozen list before executing.</p>
             )}
@@ -2252,7 +2276,7 @@ function BackfillPanel({
                   <input value={targetModalFilter} onChange={(event) => setTargetModalFilter(event.target.value)} className="mt-3 w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Filter frozen targets" />
                 </div>
                 <div className="max-h-[70vh] overflow-auto p-4">
-                  <BackfillTargetRows targets={filteredPreviewTargets} testId="market-data-backfill-modal-targets" />
+                  <BackfillTargetRows targets={filteredPreviewTargets} adminDict={adminDict} testId="market-data-backfill-modal-targets" />
                 </div>
               </div>
             </div>
@@ -2288,6 +2312,7 @@ function BackfillPanel({
 
 
 function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX"> }) {
+  const adminDict = useAdminI18n().marketData;
   const [selected, setSelected] = useState<AdminMarketDataPurgeCategory[]>(["price_bars"]);
   const [enqueueBackfill, setEnqueueBackfill] = useState(false);
   const [fullHistory, setFullHistory] = useState(true);
@@ -2396,7 +2421,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
             ["Provider", preview.providerId],
             ["Categories", preview.categories.join(", ")],
             ["Affected instruments", String(preview.affectedInstrumentCount)],
-            ["Estimated rows", preview.estimatedRows == null ? "unknown" : String(preview.estimatedRows)],
+            ["Estimated rows", preview.estimatedRows == null ? adminDict.instrumentsUnknown : String(preview.estimatedRows)],
             ["Linked refill", preview.linkedRefill.available ? preview.linkedRefill.mode ?? "available" : preview.linkedRefill.warning ?? "not available"],
             ["Confirmation", preview.confirmation.text ?? preview.confirmation.level],
           ]} />
@@ -2428,7 +2453,7 @@ function PurgePanel({ marketCode }: { marketCode: Exclude<AdminMarketCode, "FX">
       )}
       {executeResult && <PreviewSummary title="Purge operation" rows={[
         ["Operation", executeResult.operationId],
-        ["Deleted rows", executeResult.deletedRows == null ? "unknown" : String(executeResult.deletedRows)],
+        ["Deleted rows", executeResult.deletedRows == null ? adminDict.instrumentsUnknown : String(executeResult.deletedRows)],
         ["Affected instruments", String(executeResult.affectedInstrumentCount)],
         ["Linked backfill", executeResult.linkedBackfillOperationId ?? "none"],
       ]} />}

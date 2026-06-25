@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { UserSettings } from "@vakwen/shared-types";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
+import { getRouteLoadingLabels } from "../../components/layout/i18n";
 import { ReportsClient } from "../../components/reports/ReportsClient";
 import { parseReportRouteState } from "../../features/reports/reportState";
 import { requireSession } from "../../lib/auth";
@@ -23,12 +24,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
   ]);
 
+  const locale = settings?.locale ?? "en";
+  const loadingCopy = getRouteLoadingLabels(locale).reports;
+
   return (
-    <Suspense fallback={<DashboardLoading standalone />}>
+    <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
       <AppShell
         section="reports"
         isDemo={session.isDemo}
-        localeOverride={settings?.locale ?? "en"}
+        localeOverride={locale}
         initialProfile={profile}
         initialSettings={settings}
         initialSidebarOpen={sidebarOpen}

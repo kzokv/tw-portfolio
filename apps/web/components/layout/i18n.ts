@@ -240,3 +240,128 @@ const layoutShellLabels: Record<"en" | "zh-TW", LayoutShellLabels> = {
 export function getLayoutShellLabels(locale: LocaleCode): LayoutShellLabels {
   return layoutShellLabels[locale === "zh-TW" ? "zh-TW" : "en"];
 }
+
+export interface RouteLoadingCopy {
+  ariaLabel: string;
+  eyebrow: string;
+  title: string;
+  body: string;
+}
+
+export interface RouteLoadingLabels {
+  dashboard: RouteLoadingCopy;
+  reports: RouteLoadingCopy;
+  portfolio: RouteLoadingCopy;
+  transactions: RouteLoadingCopy;
+  cashLedger: RouteLoadingCopy;
+  dividends: RouteLoadingCopy;
+  settings: RouteLoadingCopy;
+  tickerDetail: RouteLoadingCopy;
+}
+
+const routeLoadingLabels: Record<"en" | "zh-TW", RouteLoadingLabels> = {
+  en: {
+    dashboard: {
+      ariaLabel: "Loading dashboard",
+      eyebrow: "Dashboard",
+      title: "Loading dashboard",
+      body: "Preparing valuation, market context, and portfolio command surfaces.",
+    },
+    reports: {
+      ariaLabel: "Loading reports",
+      eyebrow: "Reports",
+      title: "Loading reports",
+      body: "Preparing performance, allocation, and income report views.",
+    },
+    portfolio: {
+      ariaLabel: "Loading portfolio workspace",
+      eyebrow: "Portfolio",
+      title: "Loading portfolio workspace",
+      body: "Preparing holdings, allocation context, and the table-first review surface.",
+    },
+    transactions: {
+      ariaLabel: "Loading transactions workspace",
+      eyebrow: "Transactions",
+      title: "Loading transactions workspace",
+      body: "Preparing the ledger, inbox context, and transaction entry tools.",
+    },
+    cashLedger: {
+      ariaLabel: "Loading cash ledger",
+      eyebrow: "Cash Ledger",
+      title: "Loading cash ledger",
+      body: "Preparing cash entries, account context, and review controls.",
+    },
+    dividends: {
+      ariaLabel: "Loading dividends",
+      eyebrow: "Dividends",
+      title: "Loading dividends",
+      body: "Preparing dividend calendar, ledger review, and account context.",
+    },
+    settings: {
+      ariaLabel: "Loading settings",
+      eyebrow: "Settings",
+      title: "Loading settings",
+      body: "Preparing account, display, and profile controls for this section.",
+    },
+    tickerDetail: {
+      ariaLabel: "Loading ticker detail",
+      eyebrow: "Tickers",
+      title: "Loading ticker detail",
+      body: "Preparing price history, fundamentals, and your current position context.",
+    },
+  },
+  "zh-TW": {
+    dashboard: {
+      ariaLabel: "載入儀表板中",
+      eyebrow: "儀表板",
+      title: "載入儀表板中",
+      body: "正在準備估值、市場情境，以及投資組合操作區。",
+    },
+    reports: {
+      ariaLabel: "載入報表中",
+      eyebrow: "報表",
+      title: "載入報表中",
+      body: "正在準備績效、配置與收益報表視圖。",
+    },
+    portfolio: {
+      ariaLabel: "載入投資組合工作區中",
+      eyebrow: "投資組合",
+      title: "載入投資組合工作區中",
+      body: "正在準備持股、配置情境，以及以表格為主的檢查畫面。",
+    },
+    transactions: {
+      ariaLabel: "載入交易工作區中",
+      eyebrow: "交易",
+      title: "載入交易工作區中",
+      body: "正在準備交易紀錄、收件匣情境，以及交易輸入工具。",
+    },
+    cashLedger: {
+      ariaLabel: "載入現金流水中",
+      eyebrow: "現金流水",
+      title: "載入現金流水中",
+      body: "正在準備現金紀錄、帳戶情境，以及檢查控制項。",
+    },
+    dividends: {
+      ariaLabel: "載入股利中",
+      eyebrow: "股利",
+      title: "載入股利中",
+      body: "正在準備股利行事曆、帳本檢查與帳戶情境。",
+    },
+    settings: {
+      ariaLabel: "載入設定中",
+      eyebrow: "設定",
+      title: "載入設定中",
+      body: "正在準備此區段的帳戶、顯示與個人資料控制項。",
+    },
+    tickerDetail: {
+      ariaLabel: "載入代號明細中",
+      eyebrow: "代號",
+      title: "載入代號明細中",
+      body: "正在準備價格歷史、基本資料，以及你目前的持倉情境。",
+    },
+  },
+};
+
+export function getRouteLoadingLabels(locale?: LocaleCode | string): RouteLoadingLabels {
+  return routeLoadingLabels[locale === "zh-TW" ? "zh-TW" : "en"];
+}

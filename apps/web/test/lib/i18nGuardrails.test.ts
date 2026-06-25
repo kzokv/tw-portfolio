@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { adminI18n } from "../../components/admin/admin-i18n";
-import { layoutI18n } from "../../components/layout/i18n";
+import { getRouteLoadingLabels, layoutI18n } from "../../components/layout/i18n";
 import { sharingI18n } from "../../features/sharing/i18n";
+import { commonI18n } from "../../lib/i18n/common";
 
 function collectLeafPaths(value: unknown, prefix = ""): string[] {
   if (Array.isArray(value)) {
@@ -25,6 +26,14 @@ function expectLocaleParity(name: string, enValue: unknown, zhTwValue: unknown) 
 describe("i18n guardrails", () => {
   it("keeps layout shell dictionaries in en/zh-TW parity", () => {
     expectLocaleParity("layoutI18n", layoutI18n.en, layoutI18n["zh-TW"]);
+  });
+
+  it("keeps route loading dictionaries in en/zh-TW parity", () => {
+    expectLocaleParity("routeLoadingLabels", getRouteLoadingLabels("en"), getRouteLoadingLabels("zh-TW"));
+  });
+
+  it("keeps common error/action dictionaries in en/zh-TW parity", () => {
+    expectLocaleParity("commonI18n", commonI18n.en, commonI18n["zh-TW"]);
   });
 
   it("keeps admin dictionaries in en/zh-TW parity", () => {

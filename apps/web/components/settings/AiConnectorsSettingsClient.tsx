@@ -118,6 +118,9 @@ const COPY = {
     requiresScope: "Requires {scope}.",
     connectorInactive: "Connector is {status}; only active connectors can call tools.",
     draftGroupDisabled: "Draft tools are disabled by policy.",
+    reconnectPostingScope: "Reconnect or re-consent in ChatGPT to enable posting.",
+    reconnectAccountManageScope: "Reconnect or re-consent in ChatGPT to enable account management tools.",
+    daySuffix: " days",
     historyLabel: "{count} hidden connection(s)",
   },
   "zh-TW": {
@@ -192,6 +195,9 @@ const COPY = {
     requiresScope: "需要 {scope}。",
     connectorInactive: "連接器狀態為 {status}；只有啟用中的連接器可以呼叫工具。",
     draftGroupDisabled: "草稿工具已被策略停用。",
+    reconnectPostingScope: "此範圍需在 ChatGPT 重新同意後啟用。",
+    reconnectAccountManageScope: "請在 ChatGPT 重新連線或重新同意後啟用帳戶管理工具。",
+    daySuffix: " 天",
     historyLabel: "隱藏 {count} 個歷史連線",
   },
 } as const;
@@ -260,14 +266,9 @@ function scopeNeedsReconnect(connection: AiConnectorConnectionDto, scope: AiConn
 }
 
 function reconnectCopy(locale: keyof typeof COPY, scope: AiConnectorScope): string {
-  if (locale === "zh-TW") {
-    return scope === "transaction:write"
-      ? "此範圍需在 ChatGPT 重新同意後啟用。"
-      : "請在 ChatGPT 重新連線或重新同意後啟用帳戶管理工具。";
-  }
   return scope === "transaction:write"
-    ? "Reconnect or re-consent in ChatGPT to enable posting."
-    : "Reconnect or re-consent in ChatGPT to enable account management tools.";
+    ? COPY[locale].reconnectPostingScope
+    : COPY[locale].reconnectAccountManageScope;
 }
 
 function toolUnavailableReason(
@@ -472,8 +473,8 @@ export function AiConnectorsSettingsClient() {
           <div className="grid gap-3 md:grid-cols-4">
             <CompactPolicyStat label={copy.deployment} value={data ? data.policy.enabled ? copy.available : copy.unavailable : "-"} />
             <CompactPolicyStat label={copy.activeCap} value={policyValue(data?.policy.maxActiveConnectionsPerUser)} />
-            <CompactPolicyStat label={copy.inactivityExpiry} value={policyValue(data?.policy.inactivityExpiryDays, locale === "zh-TW" ? " 天" : " days")} />
-            <CompactPolicyStat label={copy.expiryWarning} value={policyValue(data?.policy.expirationWarningDays, locale === "zh-TW" ? " 天" : " days")} />
+            <CompactPolicyStat label={copy.inactivityExpiry} value={policyValue(data?.policy.inactivityExpiryDays, copy.daySuffix)} />
+            <CompactPolicyStat label={copy.expiryWarning} value={policyValue(data?.policy.expirationWarningDays, copy.daySuffix)} />
           </div>
         </div>
       </Card>
