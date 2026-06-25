@@ -69,6 +69,7 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
 }));
 
 import { AdminMarketDataWorkspaceClient } from "../../../components/admin/AdminMarketDataClient";
+import { AdminI18nProvider } from "../../../components/admin/admin-i18n";
 import {
   bulkUpdateMarketUnresolvedState,
   bulkUpdateProviderUnresolvedState,
@@ -782,6 +783,41 @@ describe("AdminMarketDataWorkspaceClient", () => {
     expect(container.querySelector("[data-testid='admin-market-data-mobile-tabs']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Market data tabs']")?.textContent).toContain("Calendar");
     expect(container.querySelector("a[href='/admin/market-data/AU/activity']")).not.toBeNull();
+  });
+
+  it("renders admin market-data workspace copy in zh-TW", async () => {
+    await act(async () => {
+      root.render(
+        <AdminI18nProvider locale="zh-TW">
+          <AdminMarketDataWorkspaceClient
+            marketCode="AU"
+            tab="instruments"
+            overview={{ ...overview(), tabs: ["overview", "instruments", "backfill"] as never }}
+            actions={actions()}
+            instruments={instruments("BHP", "BHP Group")}
+            instrumentQuery={{
+              page: 1,
+              limit: 50,
+              status: "all",
+              supportState: "all",
+              search: "",
+              instrumentType: "all",
+              backfillStatus: "all",
+              sort: "ticker_asc",
+            }}
+            operations={null}
+            krMappings={null}
+          />
+        </AdminI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("市場資料");
+    expect(container.textContent).toContain("全部市場");
+    expect(container.textContent).toContain("標的");
+    expect(container.textContent).toContain("套用");
+    expect(container.textContent).toContain("重設");
+    expect(container.querySelector("nav[aria-label='市場資料分頁']")?.textContent).toContain("回補");
   });
 
   it("renders the generic unresolved tab with blocker controls, bulk lifecycle actions, and deduped retry preview", async () => {

@@ -76,17 +76,19 @@ export function AdminOverviewClient({
           <p className="mt-2 text-sm text-muted-foreground">{dict.overview.pendingInvitesDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-instruments">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Pending backfill</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.pendingBackfill}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">{pendingBackfillTotal.toLocaleString()}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Rows queued for explicit market preview.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{dict.overview.pendingBackfillDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-providers">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Markets needing attention</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.marketsNeedingAttentionMetric}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">
             {marketsNeedingAttention.length.toLocaleString()}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {markets.length - marketsNeedingAttention.length} healthy of {markets.length} market workspaces.
+            {dict.overview.marketsNeedingAttentionDescription
+              .replace("{healthy}", (markets.length - marketsNeedingAttention.length).toLocaleString())
+              .replace("{total}", markets.length.toLocaleString())}
           </p>
         </Card>
       </div>
@@ -95,14 +97,14 @@ export function AdminOverviewClient({
         <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="admin-overview-provider-health">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Market data</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Inspect each market with provider ownership visible.</p>
+              <h2 className="text-base font-semibold text-foreground">{dict.overview.marketDataTitle}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{dict.overview.marketDataDescription}</p>
             </div>
             <Link
               href="/admin/market-data"
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
-              Open market data
+              {dict.overview.openMarketData}
             </Link>
           </div>
           <ul className="divide-y divide-border">
@@ -128,8 +130,12 @@ export function AdminOverviewClient({
                   </div>
                 </div>
                 <div className="text-left text-sm text-muted-foreground sm:text-right">
-                  <p>{market.unresolvedCount.toLocaleString()} unresolved</p>
-                  <p className="mt-1">{market.pendingBackfillCount.toLocaleString()} pending / {market.failedBackfillCount.toLocaleString()} failed</p>
+                  <p>{dict.overview.unresolvedSummary.replace("{count}", market.unresolvedCount.toLocaleString())}</p>
+                  <p className="mt-1">
+                    {dict.overview.backfillSummary
+                      .replace("{pending}", market.pendingBackfillCount.toLocaleString())
+                      .replace("{failed}", market.failedBackfillCount.toLocaleString())}
+                  </p>
                 </div>
               </li>
             ))}

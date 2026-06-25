@@ -31,6 +31,7 @@ import {
   type DraftRow,
   type DraftRowPatch,
 } from "../../features/ai-inbox/service";
+import { aiInboxCopy } from "./aiInboxI18n";
 
 interface AiInboxPanelProps {
   initialBatchId?: string | null;
@@ -68,12 +69,24 @@ function stateClassName(state: DraftRow["state"]): string {
   return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
-function compactState(state: string): string {
+function compactState(state: string, locale: LocaleCode): string {
+  if (locale === "zh-TW") {
+    const labels: Record<string, string> = {
+      ready: "可送出",
+      confirmed: "已確認",
+      excluded: "已排除",
+      rejected: "已拒絕",
+      unsupported: "不支援",
+      needs_clarification: "需釐清",
+    };
+    return labels[state] ?? state.replace(/_/g, " ");
+  }
   return state.replace(/_/g, " ");
 }
 
-function sourceChannelLabel(value: DraftBatchSummary["sourceChannel"]): string {
-  return value === "mcp" ? "ChatGPT connector" : "Vakwen web";
+function sourceChannelLabel(value: DraftBatchSummary["sourceChannel"], locale: LocaleCode): string {
+  const copy = aiInboxCopy[locale];
+  return value === "mcp" ? copy.sourceChannelMcp : copy.sourceChannelWeb;
 }
 
 function issueText(value: unknown): string {
@@ -142,6 +155,7 @@ function parseEditDraft(value: EditDraft): DraftRowPatch {
 }
 
 export function AiInboxPanel({ initialBatchId, initialContextId, locale, permissions = null }: AiInboxPanelProps) {
+  const copy = aiInboxCopy[locale];
   const [batches, setBatches] = useState<DraftBatchSummary[]>([]);
   const [detail, setDetail] = useState<DraftBatchDetail | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -184,11 +198,11 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
       setSelectedRowIds(new Set());
       setEditRowId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI Inbox could not be loaded.");
+      setError(err instanceof Error ? err.message : copy.loadError);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [copy.loadError]);
 
   useEffect(() => {
     void load(initialBatchId ?? null);
@@ -242,7 +256,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
       setMessage(success);
       void load("batch" in result ? result.batch.id : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI Inbox action failed.");
+      setError(err instanceof Error ? err.message : copy.actionError);
     } finally {
       setIsMutating(false);
     }
@@ -264,14 +278,14 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
 
   function archiveCurrentBatch() {
     if (!detail) return;
-    if (!window.confirm("Archive this AI draft batch?")) return;
-    void mutate(() => archiveDraftBatch(detail.batch.id, batchVersion), "Batch archived.");
+    if (!window.confirm(copy.archiveConfirm)) return;
+    void mutate(() => archiveDraftBatch(detail.batch.id, batchVersion), copy.batchArchived);
   }
 
   function deleteCurrentBatch() {
     if (!detail) return;
-    if (!window.confirm("Delete this AI draft batch? Unposted rows will be removed.")) return;
-    void mutate(() => deleteDraftBatch(detail.batch.id, batchVersion), "Batch deleted.");
+    if (!window.confirm(copy.deleteConfirm)) return;
+    void mutate(() => deleteDraftBatch(detail.batch.id, batchVersion), copy.batchDeleted);
   }
 
   const batchVersion = detail?.batch.version ?? 0;
@@ -281,14 +295,14 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
       <Card className="rounded-lg px-4 py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">AI Inbox</h2>
+            <h2 className="text-base font-semibold text-slate-950">{copy.title}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {formatNumber(badge.openBatchCount, locale)} open batches · {formatNumber(badge.readyRowCount, locale)} ready · {formatNumber(badge.actionRequiredRowCount, locale)} need review
+              {formatNumber(badge.openBatchCount, locale)} {copy.openBatches} · {formatNumber(badge.readyRowCount, locale)} {copy.ready} · {formatNumber(badge.actionRequiredRowCount, locale)} {copy.needsReview}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => void load(detail?.batch.id ?? null)} disabled={isLoading}>
             <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-            Refresh
+            {copy.refresh}
           </Button>
         </div>
       </Card>
@@ -299,13 +313,13 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Card className="rounded-lg px-0 py-0">
           <div className="border-b border-border px-4 py-3">
-            <h3 className="text-sm font-semibold text-slate-900">Draft batches</h3>
+            <h3 className="text-sm font-semibold text-slate-900">{copy.draftBatches}</h3>
           </div>
           <div className="max-h-[680px] overflow-auto p-2">
             {isLoading ? (
-              <p className="px-2 py-6 text-sm text-slate-500">Loading batches...</p>
+              <p className="px-2 py-6 text-sm text-slate-500">{copy.loadingBatches}</p>
             ) : batches.length === 0 ? (
-              <p className="px-2 py-6 text-sm text-slate-500">No AI draft batches.</p>
+              <p className="px-2 py-6 text-sm text-slate-500">{copy.noBatches}</p>
             ) : batches.map((batch) => {
               const active = detail?.batch.id === batch.id;
               return (
@@ -318,14 +332,14 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                     active ? "border-indigo-200 bg-indigo-50" : "border-border bg-background hover:bg-accent/40",
                   )}
                 >
-                  <span className="block font-medium text-slate-900">{batch.sourceLabel ?? batch.sourceFilename ?? "AI draft"}</span>
+                  <span className="block font-medium text-slate-900">{batch.sourceLabel ?? batch.sourceFilename ?? copy.draftBatchFallback}</span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    {batch.rowCount} rows · {batch.unsupportedCount} unsupported · v{batch.version}
+                    {batch.rowCount} {locale === "zh-TW" ? "筆資料列" : "rows"} · {batch.unsupportedCount} {copy.unsupportedLabel} · v{batch.version}
                   </span>
                   <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                    {sourceChannelLabel(batch.sourceChannel)}
+                    {sourceChannelLabel(batch.sourceChannel, locale)}
                   </span>
-                  <span className="mt-1 block text-xs text-slate-500">{new Date(batch.updatedAt).toLocaleString()}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{new Date(batch.updatedAt).toLocaleString(locale === "zh-TW" ? "zh-TW" : "en-US")}</span>
                 </button>
               );
             })}
@@ -335,29 +349,29 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
         <div className="grid gap-4">
           {!detail ? (
             <Card className="rounded-lg">
-              <p className="text-sm text-slate-500">Select an AI draft batch to review.</p>
+              <p className="text-sm text-slate-500">{copy.selectBatch}</p>
             </Card>
           ) : (
             <>
               <Card className="rounded-lg">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-950">{detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? "AI draft batch"}</h3>
+                    <h3 className="text-lg font-semibold text-slate-950">{detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? copy.draftBatchFallback}</h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {detail.batch.rowCount} rows · {detail.batch.unsupportedCount} unsupported · status {detail.batch.status} · version {detail.batch.version}
+                      {detail.batch.rowCount} {locale === "zh-TW" ? "筆資料列" : "rows"} · {detail.batch.unsupportedCount} {copy.unsupportedLabel} · {copy.statusLabel} {detail.batch.status} · {copy.versionLabel} {detail.batch.version}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        {sourceChannelLabel(detail.batch.sourceChannel)}
+                        {sourceChannelLabel(detail.batch.sourceChannel, locale)}
                       </span>
                       {detail.batch.connectorConnectionId ? (
                         <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
-                          connector {detail.batch.connectorConnectionId}
+                          {copy.connectorLabel} {detail.batch.connectorConnectionId}
                         </span>
                       ) : null}
                       {confirmedRowCount > 0 ? (
                         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                          {confirmedRowCount} rows posted
+                          {confirmedRowCount} {copy.rowsPosted}
                         </span>
                       ) : null}
                     </div>
@@ -370,11 +384,11 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("exclude", detail.batch.id, [...selectedRowIds], batchVersion),
-                        "Rows excluded.",
+                        copy.rowsExcluded,
                       )}
                     >
                       <XCircle className="mr-2 h-4 w-4" aria-hidden="true" />
-                      Exclude
+                      {copy.exclude}
                     </Button>
                     <Button
                       variant="outline"
@@ -382,10 +396,10 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("reinclude", detail.batch.id, [...selectedRowIds], batchVersion),
-                        "Rows re-included.",
+                        copy.rowsReincluded,
                       )}
                     >
-                      Reinclude
+                      {copy.reinclude}
                     </Button>
                     <Button
                       variant="outline"
@@ -393,10 +407,10 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       disabled={isMutating || !canEditDrafts || selectedRows.length === 0}
                       onClick={() => void mutate(
                         () => transitionDraftRows("reject", detail.batch.id, [...selectedRowIds], batchVersion),
-                        "Rows rejected.",
+                        copy.rowsRejected,
                       )}
                     >
-                      Reject
+                      {copy.reject}
                     </Button>
                     <Button
                       variant="outline"
@@ -405,7 +419,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       onClick={archiveCurrentBatch}
                     >
                       <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
-                      Archive
+                      {copy.archive}
                     </Button>
                     <Button
                       variant="destructive"
@@ -414,24 +428,24 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       onClick={deleteCurrentBatch}
                     >
                       <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                      Delete
+                      {copy.delete}
                     </Button>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
                   <div>
-                    <p className="text-sm font-medium text-slate-900">Connector provenance</p>
+                    <p className="text-sm font-medium text-slate-900">{copy.connectorProvenance}</p>
                     <p className="mt-1 text-sm text-slate-600">
                       {detail.batch.sourceChannel === "mcp"
-                        ? "Vakwen received structured candidates, capped snippets, row mappings, and source metadata only from the ChatGPT connector."
-                        : "This batch was created in Vakwen and follows the same deterministic draft validation path."}
+                        ? copy.connectorProvenanceMcp
+                        : copy.connectorProvenanceWeb}
                     </p>
                     <p className="mt-2 text-xs text-slate-500">
-                      Source label: {detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? "not provided"}
+                      {copy.sourceLabel}: {detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? copy.sourceLabelFallback}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Source snippets stay capped at 500 characters per row.
+                      {copy.sourceSnippetsCapped}
                     </p>
                   </div>
                   <div className="flex flex-col items-start gap-2 md:items-end">
@@ -439,10 +453,10 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       href={detail.deepLinkUrl}
                       className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
                     >
-                      Open deep link
+                      {copy.openDeepLink}
                     </a>
                     <span className="text-xs text-slate-500">
-                      Canonical posting path and audit remain in Vakwen.
+                      {copy.auditNote}
                     </span>
                   </div>
                 </div>
@@ -450,15 +464,15 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                 <div className="mt-4 flex flex-col gap-3 rounded-md border border-border bg-slate-50 p-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
-                      {selectedReadyRows.length} ready rows selected
+                      {selectedReadyRows.length} {copy.readyRowsSelected}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      TWD gross {formatCurrencyAmount(selectedGrossTwd, "TWD", locale)}
+                      {copy.twdGross} {formatCurrencyAmount(selectedGrossTwd, "TWD", locale)}
                     </p>
                   </div>
                   {requiresTypedConfirm ? (
                     <label className="text-xs text-slate-600">
-                      Typed confirmation
+                      {copy.typedConfirmation}
                       <input
                         value={confirmText}
                         onChange={(event) => setConfirmText(event.target.value)}
@@ -477,11 +491,11 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                     }
                     onClick={() => void mutate(
                       () => confirmDraftRows(detail.batch.id, selectedReadyRows.map((row) => ({ id: row.id, version: row.version })), batchVersion, confirmText || undefined),
-                      "Rows posted.",
+                      copy.rowsPostedMessage,
                     )}
                   >
                     <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Post selected
+                    {copy.postSelected}
                   </Button>
                 </div>
               </Card>
@@ -490,17 +504,17 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                 <Card className="rounded-lg">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-semibold text-slate-950">Unsupported rows</h3>
+                      <h3 className="text-base font-semibold text-slate-950">{copy.unsupportedRows}</h3>
                       <p className="mt-1 text-sm text-slate-600">
-                        {detail.unsupportedItems.length} non-trade rows were preserved for review.
+                        {detail.unsupportedItems.length} {copy.unsupportedRowsDescription}
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 divide-y divide-border rounded-md border border-border">
                     {detail.unsupportedItems.map((item) => (
                       <div key={item.id} className="grid gap-2 px-3 py-3 text-sm md:grid-cols-[80px_160px_minmax(0,1fr)]">
-                        <span className="font-medium text-slate-900">Row {item.rowNumber}</span>
-                        <span className="text-slate-600">{compactState(item.category)}</span>
+                        <span className="font-medium text-slate-900">{copy.rowLabel} {item.rowNumber}</span>
+                        <span className="text-slate-600">{compactState(item.category, locale)}</span>
                         <span className="min-w-0 text-slate-600">
                           {item.reason}
                           {item.sourceSnippet ? (
@@ -519,14 +533,14 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-12" />
-                        <TableHead>Row</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Trade</TableHead>
-                        <TableHead>Account</TableHead>
-                        <TableHead className="text-right">Gross</TableHead>
-                        <TableHead>Fees</TableHead>
-                        <TableHead>Issues</TableHead>
-                        <TableHead className="text-right">Edit</TableHead>
+                        <TableHead>{copy.rowLabel}</TableHead>
+                        <TableHead>{copy.tableStatus}</TableHead>
+                        <TableHead>{copy.tableTrade}</TableHead>
+                        <TableHead>{copy.tableAccount}</TableHead>
+                        <TableHead className="text-right">{copy.tableGross}</TableHead>
+                        <TableHead>{copy.tableFees}</TableHead>
+                        <TableHead>{copy.tableIssues}</TableHead>
+                        <TableHead className="text-right">{copy.tableEdit}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -540,13 +554,13 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                                 checked={selectedRowIds.has(row.id)}
                                 disabled={!selectable}
                                 onChange={(event) => toggleRow(row.id, event.target.checked)}
-                                aria-label={`Select draft row ${row.rowNumber}`}
+                                aria-label={`${copy.ariaSelectRow} ${row.rowNumber}`}
                               />
                             </TableCell>
                             <TableCell className="font-medium">{row.rowNumber}</TableCell>
                             <TableCell>
                               <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs capitalize", stateClassName(row.state))}>
-                                {compactState(row.state)}
+                                {compactState(row.state, locale)}
                               </span>
                             </TableCell>
                             <TableCell className="min-w-[190px]">
@@ -564,7 +578,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                             <TableCell>
                               {row.commissionAmount ?? row.taxAmount
                                 ? `${row.commissionAmount ?? 0} / ${row.taxAmount ?? 0}`
-                                : row.feesSource === "CALCULATED" ? "calculated" : "-"}
+                                : row.feesSource === "CALCULATED" ? copy.calculatedFees : "-"}
                             </TableCell>
                             <TableCell className="max-w-[240px] text-xs text-slate-500">
                               {[...row.preflightIssues, ...row.warnings].slice(0, 2).map(issueText).join(" · ") || "-"}
@@ -572,7 +586,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                             <TableCell className="text-right">
                               <Button variant="ghost" size="sm" onClick={() => startEdit(row)} disabled={!canEditDrafts || row.state === "confirmed"}>
                                 <Pencil className="h-4 w-4" aria-hidden="true" />
-                                <span className="sr-only">Edit row</span>
+                                <span className="sr-only">{copy.editRow}</span>
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -587,25 +601,25 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                 <Card className="rounded-lg">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-semibold text-slate-950">Row {activeEditRow.rowNumber}</h3>
-                      <p className="mt-1 text-sm text-slate-600">Version {activeEditRow.version}</p>
+                      <h3 className="text-base font-semibold text-slate-950">{copy.rowLabel} {activeEditRow.rowNumber}</h3>
+                      <p className="mt-1 text-sm text-slate-600">{copy.version} {activeEditRow.version}</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setEditRowId(null)}>Close</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditRowId(null)}>{copy.close}</Button>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     {([
-                      ["accountName", "Account"],
-                      ["type", "Type"],
-                      ["ticker", "Ticker"],
-                      ["marketCode", "Market"],
-                      ["quantity", "Quantity"],
-                      ["unitPrice", "Unit price"],
-                      ["priceCurrency", "Currency"],
-                      ["tradeDate", "Trade date"],
-                      ["tradeTimestamp", "Timestamp"],
-                      ["bookingSequence", "Sequence"],
-                      ["commissionAmount", "Commission"],
-                      ["taxAmount", "Tax"],
+                      ["accountName", copy.account],
+                      ["type", copy.type],
+                      ["ticker", copy.ticker],
+                      ["marketCode", copy.market],
+                      ["quantity", copy.quantity],
+                      ["unitPrice", copy.unitPrice],
+                      ["priceCurrency", copy.currency],
+                      ["tradeDate", copy.tradeDate],
+                      ["tradeTimestamp", copy.timestamp],
+                      ["bookingSequence", copy.sequence],
+                      ["commissionAmount", copy.commission],
+                      ["taxAmount", copy.tax],
                     ] as const).map(([key, label]) => (
                       <label key={key} className="text-xs font-medium text-slate-600">
                         {label}
@@ -617,19 +631,19 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       </label>
                     ))}
                     <label className="text-xs font-medium text-slate-600">
-                      Day trade
+                      {copy.dayTrade}
                       <select
                         value={editDraft.isDayTrade}
                         onChange={(event) => setEditDraft((current) => ({ ...current, isDayTrade: event.target.value }))}
                         className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       >
-                        <option value="">Unset</option>
-                        <option value="false">No</option>
-                        <option value="true">Yes</option>
+                        <option value="">{locale === "zh-TW" ? "未設定" : "Unset"}</option>
+                        <option value="false">{locale === "zh-TW" ? "否" : "No"}</option>
+                        <option value="true">{locale === "zh-TW" ? "是" : "Yes"}</option>
                       </select>
                     </label>
                     <label className="text-xs font-medium text-slate-600 md:col-span-3">
-                      Note
+                      {copy.note}
                       <textarea
                         value={editDraft.note}
                         onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))}
@@ -637,7 +651,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       />
                     </label>
                     <label className="text-xs font-medium text-slate-600 md:col-span-3">
-                      Source snippet
+                      {copy.sourceSnippet}
                       <textarea
                         value={editDraft.sourceSnippet}
                         onChange={(event) => setEditDraft((current) => ({ ...current, sourceSnippet: event.target.value }))}
@@ -650,15 +664,15 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                       disabled={isMutating || !canEditDrafts}
                       onClick={() => void mutate(
                         () => updateDraftRow(detail.batch.id, activeEditRow.id, activeEditRow.version, parseEditDraft(editDraft)),
-                        "Row saved.",
+                        copy.rowSaved,
                       )}
                     >
-                      Save row
+                      {copy.saveRow}
                     </Button>
                   </div>
                   {activeEditIssues.length > 0 ? (
                     <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
-                      <h4 className="text-sm font-semibold text-amber-900">Validation details</h4>
+                      <h4 className="text-sm font-semibold text-amber-900">{locale === "zh-TW" ? "驗證細節" : "Validation details"}</h4>
                       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
                         {activeEditIssues.map((item, index) => (
                           <li key={`${activeEditRow.id}-issue-${index}`}>{item}</li>

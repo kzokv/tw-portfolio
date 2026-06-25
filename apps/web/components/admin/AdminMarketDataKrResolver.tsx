@@ -156,11 +156,14 @@ function mappingEvidenceSummary(mapping: ProviderResolutionMappingDto): string {
   return "Stored durable mapping";
 }
 
-function krResolverModeHelp(mode: KrMappingsData["query"]["resolverMode"]): string {
+function krResolverModeHelp(
+  mode: KrMappingsData["query"]["resolverMode"],
+  adminDict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
   if (mode === "chart_probe_v1") {
-    return "Chart-probe verifies chart/backfill readiness with chart requests. It costs more provider budget and is useful when quote evidence is ambiguous.";
+    return adminDict.krResolverChartProbeHelp;
   }
-  return "Quote-first checks quote metadata before chart calls. It is the cheaper default and only writes after guarded preview execution.";
+  return adminDict.krResolverQuoteFirstHelp;
 }
 
 function previewExpired(operation: ProviderFixerDashboardOperationDto | null): boolean {
@@ -307,11 +310,12 @@ export function MappingsPanel({
   krMappings: KrMappingsData | null;
   unresolved?: AdminMarketDataUnresolvedResponse | null;
 }) {
+  const adminDict = useAdminI18n().marketData;
   if (marketCode !== "KR" || !krMappings) {
     return (
       <Card className="px-5 py-4 hover:translate-y-0" data-testid="market-data-mappings">
-        <h2 className="text-base font-semibold text-foreground">Unresolved</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Mappings are not available for this market.</p>
+        <h2 className="text-base font-semibold text-foreground">{adminDict.unresolvedTitle}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{adminDict.providerMappingsUnavailable}</p>
       </Card>
     );
   }
@@ -443,7 +447,7 @@ function KrMappingsPanel({
       return {
         type: "filter",
         count: data.unresolved.total,
-        label: "All active rows matching the current KR unresolved filter",
+        label: adminDict.krAllMatchingScopeLabel,
         fingerprint: krSelectedScopeFingerprint(scope),
         scope,
       };
@@ -461,7 +465,9 @@ function KrMappingsPanel({
     return {
       type: "selected_items",
       count: selectedItems.length,
-      label: selectedItems.length === 1 ? "1 selected unresolved row" : `${selectedItems.length.toLocaleString()} selected unresolved rows`,
+      label: selectedItems.length === 1
+        ? adminDict.krSelectedRowLabel
+        : adminDict.krSelectedRowsLabel.replace("{count}", selectedItems.length.toLocaleString()),
       fingerprint: krSelectedScopeFingerprint(scope),
       scope,
     };
@@ -533,7 +539,7 @@ function KrMappingsPanel({
     if (typedConfirmationForFilter) {
       typedConfirmation = window.prompt(`Type ${typedConfirmationForFilter} to ${state === "ignored" ? "ignore" : "mark unsupported"} this all-matching KR scope.`)?.trim();
       if (typedConfirmation !== typedConfirmationForFilter) {
-        setMessage(`Bulk ${state} requires the exact phrase ${typedConfirmationForFilter}.`);
+        setMessage(adminDict.krBulkRequiresPhrase.replace("{state}", state).replace("{phrase}", typedConfirmationForFilter));
         return;
       }
     } else if (!window.confirm(`Apply ${state} to ${selectedScopeDetails.label}?`)) {
@@ -567,7 +573,7 @@ function KrMappingsPanel({
         setPreviewScopeDetails(scopeDetails);
         setTypedConfirmation("");
         setAcknowledged(false);
-        return `Repair preview created for ${result.operation.matchCount} rows.`;
+        return adminDict.krRepairPreviewCreated.replace("{count}", result.operation.matchCount.toLocaleString());
       },
     );
   }
@@ -592,7 +598,7 @@ function KrMappingsPanel({
     await previewRepairScope({
       type: "selected_items",
       count: 1,
-      label: `Repair ${item.sourceSymbol}`,
+      label: adminDict.krRepairItemLabel.replace("{sourceSymbol}", item.sourceSymbol),
       fingerprint: krSelectedScopeFingerprint(scope),
       scope,
     });
@@ -611,7 +617,7 @@ function KrMappingsPanel({
         resolverMode,
         scope,
       }),
-      (result) => `Renew evidence started: ${result.operation.id}`,
+      (result) => adminDict.krRenewEvidenceStarted.replace("{operationId}", result.operation.id),
     );
   }
 
@@ -625,12 +631,12 @@ function KrMappingsPanel({
         sourceSymbol: item.sourceSymbol,
         resolverMode,
       }),
-      (result) => `Rerun queued: ${result.operation.id}`,
+      (result) => adminDict.krRerunQueued.replace("{operationId}", result.operation.id),
     );
   }
 
   async function executePreview() {
-    if (!preview?.preview.token || !previewMatchesCurrentScope || previewIsExpired || !preview.canExecute) return;
+        if (!preview?.preview.token || !previewMatchesCurrentScope || previewIsExpired || !preview.canExecute) return;
     await runWithMessage(
       "execute-repair",
       () => executeProviderRepair({
@@ -642,7 +648,7 @@ function KrMappingsPanel({
       }),
       (result) => {
         setPreview(result.operation);
-        return `Repair operation ${result.operation.id} started.`;
+        return adminDict.krRepairOperationStarted.replace("{operationId}", result.operation.id);
       },
     );
   }
@@ -683,16 +689,16 @@ function KrMappingsPanel({
                   onClick={() => pushQuery({ resolverMode: mode })}
                   className={cn(
                     "px-3 py-1.5 text-xs font-medium",
-                    resolverMode === mode ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground",
-                  )}
-                  title={krResolverModeHelp(mode)}
+                resolverMode === mode ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground",
+              )}
+                  title={krResolverModeHelp(mode, adminDict)}
                   data-testid={`provider-console-resolver-mode-${mode}`}
                 >
-                  {mode === "quote_first" ? "Quote-first" : "Chart-probe"}
+                  {mode === "quote_first" ? adminDict.krResolverQuoteFirst : adminDict.krResolverChartProbe}
                 </button>
               ))}
             </div>
-            <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">{krResolverModeHelp(resolverMode)}</p>
+            <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">{krResolverModeHelp(resolverMode, adminDict)}</p>
             {mappingAction?.disabledReason ? (
               <p className="mt-2 text-xs text-amber-700">{mappingAction.disabledReason}</p>
             ) : null}
@@ -705,10 +711,8 @@ function KrMappingsPanel({
         <div className="border-b border-border px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h3 className="text-base font-semibold text-foreground">Unique unresolved instruments</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Durable unresolved rows from Yahoo Finance KR. Resolver behavior is unchanged; this panel only scopes admin repair work.
-              </p>
+              <h3 className="text-base font-semibold text-foreground">{adminDict.krUniqueUnresolvedTitle}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{adminDict.krUniqueUnresolvedDescription}</p>
             </div>
             <button
               type="button"
@@ -716,7 +720,7 @@ function KrMappingsPanel({
               onClick={() => void previewSelectedRepair()}
               className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
-              Repair selected
+              {adminDict.krRepairSelected}
             </button>
           </div>
           <form
@@ -732,42 +736,42 @@ function KrMappingsPanel({
             }}
           >
             <label className="text-sm font-medium text-foreground">
-              Search
+              {adminDict.unresolvedSearch}
               <input
                 value={unresolvedSearch}
                 onChange={(event) => setUnresolvedSearch(event.target.value)}
-                placeholder="Search symbol, provider symbol, error"
+                placeholder={adminDict.krSearchSymbolPlaceholder}
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-search"
               />
             </label>
             <label className="text-sm font-medium text-foreground">
-              State
+              {adminDict.krStateLabel}
               <select
                 value={unresolvedState}
                 onChange={(event) => setUnresolvedState(event.target.value as ProviderUnresolvedListState)}
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-state"
               >
-                <option value="active">active</option>
-                <option value="all">all</option>
-                <option value="resolved">resolved</option>
-                <option value="unsupported">unsupported</option>
-                <option value="ignored">ignored</option>
+                <option value="active">{adminDict.krStateActive}</option>
+                <option value="all">{adminDict.krStateAll}</option>
+                <option value="resolved">{adminDict.krStateResolved}</option>
+                <option value="unsupported">{adminDict.krStateUnsupported}</option>
+                <option value="ignored">{adminDict.krStateIgnored}</option>
               </select>
             </label>
             <label className="text-sm font-medium text-foreground">
-              Sort
+              {adminDict.krSortLabel}
               <select
                 value={unresolvedSort}
                 onChange={(event) => setUnresolvedSort(event.target.value as KrMappingsData["query"]["unresolvedSort"])}
                 className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
                 data-testid="provider-console-unresolved-sort"
               >
-                <option value="last_seen_desc">last seen</option>
-                <option value="updated_desc">recently updated</option>
-                <option value="occurrence_count_desc">most occurrences</option>
-                <option value="source_symbol_asc">source symbol</option>
+                <option value="last_seen_desc">{adminDict.krSortLastSeen}</option>
+                <option value="updated_desc">{adminDict.krSortRecentlyUpdated}</option>
+                <option value="occurrence_count_desc">{adminDict.krSortMostOccurrences}</option>
+                <option value="source_symbol_asc">{adminDict.krSortSourceSymbol}</option>
               </select>
             </label>
             <div className="flex items-end">
@@ -776,12 +780,12 @@ function KrMappingsPanel({
                 className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
                 data-testid="provider-console-unresolved-apply"
               >
-                Apply filters
+                {adminDict.operationApply}
               </button>
             </div>
           </form>
           <div className="mt-4 flex flex-col gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900 sm:flex-row sm:items-center sm:justify-between" data-testid="provider-console-selection-banner">
-            <span><strong>{selectedCount.toLocaleString()} rows selected.</strong> {data.unresolved.total.toLocaleString()} rows match this filter.</span>
+            <span>{adminDict.krRowsSelectedSummary.replace("{selected}", selectedCount.toLocaleString()).replace("{total}", data.unresolved.total.toLocaleString())}</span>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -793,12 +797,12 @@ function KrMappingsPanel({
                 className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
                 data-testid="provider-console-select-all-matching"
               >
-                {allMatchingSelected ? "Clear all matching" : "Select all matching"}
+                {allMatchingSelected ? adminDict.krResolverClearAllMatching : adminDict.krResolverSelectAllMatching}
               </button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Repair</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">Renew</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">Ignore</button>
-              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">Unsupported</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void previewSelectedRepair()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">{adminDict.krRepair}</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void renewSelectedEvidence()} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-renew">{adminDict.krRenew}</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("ignored")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-ignore">{adminDict.krIgnore}</button>
+              <button type="button" disabled={selectedCount === 0 || busyAction !== null} onClick={() => void bulkSetState("unsupported")} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" data-testid="provider-console-bulk-unsupported">{adminDict.krUnsupported}</button>
               <button
                 type="button"
                 disabled={visibleItems.length === 0}
@@ -806,10 +810,10 @@ function KrMappingsPanel({
                 className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
                 data-testid="provider-console-unresolved-export"
               >
-                Export CSV
+                {adminDict.krExportCsv}
               </button>
-              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">Clear selection</button>
-              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">Recently resolved</button>
+              <button type="button" disabled={selectedCount === 0} onClick={() => { setSelectedKeys(new Set()); setAllMatchingSelected(false); }} className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-50">{adminDict.krClearSelection}</button>
+              <button type="button" onClick={() => pushQuery({ unresolvedState: "resolved", unresolvedSort: "updated_desc", unresolvedPage: 1 })} className="rounded border border-border bg-background px-2 py-1 text-xs" data-testid="provider-console-recently-resolved">{adminDict.krRecentlyResolved}</button>
             </div>
           </div>
           <div className="mt-4 rounded border border-border bg-muted/20 p-4 text-sm" data-testid="provider-console-repair-scope">

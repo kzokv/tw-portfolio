@@ -11,6 +11,7 @@ import { ImpersonationBanner } from "../layout/ImpersonationBanner";
 import { TopBar } from "../layout/TopBar";
 import { AppSidebar } from "../layout/AppSidebar";
 import { BreadcrumbProvider } from "../layout/BreadcrumbProvider";
+import { getLayoutShellLabels } from "../layout/i18n";
 import { SidebarInset, SidebarProvider } from "../ui/shadcn/sidebar";
 import { AdminI18nProvider, adminI18n } from "./admin-i18n";
 
@@ -45,6 +46,7 @@ export function AdminShell({
 }: AdminShellProps) {
   const router = useRouter();
   const dict = adminI18n[locale === "zh-TW" ? "zh-TW" : "en"];
+  const shellLabels = getLayoutShellLabels(locale);
   const [isClientReady, setIsClientReady] = useState(false);
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation
@@ -67,7 +69,7 @@ export function AdminShell({
       {/* Preserves §8 item 6 — ImpersonationBanner above SidebarProvider. */}
       <ImpersonationBanner impersonation={impersonation} onRefreshContext={refreshAdminShell} />
 
-      <BreadcrumbProvider>
+      <BreadcrumbProvider locale={locale}>
         <SidebarProvider defaultOpen={initialSidebarOpen}>
           <AppSidebar
             variant="admin"
@@ -80,12 +82,13 @@ export function AdminShell({
               brandDesktopAria: dict.shell.brandDesktopAria,
               backToApp: dict.shell.backToApp,
               dashboardFeedbackLabel: dict.shell.dashboard,
+              resizeRail: shellLabels.sidebarResizeRail,
               nav: {
                 overview: dict.shell.nav.overview,
                 users: dict.shell.nav.users,
                 invites: dict.shell.nav.invites,
                 "audit-log": dict.shell.nav.auditLog,
-                "market-data": "Market Data",
+                "market-data": locale === "zh-TW" ? "市場資料" : "Market Data",
                 settings: dict.shell.nav.settings,
               },
             }}
@@ -106,6 +109,11 @@ export function AdminShell({
               searchTickersLabel={dict.shell.searchTickersLabel}
               openSearchLabel={dict.shell.openSearchLabel}
               closeSearchLabel={dict.shell.closeSearchLabel}
+              toggleSidebarLabel={shellLabels.topBar.toggleSidebarLabel}
+              openNavigationLabel={shellLabels.topBar.openNavigationLabel}
+              commandPaletteLabel={dict.shell.searchPlaceholder}
+              commandPaletteAriaLabel={shellLabels.commandPaletteTrigger.ariaLabel}
+              shellLabels={shellLabels}
               searchItems={[]}
               hideSearch
               hideNotifications
