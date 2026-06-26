@@ -2897,6 +2897,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           "twelve-data-au",
           "yahoo-finance-kr",
           "twelve-data-kr",
+          "yahoo-finance-jp",
+          "twelve-data-jp",
           "frankfurter",
           // KZO-196 — ASX GICS catalog provider for E2E seed of the admin
           // /providers row (run-now button + status badge tests).

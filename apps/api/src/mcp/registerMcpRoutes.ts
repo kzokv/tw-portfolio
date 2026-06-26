@@ -92,6 +92,16 @@ import {
   getRecentTransactions,
   searchInstruments,
 } from "../services/mcpPortfolioRead.js";
+import {
+  backfillTickers,
+  getDailySnapshots,
+  getReplayPortfolioPositionsRun,
+  previewRecomputePortfolioFees,
+  previewReplayPortfolioPositions,
+  recomputePortfolioFees,
+  refreshPortfolioPrices,
+  replayPortfolioPositions,
+} from "../services/mcpPortfolioMaintenance.js";
 import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import type { BuildReportInput } from "../services/reports.js";
 import {
@@ -186,6 +196,12 @@ function requiresExplicitPortfolioSelector(toolName: McpToolName): boolean {
     "delete_unconfirmed_transaction_draft_batch_by_name",
     "get_transaction_draft_posting_preview_by_name",
     "post_transaction_draft_rows_by_name",
+    "refresh_portfolio_prices",
+    "preview_recompute_portfolio_fees",
+    "recompute_portfolio_fees",
+    "preview_replay_portfolio_positions",
+    "replay_portfolio_positions",
+    "backfill_tickers",
   ].includes(toolName);
 }
 
@@ -403,6 +419,30 @@ export async function registerMcpRoutes(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
             args as { tickers?: string[]; reportingCurrency?: never; locale?: string },
           );
+          break;
+        case "refresh_portfolio_prices":
+          result = await refreshPortfolioPrices({ app, requestContext }, args as Parameters<typeof refreshPortfolioPrices>[1]);
+          break;
+        case "preview_recompute_portfolio_fees":
+          result = await previewRecomputePortfolioFees({ app, requestContext }, args as Parameters<typeof previewRecomputePortfolioFees>[1]);
+          break;
+        case "recompute_portfolio_fees":
+          result = await recomputePortfolioFees({ app, requestContext }, args as Parameters<typeof recomputePortfolioFees>[1]);
+          break;
+        case "preview_replay_portfolio_positions":
+          result = await previewReplayPortfolioPositions({ app, requestContext }, args as Parameters<typeof previewReplayPortfolioPositions>[1]);
+          break;
+        case "replay_portfolio_positions":
+          result = await replayPortfolioPositions({ app, requestContext }, args as Parameters<typeof replayPortfolioPositions>[1]);
+          break;
+        case "get_replay_portfolio_positions_run":
+          result = await getReplayPortfolioPositionsRun({ app, requestContext }, args as Parameters<typeof getReplayPortfolioPositionsRun>[1]);
+          break;
+        case "backfill_tickers":
+          result = await backfillTickers({ app, requestContext }, args as Parameters<typeof backfillTickers>[1]);
+          break;
+        case "get_daily_snapshots":
+          result = await getDailySnapshots({ app, requestContext }, args as Parameters<typeof getDailySnapshots>[1]);
           break;
         case "get_admin_market_calendar_status":
           result = await getAdminMarketCalendarStatusTool(
