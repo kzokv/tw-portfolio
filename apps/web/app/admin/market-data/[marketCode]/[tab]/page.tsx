@@ -81,7 +81,7 @@ interface SnapshotRepairRequest {
   endDate: string | null;
 }
 
-const marketCodes = new Set(["TW", "US", "AU", "KR", "FX"]);
+const marketCodes = new Set(["TW", "US", "AU", "KR", "JP", "FX"]);
 const tabs = new Set([
   "overview",
   "calendar",

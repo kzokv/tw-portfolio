@@ -150,7 +150,8 @@ function chipLabel(dict: AppDictionary, chip: MarketCode): string {
   if (chip === "TW") return dict.transactions.marketChipTW;
   if (chip === "US") return dict.transactions.marketChipUS;
   if (chip === "AU") return dict.transactions.marketChipAU;
-  return dict.transactions.marketChipKR;
+  if (chip === "KR") return dict.transactions.marketChipKR;
+  return dict.transactions.marketChipJP;
 }
 
 export function AddTransactionCard({

@@ -291,6 +291,7 @@ export interface ValuationHealthThresholdsDto {
   absoluteUsd: number;
   absoluteTwd: number;
   absoluteKrw: number;
+  absoluteJpy?: number;
 }
 
 export type ValuationHealthStatus = "healthy" | "material" | "unavailable";
@@ -484,10 +485,12 @@ export interface FeeProfileDto {
   commissionChargeMode: "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 }
 
-export const ACCOUNT_DEFAULT_CURRENCIES = ["TWD", "USD", "AUD", "KRW"] as const;
-export const MARKET_CODES = ["TW", "US", "AU", "KR"] as const;
+export const ACCOUNT_DEFAULT_CURRENCIES = ["TWD", "USD", "AUD", "KRW", "JPY"] as const;
+export const MARKET_CODES = ["TW", "US", "AU", "KR", "JP"] as const;
 export const MARKET_FILTER_CODES = [...MARKET_CODES, "ALL"] as const;
 export const HOLDING_ALLOCATION_BASES = ["market_value", "cost_basis"] as const;
+export const JP_CATALOG_STOCK_TYPES = ["Common Stock", "Preferred Stock", "REIT", "Depositary Receipt"] as const;
+export const JP_CATALOG_STRICT_STOCK_TYPES = ["Common Stock", "Preferred Stock", "REIT"] as const;
 
 // KZO-167: per-account currency + account type metadata. Both are added
 // here (not on a separate `Account` interface in apps/api/src/types/store.ts)
@@ -496,6 +499,7 @@ export const HOLDING_ALLOCATION_BASES = ["market_value", "cost_basis"] as const;
 export type AccountDefaultCurrency = (typeof ACCOUNT_DEFAULT_CURRENCIES)[number];
 export type AccountType = "broker" | "bank" | "wallet";
 export type HoldingAllocationBasis = (typeof HOLDING_ALLOCATION_BASES)[number];
+export type JpCatalogStockType = (typeof JP_CATALOG_STOCK_TYPES)[number];
 
 export interface AccountDto {
   id: string;
@@ -507,7 +511,7 @@ export interface AccountDto {
 }
 
 // KZO-183: closed-set market code derived from an account's defaultCurrency.
-// Currency ↔ market is a 1:1 mapping (TWD↔TW, USD↔US, AUD↔AU, KRW↔KR). Both helpers
+// Currency ↔ market is a 1:1 mapping (TWD↔TW, USD↔US, AUD↔AU, KRW↔KR, JPY↔JP). Both helpers
 // throw on any unsupported input.
 export type MarketCode = (typeof MARKET_CODES)[number];
 
@@ -516,9 +520,10 @@ export const MARKET_CURRENCY_PAIRS = {
   USD: "US",
   AUD: "AU",
   KRW: "KR",
+  JPY: "JP",
 } as const satisfies Record<AccountDefaultCurrency, MarketCode>;
 
-export const REPORT_SCOPES = ["all", "TW", "US", "AU", "KR"] as const;
+export const REPORT_SCOPES = ["all", "TW", "US", "AU", "KR", "JP"] as const;
 export type ReportScope = (typeof REPORT_SCOPES)[number];
 
 export const REPORT_CURRENCY_MODES = ["auto", "specified"] as const;
@@ -529,6 +534,7 @@ const MARKET_TO_CURRENCY = {
   US: "USD",
   AU: "AUD",
   KR: "KRW",
+  JP: "JPY",
 } as const satisfies Record<MarketCode, AccountDefaultCurrency>;
 
 export function marketCodeFor(currency: string): MarketCode {
@@ -1893,6 +1899,8 @@ export interface AppConfigDto {
   effectiveYahooAuProviderRateLimitPerMinute: number;
   yahooKrProviderRateLimitPerMinute: number | null;
   effectiveYahooKrProviderRateLimitPerMinute: number;
+  yahooJpProviderRateLimitPerMinute: number | null;
+  effectiveYahooJpProviderRateLimitPerMinute: number;
   frankfurterProviderRateLimitPerMinute: number | null;
   effectiveFrankfurterProviderRateLimitPerMinute: number;
   asxGicsProviderRateLimitPerHour: number | null;
@@ -1905,10 +1913,20 @@ export interface AppConfigDto {
   effectiveYahooAuProviderMinRequestIntervalMs: number;
   yahooKrProviderMinRequestIntervalMs: number | null;
   effectiveYahooKrProviderMinRequestIntervalMs: number;
+  yahooJpProviderMinRequestIntervalMs: number | null;
+  effectiveYahooJpProviderMinRequestIntervalMs: number;
   frankfurterProviderMinRequestIntervalMs: number | null;
   effectiveFrankfurterProviderMinRequestIntervalMs: number;
   asxGicsProviderMinRequestIntervalMs: number | null;
   effectiveAsxGicsProviderMinRequestIntervalMs: number;
+
+  // JP v1 — catalog import eligibility. Strict defaults are resolved server-side.
+  jpCatalogAllowedStockTypes: JpCatalogStockType[] | null;
+  effectiveJpCatalogAllowedStockTypes: JpCatalogStockType[];
+  jpCatalogIncludeDepositaryReceipts: boolean | null;
+  effectiveJpCatalogIncludeDepositaryReceipts: boolean;
+  jpCatalogIncludeAtSymbols: boolean | null;
+  effectiveJpCatalogIncludeAtSymbols: boolean;
 
   // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
   backfillRetryLimit: number | null;
@@ -1949,6 +1967,8 @@ export interface AppConfigDto {
   effectiveValuationHealthAbsoluteTwd: number;
   valuationHealthAbsoluteKrw: number | null;
   effectiveValuationHealthAbsoluteKrw: number;
+  valuationHealthAbsoluteJpy?: number | null;
+  effectiveValuationHealthAbsoluteJpy?: number;
   effectiveValuationHealthThresholds: ValuationHealthThresholdsDto;
 
   routeCachePolicyMode: RouteCachePolicyMode | null;

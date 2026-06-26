@@ -21,12 +21,15 @@ import type { AccountDefaultCurrency } from "@vakwen/shared-types";
  * - KR: `2000-01-04` — Yahoo Finance `chart()` earliest observed daily bar boundary
  *   for 005930.KS during the KR provider spike. Per-ticker floors above this are
  *   handled natively by Yahoo.
+ * - JP: `2000-01-04` — Yahoo Finance `.T` chart floor locked by the JP provider
+ *   feasibility spike. Per-ticker listing dates remain provider-native.
  */
 export const HISTORY_START_BY_MARKET: Record<MarketCode, string> = {
   TW: "1994-10-01",
   US: "2019-06-01",
   AU: "1988-01-28",
   KR: "2000-01-04",
+  JP: "2000-01-04",
 };
 
 /**

@@ -2,6 +2,7 @@ import type { IntradayPriceOverlay, MarketCode } from "@vakwen/domain";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Persistence } from "../../persistence/types.js";
 import type { YahooIntradayDiagnostic } from "./providers/yahooFinanceIntraday.js";
+import { isRegularSessionMarketCode, type RegularSessionMarketCode } from "./marketRegularSession.js";
 import { RateLimitedError } from "./types.js";
 
 export const INTRADAY_REFRESH_QUEUE = "intraday-refresh";
@@ -23,7 +24,7 @@ export interface IntradayRefreshWorkerRuntimeConfig {
 
 export interface IntradayRefreshWorkerDeps {
   cache: { setLatest(overlay: IntradayPriceOverlay): Promise<void> };
-  fetchOverlay(input: { ticker: string; marketCode: MarketCode; now: Date }): Promise<IntradayRefreshFetchResult>;
+  fetchOverlay(input: { ticker: string; marketCode: RegularSessionMarketCode; now: Date }): Promise<IntradayRefreshFetchResult>;
   requestBudget: IntradayRefreshRequestBudget;
   persistence?: Pick<Persistence, "createMarketCalendarActivityEvent">;
   resolveRuntimeConfig?: () => IntradayRefreshWorkerRuntimeConfig;
@@ -81,6 +82,9 @@ export function createIntradayRefreshHandler(deps: IntradayRefreshWorkerDeps) {
           },
           "intraday_refresh_skipped_by_current_config",
         );
+        continue;
+      }
+      if (!isRegularSessionMarketCode(data.marketCode)) {
         continue;
       }
       const budget = await deps.requestBudget.tryConsume(1);
@@ -205,7 +209,7 @@ function normalizeIntradayRefreshFetchResult(result: IntradayRefreshFetchResult)
 function resolveIntradayRuntimeConfig(deps: IntradayRefreshWorkerDeps): IntradayRefreshWorkerRuntimeConfig {
   return deps.resolveRuntimeConfig?.() ?? {
     intradayEnabled: true,
-    supportedMarkets: ["TW", "US", "AU", "KR"],
+    supportedMarkets: ["TW", "US", "AU", "KR", "JP"],
   };
 }
 

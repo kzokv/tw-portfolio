@@ -98,6 +98,10 @@ export const envSchema = z.object({
   YAHOO_KR_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
   YAHOO_KR_RESOLVER_MODE: z.enum(["chart_probe_v1", "quote_first"]).default("quote_first"),
   KR_PROVIDER_MOCK: envBool,
+  // JP v1 uses Twelve Data for catalog and Yahoo Finance `.T` for bars,
+  // dividends, intraday, metadata, search fallback, and fundamentals.
+  YAHOO_JP_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  JP_PROVIDER_MOCK: envBool,
   // KZO-194: Twelve Data AU catalog provider. Free-tier endpoints (`/stocks?exchange=ASX`
   // and `/etf?exchange=ASX`) enumerate the full ASX universe; bars/dividends remain on
   // Yahoo. Default rate-limit budget mirrors Twelve Data's free-tier 8 req/min ceiling.
@@ -109,6 +113,7 @@ export const envSchema = z.object({
   TWELVE_DATA_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(8),
   AU_CATALOG_PROVIDER_MOCK: envBool,
   KR_CATALOG_PROVIDER_MOCK: envBool,
+  JP_CATALOG_PROVIDER_MOCK: envBool,
   // KZO-172: per-IP rate limit on `GET /market-data/search`. Bounded autocomplete
   // affordance for AU (Yahoo `search()` per-query). 20/min is generous enough for
   // typeahead UX while keeping abuse off the upstream budget.

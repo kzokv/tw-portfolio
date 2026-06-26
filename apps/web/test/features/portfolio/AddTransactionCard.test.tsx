@@ -47,6 +47,13 @@ const AUD_ACCOUNT: TransactionAccountOption = {
   defaultCurrency: "AUD",
   accountType: "broker",
 };
+const JPY_ACCOUNT: TransactionAccountOption = {
+  id: "acc-jp",
+  name: "SBI",
+  feeProfileName: "JP Broker",
+  defaultCurrency: "JPY",
+  accountType: "broker",
+};
 
 describe("deriveDefaultMarketChip — ui-enhancement (2026-05-13)", () => {
   // ui-enhancement scope items 20–22: ALL chip removed from the Record
@@ -137,7 +144,7 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     };
   }
 
-  it("renders the three market chip pills (TW / US / AU) without the removed ALL chip", () => {
+  it("renders the supported market chip pills, including JP, without the removed ALL chip", () => {
     // ui-enhancement (2026-05-13) — ALL chip removed from this surface.
     // Settings → Tickers catalog browser keeps ALL.
     const html = renderToStaticMarkup(
@@ -158,6 +165,8 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     expect(html).toContain('data-testid="tx-market-chip-TW"');
     expect(html).toContain('data-testid="tx-market-chip-US"');
     expect(html).toContain('data-testid="tx-market-chip-AU"');
+    expect(html).toContain('data-testid="tx-market-chip-KR"');
+    expect(html).toContain('data-testid="tx-market-chip-JP"');
     expect(html).not.toContain('data-testid="tx-market-chip-ALL"');
   });
 
@@ -189,8 +198,8 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
   it("filters the account dropdown to accounts compatible with the selected market chip", () => {
     const html = renderToStaticMarkup(
       <AddTransactionCard
-        value={valueWith({ marketCode: "US" })}
-        accountOptions={[TWD_ACCOUNT, USD_ACCOUNT, AUD_ACCOUNT]}
+        value={valueWith({ marketCode: "JP" })}
+        accountOptions={[TWD_ACCOUNT, USD_ACCOUNT, AUD_ACCOUNT, JPY_ACCOUNT]}
         pending={false}
         onChange={() => undefined}
         onSubmit={async () => undefined}
@@ -203,8 +212,9 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
       />,
     );
     expect(html).toContain('data-testid="tx-account-select"');
-    expect(html).toContain('value="acc-us"');
+    expect(html).toContain('value="acc-jp"');
     expect(html).not.toContain('value="acc-tw"');
+    expect(html).not.toContain('value="acc-us"');
     expect(html).not.toContain('value="acc-au"');
     expect(html).not.toContain('data-testid="tx-no-account-error"');
   });

@@ -51,7 +51,7 @@ async function getTestUserCookieHeader(page: Page): Promise<string> {
 /** Arrange-helper — create a fresh active account owned by the BROWSER's user. */
 async function createAccountAsBrowser(
   page: Page,
-  payload: { name: string; defaultCurrency: "TWD" | "USD" | "AUD"; accountType: "broker" | "bank" | "wallet" },
+  payload: { name: string; defaultCurrency: "TWD" | "USD" | "AUD" | "KRW" | "JPY"; accountType: "broker" | "bank" | "wallet" },
 ): Promise<{ id: string; name: string }> {
   const cookieHeader = await getTestUserCookieHeader(page);
   return withFreshContext(async (ctx) => {

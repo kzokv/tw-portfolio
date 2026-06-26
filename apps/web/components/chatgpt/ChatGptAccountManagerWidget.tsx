@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Archive, Plus, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
-import type { LocaleCode } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, LocaleCode } from "@vakwen/shared-types";
 import { formatAccountOption } from "../../features/cash-ledger/utils/accountOptions";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -19,7 +19,7 @@ interface ChatGptAccountManagerWidgetProps {
 
 interface AccountDraft {
   name: string;
-  defaultCurrency: "TWD" | "USD" | "AUD" | "KRW";
+  defaultCurrency: AccountDefaultCurrency;
   accountType: "broker" | "bank" | "wallet";
 }
 
@@ -28,6 +28,8 @@ const EMPTY_DRAFT: AccountDraft = {
   defaultCurrency: "TWD",
   accountType: "broker",
 };
+
+const ACCOUNT_CURRENCY_OPTIONS: readonly AccountDefaultCurrency[] = ["TWD", "USD", "AUD", "KRW", "JPY"];
 
 function accountSummary(account: ChatGptAccountManagerWidgetAccount, locale: LocaleCode): string {
   const copy = chatGptAccountManagerCopy[locale];
@@ -264,7 +266,7 @@ export function ChatGptAccountManagerWidget({
                     value={draft.defaultCurrency}
                     disabled={editingId !== null}
                   >
-                    {["TWD", "USD", "AUD", "KRW"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                    {ACCOUNT_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                   </select>
                 </label>
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">

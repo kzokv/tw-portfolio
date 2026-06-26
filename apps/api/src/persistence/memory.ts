@@ -406,8 +406,8 @@ function providerOperationOutcomeKey(operationId: string, action: string, source
   return `${operationId}:${action}:${sourceSymbol.toUpperCase()}`;
 }
 
-function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "KR" {
-  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
+function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "JP" | "KR" {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR" || marketCode === "JP";
 }
 
 function providerOperationLogLevelToActivityResult(level: ProviderOperationLogLevel): MarketCalendarActivityResult {
@@ -663,6 +663,8 @@ export class MemoryPersistence implements Persistence {
         "twelve-data-au",
         "yahoo-finance-kr",
         "twelve-data-kr",
+        "yahoo-finance-jp",
+        "twelve-data-jp",
         "frankfurter",
         // KZO-196 — ASX GICS catalog provider seed row.
         "asx-gics-csv",
@@ -4324,14 +4326,19 @@ export class MemoryPersistence implements Persistence {
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;
     yahooKrProviderRateLimitPerMinute: number | null;
+    yahooJpProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
     finmindProviderMinRequestIntervalMs: number | null;
     twelveDataProviderMinRequestIntervalMs: number | null;
     yahooAuProviderMinRequestIntervalMs: number | null;
     yahooKrProviderMinRequestIntervalMs: number | null;
+    yahooJpProviderMinRequestIntervalMs: number | null;
     frankfurterProviderMinRequestIntervalMs: number | null;
     asxGicsProviderMinRequestIntervalMs: number | null;
+    jpCatalogAllowedStockTypes: import("@vakwen/shared-types").JpCatalogStockType[] | null;
+    jpCatalogIncludeDepositaryReceipts: boolean | null;
+    jpCatalogIncludeAtSymbols: boolean | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -4372,6 +4379,7 @@ export class MemoryPersistence implements Persistence {
     valuationHealthAbsoluteUsd: number | null;
     valuationHealthAbsoluteTwd: number | null;
     valuationHealthAbsoluteKrw: number | null;
+    valuationHealthAbsoluteJpy: number | null;
     routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
     routeCacheDashboardPrimaryTtlMs: number | null;
     routeCacheDashboardEnrichmentTtlMs: number | null;
@@ -4386,10 +4394,26 @@ export class MemoryPersistence implements Persistence {
       typeof value === "number" ? value : null;
     const booleanOrNull = (value: import("./types.js").AppConfigPlainValue | undefined): boolean | null =>
       typeof value === "boolean" ? value : null;
+    const isMarketCode = (value: unknown): value is import("@vakwen/shared-types").MarketCode =>
+      typeof value === "string" && value in { TW: null, US: null, AU: null, KR: null, JP: null };
+    const isJpCatalogStockType = (value: unknown): value is import("@vakwen/shared-types").JpCatalogStockType => {
+      return typeof value === "string" && value in {
+        "Common Stock": null,
+        "Preferred Stock": null,
+        REIT: null,
+        "Depositary Receipt": null,
+      };
+    };
     const marketsOrNull = (
       value: import("./types.js").AppConfigPlainValue | undefined,
     ): import("@vakwen/shared-types").MarketCode[] | null =>
-      Array.isArray(value) ? [...value] : null;
+      Array.isArray(value) && value.every(isMarketCode) ? [...value] : null;
+    const jpCatalogStockTypesOrNull = (
+      value: import("./types.js").AppConfigPlainValue | undefined,
+    ): import("@vakwen/shared-types").JpCatalogStockType[] | null =>
+      Array.isArray(value) && value.every(isJpCatalogStockType)
+        ? [...value]
+        : null;
     const textOrNull = (value: import("./types.js").AppConfigPlainValue | undefined): string | null =>
       typeof value === "string" ? value : null;
     return {
@@ -4430,14 +4454,19 @@ export class MemoryPersistence implements Persistence {
       twelveDataProviderRateLimitPerMinute: numberOrNull(p.twelveDataProviderRateLimitPerMinute),
       yahooAuProviderRateLimitPerMinute: numberOrNull(p.yahooAuProviderRateLimitPerMinute),
       yahooKrProviderRateLimitPerMinute: numberOrNull(p.yahooKrProviderRateLimitPerMinute),
+      yahooJpProviderRateLimitPerMinute: numberOrNull(p.yahooJpProviderRateLimitPerMinute),
       frankfurterProviderRateLimitPerMinute: numberOrNull(p.frankfurterProviderRateLimitPerMinute),
       asxGicsProviderRateLimitPerHour: numberOrNull(p.asxGicsProviderRateLimitPerHour),
       finmindProviderMinRequestIntervalMs: numberOrNull(p.finmindProviderMinRequestIntervalMs),
       twelveDataProviderMinRequestIntervalMs: numberOrNull(p.twelveDataProviderMinRequestIntervalMs),
       yahooAuProviderMinRequestIntervalMs: numberOrNull(p.yahooAuProviderMinRequestIntervalMs),
       yahooKrProviderMinRequestIntervalMs: numberOrNull(p.yahooKrProviderMinRequestIntervalMs),
+      yahooJpProviderMinRequestIntervalMs: numberOrNull(p.yahooJpProviderMinRequestIntervalMs),
       frankfurterProviderMinRequestIntervalMs: numberOrNull(p.frankfurterProviderMinRequestIntervalMs),
       asxGicsProviderMinRequestIntervalMs: numberOrNull(p.asxGicsProviderMinRequestIntervalMs),
+      jpCatalogAllowedStockTypes: jpCatalogStockTypesOrNull(p.jpCatalogAllowedStockTypes),
+      jpCatalogIncludeDepositaryReceipts: booleanOrNull(p.jpCatalogIncludeDepositaryReceipts),
+      jpCatalogIncludeAtSymbols: booleanOrNull(p.jpCatalogIncludeAtSymbols),
       backfillRetryLimit: numberOrNull(p.backfillRetryLimit),
       backfillRetryDelaySeconds: numberOrNull(p.backfillRetryDelaySeconds),
       backfillFinmind402RetryMs: numberOrNull(p.backfillFinmind402RetryMs),
@@ -4485,6 +4514,7 @@ export class MemoryPersistence implements Persistence {
       valuationHealthAbsoluteUsd: numberOrNull(p.valuationHealthAbsoluteUsd),
       valuationHealthAbsoluteTwd: numberOrNull(p.valuationHealthAbsoluteTwd),
       valuationHealthAbsoluteKrw: numberOrNull(p.valuationHealthAbsoluteKrw),
+      valuationHealthAbsoluteJpy: numberOrNull(p.valuationHealthAbsoluteJpy),
       routeCachePolicyMode: this._routeCachePolicyMode,
       routeCacheDashboardPrimaryTtlMs: numberOrNull(p.routeCacheDashboardPrimaryTtlMs),
       routeCacheDashboardEnrichmentTtlMs: numberOrNull(p.routeCacheDashboardEnrichmentTtlMs),
@@ -4503,7 +4533,9 @@ export class MemoryPersistence implements Persistence {
     if (value === null) {
       delete this._appConfigPlain[field];
     } else {
-      this._appConfigPlain[field] = Array.isArray(value) ? [...value] : value;
+      this._appConfigPlain[field] = Array.isArray(value)
+        ? [...value] as import("./types.js").AppConfigPlainValue
+        : value;
     }
     this._bumpAppConfigUpdatedAt();
   }
@@ -4539,7 +4571,9 @@ export class MemoryPersistence implements Persistence {
         if (value === null) {
           delete this._appConfigPlain[key];
         } else {
-          this._appConfigPlain[key] = Array.isArray(value) ? [...value] : value;
+          this._appConfigPlain[key] = Array.isArray(value)
+            ? [...value] as import("./types.js").AppConfigPlainValue
+            : value;
         }
         touched = true;
       }

@@ -59,15 +59,15 @@
 ### Providers
 
 - **FinMind** supplies TW and US market data/catalog paths.
-- **Yahoo Finance via `yahoo-finance2`** supplies AU and KR bars, basic dividends, metadata, and live search.
-- **Twelve Data Basic/free** supplies AU and KR bulk catalogs only. Price and time-series endpoints for KRX are not available on the no-paid plan, so KR prices do not use Twelve Data.
+- **Yahoo Finance via `yahoo-finance2`** supplies AU and KR bars, basic dividends, metadata, and live search, and supplies JP bars, basic cash dividends, metadata, and live search via `.T` symbol normalization.
+- **Twelve Data Basic/free** supplies AU, KR, and JP bulk catalogs only. JP uses `/stocks?country=Japan` plus `/etf?country=Japan` with strict `JPY` + `JPX` + `XJPX` filtering; JP prices do not use Twelve Data.
 - **Frankfurter** supplies FX rates for stored reporting currencies.
 
 ### FX rates
 
-- **Frankfurter v2 default blend** is the sole FX provider for TWD, USD, AUD, and KRW rates. Market-data providers are not used for FX, so FX refreshes do not consume equity-provider budgets.
+- **Frankfurter v2 default blend** is the sole FX provider for TWD, USD, AUD, KRW, and JPY rates. Market-data providers are not used for FX, so FX refreshes do not consume equity-provider budgets.
 - `market_data.fx_rates` stores one row per `(date, base_currency, quote_currency)` with `NUMERIC(20, 8)` precision, `source='frankfurter'`, and a descending pair/date index for latest-rate lookups.
-- The daily `fx-refresh` pg-boss singleton runs at `0 22 * * *` UTC. Normal operation makes one HTTP call per base currency (`TWD`, `USD`, `AUD`, `KRW`) and stores non-self pairs among those currencies.
+- The daily `fx-refresh` pg-boss singleton runs at `0 22 * * *` UTC. Normal operation makes one HTTP call per base currency (`TWD`, `USD`, `AUD`, `KRW`, `JPY`) and stores non-self pairs among those currencies.
 - The first cron run on an empty table seeds the most recent 30-day window. Subsequent cron runs fetch from `MAX(date)+1` through today's UTC date, capped to the latest 30 days after long gaps.
 - Admins can enqueue a manual window with `POST /admin/fx-rates/refresh`. Freshness is visible through `GET /admin/fx-rates/freshness`, which reports latest date and `ageInDays` per pair.
 
@@ -81,7 +81,7 @@ Historical bars are **not** backfilled for all ~3,071 TWSE symbols. Backfill is 
 4. When a new symbol enters the monitored set (user selection or first trade), an **async backfill job** is enqueued.
 5. The user is **notified via SSE** when backfill completes. No waiting required — the user saves settings and the system handles it in the background.
 
-KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `KR`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth.
+KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `KR`, `JP`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth.
 
 ### AU provider strategy (KZO-171 spike outcome, KZO-172 implementation)
 
@@ -127,6 +127,33 @@ Key contract:
 - `HISTORY_START_BY_MARKET["KR"] = "2000-01-04"` and the trading calendar uses `Asia/Seoul` with a 15:30 close.
 - KR catalog rows do not expose reliable sector/GICS data on the free catalog path, so the web instrument sheet omits the sector filter for KR.
 
+### JP provider strategy
+
+JP uses the same split-provider architecture as KR, but with Yahoo-only market-data ownership and no durable mapping repair.
+
+Key contract:
+
+- `providerId = "yahoo-finance-jp"`, `sourceId = "yahoo-finance-jp"` for daily bars, basic cash dividends, metadata, live search, close refresh, and intraday overlays.
+- `providerId = "twelve-data-jp"` for JP catalog sync. It reads `/stocks?country=Japan` and `/etf?country=Japan`, requires `currency = "JPY"`, `exchange = "JPX"`, `mic_code = "XJPX"`, and applies a strict symbol regex by default.
+- Canonical stored/user-facing JP tickers are bare JPX/TSE symbols such as `7203`, `1306`, `130A`, or `133A`. The Yahoo provider appends `.T` only at the provider boundary and persists the bare code.
+- Strict catalog inclusion is the default: stock rows must be `Common Stock`, `Preferred Stock`, or `REIT`; ETF endpoint rows are always classified as `ETF`; rows containing `@`, `Depositary Receipt`, unsupported stock types, wrong currency, wrong exchange, or wrong MIC are excluded unless the admin catalog-import overrides relax only the stock-type / receipt / `@` gates.
+- JP instrument discovery is catalog-first. Yahoo search is metadata/search fallback only and is not the source of truth for what the app can monitor or backfill.
+- Basic cash dividends only: Yahoo dividend events are stamped with `paymentDate = exDividendDate`, `stockDividendPerShare = 0`, and no JP withholding/sell-tax automation.
+- No KR-style provider mapping repair in JP v1. The admin console documents that JP uses direct `.T` normalization instead of durable provider-symbol mappings.
+- `HISTORY_START_BY_MARKET["JP"] = "2000-01-04"`.
+
+Operational knobs:
+
+- Restart-required env toggles: `JP_PROVIDER_MOCK`, `JP_CATALOG_PROVIDER_MOCK`.
+- Admin/app-config overrides: `yahooJpProviderRateLimitPerMinute`, `yahooJpProviderMinRequestIntervalMs`, `jpCatalogAllowedStockTypes`, `jpCatalogIncludeDepositaryReceipts`, `jpCatalogIncludeAtSymbols`.
+
+Known JP v1 limitations:
+
+- Lunch-break precision is deferred. The current regular-session model treats JP as one `09:00` to `15:30` `Asia/Tokyo` session for settlement/freshness, so intraday "open" state is intentionally coarse during the midday recess.
+- No official J-Quants integration in v1. J-Quants remains the future official-provider upgrade path for richer fundamentals, dividends, and calendars.
+- No built-in JP sell-tax rules. Existing configurable fee/tax rules remain the only mechanism.
+- Focused JP provider coverage exists for Twelve Data catalog filtering/config and Yahoo `.T` normalization. JP search route coverage also proves persisted catalog matches are returned before Yahoo fallback.
+
 No-paid-plan research locked on 2026-05-30:
 - Twelve Data Basic/free catalog endpoints returned KRX stock and ETF universes, and `symbol_search` worked for KR queries.
 - Twelve Data `/price` and `/time_series` for KRX tickers were rejected under the free plan, so Twelve Data cannot be the KR market-data provider without a paid upgrade.
@@ -158,7 +185,7 @@ KZO-173 adds service-layer trading-calendar helpers without a calendar table, se
 
 The cache refreshes from `Persistence.getDistinctBarDates(market, fromDate)` with a 400-day lookback and a 1-hour TTL. It deduplicates concurrent cold refreshes per market and updates synchronously when daily bars are upserted by backfill, opportunistic price fallback, or `/__e2e/seed-daily-bars`. Multi-instance deployments can lag up to the TTL on instances that did not perform the write; this is acceptable for the current freshness thresholds.
 
-Settlement math uses the market-local close time: TW 13:30 Asia/Taipei, US 16:00 America/New_York, AU 16:00 Australia/Sydney, and KR 15:30 Asia/Seoul. `settleGraceHours` lets downstream freshness checks delay same-day settlement until ingestion should have landed bars; KZO-177 passes a grace window instead of declaring providers stale in the close-to-cron gap. Synthetic `FX` uses weekdays plus a 16:00 UTC publish threshold. v1 limitations: FX ignores ECB/TARGET2 holidays (KZO-192) and equity markets ignore early-close sessions (KZO-193).
+Settlement math uses the market-local close time: TW 13:30 Asia/Taipei, US 16:00 America/New_York, AU 16:00 Australia/Sydney, KR 15:30 Asia/Seoul, and JP 15:30 Asia/Tokyo. `settleGraceHours` lets downstream freshness checks delay same-day settlement until ingestion should have landed bars; KZO-177 passes a grace window instead of declaring providers stale in the close-to-cron gap. Synthetic `FX` uses weekdays plus a 16:00 UTC publish threshold. v1 limitations: FX ignores ECB/TARGET2 holidays (KZO-192), equity markets ignore early-close sessions (KZO-193), and JP lunch-break precision is not modeled yet.
 
 When a market has no recent derived bars, helpers fall back to weekday-only logic and emit a once-per-refresh warning (`trading_calendar_bootstrap_fallback`). This keeps bootstrap and empty-market development flows from failing hard while making missing calendar data visible in logs.
 
@@ -225,7 +252,7 @@ KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wal
 
 ### Per-account currency and account type (KZO-167)
 
-KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'|'KRW'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`, and migration `062_kr_market_support.sql` extends the currency check to KRW. Two shared-type unions (`AccountDefaultCurrency`, `AccountType`) are part of `AccountDto` in `@vakwen/shared-types`.
+KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (now widened to enum `'TWD'|'USD'|'AUD'|'KRW'|'JPY'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`, and follow-up market migrations widen the currency check through KRW and JPY. Two shared-type unions (`AccountDefaultCurrency`, `AccountType`) are part of `AccountDto` in `@vakwen/shared-types`.
 
 A new service module `apps/api/src/services/cashLedgerService.ts` enforces the cash-entry currency invariant on emission paths 1–3: a mismatch between `entry.currency` and `account.defaultCurrency` throws `routeError(400, "currency_mismatch", ...)`. The full-replay path (path 4, `replayPositionHistory.ts:161`) is explicitly exempt per `replay-position-history-invariants.md`. `PATCH /accounts/:id` adds optional `defaultCurrency` and `accountType` fields; a currency change is blocked with `409 currency_change_blocked` if the account has any existing cash entries or trade events. The `/cash-ledger` page now renders `Name (TWD · Broker)` chips in account dropdowns and summary headers.
 

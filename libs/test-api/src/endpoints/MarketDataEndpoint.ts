@@ -2,6 +2,8 @@ import type { APIResponse } from "@playwright/test";
 import { BaseEndpoint } from "@vakwen/test-framework/core";
 import { apiUrl } from "@vakwen/test-framework/shared";
 
+type TestMarketCode = "TW" | "US" | "AU" | "KR" | "JP";
+
 /**
  * KZO-170 (G-NC-6): HTTP-suite endpoint wrapper for `/market-data/price`.
  *
@@ -24,7 +26,7 @@ export class MarketDataEndpoint extends BaseEndpoint {
   getPrice = (
     ticker: string,
     date: string,
-    marketCode?: "TW" | "US" | "AU",
+    marketCode?: TestMarketCode,
     headers?: Record<string, string>,
   ): Promise<APIResponse> => {
     const params = new URLSearchParams({ ticker, date });
@@ -40,7 +42,7 @@ export class MarketDataEndpoint extends BaseEndpoint {
   seedDailyBars = (
     bars: {
       ticker: string;
-      marketCode?: "TW" | "US" | "AU";
+      marketCode?: TestMarketCode;
       barDate: string;
       open: number;
       high: number;
@@ -67,7 +69,7 @@ export class MarketDataEndpoint extends BaseEndpoint {
    */
   searchInstruments = (
     q?: string,
-    marketCode?: "TW" | "US" | "AU",
+    marketCode?: TestMarketCode,
     headers?: Record<string, string>,
   ): Promise<APIResponse> => {
     const params = new URLSearchParams();

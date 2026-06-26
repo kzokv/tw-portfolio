@@ -87,6 +87,7 @@ export interface CatalogSyncWorkerDeps {
 export function catalogProviderIdForMarket(market: MarketCode): ProviderId {
   if (market === "AU") return "twelve-data-au";
   if (market === "KR") return "twelve-data-kr";
+  if (market === "JP") return "twelve-data-jp";
   if (market === "US") return "finmind-us";
   return "finmind-tw";
 }

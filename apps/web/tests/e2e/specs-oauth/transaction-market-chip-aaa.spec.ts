@@ -3,7 +3,7 @@
 //
 // Coverage:
 //   [no-all]    `tx-market-chip-ALL` testid never renders (scope item 20).
-//   [chips]     TW + US + AU chips remain visible.
+//   [chips]     Existing concrete market chips remain visible, including JP.
 //
 // Reserved ticker: ACCDEL05 per
 // `.claude/rules/e2e-shared-memory-bars-ticker-hygiene.md`. (The auto-sync
@@ -22,5 +22,7 @@ test.describe("ui-enhancement — Market chip cleanup (Record Transaction)", () 
     await transactions.assert.marketChipIsVisible("TW");
     await transactions.assert.marketChipIsVisible("US");
     await transactions.assert.marketChipIsVisible("AU");
+    await transactions.assert.marketChipIsVisible("KR");
+    await transactions.assert.marketChipIsVisible("JP");
   });
 });

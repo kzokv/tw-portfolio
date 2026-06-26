@@ -379,7 +379,7 @@ const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto 
   maxTickersPerRefreshCycle: null,
   effectiveMaxTickersPerRefreshCycle: 100,
   supportedMarkets: null,
-  effectiveSupportedMarkets: ["TW", "US", "AU", "KR"],
+  effectiveSupportedMarkets: ["TW", "US", "AU", "KR", "JP"],
   regularSessionOnly: null,
   effectiveRegularSessionOnly: true,
   yahooChartRange: null,
@@ -399,7 +399,7 @@ const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto 
   calendarHistoryRetentionDays: null,
   effectiveCalendarHistoryRetentionDays: 730,
   options: {
-    supportedMarkets: ["TW", "US", "AU", "KR"],
+    supportedMarkets: ["TW", "US", "AU", "KR", "JP"],
     yahooChartRanges: ["1d", "5d"],
     yahooChartIntervals: ["1m", "2m", "5m", "15m"],
   },

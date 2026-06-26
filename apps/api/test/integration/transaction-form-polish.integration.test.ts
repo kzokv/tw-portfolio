@@ -4,7 +4,7 @@ vi.mock("@vakwen/config", async (importOriginal) => {
   const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
-    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const },
+    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const, FINMIND_API_TOKEN: undefined },
   };
 });
 
@@ -14,17 +14,21 @@ import {
   roundToDecimal,
   type DailyBar,
   type FeeProfile,
+  type MarketCode,
 } from "@vakwen/domain";
 import { buildApp } from "../../src/app.js";
 // KZO-163: provider class lives at providers/mockFinmind.ts; method renamed fetchDailyBars → fetchBars.
-import { MockFinMindMarketDataProvider } from "../../src/services/market-data/providers/index.js";
+import {
+  MockFinMindMarketDataProvider,
+  MockYahooFinanceJpMarketDataProvider,
+} from "../../src/services/market-data/providers/index.js";
 import { RateLimitedError } from "../../src/services/market-data/types.js";
 import { _resetMarketDataPriceBuckets } from "../../src/lib/marketDataPriceRateLimit.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 const authHeaders = { "x-user-id": "user-1" };
 
-function seedDailyBars(bars: DailyBar[]): void {
+function seedDailyBars(bars: Array<DailyBar & { marketCode?: MarketCode }>): void {
   if (!("_seedDailyBars" in app.persistence) || typeof app.persistence._seedDailyBars !== "function") {
     throw new Error("memory persistence _seedDailyBars helper is unavailable");
   }
@@ -125,6 +129,40 @@ describe("transaction form polish routes", () => {
       source: "seed",
       match: "previous",
       reason: "weekend",
+    });
+  });
+
+  it("GET /market-data/price keeps cached daily bars scoped by requested market", async () => {
+    seedDailyBars([
+      {
+        ticker: "1306",
+        marketCode: "TW",
+        barDate: "2024-01-05",
+        open: 9900,
+        high: 10000,
+        low: 9800,
+        close: 9999,
+        volume: 100_000,
+        quality: "full_bar",
+        source: "tw-seed",
+        ingestedAt: "2024-01-05T00:00:00.000Z",
+      },
+    ]);
+    app.marketDataRegistry.marketData.set("JP", new MockYahooFinanceJpMarketDataProvider());
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/market-data/price?ticker=1306&date=2024-01-05&market_code=JP",
+      headers: authHeaders,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      close: 3030,
+      date: "2024-01-05",
+      source: "yahoo-finance-jp",
+      match: "previous",
+      reason: "no_bar",
     });
   });
 

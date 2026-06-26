@@ -10,7 +10,7 @@ export interface SettleOptions {
 }
 
 type CalendarMarket = MarketCode | "FX";
-type SupportedMarketCode = "TW" | "US" | "AU" | "KR";
+type SupportedMarketCode = "TW" | "US" | "AU" | "KR" | "JP";
 
 type CalendarLogger = {
   error: (payload: Record<string, unknown>, message: string) => void;
@@ -29,7 +29,7 @@ interface TradingCalendarCacheDeps {
   log?: CalendarLogger;
 }
 
-const SUPPORTED_MARKETS = ["TW", "US", "AU", "KR"] as const;
+const SUPPORTED_MARKETS = ["TW", "US", "AU", "KR", "JP"] as const;
 const SUPPORTED_MARKET_SET = new Set<string>(SUPPORTED_MARKETS);
 
 export const MARKET_TIMEZONE: Record<SupportedMarketCode, string> = {
@@ -37,6 +37,7 @@ export const MARKET_TIMEZONE: Record<SupportedMarketCode, string> = {
   US: "America/New_York",
   AU: "Australia/Sydney",
   KR: "Asia/Seoul",
+  JP: "Asia/Tokyo",
 };
 
 export const MARKET_CLOSE_LOCAL_TIME: Record<SupportedMarketCode, { hour: number; minute: number }> = {
@@ -44,6 +45,7 @@ export const MARKET_CLOSE_LOCAL_TIME: Record<SupportedMarketCode, { hour: number
   US: { hour: 16, minute: 0 },
   AU: { hour: 16, minute: 0 },
   KR: { hour: 15, minute: 30 },
+  JP: { hour: 15, minute: 30 },
 };
 
 export const FX_PUBLISH_HOUR_UTC = 16;

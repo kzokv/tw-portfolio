@@ -74,10 +74,11 @@ describe("valuation health app config helpers", () => {
     });
   });
 
-  it("treats AUD and USD as cent-tolerant and TWD/KRW as whole-unit tolerant", () => {
+  it("treats AUD and USD as cent-tolerant and TWD/KRW/JPY as whole-unit tolerant", () => {
     expect(minorUnitToleranceFor("AUD")).toBe(0.01);
     expect(minorUnitToleranceFor("USD")).toBe(0.01);
     expect(minorUnitToleranceFor("TWD")).toBe(1);
     expect(minorUnitToleranceFor("KRW")).toBe(1);
+    expect(minorUnitToleranceFor("JPY")).toBe(1);
   });
 });

@@ -38,7 +38,7 @@ interface CloseFallbackProviders {
   yahooChartClose?: {
     fetchCloseOnlyBar(
       ticker: string,
-      marketCode: Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR">,
+      marketCode: RegularSessionMarketCode,
       barDate: string,
       now?: Date,
     ): Promise<DailyBar | null>;
@@ -216,10 +216,11 @@ function buildCloseRefreshOperations(
     if (step === "yahoo") {
       const yahooProvider = input.fallbackProviders?.yahooChartClose;
       if (!yahooProvider || !supportsYahooChartClose(pair.marketCode)) continue;
+      const marketCode = pair.marketCode;
       operations.push({
         kind: "fallback",
         provider: "yahoo-chart-close",
-        run: () => yahooProvider.fetchCloseOnlyBar(pair.ticker, pair.marketCode, barDate, now),
+        run: () => yahooProvider.fetchCloseOnlyBar(pair.ticker, marketCode, barDate, now),
       });
       continue;
     }
@@ -245,8 +246,8 @@ function getSameDayStatus(latest: DailyBar | null, closeDate: string): DailyBar[
 
 function supportsYahooChartClose(
   marketCode: RegularSessionMarketCode,
-): marketCode is Extract<RegularSessionMarketCode, "TW" | "US" | "AU" | "KR"> {
-  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
+): marketCode is RegularSessionMarketCode {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR" || marketCode === "JP";
 }
 
 function selectRawBar(

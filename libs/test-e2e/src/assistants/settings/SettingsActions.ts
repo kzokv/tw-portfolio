@@ -180,7 +180,7 @@ export class SettingsActions extends AppBaseActions {
   }
 
   @Step()
-  async selectAccountCreateCurrency(currency: "TWD" | "USD" | "AUD" | "KRW"): Promise<void> {
+  async selectAccountCreateCurrency(currency: "TWD" | "USD" | "AUD" | "KRW" | "JPY"): Promise<void> {
     await this.uiActions.click.perform(this.el.accountCreate.currencyCard(currency));
   }
 
@@ -389,11 +389,11 @@ export class SettingsActions extends AppBaseActions {
   // ── KZO-188: AU ticker discovery ─────────────────────────────────────────
 
   /**
-   * Click a market chip in the InstrumentCatalogSheet (All · TW · US · AU).
+   * Click a market chip in the InstrumentCatalogSheet (All · TW · US · AU · KR · JP).
    * Must be called after the catalog sheet is open.
    */
   @Step()
-  async clickMarketChip(market: "all" | "TW" | "US" | "AU"): Promise<void> {
+  async clickMarketChip(market: "all" | "TW" | "US" | "AU" | "KR" | "JP"): Promise<void> {
     await this.uiActions.click.perform(this.el.catalog.marketChip(market));
   }
 

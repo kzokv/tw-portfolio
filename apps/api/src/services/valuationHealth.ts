@@ -185,6 +185,7 @@ function thresholdAmountForCurrency(
   if (reportingCurrency === "AUD") return thresholds.absoluteAud;
   if (reportingCurrency === "USD") return thresholds.absoluteUsd;
   if (reportingCurrency === "KRW") return thresholds.absoluteKrw;
+  if (reportingCurrency === "JPY") return thresholds.absoluteJpy ?? thresholds.absoluteTwd;
   return thresholds.absoluteTwd;
 }
 

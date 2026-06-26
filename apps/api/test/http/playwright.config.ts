@@ -24,6 +24,7 @@ export default createPlaywrightConfig({
     GOOGLE_REDIRECT_URI: TestEnv.googleRedirectUri,
     SESSION_SECRET: TestEnv.oauth.sessionSecret,
     APP_BASE_URL: TestEnv.appBaseUrl,
+    FINMIND_API_TOKEN: "",
     // Keep HTTP tests deterministic: AU search/catalog specs assert against
     // fixture rows and must not depend on live Yahoo/Twelve Data response shape.
     AU_PROVIDER_MOCK: "true",

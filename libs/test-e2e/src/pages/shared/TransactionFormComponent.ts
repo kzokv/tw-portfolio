@@ -1,7 +1,10 @@
 import type { Locator } from "@playwright/test";
+import type { MarketCode } from "@vakwen/shared-types";
 import { BasePage } from "@vakwen/test-framework/core";
 
 /** Shared form used on both TransactionsPage and TickerDetailPage record dialog. */
+type TransactionFormMarket = MarketCode | "ALL";
+
 export interface TTransactionFormElements {
   recordTransactionButton: Locator;
   recordTransactionDialog: Locator;
@@ -9,8 +12,8 @@ export interface TTransactionFormElements {
   tickerListbox: Locator;
   tickerEmptyState: Locator;
   tickerMatchCount: Locator;
-  marketChip: (market: "TW" | "US" | "AU" | "ALL") => Locator;
-  tickerOption: (ticker: string, marketCode?: "TW" | "US" | "AU") => Locator;
+  marketChip: (market: TransactionFormMarket) => Locator;
+  tickerOption: (ticker: string, marketCode?: MarketCode) => Locator;
   accountSelector: Locator;
   accountSelect: Locator;
   accountOption: (index: number) => Locator;
@@ -52,9 +55,9 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
       tickerListbox: this.locate("tx-ticker-listbox", "Ticker Listbox"),
       tickerEmptyState: this.locate("tx-ticker-empty-state", "Ticker Empty State"),
       tickerMatchCount: this.locate("tx-ticker-match-count", "Ticker Match Count"),
-      marketChip: (market: "TW" | "US" | "AU" | "ALL") =>
+      marketChip: (market: TransactionFormMarket) =>
         this.locate(`tx-market-chip-${market}`, `Market Chip ${market}`),
-      tickerOption: (ticker: string, marketCode?: "TW" | "US" | "AU") =>
+      tickerOption: (ticker: string, marketCode?: MarketCode) =>
         marketCode
           ? this.locate(`tx-ticker-option-${ticker}-${marketCode}`, `Ticker Option ${ticker} ${marketCode}`)
           : this.withDescription(

@@ -37,7 +37,7 @@ async function seedInstrumentAsBrowser(
   instrument: {
     ticker: string;
     name: string;
-    marketCode: "TW" | "US" | "AU" | "KR";
+    marketCode: "TW" | "US" | "AU" | "KR" | "JP";
     barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
   },
 ): Promise<void> {
@@ -72,7 +72,7 @@ test.describe.serial("admin market-data console", () => {
     await page.waitForLoadState("load");
 
     await page.getByTestId("admin-market-data-page").waitFor({ state: "visible" });
-    for (const marketCode of ["TW", "US", "AU", "KR", "FX"]) {
+    for (const marketCode of ["TW", "US", "AU", "KR", "JP", "FX"]) {
       await page.getByTestId(`market-data-tile-${marketCode}`).waitFor({ state: "visible" });
     }
     await appShell.assert.mxAssertEqual(
@@ -113,6 +113,25 @@ test.describe.serial("admin market-data console", () => {
       await page.getByRole("button", { name: "Execute backfill" }).isDisabled(),
       "backfill execute stays disabled until acknowledgement",
     );
+  });
+
+  test("[market-data-jp-calendar]: JP workspace exposes the calendar import surface and JPX source", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/market-data/JP/calendar");
+    await page.waitForLoadState("load");
+
+    await page.getByTestId("market-data-calendar").waitFor({ state: "visible" });
+    await page.getByTestId("calendar-source-editor").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await page.locator("#calendar-source-url").inputValue(),
+      "https://www.jpx.co.jp/english/corporate/about-jpx/calendar/",
+      "JP calendar source URL",
+    );
+    await page.getByTestId("calendar-json-input").waitFor({ state: "visible" });
+    await page.getByTestId("calendar-preview-button").waitFor({ state: "visible" });
+    await page.getByTestId("calendar-confirm-button").waitFor({ state: "visible" });
   });
 
   test("[market-data-purge]: AU purge preview keeps delete-only and refill intent explicit", async ({

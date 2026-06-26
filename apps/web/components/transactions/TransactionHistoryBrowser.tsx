@@ -323,5 +323,7 @@ function getMarketFilterLabel(dict: AppDictionary, marketCode: MarketCode | "ALL
       return dict.transactions.marketChipKR;
     case "ALL":
       return dict.transactions.filterAllMarkets;
+    case "JP":
+      return dict.transactions.marketChipJP;
   }
 }

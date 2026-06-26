@@ -373,7 +373,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
               persistence: app.persistence,
             }).fetchLatestOverlayResult({
               ticker,
-              marketCode: marketCode as "TW" | "US" | "AU" | "KR",
+              marketCode,
               now,
             });
           },

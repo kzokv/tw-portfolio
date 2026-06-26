@@ -57,6 +57,16 @@ describe("deduplicateInstruments", () => {
     expect(result[0]!.ticker).toBe("AAPL");
   });
 
+  it("preserves relaxed JP @ symbols while keeping other markets strict", () => {
+    const raw: RawInstrumentInfo[] = [
+      { ticker: "7203@JP", name: "Toyota Special", typeRaw: "Common Stock", industryCategory: "Common Stock", date: "2026-05-01" },
+      { ticker: "7203", name: "Toyota", typeRaw: "Common Stock", industryCategory: "Common Stock", date: "2026-05-01" },
+    ];
+
+    expect(deduplicateInstruments(raw, "JP").map((row) => row.ticker).sort()).toEqual(["7203", "7203@JP"]);
+    expect(deduplicateInstruments(raw, "US").map((row) => row.ticker)).toEqual(["7203"]);
+  });
+
   it("handles single-entry tickers without dedup", () => {
     const raw: RawInstrumentInfo[] = [
       { ticker: "0050", name: "元大台灣50", typeRaw: "twse", industryCategory: "ETF", date: "2026-03-31" },

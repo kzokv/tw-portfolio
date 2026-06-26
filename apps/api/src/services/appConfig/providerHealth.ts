@@ -55,7 +55,11 @@ export function getEffectiveYahooAuRerunCooldownMs(): number {
  * extends this switch without the polarity trap.
  */
 export function getEffectiveProviderRerunCooldownMs(providerId: string): number {
-  if (providerId === "yahoo-finance-au" || providerId === "yahoo-finance-kr") {
+  if (
+    providerId === "yahoo-finance-au"
+    || providerId === "yahoo-finance-kr"
+    || providerId === "yahoo-finance-jp"
+  ) {
     return getEffectiveYahooAuRerunCooldownMs();
   }
   return getEffectiveRerunCooldownMs();
