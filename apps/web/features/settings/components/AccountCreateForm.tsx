@@ -183,6 +183,7 @@ export function AccountCreateForm({
       case "USD": return dict.settings.accountCreateMarketUnitedStates;
       case "AUD": return dict.settings.accountCreateMarketAustralia;
       case "KRW": return dict.settings.accountCreateMarketKorea;
+      case "JPY": return dict.settings.accountCreateMarketJapan;
     }
   }
 
@@ -192,6 +193,7 @@ export function AccountCreateForm({
       case "USD": return dict.settings.accountCreateMarketUnitedStatesSubtext;
       case "AUD": return dict.settings.accountCreateMarketAustraliaSubtext;
       case "KRW": return dict.settings.accountCreateMarketKoreaSubtext;
+      case "JPY": return dict.settings.accountCreateMarketJapanSubtext;
     }
   }
 

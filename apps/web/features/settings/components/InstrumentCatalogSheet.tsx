@@ -20,10 +20,11 @@ import { ArrowLeft, Lock, Search, X } from "lucide-react";
 type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
 type MarketChip = "ALL" | MarketCode;
 // KZO-196 — `null` = "All sectors". Visible only for single-market chips
-// that support sector browsing (TW/US/AU). KR intentionally omits this because
-// Twelve Data's free KRX catalog does not provide sector/GICS coverage. Carries
-// the canonical sector name (e.g. "Financials") so it feeds both AU's GICS
-// expansion and TW/US's normalized `instrument.sector` equality match.
+// that support sector browsing (TW/US/AU). KR and JP intentionally omit this
+// because their current catalog sources do not provide the sector/GICS coverage
+// needed for the shared narrow. Carries the canonical sector name (e.g.
+// "Financials") so it feeds both AU's GICS expansion and TW/US's normalized
+// `instrument.sector` equality match.
 type SectorFilter = string | null;
 
 // KZO-196 — Inverse lookup `industryGroup → displayKey`, built once per
@@ -78,12 +79,13 @@ export function InstrumentCatalogSheet({
   // KZO-188: market chip filters the catalog client-side; default `ALL`
   // shows every market just like before this ticket.
   const [marketChip, setMarketChip] = useState<MarketChip>("ALL");
-  // KZO-196: shared sector filter for TW/US/AU. KR has no sector narrow. `null` = "All sectors".
+  // KZO-196: shared sector filter for TW/US/AU. KR/JP have no sector narrow.
+  // `null` = "All sectors".
   // Resets whenever the user moves back to ALL because the control is hidden
   // there and should never leave behind an invisible narrow.
   const [sectorFilter, setSectorFilter] = useState<SectorFilter>(null);
 
-  // KZO-188/KR: live-search state fires for Yahoo-backed markets when the
+  // KZO-188/KR + JP: live-search state fires for Yahoo-backed markets when the
   // local filtered catalog has no matches.
   const [liveResults, setLiveResults] = useState<InstrumentCatalogItemDto[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
@@ -171,7 +173,9 @@ export function InstrumentCatalogSheet({
   );
 
   const liveSearchEnabled =
-    debouncedQuery.length >= 2 && (marketChip === "AU" || marketChip === "KR") && filtered.length === 0;
+    debouncedQuery.length >= 2
+    && (marketChip === "AU" || marketChip === "KR" || marketChip === "JP")
+    && filtered.length === 0;
 
   useEffect(() => {
     // Reset live state when conditions stop matching so a stale message does
@@ -229,6 +233,7 @@ export function InstrumentCatalogSheet({
     { value: "US", label: dict.settings.tickersMarketChipUs },
     { value: "AU", label: dict.settings.tickersMarketChipAu },
     { value: "KR", label: dict.settings.tickersMarketChipKr },
+    { value: "JP", label: dict.settings.tickersMarketChipJp },
   ];
 
   const showLiveResults = liveSearchEnabled && filteredLiveResults.length > 0;

@@ -40,7 +40,7 @@ export async function runCatalogSync(deps: CatalogSyncDeps): Promise<CatalogSync
   const rawCatalog = await catalogProvider.fetchInstrumentCatalog();
   log.info({ marketCode, rawCount: rawCatalog.length }, "[catalog-sync] Fetched raw rows");
 
-  const deduped = deduplicateInstruments(rawCatalog);
+  const deduped = deduplicateInstruments(rawCatalog, marketCode);
   // KZO-170 S4: thread `marketCode` into the classifier path so US callers route
   // through the per-market allow-list instead of the TW substring scan.
   const catalog = buildCatalogInstruments(deduped, marketCode);

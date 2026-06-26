@@ -137,7 +137,7 @@ test.describe("GET /market-data/price (KZO-170)", () => {
     const response = await marketDataApi.actions.getPrice(
       "AAPL",
       AAPL_2024_BAR_DATE,
-      "JP" as unknown as "US",
+      "ZZ" as unknown as "US",
     );
 
     await marketDataApi.assert.statusIs(response, 400);

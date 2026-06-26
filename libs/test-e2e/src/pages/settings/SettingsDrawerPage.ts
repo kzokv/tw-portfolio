@@ -44,7 +44,7 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     form: Locator;
     nameInput: Locator;
     typePill: (type: "broker" | "bank" | "wallet") => Locator;
-    currencyCard: (currency: "TWD" | "USD" | "AUD" | "KRW") => Locator;
+    currencyCard: (currency: "TWD" | "USD" | "AUD" | "KRW" | "JPY") => Locator;
     previewChip: Locator;
     submit: Locator;
     error: Locator;
@@ -148,7 +148,7 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     item: (ticker: string) => Locator;
     allItems: Locator;
     itemCheckbox: (ticker: string) => Locator;
-    marketChip: (market: "all" | "TW" | "US" | "AU") => Locator;
+    marketChip: (market: "all" | "TW" | "US" | "AU" | "KR" | "JP") => Locator;
     liveItemBadge: (ticker: string) => Locator;
     liveUnavailableMessage: Locator;
     liveSearchingMessage: Locator;

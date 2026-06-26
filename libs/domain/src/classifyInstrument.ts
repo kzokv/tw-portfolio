@@ -79,6 +79,15 @@ export function classifyInstrument(
     return industryCategory === "ETF" ? "ETF" : "STOCK";
   }
 
+  // JP mirrors the locked free-provider catalog contract: Twelve Data JP emits
+  // ETF endpoint rows as `"ETF"` and stock-like rows as `"Common Stock"`,
+  // `"Preferred Stock"`, or `"REIT"`. Unsupported JP rows are filtered before
+  // classification unless the admin import config relaxes catalog eligibility.
+  if (marketCode === "JP") {
+    if (industryCategory === null) return "STOCK";
+    return industryCategory === "ETF" ? "ETF" : "STOCK";
+  }
+
   // TW: legacy substring path.
   if (industryCategory === null) return null;
 

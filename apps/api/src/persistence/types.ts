@@ -38,6 +38,7 @@ import type {
   AdminUserStatus,
   InstrumentCatalogItemDto,
   InviteListStatus,
+  JpCatalogStockType,
   MarketCode as SharedMarketCode,
   MonitoredTickerDto,
   NotificationDto,
@@ -80,14 +81,19 @@ export type AppConfigPlainField =
   | "twelveDataProviderRateLimitPerMinute"
   | "yahooAuProviderRateLimitPerMinute"
   | "yahooKrProviderRateLimitPerMinute"
+  | "yahooJpProviderRateLimitPerMinute"
   | "frankfurterProviderRateLimitPerMinute"
   | "asxGicsProviderRateLimitPerHour"
   | "finmindProviderMinRequestIntervalMs"
   | "twelveDataProviderMinRequestIntervalMs"
   | "yahooAuProviderMinRequestIntervalMs"
   | "yahooKrProviderMinRequestIntervalMs"
+  | "yahooJpProviderMinRequestIntervalMs"
   | "frankfurterProviderMinRequestIntervalMs"
   | "asxGicsProviderMinRequestIntervalMs"
+  | "jpCatalogAllowedStockTypes"
+  | "jpCatalogIncludeDepositaryReceipts"
+  | "jpCatalogIncludeAtSymbols"
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
@@ -128,6 +134,7 @@ export type AppConfigPlainField =
   | "valuationHealthAbsoluteUsd"
   | "valuationHealthAbsoluteTwd"
   | "valuationHealthAbsoluteKrw"
+  | "valuationHealthAbsoluteJpy"
   | "routeCacheDashboardPrimaryTtlMs"
   | "routeCacheDashboardEnrichmentTtlMs"
   | "routeCacheDashboardPerformanceTtlMs"
@@ -139,6 +146,7 @@ export type AppConfigPlainValue =
   | number
   | boolean
   | SharedMarketCode[]
+  | JpCatalogStockType[]
   | "1d"
   | "5d"
   | "1m"
@@ -194,14 +202,19 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   twelveDataProviderRateLimitPerMinute: "twelve_data_provider_rate_limit_per_minute",
   yahooAuProviderRateLimitPerMinute: "yahoo_au_provider_rate_limit_per_minute",
   yahooKrProviderRateLimitPerMinute: "yahoo_kr_provider_rate_limit_per_minute",
+  yahooJpProviderRateLimitPerMinute: "yahoo_jp_provider_rate_limit_per_minute",
   frankfurterProviderRateLimitPerMinute: "frankfurter_provider_rate_limit_per_minute",
   asxGicsProviderRateLimitPerHour: "asx_gics_provider_rate_limit_per_hour",
   finmindProviderMinRequestIntervalMs: "finmind_provider_min_request_interval_ms",
   twelveDataProviderMinRequestIntervalMs: "twelve_data_provider_min_request_interval_ms",
   yahooAuProviderMinRequestIntervalMs: "yahoo_au_provider_min_request_interval_ms",
   yahooKrProviderMinRequestIntervalMs: "yahoo_kr_provider_min_request_interval_ms",
+  yahooJpProviderMinRequestIntervalMs: "yahoo_jp_provider_min_request_interval_ms",
   frankfurterProviderMinRequestIntervalMs: "frankfurter_provider_min_request_interval_ms",
   asxGicsProviderMinRequestIntervalMs: "asx_gics_provider_min_request_interval_ms",
+  jpCatalogAllowedStockTypes: "jp_catalog_allowed_stock_types",
+  jpCatalogIncludeDepositaryReceipts: "jp_catalog_include_depositary_receipts",
+  jpCatalogIncludeAtSymbols: "jp_catalog_include_at_symbols",
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
@@ -242,6 +255,7 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   valuationHealthAbsoluteUsd: "valuation_health_absolute_usd",
   valuationHealthAbsoluteTwd: "valuation_health_absolute_twd",
   valuationHealthAbsoluteKrw: "valuation_health_absolute_krw",
+  valuationHealthAbsoluteJpy: "valuation_health_absolute_jpy",
   routeCacheDashboardPrimaryTtlMs: "route_cache_dashboard_primary_ttl_ms",
   routeCacheDashboardEnrichmentTtlMs: "route_cache_dashboard_enrichment_ttl_ms",
   routeCacheDashboardPerformanceTtlMs: "route_cache_dashboard_performance_ttl_ms",
@@ -2619,14 +2633,19 @@ export interface Persistence {
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;
     yahooKrProviderRateLimitPerMinute: number | null;
+    yahooJpProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
     finmindProviderMinRequestIntervalMs: number | null;
     twelveDataProviderMinRequestIntervalMs: number | null;
     yahooAuProviderMinRequestIntervalMs: number | null;
     yahooKrProviderMinRequestIntervalMs: number | null;
+    yahooJpProviderMinRequestIntervalMs: number | null;
     frankfurterProviderMinRequestIntervalMs: number | null;
     asxGicsProviderMinRequestIntervalMs: number | null;
+    jpCatalogAllowedStockTypes: JpCatalogStockType[] | null;
+    jpCatalogIncludeDepositaryReceipts: boolean | null;
+    jpCatalogIncludeAtSymbols: boolean | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -2672,6 +2691,7 @@ export interface Persistence {
     valuationHealthAbsoluteUsd: number | null;
     valuationHealthAbsoluteTwd: number | null;
     valuationHealthAbsoluteKrw: number | null;
+    valuationHealthAbsoluteJpy: number | null;
     routeCachePolicyMode: RouteCachePolicyMode | null;
     routeCacheDashboardPrimaryTtlMs: number | null;
     routeCacheDashboardEnrichmentTtlMs: number | null;

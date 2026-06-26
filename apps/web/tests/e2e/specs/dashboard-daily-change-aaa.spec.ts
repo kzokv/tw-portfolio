@@ -3,26 +3,32 @@ import { test } from "@vakwen/test-e2e/fixtures/appPages";
 // NOTE: _seedDailyBars appends to a global (non-per-user) array in MemoryPersistence.
 // It is never cleared between tests. Tests that seed bars for the same ticker
 // accumulate entries; getLatestBars(ticker, 2) always returns the 2 most-recent dates.
-// Test 3 seeds 2330 bars from 2026-04-04/05. Test 4 uses "0050" (a catalog-backed
-// fresh ticker) to avoid duplicate-date accumulation with test 3's 2330 bars. Test 5 uses "00919"
-// (another default catalog-backed ticker) to guarantee its stale bars are the latest while staying quoteable.
+// Use reserved synthetic tickers where missing/provisional quote state is the assertion.
+// The positive quote path uses 0056 because synthetic tickers are provisional
+// instruments, and displayed quote resolution intentionally skips provisional rows.
 //
 // Provisional note: computeIsProvisional() returns false on weekends (Sat/Sun TST).
 // Test 5 is skipped on weekends. Tests 3 and 4 still pass on weekends because the
 // daily change value and color class render regardless of provisional status.
+
+function tstDateDaysAgo(daysAgo: number): string {
+  const date = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
 
 test("dashboard: daily change column renders with missing quote indicators", async ({
   dashboard,
   appShell,
 }) => {
   await appShell.actions.setViewport(1440, 960);
-  // Seed a trade so the holdings table renders; no bars → quoteStatus = "missing"
-  await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500 });
+  // Seed a trade so the holdings table renders; no bars → quoteStatus = "missing".
+  await dashboard.arrange.seedTrade({ ticker: "9877", quantity: 100, unitPrice: 500 });
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
 
   await dashboard.assert.holdingsTableHasDailyChangeColumn();
-  await dashboard.assert.holdingRowContainsText("2330", /Missing quote/i);
+  await dashboard.assert.holdingRowContainsText("9877", /Missing quote/i);
   await dashboard.assert.heroPanelContains(/Waiting for market value data/i);
 });
 
@@ -31,8 +37,8 @@ test("dashboard: daily change metric cards render in summary section", async ({
   appShell,
 }) => {
   await appShell.actions.setViewport(1440, 960);
-  // Seed a trade so the dashboard is in an active state; no bars → dailyChangeAmount = null
-  await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500 });
+  // Seed a trade so the dashboard is in an active state; no bars → dailyChangeAmount = null.
+  await dashboard.arrange.seedTrade({ ticker: "9878", quantity: 100, unitPrice: 500 });
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
 
@@ -45,17 +51,21 @@ test("dashboard: positive daily change → gain color coding and percent display
   appShell,
 }) => {
   await appShell.actions.setViewport(1440, 960);
-  await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500 });
+  await dashboard.arrange.seedTrade({ ticker: "0056", quantity: 100, unitPrice: 500 });
   await dashboard.arrange.seedDailyBars([
-    { ticker: "2330", barDate: "2026-04-04", open: 98, high: 100, low: 97, close: 99, volume: 1000 },
-    { ticker: "2330", barDate: "2026-04-05", open: 99, high: 101, low: 98, close: 100, volume: 1200 },
+    { ticker: "0056", barDate: tstDateDaysAgo(1), open: 98, high: 100, low: 97, close: 99, volume: 1000 },
+    { ticker: "0056", barDate: tstDateDaysAgo(0), open: 99, high: 101, low: 98, close: 100, volume: 1200 },
   ]);
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
+  await dashboard.actions.generateSnapshotsAndWait();
+  await dashboard.assert.snapshotStatusContains(/generating|generated|snapshots generated/i, { timeout: 10_000 });
+  await dashboard.actions.navigateToDashboard();
+  await dashboard.assert.appIsReady();
 
-  // change = close(2026-04-05) - close(2026-04-04) = 100 - 99 = 1 TWD (positive → gain)
-  await dashboard.assert.holdingRowHasColorClass("2330", "text-[hsl(var(--finance-gain))]");
-  await dashboard.assert.holdingRowContainsText("2330", /\d+/);
+  // change = latest close - prior close = 100 - 99 = 1 TWD (positive → gain)
+  await dashboard.assert.holdingRowHasColorClass("0056", "text-[hsl(var(--finance-gain))]");
+  await dashboard.assert.holdingRowContainsText("0056", /\d+/);
 });
 
 test("dashboard: mixed quote coverage → summary daily change shows fallback", async ({

@@ -149,6 +149,7 @@ describePostgres("backfill handler — old-shape job rejection (KZO-185)", () =>
       marketDataRegistry,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -218,7 +219,7 @@ describePostgres("backfill handler — old-shape job rejection (KZO-185)", () =>
     const badMarketJob: JobWithMetadata<Record<string, unknown>> = {
       id: randomUUID(),
       name: BACKFILL_QUEUE,
-      data: { ticker: "2330", marketCode: "JP", trigger: "daily_refresh" } satisfies Omit<BackfillJobData, "marketCode"> & { marketCode: string },
+      data: { ticker: "2330", marketCode: "ZZ", trigger: "daily_refresh" } satisfies Omit<BackfillJobData, "marketCode"> & { marketCode: string },
       retryCount: 0,
       retryLimit: 3,
       priority: 5,

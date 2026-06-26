@@ -107,7 +107,7 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(document.querySelector("[data-testid='admin-settings-tickerPriceRefreshCloseRateLimitMax-row']")).not.toBeNull();
     expect(document.querySelector("[data-testid='admin-settings-tickerPriceRefreshCloseRateLimitWindowMs-env-default-badge']")?.textContent).toContain("60000");
     expect(document.body.textContent).toContain("Yahoo chart lookup range");
-    expect(document.body.textContent).toContain("Allowed values: TW, US, AU, KR.");
+    expect(document.body.textContent).toContain("Allowed values: TW, US, AU, KR, JP.");
   });
 
   it("prefills the current effective value when enabling a ticker freshness override", async () => {
@@ -240,7 +240,7 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     });
 
     const [, payload] = mockPatchJson.mock.calls[0] as [string, { tickerPriceFreshness: Record<string, unknown> }];
-    expect(payload.tickerPriceFreshness).toEqual({ supportedMarkets: ["TW", "US", "KR"] });
+    expect(payload.tickerPriceFreshness).toEqual({ supportedMarkets: ["TW", "US", "KR", "JP"] });
   });
 
   it("falls back to rate-limits when ?tab=<bogus-slug>", () => {

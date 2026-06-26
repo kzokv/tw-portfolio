@@ -12,7 +12,7 @@
  *     NO `feeProfileId` — and `onAccountsRefresh` after success (D12).
  *   - Inline 409 error rendering uses `accountCreateNameInUseError` text.
  *   - Inline generic error rendering uses `accountCreateGenericError` text.
- *   - Market labels render Taiwan / United States / Australia per E3.
+ *   - Market labels render Taiwan / United States / Australia / South Korea / Japan per E3.
  *
  * Pattern mirrors `apps/web/test/features/cash-ledger/CashLedgerClient.test.tsx`
  * (react-dom/client + act() — not RTL — to match the project's existing
@@ -85,16 +85,22 @@ describe("AccountCreateForm", () => {
     expect(container.querySelector('[data-testid="account-create-type-bank"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="account-create-type-wallet"]')).toBeTruthy();
 
-    // Market cards (3) — TWD, USD, AUD; labels read country names per E3.
+    // Market cards (5) — TWD, USD, AUD, KRW, JPY; labels read country names per E3.
     const tw = container.querySelector('[data-testid="account-create-currency-TWD"]');
     const us = container.querySelector('[data-testid="account-create-currency-USD"]');
     const au = container.querySelector('[data-testid="account-create-currency-AUD"]');
+    const kr = container.querySelector('[data-testid="account-create-currency-KRW"]');
+    const jp = container.querySelector('[data-testid="account-create-currency-JPY"]');
     expect(tw).toBeTruthy();
     expect(us).toBeTruthy();
     expect(au).toBeTruthy();
+    expect(kr).toBeTruthy();
+    expect(jp).toBeTruthy();
     expect(tw!.textContent).toContain(dict.settings.accountCreateMarketTaiwan);
     expect(us!.textContent).toContain(dict.settings.accountCreateMarketUnitedStates);
     expect(au!.textContent).toContain(dict.settings.accountCreateMarketAustralia);
+    expect(kr!.textContent).toContain(dict.settings.accountCreateMarketKorea);
+    expect(jp!.textContent).toContain(dict.settings.accountCreateMarketJapan);
 
     // Currency-lock callout.
     const callout = container.querySelector('[data-testid="account-create-currency-lock"]');

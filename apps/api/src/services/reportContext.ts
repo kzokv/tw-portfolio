@@ -27,7 +27,7 @@ export interface ReportContextResolution {
 export function resolveReportContext(input: ResolveReportContextInput): ReportContextResolution {
   const scope = (input.scope ?? "all").trim();
   if (!(REPORT_SCOPES as readonly string[]).includes(scope)) {
-    throw routeError(400, "invalid_report_scope", "scope must be all, TW, US, AU, or KR");
+    throw routeError(400, "invalid_report_scope", "scope must be all, TW, US, AU, KR, or JP");
   }
 
   const currencyMode = (input.currencyMode ?? "auto").trim();
@@ -38,7 +38,7 @@ export function resolveReportContext(input: ResolveReportContextInput): ReportCo
   const resolvedScope = scope as ReportScope;
   const normalizedCurrency = input.currency?.trim().toUpperCase() ?? null;
   if (normalizedCurrency !== null && !(ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(normalizedCurrency)) {
-    throw routeError(400, "invalid_report_currency", "currency must be TWD, USD, AUD, or KRW");
+    throw routeError(400, "invalid_report_currency", "currency must be TWD, USD, AUD, KRW, or JPY");
   }
 
   const nativeCurrency = resolvedScope === "all" ? null : currencyFor(resolvedScope);

@@ -1,7 +1,7 @@
 import type { MarketCode } from "@vakwen/domain";
 import { MARKET_TIMEZONE } from "./tradingCalendar.js";
 
-export type RegularSessionMarketCode = "TW" | "US" | "AU" | "KR";
+export type RegularSessionMarketCode = "TW" | "US" | "AU" | "KR" | "JP";
 
 export interface RegularSessionClock {
   isTradingDay(market: RegularSessionMarketCode, date: string): Promise<boolean>;
@@ -31,13 +31,14 @@ export interface RegularSessionState {
   closesAtLocal: string;
 }
 
-const REGULAR_SESSION_MARKETS = new Set<RegularSessionMarketCode>(["TW", "US", "AU", "KR"]);
+const REGULAR_SESSION_MARKETS = new Set<RegularSessionMarketCode>(["TW", "US", "AU", "KR", "JP"]);
 
 const MARKET_OPEN_LOCAL_TIME: Record<RegularSessionMarketCode, { hour: number; minute: number }> = {
   TW: { hour: 9, minute: 0 },
   US: { hour: 9, minute: 30 },
   AU: { hour: 10, minute: 0 },
   KR: { hour: 9, minute: 0 },
+  JP: { hour: 9, minute: 0 },
 };
 
 const MARKET_CLOSE_LOCAL_TIME: Record<RegularSessionMarketCode, { hour: number; minute: number }> = {
@@ -45,6 +46,22 @@ const MARKET_CLOSE_LOCAL_TIME: Record<RegularSessionMarketCode, { hour: number; 
   US: { hour: 16, minute: 0 },
   AU: { hour: 16, minute: 0 },
   KR: { hour: 15, minute: 30 },
+  JP: { hour: 15, minute: 30 },
+};
+
+const MARKET_REGULAR_SESSION_WINDOWS: Partial<
+  Record<
+    RegularSessionMarketCode,
+    ReadonlyArray<{
+      open: { hour: number; minute: number };
+      close: { hour: number; minute: number };
+    }>
+  >
+> = {
+  JP: [
+    { open: { hour: 9, minute: 0 }, close: { hour: 11, minute: 30 } },
+    { open: { hour: 12, minute: 30 }, close: { hour: 15, minute: 30 } },
+  ],
 };
 const CLOSE_REFRESH_LOOKBACK_DAYS = 14;
 
@@ -199,12 +216,18 @@ export function isWithinRegularSessionTime(
   localHour: number,
   localMinute: number,
 ): boolean {
-  const open = MARKET_OPEN_LOCAL_TIME[marketCode];
-  const close = MARKET_CLOSE_LOCAL_TIME[marketCode];
+  const windows = MARKET_REGULAR_SESSION_WINDOWS[marketCode] ?? [
+    {
+      open: MARKET_OPEN_LOCAL_TIME[marketCode],
+      close: MARKET_CLOSE_LOCAL_TIME[marketCode],
+    },
+  ];
   const totalMinutes = localHour * 60 + localMinute;
-  const openMinutes = open.hour * 60 + open.minute;
-  const closeMinutes = close.hour * 60 + close.minute;
-  return totalMinutes >= openMinutes && totalMinutes < closeMinutes;
+  return windows.some(({ open, close }) => {
+    const openMinutes = open.hour * 60 + open.minute;
+    const closeMinutes = close.hour * 60 + close.minute;
+    return totalMinutes >= openMinutes && totalMinutes < closeMinutes;
+  });
 }
 
 function isAfterRegularSessionClose(

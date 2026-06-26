@@ -5,7 +5,7 @@ import { RateLimiter } from "../market-data/rateLimiter.js";
 import { RateLimitedError } from "../market-data/types.js";
 import { createEmptyTickerFundamentals, type FundamentalsProvider } from "./types.js";
 
-type YahooFundamentalsProviderMarket = "TW" | "US" | "AU" | "KR";
+type YahooFundamentalsProviderMarket = "TW" | "US" | "AU" | "KR" | "JP";
 
 const QUERY_MODULES = [
   "price",
@@ -93,6 +93,7 @@ function normalizeYahooSymbols(ticker: string, marketCode: YahooFundamentalsProv
   const normalized = ticker.trim().toUpperCase();
   if (marketCode === "TW") return [normalized.endsWith(".TW") ? normalized : `${normalized}.TW`];
   if (marketCode === "AU") return [normalized.endsWith(".AX") ? normalized : `${normalized}.AX`];
+  if (marketCode === "JP") return [normalized.endsWith(".T") ? normalized : `${normalized}.T`];
   if (marketCode === "KR") {
     if (normalized.endsWith(".KS") || normalized.endsWith(".KQ")) return [normalized];
     return [`${normalized}.KS`, `${normalized}.KQ`];

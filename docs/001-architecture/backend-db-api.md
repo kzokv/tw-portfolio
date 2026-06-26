@@ -1046,6 +1046,7 @@ Current numbered migration inventory:
 - `049_kzo195_absence_delisting_detection.sql`: adds `last_seen_in_catalog_at TIMESTAMP NULL`, `absence_streak INTEGER NOT NULL DEFAULT 0`, `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` to `market_data.instruments`; adds `catalog_absence_threshold`, `catalog_absence_guard_percent`, `catalog_absence_guard_floor` to `app_config`; extends `audit_log_action_check` with `instrument_undelete` and `instrument_exclusion_toggle` action codes (KZO-195)
 - `050_kzo196_gics_industry_group.sql`: adds `gics_industry_group TEXT NULL` to `market_data.instruments` with a partial covering index on `(market_code, gics_industry_group) WHERE gics_industry_group IS NOT NULL`; one-time UPDATE nulling `industry_category_raw` for AU rows (KZO-194 cleanup); adds `asx_gics_refresh_cron TEXT NULL` to `app_config` for the Tier A cron-override column; seeds the `asx-gics-csv` row in `market_data.provider_health_status` (KZO-196)
 - `062_kr_market_support.sql`: extends `accounts.default_currency` to include `KRW`, maps `KRW -> KR` in `currency_to_market`, extends `market_data.ticker_fundamentals.market_code` to `KR`, and seeds `yahoo-finance-kr` / `twelve-data-kr` provider-health rows
+- `092_jp_market_support.sql`: extends `accounts.default_currency` to include `JPY`, maps `JPY -> JP` in `currency_to_market`, widens JP-aware provider/calendar/app-config checks, adds JP Yahoo rate-limit and JP catalog-inclusion app-config columns, seeds `yahoo-finance-jp` / `twelve-data-jp` provider-health rows, and seeds default market calendar source `official-jp`
 
 ### Transaction market selector and symbol disambiguation (KZO-169)
 
@@ -1053,7 +1054,7 @@ KZO-169 makes BUY/SELL transaction entry market-aware while leaving DIV/STOCK_DI
 
 `POST /portfolio/transactions` and `POST /portfolio/transactions/estimate` require `marketCode`. The route resolves instruments by `(ticker, marketCode)`, derives trade currency with `currencyFor(marketCode)`, and rejects stale clients or bulk paths with `400 currency_mismatch` when `account.defaultCurrency` differs. Edit mode keeps ticker and market locked, and `TransactionHistoryItemDto.marketCode` is non-null after migration `044`.
 
-`GET /instruments` accepts `market_code=TW|US|AU|KR|ALL`, defaulting to `ALL`. Specific-market requests are filtered server-side; `ALL` returns cross-market rows so the web combobox can display disambiguated labels such as `BHP · AU` and `BHP · US`. `PUT /monitored-tickers` accepts `{ tickers: [{ ticker, marketCode }] }`. Backfill job payloads carry `{ ticker, marketCode, userId }`; `marketCode` is required and validated by `BackfillJobDataSchema` (Zod) at handler entry — old-shape jobs without `marketCode` are rejected immediately (ZodError → pg-boss retry → terminal failed). The `getAllMonitoredTickers()` persistence method returns `{ ticker, marketCode }[]` so producers stamp both fields directly without per-ticker lookup.
+`GET /instruments` accepts `market_code=TW|US|AU|KR|JP|ALL`, defaulting to `ALL`. Specific-market requests are filtered server-side; `ALL` returns cross-market rows so the web combobox can display disambiguated labels such as `BHP · AU` and `BHP · US`. `PUT /monitored-tickers` accepts `{ tickers: [{ ticker, marketCode }] }`. Backfill job payloads carry `{ ticker, marketCode, userId }`; `marketCode` is required and validated by `BackfillJobDataSchema` (Zod) at handler entry — old-shape jobs without `marketCode` are rejected immediately (ZodError → pg-boss retry → terminal failed). The `getAllMonitoredTickers()` persistence method returns `{ ticker, marketCode }[]` so producers stamp both fields directly without per-ticker lookup.
 
 ### Persistence write-path map
 
@@ -1603,7 +1604,7 @@ KZO-183 ownership model:
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
 Trade posting behavior:
-- derives the account market from `accounts.default_currency` (`TWD -> TW`, `USD -> US`, `AUD -> AU`)
+- derives the account market from `accounts.default_currency` (`TWD -> TW`, `USD -> US`, `AUD -> AU`, `KRW -> KR`, `JPY -> JP`)
 - rejects the request when `trade.marketCode` does not match the derived account market
 - resolves the account default fee profile first, then a same-account per-symbol override if present
 - looks up instrument type from `symbols`
@@ -1696,7 +1697,7 @@ Finding:
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/market-data/price` | query `ticker`, `date`, `market_code` (TW\|US\|AU\|KR) | `{ ticker, date, close, currency, sourceId }` | `marketDataRegistry.marketData.get(market_code)`, per-IP rate limit (30/min) | yes (quote card) |
-| `GET` | `/market-data/search` | query `q` (2–50 chars, `[A-Za-z0-9 .&'()-]+`), `market_code` (TW\|US\|AU\|KR) | `{ instruments: RawInstrumentInfo[] }` | `marketDataRegistry.catalog.get(market_code).searchInstruments`, per-IP rate limit (20/min) | instrument sheet live search |
+| `GET` | `/market-data/search` | query `q` (2–50 chars, `[A-Za-z0-9 .&'()-]+`), `market_code` (TW\|US\|AU\|KR\|JP) | `{ instruments: RawInstrumentInfo[] }` | JP checks persisted catalog matches before provider fallback; other markets use `marketDataRegistry.catalog.get(market_code).searchInstruments`; per-IP rate limit (20/min) | instrument sheet live search |
 
 Market data route behavior:
 - `/market-data/price`: auth required (`resolveUserId`). Returns 429 on per-IP limit breach; 503 + `Retry-After` on upstream provider budget exhaustion (`RateLimitedError`). AU and KR use Yahoo Finance (`yahoo-finance2`); TW and US use FinMind.

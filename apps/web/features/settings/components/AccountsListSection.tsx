@@ -129,6 +129,7 @@ function marketBadgeLabel(
     case "USD": return dict.settings.accountsListMarketBadgeUS;
     case "AUD": return dict.settings.accountsListMarketBadgeAU;
     case "KRW": return dict.settings.accountsListMarketBadgeKR;
+    case "JPY": return dict.settings.accountsListMarketBadgeJP;
   }
 }
 
@@ -138,6 +139,7 @@ function marketBadgeColorClass(currency: AccountDefaultCurrency): string {
     case "USD": return "bg-indigo-50 text-indigo-700";
     case "AUD": return "bg-rose-50 text-rose-700";
     case "KRW": return "bg-amber-50 text-amber-700";
+    case "JPY": return "bg-slate-50 text-slate-700";
   }
 }
 

@@ -70,8 +70,8 @@ async function createAdmin(app: BuiltApp): Promise<{ userId: string; cookie: str
   return { userId, cookie };
 }
 
-async function seedAuCatalogPending(app: BuiltApp, tickers: string[]): Promise<void> {
-  // Use the memory test helper to seed AU instruments with `barsBackfillStatus="pending"`.
+async function seedCatalogPending(app: BuiltApp, tickers: string[], marketCode = "AU"): Promise<void> {
+  // Use the memory test helper to seed market instruments with `barsBackfillStatus="pending"`.
   for (const ticker of tickers) {
     (app.persistence as unknown as {
       _seedInstrument: (i: {
@@ -85,7 +85,7 @@ async function seedAuCatalogPending(app: BuiltApp, tickers: string[]): Promise<v
       ticker,
       name: `${ticker} Ltd`,
       instrumentType: "STOCK",
-      marketCode: "AU",
+      marketCode,
       barsBackfillStatus: "pending",
     });
   }
@@ -119,7 +119,7 @@ describe("KZO-197 — AU rerun union (catalog warm-up + monitored refresh)", () 
     // 5-candidate semantics are exercised in Postgres-backed integration
     // (where app.boss !== null).
     const admin = await createAdmin(app);
-    await seedAuCatalogPending(app, [
+    await seedCatalogPending(app, [
       "AUWARM01",
       "AUWARM02",
       "AUWARM03",
@@ -173,7 +173,7 @@ describe("KZO-197 — AU rerun union (catalog warm-up + monitored refresh)", () 
   it("post-warm-up AU (memory mode): nested keys present, tickerCount=0 (no dispatch)", async () => {
     const admin = await createAdmin(app);
     // Seed all 5 as pending initially.
-    await seedAuCatalogPending(app, [
+    await seedCatalogPending(app, [
       "AUWARM01",
       "AUWARM02",
       "AUWARM03",
@@ -249,6 +249,102 @@ describe("KZO-197 — AU rerun union (catalog warm-up + monitored refresh)", () 
     expect(meta.catalogBackfill.tickerCount).toBe(0);
     expect(meta.monitoredRefresh.tickerCount).toBe(0);
     expect(meta.tickerCount).toBe(0);
+  });
+
+  it("fresh-deploy JP (memory mode): rerun stays scoped to JP union metadata", async () => {
+    const admin = await createAdmin(app);
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "yahoo-finance-jp",
+      status: "down",
+      lastSuccessfulRun: null,
+      lastFailedRun: null,
+      lastManualRerunAt: null,
+    });
+    await seedCatalogPending(app, ["JPWARM01", "JPWARM02"], "JP");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/admin/providers/yahoo-finance-jp/rerun",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(202);
+
+    const body = res.json() as { status: string; tickerCount: number };
+    expect(body.status).toBe("queued");
+    expect(body.tickerCount).toBe(0);
+
+    const auditResp = await app.persistence.listAuditLog({
+      page: 1,
+      limit: 10,
+      actions: ["provider_health_rerun"],
+    });
+    const entry = auditResp.items.find(
+      (e) => (e.metadata as { providerId?: string }).providerId === "yahoo-finance-jp",
+    );
+    expect(entry).toBeDefined();
+    const meta = entry!.metadata as {
+      providerId: string;
+      marketCode: string;
+      tickerCount: number;
+      catalogBackfill: { tickerCount: number; jobId: string | null };
+      monitoredRefresh: { tickerCount: number; jobId: string | null };
+    };
+    expect(meta.providerId).toBe("yahoo-finance-jp");
+    expect(meta.marketCode).toBe("JP");
+    expect(meta.catalogBackfill).toEqual({ tickerCount: 0, jobId: null });
+    expect(meta.monitoredRefresh).toEqual({ tickerCount: 0, jobId: null });
+    expect(meta.tickerCount).toBe(0);
+  });
+
+  it("Twelve Data JP rerun dispatches JP catalog sync instead of falling through to US refresh", async () => {
+    const admin = await createAdmin(app);
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "twelve-data-jp",
+      status: "down",
+      lastSuccessfulRun: null,
+      lastFailedRun: null,
+      lastManualRerunAt: null,
+    });
+    const bossSend = vi.fn().mockResolvedValue("catalog-sync-jp");
+    app.boss = { send: bossSend } as never;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/admin/providers/twelve-data-jp/rerun",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(202);
+
+    const body = res.json() as { status: string; tickerCount: number; jobId: string | null };
+    expect(body).toMatchObject({
+      status: "queued",
+      tickerCount: 0,
+      jobId: "catalog-sync-jp",
+    });
+    expect(bossSend).toHaveBeenCalledTimes(1);
+    expect(bossSend).toHaveBeenCalledWith(
+      "catalog-sync",
+      { pendingMarkets: ["JP"] },
+      expect.objectContaining({ singletonKey: "catalog-sync:JP", priority: 5 }),
+    );
+
+    const auditResp = await app.persistence.listAuditLog({
+      page: 1,
+      limit: 10,
+      actions: ["provider_health_rerun"],
+    });
+    const entry = auditResp.items.find(
+      (e) => (e.metadata as { providerId?: string }).providerId === "twelve-data-jp",
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.metadata).toMatchObject({
+      providerId: "twelve-data-jp",
+      marketCode: "JP",
+      tickerCount: 0,
+      jobId: "catalog-sync-jp",
+    });
   });
 
   it("non-AU provider audit metadata stays flat (back-compat)", async () => {

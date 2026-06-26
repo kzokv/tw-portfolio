@@ -61,7 +61,7 @@ describe("getEffectiveYahooAuRerunCooldownMs (KZO-197)", () => {
 });
 
 describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
-  it.each(["yahoo-finance-au", "yahoo-finance-kr"])(
+  it.each(["yahoo-finance-au", "yahoo-finance-kr", "yahoo-finance-jp"])(
     "dispatches '%s' to the Yahoo resolver (env fallback path)",
     (providerId) => {
       expect(getEffectiveProviderRerunCooldownMs(providerId)).toBe(
@@ -74,10 +74,14 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
     await seedCache({ yahooAuRerunCooldownMs: 9_999 } as never, cacheModule);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(9_999);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(9_999);
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-jp")).toBe(9_999);
   });
 
-  it("keeps the longer Yahoo cooldown for KR reruns", () => {
+  it("keeps the longer Yahoo cooldown for KR and JP reruns", () => {
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(
+      Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+    );
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-jp")).toBe(
       Env.YAHOO_AU_RERUN_COOLDOWN_MS,
     );
   });
@@ -99,6 +103,7 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
     await seedCache({ yahooAuRerunCooldownMs: 5_000 } as never, cacheModule);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(5_000);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(5_000);
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-jp")).toBe(5_000);
     // TW / US / catalog / FX providers stay on the generic 60-s default.
     const genericProviders = [
       "finmind-tw",
@@ -123,6 +128,9 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
       Env.YAHOO_AU_RERUN_COOLDOWN_MS,
     );
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(
+      Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+    );
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-jp")).toBe(
       Env.YAHOO_AU_RERUN_COOLDOWN_MS,
     );
   });

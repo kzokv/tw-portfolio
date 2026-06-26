@@ -21,7 +21,7 @@ export const FX_REFRESH_CRON = Env.FX_REFRESH_CRON;
  * grep finds all consumers, and so the worker filter rejects non-stored quotes
  * unconditionally regardless of which `bases` the job was launched with.
  */
-export const STORED_QUOTES = ["TWD", "USD", "AUD", "KRW"] as const;
+export const STORED_QUOTES = ["TWD", "USD", "AUD", "KRW", "JPY"] as const;
 export type StoredQuote = (typeof STORED_QUOTES)[number];
 
 export interface FxRefreshWorkerDeps {

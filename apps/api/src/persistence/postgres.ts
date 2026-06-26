@@ -237,6 +237,13 @@ function computeChecksum(content: string): string {
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_LENGTH = 8;
 const PENDING_SHARE_INVITE_LIMIT = 10;
+const STRICT_TICKER_RE = /^[A-Za-z0-9]{1,16}$/;
+const JP_RELAXED_TICKER_RE = /^[A-Za-z0-9@]{1,16}$/;
+
+function isPersistedInstrumentTicker(ticker: string, marketCode: string): boolean {
+  if (marketCode === "JP") return JP_RELAXED_TICKER_RE.test(ticker);
+  return STRICT_TICKER_RE.test(ticker);
+}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -4564,7 +4571,7 @@ export class PostgresPersistence implements Persistence {
       hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
     );
     const instruments = symbolsResult.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -4980,7 +4987,7 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
     }));
     const instruments = symbolsResult.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -5076,7 +5083,7 @@ export class PostgresPersistence implements Persistence {
        ORDER BY market_code, ticker`,
     );
     const instruments = result.rows
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker, String(row.market_code)))
       .map((row): InstrumentDef => ({
         ticker: row.ticker,
         type: row.instrument_type,
@@ -5502,7 +5509,7 @@ export class PostgresPersistence implements Persistence {
     const instruments = symbolsResult.rows
       // Guard against index tickers (e.g. ^DJI) that may have been stored by an
       // earlier catalog sync before the deduplicateInstruments filter was in place.
-      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .filter((row) => isPersistedInstrumentTicker(row.ticker as string, String(row.market_code)))
       .map((row) => ({
         ticker: row.ticker,
         name: row.name ?? undefined,
@@ -11522,14 +11529,19 @@ export class PostgresPersistence implements Persistence {
     twelveDataProviderRateLimitPerMinute: number | null;
     yahooAuProviderRateLimitPerMinute: number | null;
     yahooKrProviderRateLimitPerMinute: number | null;
+    yahooJpProviderRateLimitPerMinute: number | null;
     frankfurterProviderRateLimitPerMinute: number | null;
     asxGicsProviderRateLimitPerHour: number | null;
     finmindProviderMinRequestIntervalMs: number | null;
     twelveDataProviderMinRequestIntervalMs: number | null;
     yahooAuProviderMinRequestIntervalMs: number | null;
     yahooKrProviderMinRequestIntervalMs: number | null;
+    yahooJpProviderMinRequestIntervalMs: number | null;
     frankfurterProviderMinRequestIntervalMs: number | null;
     asxGicsProviderMinRequestIntervalMs: number | null;
+    jpCatalogAllowedStockTypes: import("@vakwen/shared-types").JpCatalogStockType[] | null;
+    jpCatalogIncludeDepositaryReceipts: boolean | null;
+    jpCatalogIncludeAtSymbols: boolean | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -11570,6 +11582,7 @@ export class PostgresPersistence implements Persistence {
     valuationHealthAbsoluteUsd: number | null;
     valuationHealthAbsoluteTwd: number | null;
     valuationHealthAbsoluteKrw: number | null;
+    valuationHealthAbsoluteJpy: number | null;
     routeCachePolicyMode: import("./types.js").RouteCachePolicyMode | null;
     routeCacheDashboardPrimaryTtlMs: number | null;
     routeCacheDashboardEnrichmentTtlMs: number | null;
@@ -11614,14 +11627,19 @@ export class PostgresPersistence implements Persistence {
       twelve_data_provider_rate_limit_per_minute: number | null;
       yahoo_au_provider_rate_limit_per_minute: number | null;
       yahoo_kr_provider_rate_limit_per_minute: number | null;
+      yahoo_jp_provider_rate_limit_per_minute: number | null;
       frankfurter_provider_rate_limit_per_minute: number | null;
       asx_gics_provider_rate_limit_per_hour: number | null;
       finmind_provider_min_request_interval_ms: number | string | null;
       twelve_data_provider_min_request_interval_ms: number | string | null;
       yahoo_au_provider_min_request_interval_ms: number | string | null;
       yahoo_kr_provider_min_request_interval_ms: number | string | null;
+      yahoo_jp_provider_min_request_interval_ms: number | string | null;
       frankfurter_provider_min_request_interval_ms: number | string | null;
       asx_gics_provider_min_request_interval_ms: number | string | null;
+      jp_catalog_allowed_stock_types: import("@vakwen/shared-types").JpCatalogStockType[] | null;
+      jp_catalog_include_depositary_receipts: boolean | null;
+      jp_catalog_include_at_symbols: boolean | null;
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
@@ -11662,6 +11680,7 @@ export class PostgresPersistence implements Persistence {
       valuation_health_absolute_usd: number | string | null;
       valuation_health_absolute_twd: number | string | null;
       valuation_health_absolute_krw: number | string | null;
+      valuation_health_absolute_jpy: number | string | null;
       route_cache_policy_mode: import("./types.js").RouteCachePolicyMode | null;
       route_cache_dashboard_primary_ttl_ms: number | string | null;
       route_cache_dashboard_enrichment_ttl_ms: number | string | null;
@@ -11689,10 +11708,13 @@ export class PostgresPersistence implements Persistence {
          provider_incident_retention_days, provider_resolved_item_retention_days,
          finmind_provider_rate_limit_per_hour, twelve_data_provider_rate_limit_per_minute,
          yahoo_au_provider_rate_limit_per_minute, yahoo_kr_provider_rate_limit_per_minute,
-         frankfurter_provider_rate_limit_per_minute, asx_gics_provider_rate_limit_per_hour,
+         yahoo_jp_provider_rate_limit_per_minute, frankfurter_provider_rate_limit_per_minute,
+         asx_gics_provider_rate_limit_per_hour,
          finmind_provider_min_request_interval_ms, twelve_data_provider_min_request_interval_ms,
          yahoo_au_provider_min_request_interval_ms, yahoo_kr_provider_min_request_interval_ms,
-         frankfurter_provider_min_request_interval_ms, asx_gics_provider_min_request_interval_ms,
+         yahoo_jp_provider_min_request_interval_ms, frankfurter_provider_min_request_interval_ms,
+         asx_gics_provider_min_request_interval_ms,
+         jp_catalog_allowed_stock_types, jp_catalog_include_depositary_receipts, jp_catalog_include_at_symbols,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          ticker_price_close_refresh_grace_minutes, ticker_price_intraday_enabled,
          ticker_price_intraday_refresh_interval_minutes, ticker_price_intraday_freshness_tolerance_minutes,
@@ -11711,7 +11733,7 @@ export class PostgresPersistence implements Persistence {
          anonymous_share_token_retention_ms, user_preferences_max_bytes,
          account_hard_purge_days,
          valuation_health_relative_bps, valuation_health_absolute_aud, valuation_health_absolute_usd,
-         valuation_health_absolute_twd, valuation_health_absolute_krw,
+         valuation_health_absolute_twd, valuation_health_absolute_krw, valuation_health_absolute_jpy,
          route_cache_policy_mode,
          route_cache_dashboard_primary_ttl_ms, route_cache_dashboard_enrichment_ttl_ms,
          route_cache_dashboard_performance_ttl_ms, route_cache_portfolio_ttl_ms,
@@ -11756,14 +11778,19 @@ export class PostgresPersistence implements Persistence {
         twelveDataProviderRateLimitPerMinute: null,
         yahooAuProviderRateLimitPerMinute: null,
         yahooKrProviderRateLimitPerMinute: null,
+        yahooJpProviderRateLimitPerMinute: null,
         frankfurterProviderRateLimitPerMinute: null,
         asxGicsProviderRateLimitPerHour: null,
         finmindProviderMinRequestIntervalMs: null,
         twelveDataProviderMinRequestIntervalMs: null,
         yahooAuProviderMinRequestIntervalMs: null,
         yahooKrProviderMinRequestIntervalMs: null,
+        yahooJpProviderMinRequestIntervalMs: null,
         frankfurterProviderMinRequestIntervalMs: null,
         asxGicsProviderMinRequestIntervalMs: null,
+        jpCatalogAllowedStockTypes: null,
+        jpCatalogIncludeDepositaryReceipts: null,
+        jpCatalogIncludeAtSymbols: null,
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
@@ -11804,6 +11831,7 @@ export class PostgresPersistence implements Persistence {
         valuationHealthAbsoluteUsd: null,
         valuationHealthAbsoluteTwd: null,
         valuationHealthAbsoluteKrw: null,
+        valuationHealthAbsoluteJpy: null,
         routeCachePolicyMode: null,
         routeCacheDashboardPrimaryTtlMs: null,
         routeCacheDashboardEnrichmentTtlMs: null,
@@ -11856,14 +11884,19 @@ export class PostgresPersistence implements Persistence {
       twelveDataProviderRateLimitPerMinute: row.twelve_data_provider_rate_limit_per_minute,
       yahooAuProviderRateLimitPerMinute: row.yahoo_au_provider_rate_limit_per_minute,
       yahooKrProviderRateLimitPerMinute: row.yahoo_kr_provider_rate_limit_per_minute,
+      yahooJpProviderRateLimitPerMinute: row.yahoo_jp_provider_rate_limit_per_minute,
       frankfurterProviderRateLimitPerMinute: row.frankfurter_provider_rate_limit_per_minute,
       asxGicsProviderRateLimitPerHour: row.asx_gics_provider_rate_limit_per_hour,
       finmindProviderMinRequestIntervalMs: num(row.finmind_provider_min_request_interval_ms),
       twelveDataProviderMinRequestIntervalMs: num(row.twelve_data_provider_min_request_interval_ms),
       yahooAuProviderMinRequestIntervalMs: num(row.yahoo_au_provider_min_request_interval_ms),
       yahooKrProviderMinRequestIntervalMs: num(row.yahoo_kr_provider_min_request_interval_ms),
+      yahooJpProviderMinRequestIntervalMs: num(row.yahoo_jp_provider_min_request_interval_ms),
       frankfurterProviderMinRequestIntervalMs: num(row.frankfurter_provider_min_request_interval_ms),
       asxGicsProviderMinRequestIntervalMs: num(row.asx_gics_provider_min_request_interval_ms),
+      jpCatalogAllowedStockTypes: row.jp_catalog_allowed_stock_types,
+      jpCatalogIncludeDepositaryReceipts: row.jp_catalog_include_depositary_receipts,
+      jpCatalogIncludeAtSymbols: row.jp_catalog_include_at_symbols,
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
@@ -11904,6 +11937,7 @@ export class PostgresPersistence implements Persistence {
       valuationHealthAbsoluteUsd: num(row.valuation_health_absolute_usd),
       valuationHealthAbsoluteTwd: num(row.valuation_health_absolute_twd),
       valuationHealthAbsoluteKrw: num(row.valuation_health_absolute_krw),
+      valuationHealthAbsoluteJpy: num(row.valuation_health_absolute_jpy),
       routeCachePolicyMode: row.route_cache_policy_mode,
       routeCacheDashboardPrimaryTtlMs: num(row.route_cache_dashboard_primary_ttl_ms),
       routeCacheDashboardEnrichmentTtlMs: num(row.route_cache_dashboard_enrichment_ttl_ms),
@@ -16274,8 +16308,8 @@ function mapProviderOperationLogRow(row: ProviderOperationLogRowSql): ProviderOp
   };
 }
 
-function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "KR" {
-  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR";
+function isMarketCalendarActivityMarket(marketCode: MarketCode): marketCode is "TW" | "US" | "AU" | "KR" | "JP" {
+  return marketCode === "TW" || marketCode === "US" || marketCode === "AU" || marketCode === "KR" || marketCode === "JP";
 }
 
 function providerOperationLogLevelToActivityResult(level: ProviderOperationLogLevel): MarketCalendarActivityResult {
@@ -16789,7 +16823,7 @@ function validateMarketDataInvariants(marketData: MarketDataFacts): void {
   }
 
   for (const instrument of marketData.instruments) {
-    if (!/^[A-Za-z0-9]{1,16}$/.test(instrument.ticker)) {
+    if (!isPersistedInstrumentTicker(instrument.ticker, instrument.marketCode)) {
       throw new Error(`instrument ${instrument.ticker} has invalid ticker`);
     }
     if (!/^[A-Z]{2,8}$/.test(instrument.marketCode)) {

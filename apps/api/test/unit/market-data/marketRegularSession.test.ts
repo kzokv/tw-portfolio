@@ -60,6 +60,35 @@ describe("marketRegularSession", () => {
     expect(state.isOpen).toBe(false);
   });
 
+  it("marks JP as closed during the JPX lunch recess", async () => {
+    const state = await getRegularSessionState(
+      "JP",
+      { isTradingDay: vi.fn().mockResolvedValue(true) },
+      new Date("2026-06-17T03:00:00.000Z"),
+    );
+
+    expect(state).toMatchObject({
+      marketCode: "JP",
+      marketTimeZone: "Asia/Tokyo",
+      localDate: "2026-06-17",
+      isTradingDay: true,
+      isOpen: false,
+      isAfterRegularSessionClose: false,
+    });
+  });
+
+  it("marks JP as open after the JPX afternoon session resumes", async () => {
+    const state = await getRegularSessionState(
+      "JP",
+      { isTradingDay: vi.fn().mockResolvedValue(true) },
+      new Date("2026-06-17T03:30:00.000Z"),
+    );
+
+    expect(state.isTradingDay).toBe(true);
+    expect(state.isOpen).toBe(true);
+    expect(state.isAfterRegularSessionClose).toBe(false);
+  });
+
   it("treats missing current-day calendar coverage as non-trading instead of falling back to weekday", async () => {
     const tradingDates = new Set(["2026-06-16"]);
     const state = await getRegularSessionState(

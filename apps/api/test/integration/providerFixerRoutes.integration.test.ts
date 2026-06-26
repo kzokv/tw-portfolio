@@ -2159,6 +2159,68 @@ describe("Provider Fixer admin routes", () => {
     );
   });
 
+  it("narrows JP all-matching backfill previews to pending and failed rows by default", async () => {
+    const admin = await createAdmin(app);
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };
+    const seedInstrument = (instrument: {
+      ticker: string;
+      barsBackfillStatus: "pending" | "failed" | "ready";
+    }) => {
+      (app.persistence as unknown as {
+        _seedInstrument(input: {
+          ticker: string;
+          name: string;
+          instrumentType: "STOCK";
+          marketCode: "JP";
+          barsBackfillStatus: "pending" | "failed" | "ready";
+          typeRaw?: string;
+          catalogExchangeRaw?: string;
+          catalogMicCode?: string;
+        }): void;
+      })._seedInstrument({
+        ticker: instrument.ticker,
+        name: `${instrument.ticker} JP`,
+        instrumentType: "STOCK",
+        marketCode: "JP",
+        barsBackfillStatus: instrument.barsBackfillStatus,
+        typeRaw: "Common Stock",
+        catalogExchangeRaw: "JPX",
+        catalogMicCode: "XJPX",
+      });
+    };
+    seedInstrument({ ticker: "7203", barsBackfillStatus: "pending" });
+    seedInstrument({ ticker: "6758", barsBackfillStatus: "failed" });
+    seedInstrument({ ticker: "9984", barsBackfillStatus: "ready" });
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/JP/backfill/preview",
+      headers,
+      payload: {
+        scope: "all_matching",
+        providerId: "yahoo-finance-jp",
+        filters: {
+          status: "listed",
+          supportState: "supported",
+          instrumentType: "all",
+        },
+      },
+    });
+
+    expect(preview.statusCode).toBe(200);
+    const previewBody = preview.json() as {
+      marketCode: string;
+      providerId: string;
+      matchCount: number;
+      targets: Array<{ ticker: string; marketCode: string; backfillStatus?: string | null }>;
+    };
+    expect(previewBody.marketCode).toBe("JP");
+    expect(previewBody.providerId).toBe("yahoo-finance-jp");
+    expect(previewBody.matchCount).toBe(2);
+    expect(previewBody.targets.map((target) => target.ticker).sort()).toEqual(["6758", "7203"]);
+    expect(previewBody.targets.map((target) => target.backfillStatus).sort()).toEqual(["failed", "pending"]);
+  });
+
   it("rejects catalog-provider unresolved rows for market retry previews", async () => {
     const admin = await createAdmin(app);
     const headers = { cookie: `${SESSION_COOKIE_NAME}=${admin.cookie}` };

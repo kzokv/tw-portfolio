@@ -216,7 +216,7 @@ describe("catalog sync per-market reschedule (KZO-170 D12)", () => {
     });
 
     // Invalid market code in pendingMarkets — Zod parse must throw.
-    await expect(handler([createJob({ pendingMarkets: ["JP"] })])).rejects.toThrow(ZodError);
+    await expect(handler([createJob({ pendingMarkets: ["ZZ"] })])).rejects.toThrow(ZodError);
 
     // No side effects: provider not consulted, no reschedule, no refresh enqueue.
     expect(runCatalogSyncFn).not.toHaveBeenCalled();

@@ -27,6 +27,9 @@ export type { MockTwelveDataAuCatalogProviderConfig } from "./mockTwelveDataAu.j
 export { YahooFinanceKrMarketDataProvider } from "./yahooFinanceKr.js";
 export type { YahooFinanceKrMarketDataProviderConfig } from "./yahooFinanceKr.js";
 export { MockYahooFinanceKrMarketDataProvider } from "./mockYahooFinanceKr.js";
+export { YahooFinanceJpMarketDataProvider } from "./yahooFinanceJp.js";
+export type { YahooFinanceJpMarketDataProviderConfig } from "./yahooFinanceJp.js";
+export { MockYahooFinanceJpMarketDataProvider } from "./mockYahooFinanceJp.js";
 export { YahooFinanceIntradayProvider } from "./yahooFinanceIntraday.js";
 export type {
   YahooFinanceIntradayProviderConfig,
@@ -42,3 +45,7 @@ export { TwelveDataKrCatalogProvider } from "./twelveDataKr.js";
 export type { TwelveDataKrCatalogProviderConfig } from "./twelveDataKr.js";
 export { MockTwelveDataKrCatalogProvider, MOCK_TD_KR_CATALOG_TICKERS } from "./mockTwelveDataKr.js";
 export type { MockTwelveDataKrCatalogProviderConfig } from "./mockTwelveDataKr.js";
+export { TwelveDataJpCatalogProvider } from "./twelveDataJp.js";
+export type { TwelveDataJpCatalogProviderConfig } from "./twelveDataJp.js";
+export { MockTwelveDataJpCatalogProvider, MOCK_TD_JP_CATALOG_TICKERS } from "./mockTwelveDataJp.js";
+export type { MockTwelveDataJpCatalogProviderConfig } from "./mockTwelveDataJp.js";

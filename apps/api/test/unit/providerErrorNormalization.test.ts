@@ -62,4 +62,24 @@ describe("provider error normalization", () => {
     });
     expect(providerUnresolvedItemInputFromErrorTrail(row)).toBeNull();
   });
+
+  it("infers JP market scope from provider suffixes when context omits marketCode", () => {
+    const row = errorTrail({
+      providerId: "yahoo-finance-jp",
+      errorMessage: "provider_symbol_unresolved: 7203",
+      context: { ticker: "7203" },
+    });
+
+    expect(providerIncidentInputFromErrorTrail(row)).toMatchObject({
+      providerId: "yahoo-finance-jp",
+      marketCode: "JP",
+      incidentKey: "other:provider_symbol_unresolved:JP:7203",
+    });
+    expect(providerUnresolvedItemInputFromErrorTrail(row)).toMatchObject({
+      providerId: "yahoo-finance-jp",
+      marketCode: "JP",
+      sourceSymbol: "7203",
+      providerSymbol: "7203",
+    });
+  });
 });

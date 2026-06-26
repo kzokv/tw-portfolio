@@ -86,12 +86,15 @@ import type {
   AdminMarketDataUnresolvedSort,
   AdminMarketDataUnresolvedStateResponse,
   AdminMarketWorkspaceTab,
+  JpCatalogStockType,
   ProviderOperationAction,
 } from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
+  JP_CATALOG_STOCK_TYPES,
+  JP_CATALOG_STRICT_STOCK_TYPES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
 import { Env } from "@vakwen/config";
@@ -140,6 +143,7 @@ const PROVIDER_MIN_REQUEST_INTERVAL_DEFAULTS = {
   twelveDataProviderMinRequestIntervalMs: 0,
   yahooAuProviderMinRequestIntervalMs: 0,
   yahooKrProviderMinRequestIntervalMs: 1_000,
+  yahooJpProviderMinRequestIntervalMs: 0,
   frankfurterProviderMinRequestIntervalMs: 0,
   asxGicsProviderMinRequestIntervalMs: 0,
 } as const;
@@ -337,6 +341,32 @@ const tier0SecretField = z
   ])
   .optional();
 
+const jpCatalogStockTypeSchema = z.enum(JP_CATALOG_STOCK_TYPES);
+
+function uniqueJpCatalogStockTypes(values: JpCatalogStockType[]): JpCatalogStockType[] {
+  return [...new Set(values)];
+}
+
+const jpCatalogAllowedStockTypesField = z
+  .union([
+    z
+      .array(jpCatalogStockTypeSchema)
+      .min(1)
+      .max(JP_CATALOG_STOCK_TYPES.length)
+      .transform(uniqueJpCatalogStockTypes),
+    z.null(),
+  ])
+  .optional();
+
+function resolveEffectiveJpCatalogAllowedStockTypes(
+  value: JpCatalogStockType[] | null,
+): JpCatalogStockType[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [...JP_CATALOG_STRICT_STOCK_TYPES];
+  }
+  return uniqueJpCatalogStockTypes(value);
+}
+
 function normalizeMcpOAuthIssuer(value: string): string {
   const url = new URL(value);
   url.pathname = "";
@@ -471,12 +501,14 @@ export const patchAdminSettingsSchema = z
     twelveDataProviderRateLimitPerMinute: plainBoundedField("twelveDataProviderRateLimitPerMinute"),
     yahooAuProviderRateLimitPerMinute: plainBoundedField("yahooAuProviderRateLimitPerMinute"),
     yahooKrProviderRateLimitPerMinute: plainBoundedField("yahooKrProviderRateLimitPerMinute"),
+    yahooJpProviderRateLimitPerMinute: plainBoundedField("yahooJpProviderRateLimitPerMinute"),
     frankfurterProviderRateLimitPerMinute: plainBoundedField("frankfurterProviderRateLimitPerMinute"),
     asxGicsProviderRateLimitPerHour: plainBoundedField("asxGicsProviderRateLimitPerHour"),
     finmindProviderMinRequestIntervalMs: plainBoundedField("finmindProviderMinRequestIntervalMs"),
     twelveDataProviderMinRequestIntervalMs: plainBoundedField("twelveDataProviderMinRequestIntervalMs"),
     yahooAuProviderMinRequestIntervalMs: plainBoundedField("yahooAuProviderMinRequestIntervalMs"),
     yahooKrProviderMinRequestIntervalMs: plainBoundedField("yahooKrProviderMinRequestIntervalMs"),
+    yahooJpProviderMinRequestIntervalMs: plainBoundedField("yahooJpProviderMinRequestIntervalMs"),
     frankfurterProviderMinRequestIntervalMs: plainBoundedField("frankfurterProviderMinRequestIntervalMs"),
     asxGicsProviderMinRequestIntervalMs: plainBoundedField("asxGicsProviderMinRequestIntervalMs"),
 
@@ -499,6 +531,9 @@ export const patchAdminSettingsSchema = z
     catalogAbsenceThreshold: plainBoundedField("catalogAbsenceThreshold"),
     catalogAbsenceGuardPercent: plainBoundedDecimalField("catalogAbsenceGuardPercent"),
     catalogAbsenceGuardFloor: plainBoundedField("catalogAbsenceGuardFloor"),
+    jpCatalogAllowedStockTypes: jpCatalogAllowedStockTypesField,
+    jpCatalogIncludeDepositaryReceipts: z.union([z.boolean(), z.null()]).optional(),
+    jpCatalogIncludeAtSymbols: z.union([z.boolean(), z.null()]).optional(),
 
     // ── KZO-199 Tier 1 — sharing knobs ──────────────────────────────────
     anonymousShareTokenCap: plainBoundedField("anonymousShareTokenCap"),
@@ -512,6 +547,7 @@ export const patchAdminSettingsSchema = z
     valuationHealthAbsoluteUsd: plainBoundedDecimalField("valuationHealthAbsoluteUsd"),
     valuationHealthAbsoluteTwd: plainBoundedDecimalField("valuationHealthAbsoluteTwd"),
     valuationHealthAbsoluteKrw: plainBoundedDecimalField("valuationHealthAbsoluteKrw"),
+    valuationHealthAbsoluteJpy: plainBoundedDecimalField("valuationHealthAbsoluteJpy"),
     routeCachePolicyMode: z.union([z.enum(["fresh", "balanced", "low_load", "custom"]), z.null()]).optional(),
     routeCacheDashboardPrimaryTtlMs: plainBoundedField("routeCacheDashboardPrimaryTtlMs"),
     routeCacheDashboardEnrichmentTtlMs: plainBoundedField("routeCacheDashboardEnrichmentTtlMs"),
@@ -568,12 +604,14 @@ const TIER1_PLAIN_FIELDS = [
   "twelveDataProviderRateLimitPerMinute",
   "yahooAuProviderRateLimitPerMinute",
   "yahooKrProviderRateLimitPerMinute",
+  "yahooJpProviderRateLimitPerMinute",
   "frankfurterProviderRateLimitPerMinute",
   "asxGicsProviderRateLimitPerHour",
   "finmindProviderMinRequestIntervalMs",
   "twelveDataProviderMinRequestIntervalMs",
   "yahooAuProviderMinRequestIntervalMs",
   "yahooKrProviderMinRequestIntervalMs",
+  "yahooJpProviderMinRequestIntervalMs",
   "frankfurterProviderMinRequestIntervalMs",
   "asxGicsProviderMinRequestIntervalMs",
   "backfillRetryLimit",
@@ -600,6 +638,9 @@ const TIER1_PLAIN_FIELDS = [
   "catalogAbsenceThreshold",
   "catalogAbsenceGuardPercent",
   "catalogAbsenceGuardFloor",
+  "jpCatalogAllowedStockTypes",
+  "jpCatalogIncludeDepositaryReceipts",
+  "jpCatalogIncludeAtSymbols",
   // KZO-199 — Tier 1 sharing knobs (admin-tunable via PATCH).
   "anonymousShareTokenCap",
   "anonymousShareRateLimitMax",
@@ -611,6 +652,7 @@ const TIER1_PLAIN_FIELDS = [
   "valuationHealthAbsoluteUsd",
   "valuationHealthAbsoluteTwd",
   "valuationHealthAbsoluteKrw",
+  "valuationHealthAbsoluteJpy",
   "routeCacheDashboardPrimaryTtlMs",
   "routeCacheDashboardEnrichmentTtlMs",
   "routeCacheDashboardPerformanceTtlMs",
@@ -696,6 +738,10 @@ function appConfigBoundsForEnv(): AppConfigDto["bounds"] {
       min: APP_CONFIG_BOUNDS.yahooKrProviderRateLimitPerMinute.min,
       max: strictOverrideMax(Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE),
     },
+    yahooJpProviderRateLimitPerMinute: {
+      min: APP_CONFIG_BOUNDS.yahooJpProviderRateLimitPerMinute.min,
+      max: strictOverrideMax(Env.YAHOO_JP_RATE_LIMIT_PER_MINUTE),
+    },
     frankfurterProviderRateLimitPerMinute: {
       min: APP_CONFIG_BOUNDS.frankfurterProviderRateLimitPerMinute.min,
       max: strictOverrideMax(Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE),
@@ -713,6 +759,7 @@ function assertProviderRateBudgetOverrides(body: z.infer<typeof patchAdminSettin
     { field: "twelveDataProviderRateLimitPerMinute", value: body.twelveDataProviderRateLimitPerMinute, max: Env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE },
     { field: "yahooAuProviderRateLimitPerMinute", value: body.yahooAuProviderRateLimitPerMinute, max: Env.YAHOO_AU_RATE_LIMIT_PER_MINUTE },
     { field: "yahooKrProviderRateLimitPerMinute", value: body.yahooKrProviderRateLimitPerMinute, max: Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE },
+    { field: "yahooJpProviderRateLimitPerMinute", value: body.yahooJpProviderRateLimitPerMinute, max: Env.YAHOO_JP_RATE_LIMIT_PER_MINUTE },
     { field: "frankfurterProviderRateLimitPerMinute", value: body.frankfurterProviderRateLimitPerMinute, max: Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE },
     { field: "asxGicsProviderRateLimitPerHour", value: body.asxGicsProviderRateLimitPerHour, max: Env.ASX_GICS_RATE_LIMIT_PER_HOUR },
   ];
@@ -735,7 +782,7 @@ function providerOperationRateCapPerMinute(providerId: string, config: AppConfig
   if (providerId === "finmind-tw" || providerId === "finmind-us") {
     return hourlyBudgetToPerMinute(config.effectiveFinmindProviderRateLimitPerHour);
   }
-  if (providerId === "twelve-data-au" || providerId === "twelve-data-kr") {
+  if (providerId === "twelve-data-au" || providerId === "twelve-data-kr" || providerId === "twelve-data-jp") {
     return config.effectiveTwelveDataProviderRateLimitPerMinute;
   }
   if (providerId === "yahoo-finance-au") {
@@ -746,6 +793,9 @@ function providerOperationRateCapPerMinute(providerId: string, config: AppConfig
       0.01,
       Math.round(config.effectiveYahooKrProviderRateLimitPerMinute * YAHOO_KR_OPERATION_RATE_SAFETY_MULTIPLIER * 100) / 100,
     );
+  }
+  if (providerId === "yahoo-finance-jp") {
+    return config.effectiveYahooJpProviderRateLimitPerMinute;
   }
   if (providerId === "frankfurter") {
     return config.effectiveFrankfurterProviderRateLimitPerMinute;
@@ -928,6 +978,9 @@ export function buildAppConfigDtoFromRow(
     yahooKrProviderRateLimitPerMinute: row.yahooKrProviderRateLimitPerMinute,
     effectiveYahooKrProviderRateLimitPerMinute:
       row.yahooKrProviderRateLimitPerMinute ?? Env.YAHOO_KR_RATE_LIMIT_PER_MINUTE,
+    yahooJpProviderRateLimitPerMinute: row.yahooJpProviderRateLimitPerMinute,
+    effectiveYahooJpProviderRateLimitPerMinute:
+      row.yahooJpProviderRateLimitPerMinute ?? Env.YAHOO_JP_RATE_LIMIT_PER_MINUTE,
     frankfurterProviderRateLimitPerMinute: row.frankfurterProviderRateLimitPerMinute,
     effectiveFrankfurterProviderRateLimitPerMinute:
       row.frankfurterProviderRateLimitPerMinute ?? Env.FRANKFURTER_RATE_LIMIT_PER_MINUTE,
@@ -946,12 +999,24 @@ export function buildAppConfigDtoFromRow(
     yahooKrProviderMinRequestIntervalMs: row.yahooKrProviderMinRequestIntervalMs,
     effectiveYahooKrProviderMinRequestIntervalMs:
       effectiveProviderMinRequestIntervalMs("yahooKrProviderMinRequestIntervalMs", row.yahooKrProviderMinRequestIntervalMs),
+    yahooJpProviderMinRequestIntervalMs: row.yahooJpProviderMinRequestIntervalMs,
+    effectiveYahooJpProviderMinRequestIntervalMs:
+      effectiveProviderMinRequestIntervalMs("yahooJpProviderMinRequestIntervalMs", row.yahooJpProviderMinRequestIntervalMs),
     frankfurterProviderMinRequestIntervalMs: row.frankfurterProviderMinRequestIntervalMs,
     effectiveFrankfurterProviderMinRequestIntervalMs:
       effectiveProviderMinRequestIntervalMs("frankfurterProviderMinRequestIntervalMs", row.frankfurterProviderMinRequestIntervalMs),
     asxGicsProviderMinRequestIntervalMs: row.asxGicsProviderMinRequestIntervalMs,
     effectiveAsxGicsProviderMinRequestIntervalMs:
       effectiveProviderMinRequestIntervalMs("asxGicsProviderMinRequestIntervalMs", row.asxGicsProviderMinRequestIntervalMs),
+    jpCatalogAllowedStockTypes: row.jpCatalogAllowedStockTypes,
+    effectiveJpCatalogAllowedStockTypes:
+      resolveEffectiveJpCatalogAllowedStockTypes(row.jpCatalogAllowedStockTypes),
+    jpCatalogIncludeDepositaryReceipts: row.jpCatalogIncludeDepositaryReceipts,
+    effectiveJpCatalogIncludeDepositaryReceipts:
+      row.jpCatalogIncludeDepositaryReceipts ?? false,
+    jpCatalogIncludeAtSymbols: row.jpCatalogIncludeAtSymbols,
+    effectiveJpCatalogIncludeAtSymbols:
+      row.jpCatalogIncludeAtSymbols ?? false,
 
     // KZO-198 Tier 1 — backfill
     backfillRetryLimit: row.backfillRetryLimit,
@@ -1001,12 +1066,21 @@ export function buildAppConfigDtoFromRow(
     valuationHealthAbsoluteKrw: row.valuationHealthAbsoluteKrw,
     effectiveValuationHealthAbsoluteKrw:
       row.valuationHealthAbsoluteKrw ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteKrw,
+    valuationHealthAbsoluteJpy: row.valuationHealthAbsoluteJpy,
+    effectiveValuationHealthAbsoluteJpy:
+      row.valuationHealthAbsoluteJpy
+      ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteJpy
+      ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
     effectiveValuationHealthThresholds: {
       relativeBps: row.valuationHealthRelativeBps ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.relativeBps,
       absoluteAud: row.valuationHealthAbsoluteAud ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteAud,
       absoluteUsd: row.valuationHealthAbsoluteUsd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteUsd,
       absoluteTwd: row.valuationHealthAbsoluteTwd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
       absoluteKrw: row.valuationHealthAbsoluteKrw ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteKrw,
+      absoluteJpy:
+        row.valuationHealthAbsoluteJpy
+        ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteJpy
+        ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
     },
     routeCachePolicyMode: row.routeCachePolicyMode,
     effectiveRouteCachePolicy: resolveRouteCachePolicyFromRow(row),
@@ -1154,6 +1228,16 @@ const MARKET_DATA_WORKSPACES: Record<AdminMarketCode, MarketDataWorkspaceDefinit
     ],
     defaultBackfillProviderId: "yahoo-finance-kr",
   },
+  JP: {
+    marketCode: "JP",
+    label: "Japan",
+    tabs: ["overview", "calendar", "instruments", "unresolved", "backfill", "purge", "operations", "activity"],
+    providers: [
+      { providerId: "twelve-data-jp", label: "Twelve Data JP", role: "Catalog" },
+      { providerId: "yahoo-finance-jp", label: "Yahoo Finance JP", role: "Bars, dividends, metadata" },
+    ],
+    defaultBackfillProviderId: "yahoo-finance-jp",
+  },
   FX: {
     marketCode: "FX",
     label: "Foreign exchange",
@@ -1214,8 +1298,14 @@ function marketDataPurgeCategoryCapabilities(
 }
 
 const marketDataWorkspaceParamSchema = z.object({
-  marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
+  marketCode: z.enum(["TW", "US", "AU", "KR", "JP", "FX"]),
 });
+
+function requireOfficialCalendarMarketCode(marketCode: AdminMarketCode): asserts marketCode is Exclude<AdminMarketCode, "FX"> {
+  if (!isOfficialCalendarMarketCode(marketCode)) {
+    throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
+  }
+}
 
 const calendarImportRowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -1327,6 +1417,7 @@ function marketDataProviderForAction(marketCode: AdminMarketCode, action: Provid
     if (marketCode === "US") return "finmind-us";
     if (marketCode === "AU") return "twelve-data-au";
     if (marketCode === "KR") return "twelve-data-kr";
+    if (marketCode === "JP") return "twelve-data-jp";
   }
   if (action === "repair_mapping") return marketCode === "KR" ? "yahoo-finance-kr" : null;
   if (action === "backfill_catalog_rows") {
@@ -1376,7 +1467,7 @@ function marketDataProviderBudgetNotes(marketCode: AdminMarketCode, action: Prov
   if (marketCode === "KR" && action === "repair_mapping") {
     return ["Mapping repair does not enqueue historical bars or dividends."];
   }
-  if ((marketCode === "AU" || marketCode === "KR") && action === "backfill_catalog_rows") {
+  if ((marketCode === "AU" || marketCode === "KR" || marketCode === "JP") && action === "backfill_catalog_rows") {
     return ["Pending/failed catalog-row repair is allowed only after preview."];
   }
   if (marketCode === "FX") return ["FX has no instruments, backfill, purge, or retirement controls in this scope."];
@@ -6532,7 +6623,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       ? filters.backfillStatus as "pending" | "backfilling" | "ready" | "failed" | "all"
       : undefined;
     const defaultBackfillStatuses: Array<"pending" | "failed"> =
-      filterBackfillStatus === undefined && (marketCode === "AU" || marketCode === "KR")
+      filterBackfillStatus === undefined && (marketCode === "AU" || marketCode === "KR" || marketCode === "JP")
         ? ["pending", "failed"]
         : [];
     const statuses = defaultBackfillStatuses.length > 0
@@ -8033,7 +8124,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   app.get("/market-data", async (req): Promise<AdminMarketDataLandingResponse> => {
     requireAdminRole(req);
-    const markets = await Promise.all((["TW", "US", "AU", "KR", "FX"] as const).map(marketTile));
+    const markets = await Promise.all((["TW", "US", "AU", "KR", "JP", "FX"] as const).map(marketTile));
     return { markets };
   });
 
@@ -8641,8 +8732,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   app.get("/market-data/:marketCode/operations/:operationId/logs", async (req): Promise<AdminMarketDataOperationLogsResponse> => {
     requireAdminRole(req);
-    const { marketCode, operationId } = z.object({
-      marketCode: z.enum(["TW", "US", "AU", "KR", "FX"]),
+    const { marketCode, operationId } = marketDataWorkspaceParamSchema.extend({
       operationId: z.string().trim().min(1).max(120),
     }).parse(req.params);
 	    const query = z.object({
@@ -8688,7 +8778,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (!isOfficialCalendarMarketCode(marketCode)) {
-      throw routeError(404, "market_activity_not_supported", "Activity is only supported for TW, US, AU, and KR");
+      throw routeError(404, "market_activity_not_supported", "Activity is only supported for TW, US, AU, KR, and JP");
     }
     const query = z.object({
       page: z.coerce.number().int().min(1).default(1),
@@ -8777,7 +8867,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (!isOfficialCalendarMarketCode(marketCode)) {
-      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
     }
     return buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date());
   });
@@ -8786,7 +8876,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (!isOfficialCalendarMarketCode(marketCode)) {
-      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
     }
     const [status, history] = await Promise.all([
       buildAdminMarketCalendarStatus(app.persistence, marketCode, new Date()),
@@ -8860,7 +8950,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
     if (!isOfficialCalendarMarketCode(marketCode)) {
-      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, and KR");
+      throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
     }
     return (await app.persistence.listMarketCalendarSources(marketCode)).map((source) => ({
       ...source,
@@ -8871,7 +8961,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   app.post("/market-data/:marketCode/calendar/source", async (req) => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    requireOfficialCalendarMarketCode(marketCode);
     const body = z.object({
       defaultSourceId: z.string().trim().min(1),
     }).parse(req.body ?? {});
@@ -8953,7 +9044,7 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
     const { marketCode, sourceId } = z.object({
-      marketCode: z.enum(["TW", "US", "AU", "KR"]),
+    marketCode: z.enum(["TW", "US", "AU", "KR", "JP"]),
       sourceId: z.string().trim().min(1),
     }).parse(req.params);
     const body = z.object({
@@ -9001,7 +9092,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   app.post("/market-data/:marketCode/calendar/preview", async (req): Promise<AdminMarketCalendarPreviewResponse> => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    requireOfficialCalendarMarketCode(marketCode);
     const body = parseCalendarImportRequest(req.body);
     const preview = await previewAdminMarketCalendarImport(app.persistence, marketCode, body);
     await app.persistence.appendAuditLog({
@@ -9016,7 +9108,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   app.post("/market-data/:marketCode/calendar/confirm", async (req): Promise<AdminMarketCalendarConfirmResponse> => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    requireOfficialCalendarMarketCode(marketCode);
     const confirmBody = z.object({
       previewToken: z.string().trim().min(1),
       replaceConfirmed: z.boolean().optional(),
@@ -9066,7 +9159,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
   app.post("/market-data/:marketCode/calendar/invalidate", async (req): Promise<AdminMarketCalendarConfirmResponse> => {
     requireAdminRole(req);
     const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    requireOfficialCalendarMarketCode(marketCode);
     const body = z.object({
       calendarYear: z.number().int().min(2000).max(2100),
       reason: z.string().trim().min(1),
@@ -9109,7 +9203,8 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
   app.get("/market-data/:marketCode/calendar/history", async (req): Promise<AdminMarketCalendarHistoryResponse> => {
     requireAdminRole(req);
-    const { marketCode } = z.object({ marketCode: z.enum(["TW", "US", "AU", "KR"]) }).parse(req.params);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    requireOfficialCalendarMarketCode(marketCode);
     const query = z.object({
       calendarYear: z.coerce.number().int().min(2000).max(2100).optional(),
     }).parse(req.query ?? {});
@@ -10019,6 +10114,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "twelve-data-au"
       | "yahoo-finance-kr"
       | "twelve-data-kr"
+      | "yahoo-finance-jp"
+      | "twelve-data-jp"
       | "frankfurter"
       // KZO-196 — ASX GICS catalog provider; admin "Run now" enqueues the
       // singleton-keyed `asx-gics-sync` queue (same job pg-boss runs on cron).
@@ -10160,6 +10257,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         );
       }
       tickerCount = 0;
+    } else if (providerId === "twelve-data-jp") {
+      marketCode = "JP";
+      if (app.boss) {
+        jobId = await app.boss.send(
+          CATALOG_SYNC_QUEUE,
+          { pendingMarkets: ["JP"] },
+          { singletonKey: catalogSyncRerunSingletonKey("JP"), priority: 5 },
+        );
+      }
+      tickerCount = 0;
     } else if (providerId === "yahoo-finance-au") {
       // KZO-197 — UNION of catalog warm-up + monitored refresh. The two sets
       // are disjoint by definition: catalog warm-up enumerates `(pending,
@@ -10206,6 +10313,27 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
               marketFilter: "KR",
               trigger: "admin_rerun",
               resolverMode: effectiveKrResolverMode,
+            }),
+          ])
+        : [
+            { tickerCount: 0, batchId: null as string | null },
+            { tickerCount: 0, batchId: null as string | null },
+          ];
+      marketCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
+      marketMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
+      tickerCount = catalog.tickerCount + monitored.tickerCount;
+      jobId = catalog.batchId ?? monitored.batchId ?? null;
+    } else if (providerId === "yahoo-finance-jp") {
+      marketCode = "JP";
+      const [catalog, monitored] = app.boss
+        ? await Promise.all([
+            enqueueAuCatalogBarsBackfill(app.boss, app.persistence, app.log, {
+              trigger: "admin_rerun",
+              marketCode: "JP",
+            }),
+            enqueueDailyRefresh(app.boss, app.persistence, app.log, {
+              marketFilter: "JP",
+              trigger: "admin_rerun",
             }),
           ])
         : [

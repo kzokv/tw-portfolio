@@ -179,6 +179,40 @@ test.describe("monitored tickers", () => {
     await settings.assert.backfillBadgeIs("2330", /pending|failed/);
   });
 
+  test("[JP]: catalog select persists JP monitored tickers with market-scoped backfill badges", async ({
+    appShell,
+    settings,
+  }) => {
+    // ARRANGE
+    await settings.arrange.seedInstruments([
+      { ticker: "7203", name: "Toyota Motor Corporation", instrumentType: "STOCK", marketCode: "JP", barsBackfillStatus: "failed" },
+      { ticker: "1306", name: "NEXT FUNDS TOPIX ETF", instrumentType: "ETF", marketCode: "JP", barsBackfillStatus: "pending" },
+      { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+    ]);
+    await appShell.actions.navigateToRoute("/dashboard");
+    await appShell.actions.openSettingsDrawer();
+    await settings.actions.openTickersTab();
+
+    // ACT: filter to JP catalog rows, select both JP instruments, then save.
+    await settings.actions.openCatalog();
+    await settings.actions.clickMarketChip("JP");
+    await settings.assert.catalogItemIsVisible("7203");
+    await settings.assert.catalogItemIsVisible("1306");
+    await settings.assert.catalogItemIsHidden("2330");
+    await settings.actions.toggleCatalogItem("7203");
+    await settings.actions.toggleCatalogItem("1306");
+    await settings.actions.closeCatalog();
+    await settings.actions.saveTickers();
+
+    // ASSERT: selected JP tickers persist with their backfill state.
+    await settings.assert.manualTickerIsVisible("7203");
+    await settings.assert.manualTickerIsVisible("1306");
+    await settings.assert.backfillBadgeIs("7203", "failed");
+    await settings.assert.backfillBadgeIs("1306", "pending");
+    await settings.assert.retryBackfillButtonIsVisible("7203");
+    await settings.assert.retryBackfillButtonIsHidden("1306");
+  });
+
   test("catalog: type filter narrows instruments by category", async ({
     appShell,
     settings,

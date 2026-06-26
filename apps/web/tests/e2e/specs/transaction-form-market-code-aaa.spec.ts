@@ -32,10 +32,18 @@ const BHP_US = {
   barsBackfillStatus: "ready",
 };
 
+const TOYOTA_JP = {
+  ticker: "7203",
+  name: "Toyota Motor Corporation",
+  instrumentType: "STOCK",
+  marketCode: "JP",
+  barsBackfillStatus: "ready",
+};
+
 async function createAccount(
   settings: TSettingsAssistant,
   name: string,
-  currency: "USD" | "AUD",
+  currency: "USD" | "AUD" | "JPY",
 ): Promise<void> {
   await settings.actions.fillAccountCreateName(name);
   await settings.actions.selectAccountCreateType("broker");
@@ -102,5 +110,51 @@ test("[transactions]: AU chip on BHP with no AUD account asks user to create a c
   await transactions.assert.priceCurrencyIs("AUD");
   await transactions.assert.noAccountErrorContains(/AUD/);
   await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=AUD/);
+  await transactions.assert.submitButtonIsDisabled();
+});
+
+test("[transactions]: JP chip filters Toyota catalog rows and JPY accounts", async ({
+  appShell,
+  settings,
+  transactions,
+}) => {
+  // ARRANGE: JP catalog row + a JPY brokerage account.
+  await settings.arrange.seedInstruments([TOYOTA_JP]);
+
+  await appShell.actions.navigateToRoute("/portfolio");
+  await appShell.actions.openSettingsDrawer();
+  await settings.arrange.openAccountsTab();
+  await createAccount(settings, "JPY Brokerage", "JPY");
+  await settings.actions.closeWithEscape();
+
+  // ACT/ASSERT: JP chip scopes autocomplete and compatible account options.
+  await transactions.actions.navigateToTransactions();
+  await transactions.actions.selectMarketChip("JP");
+  await transactions.assert.selectedAccountOptionsContain(/JPY Brokerage/);
+  await transactions.actions.typeInTickerSearch("7203");
+  await transactions.assert.comboboxShowsOptions(1);
+  await transactions.assert.comboboxOptionContains(/Toyota/);
+
+  await transactions.actions.selectTickerOption("7203", "JP");
+  await transactions.assert.priceCurrencyIs("JPY");
+});
+
+test("[transactions]: JP chip with no JPY account asks user to create a compatible account", async ({
+  settings,
+  transactions,
+}) => {
+  // ARRANGE: default user has only a TWD account; seed one JP instrument.
+  await settings.arrange.seedInstruments([TOYOTA_JP]);
+
+  // ACT: choose the JP chip and commit 7203/JP.
+  await transactions.actions.navigateToTransactions();
+  await transactions.actions.selectMarketChip("JP");
+  await transactions.actions.typeInTickerSearch("7203");
+  await transactions.actions.selectTickerOption("7203", "JP");
+
+  // ASSERT: JP selection derives JPY but blocks until a matching account exists.
+  await transactions.assert.priceCurrencyIs("JPY");
+  await transactions.assert.noAccountErrorContains(/JPY/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=JPY/);
   await transactions.assert.submitButtonIsDisabled();
 });

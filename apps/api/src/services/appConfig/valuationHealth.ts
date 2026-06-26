@@ -7,6 +7,7 @@ export const DEFAULT_VALUATION_HEALTH_THRESHOLDS: ValuationHealthThresholdsDto =
   absoluteUsd: 100,
   absoluteTwd: 3000,
   absoluteKrw: 90000,
+  absoluteJpy: 3000,
 };
 
 export const DEFAULT_ROUTE_CACHE_POLICIES: Record<RouteCachePolicyMode, RouteCachePolicyDto> = {
@@ -56,6 +57,7 @@ export function getEffectiveValuationHealthThresholds(): ValuationHealthThreshol
     absoluteUsd: entry?.valuationHealthAbsoluteUsd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteUsd,
     absoluteTwd: entry?.valuationHealthAbsoluteTwd ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteTwd,
     absoluteKrw: entry?.valuationHealthAbsoluteKrw ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteKrw,
+    absoluteJpy: entry?.valuationHealthAbsoluteJpy ?? DEFAULT_VALUATION_HEALTH_THRESHOLDS.absoluteJpy,
   };
 }
 

@@ -87,6 +87,25 @@ describe("trading calendar helpers", () => {
     ).toBe("2026-10-05");
   });
 
+  it("latestSettledTradingDay: JP uses Tokyo close at 15:30", () => {
+    const jpDates = new Set(["2026-06-16", "2026-06-17"]);
+
+    expect(
+      latestSettledTradingDayPure(
+        jpDates,
+        "JP" as MarketCode,
+        new Date("2026-06-17T06:29:00.000Z"),
+      ),
+    ).toBe("2026-06-16");
+    expect(
+      latestSettledTradingDayPure(
+        jpDates,
+        "JP" as MarketCode,
+        new Date("2026-06-17T06:30:00.000Z"),
+      ),
+    ).toBe("2026-06-17");
+  });
+
   it("latestSettledTradingDay: 2027 DST boundary stays market-local", () => {
     const usDates = new Set(["2027-03-12", "2027-03-15"]);
 

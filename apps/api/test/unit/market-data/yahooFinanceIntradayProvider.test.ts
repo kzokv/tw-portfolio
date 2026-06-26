@@ -180,6 +180,35 @@ describe("yahooFinanceIntradayProvider", () => {
     );
   });
 
+  it("normalizes JP tickers onto Yahoo `.T` symbols", async () => {
+    activeSdkStub!.chart.mockResolvedValue({
+      meta: { currency: "JPY", previousClose: 2810 },
+      quotes: [{ date: new Date("2026-06-17T01:02:00.000Z"), close: 2825 }],
+    });
+    const provider = new YahooFinanceIntradayProvider({
+      range: "1d",
+      interval: "1m",
+    });
+
+    const overlay = await provider.fetchLatestOverlay({
+      ticker: "7203",
+      marketCode: "JP",
+      now: new Date("2026-06-17T01:03:00.000Z"),
+    });
+
+    expect(activeSdkStub!.chart).toHaveBeenCalledWith(
+      "7203.T",
+      expect.any(Object),
+      { validateResult: false },
+    );
+    expect(overlay).toMatchObject({
+      ticker: "7203",
+      marketCode: "JP",
+      providerSymbol: "7203.T",
+      currency: "JPY",
+    });
+  });
+
   it("returns null instead of throwing on permanent Yahoo no-data responses", async () => {
     activeSdkStub!.chart.mockRejectedValue(new Error("No data found, symbol may be delisted"));
     const provider = new YahooFinanceIntradayProvider({ range: "1d", interval: "1m" });

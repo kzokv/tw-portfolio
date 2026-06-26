@@ -64,14 +64,21 @@ export interface AppConfigCacheEntry {
   twelveDataProviderRateLimitPerMinute: number | null;
   yahooAuProviderRateLimitPerMinute: number | null;
   yahooKrProviderRateLimitPerMinute: number | null;
+  yahooJpProviderRateLimitPerMinute: number | null;
   frankfurterProviderRateLimitPerMinute: number | null;
   asxGicsProviderRateLimitPerHour: number | null;
   finmindProviderMinRequestIntervalMs: number | null;
   twelveDataProviderMinRequestIntervalMs: number | null;
   yahooAuProviderMinRequestIntervalMs: number | null;
   yahooKrProviderMinRequestIntervalMs: number | null;
+  yahooJpProviderMinRequestIntervalMs: number | null;
   frankfurterProviderMinRequestIntervalMs: number | null;
   asxGicsProviderMinRequestIntervalMs: number | null;
+
+  // JP v1 — catalog inclusion knobs. NULL means strict defaults.
+  jpCatalogAllowedStockTypes: import("@vakwen/shared-types").JpCatalogStockType[] | null;
+  jpCatalogIncludeDepositaryReceipts: boolean | null;
+  jpCatalogIncludeAtSymbols: boolean | null;
 
   // Tier 1 / 2 — backfill
   backfillRetryLimit: number | null;
@@ -126,6 +133,7 @@ export interface AppConfigCacheEntry {
   valuationHealthAbsoluteUsd: number | null;
   valuationHealthAbsoluteTwd: number | null;
   valuationHealthAbsoluteKrw: number | null;
+  valuationHealthAbsoluteJpy: number | null;
   routeCachePolicyMode: import("../../persistence/types.js").RouteCachePolicyMode | null;
   routeCacheDashboardPrimaryTtlMs: number | null;
   routeCacheDashboardEnrichmentTtlMs: number | null;

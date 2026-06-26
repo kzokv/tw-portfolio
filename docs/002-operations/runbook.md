@@ -65,6 +65,35 @@ For full variable documentation, see [Environment Variables](./environment-varia
 - For local tests without DB/Redis, set `PERSISTENCE_BACKEND=memory`.
 - For external Postgres/Redis mode, keep `PERSISTENCE_BACKEND=postgres` and set external `DB_URL`/`REDIS_URL`; do not start local compose DB/Redis unless needed for fallback.
 
+### JP market-data operations
+
+JP support uses a split-provider runtime:
+
+- `yahoo-finance-jp` owns JP daily bars, basic cash dividends, metadata/search fallback, close refresh, and intraday overlays.
+- `twelve-data-jp` owns JP catalog sync only.
+- Default official JP calendar source is `official-jp`, which points to `https://www.jpx.co.jp/english/corporate/about-jpx/calendar/`.
+
+Restart-required env toggles:
+
+- `JP_PROVIDER_MOCK=true` forces the JP Yahoo provider onto its mock implementation.
+- `JP_CATALOG_PROVIDER_MOCK=true` forces the JP Twelve Data catalog provider onto its mock implementation.
+- `TWELVE_DATA_API_KEY` remains required for real JP catalog sync because JP catalog enumeration uses the same Twelve Data bootstrap key as AU/KR.
+
+Runtime-tunable JP knobs live in Admin -> Settings -> App Config:
+
+- `yahooJpProviderRateLimitPerMinute`
+- `yahooJpProviderMinRequestIntervalMs`
+- `jpCatalogAllowedStockTypes`
+- `jpCatalogIncludeDepositaryReceipts`
+- `jpCatalogIncludeAtSymbols`
+
+Operator notes:
+
+- JP tickers stay canonical as bare JPX/TSE symbols such as `7203`; Yahoo `.T` suffixing is provider-internal only.
+- JP catalog sync is strict by default: `JPY`, `JPX`, `XJPX`, supported stock types, and plain alphanumeric symbols only.
+- JP v1 does not support provider mapping repair and does not model the Tokyo lunch break precisely. Expect settlement/freshness at `15:30` `Asia/Tokyo`, with intraday open-state treated as a single coarse session.
+- JP fee/tax automation is limited to existing configurable fee profiles. There are no built-in JP sell-tax defaults yet.
+
 ### Local Docker Stack Validation
 
 Use the local Docker stack to validate that Docker images build and the full containerized stack works before pushing to CI. This catches Dockerfile dependency drift that host-level builds don't detect.
