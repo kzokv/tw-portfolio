@@ -7462,6 +7462,17 @@ export class PostgresPersistence implements Persistence {
       params.push(options.pairs.map((pair) => pair.marketCode ?? ""));
     }
     const whereClause = where.join(" AND ");
+    const countResult = await this.pool.query<{
+      total_count: string;
+      provisional_count: string;
+    }>(
+      `SELECT COUNT(*)::text AS total_count,
+              COUNT(*) FILTER (WHERE s.is_provisional)::text AS provisional_count
+         FROM daily_holding_snapshots s
+         JOIN accounts a ON a.id = s.account_id
+        WHERE ${whereClause}`,
+      params,
+    );
     const result = await this.pool.query<{
       id: string;
       user_id: string;
@@ -7485,28 +7496,19 @@ export class PostgresPersistence implements Persistence {
       provider_source: string | null;
       generated_at: string;
       generation_run_id: string;
-      total_count: string;
-      provisional_count: string;
     }>(
       `WITH filtered AS (
          SELECT s.*, a.name AS account_name
            FROM daily_holding_snapshots s
            JOIN accounts a ON a.id = s.account_id
           WHERE ${whereClause}
-       ),
-       counts AS (
-         SELECT COUNT(*)::text AS total_count,
-                COUNT(*) FILTER (WHERE is_provisional)::text AS provisional_count
-           FROM filtered
        )
        SELECT filtered.id, filtered.user_id, filtered.account_id, filtered.account_name, filtered.ticker, filtered.market_code,
               filtered.snapshot_date::text, filtered.quantity, filtered.close_price, filtered.market_value, filtered.cost_basis,
               filtered.unrealized_pnl, filtered.cumulative_realized_pnl, filtered.cumulative_dividends,
               filtered.is_provisional, filtered.currency, filtered.value_native, filtered.cost_basis_native,
-              filtered.unrealized_pnl_native, filtered.provider_source, filtered.generated_at::text, filtered.generation_run_id,
-              counts.total_count, counts.provisional_count
+              filtered.unrealized_pnl_native, filtered.provider_source, filtered.generated_at::text, filtered.generation_run_id
          FROM filtered
-         CROSS JOIN counts
         ORDER BY filtered.snapshot_date DESC, filtered.account_id ASC, filtered.ticker ASC, filtered.market_code ASC
         LIMIT $${i++}
        OFFSET $${i++}`,
@@ -7537,8 +7539,8 @@ export class PostgresPersistence implements Persistence {
         generatedAt: row.generated_at,
         generationRunId: row.generation_run_id,
       })),
-      total: Number(result.rows[0]?.total_count ?? 0),
-      provisionalCount: Number(result.rows[0]?.provisional_count ?? 0),
+      total: Number(countResult.rows[0]?.total_count ?? 0),
+      provisionalCount: Number(countResult.rows[0]?.provisional_count ?? 0),
     };
   }
 

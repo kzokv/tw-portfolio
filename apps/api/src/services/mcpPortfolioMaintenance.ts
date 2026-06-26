@@ -108,7 +108,8 @@ async function loadContextStore(deps: McpToolHandlerContext): Promise<{ userId: 
 function resolveAccountIds(store: Store, input: ScopedInput): Set<string> {
   const activeAccounts = store.accounts;
   const activeIds = new Set(activeAccounts.map((account) => account.id));
-  const accountIds = input.accountIds && input.accountIds.length > 0
+  const hasAccountIdFilter = input.accountIds !== undefined && input.accountIds.length > 0;
+  const accountIds = hasAccountIdFilter
     ? new Set(input.accountIds)
     : new Set(activeIds);
 
@@ -139,7 +140,7 @@ function resolveAccountIds(store: Store, input: ScopedInput): Set<string> {
   }
   const idList = [...accountIds].sort();
   const nameList = [...fromNames].sort();
-  if (input.accountIds && (idList.length !== nameList.length || idList.some((id, index) => id !== nameList[index]))) {
+  if (hasAccountIdFilter && (idList.length !== nameList.length || idList.some((id, index) => id !== nameList[index]))) {
     throw routeError(409, "mcp_account_filter_conflict", "accountIds and accountNames resolved to different accounts");
   }
   return fromNames;

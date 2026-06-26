@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
-import { createStore } from "../../src/services/store.js";
+import { createDefaultFeeProfile, createStore } from "../../src/services/store.js";
 import {
   backfillTickers,
   getDailySnapshots,
@@ -373,6 +373,58 @@ describe("MCP portfolio maintenance service", () => {
       offset: 0,
       hasMore: false,
     });
+  });
+
+  it("treats empty accountIds as absent when accountNames narrow the scope", async () => {
+    const persistence = new MemoryPersistence();
+    await seedHeldTicker(persistence);
+    const store = await persistence.loadStore("user-1");
+    const secondaryProfile = createDefaultFeeProfile("acc-2");
+    store.accounts.push({
+      id: "acc-2",
+      userId: "user-1",
+      name: "Secondary",
+      feeProfileId: secondaryProfile.id,
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(secondaryProfile);
+    await persistence.saveStore(store);
+    persistence._seedHoldingSnapshots([{
+      id: "snap-main",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      snapshotDate: "2026-06-25",
+      quantity: 10,
+      closePrice: 100,
+      marketValue: 1000,
+      costBasis: 900,
+      unrealizedPnl: 100,
+      cumulativeRealizedPnl: 0,
+      cumulativeDividends: 0,
+      isProvisional: false,
+      currency: "TWD",
+      valueNative: 1000,
+      costBasisNative: 900,
+      unrealizedPnlNative: 100,
+      providerSource: "test",
+      generatedAt: "2026-06-25T00:00:00.000Z",
+      generationRunId: "run-main",
+    }]);
+
+    const result = await getDailySnapshots(buildDeps(persistence), {
+      accountIds: [],
+      accountNames: ["Main"],
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ id: "snap-main", accountId: "acc-1", accountName: "Main" }),
+    ]);
+    expect(result.summary.total).toBe(1);
   });
 
   it("reads historical snapshots for requested ticker-markets without requiring current holdings", async () => {
