@@ -67,7 +67,7 @@ export const layoutI18n: Record<
       actionReportingCurrencySaved: "Saved",
       recomputeConfirmTitle: "Recompute all positions?",
       recomputeConfirmBody:
-        "This re-derives lots, allocations, and cash entries from your trade history. May take a few seconds.",
+        "This recalculates trade fees, taxes, realized gains, and settlement cash entries, then refreshes portfolio snapshots. May take a few seconds.",
       recomputeConfirmCta: "Recompute",
       recomputeConfirmCancel: "Cancel",
       accent: {
@@ -135,7 +135,7 @@ export const layoutI18n: Record<
       actionReportingCurrencySaved: "已儲存",
       recomputeConfirmTitle: "確定要重算所有持倉？",
       recomputeConfirmBody:
-        "系統會根據交易歷史重新推導所有批次、配置與現金紀錄，可能需要幾秒鐘。",
+        "系統會重新計算交易手續費、稅額、已實現損益與交割現金紀錄，並更新投資組合快照，可能需要幾秒鐘。",
       recomputeConfirmCta: "重算",
       recomputeConfirmCancel: "取消",
       accent: {

@@ -618,6 +618,8 @@ export class MemoryPersistence implements Persistence {
   private readonly providerUnresolvedItems = new Map<string, ProviderUnresolvedItemRecord>();
   private readonly providerOperations = new Map<string, ProviderOperationRecord>();
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
+  private readonly mcpReplayPreviews = new Map<string, import("./types.js").McpReplayPreviewRecord>();
+  private readonly mcpReplayRuns = new Map<string, import("./types.js").McpReplayRunRecord>();
   private readonly marketCalendarSources = new Map<string, MarketCalendarSourceConfigRecord>();
   private readonly marketCalendarPreviews = new Map<string, MarketCalendarPreviewRecord>();
   private readonly marketCalendarVersions = new Map<string, MarketCalendarVersionRecord>();
@@ -3897,6 +3899,101 @@ export class MemoryPersistence implements Persistence {
       .filter(s => s.userId === userId && s.accountId === accountId && s.ticker === ticker
         && s.snapshotDate >= startDate && s.snapshotDate <= endDate)
       .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate) || a.marketCode.localeCompare(b.marketCode));
+  }
+
+  async listHoldingSnapshots(
+    userId: string,
+    options: import("./types.js").ListHoldingSnapshotsOptions,
+  ): Promise<import("./types.js").ListHoldingSnapshotsResult> {
+    const scopedKeys = options.pairs && options.pairs.length > 0
+      ? new Set(options.pairs.map((pair) => `${pair.accountId}\0${pair.ticker}\0${pair.marketCode ?? ""}`))
+      : null;
+    const accountNames = new Map(
+      (this.stores.get(userId)?.accounts ?? []).map((account) => [account.id, account.name] as const),
+    );
+    const filtered = this.holdingSnapshots.filter((snapshot) => {
+      if (snapshot.userId !== userId) return false;
+      if (options.accountIds && options.accountIds.length > 0 && !options.accountIds.includes(snapshot.accountId)) return false;
+      if (options.startDate && snapshot.snapshotDate < options.startDate) return false;
+      if (options.endDate && snapshot.snapshotDate > options.endDate) return false;
+      if (options.includeProvisional === false && snapshot.isProvisional) return false;
+      if (scopedKeys) {
+        return (
+          scopedKeys.has(`${snapshot.accountId}\0${snapshot.ticker}\0${snapshot.marketCode}`)
+          || scopedKeys.has(`${snapshot.accountId}\0${snapshot.ticker}\0`)
+        );
+      }
+      return true;
+    }).sort((left, right) =>
+      right.snapshotDate.localeCompare(left.snapshotDate)
+      || left.accountId.localeCompare(right.accountId)
+      || left.ticker.localeCompare(right.ticker)
+      || left.marketCode.localeCompare(right.marketCode));
+
+    return {
+      rows: filtered.slice(options.offset, options.offset + options.limit).map((row) => ({
+        ...row,
+        accountName: accountNames.get(row.accountId) ?? null,
+      })),
+      total: filtered.length,
+      provisionalCount: filtered.filter((row) => row.isProvisional).length,
+    };
+  }
+
+  async saveMcpReplayPreview(record: import("./types.js").McpReplayPreviewRecord): Promise<void> {
+    this.mcpReplayPreviews.set(record.id, structuredClone(record));
+  }
+
+  async getMcpReplayPreview(id: string): Promise<import("./types.js").McpReplayPreviewRecord | null> {
+    const record = this.mcpReplayPreviews.get(id);
+    return record ? structuredClone(record) : null;
+  }
+
+  async createMcpReplayRun(record: import("./types.js").McpReplayRunRecord): Promise<void> {
+    this.mcpReplayRuns.set(record.id, structuredClone(record));
+  }
+
+  async getMcpReplayRun(id: string): Promise<import("./types.js").McpReplayRunRecord | null> {
+    const record = this.mcpReplayRuns.get(id);
+    return record ? structuredClone(record) : null;
+  }
+
+  async updateMcpReplayRunScope(input: {
+    runId: string;
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    status: import("./types.js").McpReplayRunScopeStatus;
+    errorMessage?: string | null;
+    replayedTradeCount?: number | null;
+    snapshotGenerationRunId?: string | null;
+    updatedAt?: string;
+  }): Promise<void> {
+    const run = this.mcpReplayRuns.get(input.runId);
+    if (!run) throw routeError(404, "mcp_replay_run_not_found", "Replay run not found");
+    const scope = run.scopes.find((item) =>
+      item.accountId === input.accountId
+      && item.ticker === input.ticker
+      && item.marketCode === input.marketCode);
+    if (!scope) throw routeError(404, "mcp_replay_run_scope_not_found", "Replay run scope not found");
+    scope.status = input.status;
+    if (input.errorMessage !== undefined) scope.errorMessage = input.errorMessage;
+    if (input.replayedTradeCount !== undefined) scope.replayedTradeCount = input.replayedTradeCount;
+    if (input.snapshotGenerationRunId !== undefined) scope.snapshotGenerationRunId = input.snapshotGenerationRunId;
+    scope.updatedAt = input.updatedAt ?? new Date().toISOString();
+  }
+
+  async updateMcpReplayRunStatus(input: {
+    runId: string;
+    status: import("./types.js").McpReplayRunStatus;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+  }): Promise<void> {
+    const run = this.mcpReplayRuns.get(input.runId);
+    if (!run) throw routeError(404, "mcp_replay_run_not_found", "Replay run not found");
+    run.status = input.status;
+    if (input.startedAt !== undefined) run.startedAt = input.startedAt;
+    if (input.finishedAt !== undefined) run.finishedAt = input.finishedAt;
   }
 
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────

@@ -7427,6 +7427,123 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
+  async listHoldingSnapshots(
+    userId: string,
+    options: import("./types.js").ListHoldingSnapshotsOptions,
+  ): Promise<import("./types.js").ListHoldingSnapshotsResult> {
+    const where = ["s.user_id = $1"];
+    const params: unknown[] = [userId];
+    let i = 2;
+    if (options.accountIds && options.accountIds.length > 0) {
+      where.push(`s.account_id = ANY($${i++}::text[])`);
+      params.push(options.accountIds);
+    }
+    if (options.startDate) {
+      where.push(`s.snapshot_date >= $${i++}::date`);
+      params.push(options.startDate);
+    }
+    if (options.endDate) {
+      where.push(`s.snapshot_date <= $${i++}::date`);
+      params.push(options.endDate);
+    }
+    if (options.includeProvisional === false) {
+      where.push("s.is_provisional = FALSE");
+    }
+    if (options.pairs && options.pairs.length > 0) {
+      where.push(`EXISTS (
+        SELECT 1
+          FROM UNNEST($${i++}::text[], $${i++}::text[], $${i++}::text[]) AS pair(account_id, ticker, market_code)
+         WHERE pair.account_id = s.account_id
+           AND pair.ticker = s.ticker
+           AND (pair.market_code = '' OR pair.market_code = s.market_code)
+      )`);
+      params.push(options.pairs.map((pair) => pair.accountId));
+      params.push(options.pairs.map((pair) => pair.ticker));
+      params.push(options.pairs.map((pair) => pair.marketCode ?? ""));
+    }
+    const whereClause = where.join(" AND ");
+    const countResult = await this.pool.query<{
+      total_count: string;
+      provisional_count: string;
+    }>(
+      `SELECT COUNT(*)::text AS total_count,
+              COUNT(*) FILTER (WHERE s.is_provisional)::text AS provisional_count
+         FROM daily_holding_snapshots s
+         JOIN accounts a ON a.id = s.account_id
+        WHERE ${whereClause}`,
+      params,
+    );
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      account_id: string;
+      account_name: string | null;
+      ticker: string;
+      market_code: MarketCode;
+      snapshot_date: string;
+      quantity: string;
+      close_price: string | null;
+      market_value: string | null;
+      cost_basis: string;
+      unrealized_pnl: string | null;
+      cumulative_realized_pnl: string;
+      cumulative_dividends: string;
+      is_provisional: boolean;
+      currency: string;
+      value_native: string | null;
+      cost_basis_native: string | null;
+      unrealized_pnl_native: string | null;
+      provider_source: string | null;
+      generated_at: string;
+      generation_run_id: string;
+    }>(
+      `WITH filtered AS (
+         SELECT s.*, a.name AS account_name
+           FROM daily_holding_snapshots s
+           JOIN accounts a ON a.id = s.account_id
+          WHERE ${whereClause}
+       )
+       SELECT filtered.id, filtered.user_id, filtered.account_id, filtered.account_name, filtered.ticker, filtered.market_code,
+              filtered.snapshot_date::text, filtered.quantity, filtered.close_price, filtered.market_value, filtered.cost_basis,
+              filtered.unrealized_pnl, filtered.cumulative_realized_pnl, filtered.cumulative_dividends,
+              filtered.is_provisional, filtered.currency, filtered.value_native, filtered.cost_basis_native,
+              filtered.unrealized_pnl_native, filtered.provider_source, filtered.generated_at::text, filtered.generation_run_id
+         FROM filtered
+        ORDER BY filtered.snapshot_date DESC, filtered.account_id ASC, filtered.ticker ASC, filtered.market_code ASC
+        LIMIT $${i++}
+       OFFSET $${i++}`,
+      [...params, options.limit, options.offset],
+    );
+    return {
+      rows: result.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        accountId: row.account_id,
+        accountName: row.account_name,
+        ticker: row.ticker,
+        marketCode: row.market_code,
+        snapshotDate: row.snapshot_date,
+        quantity: Number(row.quantity),
+        closePrice: row.close_price !== null ? Number(row.close_price) : null,
+        marketValue: row.market_value !== null ? Number(row.market_value) : null,
+        costBasis: Number(row.cost_basis),
+        unrealizedPnl: row.unrealized_pnl !== null ? Number(row.unrealized_pnl) : null,
+        cumulativeRealizedPnl: Number(row.cumulative_realized_pnl),
+        cumulativeDividends: Number(row.cumulative_dividends),
+        isProvisional: row.is_provisional,
+        currency: row.currency.trim(),
+        valueNative: row.value_native !== null ? Number(row.value_native) : null,
+        costBasisNative: row.cost_basis_native !== null ? Number(row.cost_basis_native) : 0,
+        unrealizedPnlNative: row.unrealized_pnl_native !== null ? Number(row.unrealized_pnl_native) : null,
+        providerSource: row.provider_source,
+        generatedAt: row.generated_at,
+        generationRunId: row.generation_run_id,
+      })),
+      total: Number(countResult.rows[0]?.total_count ?? 0),
+      provisionalCount: Number(countResult.rows[0]?.provisional_count ?? 0),
+    };
+  }
+
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
   // Mirrors the unnest-arrays pattern from `bulkUpsertHoldingSnapshots`. PK is
   // (account_id, currency, date) per D7 — no `user_id` in the conflict target
@@ -15286,6 +15403,248 @@ export class PostgresPersistence implements Persistence {
       [providerId, marketCode],
     );
     return result.rows[0]?.exists === true;
+  }
+
+  async saveMcpReplayPreview(record: import("./types.js").McpReplayPreviewRecord): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO mcp_replay_position_previews
+         (id, session_user_id, portfolio_context_user_id, scopes_json, warnings_json,
+          confirmation_summary, confirmation_digest, expires_at, created_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8::timestamptz, $9::timestamptz)
+       ON CONFLICT (id) DO UPDATE
+       SET scopes_json = EXCLUDED.scopes_json,
+           warnings_json = EXCLUDED.warnings_json,
+           confirmation_summary = EXCLUDED.confirmation_summary,
+           confirmation_digest = EXCLUDED.confirmation_digest,
+           expires_at = EXCLUDED.expires_at,
+           created_at = EXCLUDED.created_at`,
+      [
+        record.id,
+        record.sessionUserId,
+        record.portfolioContextUserId,
+        JSON.stringify(record.scopes),
+        JSON.stringify(record.warnings),
+        record.confirmationSummary,
+        record.confirmationDigest,
+        record.expiresAt,
+        record.createdAt,
+      ],
+    );
+  }
+
+  async getMcpReplayPreview(id: string): Promise<import("./types.js").McpReplayPreviewRecord | null> {
+    const result = await this.pool.query<{
+      id: string;
+      session_user_id: string;
+      portfolio_context_user_id: string;
+      scopes_json: import("./types.js").McpReplayScopeRecord[];
+      warnings_json: string[];
+      confirmation_summary: string;
+      confirmation_digest: string;
+      expires_at: string;
+      created_at: string;
+    }>(
+      `SELECT id, session_user_id, portfolio_context_user_id, scopes_json, warnings_json,
+              confirmation_summary, confirmation_digest, expires_at::text, created_at::text
+         FROM mcp_replay_position_previews
+        WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionUserId: row.session_user_id,
+      portfolioContextUserId: row.portfolio_context_user_id,
+      scopes: row.scopes_json ?? [],
+      warnings: row.warnings_json ?? [],
+      confirmationSummary: row.confirmation_summary,
+      confirmationDigest: row.confirmation_digest,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  async createMcpReplayRun(record: import("./types.js").McpReplayRunRecord): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO mcp_replay_position_runs
+           (id, preview_id, session_user_id, portfolio_context_user_id, status, created_at, started_at, finished_at)
+         VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz)`,
+        [
+          record.id,
+          record.previewId,
+          record.sessionUserId,
+          record.portfolioContextUserId,
+          record.status,
+          record.createdAt,
+          record.startedAt,
+          record.finishedAt,
+        ],
+      );
+      for (const scope of record.scopes) {
+        await client.query(
+          `INSERT INTO mcp_replay_position_run_scopes
+             (run_id, account_id, account_name, ticker, market_code, status, error_message,
+              replayed_trade_count, snapshot_generation_run_id, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
+          [
+            record.id,
+            scope.accountId,
+            scope.accountName,
+            scope.ticker,
+            scope.marketCode,
+            scope.status,
+            scope.errorMessage,
+            scope.replayedTradeCount,
+            scope.snapshotGenerationRunId,
+            scope.updatedAt,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getMcpReplayRun(id: string): Promise<import("./types.js").McpReplayRunRecord | null> {
+    const [runResult, scopesResult] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        preview_id: string;
+        session_user_id: string;
+        portfolio_context_user_id: string;
+        status: import("./types.js").McpReplayRunStatus;
+        created_at: string;
+        started_at: string | null;
+        finished_at: string | null;
+      }>(
+        `SELECT id, preview_id, session_user_id, portfolio_context_user_id, status,
+                created_at::text, started_at::text, finished_at::text
+           FROM mcp_replay_position_runs
+          WHERE id = $1`,
+        [id],
+      ),
+      this.pool.query<{
+        account_id: string;
+        account_name: string;
+        ticker: string;
+        market_code: MarketCode;
+        status: import("./types.js").McpReplayRunScopeStatus;
+        error_message: string | null;
+        replayed_trade_count: string | null;
+        snapshot_generation_run_id: string | null;
+        updated_at: string;
+      }>(
+        `SELECT account_id, account_name, ticker, market_code, status, error_message,
+                replayed_trade_count::text, snapshot_generation_run_id, updated_at::text
+           FROM mcp_replay_position_run_scopes
+          WHERE run_id = $1
+          ORDER BY account_name ASC, ticker ASC, market_code ASC`,
+        [id],
+      ),
+    ]);
+    const run = runResult.rows[0];
+    if (!run) return null;
+    return {
+      id: run.id,
+      previewId: run.preview_id,
+      sessionUserId: run.session_user_id,
+      portfolioContextUserId: run.portfolio_context_user_id,
+      status: run.status,
+      createdAt: run.created_at,
+      startedAt: run.started_at,
+      finishedAt: run.finished_at,
+      scopes: scopesResult.rows.map((scope) => ({
+        accountId: scope.account_id,
+        accountName: scope.account_name,
+        ticker: scope.ticker,
+        marketCode: scope.market_code,
+        status: scope.status,
+        errorMessage: scope.error_message,
+        replayedTradeCount: scope.replayed_trade_count !== null ? Number(scope.replayed_trade_count) : null,
+        snapshotGenerationRunId: scope.snapshot_generation_run_id,
+        updatedAt: scope.updated_at,
+      })),
+    };
+  }
+
+  async updateMcpReplayRunScope(input: {
+    runId: string;
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    status: import("./types.js").McpReplayRunScopeStatus;
+    errorMessage?: string | null;
+    replayedTradeCount?: number | null;
+    snapshotGenerationRunId?: string | null;
+    updatedAt?: string;
+  }): Promise<void> {
+    const sets = ["status = $5", `updated_at = $6::timestamptz`];
+    const params: unknown[] = [
+      input.runId,
+      input.accountId,
+      input.ticker,
+      input.marketCode,
+      input.status,
+      input.updatedAt ?? new Date().toISOString(),
+    ];
+    let i = 7;
+    if (input.errorMessage !== undefined) {
+      sets.push(`error_message = $${i++}`);
+      params.push(input.errorMessage);
+    }
+    if (input.replayedTradeCount !== undefined) {
+      sets.push(`replayed_trade_count = $${i++}`);
+      params.push(input.replayedTradeCount);
+    }
+    if (input.snapshotGenerationRunId !== undefined) {
+      sets.push(`snapshot_generation_run_id = $${i++}`);
+      params.push(input.snapshotGenerationRunId);
+    }
+    const result = await this.pool.query(
+      `UPDATE mcp_replay_position_run_scopes
+          SET ${sets.join(", ")}
+        WHERE run_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4`,
+      params,
+    );
+    if ((result.rowCount ?? 0) === 0) {
+      throw routeError(404, "mcp_replay_run_scope_not_found", "Replay run scope not found");
+    }
+  }
+
+  async updateMcpReplayRunStatus(input: {
+    runId: string;
+    status: import("./types.js").McpReplayRunStatus;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+  }): Promise<void> {
+    const sets = ["status = $2"];
+    const params: unknown[] = [input.runId, input.status];
+    let i = 3;
+    if (input.startedAt !== undefined) {
+      sets.push(`started_at = $${i++}::timestamptz`);
+      params.push(input.startedAt);
+    }
+    if (input.finishedAt !== undefined) {
+      sets.push(`finished_at = $${i++}::timestamptz`);
+      params.push(input.finishedAt);
+    }
+    const result = await this.pool.query(
+      `UPDATE mcp_replay_position_runs
+          SET ${sets.join(", ")}
+        WHERE id = $1`,
+      params,
+    );
+    if ((result.rowCount ?? 0) === 0) {
+      throw routeError(404, "mcp_replay_run_not_found", "Replay run not found");
+    }
   }
 
   async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {

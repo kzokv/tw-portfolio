@@ -1968,6 +1968,68 @@ export interface HoldingSnapshot {
   generationRunId: string;
 }
 
+export interface HoldingSnapshotListRow extends HoldingSnapshot {
+  accountName: string | null;
+}
+
+export interface ListHoldingSnapshotsOptions {
+  accountIds?: readonly string[];
+  pairs?: readonly HoldingSnapshotScopePair[];
+  startDate?: string;
+  endDate?: string;
+  includeProvisional?: boolean;
+  limit: number;
+  offset: number;
+}
+
+export interface ListHoldingSnapshotsResult {
+  rows: HoldingSnapshotListRow[];
+  total: number;
+  provisionalCount: number;
+}
+
+export interface McpReplayScopeRecord {
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+}
+
+export interface McpReplayPreviewRecord {
+  id: string;
+  sessionUserId: string;
+  portfolioContextUserId: string;
+  scopes: McpReplayScopeRecord[];
+  warnings: string[];
+  confirmationSummary: string;
+  confirmationDigest: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export type McpReplayRunStatus = "queued" | "running" | "completed" | "completed_with_failures" | "failed";
+export type McpReplayRunScopeStatus = "pending" | "running" | "succeeded" | "failed";
+
+export interface McpReplayRunScopeRecord extends McpReplayScopeRecord {
+  status: McpReplayRunScopeStatus;
+  errorMessage: string | null;
+  replayedTradeCount: number | null;
+  snapshotGenerationRunId: string | null;
+  updatedAt: string;
+}
+
+export interface McpReplayRunRecord {
+  id: string;
+  previewId: string;
+  sessionUserId: string;
+  portfolioContextUserId: string;
+  status: McpReplayRunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  scopes: McpReplayRunScopeRecord[];
+}
+
 // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────────
 
 /**
@@ -3013,6 +3075,28 @@ export interface Persistence {
     pairs: readonly HoldingSnapshotLatestDateScopePair[],
   ): Promise<Map<string, string | null>>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
+  listHoldingSnapshots(userId: string, options: ListHoldingSnapshotsOptions): Promise<ListHoldingSnapshotsResult>;
+  saveMcpReplayPreview(record: McpReplayPreviewRecord): Promise<void>;
+  getMcpReplayPreview(id: string): Promise<McpReplayPreviewRecord | null>;
+  createMcpReplayRun(record: McpReplayRunRecord): Promise<void>;
+  getMcpReplayRun(id: string): Promise<McpReplayRunRecord | null>;
+  updateMcpReplayRunScope(input: {
+    runId: string;
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    status: McpReplayRunScopeStatus;
+    errorMessage?: string | null;
+    replayedTradeCount?: number | null;
+    snapshotGenerationRunId?: string | null;
+    updatedAt?: string;
+  }): Promise<void>;
+  updateMcpReplayRunStatus(input: {
+    runId: string;
+    status: McpReplayRunStatus;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+  }): Promise<void>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.
   /**

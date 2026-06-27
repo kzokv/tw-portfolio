@@ -49,6 +49,16 @@ export class ProvidersApiAssert extends ApiBaseAssert {
     await this.mxAssertEqual(body.providers.length, 8, "providers list length");
   }
 
+  /**
+   * JP support adds `yahoo-finance-jp` and `twelve-data-jp`. Prefer the
+   * explicit count helper in new tests so stale provider-count helper names do
+   * not outlive the registry shape.
+   */
+  @Step()
+  async hasProviderCount(body: AdminProvidersListBody, expected: number): Promise<void> {
+    await this.mxAssertEqual(body.providers.length, expected, "providers list length");
+  }
+
   @Step()
   async providerStatusIs(
     body: AdminProvidersListBody,

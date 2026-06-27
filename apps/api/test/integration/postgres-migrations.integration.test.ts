@@ -3593,7 +3593,8 @@ describePostgres("postgres migrations", () => {
     await persistence.init();
 
     const store = await persistence.loadStore("user-1");
-    const baseProfile = store.feeProfiles[0]!;
+    const baseProfile = { ...store.feeProfiles[0]! };
+    delete baseProfile.taxRules;
     store.accounts.push({
       id: "user-1-jp-acc",
       userId: "user-1",
@@ -3610,14 +3611,17 @@ describePostgres("postgres migrations", () => {
       minimumCommissionAmount: 0,
       commissionCurrency: "JPY",
     });
-    store.marketData.instruments.push({
-      ticker: "7203@JP",
-      name: "Toyota Special",
-      instrumentType: "STOCK",
-      marketCode: "JP",
-      isProvisional: false,
-      lastSyncedAt: "2026-06-25T00:00:00.000Z",
-    });
+    await persistence.upsertInstrumentCatalog([
+      {
+        ticker: "7203@JP",
+        name: "Toyota Special",
+        typeRaw: "Common Stock",
+        industryCategoryRaw: "Automobiles",
+        finmindDate: "2026-05-09",
+        instrumentType: "STOCK",
+        marketCode: "JP",
+      },
+    ], []);
     store.instruments.push({
       ticker: "7203@JP",
       type: "STOCK",
