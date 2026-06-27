@@ -191,6 +191,40 @@ describe("MCP portfolio maintenance service", () => {
     })).rejects.toMatchObject({ code: "mcp_replay_queue_unavailable" });
   });
 
+  it("consumes replay previews after the first confirmed queue request", async () => {
+    const persistence = new MemoryPersistence();
+    await seedHeldTicker(persistence);
+    const sent: unknown[] = [];
+    const deps = buildDeps(persistence, {
+      boss: {
+        send: async (_queue: string, payload: unknown, options: unknown) => {
+          sent.push({ payload, options });
+          return `job-${sent.length}`;
+        },
+      } as never,
+    });
+    const preview = await previewReplayPortfolioPositions(deps, {
+      tickerMarkets: [{ ticker: "2330", marketCode: "TW" }],
+    });
+
+    await expect(replayPortfolioPositions(deps, {
+      previewId: preview.id,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+    })).resolves.toMatchObject({ previewId: preview.id, status: "queued" });
+    await expect(replayPortfolioPositions(deps, {
+      previewId: preview.id,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+    })).rejects.toMatchObject({ code: "mcp_replay_preview_consumed" });
+    expect(sent).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ runId: expect.any(String) }),
+        options: expect.objectContaining({ singletonKey: preview.id }),
+      }),
+    ]);
+  });
+
   it("rejects stale replay confirmations before queueing work", async () => {
     const persistence = new MemoryPersistence();
     await seedHeldTicker(persistence);
@@ -458,6 +492,50 @@ describe("MCP portfolio maintenance service", () => {
       expect.objectContaining({ id: "snap-main", accountId: "acc-1", accountName: "Main" }),
     ]);
     expect(result.summary.total).toBe(1);
+  });
+
+  it("returns an empty snapshot page when the active account scope is empty", async () => {
+    const persistence = new MemoryPersistence();
+    const store = createStore();
+    store.accounts = [];
+    await persistence.saveStore(store);
+    persistence._seedHoldingSnapshots([{
+      id: "snap-deleted",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      snapshotDate: "2026-06-25",
+      quantity: 10,
+      closePrice: 100,
+      marketValue: 1000,
+      costBasis: 900,
+      unrealizedPnl: 100,
+      cumulativeRealizedPnl: 0,
+      cumulativeDividends: 0,
+      isProvisional: false,
+      currency: "TWD",
+      valueNative: 1000,
+      costBasisNative: 900,
+      unrealizedPnlNative: 100,
+      providerSource: "test",
+      generatedAt: "2026-06-25T00:00:00.000Z",
+      generationRunId: "run-deleted",
+    }]);
+
+    await expect(getDailySnapshots(buildDeps(persistence), {
+      limit: 10,
+      offset: 0,
+    })).resolves.toEqual({
+      rows: [],
+      summary: {
+        total: 0,
+        provisionalCount: 0,
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
+    });
   });
 
   it("reads historical snapshots for requested ticker-markets without requiring current holdings", async () => {

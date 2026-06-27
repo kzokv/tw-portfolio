@@ -1143,6 +1143,16 @@ export class PostgresPersistence implements Persistence {
       return authUser;
     } catch (error) {
       await client.query("ROLLBACK");
+      if (
+        typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "23505"
+        && "constraint" in error
+        && error.constraint === "uq_mcp_replay_position_runs_preview_id"
+      ) {
+        throw routeError(409, "mcp_replay_preview_consumed", "Replay preview has already been confirmed");
+      }
       throw error;
     } finally {
       client.release();

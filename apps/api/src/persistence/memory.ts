@@ -3950,6 +3950,10 @@ export class MemoryPersistence implements Persistence {
   }
 
   async createMcpReplayRun(record: import("./types.js").McpReplayRunRecord): Promise<void> {
+    const existingRun = [...this.mcpReplayRuns.values()].find((run) => run.previewId === record.previewId);
+    if (existingRun) {
+      throw routeError(409, "mcp_replay_preview_consumed", "Replay preview has already been confirmed");
+    }
     this.mcpReplayRuns.set(record.id, structuredClone(record));
   }
 

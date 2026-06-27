@@ -511,7 +511,7 @@ export async function replayPortfolioPositions(
   await deps.app.persistence.createMcpReplayRun(run);
   try {
     await deps.app.boss.send(MCP_REPLAY_POSITION_RUN_QUEUE, { runId: run.id }, {
-      singletonKey: run.id,
+      singletonKey: preview.id,
     });
   } catch (error) {
     await deps.app.persistence.updateMcpReplayRunStatus({
@@ -644,6 +644,20 @@ export async function getDailySnapshots(
 ) {
   const { userId, store } = await loadContextStore(deps);
   const accountIds = [...resolveAccountIds(store, input)];
+  if (accountIds.length === 0) {
+    const limit = Math.min(input.limit ?? 100, MAX_SNAPSHOT_PAGE_SIZE);
+    const offset = input.offset ?? 0;
+    return {
+      rows: [],
+      summary: {
+        total: 0,
+        provisionalCount: 0,
+        limit,
+        offset,
+        hasMore: false,
+      },
+    };
+  }
   const scopePairs = toSnapshotScopePairs(accountIds, input.tickerMarkets);
   const limit = Math.min(input.limit ?? 100, MAX_SNAPSHOT_PAGE_SIZE);
   const offset = input.offset ?? 0;
