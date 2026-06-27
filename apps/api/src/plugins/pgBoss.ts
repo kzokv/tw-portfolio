@@ -52,6 +52,7 @@ import {
 } from "../services/market-data/registerCloseRefreshWorker.js";
 import { toDailyBarUpsertRows } from "../services/market-data/closeRefreshWorker.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
+import { registerMcpReplayPositionRunWorker } from "../services/mcpReplayPositionRunWorker.js";
 
 function createRedisIntradayRefreshRequestBudget(
   redis: Pick<RedisClientType, "isOpen" | "connect" | "incrBy" | "pExpire" | "pTTL">,
@@ -192,6 +193,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   await registerBackfillWorker(app, boss, backfillDeps);
   await registerCatalogSyncWorker(app, boss, catalogDeps);
   await registerProviderOperationExecutionWorker(app, boss);
+  await registerMcpReplayPositionRunWorker(app, boss);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
   // KZO-194: kick the catalog-sync queue once on startup so a fresh deploy doesn't
   // wait up to 72h (Fri afternoon → Mon 17:30 UTC, the next CATALOG_SYNC_CRON tick)

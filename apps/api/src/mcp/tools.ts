@@ -67,6 +67,19 @@ const portfolioSelectorSchema = z.object({
 }).strict();
 const accountNameSchema = z.string().trim().min(1).max(120);
 const accountNameListSchema = z.array(accountNameSchema).max(100);
+const tickerMarketSchema = z.object({
+  ticker: z.string().trim().min(1).max(32),
+  marketCode: marketCodeSchema,
+}).strict();
+const maintenanceScopeShape = {
+  accountIds: z.array(userScopedIdSchema).max(50).optional(),
+  accountNames: accountNameListSchema.optional(),
+  tickerMarkets: z.array(tickerMarketSchema).max(100).optional(),
+} as const;
+const accountScopeShape = {
+  accountIds: z.array(userScopedIdSchema).max(50).optional(),
+  accountNames: accountNameListSchema.optional(),
+} as const;
 const batchLabelSchema = z.string().trim().min(1).max(200);
 const confirmationSummarySchema = z.string().trim().min(1).max(10_000);
 const confirmationDigestSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i);
@@ -225,6 +238,94 @@ const toolDefinitions = {
       ...mcpSharedInputShape,
       tickers: z.array(z.string().trim().min(1).max(32)).max(100).optional(),
     }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  refresh_portfolio_prices: {
+    description: "Refresh close prices for held ticker-market pairs in the selected portfolio, queue overflow work, and optionally enqueue intraday refreshes. Does not accept arbitrary provider-wide refreshes.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...maintenanceScopeShape,
+      includeIntraday: z.boolean().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  preview_recompute_portfolio_fees: {
+    description: "Create a server-owned preview for recomputing fees, taxes, realized gain fields, and settlement cash entries in the selected portfolio scope.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...accountScopeShape,
+      profileId: userScopedIdSchema.optional(),
+      useFallbackBindings: z.boolean().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  recompute_portfolio_fees: {
+    description: "Confirm a server-owned fee recompute preview and enqueue holding and wallet snapshot refresh follow-up work.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      jobId: userScopedIdSchema,
+      confirmationSummary: z.string().min(1).max(500),
+      confirmationDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  preview_replay_portfolio_positions: {
+    description: "Create a 15-minute server-owned confirmation preview for replaying position lots, allocations, settlement cash, and scoped holding snapshots.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...maintenanceScopeShape,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  replay_portfolio_positions: {
+    description: "Confirm a replay preview and start an asynchronous position replay run with per-scope status.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      previewId: userScopedIdSchema,
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  get_replay_portfolio_positions_run: {
+    description: "Return the factual status and per-scope outcomes for a portfolio position replay run.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      runId: userScopedIdSchema,
+    }).strict(),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  backfill_tickers: {
+    description: "Queue portfolio-scoped market-data backfills for held or monitored ticker-market pairs only. No provider override or force bypass is supported.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...maintenanceScopeShape,
+      startDate: isoDateSchema.optional(),
+      endDate: isoDateSchema.optional(),
+      includeBars: z.boolean().optional(),
+      includeDividends: z.boolean().optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  get_daily_snapshots: {
+    description: `Return holding snapshot rows for the selected portfolio with filters, pagination, and summary counts. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...maintenanceScopeShape,
+      startDate: isoDateSchema.optional(),
+      endDate: isoDateSchema.optional(),
+      includeProvisional: z.boolean().optional(),
+      limit: z.number().int().positive().max(200).default(100),
+      offset: z.number().int().min(0).default(0),
+    }).strict(),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },

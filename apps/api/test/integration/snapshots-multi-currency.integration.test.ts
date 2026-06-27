@@ -418,6 +418,81 @@ describePostgres("KZO-165 — round-trip + hard-purge cascade for currency_walle
     expect(round[1].providerSource).toBe("finmind");
   });
 
+  it("listHoldingSnapshots keeps filtered counts when the requested page is empty", async () => {
+    const { userId } = await persistence!.resolveOrCreateUser(
+      "google",
+      "kzo165-list-empty-page-sub",
+      { email: "kzo165-list-empty-page@example.com", name: "KZO-165 Empty Page User" },
+    );
+    const accountsResult = await pool.query<{ id: string }>(
+      `SELECT id FROM accounts WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    expect(accountsResult.rows.length).toBeGreaterThan(0);
+    const accountId = accountsResult.rows[0].id;
+    const generatedAt = new Date().toISOString();
+
+    await persistence!.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "empty-page-snap-1",
+        userId,
+        accountId,
+        ticker: "2002",
+        marketCode: "TW",
+        snapshotDate: "2025-01-02",
+        quantity: 10,
+        closePrice: 100,
+        marketValue: 1000,
+        costBasis: 1000,
+        unrealizedPnl: 0,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1000,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 0,
+        providerSource: "finmind",
+        generatedAt,
+        generationRunId: "gen-empty-page",
+      },
+      {
+        id: "empty-page-snap-2",
+        userId,
+        accountId,
+        ticker: "2002",
+        marketCode: "TW",
+        snapshotDate: "2025-01-03",
+        quantity: 10,
+        closePrice: null,
+        marketValue: null,
+        costBasis: 1000,
+        unrealizedPnl: null,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: true,
+        currency: "TWD",
+        valueNative: null,
+        costBasisNative: 1000,
+        unrealizedPnlNative: null,
+        providerSource: null,
+        generatedAt,
+        generationRunId: "gen-empty-page",
+      },
+    ]);
+
+    const page = await persistence!.listHoldingSnapshots(userId, {
+      limit: 10,
+      offset: 10,
+      includeProvisional: true,
+      pairs: [{ accountId, ticker: "2002", marketCode: "TW" }],
+    });
+
+    expect(page.rows).toEqual([]);
+    expect(page.total).toBe(2);
+    expect(page.provisionalCount).toBe(1);
+  });
+
   it("getLatestHoldingSnapshotDatesByScope ignores newer incomplete holding snapshots", async () => {
     const { userId } = await persistence!.resolveOrCreateUser(
       "google",
