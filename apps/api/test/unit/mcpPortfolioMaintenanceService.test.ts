@@ -143,6 +143,39 @@ describe("MCP portfolio maintenance service", () => {
       .rejects.toMatchObject({ code: "mcp_ambiguous_market_scope" });
   });
 
+  it("ignores unrelated ambiguous holdings when tickerMarkets narrow replay scope", async () => {
+    const persistence = new MemoryPersistence();
+    const store = createStore();
+    store.accounting.projections.holdings.push(
+      {
+        accountId: "acc-1",
+        ticker: "2330",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "TWD",
+      },
+      {
+        accountId: "acc-1",
+        ticker: "BHP",
+        quantity: 10,
+        costBasisAmount: 1000,
+        currency: "AUD",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      { accountId: "acc-1", ticker: "2330", marketCode: "TW" } as never,
+      { accountId: "acc-1", ticker: "BHP", marketCode: "AU" } as never,
+      { accountId: "acc-1", ticker: "BHP", marketCode: "US" } as never,
+    );
+    await persistence.saveStore(store);
+
+    await expect(previewReplayPortfolioPositions(buildDeps(persistence), {
+      tickerMarkets: [{ ticker: "2330", marketCode: "TW" }],
+    })).resolves.toMatchObject({
+      scopes: [expect.objectContaining({ accountId: "acc-1", ticker: "2330", marketCode: "TW" })],
+    });
+  });
+
   it("rejects replay confirmation when the replay queue is unavailable", async () => {
     const persistence = new MemoryPersistence();
     await seedHeldTicker(persistence);

@@ -171,20 +171,27 @@ function resolveHeldMarketCode(store: Store, holding: { accountId: string; ticke
 
 function resolveHeldPairs(store: Store, userId: string, input: ScopedInput): ScopedPair[] {
   const accountIds = resolveAccountIds(store, input);
-  const requested = input.tickerMarkets && input.tickerMarkets.length > 0
-    ? new Set(input.tickerMarkets.map((pair) => {
+  const requestedTickerMarkets = input.tickerMarkets && input.tickerMarkets.length > 0
+    ? input.tickerMarkets
+    : null;
+  const requested = requestedTickerMarkets
+    ? new Set(requestedTickerMarkets.map((pair) => {
         assertSharedMarketCode(pair.marketCode);
         return `${normalizeTicker(pair.ticker)}\0${pair.marketCode}`;
       }))
+    : null;
+  const requestedTickers = requestedTickerMarkets
+    ? new Set(requestedTickerMarkets.map((pair) => normalizeTicker(pair.ticker)))
     : null;
   const accountsById = new Map(store.accounts.map((account) => [account.id, account]));
   const pairs = new Map<string, ScopedPair>();
   for (const holding of listHoldings(store, userId)) {
     if (holding.quantity <= 0 || !accountIds.has(holding.accountId)) continue;
+    const ticker = normalizeTicker(holding.ticker);
+    if (requestedTickers && !requestedTickers.has(ticker)) continue;
     const marketCode = resolveHeldMarketCode(store, holding);
     if (!marketCode) continue;
     assertSharedMarketCode(marketCode);
-    const ticker = normalizeTicker(holding.ticker);
     if (requested && !requested.has(`${ticker}\0${marketCode}`)) continue;
     const account = accountsById.get(holding.accountId);
     if (!account) continue;
