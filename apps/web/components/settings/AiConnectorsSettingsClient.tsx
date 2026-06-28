@@ -249,6 +249,14 @@ type LocalizedCopy = {
   bearerTokenOneTime: string;
   bearerUnavailable: string;
   bearerSecondary: string;
+  bearerBlockedReasons: string;
+  bearerBlockedGlobal: string;
+  bearerBlockedClientDisabled: string;
+  bearerBlockedClientNotAllowed: string;
+  bearerBlockedNoToolGroups: string;
+  bearerBlockedDuplicate: string;
+  bearerBlockedLimit: string;
+  bearerRepairLink: string;
   closeToken: string;
   webSession: string;
 };
@@ -426,6 +434,14 @@ const COPY: Record<"en" | "zh-TW", LocalizedCopy> = {
     bearerTokenOneTime: "One-time bearer token",
     bearerUnavailable: "Bearer fallback is disabled for this client by admin policy.",
     bearerSecondary: "Bearer fallback is for developer MCP clients when OAuth is unavailable. Keep tokens scoped, expiring, and revocable.",
+    bearerBlockedReasons: "Why creation is unavailable",
+    bearerBlockedGlobal: "Bearer fallback is disabled globally.",
+    bearerBlockedClientDisabled: "This AI client is disabled in the client-kind allowlist.",
+    bearerBlockedClientNotAllowed: "This AI client is not enabled in the bearer fallback allowlist.",
+    bearerBlockedNoToolGroups: "No bearer tool groups are enabled for the currently available MCP tool groups.",
+    bearerBlockedDuplicate: "An active bearer connector already exists for this client. Revoke it before creating another token.",
+    bearerBlockedLimit: "You have reached the active bearer connector limit.",
+    bearerRepairLink: "Open admin setting",
     closeToken: "Hide token",
     webSession: "Web session",
   },
@@ -601,6 +617,14 @@ const COPY: Record<"en" | "zh-TW", LocalizedCopy> = {
     bearerTokenOneTime: "一次性 Bearer 權杖",
     bearerUnavailable: "管理員策略未允許此客戶端使用 Bearer 備援。",
     bearerSecondary: "Bearer 備援僅供 OAuth 不可用時的開發者 MCP 客戶端使用。請維持最小權限、到期與可撤銷。",
+    bearerBlockedReasons: "無法建立的原因",
+    bearerBlockedGlobal: "全域 Bearer 備援已停用。",
+    bearerBlockedClientDisabled: "此 AI 客戶端已在客戶端允許清單中停用。",
+    bearerBlockedClientNotAllowed: "此 AI 客戶端尚未在 Bearer 備援允許清單中啟用。",
+    bearerBlockedNoToolGroups: "目前可用的 MCP 工具群組沒有任何 Bearer 工具群組可用。",
+    bearerBlockedDuplicate: "此客戶端已有啟用中的 Bearer 連接器。請先撤銷後再建立新的權杖。",
+    bearerBlockedLimit: "已達啟用中 Bearer 連接器數量上限。",
+    bearerRepairLink: "開啟管理員設定",
     closeToken: "隱藏權杖",
     webSession: "Web 工作階段",
   },
@@ -749,6 +773,13 @@ function bearerToolGroupForScope(scope: AiConnectorScope): "read" | "drafts" | "
 function isBearerScopeAllowed(policy: AiConnectorSummaryResponse["policy"], scope: AiConnectorScope): boolean {
   return isGroupEnabled(policy, scope)
     && policy.bearerFallback.allowedToolGroups.includes(bearerToolGroupForScope(scope));
+}
+
+function getBearerAllowedScopes(policy: AiConnectorSummaryResponse["policy"] | null): AiConnectorScope[] {
+  if (!policy) return [];
+  return GROUPED_SCOPES
+    .flatMap((group) => group.scopes)
+    .filter((scope) => isBearerScopeAllowed(policy, scope));
 }
 
 function toolBlockerLabel(
@@ -1115,6 +1146,7 @@ export function AiConnectorsSettingsClient() {
 
   const connections = useMemo(() => sortConnections(summary?.connections ?? []), [summary?.connections]);
   const activeConnections = connections.filter((connection) => connection.status === "active");
+  const activeBearerConnections = activeConnections.filter((connection) => connection.authMode === "bearer");
   const currentConnections = connections.filter((connection) =>
     connection.status === "active"
     || connection.status === "pending"
@@ -1517,10 +1549,41 @@ export function AiConnectorsSettingsClient() {
                   const bearerClientKind = client.clientKind !== "claude_ai_connector" && isBearerClientKind(client.clientKind)
                     ? client.clientKind
                     : null;
-                  const bearerAllowed = bearerClientKind !== null
-                    && Boolean(summary?.policy.bearerFallback.enabled)
-                    && Boolean((summary?.policy.allowedClientKinds as Record<string, boolean>)[bearerClientKind])
-                    && Boolean(summary?.policy.bearerFallback.allowedClientKinds.includes(bearerClientKind));
+                  const allowedBearerScopes = getBearerAllowedScopes(summary?.policy ?? null);
+                  const bearerActiveForClient = bearerClientKind !== null && activeBearerConnections.some((connection) =>
+                    connection.clientKind === bearerClientKind);
+                  const bearerLimitReached = Boolean(summary?.policy)
+                    && activeBearerConnections.length >= (summary?.policy.bearerFallback.maxActiveConnectorsPerUser ?? 0);
+                  const bearerBlockers: Array<{ reason: string; adminHref?: string }> = [];
+                  if (bearerClientKind !== null) {
+                    if (!summary?.policy.bearerFallback.enabled) {
+                      bearerBlockers.push({
+                        reason: copy.bearerBlockedGlobal,
+                        adminHref: "/admin/settings?tab=mcp#bearer-fallback-policy",
+                      });
+                    }
+                    if (!Boolean((summary?.policy.allowedClientKinds as Record<string, boolean> | undefined)?.[bearerClientKind])) {
+                      bearerBlockers.push({
+                        reason: copy.bearerBlockedClientDisabled,
+                        adminHref: "/admin/settings?tab=mcp#client-kind-allowlist",
+                      });
+                    }
+                    if (!Boolean(summary?.policy.bearerFallback.allowedClientKinds.includes(bearerClientKind))) {
+                      bearerBlockers.push({
+                        reason: copy.bearerBlockedClientNotAllowed,
+                        adminHref: "/admin/settings?tab=mcp#bearer-fallback-policy",
+                      });
+                    }
+                    if (allowedBearerScopes.length === 0) {
+                      bearerBlockers.push({
+                        reason: copy.bearerBlockedNoToolGroups,
+                        adminHref: "/admin/settings?tab=mcp#bearer-tool-groups",
+                      });
+                    }
+                    if (bearerActiveForClient) bearerBlockers.push({ reason: copy.bearerBlockedDuplicate });
+                    if (bearerLimitReached) bearerBlockers.push({ reason: copy.bearerBlockedLimit });
+                  }
+                  const bearerAllowed = bearerClientKind !== null && bearerBlockers.length === 0;
                   const bearerOpen = bearerDraft.clientKind === client.clientKind;
                   const bearerLifetimeMax = summary?.policy.bearerFallback.maxLifetimeDays ?? 30;
                   return (
@@ -1573,6 +1636,23 @@ export function AiConnectorsSettingsClient() {
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-foreground">{copy.bearerFallback}</p>
                               <p className="mt-1 text-sm text-muted-foreground">{bearerAllowed ? copy.bearerSecondary : copy.bearerUnavailable}</p>
+                              {!bearerAllowed && bearerBlockers.length > 0 ? (
+                                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                  <p className="font-semibold">{copy.bearerBlockedReasons}</p>
+                                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                                    {bearerBlockers.map((blocker) => (
+                                      <li key={blocker.reason}>
+                                        <span>{blocker.reason}</span>
+                                        {isAdmin && blocker.adminHref ? (
+                                          <a className="ml-1 font-medium underline underline-offset-2" href={blocker.adminHref}>
+                                            {copy.bearerRepairLink}
+                                          </a>
+                                        ) : null}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                             <Button
                               variant="outline"
@@ -1581,7 +1661,7 @@ export function AiConnectorsSettingsClient() {
                               disabled={!bearerAllowed || busyId === `bearer-${client.clientKind}`}
                               onClick={() => {
                                 setOneTimeBearerToken((current) => current?.clientKind === bearerClientKind ? current : null);
-                                const defaultScopes = summary?.policy && isBearerScopeAllowed(summary.policy, "portfolio:mcp_read")
+                                const defaultScopes = allowedBearerScopes.includes("portfolio:mcp_read")
                                   ? ["portfolio:mcp_read" as AiConnectorScope]
                                   : [];
                                 setBearerDraft({

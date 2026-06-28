@@ -176,6 +176,9 @@ describe("AdminSettingsClient — MCP settings", () => {
     expect(section?.textContent).toContain("https://claude.ai/api/mcp/auth_callback");
     expect(section?.textContent).toContain("Copy callback");
     expect(section?.textContent).toContain("Quick-add Claude.ai");
+    expect(document.querySelector("#client-kind-allowlist")?.textContent).toContain("Client-kind allowlist");
+    expect(document.querySelector("#bearer-fallback-policy")?.textContent).toContain("Bearer fallback policy");
+    expect(document.querySelector("#bearer-tool-groups")?.textContent).toContain("Allowed bearer tool groups");
 
     const builtInCallbacks = document.querySelector("[data-testid='admin-settings-mcp-built-in-callbacks']");
     const suggestedCallbacks = document.querySelector("[data-testid='admin-settings-mcp-suggested-callbacks']");

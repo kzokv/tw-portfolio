@@ -1089,6 +1089,71 @@ describe("AiConnectorsSettingsClient", () => {
     });
   });
 
+  it("keeps bearer creation visible with precise blockers when a client is disabled", async () => {
+    const basePolicy = buildPolicy();
+    mockFetchAiConnectorSummary.mockResolvedValue({
+      connections: [],
+      policy: buildPolicy({
+        allowedClientKinds: {
+          ...basePolicy.allowedClientKinds,
+          codex_cli: false,
+        },
+        bearerFallback: {
+          enabled: true,
+          allowedClientKinds: ["codex_cli"],
+          maxLifetimeDays: 30,
+          maxActiveConnectorsPerUser: 3,
+          allowedToolGroups: ["read"],
+        },
+      }),
+    } satisfies AiConnectorSummaryResponse);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+    await act(async () => {
+      (document.querySelector("[data-testid='ai-connectors-tab-connect']") as HTMLButtonElement | null)?.click();
+    });
+    await flushEffects();
+
+    const openButton = document.querySelector("[data-testid='ai-connectors-bearer-open-codex_cli']") as HTMLButtonElement | null;
+    expect(openButton).not.toBeNull();
+    expect(openButton?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("This AI client is disabled in the client-kind allowlist.");
+    expect(document.body.textContent).not.toContain("No bearer tool groups are enabled");
+    expect(document.querySelector("a[href='/admin/settings?tab=mcp#client-kind-allowlist']")).toBeNull();
+  });
+
+  it("explains when bearer creation is blocked by tool-group policy", async () => {
+    mockUseOptionalAppShellData.mockReturnValue({ locale: "en", sessionUserRole: "admin" });
+    mockFetchAiConnectorSummary.mockResolvedValue({
+      connections: [],
+      policy: buildPolicy({
+        groupToggles: { read: true, drafts: true, write: true },
+        bearerFallback: {
+          enabled: true,
+          allowedClientKinds: ["codex_cli"],
+          maxLifetimeDays: 30,
+          maxActiveConnectorsPerUser: 3,
+          allowedToolGroups: [],
+        },
+      }),
+    } satisfies AiConnectorSummaryResponse);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+    await act(async () => {
+      (document.querySelector("[data-testid='ai-connectors-tab-connect']") as HTMLButtonElement | null)?.click();
+    });
+    await flushEffects();
+
+    const openButton = document.querySelector("[data-testid='ai-connectors-bearer-open-codex_cli']") as HTMLButtonElement | null;
+    expect(openButton).not.toBeNull();
+    expect(openButton?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("No bearer tool groups are enabled for the currently available MCP tool groups.");
+    const repairLink = document.querySelector("a[href='/admin/settings?tab=mcp#bearer-tool-groups']");
+    expect(repairLink?.textContent).toContain("Open admin setting");
+  });
+
   it("loads access logs after the summary resolves", async () => {
     mockFetchAiConnectorSummary.mockResolvedValue({
       connections: [buildConnection()],

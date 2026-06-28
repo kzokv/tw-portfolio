@@ -1261,7 +1261,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 px-4 py-4">
+        <div id="client-kind-allowlist" className="scroll-mt-24 rounded-xl border border-slate-200 px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "客戶端允許清單" : "Client-kind allowlist"}</h3>
@@ -1298,7 +1298,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 px-4 py-4">
+        <div id="bearer-fallback-policy" className="scroll-mt-24 rounded-xl border border-slate-200 px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "Bearer 備援政策" : "Bearer fallback policy"}</h3>
@@ -1382,7 +1382,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                   className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
                 />
               </label>
-              <div className="rounded-xl border border-slate-200 px-3 py-3">
+              <div id="bearer-tool-groups" className="scroll-mt-24 rounded-xl border border-slate-200 px-3 py-3">
                 <p className="text-sm font-medium text-slate-700">{isZhTW ? "允許 Bearer 工具群組" : "Allowed bearer tool groups"}</p>
                 <div className="mt-2 space-y-2">
                   {(["read", "drafts", "write"] as const).map((group) => {
