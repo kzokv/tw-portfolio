@@ -210,7 +210,10 @@ export async function handleMcpOAuthToken(
     const activatedResult = await app.persistence.activateAiConnectorConnectionReplacingProvider({
       connectionId: connection.id,
       userId: code.userId,
-      provider: "chatgpt",
+      provider: connection.provider,
+      vendor: connection.vendor,
+      clientKind: connection.clientKind,
+      authMode: connection.authMode,
       maxActiveConnectionsPerUser: settings.maxActiveConnectionsPerUser,
       oauthClientId: code.clientId,
       oauthSubject: code.userId,
@@ -230,7 +233,10 @@ export async function handleMcpOAuthToken(
         ipAddress: req.ip,
         metadata: {
           connectionId: revokedConnectionId,
-          provider: "chatgpt",
+          provider: connection.provider,
+          vendor: connection.vendor,
+          clientKind: connection.clientKind,
+          authMode: connection.authMode,
           reason: "replaced_by_oauth_authorization",
         },
       });

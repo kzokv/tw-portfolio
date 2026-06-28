@@ -2,11 +2,15 @@ import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, 
 import type {
   AiConnectorAccessKind,
   AiConnectorAccessResult,
+  AiConnectorAuthMode,
+  AiConnectorCapability,
+  AiConnectorClientKind,
   AiConnectorConnectionDto,
   AiConnectorPolicySettingsDto,
   AiConnectorProvider,
   AiConnectorScope,
   AiConnectorStatus,
+  AiConnectorVendor,
   AiTransactionDraftBatchStatus,
   AiTransactionDraftEventType,
   AiTransactionDraftRowState,
@@ -524,7 +528,7 @@ export interface SaveMcpOAuthAuthorizationCodeInput {
 export interface AiConnectorCredentialRecord {
   id: string;
   connectionId: string;
-  credentialType: "oauth_refresh_token" | "self_hosted_token";
+  credentialType: "oauth_refresh_token" | "self_hosted_token" | "bearer_token";
   tokenHash: string;
   tokenHint: string | null;
   tokenFamilyId: string | null;
@@ -543,7 +547,7 @@ export interface AiConnectorCredentialRecord {
 export interface SaveAiConnectorCredentialInput {
   id: string;
   connectionId: string;
-  credentialType: "oauth_refresh_token" | "self_hosted_token";
+  credentialType: "oauth_refresh_token" | "self_hosted_token" | "bearer_token";
   tokenHash: string;
   tokenHint?: string | null;
   tokenFamilyId?: string | null;
@@ -563,6 +567,10 @@ export interface SaveAiConnectorConnectionInput {
   id: string;
   userId: string;
   provider: AiConnectorProvider;
+  vendor?: AiConnectorVendor;
+  clientKind?: AiConnectorClientKind;
+  authMode?: AiConnectorAuthMode;
+  capabilities?: AiConnectorCapability[];
   displayName: string;
   status: AiConnectorStatus;
   oauthClientId?: string | null;
@@ -572,6 +580,7 @@ export interface SaveAiConnectorConnectionInput {
   expiresAt?: string | null;
   expiryNotifiedAt?: string | null;
   lastUsedAt?: string | null;
+  hiddenAt?: string | null;
   revokedAt?: string | null;
   revokedByUserId?: string | null;
   revocationReason?: string | null;
@@ -583,6 +592,9 @@ export interface ActivateAiConnectorConnectionReplacingProviderInput {
   connectionId: string;
   userId: string;
   provider: AiConnectorProvider;
+  vendor?: AiConnectorVendor;
+  clientKind?: AiConnectorClientKind;
+  authMode?: AiConnectorAuthMode;
   maxActiveConnectionsPerUser: number;
   oauthClientId?: string | null;
   oauthSubject?: string | null;
@@ -609,13 +621,18 @@ export interface ApproveMcpOAuthAuthorizationRequestResult {
   connection: AiConnectorConnectionRecord;
 }
 
-export type AiConnectorPolicySettingsRecord = AiConnectorPolicySettingsDto;
+export type AiConnectorPolicySettingsRecord = Omit<AiConnectorPolicySettingsDto, "readiness">;
 
 export type SaveAiConnectorPolicySettingsInput = Partial<
-  Omit<AiConnectorPolicySettingsDto, "updatedAt" | "allowedProviders" | "groupToggles" | "oauthTokenSecretSet">
+  Omit<
+    AiConnectorPolicySettingsDto,
+    "updatedAt" | "allowedProviders" | "allowedClientKinds" | "groupToggles" | "bearerFallback" | "oauthTokenSecretSet" | "readiness"
+  >
 > & {
   allowedProviders?: Partial<AiConnectorPolicySettingsDto["allowedProviders"]>;
+  allowedClientKinds?: Partial<AiConnectorPolicySettingsDto["allowedClientKinds"]>;
   groupToggles?: Partial<AiConnectorPolicySettingsDto["groupToggles"]>;
+  bearerFallback?: Partial<AiConnectorPolicySettingsDto["bearerFallback"]>;
 };
 
 export interface AppendAiConnectorAccessLogInput {
@@ -654,6 +671,10 @@ export interface AiConnectorAccessLogRecord {
 
 export interface ListAiConnectorAccessLogsOptions {
   limit?: number;
+  offset?: number;
+  result?: AiConnectorAccessResult;
+  search?: string;
+  connectionIds?: string[];
 }
 
 export interface AiTransactionDraftBatchRecord {

@@ -11,6 +11,7 @@ import type {
   McpResolvedContext,
 } from "./types.js";
 import { connectorGroupForScope } from "../services/mcpConnectorLifecycle.js";
+import { getMcpClientByLegacyProvider } from "./clientRegistry.js";
 
 const READ_LIMIT = { windowMs: 60_000, max: 120 };
 const MUTATION_LIMIT = { windowMs: 60_000, max: 60 };
@@ -34,7 +35,7 @@ export function getMcpRateLimitBucketCountForTest(): number {
   return rateBuckets.size;
 }
 
-function scopesForToolAccess(
+export function scopesForToolAccess(
   accessKind: AiConnectorAccessKind,
   toolName: string,
   toolScope: AiConnectorScope,
@@ -170,10 +171,17 @@ export class DefaultMcpPolicyService implements McpPolicyService {
     if (!settings.enabled) {
       throw routeError(403, "mcp_deployment_disabled", "AI connector deployment is disabled");
     }
-    if (auth.connection && !settings.allowedProviders[auth.connection.provider]) {
-      throw routeError(403, "mcp_provider_disabled", `AI connector provider ${auth.connection.provider} is disabled`);
+    if (auth.connection) {
+      const clientKind = auth.connection.clientKind ?? getMcpClientByLegacyProvider(auth.connection.provider).clientKind;
+      const allowed = settings.allowedClientKinds?.[clientKind] ?? settings.allowedProviders[auth.connection.provider];
+      if (!allowed) {
+        throw routeError(403, "mcp_client_kind_disabled", `AI connector client kind ${clientKind} is disabled`);
+      }
     }
     const group = connectorGroupForScope(toolScope);
+    if (auth.authMode === "bearer" && !settings.bearerFallback.allowedToolGroups.includes(group)) {
+      throw routeError(403, "mcp_bearer_tool_group_disabled", `MCP bearer fallback is disabled for ${group} tools`);
+    }
     if (!settings.groupToggles[group]) {
       throw routeError(403, "mcp_tool_group_disabled", `MCP tool group ${group} is disabled`);
     }

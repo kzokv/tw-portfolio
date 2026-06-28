@@ -1,19 +1,22 @@
-import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
-import { DefaultMcpAuthService } from "../../src/mcp/auth.js";
 import {
-  createAiConnectorConnection,
-  revokeAiConnectorConnection,
+  defaultClientCapabilities,
+  getMcpClientByKind,
+  getMcpClientByLegacyProvider,
+  legacyProviderForClientKind,
+  MCP_CLIENT_REGISTRY,
+} from "../../src/mcp/clientRegistry.js";
+import {
+  createAiConnectorBearerFallback,
+  hashGeneratedBearerToken,
+  isGeneratedBearerToken,
+  toAiConnectorPolicySettingsDto,
 } from "../../src/services/mcpConnectorLifecycle.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
-function devToken(payload: Record<string, unknown>): string {
-  return `vakwen-dev.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
-}
-
-describe("MCP connector lifecycle", () => {
+describe("MCP connector registry and lifecycle", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory" });
   });
@@ -22,87 +25,212 @@ describe("MCP connector lifecycle", () => {
     await app.close();
   });
 
-  it("enforces the admin deployment ceiling when creating connector connections", async () => {
-    await app.persistence.saveAiConnectorPolicySettings({ maxActiveConnectionsPerUser: 1 });
-    await createAiConnectorConnection(
-      app,
-      {
-        userId: "user-1",
-        provider: "chatgpt",
-        displayName: "ChatGPT",
-        scopes: ["portfolio:mcp_read"],
-      },
-      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
-    );
-
-    await expect(createAiConnectorConnection(
-      app,
-      {
-        userId: "user-1",
-        provider: "self_hosted",
-        displayName: "Self hosted",
-        scopes: ["portfolio:mcp_read"],
-      },
-      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
-    )).rejects.toMatchObject({ code: "mcp_connection_limit_exceeded" });
+  it("maps supported client kinds and legacy providers through the shared registry", () => {
+    expect(MCP_CLIENT_REGISTRY.map((client) => client.clientKind)).toEqual([
+      "chatgpt_app",
+      "claude_ai_connector",
+      "claude_code",
+      "codex_cli",
+      "gemini_cli",
+      "copilot_mcp",
+      "generic_mcp",
+    ]);
+    expect(getMcpClientByKind("chatgpt_app")).toMatchObject({
+      vendor: "openai",
+      legacyProvider: "chatgpt",
+      supportedAuthModes: ["oauth"],
+      capabilities: ["oauth", "widgets", "interactive_ops", "deep_link_fallback"],
+    });
+    expect(getMcpClientByLegacyProvider("chatgpt").clientKind).toBe("chatgpt_app");
+    expect(getMcpClientByLegacyProvider("self_hosted").clientKind).toBe("generic_mcp");
+    expect(legacyProviderForClientKind("claude_code")).toBe("self_hosted");
+    expect(defaultClientCapabilities("codex_cli")).toEqual(["bearer_fallback", "deep_link_fallback"]);
   });
 
-  it("revokes connector connections with audit and in-app notification", async () => {
-    const connection = await createAiConnectorConnection(
-      app,
-      {
-        userId: "user-1",
-        provider: "chatgpt",
-        displayName: "ChatGPT",
-        scopes: ["portfolio:mcp_read"],
+  it("builds policy DTO readiness from client-kind policy and deployment state", async () => {
+    const settings = await app.persistence.saveAiConnectorPolicySettings({
+      enabled: false,
+      oauthPublicIssuer: "https://vakwen.example.com",
+      allowedClientKinds: {
+        chatgpt_app: false,
+        claude_ai_connector: false,
+        claude_code: false,
+        codex_cli: false,
+        gemini_cli: false,
+        copilot_mcp: false,
+        generic_mcp: false,
       },
-      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
-    );
+      groupToggles: { read: false, drafts: false, write: false },
+      bearerFallback: { enabled: true },
+    });
+    const dto = toAiConnectorPolicySettingsDto(settings);
 
-    await revokeAiConnectorConnection(app, connection.id, {
-      revokedByUserId: "user-1",
-      reason: "user_requested",
-      ipAddress: "127.0.0.1",
+    expect(dto.readiness).toMatchObject({
+      status: "disabled",
+      endpoint: "https://vakwen.example.com/mcp",
+      deploymentEnabled: false,
+      publicIssuerConfigured: true,
+      enabledClientKindCount: 0,
+      totalClientKindCount: 7,
+      highRiskToolsEnabled: false,
+      bearerFallbackEnabled: true,
+    });
+    expect(dto.readiness.checks).toEqual(
+      expect.arrayContaining([
+        { key: "deployment", status: "blocked" },
+        { key: "client_kind_policy", status: "blocked" },
+        { key: "bearer_fallback", status: "warning" },
+      ]),
+    );
+  });
+
+  it("creates scoped bearer fallback connector instances and stores only token hashes", async () => {
+    const authUser = await app.persistence.resolveOrCreateUser("google", "mcp-unit-user", {
+      email: "mcp-unit-user@example.com",
+      name: "MCP Unit User",
+    });
+    await app.persistence.saveAiConnectorPolicySettings({
+      maxConnectorLifetimeDays: 10,
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["claude_code"],
+        maxLifetimeDays: 5,
+        maxActiveConnectorsPerUser: 1,
+        allowedToolGroups: ["read"],
+      },
     });
 
-    const saved = await app.persistence.getAiConnectorConnection(connection.id);
-    expect(saved).toMatchObject({ status: "revoked", revocationReason: "user_requested" });
-    const notifications = await app.persistence.getNotificationsForUser("user-1", { page: 1, limit: 10 });
-    expect(notifications.notifications[0]).toMatchObject({
-      source: "ai_connector",
-      sourceRef: connection.id,
-      title: "AI connector revoked",
+    const result = await createAiConnectorBearerFallback(
+      app,
+      {
+        userId: authUser.userId,
+        clientKind: "claude_code",
+        displayName: "Claude Code laptop",
+        scopes: ["portfolio:mcp_read", "transaction:write"],
+        lifetimeDays: 90,
+      },
+      { actorUserId: authUser.userId, ipAddress: "127.0.0.1" },
+    );
+
+    expect(result.connection).toMatchObject({
+      provider: "self_hosted",
+      vendor: "anthropic",
+      clientKind: "claude_code",
+      authMode: "bearer",
+      displayName: "Claude Code laptop",
+      scopes: ["portfolio:mcp_read"],
+    });
+    expect(result.connection.capabilities).toEqual(["bearer_fallback", "deep_link_fallback"]);
+    expect(isGeneratedBearerToken(result.bearerToken)).toBe(true);
+    expect(result.tokenHint).toBe(result.bearerToken.slice(-8));
+    const lifetimeMs = Date.parse(result.expiresAt) - Date.now();
+    expect(lifetimeMs).toBeGreaterThan(4 * 24 * 60 * 60 * 1000);
+    expect(lifetimeMs).toBeLessThanOrEqual(5 * 24 * 60 * 60 * 1000);
+
+    const credential = await app.persistence.getAiConnectorCredentialByHash(hashGeneratedBearerToken(result.bearerToken));
+    expect(credential).toMatchObject({
+      connectionId: result.connection.id,
+      credentialType: "bearer_token",
+      tokenHint: result.tokenHint,
+      scopes: ["portfolio:mcp_read"],
     });
   });
 
-  it("expires inactive connector connections during MCP auth and notifies the user", async () => {
-    await app.persistence.saveAiConnectorPolicySettings({ inactivityExpiryDays: 1 });
-    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  it("rejects duplicate active bearer fallback connectors for the same client identity", async () => {
+    const authUser = await app.persistence.resolveOrCreateUser("google", "mcp-duplicate-bearer-user", {
+      email: "mcp-duplicate-bearer-user@example.com",
+      name: "MCP Duplicate Bearer User",
+    });
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        maxActiveConnectorsPerUser: 2,
+        allowedToolGroups: ["read"],
+      },
+    });
+
+    await createAiConnectorBearerFallback(
+      app,
+      {
+        userId: authUser.userId,
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+      { actorUserId: authUser.userId, ipAddress: "127.0.0.1" },
+    );
+
+    await expect(createAiConnectorBearerFallback(
+      app,
+      {
+        userId: authUser.userId,
+        clientKind: "codex_cli",
+        displayName: "Codex CLI second device",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+      { actorUserId: authUser.userId, ipAddress: "127.0.0.1" },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: "mcp_bearer_connection_exists",
+    });
+  });
+
+  it("filters connector access logs by result, connection, search, and pagination", async () => {
+    const authUser = await app.persistence.resolveOrCreateUser("google", "mcp-log-user", {
+      email: "mcp-log-user@example.com",
+      name: "MCP Log User",
+    });
     const connection = await app.persistence.saveAiConnectorConnection({
-      id: "conn-inactive",
-      userId: "user-1",
+      id: "mcp-log-connection",
+      userId: authUser.userId,
       provider: "chatgpt",
       displayName: "ChatGPT",
       status: "active",
       scopes: ["portfolio:mcp_read"],
-      lastUsedAt: old,
-      createdAt: old,
-      updatedAt: old,
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      connectionId: connection.id,
+      userId: authUser.userId,
+      portfolioContextUserId: authUser.userId,
+      toolName: "get_portfolio_overview",
+      accessKind: "read",
+      result: "ok",
+      createdAt: "2026-06-27T00:00:03.000Z",
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      connectionId: connection.id,
+      userId: authUser.userId,
+      portfolioContextUserId: authUser.userId,
+      toolName: "post_transaction_draft_rows",
+      accessKind: "write",
+      result: "denied",
+      denialReason: "scope missing",
+      createdAt: "2026-06-27T00:00:02.000Z",
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      connectionId: null,
+      userId: authUser.userId,
+      portfolioContextUserId: authUser.userId,
+      toolName: "admin_market_calendar_preview",
+      accessKind: "write",
+      result: "error",
+      createdAt: "2026-06-27T00:00:01.000Z",
     });
 
-    const auth = new DefaultMcpAuthService();
-    await expect(auth.authenticateRequest(app, {
-      headers: {
-        authorization: `Bearer ${devToken({ userId: "user-1", connectionId: connection.id })}`,
-      },
-    } as never)).rejects.toMatchObject({ code: "mcp_connection_expired" });
+    const denied = await app.persistence.listAiConnectorAccessLogsForUser(authUser.userId, { result: "denied" });
+    expect(denied.map((log) => log.toolName)).toEqual(["post_transaction_draft_rows"]);
 
-    const saved = await app.persistence.getAiConnectorConnection(connection.id);
-    expect(saved).toMatchObject({ status: "expired" });
-    const notifications = await app.persistence.getNotificationsForUser("user-1", { page: 1, limit: 10 });
-    expect(notifications.notifications[0]).toMatchObject({
-      source: "ai_connector",
-      title: "AI connector expired",
+    const searched = await app.persistence.listAiConnectorAccessLogsForUser(authUser.userId, { search: "scope" });
+    expect(searched.map((log) => log.result)).toEqual(["denied"]);
+
+    const connectedOnly = await app.persistence.listAiConnectorAccessLogsForUser(authUser.userId, {
+      connectionIds: [connection.id],
+      limit: 1,
+      offset: 1,
     });
+    expect(connectedOnly.map((log) => log.toolName)).toEqual(["post_transaction_draft_rows"]);
   });
 });

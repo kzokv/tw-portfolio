@@ -158,6 +158,7 @@ import type {
 import {
   assertFreshAuth,
   createMcpFreshAuthToken,
+  toAiConnectorPolicySettingsDto,
   updateAiConnectorPolicySettings,
 } from "../services/mcpConnectorLifecycle.js";
 import {
@@ -404,11 +405,41 @@ const aiConnectorPolicySettingsPatchSchema = z
       })
       .strict()
       .optional(),
+    allowedClientKinds: z
+      .object({
+        chatgpt_app: z.boolean().optional(),
+        claude_ai_connector: z.boolean().optional(),
+        claude_code: z.boolean().optional(),
+        codex_cli: z.boolean().optional(),
+        gemini_cli: z.boolean().optional(),
+        copilot_mcp: z.boolean().optional(),
+        generic_mcp: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     groupToggles: z
       .object({
         read: z.boolean().optional(),
         drafts: z.boolean().optional(),
         write: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    bearerFallback: z
+      .object({
+        enabled: z.boolean().optional(),
+        allowedClientKinds: z
+          .array(z.enum(["chatgpt_app", "claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"]))
+          .max(6)
+          .transform((values) => [...new Set(values)])
+          .optional(),
+        maxLifetimeDays: z.number().int().min(1).max(365).optional(),
+        maxActiveConnectorsPerUser: z.number().int().min(1).max(25).optional(),
+        allowedToolGroups: z
+          .array(z.enum(["read", "drafts", "write"]))
+          .max(3)
+          .transform((values) => [...new Set(values)])
+          .optional(),
       })
       .strict()
       .optional(),
@@ -9899,7 +9930,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/mcp/settings", async (req): Promise<AiConnectorPolicySettingsDto> => {
     requireAdminRole(req);
-    return app.persistence.getAiConnectorPolicySettings();
+    return toAiConnectorPolicySettingsDto(await app.persistence.getAiConnectorPolicySettings());
   });
 
   app.post("/mcp/fresh-auth", async (req): Promise<{ freshAuthToken: string }> => {
@@ -9939,7 +9970,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       Object.entries(body).filter(([key]) => key !== "mcpOauthTokenSecret"),
     ) as SaveAiConnectorPolicySettingsInput;
     if (Object.keys(policyPatch).length === 0) {
-      return app.persistence.getAiConnectorPolicySettings();
+      return toAiConnectorPolicySettingsDto(await app.persistence.getAiConnectorPolicySettings());
     }
     return updateAiConnectorPolicySettings(app, policyPatch, {
       actorUserId: sessionUserId,

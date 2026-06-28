@@ -27,7 +27,7 @@ export interface McpAuthContext {
   scopes: AiConnectorScope[];
   toolToggles: Record<string, boolean>;
   expiresAt: string | null;
-  authMode: "dev_token" | "oauth" | "unconfigured";
+  authMode: "dev_token" | "oauth" | "bearer" | "unconfigured";
 }
 
 export interface McpRequestContext {

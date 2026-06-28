@@ -1,7 +1,10 @@
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
-import { createAiConnectorConnection } from "../../src/services/mcpConnectorLifecycle.js";
+import {
+  createAiConnectorConnection,
+  hashGeneratedBearerToken,
+} from "../../src/services/mcpConnectorLifecycle.js";
 import { createTransactionDraftBatch } from "../../src/services/mcpDrafts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 import { mcpDevTokenAllowedForRuntime } from "../../src/mcp/auth.js";
@@ -164,6 +167,35 @@ describe("mcp routes", () => {
     const pathScopedMetadata = await app.inject({ method: "GET", url: "/.well-known/oauth-protected-resource/mcp" });
     expect(pathScopedMetadata.statusCode).toBe(200);
     expect(pathScopedMetadata.json()).toMatchObject(metadata.json());
+  });
+
+  it("mirrors legacy provider policy patches into client-kind policy", async () => {
+    const settings = await app.persistence.saveAiConnectorPolicySettings({
+      allowedProviders: { chatgpt: false, self_hosted: false },
+    });
+
+    expect(settings.allowedProviders).toMatchObject({ chatgpt: false, self_hosted: false });
+    expect(settings.allowedClientKinds).toMatchObject({
+      chatgpt_app: false,
+      claude_ai_connector: false,
+      claude_code: false,
+      codex_cli: false,
+      gemini_cli: false,
+      copilot_mcp: false,
+      generic_mcp: false,
+    });
+
+    const overridden = await app.persistence.saveAiConnectorPolicySettings({
+      allowedProviders: { self_hosted: true },
+      allowedClientKinds: { codex_cli: false },
+    });
+    expect(overridden.allowedClientKinds).toMatchObject({
+      claude_code: true,
+      codex_cli: false,
+      gemini_cli: true,
+      copilot_mcp: true,
+      generic_mcp: true,
+    });
   });
 
   it("allows unauthenticated MCP discovery but rejects unauthenticated tool execution", async () => {
@@ -530,7 +562,13 @@ describe("mcp routes", () => {
       payload: { mcpOauthTokenSecret: "rotated-mcp-oauth-token-secret-that-is-long-enough" },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ oauthTokenSecretSet: true });
+    expect(response.json()).toMatchObject({
+      oauthTokenSecretSet: true,
+      readiness: {
+        endpoint: "/mcp",
+        oauthTokenSecretConfigured: true,
+      },
+    });
 
     const connection = await app.persistence.getAiConnectorConnection("chatgpt-connection-1");
     expect(connection).toMatchObject({
@@ -744,6 +782,57 @@ describe("mcp routes", () => {
     });
   });
 
+  it("keeps legacy ChatGPT connector IDs usable after client identity defaults are applied", async () => {
+    const connection = await app.persistence.saveAiConnectorConnection({
+      id: "legacy-chatgpt-direct",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "Legacy ChatGPT",
+      status: "active",
+      oauthClientId: "chatgpt",
+      oauthSubject: "legacy-subject",
+      scopes: ["portfolio:mcp_read"],
+      toolToggles: {},
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    expect(connection).toMatchObject({
+      id: "legacy-chatgpt-direct",
+      provider: "chatgpt",
+      vendor: "openai",
+      clientKind: "chatgpt_app",
+      authMode: "oauth",
+    });
+    expect(connection.capabilities).toEqual(expect.arrayContaining(["oauth", "widgets", "interactive_ops"]));
+
+    const token = devToken({ userId: "user-1", connectionId: connection.id, clientId: "chatgpt" });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const call = await callMcpTool(headers, sessionId, "get_portfolio_overview", {});
+
+    expect(call.statusCode).toBe(200);
+    expect(call.body).toContain("portfolio");
+    expect(call.body).not.toContain("mcp_scope_denied");
+
+    const saved = await app.persistence.getAiConnectorConnection(connection.id);
+    expect(saved).toMatchObject({
+      id: "legacy-chatgpt-direct",
+      vendor: "openai",
+      clientKind: "chatgpt_app",
+      authMode: "oauth",
+    });
+    expect(saved?.lastUsedAt).not.toBeNull();
+    const logs = await app.persistence.listAiConnectorAccessLogsForUser("user-1");
+    expect(logs[0]).toMatchObject({
+      connectionId: connection.id,
+      toolName: "get_portfolio_overview",
+      result: "ok",
+      metadata: expect.objectContaining({ source: "chatgpt_component" }),
+    });
+  });
+
   it("exposes and revokes ChatGPT connector connections through the user API", async () => {
     const connection = await createAiConnectorConnection(
       app,
@@ -772,6 +861,12 @@ describe("mcp routes", () => {
       policy: {
         enabled: true,
         allowedProviders: { chatgpt: true },
+        readiness: {
+          endpoint: "/mcp",
+          deploymentEnabled: true,
+          enabledClientKindCount: 7,
+          totalClientKindCount: 7,
+        },
       },
     });
 
@@ -801,6 +896,799 @@ describe("mcp routes", () => {
       id: connection.id,
       status: "revoked",
       revocationReason: "user_revoked",
+    });
+
+    const history = await app.inject({ method: "GET", url: "/ai/connectors/history" });
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toMatchObject({
+      connections: [
+        expect.objectContaining({
+          id: connection.id,
+          status: "revoked",
+        }),
+      ],
+    });
+
+    const hidden = await app.inject({
+      method: "POST",
+      url: `/ai/connectors/${connection.id}/hide`,
+    });
+    expect(hidden.statusCode).toBe(200);
+    expect(hidden.json<{ hiddenAt: string | null }>().hiddenAt).toEqual(expect.any(String));
+
+    const hiddenHistory = await app.inject({ method: "GET", url: "/ai/connectors/history" });
+    expect(hiddenHistory.statusCode).toBe(200);
+    expect(hiddenHistory.json()).toEqual({ connections: [] });
+
+    const hiddenHistoryExcluded = await app.inject({
+      method: "GET",
+      url: "/ai/connectors/history?includeHidden=false",
+    });
+    expect(hiddenHistoryExcluded.statusCode).toBe(200);
+    expect(hiddenHistoryExcluded.json()).toEqual({ connections: [] });
+
+    const hiddenHistoryIncluded = await app.inject({
+      method: "GET",
+      url: "/ai/connectors/history?includeHidden=true",
+    });
+    expect(hiddenHistoryIncluded.statusCode).toBe(200);
+    expect(hiddenHistoryIncluded.json()).toMatchObject({
+      connections: [
+        expect.objectContaining({
+          id: connection.id,
+          status: "revoked",
+          hiddenAt: expect.any(String),
+        }),
+      ],
+    });
+  });
+
+  it("rejects hide for active connectors and keeps the row unchanged", async () => {
+    const active = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "Still active",
+        scopes: ["portfolio:mcp_read"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+
+    const hidden = await app.inject({
+      method: "POST",
+      url: `/ai/connectors/${active.id}/hide`,
+    });
+    expect(hidden.statusCode).toBe(409);
+    expect(hidden.json()).toMatchObject({
+      error: "ai_connector_hide_requires_history",
+    });
+
+    const persisted = await app.persistence.getAiConnectorConnection(active.id);
+    expect(persisted).toMatchObject({
+      id: active.id,
+      status: "active",
+      hiddenAt: null,
+    });
+  });
+
+  it("derives Tool Catalog effective access and blocker priority on the server", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      maxActiveConnectionsPerUser: 4,
+      groupToggles: { read: true, drafts: true, write: true },
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli", "claude_code"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 30,
+        maxActiveConnectorsPerUser: 3,
+      },
+    });
+    const readable = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "Readable ChatGPT",
+        scopes: ["portfolio:mcp_read"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const writeOnly = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "self_hosted",
+        clientKind: "codex_cli",
+        vendor: "openai_codex",
+        authMode: "bearer",
+        capabilities: ["bearer_fallback", "deep_link_fallback"],
+        displayName: "Write-only Codex",
+        scopes: ["transaction:write"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const draftEditOnly = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "Draft editor ChatGPT",
+        scopes: ["portfolio:mcp_read", "transaction_draft:edit"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const expiredReadable = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "self_hosted",
+        clientKind: "claude_code",
+        vendor: "anthropic",
+        authMode: "bearer",
+        capabilities: ["bearer_fallback", "deep_link_fallback"],
+        displayName: "Expired Claude",
+        scopes: ["portfolio:mcp_read"],
+        toolToggles: {},
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+
+    const summary = await app.inject({ method: "GET", url: "/ai/connectors/summary" });
+    expect(summary.statusCode).toBe(200);
+    const body = summary.json<{
+      toolCatalog: Array<{
+        name: string;
+        inputSchema: {
+          fields: Array<{ name: string; type: string; required: boolean }>;
+          rawSchema: Record<string, unknown>;
+        };
+        effectiveAccess: Array<{
+          connectionId: string;
+          connectionDisplayName: string;
+          status: string;
+          blockerCode: string | null;
+        }>;
+      }>;
+    }>();
+    const overview = body.toolCatalog.find((tool) => tool.name === "get_portfolio_overview");
+    expect(overview?.inputSchema.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "portfolioContextUserId", type: "string", required: false }),
+    ]));
+    expect(overview?.inputSchema.rawSchema).toMatchObject({
+      type: "object",
+      properties: {
+        portfolioContextUserId: { type: "string" },
+      },
+    });
+    expect(overview?.effectiveAccess).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        connectionId: readable.id,
+        connectionDisplayName: "Readable ChatGPT",
+        status: "available",
+        blockerCode: null,
+      }),
+      expect.objectContaining({
+        connectionId: writeOnly.id,
+        connectionDisplayName: "Write-only Codex",
+        status: "blocked",
+        blockerCode: "missing_scope",
+      }),
+    ]));
+    expect(overview?.effectiveAccess.some((entry) => entry.connectionId === expiredReadable.id)).toBe(false);
+    const posting = body.toolCatalog.find((tool) => tool.name === "post_transaction_draft_rows");
+    expect(posting?.effectiveAccess).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        connectionId: writeOnly.id,
+        connectionDisplayName: "Write-only Codex",
+        status: "blocked",
+        blockerCode: "admin_tool_policy_disabled",
+      }),
+    ]));
+    const draftableAccounts = body.toolCatalog.find((tool) => tool.name === "list_draftable_account_names");
+    expect(draftableAccounts?.effectiveAccess).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        connectionId: draftEditOnly.id,
+        connectionDisplayName: "Draft editor ChatGPT",
+        status: "available",
+        blockerCode: null,
+      }),
+    ]));
+  });
+
+  it("rejects bearer connector scope expansion after token creation", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read", "drafts"],
+        maxLifetimeDays: 14,
+        maxActiveConnectorsPerUser: 2,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const connectionId = created.json<{ connection: { id: string } }>().connection.id;
+
+    const expanded = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${connectionId}`,
+      payload: {
+        scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+      },
+    });
+    expect(expanded.statusCode).toBe(400);
+    expect(expanded.json()).toMatchObject({
+      error: "mcp_bearer_scope_expansion_requires_recreate",
+    });
+
+    const reduced = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${connectionId}`,
+      payload: { scopes: [] },
+    });
+    expect(reduced.statusCode).toBe(200);
+    expect(reduced.json()).toMatchObject({ scopes: [] });
+  });
+
+  it("rejects OAuth connector scope expansion after consent", async () => {
+    const connection = await app.persistence.saveAiConnectorConnection({
+      id: "chatgpt-oauth-scope-lock",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "active",
+      oauthClientId: "chatgpt",
+      oauthSubject: "chatgpt-user-1",
+      scopes: ["portfolio:mcp_read"],
+      toolToggles: {},
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const expanded = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${connection.id}`,
+      payload: {
+        scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+      },
+    });
+    expect(expanded.statusCode).toBe(400);
+    expect(expanded.json()).toMatchObject({
+      error: "mcp_oauth_scope_expansion_requires_reconnect",
+    });
+
+    const reduced = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${connection.id}`,
+      payload: { scopes: [] },
+    });
+    expect(reduced.statusCode).toBe(200);
+    expect(reduced.json()).toMatchObject({ scopes: [] });
+  });
+
+  it("rejects bearer connector lifetime edits after token creation", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 14,
+        maxActiveConnectorsPerUser: 2,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const connectionId = created.json<{ connection: { id: string } }>().connection.id;
+
+    const extended = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${connectionId}`,
+      payload: { expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() },
+    });
+    expect(extended.statusCode).toBe(400);
+    expect(extended.json()).toMatchObject({
+      error: "mcp_bearer_connector_lifetime_immutable",
+    });
+  });
+
+  it("creates a bearer fallback connector and returns the token once", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read", "drafts"],
+        maxLifetimeDays: 14,
+        maxActiveConnectorsPerUser: 2,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+        lifetimeDays: 30,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      connection: {
+        id: string;
+        provider: string;
+        vendor: string;
+        clientKind: string;
+        authMode: string;
+        scopes: string[];
+      };
+      bearerToken: string;
+      tokenHint: string;
+      expiresAt: string;
+    }>();
+    expect(body.connection).toMatchObject({
+      provider: "self_hosted",
+      vendor: "openai_codex",
+      clientKind: "codex_cli",
+      authMode: "bearer",
+      scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+    });
+    expect(body.bearerToken.startsWith("vakwen-mcpb.")).toBe(true);
+    expect(body.tokenHint).toBe(body.bearerToken.slice(-8));
+
+    const credential = await app.persistence.getAiConnectorCredentialByHash(hashGeneratedBearerToken(body.bearerToken));
+    expect(credential).toMatchObject({
+      connectionId: body.connection.id,
+      credentialType: "bearer_token",
+      tokenHint: body.tokenHint,
+      scopes: body.connection.scopes,
+      expiresAt: body.expiresAt,
+    });
+  });
+
+  it("revokes the bearer connector if bearer credential creation fails", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 14,
+        maxActiveConnectorsPerUser: 2,
+      },
+    });
+
+    const originalSaveCredential = app.persistence.saveAiConnectorCredential.bind(app.persistence);
+    app.persistence.saveAiConnectorCredential = async () => {
+      throw new Error("credential write failed");
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    expect(response.statusCode).toBe(500);
+
+    app.persistence.saveAiConnectorCredential = originalSaveCredential;
+    const connections = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    const connector = connections.find((connection) =>
+      connection.clientKind === "codex_cli"
+      && connection.authMode === "bearer"
+    );
+    expect(connector).toMatchObject({
+      status: "revoked",
+      revocationReason: "bearer_credential_create_failed",
+    });
+  });
+
+  it("blocks viewer-role sessions from creating write-scoped bearer fallback connectors", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read", "drafts", "write"],
+        maxLifetimeDays: 14,
+        maxActiveConnectorsPerUser: 2,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      headers: { "x-user-id": "viewer-bearer-user", "x-user-role": "viewer" },
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Viewer Codex CLI",
+        scopes: ["portfolio:mcp_read", "transaction_draft:create", "transaction:write"],
+        lifetimeDays: 7,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: "write_blocked_viewer_role" });
+    const connections = await app.persistence.listAiConnectorConnectionsForUser("viewer-bearer-user");
+    expect(connections).toEqual([]);
+  });
+
+  it("denies bearer fallback creation when admin policy disables it", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: false,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: "mcp_bearer_fallback_disabled" });
+  });
+
+  it("authenticates generated bearer fallback tokens for MCP requests", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 7,
+        maxActiveConnectorsPerUser: 1,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    const bearerToken = created.json<{ bearerToken: string }>().bearerToken;
+    const headers = {
+      authorization: `Bearer ${bearerToken}`,
+      accept: "application/json, text/event-stream",
+    };
+
+    const sessionId = await initializeMcpSession(headers);
+    const call = await callMcpTool(headers, sessionId, "get_portfolio_overview", {});
+
+    expect(call.statusCode).toBe(200);
+    expect(call.body).toContain("portfolio");
+    const logs = await app.persistence.listAiConnectorAccessLogsForUser("user-1");
+    expect(logs[0]).toMatchObject({
+      userId: "user-1",
+      toolName: "get_portfolio_overview",
+      result: "ok",
+    });
+  });
+
+  it("expires bearer fallback connectors when generated bearer credentials expire", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 7,
+        maxActiveConnectorsPerUser: 1,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    const { bearerToken, connection } = created.json<{ bearerToken: string; connection: { id: string } }>();
+    const credential = await app.persistence.getAiConnectorCredentialByHash(hashGeneratedBearerToken(bearerToken));
+    expect(credential).toBeTruthy();
+    await app.persistence.saveAiConnectorCredential({
+      ...credential!,
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    const initialize = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${bearerToken}`,
+        accept: "application/json, text/event-stream",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "init-expired-bearer",
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "Codex CLI", version: "1.0.0" },
+        },
+      },
+    });
+
+    expect(initialize.statusCode).toBe(401);
+    expect(initialize.body).toContain("mcp_auth_invalid");
+    const expiredConnection = await app.persistence.getAiConnectorConnection(connection.id);
+    expect(expiredConnection).toMatchObject({
+      status: "expired",
+    });
+    expect(expiredConnection?.expiryNotifiedAt).toBeTruthy();
+    const expiredCredential = await app.persistence.getAiConnectorCredentialByHash(hashGeneratedBearerToken(bearerToken));
+    expect(expiredCredential?.revokedAt).toBeTruthy();
+  });
+
+  it("rejects existing bearer fallback tokens after admin disables bearer fallback", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read"],
+        maxLifetimeDays: 7,
+        maxActiveConnectorsPerUser: 1,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    const bearerToken = created.json<{ bearerToken: string }>().bearerToken;
+    const connectionId = created.json<{ connection: { id: string } }>().connection.id;
+
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: { enabled: false },
+    });
+    const beforeDenied = await app.persistence.getAiConnectorConnection(connectionId);
+
+    const initialize = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${bearerToken}`,
+        accept: "application/json, text/event-stream",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "init-disabled-bearer",
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "Codex CLI", version: "1.0.0" },
+        },
+      },
+    });
+
+    expect(initialize.statusCode).toBe(403);
+    expect(initialize.body).toContain("mcp_bearer_fallback_disabled");
+    const afterDenied = await app.persistence.getAiConnectorConnection(connectionId);
+    expect(afterDenied?.lastUsedAt).toBe(beforeDenied?.lastUsedAt);
+  });
+
+  it("blocks existing bearer fallback tokens from tool groups removed by admin policy", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: {
+        enabled: true,
+        allowedClientKinds: ["codex_cli"],
+        allowedToolGroups: ["read", "drafts"],
+        maxLifetimeDays: 7,
+        maxActiveConnectorsPerUser: 1,
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/ai/connectors/bearer",
+      payload: {
+        clientKind: "codex_cli",
+        displayName: "Codex CLI",
+        scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+        lifetimeDays: 7,
+      },
+    });
+    const bearerToken = created.json<{ bearerToken: string }>().bearerToken;
+
+    await app.persistence.saveAiConnectorPolicySettings({
+      bearerFallback: { allowedToolGroups: ["read"] },
+    });
+
+    const headers = {
+      authorization: `Bearer ${bearerToken}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const readCall = await callMcpTool(headers, sessionId, "get_portfolio_overview", {});
+    expect(readCall.statusCode).toBe(200);
+
+    const draftCall = await callMcpTool(headers, sessionId, "get_transaction_draft_template", {});
+    expect(draftCall.statusCode).toBe(200);
+    expect(draftCall.body).toContain("mcp_bearer_tool_group_disabled");
+  });
+
+  it("filters and paginates connector access logs for the Activity feed", async () => {
+    await app.persistence.appendAiConnectorAccessLog({
+      id: "log-ok-read",
+      connectionId: null,
+      userId: "user-1",
+      portfolioContextUserId: "user-1",
+      toolName: "get_portfolio_overview",
+      accessKind: "read",
+      result: "ok",
+      createdAt: "2026-06-02T00:00:00.000Z",
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      id: "log-denied-old",
+      connectionId: null,
+      userId: "user-1",
+      portfolioContextUserId: "user-1",
+      toolName: "post_transaction_draft_rows",
+      accessKind: "write",
+      result: "denied",
+      denialReason: "blocked by write policy",
+      createdAt: "2026-06-03T00:00:00.000Z",
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      id: "log-denied-new",
+      connectionId: null,
+      userId: "user-1",
+      portfolioContextUserId: "user-1",
+      toolName: "delete_draft",
+      accessKind: "draft_delete",
+      result: "denied",
+      denialReason: "blocked by draft policy",
+      createdAt: "2026-06-04T00:00:00.000Z",
+    });
+
+    const first = await app.inject({
+      method: "GET",
+      url: "/ai/connectors/logs?limit=1&result=denied&search=blocked",
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({
+      hasMore: true,
+      nextOffset: 1,
+      accessLogs: [{ id: "log-denied-new", result: "denied" }],
+    });
+
+    const second = await app.inject({
+      method: "GET",
+      url: "/ai/connectors/logs?limit=1&offset=1&result=denied&search=blocked",
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      hasMore: false,
+      nextOffset: null,
+      accessLogs: [{ id: "log-denied-old", result: "denied" }],
+    });
+  });
+
+  it("filters connector access logs by connectionId", async () => {
+    const firstConnection = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "ChatGPT Alpha",
+        scopes: ["portfolio:mcp_read"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const secondConnection = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "self_hosted",
+        clientKind: "claude_code",
+        vendor: "anthropic",
+        authMode: "bearer",
+        capabilities: ["bearer_fallback", "deep_link_fallback"],
+        displayName: "Claude Beta",
+        scopes: ["portfolio:mcp_read"],
+        toolToggles: {},
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+
+    await app.persistence.appendAiConnectorAccessLog({
+      id: "log-connection-alpha",
+      connectionId: firstConnection.id,
+      userId: "user-1",
+      portfolioContextUserId: "user-1",
+      toolName: "get_portfolio_overview",
+      accessKind: "read",
+      result: "ok",
+      createdAt: "2026-06-05T00:00:00.000Z",
+    });
+    await app.persistence.appendAiConnectorAccessLog({
+      id: "log-connection-beta",
+      connectionId: secondConnection.id,
+      userId: "user-1",
+      portfolioContextUserId: "user-1",
+      toolName: "get_portfolio_report",
+      accessKind: "read",
+      result: "ok",
+      createdAt: "2026-06-06T00:00:00.000Z",
+    });
+
+    const filtered = await app.inject({
+      method: "GET",
+      url: `/ai/connectors/logs?limit=5&connectionId=${firstConnection.id}`,
+    });
+    expect(filtered.statusCode).toBe(200);
+    expect(filtered.json()).toMatchObject({
+      hasMore: false,
+      nextOffset: null,
+      accessLogs: [
+        expect.objectContaining({
+          id: "log-connection-alpha",
+          connectionId: firstConnection.id,
+          connectionDisplayName: firstConnection.displayName,
+        }),
+      ],
+    });
+    expect(filtered.json<{ accessLogs: Array<{ id: string }> }>().accessLogs).toHaveLength(1);
+
+    const missing = await app.inject({
+      method: "GET",
+      url: "/ai/connectors/logs?limit=5&connectionId=conn-user-1-missing",
+    });
+    expect(missing.statusCode).toBe(200);
+    expect(missing.json()).toEqual({
+      accessLogs: [],
+      hasMore: false,
+      nextOffset: null,
     });
   });
 
@@ -1297,5 +2185,168 @@ describe("mcp routes", () => {
     });
     const logs = await app.persistence.listAiConnectorAccessLogsForUser("user-1");
     expect(logs[0]?.metadata).toMatchObject({ source: "chatgpt_component" });
+  });
+
+  it("returns authenticated web fallback links for non-widget MCP draft clients", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "claude import",
+        provenance: {
+          sourceType: "csv",
+          files: [{ fileId: "file-1", sourceType: "csv", displayName: "import.csv", snippet: "2330,BUY,1,100" }],
+        },
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+          sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
+        }],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate?.rows[0];
+    expect(row).toBeTruthy();
+
+    const connection = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "self_hosted",
+        vendor: "anthropic",
+        clientKind: "claude_code",
+        authMode: "bearer",
+        displayName: "Claude Code",
+        scopes: [
+          "portfolio:mcp_read",
+          "transaction_draft:create",
+          "transaction_draft:edit",
+          "transaction:write",
+        ],
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const token = devToken({ userId: "user-1", connectionId: connection.id, clientId: "claude_code" });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+
+    const component = await callMcpTool(headers, sessionId, "get_transaction_draft_batch_component", {
+      batchId: created.batch.id,
+    });
+    expect(component.statusCode).toBe(200);
+    expect(component.body).not.toContain("\"openai/outputTemplate\"");
+    const componentBody = parseMcpJson<{
+      result: {
+        structuredContent: {
+          operation: string;
+          batch: { id: string };
+          webFallback: {
+            url: string;
+            requiresAuthenticatedSession: boolean;
+            mode: string;
+            operation: string;
+          };
+        };
+        _meta?: {
+          "vakwen/webFallback"?: {
+            url: string;
+            requiresAuthenticatedSession: boolean;
+          };
+        };
+      };
+    }>(component.body);
+    expect(componentBody.result.structuredContent.operation).toBe("transaction_draft_review");
+    expect(componentBody.result.structuredContent.batch.id).toBe(created.batch.id);
+    expect(componentBody.result.structuredContent.webFallback).toMatchObject({
+      requiresAuthenticatedSession: true,
+      mode: "vakwen_web",
+      operation: "transaction_draft_review",
+    });
+    expect(componentBody.result.structuredContent.webFallback.url).toContain("/transactions?tab=ai-inbox");
+    expect(componentBody.result.structuredContent.webFallback.url).toContain(`batch=${created.batch.id}`);
+    expect(componentBody.result._meta?.["vakwen/webFallback"]?.url).toBe(componentBody.result.structuredContent.webFallback.url);
+
+    const portfolios = await callMcpTool(headers, sessionId, "list_portfolio_contexts", {});
+    expect(portfolios.statusCode).toBe(200);
+    const portfoliosBody = parseMcpJson<{
+      result: {
+        structuredContent: {
+          portfolios: Array<{ label: string; email: string | null; isSelf: boolean }>;
+        };
+        isError?: boolean;
+      };
+    }>(portfolios.body);
+    expect(portfoliosBody.result.isError).not.toBe(true);
+    const selfPortfolio = portfoliosBody.result.structuredContent.portfolios.find((portfolio) => portfolio.isSelf);
+    expect(selfPortfolio).toBeTruthy();
+
+    const batchLabel = created.batch.sourceLabel ?? created.batch.id;
+    const preview = await callMcpTool(headers, sessionId, "get_transaction_draft_posting_preview_by_name", {
+      portfolio: { label: selfPortfolio!.label },
+      batchLabel,
+      rowNumbers: [1],
+    });
+    expect(preview.statusCode).toBe(200);
+    const previewBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          confirmationSummary: string;
+          confirmationDigest: string;
+        };
+      };
+    }>(preview.body);
+    expect(previewBody.result.isError).not.toBe(true);
+
+    const posted = await callMcpTool(headers, sessionId, "post_transaction_draft_rows_by_name", {
+      portfolio: { label: selfPortfolio!.label },
+      batchLabel,
+      rowNumbers: [1],
+      idempotencyKey: "claude-post-by-name-1",
+      confirmationSummary: previewBody.result.structuredContent.confirmationSummary,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(posted.statusCode).toBe(200);
+    const postedBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          outcome: string;
+          deepLinkUrl?: string;
+          webFallback: {
+            url: string;
+            requiresAuthenticatedSession: boolean;
+            operation: string;
+          };
+          _meta?: Record<string, unknown>;
+        };
+        _meta?: {
+          "vakwen/webFallback"?: {
+            url: string;
+          };
+          deepLinkUrl?: string;
+        };
+      };
+    }>(posted.body);
+    expect(postedBody.result.isError).not.toBe(true);
+    expect(postedBody.result.structuredContent.outcome).toBe("posted");
+    expect(postedBody.result.structuredContent.deepLinkUrl).toBeUndefined();
+    expect(postedBody.result.structuredContent.webFallback).toMatchObject({
+      requiresAuthenticatedSession: true,
+      operation: "transaction_draft_posting",
+    });
+    expect(postedBody.result.structuredContent.webFallback.url).toContain("/transactions?tab=ai-inbox");
+    expect(postedBody.result.structuredContent.webFallback.url).toContain(`batch=${created.batch.id}`);
+    expect(postedBody.result._meta?.deepLinkUrl).toContain(`batch=${created.batch.id}`);
+    expect(postedBody.result._meta?.["vakwen/webFallback"]?.url).toBe(postedBody.result.structuredContent.webFallback.url);
   });
 });
