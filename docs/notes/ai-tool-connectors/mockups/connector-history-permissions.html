@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Connector History and Permissions Mockup</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f9fafb;
+      --border: #dfe5ee;
+      --border-strong: #c6d0dd;
+      --text: #111827;
+      --muted: #64748b;
+      --muted-2: #8a97a8;
+      --blue: #2563eb;
+      --blue-soft: #eaf1ff;
+      --green: #047857;
+      --green-soft: #e7f7ef;
+      --orange: #c2410c;
+      --orange-soft: #fff0e7;
+      --red: #be123c;
+      --red-soft: #fff1f2;
+      --slate-soft: #eef2f7;
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      letter-spacing: 0;
+    }
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+    }
+    .sidebar {
+      background: #fff;
+      border-right: 1px solid var(--border);
+      padding: 22px 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 750;
+      font-size: 18px;
+      margin-bottom: 26px;
+    }
+    .brand-mark, .glyph {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      border-radius: 10px;
+      width: 34px;
+      height: 34px;
+      background: #111827;
+      color: #fff;
+      font-weight: 800;
+    }
+    .nav-title {
+      color: var(--muted-2);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+      margin: 22px 8px 8px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 620;
+      margin-bottom: 4px;
+    }
+    .nav-item.active {
+      color: #fff;
+      background: #111827;
+    }
+    .nav-count {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 750;
+      background: var(--slate-soft);
+      color: var(--muted);
+    }
+    .nav-item.active .nav-count {
+      background: rgba(255,255,255,.16);
+      color: #fff;
+    }
+    .main {
+      padding: 24px;
+      min-width: 0;
+    }
+    .page-head {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+      margin: 0 0 7px;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 26px; line-height: 1.15; }
+    h2 { font-size: 18px; line-height: 1.25; }
+    h3 { font-size: 15px; line-height: 1.25; }
+    .sub {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+      margin-top: 6px;
+      max-width: 760px;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .input, .select, .button {
+      border: 1px solid var(--border);
+      background: #fff;
+      min-height: 38px;
+      border-radius: 8px;
+      padding: 8px 11px;
+      font-size: 13px;
+      color: #334155;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .input {
+      min-width: 270px;
+      color: var(--muted);
+      justify-content: flex-start;
+    }
+    .button.primary {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+      font-weight: 700;
+    }
+    .button.danger {
+      color: var(--red);
+      border-color: #fecdd3;
+      background: var(--red-soft);
+      font-weight: 700;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 18px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .panel-body { padding: 14px 18px 18px; }
+    .table {
+      display: grid;
+      grid-template-columns: 36px minmax(160px, 1.3fr) minmax(132px, .8fr) minmax(132px, .85fr) 92px 126px;
+    }
+    .th, .td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--border);
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+    }
+    .status-cell,
+    .date-cell,
+    .auth-cell,
+    .action-cell {
+      align-items: flex-start;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .action-cell {
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 800;
+      background: var(--panel-soft);
+    }
+    .td strong {
+      display: block;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .meta {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+      overflow-wrap: anywhere;
+    }
+    .checkbox {
+      width: 16px;
+      height: 16px;
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      background: #fff;
+    }
+    .checkbox.checked {
+      background: #111827;
+      border-color: #111827;
+      position: relative;
+    }
+    .checkbox.checked::after {
+      content: "";
+      width: 7px;
+      height: 4px;
+      border-left: 2px solid #fff;
+      border-bottom: 2px solid #fff;
+      transform: rotate(-45deg);
+      position: absolute;
+      left: 4px;
+      top: 4px;
+    }
+    .glyph {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .glyph.chatgpt { background: var(--green-soft); color: var(--green); }
+    .glyph.claude { background: var(--orange-soft); color: var(--orange); }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 750;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .chip.green { color: var(--green); background: var(--green-soft); border-color: #b8ead1; }
+    .chip.orange { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+    .chip.slate { color: #475569; background: var(--slate-soft); border-color: #d8e0eb; }
+    .chip.red { color: var(--red); background: var(--red-soft); border-color: #fecdd3; }
+    .link-button {
+      color: #111827;
+      font-weight: 750;
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .sheet {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .sheet-head {
+      padding: 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .sheet-body {
+      padding: 16px 18px 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .kv-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-width: 0;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .value {
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .scope-list, .call-list {
+      display: grid;
+      gap: 8px;
+    }
+    .scope, .call {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .permission-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .permission-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .permission-identity {
+      padding: 16px 18px;
+      background: var(--panel-soft);
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+    }
+    .identity-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    .scope-grid {
+      padding: 14px 18px 4px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .scope-toggle {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-width: 0;
+    }
+    .scope-toggle strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .tools-preview {
+      padding: 10px 18px 18px;
+      display: grid;
+      gap: 8px;
+    }
+    .tool-row {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .mobile-only { display: none; }
+    .desktop-only { display: initial; }
+    @media (max-width: 760px) {
+      .app { display: block; }
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 14px 12px;
+      }
+      .brand { margin-bottom: 12px; }
+      .nav-title { display: none; }
+      .side-nav {
+        display: flex;
+        overflow-x: auto;
+        gap: 8px;
+        padding-bottom: 2px;
+      }
+      .nav-item {
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 9px 11px;
+      }
+      .main { padding: 14px; }
+      .page-head {
+        display: block;
+        padding: 15px;
+      }
+      h1 { font-size: 23px; }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      .input { grid-column: 1 / -1; min-width: 0; width: 100%; }
+      .select, .button { min-width: 0; justify-content: center; white-space: normal; text-align: center; }
+      .content-grid { display: block; }
+      .sheet { margin-top: 14px; }
+      .table { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 12px; }
+      .th { display: none; }
+      .td {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+      }
+      .td.mobile-hide { display: none; }
+      .td.status-cell, .td.date-cell, .td.auth-cell, .td.action-cell {
+        margin-top: -10px;
+        border-top: 0;
+        grid-template-columns: 1fr;
+      }
+      .td.action-cell { justify-items: start; }
+      .mobile-row-block {
+        display: grid;
+        gap: 8px;
+      }
+      .permission-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .scope-grid { grid-template-columns: 1fr; }
+      .kv { grid-template-columns: 1fr; }
+      .mobile-only { display: initial; }
+      .desktop-only { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">V</span>Vakwen</div>
+      <div class="nav-title">AI Connectors</div>
+      <nav class="side-nav" aria-label="AI connector sections">
+        <div class="nav-item"><span>Overview</span></div>
+        <div class="nav-item"><span>Connect</span><span class="nav-count">7</span></div>
+        <div class="nav-item" data-active-for="connections"><span>Connections</span><span class="nav-count">2</span></div>
+        <div class="nav-item" data-active-for="permissions"><span>Permissions</span><span class="nav-count">2</span></div>
+        <div class="nav-item" data-active-for="history"><span>History</span><span class="nav-count">88</span></div>
+        <div class="nav-item"><span>Tool Catalog</span><span class="nav-count">67</span></div>
+        <div class="nav-item"><span>Activity</span><span class="nav-count">12</span></div>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">AI settings</p>
+          <h1>AI Connectors</h1>
+          <p class="sub">One MCP command center for setup, connection health, permissions, history cleanup, and recent activity.</p>
+        </div>
+        <button class="button">⟳ Refresh</button>
+      </header>
+
+      <section id="history-screen" data-screen="history">
+        <div class="toolbar">
+          <div class="input">⌕ Search name, client, or connector ID</div>
+          <div class="select">Status: All</div>
+          <div class="select">Client: All</div>
+          <div class="select">Auth: All</div>
+          <div class="select">Ended: 90 days</div>
+          <button class="button danger">Remove selected</button>
+        </div>
+        <div class="content-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>History</h2>
+                <p class="sub">88 visible historical connections. 3 selected in the current filtered view.</p>
+              </div>
+              <span class="chip slate">Audit retained</span>
+            </div>
+            <div class="table">
+              <div class="th"><span class="checkbox checked"></span></div>
+              <div class="th">Client</div>
+              <div class="th">Status</div>
+              <div class="th">Ended</div>
+              <div class="th">Auth</div>
+              <div class="th">Actions</div>
+
+              <div class="td"><span class="checkbox checked"></span><span class="mobile-only"><strong>ChatGPT</strong><span class="meta">ChatGPT / OpenAI Apps</span></span></div>
+              <div class="td mobile-hide"><span class="glyph chatgpt">G</span><span><strong>ChatGPT</strong><span class="meta">id: 649e4aed...</span></span></div>
+              <div class="td status-cell"><span class="chip red">Revoked</span><span class="meta">User revoked</span></div>
+              <div class="td date-cell"><span><strong>Jun 28, 2026</strong><span class="meta">Last used 7:07 AM</span></span></div>
+              <div class="td auth-cell"><span class="chip slate">OAuth</span></div>
+              <div class="td action-cell"><a class="link-button">Details</a><a class="link-button">Remove</a></div>
+
+              <div class="td"><span class="checkbox checked"></span><span class="mobile-only"><strong>Claude.ai</strong><span class="meta">Anthropic custom connector</span></span></div>
+              <div class="td mobile-hide"><span class="glyph claude">C</span><span><strong>Claude.ai</strong><span class="meta">id: 69644c1a...</span></span></div>
+              <div class="td status-cell"><span class="chip orange">Expired</span><span class="meta">Lifetime ended</span></div>
+              <div class="td date-cell"><span><strong>Jun 27, 2026</strong><span class="meta">Last used 11:41 AM</span></span></div>
+              <div class="td auth-cell"><span class="chip slate">OAuth</span></div>
+              <div class="td action-cell"><a class="link-button">Details</a><a class="link-button">Remove</a></div>
+
+              <div class="td"><span class="checkbox checked"></span><span class="mobile-only"><strong>ChatGPT</strong><span class="meta">Older authorization</span></span></div>
+              <div class="td mobile-hide"><span class="glyph chatgpt">G</span><span><strong>ChatGPT</strong><span class="meta">id: 5704cdbb...</span></span></div>
+              <div class="td status-cell"><span class="chip red">Revoked</span><span class="meta">Replaced by reconnect</span></div>
+              <div class="td date-cell"><span><strong>Jun 28, 2026</strong><span class="meta">Last used 7:05 AM</span></span></div>
+              <div class="td auth-cell"><span class="chip slate">OAuth</span></div>
+              <div class="td action-cell"><a class="link-button">Details</a><a class="link-button">Remove</a></div>
+            </div>
+          </section>
+
+          <aside class="sheet">
+            <div class="sheet-head">
+              <span class="glyph chatgpt">G</span>
+              <div>
+                <h2>ChatGPT</h2>
+                <p class="sub">ChatGPT / OpenAI Apps · revoked</p>
+              </div>
+            </div>
+            <div class="sheet-body">
+              <div class="kv">
+                <div class="kv-item"><div class="label">Ended</div><div class="value">Jun 28, 2026, 7:07 AM</div></div>
+                <div class="kv-item"><div class="label">Reason</div><div class="value">User revoked</div></div>
+                <div class="kv-item"><div class="label">Auth</div><div class="value">OAuth</div></div>
+                <div class="kv-item"><div class="label">Connector ID</div><div class="value">649e4aed-e093...</div></div>
+              </div>
+              <div>
+                <div class="label">Granted scopes</div>
+                <div class="scope-list">
+                  <div class="scope"><span>Portfolio read</span><span class="chip green">Granted</span></div>
+                  <div class="scope"><span>Draft create/edit/archive/delete</span><span class="chip green">Granted</span></div>
+                  <div class="scope"><span>Transaction posting</span><span class="chip red">Revoked</span></div>
+                </div>
+              </div>
+              <div>
+                <div class="label">Recent calls</div>
+                <div class="call-list">
+                  <div class="call"><span>get_holdings</span><span class="meta">OK · 7:07 AM</span></div>
+                  <div class="call"><span>create_transaction_draft_batch</span><span class="meta">OK · 7:06 AM</span></div>
+                  <div class="call"><span>post_transaction_draft_rows</span><span class="meta">Denied · 7:06 AM</span></div>
+                </div>
+              </div>
+              <button class="button">View all in Activity</button>
+              <button class="button danger">Remove from history</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="permissions-screen" data-screen="permissions">
+        <div class="permission-grid">
+          <article class="permission-card">
+            <div class="permission-identity">
+              <span class="glyph claude">C</span>
+              <div>
+                <h2>Claude.ai</h2>
+                <p class="sub">Anthropic custom connector · active OAuth</p>
+                <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
+                  <span class="chip green">Active</span>
+                  <span class="chip slate">OAuth</span>
+                  <span class="chip orange">Expires Jul 28</span>
+                </div>
+              </div>
+              <div class="identity-actions">
+                <button class="button">Details</button>
+                <button class="button">Back to connection</button>
+              </div>
+            </div>
+            <div class="scope-grid">
+              <div class="scope-toggle"><strong>Read</strong><span class="meta">Portfolio data</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Accounts</strong><span class="meta">Manage accounts</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Drafts</strong><span class="meta">Create and edit drafts</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Posting</strong><span class="meta">Post confirmed rows</span><span class="chip green">On</span></div>
+            </div>
+            <div class="tools-preview">
+              <div class="label">Tool overrides</div>
+              <div class="tool-row"><span>post_transaction_draft_rows</span><span class="chip green">Inherited</span></div>
+              <div class="tool-row"><span>delete_unconfirmed_batch</span><span class="chip red">Disabled</span></div>
+              <div class="tool-row"><span>recompute_portfolio_fees</span><span class="chip green">Inherited</span></div>
+            </div>
+          </article>
+
+          <article class="permission-card">
+            <div class="permission-identity">
+              <span class="glyph chatgpt">G</span>
+              <div>
+                <h2>ChatGPT / OpenAI Apps</h2>
+                <p class="sub">ChatGPT · active OAuth</p>
+                <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
+                  <span class="chip green">Active</span>
+                  <span class="chip slate">OAuth</span>
+                  <span class="chip orange">Expires Jul 28</span>
+                </div>
+              </div>
+              <div class="identity-actions">
+                <button class="button">Details</button>
+                <button class="button">Back to connection</button>
+              </div>
+            </div>
+            <div class="scope-grid">
+              <div class="scope-toggle"><strong>Read</strong><span class="meta">Portfolio data</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Accounts</strong><span class="meta">Manage accounts</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Drafts</strong><span class="meta">Create and edit drafts</span><span class="chip green">On</span></div>
+              <div class="scope-toggle"><strong>Posting</strong><span class="meta">Post confirmed rows</span><span class="chip green">On</span></div>
+            </div>
+            <div class="tools-preview">
+              <div class="label">Tool overrides</div>
+              <div class="tool-row"><span>post_transaction_draft_rows</span><span class="chip green">Inherited</span></div>
+              <div class="tool-row"><span>delete_unconfirmed_batch</span><span class="chip green">Inherited</span></div>
+              <div class="tool-row"><span>recompute_portfolio_fees</span><span class="chip green">Inherited</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const screen = params.get("screen") || "history";
+    document.querySelectorAll("[data-screen]").forEach((node) => {
+      node.style.display = node.dataset.screen === screen ? "block" : "none";
+    });
+    document.querySelectorAll("[data-active-for]").forEach((node) => {
+      node.classList.toggle("active", node.dataset.activeFor === screen);
+    });
+  </script>
+</body>
+</html>

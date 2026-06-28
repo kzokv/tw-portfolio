@@ -18,11 +18,11 @@ import {
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
 import {
-  CHATGPT_MCP_CORS_EXPOSED_HEADERS,
-  CHATGPT_MCP_CORS_METHODS,
-  CHATGPT_MCP_CORS_PATHS,
-  isChatGptMcpCorsOrigin,
-} from "./mcp/chatgptCompat.js";
+  OPENAI_APPS_MCP_CORS_EXPOSED_HEADERS,
+  OPENAI_APPS_MCP_CORS_METHODS,
+  OPENAI_APPS_MCP_CORS_PATHS,
+  isOpenAiAppsMcpCorsOrigin,
+} from "./mcp/openAiAppsAdapter.js";
 import { registerMcpRoutes } from "./mcp/registerMcpRoutes.js";
 import { buildFundamentalsRegistry } from "./services/fundamentals/registry.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
@@ -108,8 +108,8 @@ function requestPath(req: FastifyRequest): string {
   return req.url.split("?")[0] ?? req.url;
 }
 
-function isChatGptCorsPath(req: FastifyRequest): boolean {
-  return CHATGPT_MCP_CORS_PATHS.has(requestPath(req));
+function isOpenAiAppsCorsPath(req: FastifyRequest): boolean {
+  return OPENAI_APPS_MCP_CORS_PATHS.has(requestPath(req));
 }
 
 async function bootstrapAdminAccess(app: AppInstance): Promise<void> {
@@ -291,11 +291,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
         return;
       }
 
-      if (isChatGptMcpCorsOrigin(origin) && isChatGptCorsPath(req)) {
+      if (isOpenAiAppsMcpCorsOrigin(origin) && isOpenAiAppsCorsPath(req)) {
         callback(null, {
           origin: true,
-          methods: [...CHATGPT_MCP_CORS_METHODS],
-          exposedHeaders: [...CHATGPT_MCP_CORS_EXPOSED_HEADERS],
+          methods: [...OPENAI_APPS_MCP_CORS_METHODS],
+          exposedHeaders: [...OPENAI_APPS_MCP_CORS_EXPOSED_HEADERS],
           maxAge: 600,
         });
         return;

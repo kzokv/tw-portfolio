@@ -47,10 +47,14 @@ import type {
 import type {
   AiConnectorAccessKind,
   AiConnectorAccessResult,
-  AiConnectorPolicySettingsDto,
+  AiConnectorAuthMode,
+  AiConnectorCapability,
+  AiConnectorClientKind,
   AiConnectorProvider,
   AiConnectorScope,
   AiConnectorStatus,
+  AiConnectorToolGroup,
+  AiConnectorVendor,
   AiTransactionDraftBatchStatus,
   AiTransactionDraftEventType,
   AiTransactionDraftRowState,
@@ -72,6 +76,7 @@ import type {
 } from "@vakwen/shared-types";
 import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
+import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { roundToDecimal } from "@vakwen/domain";
 import type { Lot } from "@vakwen/domain";
 import type { BookedTradeEvent } from "../types/store.js";
@@ -191,6 +196,7 @@ import type {
   ResolveProviderUnresolvedItemsInput,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
+  AiConnectorPolicySettingsRecord,
   SaveAiConnectorPolicySettingsInput,
   SaveMarketCalendarSourceConfigInput,
   SaveMcpOAuthAuthorizationCodeInput,
@@ -233,6 +239,23 @@ export interface PostgresPersistenceOptions {
 function computeChecksum(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
+
+const PERMITTED_MIGRATION_CHECKSUM_ALIASES = new Map<string, Set<string>>([
+  [
+    "095_ai_connector_identity_and_bearer_policy.sql",
+    new Set([
+      // Branch dev deploy before the rerun-safe client allowlist marker was added.
+      "2b2f89946b129d0da83d34cb0b5d7526c3672ee1c49641b86eebcd838b0ddfbc",
+    ]),
+  ],
+  [
+    "099_ai_connector_claude_ai_and_history_visibility.sql",
+    new Set([
+      // Branch dev deploy before the Claude.ai allowlist backfill became rerun-safe.
+      "9611ed300d90749842a48ceaa40ee81dd3d5645457bf9555e3d960163da04964",
+    ]),
+  ],
+]);
 
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_LENGTH = 8;
@@ -380,6 +403,10 @@ function mapAiConnectorConnectionRow(row: {
   id: string;
   user_id: string;
   provider: AiConnectorProvider;
+  vendor?: AiConnectorVendor | null;
+  client_kind?: AiConnectorClientKind | null;
+  auth_mode?: AiConnectorAuthMode | null;
+  capabilities?: AiConnectorCapability[] | null;
   display_name: string;
   status: AiConnectorStatus;
   oauth_client_id: string | null;
@@ -389,16 +416,23 @@ function mapAiConnectorConnectionRow(row: {
   expires_at: string | null;
   expiry_notified_at: string | null;
   last_used_at: string | null;
+  hidden_at?: string | null;
   revoked_at: string | null;
   revoked_by_user_id: string | null;
   revocation_reason: string | null;
   created_at: string;
   updated_at: string;
 }): AiConnectorConnectionRecord {
+  const legacyClient = getMcpClientByLegacyProvider(row.provider);
+  const clientKind = row.client_kind ?? legacyClient.clientKind;
   return {
     id: row.id,
     userId: row.user_id,
     provider: row.provider,
+    vendor: row.vendor ?? legacyClient.vendor,
+    clientKind,
+    authMode: row.auth_mode ?? legacyClient.defaultAuthMode,
+    capabilities: [...(row.capabilities ?? defaultClientCapabilities(clientKind))].sort(),
     displayName: row.display_name,
     status: row.status,
     oauthClientId: row.oauth_client_id,
@@ -408,6 +442,7 @@ function mapAiConnectorConnectionRow(row: {
     expiresAt: row.expires_at,
     expiryNotifiedAt: row.expiry_notified_at,
     lastUsedAt: row.last_used_at,
+    hiddenAt: row.hidden_at ?? null,
     revokedAt: row.revoked_at,
     revokedByUserId: row.revoked_by_user_id,
     revocationReason: row.revocation_reason,
@@ -421,9 +456,21 @@ function mapAiConnectorPolicySettingsRow(row: {
   max_active_connections_per_user: number;
   allow_chatgpt: boolean;
   allow_self_hosted: boolean;
+  allow_chatgpt_app?: boolean;
+  allow_claude_ai_connector?: boolean;
+  allow_claude_code?: boolean;
+  allow_codex_cli?: boolean;
+  allow_gemini_cli?: boolean;
+  allow_copilot_mcp?: boolean;
+  allow_generic_mcp?: boolean;
   read_tools_enabled: boolean;
   draft_tools_enabled: boolean;
   write_tools_enabled: boolean;
+  bearer_fallback_enabled?: boolean;
+  bearer_allowed_client_kinds?: AiConnectorClientKind[] | null;
+  bearer_max_lifetime_days?: number;
+  bearer_max_active_connectors_per_user?: number;
+  bearer_allowed_tool_groups?: AiConnectorToolGroup[] | null;
   inactivity_expiry_days: number;
   expiration_warning_days: number;
   fresh_auth_max_age_ms: number;
@@ -432,7 +479,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   oauth_redirect_uri_allowlist: string[] | null;
   oauth_token_secret_set?: boolean;
   updated_at: string;
-}): AiConnectorPolicySettingsDto {
+}): AiConnectorPolicySettingsRecord {
   return {
     enabled: row.enabled,
     maxActiveConnectionsPerUser: row.max_active_connections_per_user,
@@ -440,10 +487,26 @@ function mapAiConnectorPolicySettingsRow(row: {
       chatgpt: row.allow_chatgpt,
       self_hosted: row.allow_self_hosted,
     },
+    allowedClientKinds: {
+      chatgpt_app: row.allow_chatgpt_app ?? row.allow_chatgpt,
+      claude_ai_connector: row.allow_claude_ai_connector ?? row.allow_chatgpt_app ?? row.allow_chatgpt,
+      claude_code: row.allow_claude_code ?? row.allow_self_hosted,
+      codex_cli: row.allow_codex_cli ?? row.allow_self_hosted,
+      gemini_cli: row.allow_gemini_cli ?? row.allow_self_hosted,
+      copilot_mcp: row.allow_copilot_mcp ?? row.allow_self_hosted,
+      generic_mcp: row.allow_generic_mcp ?? row.allow_self_hosted,
+    },
     groupToggles: {
       read: row.read_tools_enabled,
       drafts: row.draft_tools_enabled,
       write: row.write_tools_enabled,
+    },
+    bearerFallback: {
+      enabled: row.bearer_fallback_enabled ?? false,
+      allowedClientKinds: [...(row.bearer_allowed_client_kinds ?? ["claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"])],
+      maxLifetimeDays: row.bearer_max_lifetime_days ?? 30,
+      maxActiveConnectorsPerUser: row.bearer_max_active_connectors_per_user ?? 3,
+      allowedToolGroups: [...(row.bearer_allowed_tool_groups ?? ["read"])],
     },
     inactivityExpiryDays: row.inactivity_expiry_days,
     expirationWarningDays: row.expiration_warning_days,
@@ -525,7 +588,7 @@ function mapMcpOAuthAuthorizationCodeRow(row: {
 function mapAiConnectorCredentialRow(row: {
   id: string;
   connection_id: string;
-  credential_type: "oauth_refresh_token" | "self_hosted_token";
+  credential_type: "oauth_refresh_token" | "self_hosted_token" | "bearer_token";
   token_hash: string;
   token_hint: string | null;
   token_family_id: string | null;
@@ -2122,11 +2185,20 @@ export class PostgresPersistence implements Persistence {
     try {
       await client.query("BEGIN");
       const now = input.updatedAt ?? new Date().toISOString();
+      const legacyClient = getMcpClientByLegacyProvider(input.provider);
+      const clientKind = input.clientKind ?? legacyClient.clientKind;
+      const vendor = input.vendor ?? legacyClient.vendor;
+      const authMode = input.authMode ?? legacyClient.defaultAuthMode;
+      const capabilities = [...new Set(input.capabilities ?? defaultClientCapabilities(clientKind))].sort();
       await client.query(
         `INSERT INTO ai_connector_connections (
            id,
            user_id,
            provider,
+           vendor,
+           client_kind,
+           auth_mode,
+           capabilities,
            display_name,
            status,
            oauth_client_id,
@@ -2134,20 +2206,25 @@ export class PostgresPersistence implements Persistence {
            expires_at,
            expiry_notified_at,
            last_used_at,
+           hidden_at,
            revoked_at,
            revoked_by_user_id,
            revocation_reason,
            created_at,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7,
-           $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13,
-           COALESCE($14::timestamptz, NOW()),
-           $15::timestamptz
+           $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, $11,
+           $12::timestamptz, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16::timestamptz, $17, $18,
+           COALESCE($19::timestamptz, NOW()),
+           $20::timestamptz
          )
          ON CONFLICT (id) DO UPDATE SET
            user_id = EXCLUDED.user_id,
            provider = EXCLUDED.provider,
+           vendor = EXCLUDED.vendor,
+           client_kind = EXCLUDED.client_kind,
+           auth_mode = EXCLUDED.auth_mode,
+           capabilities = EXCLUDED.capabilities,
            display_name = EXCLUDED.display_name,
            status = EXCLUDED.status,
            oauth_client_id = EXCLUDED.oauth_client_id,
@@ -2155,6 +2232,7 @@ export class PostgresPersistence implements Persistence {
            expires_at = EXCLUDED.expires_at,
            expiry_notified_at = EXCLUDED.expiry_notified_at,
            last_used_at = EXCLUDED.last_used_at,
+           hidden_at = EXCLUDED.hidden_at,
            revoked_at = EXCLUDED.revoked_at,
            revoked_by_user_id = EXCLUDED.revoked_by_user_id,
            revocation_reason = EXCLUDED.revocation_reason,
@@ -2163,6 +2241,10 @@ export class PostgresPersistence implements Persistence {
           input.id,
           input.userId,
           input.provider,
+          vendor,
+          clientKind,
+          authMode,
+          capabilities,
           input.displayName,
           input.status,
           input.oauthClientId ?? null,
@@ -2170,6 +2252,7 @@ export class PostgresPersistence implements Persistence {
           input.expiresAt ?? null,
           input.expiryNotifiedAt ?? null,
           input.lastUsedAt ?? null,
+          input.hiddenAt ?? null,
           input.revokedAt ?? null,
           input.revokedByUserId ?? null,
           input.revocationReason ?? null,
@@ -2213,6 +2296,10 @@ export class PostgresPersistence implements Persistence {
       id: string;
       user_id: string;
       provider: AiConnectorProvider;
+      vendor: AiConnectorVendor;
+      client_kind: AiConnectorClientKind;
+      auth_mode: AiConnectorAuthMode;
+      capabilities: AiConnectorCapability[] | null;
       display_name: string;
       status: AiConnectorStatus;
       oauth_client_id: string | null;
@@ -2221,6 +2308,7 @@ export class PostgresPersistence implements Persistence {
       tool_toggles: Record<string, boolean> | null;
       expires_at: string | null;
       last_used_at: string | null;
+      hidden_at: string | null;
       revoked_at: string | null;
       revoked_by_user_id: string | null;
       revocation_reason: string | null;
@@ -2231,6 +2319,10 @@ export class PostgresPersistence implements Persistence {
       `SELECT c.id,
               c.user_id,
               c.provider,
+              c.vendor,
+              c.client_kind,
+              c.auth_mode,
+              c.capabilities,
               c.display_name,
               c.status,
               c.oauth_client_id,
@@ -2255,6 +2347,7 @@ export class PostgresPersistence implements Persistence {
               c.expires_at::text AS expires_at,
               c.expiry_notified_at::text AS expiry_notified_at,
               c.last_used_at::text AS last_used_at,
+              c.hidden_at::text AS hidden_at,
               c.revoked_at::text AS revoked_at,
               c.revoked_by_user_id,
               c.revocation_reason,
@@ -2268,15 +2361,27 @@ export class PostgresPersistence implements Persistence {
     return result.rows.map((row) => mapAiConnectorConnectionRow(row));
   }
 
-  async getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsDto> {
+  async getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsRecord> {
     const result = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
       `SELECT enabled,
               max_active_connections_per_user,
               allow_chatgpt,
               allow_self_hosted,
+              allow_chatgpt_app,
+              allow_claude_ai_connector,
+              allow_claude_code,
+              allow_codex_cli,
+              allow_gemini_cli,
+              allow_copilot_mcp,
+              allow_generic_mcp,
               read_tools_enabled,
               draft_tools_enabled,
               write_tools_enabled,
+              bearer_fallback_enabled,
+              bearer_allowed_client_kinds,
+              bearer_max_lifetime_days,
+              bearer_max_active_connectors_per_user,
+              bearer_allowed_tool_groups,
               inactivity_expiry_days,
               expiration_warning_days,
               fresh_auth_max_age_ms,
@@ -2302,9 +2407,21 @@ export class PostgresPersistence implements Persistence {
                  max_active_connections_per_user,
                  allow_chatgpt,
                  allow_self_hosted,
+                 allow_chatgpt_app,
+                 allow_claude_ai_connector,
+                 allow_claude_code,
+                 allow_codex_cli,
+                 allow_gemini_cli,
+                 allow_copilot_mcp,
+                 allow_generic_mcp,
                  read_tools_enabled,
                  draft_tools_enabled,
                  write_tools_enabled,
+                 bearer_fallback_enabled,
+                 bearer_allowed_client_kinds,
+                 bearer_max_lifetime_days,
+                 bearer_max_active_connectors_per_user,
+                 bearer_allowed_tool_groups,
                  inactivity_expiry_days,
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
@@ -2321,19 +2438,58 @@ export class PostgresPersistence implements Persistence {
     return mapAiConnectorPolicySettingsRow(inserted.rows[0]!);
   }
 
-  async saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsDto> {
+  async saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsRecord> {
     const current = await this.getAiConnectorPolicySettings();
+    const patchedAllowedProviders = {
+      chatgpt: input.allowedProviders?.chatgpt ?? current.allowedProviders.chatgpt,
+      self_hosted: input.allowedProviders?.self_hosted ?? current.allowedProviders.self_hosted,
+    };
     const next = {
       enabled: input.enabled ?? current.enabled,
       maxActiveConnectionsPerUser: input.maxActiveConnectionsPerUser ?? current.maxActiveConnectionsPerUser,
-      allowedProviders: {
-        chatgpt: input.allowedProviders?.chatgpt ?? current.allowedProviders.chatgpt,
-        self_hosted: input.allowedProviders?.self_hosted ?? current.allowedProviders.self_hosted,
+      allowedProviders: patchedAllowedProviders,
+      allowedClientKinds: {
+        chatgpt_app:
+          input.allowedClientKinds?.chatgpt_app
+          ?? input.allowedProviders?.chatgpt
+          ?? current.allowedClientKinds.chatgpt_app,
+        claude_ai_connector:
+          input.allowedClientKinds?.claude_ai_connector
+          ?? input.allowedProviders?.chatgpt
+          ?? current.allowedClientKinds.claude_ai_connector,
+        claude_code:
+          input.allowedClientKinds?.claude_code
+          ?? input.allowedProviders?.self_hosted
+          ?? current.allowedClientKinds.claude_code,
+        codex_cli:
+          input.allowedClientKinds?.codex_cli
+          ?? input.allowedProviders?.self_hosted
+          ?? current.allowedClientKinds.codex_cli,
+        gemini_cli:
+          input.allowedClientKinds?.gemini_cli
+          ?? input.allowedProviders?.self_hosted
+          ?? current.allowedClientKinds.gemini_cli,
+        copilot_mcp:
+          input.allowedClientKinds?.copilot_mcp
+          ?? input.allowedProviders?.self_hosted
+          ?? current.allowedClientKinds.copilot_mcp,
+        generic_mcp:
+          input.allowedClientKinds?.generic_mcp
+          ?? input.allowedProviders?.self_hosted
+          ?? current.allowedClientKinds.generic_mcp,
       },
       groupToggles: {
         read: input.groupToggles?.read ?? current.groupToggles.read,
         drafts: input.groupToggles?.drafts ?? current.groupToggles.drafts,
         write: input.groupToggles?.write ?? current.groupToggles.write,
+      },
+      bearerFallback: {
+        enabled: input.bearerFallback?.enabled ?? current.bearerFallback.enabled,
+        allowedClientKinds: input.bearerFallback?.allowedClientKinds ?? current.bearerFallback.allowedClientKinds,
+        maxLifetimeDays: input.bearerFallback?.maxLifetimeDays ?? current.bearerFallback.maxLifetimeDays,
+        maxActiveConnectorsPerUser:
+          input.bearerFallback?.maxActiveConnectorsPerUser ?? current.bearerFallback.maxActiveConnectorsPerUser,
+        allowedToolGroups: input.bearerFallback?.allowedToolGroups ?? current.bearerFallback.allowedToolGroups,
       },
       inactivityExpiryDays: input.inactivityExpiryDays ?? current.inactivityExpiryDays,
       expirationWarningDays: input.expirationWarningDays ?? current.expirationWarningDays,
@@ -2352,9 +2508,21 @@ export class PostgresPersistence implements Persistence {
          max_active_connections_per_user,
          allow_chatgpt,
          allow_self_hosted,
+         allow_chatgpt_app,
+         allow_claude_ai_connector,
+         allow_claude_code,
+         allow_codex_cli,
+         allow_gemini_cli,
+         allow_copilot_mcp,
+         allow_generic_mcp,
          read_tools_enabled,
          draft_tools_enabled,
          write_tools_enabled,
+         bearer_fallback_enabled,
+         bearer_allowed_client_kinds,
+         bearer_max_lifetime_days,
+         bearer_max_active_connectors_per_user,
+         bearer_allowed_tool_groups,
          inactivity_expiry_days,
          expiration_warning_days,
          fresh_auth_max_age_ms,
@@ -2363,16 +2531,29 @@ export class PostgresPersistence implements Persistence {
          oauth_redirect_uri_allowlist,
          updated_at
        ) VALUES (
-         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()
+         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+         $15, $16::text[], $17, $18, $19::text[], $20, $21, $22, $23, $24, $25, NOW()
        )
        ON CONFLICT (id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
          max_active_connections_per_user = EXCLUDED.max_active_connections_per_user,
          allow_chatgpt = EXCLUDED.allow_chatgpt,
          allow_self_hosted = EXCLUDED.allow_self_hosted,
+         allow_chatgpt_app = EXCLUDED.allow_chatgpt_app,
+         allow_claude_ai_connector = EXCLUDED.allow_claude_ai_connector,
+         allow_claude_code = EXCLUDED.allow_claude_code,
+         allow_codex_cli = EXCLUDED.allow_codex_cli,
+         allow_gemini_cli = EXCLUDED.allow_gemini_cli,
+         allow_copilot_mcp = EXCLUDED.allow_copilot_mcp,
+         allow_generic_mcp = EXCLUDED.allow_generic_mcp,
          read_tools_enabled = EXCLUDED.read_tools_enabled,
          draft_tools_enabled = EXCLUDED.draft_tools_enabled,
          write_tools_enabled = EXCLUDED.write_tools_enabled,
+         bearer_fallback_enabled = EXCLUDED.bearer_fallback_enabled,
+         bearer_allowed_client_kinds = EXCLUDED.bearer_allowed_client_kinds,
+         bearer_max_lifetime_days = EXCLUDED.bearer_max_lifetime_days,
+         bearer_max_active_connectors_per_user = EXCLUDED.bearer_max_active_connectors_per_user,
+         bearer_allowed_tool_groups = EXCLUDED.bearer_allowed_tool_groups,
          inactivity_expiry_days = EXCLUDED.inactivity_expiry_days,
          expiration_warning_days = EXCLUDED.expiration_warning_days,
          fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
@@ -2384,9 +2565,21 @@ export class PostgresPersistence implements Persistence {
                  max_active_connections_per_user,
                  allow_chatgpt,
                  allow_self_hosted,
+                 allow_chatgpt_app,
+                 allow_claude_ai_connector,
+                 allow_claude_code,
+                 allow_codex_cli,
+                 allow_gemini_cli,
+                 allow_copilot_mcp,
+                 allow_generic_mcp,
                  read_tools_enabled,
                  draft_tools_enabled,
                  write_tools_enabled,
+                 bearer_fallback_enabled,
+                 bearer_allowed_client_kinds,
+                 bearer_max_lifetime_days,
+                 bearer_max_active_connectors_per_user,
+                 bearer_allowed_tool_groups,
                  inactivity_expiry_days,
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
@@ -2404,9 +2597,21 @@ export class PostgresPersistence implements Persistence {
         next.maxActiveConnectionsPerUser,
         next.allowedProviders.chatgpt,
         next.allowedProviders.self_hosted,
+        next.allowedClientKinds.chatgpt_app,
+        next.allowedClientKinds.claude_ai_connector,
+        next.allowedClientKinds.claude_code,
+        next.allowedClientKinds.codex_cli,
+        next.allowedClientKinds.gemini_cli,
+        next.allowedClientKinds.copilot_mcp,
+        next.allowedClientKinds.generic_mcp,
         next.groupToggles.read,
         next.groupToggles.drafts,
         next.groupToggles.write,
+        next.bearerFallback.enabled,
+        next.bearerFallback.allowedClientKinds,
+        next.bearerFallback.maxLifetimeDays,
+        next.bearerFallback.maxActiveConnectorsPerUser,
+        next.bearerFallback.allowedToolGroups,
         next.inactivityExpiryDays,
         next.expirationWarningDays,
         next.freshAuthMaxAgeMs,
@@ -2558,11 +2763,17 @@ export class PostgresPersistence implements Persistence {
 
       const connectionInput = input.connection;
       const now = connectionInput.updatedAt ?? new Date().toISOString();
+      const legacyClient = getMcpClientByLegacyProvider(connectionInput.provider);
+      const clientKind = connectionInput.clientKind ?? legacyClient.clientKind;
       await client.query(
         `INSERT INTO ai_connector_connections (
            id,
            user_id,
            provider,
+           vendor,
+           client_kind,
+           auth_mode,
+           capabilities,
            display_name,
            status,
            oauth_client_id,
@@ -2570,21 +2781,27 @@ export class PostgresPersistence implements Persistence {
            expires_at,
            expiry_notified_at,
            last_used_at,
+           hidden_at,
            revoked_at,
            revoked_by_user_id,
            revocation_reason,
            created_at,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7,
-           $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13,
-           COALESCE($14::timestamptz, NOW()),
-           $15::timestamptz
+           $1, $2, $3, $4, $5, $6, $7::text[],
+           $8, $9, $10, $11,
+           $12::timestamptz, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16::timestamptz, $17, $18,
+           COALESCE($19::timestamptz, NOW()),
+           $20::timestamptz
          )`,
         [
           connectionInput.id,
           connectionInput.userId,
           connectionInput.provider,
+          connectionInput.vendor ?? legacyClient.vendor,
+          clientKind,
+          connectionInput.authMode ?? legacyClient.defaultAuthMode,
+          [...new Set(connectionInput.capabilities ?? defaultClientCapabilities(clientKind))].sort(),
           connectionInput.displayName,
           connectionInput.status,
           connectionInput.oauthClientId ?? null,
@@ -2592,6 +2809,7 @@ export class PostgresPersistence implements Persistence {
           connectionInput.expiresAt ?? null,
           connectionInput.expiryNotifiedAt ?? null,
           connectionInput.lastUsedAt ?? null,
+          connectionInput.hiddenAt ?? null,
           connectionInput.revokedAt ?? null,
           connectionInput.revokedByUserId ?? null,
           connectionInput.revocationReason ?? null,
@@ -2828,11 +3046,17 @@ export class PostgresPersistence implements Persistence {
         id: string;
         status: AiConnectorStatus;
         provider: AiConnectorProvider;
+        vendor: AiConnectorVendor;
+        client_kind: AiConnectorClientKind;
+        auth_mode: AiConnectorAuthMode;
         expires_at: string | null;
       }>(
         `SELECT id,
                 status,
                 provider,
+                vendor,
+                client_kind,
+                auth_mode,
                 expires_at::text AS expires_at
          FROM ai_connector_connections
          WHERE user_id = $1
@@ -2841,25 +3065,41 @@ export class PostgresPersistence implements Persistence {
          FOR UPDATE`,
         [input.userId],
       );
-      const target = locked.rows.find((row) => row.id === input.connectionId && row.provider === input.provider);
+      const legacyClient = getMcpClientByLegacyProvider(input.provider);
+      const targetVendor = input.vendor ?? legacyClient.vendor;
+      const targetClientKind = input.clientKind ?? legacyClient.clientKind;
+      const targetAuthMode = input.authMode ?? legacyClient.defaultAuthMode;
+      const target = locked.rows.find((row) =>
+        row.id === input.connectionId
+        && row.provider === input.provider
+        && row.vendor === targetVendor
+        && row.client_kind === targetClientKind
+        && row.auth_mode === targetAuthMode
+      );
       if (!target || target.status !== "pending") {
         await client.query("COMMIT");
         return null;
       }
 
-      const activeOtherProviderCount = locked.rows.filter((row) =>
-        row.provider !== input.provider
+      const activeOtherIdentityCount = locked.rows.filter((row) =>
+        row.id !== input.connectionId
         && row.status === "active"
         && (!row.expires_at || Date.parse(row.expires_at) > Date.now())
+        && !(row.vendor === targetVendor && row.client_kind === targetClientKind && row.auth_mode === targetAuthMode)
       ).length;
-      if (activeOtherProviderCount >= input.maxActiveConnectionsPerUser) {
+      if (activeOtherIdentityCount >= input.maxActiveConnectionsPerUser) {
         await client.query("COMMIT");
         return null;
       }
 
       const now = new Date().toISOString();
       const revokedConnectionIds = locked.rows
-        .filter((row) => row.provider === input.provider && row.id !== input.connectionId)
+        .filter((row) =>
+          row.id !== input.connectionId
+          && row.vendor === targetVendor
+          && row.client_kind === targetClientKind
+          && row.auth_mode === targetAuthMode
+        )
         .map((row) => row.id);
 
       if (revokedConnectionIds.length > 0) {
@@ -2897,6 +3137,9 @@ export class PostgresPersistence implements Persistence {
          WHERE id = $1
            AND user_id = $5
            AND provider = $6
+           AND vendor = $7
+           AND client_kind = $8
+           AND auth_mode = $9
            AND status = 'pending'`,
         [
           input.connectionId,
@@ -2905,6 +3148,9 @@ export class PostgresPersistence implements Persistence {
           input.lastUsedAt ?? now,
           input.userId,
           input.provider,
+          targetVendor,
+          targetClientKind,
+          targetAuthMode,
         ],
       );
       const connection = await this.getAiConnectorConnectionTx(client, input.connectionId);
@@ -3200,12 +3446,35 @@ export class PostgresPersistence implements Persistence {
 
   async listAiConnectorAccessLogsForUser(
     userId: string,
-    options?: { limit?: number },
+    options?: { limit?: number; offset?: number; result?: AiConnectorAccessResult; search?: string; connectionIds?: string[] },
   ): Promise<AiConnectorAccessLogRecord[]> {
-    const params: [string] | [string, number] = options?.limit === undefined
-      ? [userId]
-      : [userId, options.limit];
-    const limitClause = options?.limit === undefined ? "" : " LIMIT $2";
+    const values: unknown[] = [userId];
+    const conditions = ["user_id = $1"];
+    if (options?.result) {
+      values.push(options.result);
+      conditions.push(`result = $${values.length}`);
+    }
+    if (options?.connectionIds !== undefined) {
+      if (options.connectionIds.length === 0) return [];
+      values.push(options.connectionIds);
+      conditions.push(`connection_id = ANY($${values.length}::text[])`);
+    }
+    const search = options?.search?.trim();
+    if (search) {
+      values.push(`%${search}%`);
+      conditions.push(`(tool_name ILIKE $${values.length} OR access_kind::text ILIKE $${values.length} OR COALESCE(denial_reason, '') ILIKE $${values.length})`);
+    }
+    const limit = options?.limit;
+    const offset = options?.offset;
+    let paginationClause = "";
+    if (limit !== undefined) {
+      values.push(limit);
+      paginationClause += ` LIMIT $${values.length}`;
+    }
+    if (offset !== undefined && offset > 0) {
+      values.push(offset);
+      paginationClause += ` OFFSET $${values.length}`;
+    }
     const result = await this.pool.query<{
       id: string;
       connection_id: string | null;
@@ -3237,9 +3506,9 @@ export class PostgresPersistence implements Persistence {
               metadata,
               created_at::text AS created_at
        FROM ai_connector_access_logs
-       WHERE user_id = $1
-       ORDER BY created_at DESC${limitClause}`,
-      params,
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY created_at DESC${paginationClause}`,
+      values,
     );
     return result.rows.map((row) => mapAiConnectorAccessLogRow(row));
   }
@@ -10251,6 +10520,10 @@ export class PostgresPersistence implements Persistence {
 
       const currentChecksum = computeChecksum(fileSql);
       if (currentChecksum !== expectedChecksum) {
+        const permittedAliases = PERMITTED_MIGRATION_CHECKSUM_ALIASES.get(name);
+        if (permittedAliases?.has(expectedChecksum)) {
+          continue;
+        }
         mismatches.push(
           `  ${name}\n    applied:  ${expectedChecksum}\n    current:  ${currentChecksum}`,
         );
@@ -10354,6 +10627,11 @@ export class PostgresPersistence implements Persistence {
         return this.isMigration013Reflected(client);
       case "042_kzo183_account_scoped_fee_profiles.sql":
         return this.isMigration042Reflected(client);
+      case "094_mcp_replay_preview_single_use.sql":
+      case "096_mcp_replay_preview_constraint_guard.sql":
+        return this.isMcpReplayPreviewConstraintReflected(client);
+      case "095_ai_connector_identity_and_bearer_policy.sql":
+        return this.isMigration095Reflected(client);
       default:
         return false;
     }
@@ -10469,6 +10747,87 @@ export class PostgresPersistence implements Persistence {
     return hasFeeProfileAccountId && !hasFeeProfileUserId;
   }
 
+  private async isMigration095Reflected(client: PoolClient): Promise<boolean> {
+    const [
+      hasConnectionVendor,
+      hasConnectionClientKind,
+      hasConnectionAuthMode,
+      hasConnectionCapabilities,
+      hasConnectionHiddenAt,
+      hasPolicyChatGptApp,
+      hasPolicyClaudeAiConnector,
+      hasPolicyClaudeCode,
+      hasPolicyCodexCli,
+      hasPolicyGeminiCli,
+      hasPolicyCopilotMcp,
+      hasPolicyGenericMcp,
+      hasBearerFallbackEnabled,
+      hasBearerAllowedClientKinds,
+      hasBearerMaxLifetimeDays,
+      hasBearerMaxActiveConnectorsPerUser,
+      hasBearerAllowedToolGroups,
+      hasClientAllowlistsMigratedAt,
+      hasActiveClientKindIndex,
+      hasBearerCredentialType,
+    ] = await Promise.all([
+      this.columnExists(client, "ai_connector_connections", "vendor"),
+      this.columnExists(client, "ai_connector_connections", "client_kind"),
+      this.columnExists(client, "ai_connector_connections", "auth_mode"),
+      this.columnExists(client, "ai_connector_connections", "capabilities"),
+      this.columnExists(client, "ai_connector_connections", "hidden_at"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_chatgpt_app"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_claude_ai_connector"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_claude_code"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_codex_cli"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_gemini_cli"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_copilot_mcp"),
+      this.columnExists(client, "ai_connector_policy_settings", "allow_generic_mcp"),
+      this.columnExists(client, "ai_connector_policy_settings", "bearer_fallback_enabled"),
+      this.columnExists(client, "ai_connector_policy_settings", "bearer_allowed_client_kinds"),
+      this.columnExists(client, "ai_connector_policy_settings", "bearer_max_lifetime_days"),
+      this.columnExists(client, "ai_connector_policy_settings", "bearer_max_active_connectors_per_user"),
+      this.columnExists(client, "ai_connector_policy_settings", "bearer_allowed_tool_groups"),
+      this.columnExists(client, "ai_connector_policy_settings", "client_allowlists_migrated_at"),
+      this.indexExists(client, "ux_ai_connector_connections_user_client_kind_auth_active"),
+      this.checkConstraintIncludes(client, "ai_connector_credentials", "ai_connector_credentials_credential_type_check", "bearer_token"),
+    ]);
+
+    return (
+      hasConnectionVendor &&
+      hasConnectionClientKind &&
+      hasConnectionAuthMode &&
+      hasConnectionCapabilities &&
+      hasConnectionHiddenAt &&
+      hasPolicyChatGptApp &&
+      hasPolicyClaudeAiConnector &&
+      hasPolicyClaudeCode &&
+      hasPolicyCodexCli &&
+      hasPolicyGeminiCli &&
+      hasPolicyCopilotMcp &&
+      hasPolicyGenericMcp &&
+      hasBearerFallbackEnabled &&
+      hasBearerAllowedClientKinds &&
+      hasBearerMaxLifetimeDays &&
+      hasBearerMaxActiveConnectorsPerUser &&
+      hasBearerAllowedToolGroups &&
+      hasClientAllowlistsMigratedAt &&
+      hasActiveClientKindIndex &&
+      hasBearerCredentialType
+    );
+  }
+
+  private async isMcpReplayPreviewConstraintReflected(client: PoolClient): Promise<boolean> {
+    const result = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_constraint
+          WHERE conname = 'uq_mcp_replay_position_runs_preview_id'
+            AND conrelid = 'mcp_replay_position_runs'::regclass
+       ) AS exists`,
+    );
+    return Boolean(result.rows[0]?.exists);
+  }
+
   private async hasUserTables(client: PoolClient): Promise<boolean> {
     const tableResult = await client.query<{ has_tables: boolean }>(
       `SELECT EXISTS (
@@ -10510,6 +10869,45 @@ export class PostgresPersistence implements Persistence {
     );
 
     return Boolean(columnResult.rows[0]?.exists);
+  }
+
+  private async indexExists(client: PoolClient, indexName: string): Promise<boolean> {
+    const indexResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_indexes
+         WHERE schemaname = 'public'
+           AND indexname = $1
+       ) AS exists`,
+      [indexName],
+    );
+
+    return Boolean(indexResult.rows[0]?.exists);
+  }
+
+  private async checkConstraintIncludes(
+    client: PoolClient,
+    tableName: string,
+    constraintName: string,
+    expectedText: string,
+  ): Promise<boolean> {
+    const constraintResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_constraint c
+         JOIN pg_class rel
+           ON rel.oid = c.conrelid
+         JOIN pg_namespace n
+           ON n.oid = rel.relnamespace
+         WHERE n.nspname = 'public'
+           AND rel.relname = $1
+           AND c.conname = $2
+           AND pg_get_constraintdef(c.oid) LIKE $3
+       ) AS exists`,
+      [tableName, constraintName, `%${expectedText}%`],
+    );
+
+    return Boolean(constraintResult.rows[0]?.exists);
   }
 
   private async recordAppliedMigrations(
@@ -10591,6 +10989,10 @@ export class PostgresPersistence implements Persistence {
       id: string;
       user_id: string;
       provider: AiConnectorProvider;
+      vendor: AiConnectorVendor;
+      client_kind: AiConnectorClientKind;
+      auth_mode: AiConnectorAuthMode;
+      capabilities: AiConnectorCapability[] | null;
       display_name: string;
       status: AiConnectorStatus;
       oauth_client_id: string | null;
@@ -10600,6 +11002,7 @@ export class PostgresPersistence implements Persistence {
       expires_at: string | null;
       expiry_notified_at: string | null;
       last_used_at: string | null;
+      hidden_at: string | null;
       revoked_at: string | null;
       revoked_by_user_id: string | null;
       revocation_reason: string | null;
@@ -10609,6 +11012,10 @@ export class PostgresPersistence implements Persistence {
       `SELECT c.id,
               c.user_id,
               c.provider,
+              c.vendor,
+              c.client_kind,
+              c.auth_mode,
+              c.capabilities,
               c.display_name,
               c.status,
               c.oauth_client_id,
@@ -10633,6 +11040,7 @@ export class PostgresPersistence implements Persistence {
               c.expires_at::text AS expires_at,
               c.expiry_notified_at::text AS expiry_notified_at,
               c.last_used_at::text AS last_used_at,
+              c.hidden_at::text AS hidden_at,
               c.revoked_at::text AS revoked_at,
               c.revoked_by_user_id,
               c.revocation_reason,

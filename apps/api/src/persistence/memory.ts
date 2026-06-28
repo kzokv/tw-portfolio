@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { roundToDecimal, type Lot } from "@vakwen/domain";
 import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import type {
+  AiConnectorAccessResult,
   AiConnectorProvider,
   DividendLedgerAggregates,
   DividendSourceLine,
@@ -9,6 +10,7 @@ import type {
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
+import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
@@ -557,7 +559,23 @@ export class MemoryPersistence implements Persistence {
     enabled: true,
     maxActiveConnectionsPerUser: 3,
     allowedProviders: { chatgpt: true, self_hosted: true },
+    allowedClientKinds: {
+      chatgpt_app: true,
+      claude_ai_connector: true,
+      claude_code: true,
+      codex_cli: true,
+      gemini_cli: true,
+      copilot_mcp: true,
+      generic_mcp: true,
+    },
     groupToggles: { read: true, drafts: true, write: false },
+    bearerFallback: {
+      enabled: false,
+      allowedClientKinds: ["claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"],
+      maxLifetimeDays: 30,
+      maxActiveConnectorsPerUser: 3,
+      allowedToolGroups: ["read"],
+    },
     inactivityExpiryDays: 90,
     expirationWarningDays: 7,
     freshAuthMaxAgeMs: 600_000,
@@ -1249,10 +1267,16 @@ export class MemoryPersistence implements Persistence {
     this.assertUserExists(input.userId);
     if (input.revokedByUserId) this.assertUserExists(input.revokedByUserId);
     const now = new Date().toISOString();
+    const legacyClient = getMcpClientByLegacyProvider(input.provider);
+    const clientKind = input.clientKind ?? legacyClient.clientKind;
     const record: AiConnectorConnectionRecord = {
       id: input.id,
       userId: input.userId,
       provider: input.provider,
+      vendor: input.vendor ?? legacyClient.vendor,
+      clientKind,
+      authMode: input.authMode ?? legacyClient.defaultAuthMode,
+      capabilities: [...new Set(input.capabilities ?? defaultClientCapabilities(clientKind))].sort(),
       displayName: input.displayName,
       status: input.status,
       oauthClientId: input.oauthClientId ?? null,
@@ -1262,6 +1286,7 @@ export class MemoryPersistence implements Persistence {
       expiresAt: input.expiresAt ?? null,
       expiryNotifiedAt: input.expiryNotifiedAt ?? null,
       lastUsedAt: input.lastUsedAt ?? null,
+      hiddenAt: input.hiddenAt ?? null,
       revokedAt: input.revokedAt ?? null,
       revokedByUserId: input.revokedByUserId ?? null,
       revocationReason: input.revocationReason ?? null,
@@ -1269,43 +1294,77 @@ export class MemoryPersistence implements Persistence {
       updatedAt: input.updatedAt ?? now,
     };
     this.aiConnectorConnections.set(record.id, record);
-    return { ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } };
+    return { ...record, capabilities: [...record.capabilities], scopes: [...record.scopes], toolToggles: { ...record.toolToggles } };
   }
 
   async getAiConnectorConnection(id: string): Promise<AiConnectorConnectionRecord | null> {
     const record = this.aiConnectorConnections.get(id);
-    return record ? { ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } } : null;
+    return record ? { ...record, capabilities: [...record.capabilities], scopes: [...record.scopes], toolToggles: { ...record.toolToggles } } : null;
   }
 
   async listAiConnectorConnectionsForUser(userId: string): Promise<AiConnectorConnectionRecord[]> {
     return [...this.aiConnectorConnections.values()]
       .filter((record) => record.userId === userId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .map((record) => ({ ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } }));
+      .map((record) => ({ ...record, capabilities: [...record.capabilities], scopes: [...record.scopes], toolToggles: { ...record.toolToggles } }));
   }
 
   async getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsRecord> {
     return {
       ...this.aiConnectorPolicySettings,
       allowedProviders: { ...this.aiConnectorPolicySettings.allowedProviders },
+      allowedClientKinds: { ...this.aiConnectorPolicySettings.allowedClientKinds },
       groupToggles: { ...this.aiConnectorPolicySettings.groupToggles },
+      bearerFallback: {
+        ...this.aiConnectorPolicySettings.bearerFallback,
+        allowedClientKinds: [...this.aiConnectorPolicySettings.bearerFallback.allowedClientKinds],
+        allowedToolGroups: [...this.aiConnectorPolicySettings.bearerFallback.allowedToolGroups],
+      },
       oauthRedirectUriAllowlist: [...this.aiConnectorPolicySettings.oauthRedirectUriAllowlist],
       oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
     };
   }
 
   async saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsRecord> {
+    const allowedProviders = {
+      ...this.aiConnectorPolicySettings.allowedProviders,
+      ...(input.allowedProviders ?? {}),
+    };
     this.aiConnectorPolicySettings = {
       ...this.aiConnectorPolicySettings,
       ...input,
       oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
-      allowedProviders: {
-        ...this.aiConnectorPolicySettings.allowedProviders,
-        ...(input.allowedProviders ?? {}),
+      allowedProviders,
+      allowedClientKinds: {
+        ...this.aiConnectorPolicySettings.allowedClientKinds,
+        ...(input.allowedProviders?.chatgpt === undefined ? {} : { chatgpt_app: input.allowedProviders.chatgpt }),
+        ...(input.allowedProviders?.chatgpt === undefined ? {} : { claude_ai_connector: input.allowedProviders.chatgpt }),
+        ...(input.allowedProviders?.self_hosted === undefined
+          ? {}
+          : {
+              claude_code: input.allowedProviders.self_hosted,
+              codex_cli: input.allowedProviders.self_hosted,
+              gemini_cli: input.allowedProviders.self_hosted,
+              copilot_mcp: input.allowedProviders.self_hosted,
+              generic_mcp: input.allowedProviders.self_hosted,
+            }),
+        ...(input.allowedClientKinds ?? {}),
       },
       groupToggles: {
         ...this.aiConnectorPolicySettings.groupToggles,
         ...(input.groupToggles ?? {}),
+      },
+      bearerFallback: {
+        ...this.aiConnectorPolicySettings.bearerFallback,
+        ...(input.bearerFallback ?? {}),
+        allowedClientKinds:
+          input.bearerFallback?.allowedClientKinds === undefined
+            ? [...this.aiConnectorPolicySettings.bearerFallback.allowedClientKinds]
+            : [...input.bearerFallback.allowedClientKinds],
+        allowedToolGroups:
+          input.bearerFallback?.allowedToolGroups === undefined
+            ? [...this.aiConnectorPolicySettings.bearerFallback.allowedToolGroups]
+            : [...input.bearerFallback.allowedToolGroups],
       },
       oauthRedirectUriAllowlist:
         input.oauthRedirectUriAllowlist === undefined
@@ -1364,10 +1423,16 @@ export class MemoryPersistence implements Persistence {
     }
 
     const now = new Date().toISOString();
+    const legacyClient = getMcpClientByLegacyProvider(connectionInput.provider);
+    const clientKind = connectionInput.clientKind ?? legacyClient.clientKind;
     const connection: AiConnectorConnectionRecord = {
       id: connectionInput.id,
       userId: connectionInput.userId,
       provider: connectionInput.provider,
+      vendor: connectionInput.vendor ?? legacyClient.vendor,
+      clientKind,
+      authMode: connectionInput.authMode ?? legacyClient.defaultAuthMode,
+      capabilities: [...new Set(connectionInput.capabilities ?? defaultClientCapabilities(clientKind))].sort(),
       displayName: connectionInput.displayName,
       status: connectionInput.status,
       oauthClientId: connectionInput.oauthClientId ?? null,
@@ -1377,6 +1442,7 @@ export class MemoryPersistence implements Persistence {
       expiresAt: connectionInput.expiresAt ?? null,
       expiryNotifiedAt: connectionInput.expiryNotifiedAt ?? null,
       lastUsedAt: connectionInput.lastUsedAt ?? null,
+      hiddenAt: connectionInput.hiddenAt ?? null,
       revokedAt: connectionInput.revokedAt ?? null,
       revokedByUserId: connectionInput.revokedByUserId ?? null,
       revocationReason: connectionInput.revocationReason ?? null,
@@ -1411,7 +1477,7 @@ export class MemoryPersistence implements Persistence {
     this.mcpOAuthAuthorizationRequests.set(request.id, settled);
     return {
       request: { ...settled, scopes: [...settled.scopes] },
-      connection: { ...connection, scopes: [...connection.scopes], toolToggles: { ...connection.toolToggles } },
+      connection: { ...connection, capabilities: [...connection.capabilities], scopes: [...connection.scopes], toolToggles: { ...connection.toolToggles } },
     };
   }
 
@@ -1474,10 +1540,17 @@ export class MemoryPersistence implements Persistence {
 
   async activateAiConnectorConnectionReplacingProvider(input: ActivateAiConnectorConnectionReplacingProviderInput) {
     const current = this.aiConnectorConnections.get(input.connectionId);
+    const legacyClient = getMcpClientByLegacyProvider(input.provider);
+    const targetVendor = input.vendor ?? legacyClient.vendor;
+    const targetClientKind = input.clientKind ?? legacyClient.clientKind;
+    const targetAuthMode = input.authMode ?? legacyClient.defaultAuthMode;
     if (
       !current
       || current.userId !== input.userId
       || current.provider !== input.provider
+      || current.vendor !== targetVendor
+      || current.clientKind !== targetClientKind
+      || current.authMode !== targetAuthMode
       || current.status !== "pending"
     ) {
       return null;
@@ -1486,7 +1559,8 @@ export class MemoryPersistence implements Persistence {
     const now = new Date().toISOString();
     const activeOtherProviderCount = [...this.aiConnectorConnections.values()].filter((connection) =>
       connection.userId === input.userId
-      && connection.provider !== input.provider
+      && connection.id !== input.connectionId
+      && !(connection.vendor === targetVendor && connection.clientKind === targetClientKind && connection.authMode === targetAuthMode)
       && connection.status === "active"
       && (!connection.expiresAt || Date.parse(connection.expiresAt) > Date.now())
     ).length;
@@ -1497,7 +1571,12 @@ export class MemoryPersistence implements Persistence {
     const revokedConnectionIds: string[] = [];
     for (const [id, connection] of this.aiConnectorConnections.entries()) {
       if (id === input.connectionId) continue;
-      if (connection.userId !== input.userId || connection.provider !== input.provider) continue;
+      if (connection.userId !== input.userId) continue;
+      if (
+        connection.vendor !== targetVendor
+        || connection.clientKind !== targetClientKind
+        || connection.authMode !== targetAuthMode
+      ) continue;
       if (connection.status === "revoked" || connection.status === "expired") continue;
       revokedConnectionIds.push(id);
       this.aiConnectorConnections.set(id, {
@@ -1527,7 +1606,7 @@ export class MemoryPersistence implements Persistence {
     };
     this.aiConnectorConnections.set(input.connectionId, activated);
     return {
-      connection: { ...activated, scopes: [...activated.scopes], toolToggles: { ...activated.toolToggles } },
+      connection: { ...activated, capabilities: [...activated.capabilities], scopes: [...activated.scopes], toolToggles: { ...activated.toolToggles } },
       revokedConnectionIds,
     };
   }
@@ -1657,12 +1736,28 @@ export class MemoryPersistence implements Persistence {
 
   async listAiConnectorAccessLogsForUser(
     userId: string,
-    options?: { limit?: number },
+    options?: { limit?: number; offset?: number; result?: AiConnectorAccessResult; search?: string; connectionIds?: string[] },
   ): Promise<AiConnectorAccessLogRecord[]> {
     const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+    const offset = options?.offset ?? 0;
+    const search = options?.search?.trim().toLowerCase() ?? "";
+    const connectionIds = options?.connectionIds ? new Set(options.connectionIds) : null;
     const logs: AiConnectorAccessLogRecord[] = [];
+    let skipped = 0;
     for (const record of this.aiConnectorAccessLogs) {
       if (record.userId !== userId) continue;
+      if (options?.result && record.result !== options.result) continue;
+      if (connectionIds && (record.connectionId === null || !connectionIds.has(record.connectionId))) continue;
+      if (
+        search
+        && !record.toolName.toLowerCase().includes(search)
+        && !record.accessKind.toLowerCase().includes(search)
+        && !(record.denialReason ?? "").toLowerCase().includes(search)
+      ) continue;
+      if (skipped < offset) {
+        skipped += 1;
+        continue;
+      }
       logs.push({ ...record, metadata: { ...record.metadata } });
       if (logs.length >= limit) break;
     }

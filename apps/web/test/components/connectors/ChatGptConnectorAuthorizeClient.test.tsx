@@ -84,6 +84,41 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(redirectLink?.className).toContain("break-all");
   });
 
+  it("keeps consent copy generic and detects Claude.ai from the callback identity", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      clientId: "https://claude.ai/mcp/client.json",
+      redirectUri: "https://claude.ai/api/mcp/auth_callback",
+      resource: "https://api.example.com/mcp",
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("AI connector authorization");
+    expect(document.body.textContent).not.toContain("Connect ChatGPT");
+    expect(document.body.textContent).toContain("Detected client");
+    expect(document.body.textContent).toContain("Claude.ai");
+    expect(document.body.textContent).toContain("MCP resource");
+    expect(document.body.textContent).toContain("Permission groups");
+  });
+
+  it("uses the server-provided OAuth client identity before URL heuristics", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      clientId: "https://metadata.example.com/oauth/client.json",
+      clientKind: "claude_ai_connector",
+      clientLabel: "Claude.ai",
+      redirectUri: "https://metadata.example.com/oauth/callback",
+      resource: "https://api.example.com/mcp",
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Detected client");
+    expect(document.body.textContent).toContain("Claude.ai");
+    expect(document.body.textContent).not.toContain("Generic MCP");
+  });
+
   it("explains policy-blocked approvals while keeping denial available", async () => {
     mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
       policy: {
@@ -110,7 +145,7 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     await flushEffects();
 
     expect(document.querySelector("[role='alert']")?.textContent).toContain("OAuth consent request is no longer pending");
-    expect(buttonByText("Start again in ChatGPT")).not.toBeNull();
+    expect(buttonByText("Start again in your AI client")).not.toBeNull();
 
     await act(async () => {
       buttonByText("Retry request").dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -120,6 +155,24 @@ describe("ChatGptConnectorAuthorizeClient", () => {
 
     expect(mockFetchMcpOAuthConsent).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).toContain("http://localhost:4000/mcp");
+  });
+
+  it("shows callback repair guidance for Claude.ai allowlist failures", async () => {
+    window.history.pushState(
+      null,
+      "",
+      "/connectors/chatgpt/authorize?requestId=req-1&client_id=https%3A%2F%2Fclaude.ai%2Fmcp%2Fclient.json&redirect_uri=https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fauth_callback",
+    );
+    mockFetchMcpOAuthConsent.mockRejectedValueOnce(new Error("OAuth redirect_uri is not allowed"));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("This callback is not allowlisted yet");
+    expect(document.body.textContent).toContain("Claude.ai");
+    expect(document.body.textContent).toContain("Admin MCP settings");
+    expect(document.body.textContent).toContain("Redirect callbacks");
+    expect(document.body.textContent).toContain("https://claude.ai/api/mcp/auth_callback");
   });
 
   it("keeps transaction:write unchecked until the user explicitly opts into advanced posting", async () => {
@@ -163,7 +216,8 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     await act(async () => root.render(<ChatGptConnectorAuthorizeClient locale="zh-TW" />));
     await flushEffects();
 
-    expect(document.body.textContent).toContain("連接 ChatGPT");
+    expect(document.body.textContent).toContain("AI 連接器授權");
+    expect(document.body.textContent).toContain("ChatGPT / OpenAI Apps");
     expect(document.body.textContent).toContain("管理帳戶");
     expect(document.body.textContent).toContain("送出已確認交易");
   });

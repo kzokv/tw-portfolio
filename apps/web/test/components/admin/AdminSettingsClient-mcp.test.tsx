@@ -60,7 +60,23 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
     enabled: true,
     maxActiveConnectionsPerUser: 3,
     allowedProviders: { chatgpt: true, self_hosted: true },
+    allowedClientKinds: {
+      chatgpt_app: true,
+      claude_ai_connector: true,
+      claude_code: true,
+      codex_cli: true,
+      gemini_cli: true,
+      copilot_mcp: true,
+      generic_mcp: true,
+    },
     groupToggles: { read: false, drafts: false, write: false },
+    bearerFallback: {
+      enabled: false,
+      allowedClientKinds: ["claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"],
+      maxLifetimeDays: 30,
+      maxActiveConnectorsPerUser: 3,
+      allowedToolGroups: ["read"],
+    },
     inactivityExpiryDays: 90,
     expirationWarningDays: 7,
     freshAuthMaxAgeMs: 600_000,
@@ -68,6 +84,27 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
     oauthPublicIssuer: "https://api.example.com",
     oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: true,
+    readiness: {
+      status: "degraded",
+      endpoint: "https://api.example.com/mcp",
+      deploymentEnabled: true,
+      publicIssuerConfigured: true,
+      oauthTokenSecretConfigured: true,
+      mcpUrlReady: true,
+      enabledClientKindCount: 6,
+      totalClientKindCount: 6,
+      highRiskToolsEnabled: false,
+      bearerFallbackEnabled: false,
+      checks: [
+        { key: "deployment", status: "ok" },
+        { key: "public_issuer", status: "ok" },
+        { key: "oauth_token_secret", status: "ok" },
+        { key: "mcp_url", status: "ok" },
+        { key: "client_kind_policy", status: "ok" },
+        { key: "high_risk_tools", status: "info" },
+        { key: "bearer_fallback", status: "info" },
+      ],
+    },
     updatedAt: "2026-05-23T12:00:00.000Z",
     ...overrides,
   };
@@ -119,6 +156,34 @@ describe("AdminSettingsClient — MCP settings", () => {
     expect(mockGetJson).toHaveBeenCalledWith("/admin/mcp/settings");
     const alerts = Array.from(document.querySelectorAll("[role='alert']"));
     expect(alerts.some((alert) => alert.textContent?.includes("All MCP tool groups are disabled"))).toBe(true);
+  });
+
+  it("renders MCP tool groups, redirect callback examples, and audit-impact guidance", async () => {
+    mockGetJson.mockResolvedValue(buildPolicy({ groupToggles: { read: true, drafts: true, write: false } }));
+
+    await act(async () => root.render(<AdminSettingsClient initial={buildAppConfigDto()} />));
+    await flushEffects();
+
+    const section = document.querySelector("[data-testid='admin-settings-mcp-section']");
+    expect(section?.textContent).toContain("Audit impact");
+    expect(section?.textContent).toContain("Rotating or clearing the OAuth secret revokes OAuth connector credentials only");
+    expect(section?.textContent).toContain("Tool groups");
+    expect(section?.textContent).toContain("Read");
+    expect(section?.textContent).toContain("Draft workflow");
+    expect(section?.textContent).toContain("Account management and posting");
+    expect(section?.textContent).toContain("https://chatgpt.com/connector/oauth/<connector-id>");
+    expect(section?.textContent).toContain("https://chatgpt.com/aip/<gpt-id>/oauth/callback");
+    expect(section?.textContent).toContain("https://claude.ai/api/mcp/auth_callback");
+    expect(section?.textContent).toContain("Copy callback");
+    expect(section?.textContent).toContain("Quick-add Claude.ai");
+    expect(document.querySelector("#client-kind-allowlist")?.textContent).toContain("Client-kind allowlist");
+    expect(document.querySelector("#bearer-fallback-policy")?.textContent).toContain("Bearer fallback policy");
+    expect(document.querySelector("#bearer-tool-groups")?.textContent).toContain("Allowed bearer tool groups");
+
+    const builtInCallbacks = document.querySelector("[data-testid='admin-settings-mcp-built-in-callbacks']");
+    const suggestedCallbacks = document.querySelector("[data-testid='admin-settings-mcp-suggested-callbacks']");
+    expect(builtInCallbacks?.textContent).not.toContain("claude.ai");
+    expect(suggestedCallbacks?.textContent).toContain("https://claude.ai/api/mcp/auth_callback");
   });
 
   it("edits numeric MCP limits locally and saves them explicitly", async () => {
@@ -180,6 +245,7 @@ describe("AdminSettingsClient — MCP settings", () => {
     const section = document.querySelector("[data-testid='admin-settings-mcp-section']");
     expect(section?.textContent).toContain("https://chatgpt.com/connector/oauth/<connector-id>");
     expect(section?.textContent).toContain("https://chatgpt.com/aip/<gpt-id>/oauth/callback");
+    expect(section?.textContent).toContain("Copy callback");
 
     const textarea = document.querySelector(
       "[data-testid='admin-settings-mcp-redirect-allowlist']",
@@ -215,6 +281,7 @@ describe("AdminSettingsClient — MCP settings", () => {
       }),
       { headers: { "x-vakwen-fresh-auth-at": "fresh-allowlist" } },
     );
+    expect(section?.textContent).toContain("Remove");
   });
 
   it("keeps an invalid redirect allowlist draft resettable and accessible", async () => {

@@ -25,14 +25,16 @@ export const chatGptConnectorAuthorizeCopy: Record<LocaleCode, {
   title: string;
   description: string;
   client: string;
+  detectedClient: string;
   resource: string;
   redirect: string;
   permissions: string;
+  permissionGroups: string;
   connectorLifetime: string;
   connectorApprovalBusy: string;
   connectorDenialBusy: string;
   retryRequest: string;
-  startAgainInChatGpt: string;
+  startAgainInClient: string;
   loadingRequest: string;
   approve: string;
   approving: string;
@@ -46,19 +48,26 @@ export const chatGptConnectorAuthorizeCopy: Record<LocaleCode, {
   advancedScope: string;
   postingOptIn: string;
   requiresManageReconsent: string;
+  consentIdentity: string;
+  redirectRepairTitle: string;
+  redirectRepairBody: string;
+  exactCallback: string;
+  suggestedAdminFix: string;
 }> = {
   en: {
-    title: "Connect ChatGPT",
-    description: "Authorize ChatGPT to use Vakwen MCP tools for your account.",
+    title: "AI connector authorization",
+    description: "Review the detected AI client, requested MCP access, and callback details before approving.",
     client: "Client",
+    detectedClient: "Detected client",
     resource: "MCP resource",
     redirect: "Redirect",
     permissions: "Permissions",
+    permissionGroups: "Permission groups",
     connectorLifetime: "Connector lifetime",
     connectorApprovalBusy: "Approving connector request",
     connectorDenialBusy: "Denying connector request",
     retryRequest: "Retry request",
-    startAgainInChatGpt: "Start again in ChatGPT",
+    startAgainInClient: "Start again in your AI client",
     loadingRequest: "Loading authorization request...",
     approve: "Approve",
     approving: "Approving...",
@@ -70,21 +79,28 @@ export const chatGptConnectorAuthorizeCopy: Record<LocaleCode, {
     policyDisabled: "Admin policy has disabled every requested MCP tool group. Deny this request or ask an admin to re-enable at least one MCP tool group before approving.",
     disabledByPolicy: "Disabled by admin policy",
     advancedScope: "Advanced scope. Off by default and requires fresh auth or re-consent to grant.",
-    postingOptIn: "Posting is an advanced opt-in. Leave it unchecked unless you want ChatGPT to call the guarded `post_transaction_draft_rows` tool after typed or explicit confirmation.",
+    postingOptIn: "Posting is an advanced opt-in. Leave it unchecked unless you want this AI client to call the guarded `post_transaction_draft_rows` tool after typed or explicit confirmation.",
     requiresManageReconsent: "Reconnect in ChatGPT and grant `account:manage` before this widget can create or change accounts.",
+    consentIdentity: "Authorization request",
+    redirectRepairTitle: "This callback is not allowlisted yet",
+    redirectRepairBody: "Vakwen rejected the OAuth callback before consent. Ask an admin to add this exact redirect callback in Admin MCP settings, then retry from the same AI client.",
+    exactCallback: "Exact callback URI",
+    suggestedAdminFix: "Suggested admin fix",
   },
   "zh-TW": {
-    title: "連接 ChatGPT",
-    description: "授權 ChatGPT 使用你帳戶的 Vakwen MCP 工具。",
+    title: "AI 連接器授權",
+    description: "核對偵測到的 AI 客戶端、要求的 MCP 存取，以及回呼設定後再決定是否核准。",
     client: "Client",
+    detectedClient: "偵測到的客戶端",
     resource: "MCP 資源",
     redirect: "重新導向",
     permissions: "權限",
+    permissionGroups: "權限群組",
     connectorLifetime: "連接器有效天數",
     connectorApprovalBusy: "正在核准連接器請求",
     connectorDenialBusy: "正在拒絕連接器請求",
     retryRequest: "重試請求",
-    startAgainInChatGpt: "回到 ChatGPT 重新開始",
+    startAgainInClient: "回到 AI 客戶端重新開始",
     loadingRequest: "正在載入授權請求...",
     approve: "核准",
     approving: "核准中...",
@@ -96,8 +112,13 @@ export const chatGptConnectorAuthorizeCopy: Record<LocaleCode, {
     policyDisabled: "管理員策略已停用所有要求的 MCP 工具群組。請拒絕此請求，或先請管理員重新啟用至少一個 MCP 工具群組後再核准。",
     disabledByPolicy: "已被管理員策略停用",
     advancedScope: "進階權限。預設關閉，需重新授權或重新同意後才能啟用。",
-    postingOptIn: "交易送出屬於進階自選權限。除非你希望 ChatGPT 在明確或輸入確認後呼叫受保護的 `post_transaction_draft_rows` 工具，否則請保持未勾選。",
+    postingOptIn: "交易送出屬於進階自選權限。除非你希望此 AI 客戶端在明確或輸入確認後呼叫受保護的 `post_transaction_draft_rows` 工具，否則請保持未勾選。",
     requiresManageReconsent: "請在 ChatGPT 重新連線並授權 `account:manage`，此元件才能建立或修改帳戶。",
+    consentIdentity: "授權請求",
+    redirectRepairTitle: "此回呼網址尚未加入允許清單",
+    redirectRepairBody: "Vakwen 在同意頁前就拒絕了此 OAuth 回呼。請管理員到 Admin MCP settings 加入完全相符的回呼網址，之後再從相同 AI 客戶端重試。",
+    exactCallback: "完整回呼 URI",
+    suggestedAdminFix: "建議的管理員修復",
   },
 };
 

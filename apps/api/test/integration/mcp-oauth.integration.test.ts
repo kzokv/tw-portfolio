@@ -346,6 +346,11 @@ describe("MCP OAuth for ChatGPT", () => {
     });
     const pendingConnection = connectionsAfterApproval.find((connection) => connection.id !== "old-chatgpt-connection");
     expect(pendingConnection).toMatchObject({
+      provider: "chatgpt",
+      vendor: "openai",
+      clientKind: "chatgpt_app",
+      authMode: "oauth",
+      capabilities: ["deep_link_fallback", "interactive_ops", "oauth", "widgets"],
       status: "pending",
       scopes: ["portfolio:mcp_read"],
     });
@@ -370,7 +375,12 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(tokenBody.access_token.split(".")).toHaveLength(3);
     expect(tokenBody.scope).toBe("portfolio:mcp_read");
     const connectionsAfterToken = await app.persistence.listAiConnectorConnectionsForUser("user-1");
-    expect(connectionsAfterToken.find((connection) => connection.id === pendingConnection?.id)).toMatchObject({ status: "active" });
+    expect(connectionsAfterToken.find((connection) => connection.id === pendingConnection?.id)).toMatchObject({
+      vendor: "openai",
+      clientKind: "chatgpt_app",
+      authMode: "oauth",
+      status: "active",
+    });
     expect(connectionsAfterToken.find((connection) => connection.id === "old-chatgpt-connection")).toMatchObject({
       status: "revoked",
       revocationReason: "replaced_by_oauth_authorization",
@@ -383,7 +393,10 @@ describe("MCP OAuth for ChatGPT", () => {
         scopes: ["portfolio:mcp_read", "transaction_draft:create"],
       },
     });
-    expect(patched.statusCode).toBe(200);
+    expect(patched.statusCode).toBe(400);
+    expect(patched.json()).toMatchObject({
+      error: "mcp_oauth_scope_expansion_requires_reconnect",
+    });
 
     const initialize = await app.inject({
       method: "POST",
@@ -776,6 +789,61 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(badResource.json()).toMatchObject({ error: "invalid_target" });
   });
 
+  it("rejects Claude.ai callbacks before allowlist repair and accepts the exact callback after allowlisting", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://claude.ai/.well-known/mcp-client.json";
+    const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+    const authorizeParams = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      resource: "http://localhost:4000/mcp",
+      scope: "portfolio:mcp_read",
+      code_challenge: codeChallenge(verifier),
+      code_challenge_method: "S256",
+    });
+
+    const rejected = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${authorizeParams.toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({
+      error: "invalid_request",
+      error_description: "OAuth redirect_uri is not allowed",
+    });
+
+    await app.persistence.saveAiConnectorPolicySettings({
+      oauthRedirectUriAllowlist: [redirectUri],
+    });
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async () => {
+        const body = JSON.stringify({
+          client_id: clientId,
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+
+    const accepted = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${authorizeParams.toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(accepted.statusCode).toBe(302);
+    expect(String(accepted.headers.location)).toContain("/connectors/chatgpt/authorize?requestId=");
+  });
+
   it("accepts OAuth authorization extension parameters from ChatGPT", async () => {
     const verifier = "verifier-1234567890123456789012345678901234567890123";
     const response = await app.inject({
@@ -837,6 +905,150 @@ describe("MCP OAuth for ChatGPT", () => {
     });
     expect(response.statusCode).toBe(302);
     expect(String(response.headers.location)).toContain("/connectors/chatgpt/authorize?requestId=");
+  });
+
+  it("returns Claude.ai-specific redirect repair data for missing callback allowlist entries", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async () => {
+        const body = JSON.stringify({
+          client_id: clientId,
+          client_name: "Claude.ai",
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource: "http://localhost:4000/mcp",
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_request",
+      redirectUriRepair: {
+        clientId,
+        clientKind: "claude_ai_connector",
+        clientLabel: "Claude.ai",
+        vendor: "anthropic",
+        requestedRedirectUri: redirectUri,
+        suggestedRedirectUris: [redirectUri],
+      },
+    });
+  });
+
+  it("stores Claude.ai OAuth approvals as a dedicated client kind", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+    await app.persistence.saveAiConnectorPolicySettings({
+      oauthRedirectUriAllowlist: [redirectUri],
+    });
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async () => {
+        const body = JSON.stringify({
+          client_id: clientId,
+          client_name: "Claude.ai",
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+
+    const authorize = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource: "http://localhost:4000/mcp",
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(authorize.statusCode).toBe(302);
+
+    const requestId = new URL(String(authorize.headers.location)).searchParams.get("requestId");
+    const consent = await app.inject({ method: "GET", url: `/oauth/consent/${requestId}` });
+    expect(consent.statusCode).toBe(200);
+    expect(consent.json()).toMatchObject({
+      clientId,
+      clientKind: "claude_ai_connector",
+      clientLabel: "Claude.ai",
+      vendor: "anthropic",
+    });
+    const { csrfToken } = consent.json<{ csrfToken: string }>();
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      headers: { host: "localhost:4000" },
+      payload: {
+        csrfToken,
+        scopes: ["portfolio:mcp_read"],
+      },
+    });
+    expect(approved.statusCode).toBe(200);
+    const redirect = await resolveOAuthRedirectBridge(approved.json<{ redirectUrl: string }>().redirectUrl);
+    const code = redirect.searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+        resource: "http://localhost:4000/mcp",
+      }),
+    });
+    expect(token.statusCode).toBe(200);
+
+    const [connection] = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connection).toMatchObject({
+      provider: "chatgpt",
+      vendor: "anthropic",
+      clientKind: "claude_ai_connector",
+      authMode: "oauth",
+      displayName: "Claude.ai",
+      oauthClientId: clientId,
+      status: "active",
+    });
   });
 
   it("rejects admin-configured redirect URI additions for arbitrary non-URL clients", async () => {

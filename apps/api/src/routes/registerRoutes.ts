@@ -25,9 +25,12 @@ import {
 import { calculateBuyFees, calculateSellFees, classifyInstrument, resolveRangeBounds, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
+  AiConnectorAccessKind,
+  AiConnectorToolBlockerCode,
   AiConnectorPolicySettingsDto,
   AiConnectorSummaryDto,
   AiConnectorScope,
+  AiConnectorToolInputSchemaDto,
   CurrencyCode,
   DashboardOverviewDto,
   DashboardMarketStateDto,
@@ -114,7 +117,12 @@ import {
   reincludeTransactionDraftRows,
   updateTransactionDraftRows,
 } from "../services/mcpDrafts.js";
-import { connectorGroupForScope, revokeAiConnectorConnection } from "../services/mcpConnectorLifecycle.js";
+import {
+  connectorGroupForScope,
+  createAiConnectorBearerFallback,
+  revokeAiConnectorConnection,
+  toAiConnectorPolicySettingsDto,
+} from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
@@ -157,6 +165,7 @@ import { TwseStockDayCloseProvider, YahooChartCloseProvider } from "../services/
 import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
 import { routeError } from "../lib/routeError.js";
 import { listMcpToolDefinitions } from "../mcp/tools.js";
+import { scopesForToolAccess } from "../mcp/policy.js";
 import {
   requireAdminRole,
   requireSharedCapability,
@@ -245,6 +254,24 @@ const shareCapabilityValues = [
 const shareCapabilitySchema = z.enum(shareCapabilityValues);
 const shareCapabilitiesSchema = z.array(shareCapabilitySchema).max(shareCapabilityValues.length).default([]);
 const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiConnectorScopeValues.length);
+const aiConnectorBearerClientKindSchema = z.enum([
+  "claude_code",
+  "codex_cli",
+  "gemini_cli",
+  "copilot_mcp",
+  "generic_mcp",
+]);
+const queryBooleanSchema = z.preprocess((rawValue) => {
+  const value = Array.isArray(rawValue) ? rawValue[rawValue.length - 1] : rawValue;
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return value;
+}, z.boolean());
 
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
 // transactions must commit to a specific market).
@@ -611,6 +638,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "POST /portfolio/recompute/preview",
   "POST /portfolio/recompute/confirm",
   "POST /ai/transactions/confirm",
+  "POST /ai/connectors/bearer",
   "PATCH /ai/transaction-drafts/:batchId/rows/:rowId",
   "POST /ai/transaction-drafts/:batchId/exclude",
   "POST /ai/transaction-drafts/:batchId/reinclude",
@@ -620,6 +648,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "POST /ai/transaction-drafts/:batchId/confirm",
   "PATCH /ai/connectors/:id",
   "DELETE /ai/connectors/:id",
+  "POST /ai/connectors/:id/hide",
   "POST /shares",
   "PATCH /shares/:id/capabilities",
   "PATCH /shares/pending/:code/capabilities",
@@ -1007,8 +1036,13 @@ function toAiConnectorConnectionDto(record: AiConnectorConnectionRecord) {
   return {
     id: record.id,
     provider: record.provider,
+    vendor: record.vendor,
+    clientKind: record.clientKind,
+    authMode: record.authMode,
+    capabilities: record.capabilities,
     displayName: record.displayName,
     status: record.status,
+    hiddenAt: record.hiddenAt ?? null,
     scopes: record.scopes,
     toolToggles: record.toolToggles,
     expiresAt: record.expiresAt,
@@ -1021,10 +1055,26 @@ function toAiConnectorConnectionDto(record: AiConnectorConnectionRecord) {
   };
 }
 
-function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord) {
+function connectorVisibleInOperationalView(connection: AiConnectorConnectionRecord): boolean {
+  return !connection.hiddenAt && (connection.status === "active" || connection.status === "pending");
+}
+
+function connectorVisibleInHistoryView(connection: AiConnectorConnectionRecord): boolean {
+  return !connection.hiddenAt && (connection.status === "expired" || connection.status === "revoked");
+}
+
+function connectorEligibleForEffectiveAccess(connection: AiConnectorConnectionRecord): boolean {
+  return connectorVisibleInOperationalView(connection)
+    && connection.status === "active"
+    && (!connection.expiresAt || Date.parse(connection.expiresAt) > Date.now());
+}
+
+function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord, connection?: AiConnectorConnectionRecord | null) {
   return {
     id: record.id,
     connectionId: record.connectionId,
+    connectionDisplayName: connection?.displayName ?? null,
+    clientKind: connection?.clientKind ?? null,
     portfolioContextUserId: record.portfolioContextUserId,
     shareId: record.shareId,
     toolName: record.toolName,
@@ -1036,7 +1086,8 @@ function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord) {
 }
 
 function buildAiConnectorToolCatalog(
-  policy: Pick<AiConnectorPolicySettingsDto, "enabled" | "groupToggles">,
+  policy: Pick<AiConnectorPolicySettingsDto, "enabled" | "allowedClientKinds" | "groupToggles" | "bearerFallback">,
+  connections: AiConnectorConnectionRecord[] = [],
 ) {
   return listMcpToolDefinitions().map((tool) => {
     const group = connectorGroupForScope(tool.scope);
@@ -1052,12 +1103,116 @@ function buildAiConnectorToolCatalog(
       scope: tool.scope,
       accessKind: tool.accessKind,
       group,
+      inputSchema: summarizeMcpInputSchema(tool.inputSchema),
       enabledByPolicy,
       availability: enabledByPolicy ? "available" as const : "unavailable" as const,
       unavailableReason,
       annotations: tool.annotations,
+      effectiveAccess: connections.map((connection) => {
+        const blockerCode = getToolEffectiveAccessBlocker(policy, connection, tool.scope, tool.name, tool.accessKind, enabledByPolicy);
+        return {
+          connectionId: connection.id,
+          connectionDisplayName: connection.displayName,
+          clientKind: connection.clientKind,
+          status: blockerCode === null ? "available" as const : "blocked" as const,
+          blockerCode,
+        };
+      }),
     };
   });
+}
+
+function summarizeMcpInputSchema(schema: unknown): AiConnectorToolInputSchemaDto {
+  const objectShape = getZodObjectShape(schema);
+  const fields = Object.entries(objectShape).map(([name, fieldSchema]) => {
+    const unwrapped = unwrapZodSchema(fieldSchema);
+    return {
+      name,
+      type: describeZodSchema(unwrapped),
+      required: !isOptionalZodSchema(fieldSchema),
+    };
+  }).sort((left, right) => left.name.localeCompare(right.name));
+  return {
+    fields,
+    rawSchema: {
+      type: "object",
+      properties: Object.fromEntries(fields.map((field) => [field.name, { type: field.type }])),
+      required: fields.filter((field) => field.required).map((field) => field.name),
+    },
+  };
+}
+
+function getZodObjectShape(schema: unknown): Record<string, unknown> {
+  if (typeof schema !== "object" || schema === null) return {};
+  const maybeShape = (schema as { shape?: unknown }).shape;
+  if (typeof maybeShape === "function") {
+    const result = maybeShape();
+    return typeof result === "object" && result !== null ? result as Record<string, unknown> : {};
+  }
+  return typeof maybeShape === "object" && maybeShape !== null ? maybeShape as Record<string, unknown> : {};
+}
+
+function getZodTypeName(schema: unknown): string {
+  return typeof schema === "object" && schema !== null && "_def" in schema
+    ? String((schema as { _def?: { typeName?: unknown } })._def?.typeName ?? "unknown")
+    : "unknown";
+}
+
+function unwrapZodSchema(schema: unknown): unknown {
+  let current = schema;
+  while (["ZodOptional", "ZodDefault", "ZodNullable"].includes(getZodTypeName(current))) {
+    const inner = (current as { _def?: { innerType?: unknown; schema?: unknown } })._def?.innerType
+      ?? (current as { _def?: { innerType?: unknown; schema?: unknown } })._def?.schema;
+    if (!inner || inner === current) break;
+    current = inner;
+  }
+  return current;
+}
+
+function isOptionalZodSchema(schema: unknown): boolean {
+  const typeName = getZodTypeName(schema);
+  if (typeName === "ZodOptional" || typeName === "ZodDefault") return true;
+  const inner = (schema as { _def?: { innerType?: unknown; schema?: unknown } } | null)?._def?.innerType
+    ?? (schema as { _def?: { innerType?: unknown; schema?: unknown } } | null)?._def?.schema;
+  return inner ? isOptionalZodSchema(inner) : false;
+}
+
+function describeZodSchema(schema: unknown): string {
+  const typeName = getZodTypeName(schema);
+  if (typeName === "ZodString") return "string";
+  if (typeName === "ZodNumber") return "number";
+  if (typeName === "ZodBoolean") return "boolean";
+  if (typeName === "ZodArray") return "array";
+  if (typeName === "ZodObject") return "object";
+  if (typeName === "ZodEnum" || typeName === "ZodNativeEnum") return "enum";
+  if (typeName === "ZodLiteral") return "literal";
+  if (typeName === "ZodUnion" || typeName === "ZodDiscriminatedUnion") return "union";
+  return typeName.replace(/^Zod/, "").toLowerCase() || "unknown";
+}
+
+function getToolEffectiveAccessBlocker(
+  policy: Pick<AiConnectorPolicySettingsDto, "enabled" | "allowedClientKinds" | "groupToggles" | "bearerFallback">,
+  connection: AiConnectorConnectionRecord,
+  scope: AiConnectorScope,
+  toolName: string,
+  accessKind: AiConnectorAccessKind,
+  enabledByPolicy: boolean,
+): AiConnectorToolBlockerCode | null {
+  const group = connectorGroupForScope(scope);
+  if (!policy.enabled) return "global_mcp_disabled";
+  if (!policy.allowedClientKinds[connection.clientKind]) return "client_kind_disabled";
+  if (connection.status !== "active") return "connector_inactive";
+  if (connection.expiresAt && Date.parse(connection.expiresAt) <= Date.now()) return "connector_inactive";
+  const requiredScopes = scopesForToolAccess(accessKind, toolName, scope);
+  if (!requiredScopes.some((requiredScope) => connection.scopes.includes(requiredScope))) return "missing_scope";
+  if (!enabledByPolicy || !policy.groupToggles[group]) return "admin_tool_policy_disabled";
+  if (connection.authMode === "bearer") {
+    if (!policy.bearerFallback.enabled) return "admin_tool_policy_disabled";
+    if (!policy.bearerFallback.allowedClientKinds.includes(connection.clientKind)) return "client_kind_disabled";
+    if (!policy.bearerFallback.allowedToolGroups.includes(group)) return "admin_tool_policy_disabled";
+  }
+  if (connection.toolToggles[toolName] === false) return "connector_override_disabled";
+  return null;
 }
 
 function buildAiDraftDeepLink(app: FastifyInstance, batchId: string, contextUserId: string): string {
@@ -6863,10 +7018,31 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       app.persistence.listAiConnectorAccessLogsForUser(userId, { limit: 50 }),
       app.persistence.getAiConnectorPolicySettings(),
     ]);
+    const visibleConnections = connections.filter(connectorVisibleInOperationalView);
+    const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
     return {
-      connections: connections.map(toAiConnectorConnectionDto),
-      accessLogs: accessLogs.map(toAiConnectorAccessLogDto),
-      policy,
+      connections: visibleConnections.map(toAiConnectorConnectionDto),
+      historyCount: connections.filter(connectorVisibleInHistoryView).length,
+      accessLogs: accessLogs.map((log) => toAiConnectorAccessLogDto(log, log.connectionId ? connectionById.get(log.connectionId) : null)),
+      policy: toAiConnectorPolicySettingsDto(policy),
+    };
+  });
+
+  app.get("/ai/connectors/history", async (req) => {
+    const userId = requireSessionUserId(req);
+    const query = z.object({
+      status: z.enum(["expired", "revoked"]).optional(),
+      clientKind: z.enum(["chatgpt_app", "claude_ai_connector", "claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"]).optional(),
+      includeHidden: queryBooleanSchema.default(false),
+    }).parse(req.query);
+    const connections = await app.persistence.listAiConnectorConnectionsForUser(userId);
+    return {
+      connections: connections
+        .filter((connection) => query.includeHidden || !connection.hiddenAt)
+        .filter((connection) => connection.status === "expired" || connection.status === "revoked")
+        .filter((connection) => query.status === undefined || connection.status === query.status)
+        .filter((connection) => query.clientKind === undefined || connection.clientKind === query.clientKind)
+        .map(toAiConnectorConnectionDto),
     };
   });
 
@@ -6877,10 +7053,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.persistence.listAiConnectorConnectionsForUser(userId),
         app.persistence.getAiConnectorPolicySettings(),
       ]));
+      const visibleConnections = connections.filter(connectorVisibleInOperationalView);
+      const activeConnections = connections.filter(connectorEligibleForEffectiveAccess);
       return {
-        connections: connections.map(toAiConnectorConnectionDto),
-        policy,
-        toolCatalog: buildAiConnectorToolCatalog(policy),
+        connections: visibleConnections.map(toAiConnectorConnectionDto),
+        policy: toAiConnectorPolicySettingsDto(policy),
+        toolCatalog: buildAiConnectorToolCatalog(policy, activeConnections),
       } satisfies AiConnectorSummaryDto;
     });
   });
@@ -6890,13 +7068,66 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const userId = requireSessionUserId(req);
       const query = z.object({
         limit: z.coerce.number().int().min(1).max(50).default(12),
+        offset: z.coerce.number().int().min(0).default(0),
+        result: z.enum(["ok", "denied", "error"]).optional(),
+        search: z.string().trim().max(120).optional(),
+        connectionId: userScopedIdSchema.optional(),
+        clientKind: z.enum(["chatgpt_app", "claude_ai_connector", "claude_code", "codex_cli", "gemini_cli", "copilot_mcp", "generic_mcp"]).optional(),
       }).parse(req.query);
+      const connections = await timing.measure("load_connector_log_connections", "db", () =>
+        app.persistence.listAiConnectorConnectionsForUser(userId));
+      let connectionIds: string[] | undefined;
+      if (query.connectionId || query.clientKind) {
+        connectionIds = connections
+          .filter((connection) => query.connectionId === undefined || connection.id === query.connectionId)
+          .filter((connection) => query.clientKind === undefined || connection.clientKind === query.clientKind)
+          .map((connection) => connection.id);
+      }
+      const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
       const accessLogs = await timing.measure("load_connector_logs", "db", () =>
-        app.persistence.listAiConnectorAccessLogsForUser(userId, { limit: query.limit }));
+        app.persistence.listAiConnectorAccessLogsForUser(userId, {
+          limit: query.limit + 1,
+          offset: query.offset,
+          result: query.result,
+          search: query.search,
+          connectionIds,
+        }));
+      const pageLogs = accessLogs.slice(0, query.limit);
       return {
-        accessLogs: accessLogs.map(toAiConnectorAccessLogDto),
+        accessLogs: pageLogs.map((log) => toAiConnectorAccessLogDto(log, log.connectionId ? connectionById.get(log.connectionId) : null)),
+        nextOffset: accessLogs.length > query.limit ? query.offset + pageLogs.length : null,
+        hasMore: accessLogs.length > query.limit,
       };
     });
+  });
+
+  app.post("/ai/connectors/bearer", async (req) => {
+    const userId = requireSessionUserId(req);
+    const body = z.object({
+      clientKind: aiConnectorBearerClientKindSchema,
+      displayName: z.string().trim().min(1).max(120),
+      scopes: aiConnectorScopesSchema.min(1),
+      lifetimeDays: z.number().int().min(1).max(365),
+    }).strict().parse(req.body);
+
+    const created = await createAiConnectorBearerFallback(
+      app,
+      {
+        userId,
+        clientKind: body.clientKind,
+        displayName: body.displayName,
+        scopes: body.scopes,
+        lifetimeDays: body.lifetimeDays,
+      },
+      { actorUserId: userId, ipAddress: req.ip ?? null },
+    );
+
+    return {
+      connection: toAiConnectorConnectionDto(created.connection),
+      bearerToken: created.bearerToken,
+      tokenHint: created.tokenHint,
+      expiresAt: created.expiresAt,
+    };
   });
 
   app.patch("/ai/connectors/:id", async (req) => {
@@ -6913,8 +7144,37 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const settings = await app.persistence.getAiConnectorPolicySettings();
     const requestedScopes = body.scopes ?? connection.scopes;
-    const allowedScopes = requestedScopes.filter((scope) => settings.groupToggles[connectorGroupForScope(scope)]);
     const nextExpiresAt = body.expiresAt === undefined ? connection.expiresAt : body.expiresAt;
+    if (
+      connection.authMode === "bearer"
+      && body.scopes !== undefined
+      && requestedScopes.some((scope) => !connection.scopes.includes(scope))
+    ) {
+      throw routeError(
+        400,
+        "mcp_bearer_scope_expansion_requires_recreate",
+        "Bearer connector scopes cannot be expanded after token creation; create a new bearer connector with the required scopes",
+      );
+    }
+    if (
+      connection.authMode === "oauth"
+      && body.scopes !== undefined
+      && requestedScopes.some((scope) => !connection.scopes.includes(scope))
+    ) {
+      throw routeError(
+        400,
+        "mcp_oauth_scope_expansion_requires_reconnect",
+        "OAuth connector scopes cannot be expanded after consent; reconnect the connector with the required scopes",
+      );
+    }
+    if (connection.authMode === "bearer" && body.expiresAt !== undefined && nextExpiresAt !== connection.expiresAt) {
+      throw routeError(
+        400,
+        "mcp_bearer_connector_lifetime_immutable",
+        "Bearer connector lifetime is fixed at token creation; create a new bearer connector to choose a different lifetime",
+      );
+    }
+    const allowedScopes = requestedScopes.filter((scope) => settings.groupToggles[connectorGroupForScope(scope)]);
     if (connection.oauthClientId && nextExpiresAt !== connection.expiresAt) {
       throw routeError(
         400,
@@ -6958,6 +7218,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ipAddress: req.ip,
     });
     return toAiConnectorConnectionDto(revoked);
+  });
+
+  app.post("/ai/connectors/:id/hide", async (req) => {
+    const userId = requireSessionUserId(req);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const connection = await app.persistence.getAiConnectorConnection(params.id);
+    if (!connection || connection.userId !== userId) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    if (connection.status !== "revoked" && connection.status !== "expired") {
+      throw routeError(409, "ai_connector_hide_requires_history", "Only expired or revoked AI connector history can be hidden");
+    }
+    const hidden = await app.persistence.saveAiConnectorConnection({
+      ...connection,
+      hiddenAt: connection.hiddenAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: userId,
+      action: "app_config_updated",
+      targetUserId: userId,
+      ipAddress: req.ip,
+      metadata: {
+        type: "ai_connector_connection_hidden",
+        connectionId: hidden.id,
+        hiddenAt: hidden.hiddenAt,
+      },
+    });
+    return toAiConnectorConnectionDto(hidden);
   });
 
   app.post("/ai/transactions/parse", async (req) => {

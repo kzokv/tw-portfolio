@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bot, Check, ExternalLink, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, ShieldCheck, X } from "lucide-react";
 import type { AiConnectorScope, LocaleCode, McpOAuthConsentRequestDto } from "@vakwen/shared-types";
 import { API_PUBLIC } from "../../lib/api";
+import { AiClientGlyph, getConsentClientMetadata } from "./clientMetadata";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import {
@@ -34,6 +35,35 @@ function scopeDefaultsGranted(scope: AiConnectorScope): boolean {
 function currentRequestId(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("requestId");
+}
+
+function currentAuthorizeParams() {
+  if (typeof window === "undefined") {
+    return { clientId: null, redirectUri: null, resource: null };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    clientId: params.get("client_id"),
+    redirectUri: params.get("redirect_uri"),
+    resource: params.get("resource"),
+  };
+}
+
+function scopeGroupKey(scope: AiConnectorScope): "read" | "drafts" | "write" {
+  if (scope === "portfolio:mcp_read") return "read";
+  if (scope.startsWith("transaction_draft:")) return "drafts";
+  return "write";
+}
+
+function permissionGroupLabel(locale: LocaleCode, key: "read" | "drafts" | "write"): string {
+  if (locale === "zh-TW") {
+    if (key === "read") return "讀取";
+    if (key === "drafts") return "草稿流程";
+    return "送出與寫入";
+  }
+  if (key === "read") return "Read";
+  if (key === "drafts") return "Draft workflow";
+  return "Posting and write";
 }
 
 function redirectToAuthorizeEndpoint(): void {
@@ -78,6 +108,19 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
   );
   const allScopesDisabled = consent !== null && enabledScopes.length === 0;
   const canApprove = consent !== null && selectedScopes.size > 0 && !allScopesDisabled && busy === null;
+  const authorizeParams = currentAuthorizeParams();
+  const consentIdentity = getConsentClientMetadata({
+    clientKind: consent?.clientKind,
+    clientLabel: consent?.clientLabel,
+    clientId: consent?.clientId ?? authorizeParams.clientId,
+    redirectUri: consent?.redirectUri ?? authorizeParams.redirectUri,
+  });
+  const permissionGroups = useMemo(() => {
+    const groups = new Set((consent?.scopes ?? []).map((scope) => scopeGroupKey(scope)));
+    return [...groups];
+  }, [consent]);
+  const redirectNeedsRepair = !consent && error && Boolean(authorizeParams.redirectUri)
+    && /(redirect|callback|allowlist|allowlisted|unapproved|invalid)/i.test(error);
 
   function toggleScope(scope: AiConnectorScope, checked: boolean) {
     setSelectedScopes((current) => {
@@ -122,9 +165,10 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl space-y-5">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white">
-            <Bot className="h-5 w-5" aria-hidden="true" />
-          </span>
+          <AiClientGlyph
+            clientKind={consentIdentity.clientKind}
+            className="h-11 w-11 rounded-lg"
+          />
           <div>
             <h1 className="text-2xl font-semibold">{copy.title}</h1>
             <p className="text-sm text-slate-600">{copy.description}</p>
@@ -140,11 +184,39 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
                   <Button variant="secondary" onClick={() => void load()}>
                     {copy.retryRequest}
                   </Button>
-                  <Button variant="outline" onClick={() => { window.location.href = "https://chatgpt.com/"; }}>
-                    {copy.startAgainInChatGpt}
+                  <Button variant="outline" onClick={() => { window.location.href = consentIdentity.reconnectUrl ?? "https://chatgpt.com/"; }}>
+                    {copy.startAgainInClient}
                   </Button>
                 </div>
               ) : null}
+            </div>
+          </Card>
+        ) : null}
+
+        {redirectNeedsRepair ? (
+          <Card className="rounded-lg border-amber-200 bg-amber-50">
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <AiClientGlyph clientKind={consentIdentity.clientKind} className="mt-0.5 h-10 w-10 rounded-lg" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-950">{copy.redirectRepairTitle}</p>
+                  <p className="mt-1 text-sm text-amber-900">{copy.redirectRepairBody}</p>
+                </div>
+              </div>
+              <div className="grid gap-3 rounded-lg border border-amber-200 bg-white/70 p-4 text-sm md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase text-amber-800">{copy.detectedClient}</p>
+                  <p className="mt-1 font-medium text-slate-900">{consentIdentity.label}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-amber-800">{copy.suggestedAdminFix}</p>
+                  <p className="mt-1 font-medium text-slate-900">Admin MCP settings → Redirect callbacks</p>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase text-amber-800">{copy.exactCallback}</p>
+                  <p className="mt-1 break-all font-mono text-slate-900">{authorizeParams.redirectUri}</p>
+                </div>
+              </div>
             </div>
           </Card>
         ) : null}
@@ -164,6 +236,13 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
                   <p className="mt-1 font-medium text-slate-900">{consent.clientId}</p>
                 </div>
                 <div>
+                  <p className="text-xs uppercase text-slate-500">{copy.detectedClient}</p>
+                  <div className="mt-1 flex items-center gap-2 font-medium text-slate-900">
+                    <AiClientGlyph clientKind={consentIdentity.clientKind} className="h-8 w-8 rounded-lg" />
+                    <span>{consentIdentity.label}</span>
+                  </div>
+                </div>
+                <div>
                   <p className="text-xs uppercase text-slate-500">{copy.resource}</p>
                   <p className="mt-1 select-all break-all font-medium text-slate-900">{consent.resource}</p>
                 </div>
@@ -178,6 +257,16 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
                     <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
                     {consent.redirectUri}
                   </a>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase text-slate-500">{copy.permissionGroups}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {permissionGroups.map((group) => (
+                      <span key={group} className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {permissionGroupLabel(resolvedLocale, group)}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
 

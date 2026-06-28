@@ -2144,6 +2144,17 @@ export interface ProviderFixerLogsResponse {
 // ── AI connector + MCP draft types (KZO-210+) ──────────────────────────────
 
 export type AiConnectorProvider = "chatgpt" | "self_hosted";
+export type AiConnectorVendor = "openai" | "anthropic" | "openai_codex" | "google" | "microsoft" | "generic";
+export type AiConnectorClientKind =
+  | "chatgpt_app"
+  | "claude_ai_connector"
+  | "claude_code"
+  | "codex_cli"
+  | "gemini_cli"
+  | "copilot_mcp"
+  | "generic_mcp";
+export type AiConnectorAuthMode = "oauth" | "bearer" | "dev_token";
+export type AiConnectorCapability = "oauth" | "bearer_fallback" | "widgets" | "interactive_ops" | "deep_link_fallback";
 export type AiConnectorStatus = "pending" | "active" | "expired" | "revoked";
 export type AiConnectorScope =
   | "portfolio:mcp_read"
@@ -2192,9 +2203,18 @@ export type McpDraftPostingOutcome = "posted" | "blocked" | "confirmation_requir
 
 export interface AiConnectorConnectionDto {
   id: string;
+  /**
+   * Transitional compatibility field. New code should prefer
+   * `vendor + clientKind + authMode`.
+   */
   provider: AiConnectorProvider;
+  vendor: AiConnectorVendor;
+  clientKind: AiConnectorClientKind;
+  authMode: AiConnectorAuthMode;
+  capabilities: AiConnectorCapability[];
   displayName: string;
   status: AiConnectorStatus;
+  hiddenAt?: string | null;
   scopes: AiConnectorScope[];
   toolToggles: Record<string, boolean>;
   expiresAt: string | null;
@@ -2209,8 +2229,20 @@ export interface AiConnectorConnectionDto {
 export interface AiConnectorPolicySettingsDto {
   enabled: boolean;
   maxActiveConnectionsPerUser: number;
+  /**
+   * Transitional compatibility field. New code should prefer
+   * `allowedClientKinds`.
+   */
   allowedProviders: Record<AiConnectorProvider, boolean>;
+  allowedClientKinds: Record<AiConnectorClientKind, boolean>;
   groupToggles: Record<AiConnectorToolGroup, boolean>;
+  bearerFallback: {
+    enabled: boolean;
+    allowedClientKinds: AiConnectorClientKind[];
+    maxLifetimeDays: number;
+    maxActiveConnectorsPerUser: number;
+    allowedToolGroups: AiConnectorToolGroup[];
+  };
   inactivityExpiryDays: number;
   expirationWarningDays: number;
   freshAuthMaxAgeMs: number;
@@ -2218,7 +2250,38 @@ export interface AiConnectorPolicySettingsDto {
   oauthPublicIssuer: string | null;
   oauthRedirectUriAllowlist: string[];
   oauthTokenSecretSet: boolean;
+  readiness: AiConnectorReadinessDto;
   updatedAt: string;
+}
+
+export type AiConnectorReadinessStatus = "ready" | "degraded" | "disabled";
+export type AiConnectorReadinessCheckKey =
+  | "deployment"
+  | "public_issuer"
+  | "oauth_token_secret"
+  | "mcp_url"
+  | "client_kind_policy"
+  | "high_risk_tools"
+  | "bearer_fallback";
+export type AiConnectorReadinessCheckStatus = "ok" | "warning" | "blocked" | "info";
+
+export interface AiConnectorReadinessCheckDto {
+  key: AiConnectorReadinessCheckKey;
+  status: AiConnectorReadinessCheckStatus;
+}
+
+export interface AiConnectorReadinessDto {
+  status: AiConnectorReadinessStatus;
+  endpoint: string;
+  deploymentEnabled: boolean;
+  publicIssuerConfigured: boolean;
+  oauthTokenSecretConfigured: boolean;
+  mcpUrlReady: boolean;
+  enabledClientKindCount: number;
+  totalClientKindCount: number;
+  highRiskToolsEnabled: boolean;
+  bearerFallbackEnabled: boolean;
+  checks: AiConnectorReadinessCheckDto[];
 }
 
 export interface AiConnectorToolCatalogEntryDto {
@@ -2227,6 +2290,7 @@ export interface AiConnectorToolCatalogEntryDto {
   scope: AiConnectorScope;
   accessKind: AiConnectorAccessKind;
   group: AiConnectorToolGroup;
+  inputSchema: AiConnectorToolInputSchemaDto;
   enabledByPolicy: boolean;
   availability: AiConnectorToolAvailability;
   unavailableReason: string | null;
@@ -2236,6 +2300,35 @@ export interface AiConnectorToolCatalogEntryDto {
     idempotentHint: boolean;
     openWorldHint: boolean;
   };
+  effectiveAccess: AiConnectorToolEffectiveAccessDto[];
+}
+
+export interface AiConnectorToolSchemaFieldDto {
+  name: string;
+  type: string;
+  required: boolean;
+}
+
+export interface AiConnectorToolInputSchemaDto {
+  fields: AiConnectorToolSchemaFieldDto[];
+  rawSchema: Record<string, unknown>;
+}
+
+export type AiConnectorToolBlockerCode =
+  | "global_mcp_disabled"
+  | "client_kind_disabled"
+  | "connector_inactive"
+  | "missing_scope"
+  | "admin_tool_policy_disabled"
+  | "connector_override_disabled"
+  | "delegated_share_capability_blocked";
+
+export interface AiConnectorToolEffectiveAccessDto {
+  connectionId: string;
+  connectionDisplayName: string;
+  clientKind: AiConnectorClientKind;
+  status: "available" | "blocked";
+  blockerCode: AiConnectorToolBlockerCode | null;
 }
 
 export interface AiConnectorSummaryDto {
@@ -2244,14 +2337,42 @@ export interface AiConnectorSummaryDto {
   toolCatalog?: AiConnectorToolCatalogEntryDto[];
 }
 
+export interface CreateAiConnectorBearerRequestDto {
+  clientKind: Exclude<AiConnectorClientKind, "chatgpt_app" | "claude_ai_connector">;
+  displayName: string;
+  scopes: AiConnectorScope[];
+  lifetimeDays: number;
+}
+
+export interface CreateAiConnectorBearerResponseDto {
+  connection: AiConnectorConnectionDto;
+  bearerToken: string;
+  tokenHint: string;
+  expiresAt: string;
+}
+
+export interface McpOAuthRedirectUriRepairDto {
+  clientId: string;
+  clientKind: AiConnectorClientKind;
+  clientLabel: string;
+  vendor: AiConnectorVendor;
+  requestedRedirectUri: string;
+  allowedRedirectUris: string[];
+  suggestedRedirectUris: string[];
+}
+
 export interface McpOAuthConsentRequestDto {
   requestId: string;
   clientId: string;
+  clientKind?: AiConnectorClientKind;
+  clientLabel?: string;
+  vendor?: AiConnectorVendor;
   redirectUri: string;
   resource: string;
   scopes: AiConnectorScope[];
   csrfToken: string;
   expiresAt: string;
+  redirectUriRepair?: McpOAuthRedirectUriRepairDto | null;
   policy: Pick<AiConnectorPolicySettingsDto, "maxConnectorLifetimeDays" | "groupToggles">;
 }
 
@@ -2328,6 +2449,8 @@ export interface McpPostTransactionDraftRowsResultDto {
 export interface AiConnectorAccessLogDto {
   id: string;
   connectionId: string | null;
+  connectionDisplayName: string | null;
+  clientKind: AiConnectorClientKind | null;
   portfolioContextUserId: string;
   shareId: string | null;
   toolName: string;
