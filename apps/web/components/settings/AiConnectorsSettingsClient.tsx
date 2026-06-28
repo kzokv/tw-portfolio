@@ -1562,13 +1562,13 @@ export function AiConnectorsSettingsClient() {
                         adminHref: "/admin/settings?tab=mcp#bearer-fallback-policy",
                       });
                     }
-                    if (!Boolean((summary?.policy.allowedClientKinds as Record<string, boolean> | undefined)?.[bearerClientKind])) {
+                    if (!(summary?.policy.allowedClientKinds as Record<string, boolean> | undefined)?.[bearerClientKind]) {
                       bearerBlockers.push({
                         reason: copy.bearerBlockedClientDisabled,
                         adminHref: "/admin/settings?tab=mcp#client-kind-allowlist",
                       });
                     }
-                    if (!Boolean(summary?.policy.bearerFallback.allowedClientKinds.includes(bearerClientKind))) {
+                    if (!summary?.policy.bearerFallback.allowedClientKinds.includes(bearerClientKind)) {
                       bearerBlockers.push({
                         reason: copy.bearerBlockedClientNotAllowed,
                         adminHref: "/admin/settings?tab=mcp#bearer-fallback-policy",
