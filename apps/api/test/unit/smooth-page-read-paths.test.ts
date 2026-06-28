@@ -476,8 +476,18 @@ describe("smooth page read paths", () => {
     expect(summary.json().accessLogs).toBeUndefined();
     expect(logs.statusCode).toBe(200);
     expect(logs.headers["server-timing"]).toContain("load_connector_logs;dur=");
-    expect(logs.json()).toEqual({ accessLogs: expect.any(Array) });
-    expect(listAccessLogs).toHaveBeenCalledWith("user-1", { limit: 5 });
+    expect(logs.json()).toEqual({
+      accessLogs: expect.any(Array),
+      hasMore: false,
+      nextOffset: null,
+    });
+    expect(listAccessLogs).toHaveBeenCalledWith("user-1", {
+      connectionIds: undefined,
+      limit: 6,
+      offset: 0,
+      result: undefined,
+      search: undefined,
+    });
   });
 
   it("includes MCP tool catalog unavailable reasons when policy disables a group", async () => {

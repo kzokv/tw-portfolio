@@ -181,9 +181,9 @@ The local stack defaults to `AUTH_MODE=oauth` (not `dev_bypass`) because:
 
 To use the local stack with OAuth, ensure your `infra/docker/.env.local` has valid `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET` values.
 
-### MCP server and ChatGPT connector
+### MCP server and AI connectors
 
-The Vakwen MCP server is part of the Fastify API process. There is no separate MCP daemon to start or restart.
+The Vakwen MCP server is part of the Fastify API process. There is one shared all-in-one MCP endpoint at `/mcp`; there is no separate MCP daemon to start or restart and no per-client MCP server.
 
 #### Bring up MCP locally
 
@@ -236,9 +236,112 @@ https://<public-api-host>/mcp
 
 Use the deployed API hostname or put an HTTPS tunnel in front of the API. Production ChatGPT OAuth should use the configured public API issuer/origin; request-header inference is only a local/dev fallback because reverse proxies and internal hostnames can otherwise produce the wrong issuer, token audience, or resource URL.
 
-#### Current ChatGPT connection status
+#### Current AI connector status
 
-The MCP implementation supports Streamable HTTP at `/mcp`, OAuth protected-resource and authorization-server metadata, authorization-code + PKCE consent, refresh-token rotation, connector policy enforcement, connector access logs, and local dev-token bearer authentication for controlled smoke tests. ChatGPT should use the OAuth flow; dev tokens are only for local/self-hosted diagnostics and must not be exposed as an end-user ChatGPT credential flow.
+The MCP implementation supports Streamable HTTP at `/mcp`, OAuth protected-resource and authorization-server metadata, authorization-code + PKCE consent, refresh-token rotation, connector policy enforcement, connector access logs, and local dev-token bearer authentication for controlled smoke tests. ChatGPT / OpenAI Apps use the shipped OAuth connector path. Claude Code, Codex CLI/IDE, Gemini CLI, VS Code / Copilot MCP, and generic MCP clients use user-generated bearer fallback connector instances when admin policy allows it. Dev tokens are only for local diagnostics and must not be exposed as an end-user credential flow.
+
+`Claude.ai` is not a separate shipped client kind in this worktree yet. Do not reuse the Claude Code bearer setup as a substitute for Claude.ai OAuth. The repair scope tracks a future dedicated `claude_ai_connector` client with callback `https://claude.ai/api/mcp/auth_callback`.
+
+Client support tiers:
+
+| Tier | Client | Client kind | Auth path | Notes |
+|---|---|---|---|---|
+| 1 | ChatGPT / OpenAI Apps | `chatgpt_app` | OAuth | Supports OpenAI Apps widget metadata and transaction draft component rendering. |
+| 1 | Claude.ai | Not yet implemented | Not yet implemented | Separate OAuth client remains a pending repair item in the locked revision; callback target is expected to be `https://claude.ai/api/mcp/auth_callback`. |
+| 1 | Claude Code | `claude_code` | Bearer fallback | Uses the shared `/mcp` endpoint and authenticated Vakwen web fallback links for interactive review/posting. |
+| 1 | Codex CLI/IDE | `codex_cli` | Bearer fallback | Same MCP server and fallback-link behavior as Claude Code. |
+| 2 | Gemini CLI | `gemini_cli` | Bearer fallback | Documented client path only; Google Gemini app / Gemini Enterprise connector is out of scope. |
+| 2 | VS Code / Copilot MCP | `copilot_mcp` | Bearer fallback | Documented client path only. |
+| 2 | Generic MCP | `generic_mcp` | Bearer fallback | Use only the minimum scopes needed. |
+
+Bearer fallback rules:
+
+- Users create bearer connector instances from Settings -> AI Connectors -> Connect after an admin enables bearer fallback in Admin -> Settings -> MCP.
+- Bearer tokens are displayed once, stored only as hashes, scoped, expiring, revocable, and audited.
+- Bearer fallback is secondary to OAuth for hosted production clients; do not use admins as token brokers for normal user-owned connector setup.
+- OAuth token secret rotation revokes OAuth connector credentials. Bearer fallback connector credentials have a separate blast radius and are not silently revoked by OAuth secret rotation.
+
+#### Non-widget client setup snippets
+
+Replace `<public-api-host>` with the public API host and `<one-time-vakwen-token>` with the token shown once after creating a bearer connector.
+
+Claude.ai:
+
+```text
+Not available in this worktree yet. Wait for the dedicated Claude.ai OAuth connector repair work instead of using the Claude Code bearer flow.
+```
+
+Claude Code:
+
+```bash
+claude mcp add --transport http vakwen https://<public-api-host>/mcp --header "Authorization: Bearer <one-time-vakwen-token>"
+```
+
+Codex CLI/IDE:
+
+```toml
+[mcp_servers.vakwen]
+url = "https://<public-api-host>/mcp"
+
+[mcp_servers.vakwen.headers]
+Authorization = "Bearer <one-time-vakwen-token>"
+```
+
+Gemini CLI:
+
+```json
+{
+  "mcpServers": {
+    "vakwen": {
+      "httpUrl": "https://<public-api-host>/mcp",
+      "headers": {
+        "Authorization": "Bearer <one-time-vakwen-token>"
+      }
+    }
+  }
+}
+```
+
+VS Code / Copilot MCP:
+
+```json
+{
+  "servers": {
+    "vakwen": {
+      "type": "http",
+      "url": "https://<public-api-host>/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:vakwen-mcp-token}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "vakwen-mcp-token",
+      "type": "promptString",
+      "description": "Vakwen MCP bearer token",
+      "password": true
+    }
+  ]
+}
+```
+
+Generic MCP client:
+
+```json
+{
+  "mcpServers": {
+    "vakwen": {
+      "url": "https://<public-api-host>/mcp",
+      "headers": {
+        "Authorization": "Bearer <one-time-vakwen-token>"
+      }
+    }
+  }
+}
+```
+
+For transaction draft review and posting, ChatGPT receives the OpenAI Apps widget bridge. Non-widget clients receive structured MCP responses with `webFallback.url`; the URL requires the normal authenticated Vakwen web session and server-side authorization before any mutation.
 
 #### ChatGPT OAuth connector configuration
 

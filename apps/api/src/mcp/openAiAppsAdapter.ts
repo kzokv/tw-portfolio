@@ -36,9 +36,9 @@ interface McpToolListResult {
   nextCursor?: string;
 }
 
-export const MCP_APP_RESOURCE_URI = "ui://widget/vakwen.html";
-const MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
-const MCP_APP_WIDGET_HTML = `<!doctype html>
+export const OPENAI_APPS_RESOURCE_URI = "ui://widget/vakwen.html";
+const OPENAI_APPS_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
+const OPENAI_APPS_WIDGET_HTML = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -75,7 +75,7 @@ const MCP_APP_WIDGET_HTML = `<!doctype html>
   </body>
 </html>`;
 
-const CHATGPT_SCHEMA_OMITTED_KEYS = new Set([
+const OPENAI_APPS_SCHEMA_OMITTED_KEYS = new Set([
   "$schema",
   "default",
   "exclusiveMaximum",
@@ -84,9 +84,9 @@ const CHATGPT_SCHEMA_OMITTED_KEYS = new Set([
   "multipleOf",
   "pattern",
 ]);
-export const CHATGPT_MCP_CORS_EXPOSED_HEADERS = ["mcp-session-id", "www-authenticate"] as const;
-export const CHATGPT_MCP_CORS_METHODS = ["GET", "HEAD", "POST", "OPTIONS"] as const;
-export const CHATGPT_MCP_CORS_PATHS = new Set([
+export const OPENAI_APPS_MCP_CORS_EXPOSED_HEADERS = ["mcp-session-id", "www-authenticate"] as const;
+export const OPENAI_APPS_MCP_CORS_METHODS = ["GET", "HEAD", "POST", "OPTIONS"] as const;
+export const OPENAI_APPS_MCP_CORS_PATHS = new Set([
   "/.well-known/oauth-protected-resource",
   "/.well-known/oauth-protected-resource/mcp",
   "/.well-known/oauth-authorization-server",
@@ -96,11 +96,15 @@ export const CHATGPT_MCP_CORS_PATHS = new Set([
   "/mcp",
   "/oauth/token",
 ]);
-const CHATGPT_MCP_CORS_ORIGINS = new Set(["https://chatgpt.com", "https://chat.openai.com"]);
+const OPENAI_APPS_MCP_CORS_ORIGINS = new Set([
+  "https://chatgpt.com",
+  "https://chat.openai.com",
+  "https://claude.ai",
+]);
 const DEFAULT_TOOL_META = {
-  outputTemplate: MCP_APP_RESOURCE_URI,
+  outputTemplate: OPENAI_APPS_RESOURCE_URI,
   widgetAccessible: false,
-  uiResourceUri: MCP_APP_RESOURCE_URI,
+  uiResourceUri: OPENAI_APPS_RESOURCE_URI,
 } as const;
 
 export function getMcpRequestMethod(body: unknown): string | undefined {
@@ -126,7 +130,7 @@ export function isPublicMcpDiscoveryRequest(req: FastifyRequest): boolean {
   if (hasBearerAuthorization(req)) return false;
   const method = getMcpRequestMethod(req.body);
   if (method === "initialize" || method === "tools/list") return true;
-  return method === "resources/read" && getMcpResourceReadUri(req.body) === MCP_APP_RESOURCE_URI;
+  return method === "resources/read" && getMcpResourceReadUri(req.body) === OPENAI_APPS_RESOURCE_URI;
 }
 
 function requestOrigin(req: FastifyRequest): string | undefined {
@@ -142,9 +146,9 @@ function normalizeOrigin(origin: string): string | undefined {
   }
 }
 
-export function isChatGptMcpCorsOrigin(origin: string | undefined): boolean {
+export function isOpenAiAppsMcpCorsOrigin(origin: string | undefined): boolean {
   const normalizedOrigin = origin ? normalizeOrigin(origin) : undefined;
-  return Boolean(normalizedOrigin && CHATGPT_MCP_CORS_ORIGINS.has(normalizedOrigin));
+  return Boolean(normalizedOrigin && OPENAI_APPS_MCP_CORS_ORIGINS.has(normalizedOrigin));
 }
 
 function appendVaryHeader(existing: number | string | string[] | undefined, value: string): string {
@@ -156,12 +160,12 @@ function appendVaryHeader(existing: number | string | string[] | undefined, valu
   return parts.join(", ");
 }
 
-export function setMcpTransportCorsHeaders(req: FastifyRequest, reply: FastifyReply): void {
+export function setOpenAiAppsMcpTransportCorsHeaders(req: FastifyRequest, reply: FastifyReply): void {
   const origin = requestOrigin(req);
-  if (!origin || !isChatGptMcpCorsOrigin(origin)) return;
+  if (!origin || !isOpenAiAppsMcpCorsOrigin(origin)) return;
 
   reply.raw.setHeader("access-control-allow-origin", origin);
-  reply.raw.setHeader("access-control-expose-headers", CHATGPT_MCP_CORS_EXPOSED_HEADERS.join(","));
+  reply.raw.setHeader("access-control-expose-headers", OPENAI_APPS_MCP_CORS_EXPOSED_HEADERS.join(","));
   reply.raw.setHeader("vary", appendVaryHeader(reply.raw.getHeader("vary"), "Origin"));
 }
 
@@ -252,8 +256,8 @@ function withToolSecurityMetadata(tool: McpToolListResult["tools"][number]) {
   return {
     ...chatGptTool,
     title: tool.title ?? toToolTitle(tool.name),
-    inputSchema: sanitizeChatGptJsonSchema(tool.inputSchema),
-    outputSchema: sanitizeChatGptJsonSchema(tool.outputSchema),
+    inputSchema: sanitizeOpenAiAppsJsonSchema(tool.inputSchema),
+    outputSchema: sanitizeOpenAiAppsJsonSchema(tool.outputSchema),
     securitySchemes,
     _meta: {
       ...tool._meta,
@@ -290,17 +294,17 @@ function resolveLocalJsonPointer(root: unknown, ref: string): unknown {
     ), root);
 }
 
-function sanitizeChatGptJsonSchema(schema: unknown): unknown {
-  return sanitizeChatGptJsonSchemaNode(schema, schema, new Set());
+function sanitizeOpenAiAppsJsonSchema(schema: unknown): unknown {
+  return sanitizeOpenAiAppsJsonSchemaNode(schema, schema, new Set());
 }
 
-function sanitizeChatGptJsonSchemaNode(
+function sanitizeOpenAiAppsJsonSchemaNode(
   node: unknown,
   root: unknown,
   seenRefs: Set<string>,
 ): unknown {
   if (Array.isArray(node)) {
-    return node.map((item) => sanitizeChatGptJsonSchemaNode(item, root, seenRefs));
+    return node.map((item) => sanitizeOpenAiAppsJsonSchemaNode(item, root, seenRefs));
   }
   if (!isJsonRecord(node)) return node;
 
@@ -310,10 +314,10 @@ function sanitizeChatGptJsonSchemaNode(
     if (resolved !== undefined) {
       const nextSeenRefs = new Set(seenRefs);
       nextSeenRefs.add(ref);
-      const sanitizedResolved = sanitizeChatGptJsonSchemaNode(resolved, root, nextSeenRefs);
+      const sanitizedResolved = sanitizeOpenAiAppsJsonSchemaNode(resolved, root, nextSeenRefs);
       const siblingEntries = Object.entries(node).filter(([key]) => key !== "$ref");
       if (siblingEntries.length === 0) return sanitizedResolved;
-      return sanitizeChatGptJsonSchemaNode(
+      return sanitizeOpenAiAppsJsonSchemaNode(
         {
           ...(isJsonRecord(sanitizedResolved) ? sanitizedResolved : {}),
           ...Object.fromEntries(siblingEntries),
@@ -325,8 +329,8 @@ function sanitizeChatGptJsonSchemaNode(
   }
 
   const sanitizedEntries = Object.entries(node)
-    .filter(([key]) => key !== "$ref" && !CHATGPT_SCHEMA_OMITTED_KEYS.has(key))
-    .map(([key, value]) => [key, sanitizeChatGptJsonSchemaNode(value, root, seenRefs)] as const);
+    .filter(([key]) => key !== "$ref" && !OPENAI_APPS_SCHEMA_OMITTED_KEYS.has(key))
+    .map(([key, value]) => [key, sanitizeOpenAiAppsJsonSchemaNode(value, root, seenRefs)] as const);
   const sanitized = Object.fromEntries(sanitizedEntries);
 
   if (isJsonRecord(sanitized.properties) && Array.isArray(sanitized.required)) {
@@ -336,7 +340,7 @@ function sanitizeChatGptJsonSchemaNode(
   return sanitized;
 }
 
-export function attachChatGptToolMetadata(server: McpServer): void {
+export function attachOpenAiAppsToolMetadata(server: McpServer): void {
   const rawServer = server.server as unknown as {
     _requestHandlers: Map<string, (request: unknown, extra: JsonRpcRequestHandlerExtra) => Promise<McpToolListResult>>;
   };
@@ -352,21 +356,21 @@ export function attachChatGptToolMetadata(server: McpServer): void {
   });
 }
 
-export function registerChatGptAppResource(server: McpServer): void {
+export function registerOpenAiAppsResource(server: McpServer): void {
   server.registerResource(
     "vakwen_app_widget",
-    MCP_APP_RESOURCE_URI,
+    OPENAI_APPS_RESOURCE_URI,
     {
       title: "Vakwen",
       description: "Renders Vakwen MCP tool results inside ChatGPT.",
-      mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+      mimeType: OPENAI_APPS_RESOURCE_MIME_TYPE,
     },
     async () => ({
       contents: [
         {
-          uri: MCP_APP_RESOURCE_URI,
-          mimeType: MCP_APP_RESOURCE_MIME_TYPE,
-          text: MCP_APP_WIDGET_HTML,
+          uri: OPENAI_APPS_RESOURCE_URI,
+          mimeType: OPENAI_APPS_RESOURCE_MIME_TYPE,
+          text: OPENAI_APPS_WIDGET_HTML,
           _meta: {
             ui: {
               prefersBorder: true,

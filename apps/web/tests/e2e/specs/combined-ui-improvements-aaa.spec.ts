@@ -293,7 +293,7 @@ test.describe("combined UI improvements", () => {
     await assertText(drawer, new RegExp(operationId));
   });
 
-  test("[ai-connectors]: MCP Tools tab exposes search and filters without duplicated connection inventory", async ({
+  test("[ai-connectors]: Tool Catalog exposes search and filters without duplicated connection inventory", async ({
     appShell,
     page,
   }) => {
@@ -301,18 +301,31 @@ test.describe("combined UI improvements", () => {
     await appShell.assert.appIsReady();
     await page.getByTestId("settings-ai-connectors-page").waitFor({ state: "visible" });
 
-    await page.getByTestId("ai-connectors-tab-tools").click();
+    await page.getByTestId("ai-connectors-tab-tool-catalog").click();
     await page.getByTestId("ai-connectors-tool-search").waitFor({ state: "visible" });
     await page.getByTestId("ai-connectors-tool-search").fill("definitely-not-a-real-tool");
-    await page.getByText(/No tools match the current search|目前搜尋條件沒有符合的工具/).waitFor({ state: "visible" });
+    await page.getByText(/No tools match the current filters|目前篩選沒有符合的工具/).waitFor({ state: "visible" });
 
     await page.getByTestId("ai-connectors-tool-search").fill("");
-    await page.getByTestId("ai-connectors-tool-group-filter").selectOption("read");
-    await page.getByTestId("ai-connectors-tool-availability-filter").selectOption("available");
+    await page.getByTestId("ai-connectors-tool-group-filter").click();
+    await page.getByRole("option", { name: /Read|讀取/ }).click();
+    await page.getByTestId("ai-connectors-tool-availability-filter").click();
+    await page.getByRole("option", { name: /Available|可用/ }).click();
     await page.getByTestId("ai-connectors-tool-search").waitFor({ state: "visible" });
+
+    await page.getByTestId("ai-connectors-tool-search").fill("get_portfolio_overview");
+    await page.locator("button", { hasText: "get_portfolio_overview" }).first().click();
+    await page.getByText(/Unavailable for|以下客戶端不可用/).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: /View all calls in Activity|在活動中檢視所有呼叫/ }).click();
+    await page.getByTestId("ai-connectors-activity-search").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("ai-connectors-activity-search").inputValue(),
+      "get_portfolio_overview",
+      "Tool Catalog detail deep-links Activity with the selected tool filter",
+    );
   });
 
-  test("[ai-connectors]: mobile dropdown reaches MCP Tools without horizontal overflow", async ({
+  test("[ai-connectors]: mobile Tool Catalog section has no horizontal overflow", async ({
     appShell,
     page,
   }) => {
@@ -321,12 +334,15 @@ test.describe("combined UI improvements", () => {
     await appShell.assert.appIsReady();
     await page.getByTestId("settings-ai-connectors-page").waitFor({ state: "visible" });
 
-    await page.getByTestId("ai-connectors-mobile-tab-select").click();
-    await page.getByRole("option", { name: /MCP Tools|MCP 工具/ }).click();
+    await page.getByTestId("ai-connectors-tab-tool-catalog").click();
     await page.getByTestId("ai-connectors-tool-search").waitFor({ state: "visible" });
+    await page.getByTestId("ai-connectors-tool-search").fill("get_portfolio_overview");
+    await page.locator("button", { hasText: "get_portfolio_overview" }).first().click();
+    await page.getByRole("dialog", { name: /Tool detail|工具詳細資料/ }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: /View all calls in Activity|在活動中檢視所有呼叫/ }).waitFor({ state: "visible" });
 
     await assertWithinViewport(page, page.getByTestId("settings-ai-connectors-page"), "AI Connectors page");
-    await assertWithinViewport(page, page.getByTestId("ai-connectors-mobile-tab-select"), "AI Connectors mobile tab select");
+    await assertWithinViewport(page, page.getByTestId("ai-connectors-tab-tool-catalog"), "AI Connectors Tool Catalog section button");
     await assertWithinViewport(page, page.getByTestId("ai-connectors-tool-search"), "AI Connectors tool search");
     await assertWithinViewport(page, page.getByTestId("ai-connectors-tool-group-filter"), "AI Connectors tool group filter");
     await assertWithinViewport(page, page.getByTestId("ai-connectors-tool-availability-filter"), "AI Connectors tool availability filter");

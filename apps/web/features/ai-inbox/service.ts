@@ -1,8 +1,11 @@
 import type {
   AiConnectorAccessLogDto,
+  AiConnectorClientKind,
   AiConnectorConnectionDto,
   AiConnectorPolicySettingsDto,
+  AiConnectorScope,
   AiConnectorSummaryDto,
+  CreateAiConnectorBearerResponseDto,
   McpOAuthConsentDecisionDto,
   McpOAuthConsentRequestDto,
   ShareCapability,
@@ -33,8 +36,14 @@ export interface AiConnectorsResponse {
 
 export type AiConnectorSummaryResponse = AiConnectorSummaryDto;
 
+export interface AiConnectorHistoryResponse {
+  connections: AiConnectorConnectionDto[];
+}
+
 export interface AiConnectorLogsResponse {
   accessLogs: AiConnectorAccessLogDto[];
+  nextOffset: number | null;
+  hasMore: boolean;
 }
 
 export interface DraftRowPatch {
@@ -140,8 +149,33 @@ export async function fetchAiConnectorSummary(): Promise<AiConnectorSummaryRespo
   return getJson<AiConnectorSummaryResponse>("/ai/connectors/summary");
 }
 
-export async function fetchAiConnectorLogs(limit = 12): Promise<AiConnectorLogsResponse> {
-  return getJson<AiConnectorLogsResponse>(`/ai/connectors/logs?limit=${encodeURIComponent(String(limit))}`);
+export async function fetchAiConnectorHistory(input: {
+  status?: "expired" | "revoked";
+  clientKind?: AiConnectorClientKind;
+  includeHidden?: boolean;
+} = {}): Promise<AiConnectorHistoryResponse> {
+  const params = new URLSearchParams();
+  if (input.status) params.set("status", input.status);
+  if (input.clientKind) params.set("clientKind", input.clientKind);
+  if (input.includeHidden !== undefined) params.set("includeHidden", String(input.includeHidden));
+  const query = params.toString();
+  return getJson<AiConnectorHistoryResponse>(`/ai/connectors/history${query ? `?${query}` : ""}`);
+}
+
+export async function fetchAiConnectorLogs(input: {
+  limit?: number;
+  offset?: number;
+  result?: "ok" | "denied" | "error";
+  search?: string;
+  connectionId?: string;
+} = {}): Promise<AiConnectorLogsResponse> {
+  const params = new URLSearchParams();
+  params.set("limit", String(input.limit ?? 12));
+  if (input.offset !== undefined) params.set("offset", String(input.offset));
+  if (input.result) params.set("result", input.result);
+  if (input.search?.trim()) params.set("search", input.search.trim());
+  if (input.connectionId) params.set("connectionId", input.connectionId);
+  return getJson<AiConnectorLogsResponse>(`/ai/connectors/logs?${params.toString()}`);
 }
 
 export async function updateAiConnector(
@@ -157,6 +191,19 @@ export async function updateAiConnector(
 
 export async function revokeAiConnector(id: string): Promise<AiConnectorConnectionDto> {
   return deleteJson<AiConnectorConnectionDto>(`/ai/connectors/${encodeURIComponent(id)}`);
+}
+
+export async function hideAiConnectorHistory(id: string): Promise<AiConnectorConnectionDto> {
+  return postJson<AiConnectorConnectionDto>(`/ai/connectors/${encodeURIComponent(id)}/hide`, {});
+}
+
+export async function createAiConnectorBearer(input: {
+  clientKind: Exclude<AiConnectorClientKind, "chatgpt_app" | "claude_ai_connector">;
+  displayName: string;
+  scopes: AiConnectorScope[];
+  lifetimeDays: number;
+}): Promise<CreateAiConnectorBearerResponseDto> {
+  return postJson<CreateAiConnectorBearerResponseDto>("/ai/connectors/bearer", input);
 }
 
 export async function fetchMcpOAuthConsent(requestId: string): Promise<McpOAuthConsentRequestDto> {

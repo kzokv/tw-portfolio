@@ -32,6 +32,7 @@ describe("requireWriterRole — viewer 403 on mutation endpoints", () => {
     { method: "POST", url: "/portfolio/snapshots/generate", payload: {} },
     { method: "POST", url: "/portfolio/refresh-closes", payload: {} },
     { method: "POST", url: "/portfolio/recompute/preview", payload: {} },
+    { method: "POST", url: "/ai/connectors/bearer", payload: {} },
     { method: "PUT", url: "/monitored-tickers", payload: {} },
     { method: "POST", url: "/backfill/retry", payload: {} },
     { method: "POST", url: "/backfill/repair", payload: {} },

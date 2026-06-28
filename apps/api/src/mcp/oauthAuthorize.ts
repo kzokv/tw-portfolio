@@ -2,16 +2,19 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type {
+  AiConnectorClientKind,
   AiConnectorPolicySettingsDto,
   AiConnectorScope,
   McpOAuthConsentDecisionDto,
   McpOAuthConsentRequestDto,
+  McpOAuthRedirectUriRepairDto,
 } from "@vakwen/shared-types";
 import { Env } from "@vakwen/config";
 import { routeError } from "../lib/routeError.js";
 import { connectorGroupForScope } from "../services/mcpConnectorLifecycle.js";
+import { getMcpClientByKind } from "./clientRegistry.js";
 import { ALL_MCP_SCOPES } from "./tools.js";
-import { validateOAuthClient } from "./oauthClientAuth.js";
+import { inspectOAuthClient, type InspectedOAuthClient } from "./oauthClientAuth.js";
 import {
   constantTimeEqual,
   getMcpOAuthTokenSecret,
@@ -39,6 +42,8 @@ const DEFAULT_REFRESH_TOKEN_TTL_DAYS = 90;
 const CONSENT_CSRF_VERSION = 1;
 
 const CHATGPT_REDIRECT_HOSTS = new Set(["chat.openai.com", "chatgpt.com"]);
+const CLAUDE_AI_CALLBACK = "https://claude.ai/api/mcp/auth_callback";
+const CLAUDE_AI_METADATA_URL = "https://claude.ai/oauth/mcp-oauth-client-metadata";
 
 const scopeSchema = z.enum(ALL_MCP_SCOPES as [typeof ALL_MCP_SCOPES[0], ...typeof ALL_MCP_SCOPES]);
 
@@ -142,6 +147,25 @@ function classifyRedirectUriAllowance(uri: string, customAllowlist: readonly str
   return "none";
 }
 
+function redirectUriRepairDetails(input: {
+  clientId: string;
+  clientKind: AiConnectorClientKind;
+  clientLabel: string;
+  vendor: McpOAuthRedirectUriRepairDto["vendor"];
+  redirectUri: string;
+  allowedRedirectUris: readonly string[];
+}): McpOAuthRedirectUriRepairDto {
+  return {
+    clientId: input.clientId,
+    clientKind: input.clientKind,
+    clientLabel: input.clientLabel,
+    vendor: input.vendor,
+    requestedRedirectUri: input.redirectUri,
+    allowedRedirectUris: [...input.allowedRedirectUris],
+    suggestedRedirectUris: input.clientKind === "claude_ai_connector" ? [CLAUDE_AI_CALLBACK] : [],
+  };
+}
+
 function filterScopesByPolicy(
   scopes: AiConnectorScope[],
   settings: Pick<AiConnectorPolicySettingsDto, "groupToggles">,
@@ -177,16 +201,35 @@ export async function handleMcpOAuthAuthorize(
     return sendOAuthError(reply, 400, "invalid_request", "OAuth authorization request is invalid");
   }
 
+  const defaultIdentity = getMcpClientByKind(query.client_id === CLAUDE_AI_METADATA_URL ? "claude_ai_connector" : "chatgpt_app");
+  let oauthClient: InspectedOAuthClient = {
+    identity: {
+      clientKind: defaultIdentity.clientKind,
+      label: defaultIdentity.label,
+      vendor: defaultIdentity.vendor,
+    },
+    metadata: null,
+  };
+
   const settings = await app.persistence.getAiConnectorPolicySettings();
   const redirectUriAllowance = classifyRedirectUriAllowance(query.redirect_uri, settings.oauthRedirectUriAllowlist);
   if (redirectUriAllowance === "none") {
-    return sendOAuthError(reply, 400, "invalid_request", "OAuth redirect_uri is not allowed");
+    return sendOAuthError(reply, 400, "invalid_request", "OAuth redirect_uri is not allowed", {
+      redirectUriRepair: redirectUriRepairDetails({
+        clientId: query.client_id,
+        clientKind: oauthClient.identity.clientKind,
+        clientLabel: oauthClient.identity.label,
+        vendor: oauthClient.identity.vendor,
+        redirectUri: query.redirect_uri,
+        allowedRedirectUris: settings.oauthRedirectUriAllowlist,
+      }),
+    });
   }
   if (redirectUriAllowance === "custom" && !parseUrlClientId(query.client_id)) {
     return sendOAuthError(reply, 400, "invalid_client", "Custom OAuth redirect URIs require URL client metadata");
   }
   try {
-    await validateOAuthClient(query.client_id, query.redirect_uri);
+    oauthClient = await inspectOAuthClient(query.client_id, query.redirect_uri);
   } catch (error) {
     const code = error instanceof Error && "code" in error && typeof error.code === "string"
       ? error.code
@@ -209,8 +252,8 @@ export async function handleMcpOAuthAuthorize(
     return sendOAuthError(reply, 400, "invalid_scope", "OAuth scope must include at least one implemented MCP scope");
   }
 
-  if (!settings.enabled || !settings.allowedProviders.chatgpt) {
-    return sendOAuthError(reply, 403, "access_denied", "ChatGPT MCP connectors are disabled");
+  if (!settings.enabled || !settings.allowedClientKinds[oauthClient.identity.clientKind]) {
+    return sendOAuthError(reply, 403, "access_denied", `${oauthClient.identity.label} MCP connectors are disabled`);
   }
   const policyScopes = filterScopesByPolicy(scopes, settings);
   if (policyScopes.length === 0) {
@@ -262,14 +305,26 @@ export async function getMcpOAuthConsentRequest(
     throw routeError(410, "mcp_oauth_request_expired", "OAuth consent request is no longer pending");
   }
   const settings = await app.persistence.getAiConnectorPolicySettings();
+  const oauthClient = await inspectOAuthClient(request.clientId, request.redirectUri);
   return {
     requestId: request.id,
     clientId: request.clientId,
+    clientKind: oauthClient.identity.clientKind,
+    clientLabel: oauthClient.identity.label,
+    vendor: oauthClient.identity.vendor,
     redirectUri: request.redirectUri,
     resource: request.resource,
     scopes: [...request.scopes],
     csrfToken: csrfTokenFor(app, request.id, request.userId),
     expiresAt: request.expiresAt,
+    redirectUriRepair: redirectUriRepairDetails({
+      clientId: request.clientId,
+      clientKind: oauthClient.identity.clientKind,
+      clientLabel: oauthClient.identity.label,
+      vendor: oauthClient.identity.vendor,
+      redirectUri: request.redirectUri,
+      allowedRedirectUris: settings.oauthRedirectUriAllowlist,
+    }),
     policy: {
       maxConnectorLifetimeDays: settings.maxConnectorLifetimeDays,
       groupToggles: { ...settings.groupToggles },
@@ -295,6 +350,8 @@ export async function approveMcpOAuthConsent(
   assertCsrf(app, request.id, request.userId, request.csrfTokenHash, parsed.csrfToken);
 
   const settings = await app.persistence.getAiConnectorPolicySettings();
+  const oauthClient = await inspectOAuthClient(request.clientId, request.redirectUri);
+  const client = getMcpClientByKind(oauthClient.identity.clientKind);
   const requestedScopeSet = new Set(request.scopes);
   const selectedScopes = parsed.scopes.filter((scope) => requestedScopeSet.has(scope));
   const allowedScopes = filterScopesByPolicy(selectedScopes, settings);
@@ -318,8 +375,12 @@ export async function approveMcpOAuthConsent(
     connection: {
       id: connectionId,
       userId: request.userId,
-      provider: "chatgpt",
-      displayName: "ChatGPT",
+      provider: client.legacyProvider,
+      vendor: client.vendor,
+      clientKind: client.clientKind,
+      authMode: client.defaultAuthMode,
+      capabilities: [...client.capabilities],
+      displayName: client.defaultDisplayName,
       status: "pending",
       oauthClientId: request.clientId,
       oauthSubject: request.userId,

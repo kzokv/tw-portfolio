@@ -4,17 +4,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
-  attachChatGptToolMetadata,
   buildToolAuthChallengeResult,
   challengeErrorFor,
   getMcpRequestMethod,
   isPublicMcpDiscoveryRequest,
-  registerChatGptAppResource,
-  setMcpTransportCorsHeaders,
   shouldReturnToolAuthChallenge,
   toToolTitle,
-} from "./chatgptCompat.js";
+} from "./mcpCompatibility.js";
+import {
+  attachOpenAiAppsToolMetadata,
+  registerOpenAiAppsResource,
+  setOpenAiAppsMcpTransportCorsHeaders,
+} from "./openAiAppsAdapter.js";
 import { DefaultMcpAuthService } from "./auth.js";
+import { adaptMcpToolResultForHost } from "./hostAdapter.js";
 import { routeError } from "../lib/routeError.js";
 import {
   approveMcpOAuthConsent,
@@ -727,7 +730,7 @@ export async function registerMcpRoutes(
           break;
       }
       await logAccess("ok");
-      return buildToolResult(result as Record<string, unknown>);
+      return buildToolResult(adaptMcpToolResultForHost({ toolName, auth, result }) as Record<string, unknown>);
     } catch (error) {
       const denialReason = error instanceof Error && "code" in error
         ? String((error as { code?: unknown }).code)
@@ -769,7 +772,7 @@ export async function registerMcpRoutes(
       },
     );
 
-    registerChatGptAppResource(server);
+    registerOpenAiAppsResource(server);
 
     for (const tool of listMcpToolDefinitions()) {
       server.registerTool(
@@ -793,7 +796,7 @@ export async function registerMcpRoutes(
         async (args: unknown, extra: unknown) => executeTool(tool.name, args, extra),
       );
     }
-    attachChatGptToolMetadata(server);
+    attachOpenAiAppsToolMetadata(server);
     return server;
   };
 
@@ -867,7 +870,7 @@ export async function registerMcpRoutes(
         if (typeof socket.destroy === "function") socket.destroy();
       };
     }
-    setMcpTransportCorsHeaders(req, reply);
+    setOpenAiAppsMcpTransportCorsHeaders(req, reply);
     await transport.handleRequest(req.raw, reply.raw, req.body);
     reply.hijack();
   };

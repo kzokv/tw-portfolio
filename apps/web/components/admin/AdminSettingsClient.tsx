@@ -10,16 +10,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   Bot,
+  Copy,
   Database,
   Gauge,
   KeyRound,
   LayoutDashboard,
   Link2,
+  Trash2,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
 import {
   type AiConnectorPolicySettingsDto,
+  type AiConnectorReadinessCheckKey,
   type AppConfigDto,
   type MarketCode,
   type RouteCachePolicyMode,
@@ -42,10 +45,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/shadcn/select";
+import { Switch } from "../ui/shadcn/switch";
 import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
 import { NumericOverrideRow } from "./NumericOverrideRow";
 import { MaskedSecretInput } from "./MaskedSecretInput";
 import { useAdminI18n } from "./admin-i18n";
+import { McpStatusChip, mcpStatusTone } from "../connectors/McpUiPrimitives";
+import {
+  AiClientGlyph,
+  type CompatibleAiClientKind,
+} from "../connectors/clientMetadata";
 
 // KZO-199 — locked tab structure. Architect-design.md §0:
 //   admin-settings-tabs                  — list container
@@ -318,12 +327,13 @@ function parseMcpNumericDrafts(
   })) as Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey>;
 }
 
-const MCP_REDIRECT_ALLOWLIST_EXAMPLES = [
+const MCP_BUILT_IN_REDIRECT_ALLOWLIST_EXAMPLES = [
   "https://chatgpt.com/connector/oauth/<connector-id>",
   "https://chat.openai.com/connector/oauth/<connector-id>",
   "https://chatgpt.com/aip/oauth/callback",
   "https://chatgpt.com/aip/<gpt-id>/oauth/callback",
 ] as const;
+const CLAUDE_AI_REDIRECT_URI = "https://claude.ai/api/mcp/auth_callback";
 
 function redirectAllowlistDraftFromSettings(settings: AiConnectorPolicySettingsDto): string {
   return settings.oauthRedirectUriAllowlist.join("\n");
@@ -361,6 +371,41 @@ function generateHexSecret(bytes = 32): string {
   const values = new Uint8Array(bytes);
   cryptoApi.getRandomValues(values);
   return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+const MCP_CLIENT_ROWS: Array<{
+  key: CompatibleAiClientKind;
+  label: string;
+  vendor: string;
+  tier: "Tier 1" | "Tier 2";
+}> = [
+  { key: "chatgpt_app", label: "ChatGPT / OpenAI Apps", vendor: "OpenAI", tier: "Tier 1" },
+  { key: "claude_ai_connector", label: "Claude.ai", vendor: "Anthropic", tier: "Tier 1" },
+  { key: "claude_code", label: "Claude Code", vendor: "Anthropic", tier: "Tier 1" },
+  { key: "codex_cli", label: "Codex CLI / IDE", vendor: "OpenAI Codex", tier: "Tier 1" },
+  { key: "gemini_cli", label: "Gemini CLI", vendor: "Google", tier: "Tier 2" },
+  { key: "copilot_mcp", label: "VS Code / Copilot MCP", vendor: "Microsoft", tier: "Tier 2" },
+  { key: "generic_mcp", label: "Generic MCP", vendor: "Generic", tier: "Tier 2" },
+];
+
+function allowedClientKindsRecord(settings: AiConnectorPolicySettingsDto): Record<string, boolean> {
+  return settings.allowedClientKinds as Record<string, boolean>;
+}
+
+function mcpReadinessStatusLabel(status: AiConnectorPolicySettingsDto["readiness"]["status"], isZhTW: boolean): string {
+  if (status === "ready") return isZhTW ? "就緒" : "Ready";
+  if (status === "degraded") return isZhTW ? "需注意" : "Needs attention";
+  return isZhTW ? "停用" : "Disabled";
+}
+
+function mcpReadinessCheckLabel(key: AiConnectorReadinessCheckKey, isZhTW: boolean): string {
+  if (key === "deployment") return isZhTW ? "部署" : "Deployment";
+  if (key === "public_issuer") return isZhTW ? "公開發行者" : "Public issuer";
+  if (key === "oauth_token_secret") return isZhTW ? "OAuth 密鑰" : "OAuth secret";
+  if (key === "mcp_url") return "MCP URL";
+  if (key === "client_kind_policy") return isZhTW ? "客戶端策略" : "Client policy";
+  if (key === "high_risk_tools") return isZhTW ? "送出與維護工具群組" : "Posting and maintenance groups";
+  return isZhTW ? "Bearer 備援" : "Bearer fallback";
 }
 
 const DEFAULT_TICKER_PRICE_FRESHNESS_SETTINGS: TickerPriceFreshnessAppConfigDto = {
@@ -1134,6 +1179,28 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     "admin-settings-mcp-redirect-examples",
     redirectAllowlistValidation ? "admin-settings-mcp-redirect-error" : null,
   ].filter(Boolean).join(" ");
+  const allowedClientKinds = allowedClientKindsRecord(settings);
+  const builtInRedirectRows = MCP_BUILT_IN_REDIRECT_ALLOWLIST_EXAMPLES.map((uri) => ({
+    uri,
+    label: "OpenAI built-in",
+  }));
+  const customRedirectRows = settings.oauthRedirectUriAllowlist.map((uri) => ({
+    uri,
+    label: uri.includes("claude.ai") ? "Claude.ai custom" : "Custom callback",
+  }));
+  const suggestedRedirectRows = [
+    { uri: CLAUDE_AI_REDIRECT_URI, label: "Claude.ai quick-add" },
+  ].filter((row) => !settings.oauthRedirectUriAllowlist.includes(row.uri));
+  const copyRedirectUri = (uri: string) => {
+    void navigator.clipboard?.writeText(uri);
+  };
+  const removeRedirectUri = (uri: string) => {
+    setRedirectAllowlistDraft((current) => current
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && line !== uri)
+      .join("\n"));
+  };
 
   return (
     <Card data-testid="admin-settings-mcp-section">
@@ -1148,6 +1215,204 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p> : null}
         {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status" aria-live="polite">{success}</p> : null}
 
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="rounded-xl border border-slate-200 px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "MCP 就緒狀態" : "MCP readiness"}</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  {isZhTW
+                    ? "使用者 AI 連接器頁會依照這些狀態顯示修復提示。"
+                    : "The user AI Connectors page derives repair states from these controls."}
+                </p>
+              </div>
+              <McpStatusChip tone={mcpStatusTone(settings.readiness.status)}>
+                {mcpReadinessStatusLabel(settings.readiness.status, isZhTW)}
+              </McpStatusChip>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {settings.readiness.checks.map((check) => (
+                <McpStatusChip key={check.key} tone={mcpStatusTone(check.status)}>
+                  {mcpReadinessCheckLabel(check.key, isZhTW)}
+                </McpStatusChip>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 px-4 py-4">
+            <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "稽核影響" : "Audit impact"}</h3>
+            <div className="mt-3 space-y-3 text-sm text-slate-600">
+              <p>
+                {isZhTW
+                  ? "客戶端允許清單與工具群組會立即影響現有連線的有效可用性，並反映到使用者的 Tool Catalog 與 Permissions。"
+                  : "Client allowlist and tool-group toggles affect effective availability immediately for existing connectors and show up in the user Tool Catalog and Permissions views."}
+              </p>
+              <p>
+                {isZhTW
+                  ? "OAuth 密鑰輪替或清除只會撤銷 OAuth 連接器憑證；Bearer 備援連接器不會被靜默撤銷。"
+                  : "Rotating or clearing the OAuth secret revokes OAuth connector credentials only; bearer fallback connectors are not silently revoked."}
+              </p>
+              <p>
+                {isZhTW
+                  ? "需要新增 scope 或更換 OAuth 回呼的客戶端，必須重新連線或重新同意。"
+                  : "Clients that need broader scopes or a repaired OAuth callback must reconnect and re-consent."}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div id="client-kind-allowlist" className="scroll-mt-24 rounded-xl border border-slate-200 px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "客戶端允許清單" : "Client-kind allowlist"}</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {isZhTW
+                  ? "這是 MCP 連線的第一層客戶端政策；工具群組仍會在下方套用。"
+                  : "This is the first client policy layer for MCP connections; tool-group policy still applies below."}
+              </p>
+            </div>
+            <McpStatusChip tone="slate">
+              {MCP_CLIENT_ROWS.filter((client) => allowedClientKinds[client.key]).length}/{MCP_CLIENT_ROWS.length}
+            </McpStatusChip>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {MCP_CLIENT_ROWS.map((client) => (
+              <label key={client.key} className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <span className="flex min-w-0 items-center gap-3">
+                  <AiClientGlyph clientKind={client.key} className="h-9 w-9 rounded-xl" />
+                  <span className="min-w-0">
+                  <span className="block break-words font-medium text-slate-900">{client.label}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{client.vendor} · {client.tier}</span>
+                </span>
+                </span>
+                <Switch
+                  checked={allowedClientKinds[client.key] ?? false}
+                  disabled={saving}
+                  onCheckedChange={(checked) => void save({
+                    allowedClientKinds: { ...allowedClientKinds, [client.key]: checked } as AiConnectorPolicySettingsDto["allowedClientKinds"],
+                  } as Partial<AiConnectorPolicySettingsDto>)}
+                  aria-label={`${client.label} ${isZhTW ? "允許狀態" : "allowlist"}`}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div id="bearer-fallback-policy" className="scroll-mt-24 rounded-xl border border-slate-200 px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "Bearer 備援政策" : "Bearer fallback policy"}</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {isZhTW
+                  ? "Bearer 是開發者 MCP 客戶端的次要路徑。使用者自行建立、只顯示一次、可撤銷且有期限。"
+                  : "Bearer is a secondary path for developer MCP clients. Users create their own scoped, one-time-displayed, expiring, revocable connector tokens."}
+              </p>
+            </div>
+            <Switch
+              checked={settings.bearerFallback.enabled}
+              disabled={saving}
+              onCheckedChange={(checked) => void save({
+                bearerFallback: { ...settings.bearerFallback, enabled: checked },
+              })}
+              aria-label={isZhTW ? "啟用 Bearer 備援" : "Enable bearer fallback"}
+            />
+          </div>
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="grid gap-3 lg:grid-cols-2">
+              {MCP_CLIENT_ROWS.filter((client) => client.key !== "chatgpt_app" && client.key !== "claude_ai_connector").map((client) => {
+                const checked = settings.bearerFallback.allowedClientKinds.includes(client.key);
+                return (
+                  <label key={`bearer-${client.key}`} className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <AiClientGlyph clientKind={client.key} className="h-9 w-9 rounded-xl" />
+                      <span className="min-w-0">
+                      <span className="block break-words font-medium text-slate-900">{client.label}</span>
+                      <span className="mt-1 block text-xs text-slate-500">{client.tier}</span>
+                    </span>
+                    </span>
+                    <Switch
+                      checked={checked}
+                      disabled={saving || !settings.bearerFallback.enabled}
+                      onCheckedChange={(nextChecked) => {
+                        const nextKinds = nextChecked
+                          ? [...new Set([...settings.bearerFallback.allowedClientKinds, client.key])]
+                          : settings.bearerFallback.allowedClientKinds.filter((item) => item !== client.key);
+                        void save({ bearerFallback: { ...settings.bearerFallback, allowedClientKinds: nextKinds } });
+                      }}
+                      aria-label={`${client.label} ${isZhTW ? "Bearer 允許狀態" : "bearer allowlist"}`}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                {isZhTW ? "最長有效天數" : "Max lifetime days"}
+                <input
+                  key={`bearer-lifetime-${settings.bearerFallback.maxLifetimeDays}`}
+                  type="number"
+                  min={1}
+                  max={365}
+                  defaultValue={settings.bearerFallback.maxLifetimeDays}
+                  disabled={saving || !settings.bearerFallback.enabled}
+                  onBlur={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 365 && value !== settings.bearerFallback.maxLifetimeDays) {
+                      void save({ bearerFallback: { ...settings.bearerFallback, maxLifetimeDays: value } });
+                    }
+                  }}
+                  className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                {isZhTW ? "每位使用者最大 Bearer 連接器數" : "Max bearer connectors per user"}
+                <input
+                  key={`bearer-cap-${settings.bearerFallback.maxActiveConnectorsPerUser}`}
+                  type="number"
+                  min={1}
+                  max={25}
+                  defaultValue={settings.bearerFallback.maxActiveConnectorsPerUser}
+                  disabled={saving || !settings.bearerFallback.enabled}
+                  onBlur={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 25 && value !== settings.bearerFallback.maxActiveConnectorsPerUser) {
+                      void save({ bearerFallback: { ...settings.bearerFallback, maxActiveConnectorsPerUser: value } });
+                    }
+                  }}
+                  className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </label>
+              <div id="bearer-tool-groups" className="scroll-mt-24 rounded-xl border border-slate-200 px-3 py-3">
+                <p className="text-sm font-medium text-slate-700">{isZhTW ? "允許 Bearer 工具群組" : "Allowed bearer tool groups"}</p>
+                <div className="mt-2 space-y-2">
+                  {(["read", "drafts", "write"] as const).map((group) => {
+                    const checked = settings.bearerFallback.allowedToolGroups.includes(group);
+                    const label = isZhTW
+                      ? group === "read" ? "讀取" : group === "drafts" ? "草稿" : "寫入"
+                      : group;
+                    return (
+                      <label key={`bearer-group-${group}`} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="capitalize text-slate-700">{label}</span>
+                        <Switch
+                          checked={checked}
+                          disabled={saving || !settings.bearerFallback.enabled}
+                          onCheckedChange={(nextChecked) => {
+                            const nextGroups = nextChecked
+                              ? [...new Set([...settings.bearerFallback.allowedToolGroups, group])]
+                              : settings.bearerFallback.allowedToolGroups.filter((item) => item !== group);
+                            void save({ bearerFallback: { ...settings.bearerFallback, allowedToolGroups: nextGroups } });
+                          }}
+                          aria-label={`${label} ${isZhTW ? "Bearer 工具群組" : "bearer tool group"}`}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
             <span className="font-medium text-slate-800">{isZhTW ? "MCP 部署" : "MCP deployment"}</span>
@@ -1158,28 +1423,65 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
               onChange={(event) => void save({ enabled: event.target.checked })}
             />
           </label>
-          {(["read", "drafts", "write"] as const).map((group) => (
-            <label key={group} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-              <span className="font-medium capitalize text-slate-800">
+        </div>
+
+        <div className="rounded-xl border border-slate-200 px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "工具群組" : "Tool groups"}</h3>
+              <p className="mt-1 text-sm text-slate-600">
                 {isZhTW
-                  ? `${group === "read" ? "讀取" : group === "drafts" ? "草稿" : "寫入"}工具`
-                  : `${group} tools`}
-              </span>
-              <input
-                type="checkbox"
-                checked={settings.groupToggles[group]}
-                disabled={saving}
-                onChange={(event) => void save({ groupToggles: { ...settings.groupToggles, [group]: event.target.checked } })}
-              />
-            </label>
-          ))}
+                  ? "比起籠統的高風險提示，這裡直接說明每個群組會打開哪些工具。"
+                  : "These toggles name the affected tool groups directly instead of using vague high-risk wording."}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {([
+              {
+                key: "read" as const,
+                title: isZhTW ? "讀取" : "Read",
+                count: 28,
+                risk: isZhTW ? "低風險，唯讀。" : "Low risk, read-only.",
+                examples: "get_portfolio_overview, get_daily_review_report",
+              },
+              {
+                key: "drafts" as const,
+                title: isZhTW ? "草稿流程" : "Draft workflow",
+                count: 24,
+                risk: isZhTW ? "中風險，可建立或修改草稿。" : "Moderate risk, can create or edit draft workflows.",
+                examples: "create_transaction_draft_batch, update_transaction_draft_row",
+              },
+              {
+                key: "write" as const,
+                title: isZhTW ? "帳戶管理與送出" : "Account management and posting",
+                count: 15,
+                risk: isZhTW ? "高風險，包含帳戶變更與送出。" : "High risk, includes account changes and posting.",
+                examples: "create_account, post_transaction_draft_rows",
+              },
+            ]).map((group) => (
+              <label key={group.key} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <span className="min-w-0">
+                  <span className="block font-medium text-slate-900">{group.title}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{group.count} tools · {group.risk}</span>
+                  <span className="mt-1 block break-all text-xs text-slate-500">{group.examples}</span>
+                </span>
+                <Switch
+                  checked={settings.groupToggles[group.key]}
+                  disabled={saving}
+                  onCheckedChange={(checked) => void save({ groupToggles: { ...settings.groupToggles, [group.key]: checked } })}
+                  aria-label={`${group.title} ${isZhTW ? "工具群組" : "tool group"}`}
+                />
+              </label>
+            ))}
+          </div>
         </div>
 
         {allGroupsDisabled ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">
             {isZhTW
-              ? "所有 MCP 工具群組都已停用。新的 ChatGPT 同意授權會被封鎖，使用者連接器權限控制也會保持停用，直到管理員重新啟用至少一個群組。"
-              : "All MCP tool groups are disabled. New ChatGPT consent approvals are blocked and user connector scope controls stay disabled until an admin re-enables at least one group."}
+              ? "所有 MCP 工具群組都已停用。新的 AI 連接器同意授權會被封鎖，使用者連接器權限控制也會保持停用，直到管理員重新啟用至少一個群組。"
+              : "All MCP tool groups are disabled. New AI connector consent approvals are blocked and user connector scope controls stay disabled until an admin re-enables at least one group."}
           </p>
         ) : null}
 
@@ -1271,6 +1573,90 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
         </div>
 
         <div className="rounded-xl border border-slate-200 px-4 py-4">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-slate-900">{isZhTW ? "重新導向回呼" : "Redirect callbacks"}</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {isZhTW
+                ? "顯示內建、已加入與建議加入的 OAuth 回呼網址。"
+                : "Inspect built-in, custom, and suggested OAuth callbacks before editing the freeform allowlist."}
+            </p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div data-testid="admin-settings-mcp-built-in-callbacks" className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">{isZhTW ? "內建回呼" : "Built-in callbacks"}</p>
+              <div className="mt-3 space-y-2 text-xs text-slate-600">
+                {builtInRedirectRows.map((row) => (
+                  <div key={`builtin-${row.uri}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <p className="font-medium text-slate-900">{row.label}</p>
+                    <p className="mt-1 break-all font-mono">{row.uri}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      onClick={() => copyRedirectUri(row.uri)}
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                      {isZhTW ? "複製回呼" : "Copy callback"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">{isZhTW ? "自訂允許清單" : "Custom allowlist"}</p>
+              <div className="mt-3 space-y-2 text-xs text-slate-600">
+                {customRedirectRows.length > 0 ? customRedirectRows.map((row) => (
+                  <div key={`custom-${row.uri}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <p className="font-medium text-slate-900">{row.label}</p>
+                    <p className="mt-1 break-all font-mono">{row.uri}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => copyRedirectUri(row.uri)}>
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                        {isZhTW ? "複製回呼" : "Copy callback"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => removeRedirectUri(row.uri)}>
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        {isZhTW ? "移除" : "Remove"}
+                      </Button>
+                    </div>
+                  </div>
+                )) : (
+                  <p>{isZhTW ? "目前沒有自訂回呼。" : "No custom callbacks allowlisted yet."}</p>
+                )}
+              </div>
+            </div>
+            <div data-testid="admin-settings-mcp-suggested-callbacks" className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">{isZhTW ? "建議加入" : "Suggested callbacks"}</p>
+              <div className="mt-3 space-y-2 text-xs text-slate-600">
+                {suggestedRedirectRows.map((row) => (
+                  <div key={`suggested-${row.uri}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                    <p className="font-medium text-slate-900">{row.label}</p>
+                    <p className="mt-1 break-all font-mono">{row.uri}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyRedirectUri(row.uri)}
+                      >
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                        {isZhTW ? "複製回呼" : "Copy callback"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRedirectAllowlistDraft((current) => {
+                          const currentValues = current.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+                          return [...new Set([...currentValues, row.uri])].join("\n");
+                        })}
+                      >
+                        {isZhTW ? "快速加入 Claude.ai" : "Quick-add Claude.ai"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
           <label className="text-sm font-medium text-slate-700">
             {isZhTW ? "額外重新導向 URI 允許清單" : "Additional redirect URI allowlist"}
             <textarea
@@ -1292,7 +1678,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           <div id="admin-settings-mcp-redirect-examples" className="mt-3 rounded-xl bg-slate-50 px-3 py-3">
             <p className="text-xs font-semibold uppercase text-slate-500">{isZhTW ? "範例" : "Examples"}</p>
             <ul className="mt-2 space-y-1 text-xs text-slate-600">
-              {MCP_REDIRECT_ALLOWLIST_EXAMPLES.map((example) => (
+              {MCP_BUILT_IN_REDIRECT_ALLOWLIST_EXAMPLES.map((example) => (
                 <li key={example} className="font-mono">{example}</li>
               ))}
             </ul>

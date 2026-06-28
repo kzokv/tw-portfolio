@@ -541,6 +541,40 @@ describePostgres("postgres migrations", () => {
     expect(secondPass.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
   });
 
+  it("syncs legacy provider policy patches into client-kind policy flags", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const disabled = await persistence.saveAiConnectorPolicySettings({
+      allowedProviders: { chatgpt: false, self_hosted: false },
+    });
+    expect(disabled.allowedProviders).toMatchObject({ chatgpt: false, self_hosted: false });
+    expect(disabled.allowedClientKinds).toMatchObject({
+      chatgpt_app: false,
+      claude_code: false,
+      codex_cli: false,
+      gemini_cli: false,
+      copilot_mcp: false,
+      generic_mcp: false,
+    });
+
+    const overridden = await persistence.saveAiConnectorPolicySettings({
+      allowedProviders: { self_hosted: true },
+      allowedClientKinds: { codex_cli: false },
+    });
+    expect(overridden.allowedProviders).toMatchObject({ self_hosted: true });
+    expect(overridden.allowedClientKinds).toMatchObject({
+      claude_code: true,
+      codex_cli: false,
+      gemini_cli: true,
+      copilot_mcp: true,
+      generic_mcp: true,
+    });
+  });
+
   it("ignores blank legacy migration checksums when verifying applied migrations", async () => {
     const manifest = await migrationManifestPromise;
 
@@ -3506,7 +3540,7 @@ describePostgres("postgres migrations", () => {
          AND tablename = 'ai_connector_connections'
          AND indexname = 'ux_ai_connector_connections_user_provider_active'`,
     );
-    expect(connectionIndex.rows).toHaveLength(1);
+    expect(connectionIndex.rows).toHaveLength(0);
 
     const connectionStatusCheck = await pool.query<{ def: string }>(
       `SELECT pg_get_constraintdef(oid) AS def
@@ -3735,6 +3769,265 @@ describePostgres("postgres migrations", () => {
          VALUES ('MIG087SM', 'sharing:manage', 'legacy-fifo')`,
       ),
     ).resolves.not.toThrow();
+  });
+
+  it("migrations 095-098: backfill legacy AI connector identity without requiring reconnect", async () => {
+    await applyMigrationFiles(await getNumberedMigrationsBefore("095_ai_connector_identity_and_bearer_policy.sql"));
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('legacy-mcp-user', 'legacy-mcp@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await pool.query(
+      `INSERT INTO ai_connector_connections (
+         id, user_id, provider, display_name, status, oauth_client_id, oauth_subject, expires_at
+       )
+       VALUES
+         (
+           'legacy-chatgpt-connection',
+           'legacy-mcp-user',
+           'chatgpt',
+           'Legacy ChatGPT',
+           'active',
+           'chatgpt',
+           'legacy-chatgpt-subject',
+           NOW() + INTERVAL '1 day'
+         ),
+         (
+           'legacy-self-hosted-connection',
+           'legacy-mcp-user',
+           'self_hosted',
+           'Legacy self-hosted MCP',
+           'active',
+           NULL,
+           NULL,
+           NULL
+         )`,
+    );
+    await pool.query(
+      `INSERT INTO ai_connector_connection_scopes (connection_id, scope)
+       VALUES
+         ('legacy-chatgpt-connection', 'portfolio:mcp_read'),
+         ('legacy-self-hosted-connection', 'portfolio:mcp_read')`,
+    );
+    await pool.query(
+      `UPDATE ai_connector_policy_settings
+       SET allow_chatgpt = FALSE,
+           allow_self_hosted = FALSE`,
+    );
+
+    await applyMigrationFiles([
+      "095_ai_connector_identity_and_bearer_policy.sql",
+      "096_mcp_replay_preview_constraint_guard.sql",
+      "097_ai_connector_drop_provider_active_index.sql",
+      "098_ai_connector_legacy_self_hosted_auth_mode.sql",
+      "099_ai_connector_claude_ai_and_history_visibility.sql",
+    ]);
+
+    const rows = await pool.query<{
+      id: string;
+      provider: string;
+      vendor: string;
+      client_kind: string;
+      auth_mode: string;
+      capabilities: string[];
+      status: string;
+    }>(
+      `SELECT id, provider, vendor, client_kind, auth_mode, capabilities, status
+       FROM ai_connector_connections
+       WHERE id = ANY($1::text[])
+       ORDER BY id`,
+      [["legacy-chatgpt-connection", "legacy-self-hosted-connection"]],
+    );
+
+    expect(rows.rows).toEqual([
+      {
+        id: "legacy-chatgpt-connection",
+        provider: "chatgpt",
+        vendor: "openai",
+        client_kind: "chatgpt_app",
+        auth_mode: "oauth",
+        capabilities: ["oauth", "widgets", "interactive_ops", "deep_link_fallback"],
+        status: "active",
+      },
+      {
+        id: "legacy-self-hosted-connection",
+        provider: "self_hosted",
+        vendor: "generic",
+        client_kind: "generic_mcp",
+        auth_mode: "dev_token",
+        capabilities: ["bearer_fallback", "deep_link_fallback"],
+        status: "active",
+      },
+    ]);
+
+    const activeClientKindIndex = await pool.query<{ indexname: string }>(
+      `SELECT indexname
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'ai_connector_connections'
+         AND indexname = 'ux_ai_connector_connections_user_client_kind_auth_active'`,
+    );
+    expect(activeClientKindIndex.rows).toHaveLength(1);
+
+    const legacyProviderIndex = await pool.query<{ indexname: string }>(
+      `SELECT indexname
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'ai_connector_connections'
+         AND indexname = 'ux_ai_connector_connections_user_provider_active'`,
+    );
+    expect(legacyProviderIndex.rows).toHaveLength(0);
+    await expect(
+      pool.query(
+        `INSERT INTO ai_connector_connections (
+           id, user_id, provider, vendor, client_kind, auth_mode, capabilities, display_name, status
+         )
+         VALUES
+           (
+             'active-claude-bearer',
+             'legacy-mcp-user',
+             'self_hosted',
+             'anthropic',
+             'claude_code',
+             'bearer',
+             ARRAY['bearer_fallback', 'deep_link_fallback']::text[],
+             'Claude Code',
+             'active'
+           ),
+           (
+             'active-codex-bearer',
+             'legacy-mcp-user',
+             'self_hosted',
+             'openai_codex',
+             'codex_cli',
+             'bearer',
+             ARRAY['bearer_fallback', 'deep_link_fallback']::text[],
+             'Codex CLI',
+             'active'
+           )`,
+      ),
+    ).resolves.not.toThrow();
+
+    const policy = await pool.query<{
+      allow_chatgpt_app: boolean;
+      allow_claude_ai_connector: boolean;
+      allow_claude_code: boolean;
+      allow_codex_cli: boolean;
+      allow_gemini_cli: boolean;
+      allow_copilot_mcp: boolean;
+      allow_generic_mcp: boolean;
+    }>(
+      `SELECT allow_chatgpt_app,
+              allow_claude_ai_connector,
+              allow_claude_code,
+              allow_codex_cli,
+              allow_gemini_cli,
+              allow_copilot_mcp,
+              allow_generic_mcp
+       FROM ai_connector_policy_settings
+       WHERE id = TRUE`,
+    );
+    expect(policy.rows[0]).toEqual({
+      allow_chatgpt_app: false,
+      allow_claude_ai_connector: false,
+      allow_claude_code: false,
+      allow_codex_cli: false,
+      allow_gemini_cli: false,
+      allow_copilot_mcp: false,
+      allow_generic_mcp: false,
+    });
+  });
+
+  it("migration 095: reconciles a missing ledger row without resetting client allowlists", async () => {
+    const manifest = await migrationManifestPromise;
+    const pre095Migrations = await getNumberedMigrationsBefore("095_ai_connector_identity_and_bearer_policy.sql");
+    await applyMigrationFiles([...pre095Migrations, "095_ai_connector_identity_and_bearer_policy.sql"]);
+    await seedAppliedMigrationLedger(pre095Migrations);
+
+    await pool.query(
+      `UPDATE ai_connector_policy_settings
+       SET allow_chatgpt = TRUE,
+           allow_self_hosted = TRUE,
+           allow_chatgpt_app = FALSE,
+           allow_claude_code = FALSE,
+           allow_codex_cli = FALSE,
+           allow_gemini_cli = FALSE,
+           allow_copilot_mcp = FALSE,
+           allow_generic_mcp = FALSE
+       WHERE id = TRUE`,
+    );
+    await applyMigrationFiles(["095_ai_connector_identity_and_bearer_policy.sql"]);
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const [policy, migrationLedger] = await Promise.all([
+      pool.query<{
+        allow_chatgpt: boolean;
+        allow_self_hosted: boolean;
+        allow_chatgpt_app: boolean;
+        allow_claude_code: boolean;
+        allow_codex_cli: boolean;
+        allow_gemini_cli: boolean;
+        allow_copilot_mcp: boolean;
+        allow_generic_mcp: boolean;
+      }>(
+        `SELECT allow_chatgpt,
+                allow_self_hosted,
+                allow_chatgpt_app,
+                allow_claude_code,
+                allow_codex_cli,
+                allow_gemini_cli,
+                allow_copilot_mcp,
+                allow_generic_mcp
+         FROM ai_connector_policy_settings
+         WHERE id = TRUE`,
+      ),
+      pool.query<{ name: string; checksum: string | null }>(
+        "SELECT name, checksum FROM schema_migrations ORDER BY name",
+      ),
+    ]);
+
+    expect(policy.rows[0]).toEqual({
+      allow_chatgpt: true,
+      allow_self_hosted: true,
+      allow_chatgpt_app: false,
+      allow_claude_code: false,
+      allow_codex_cli: false,
+      allow_gemini_cli: false,
+      allow_copilot_mcp: false,
+      allow_generic_mcp: false,
+    });
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+    expect(
+      migrationLedger.rows.find((row) => row.name === "095_ai_connector_identity_and_bearer_policy.sql")?.checksum,
+    ).toEqual(expect.any(String));
+  });
+
+  it("migration 099: rerun preserves customized Claude.ai client allowlist", async () => {
+    const before099 = await getNumberedMigrationsBefore("099_ai_connector_claude_ai_and_history_visibility.sql");
+    await applyMigrationFiles(before099);
+    await applyMigrationFiles(["099_ai_connector_claude_ai_and_history_visibility.sql"]);
+
+    await pool.query(
+      `UPDATE ai_connector_policy_settings
+       SET allow_chatgpt = TRUE,
+           allow_chatgpt_app = TRUE,
+           allow_claude_ai_connector = FALSE
+       WHERE id = TRUE`,
+    );
+    await applyMigrationFiles(["099_ai_connector_claude_ai_and_history_visibility.sql"]);
+
+    const policy = await pool.query<{ allow_claude_ai_connector: boolean }>(
+      `SELECT allow_claude_ai_connector
+       FROM ai_connector_policy_settings
+       WHERE id = TRUE`,
+    );
+    expect(policy.rows[0]?.allow_claude_ai_connector).toBe(false);
   });
 
   it("KZO-197: migration 070 backfills provider incidents idempotently from error trail", async () => {

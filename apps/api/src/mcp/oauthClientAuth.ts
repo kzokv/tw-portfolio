@@ -9,6 +9,7 @@ import type { LookupAddress, LookupOptions } from "node:dns";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { z } from "zod";
+import type { AiConnectorClientKind, AiConnectorVendor } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 
 const CLIENT_METADATA_FETCH_TIMEOUT_MS = 3_000;
@@ -134,12 +135,48 @@ const clientAssertionPayloadSchema = z.object({
 type ClientMetadataDocument = z.infer<typeof clientMetadataDocumentSchema>;
 type JwkDocumentKey = z.infer<typeof jwkSchema>;
 
+const CLAUDE_AI_METADATA_URL = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+
+export interface McpOAuthClientIdentity {
+  clientKind: AiConnectorClientKind;
+  label: string;
+  vendor: AiConnectorVendor;
+}
+
+export interface InspectedOAuthClient {
+  identity: McpOAuthClientIdentity;
+  metadata: ClientMetadataDocument | null;
+}
+
 function parseUrlClientId(clientId: string): URL | null {
   try {
     return new URL(clientId);
   } catch {
     return null;
   }
+}
+
+function detectOAuthClientIdentity(clientId: string, metadata: ClientMetadataDocument | null): McpOAuthClientIdentity {
+  const canonicalClientId = metadata?.client_id ?? clientId;
+  const parsedClientId = parseUrlClientId(canonicalClientId);
+  if (canonicalClientId === CLAUDE_AI_METADATA_URL || parsedClientId?.hostname === "claude.ai") {
+    return {
+      vendor: "anthropic",
+      clientKind: "claude_ai_connector",
+      label: "Claude.ai",
+    };
+  }
+  return parsedClientId
+    ? {
+        vendor: "openai",
+        clientKind: "chatgpt_app",
+        label: "ChatGPT / OpenAI Apps",
+      }
+    : {
+        vendor: "openai",
+        clientKind: "chatgpt_app",
+        label: "ChatGPT / OpenAI Apps",
+      };
 }
 
 function privateIpv4(address: string): boolean {
@@ -335,6 +372,20 @@ export async function validateOAuthClient(clientId: string, redirectUri: string)
   if (!metadata.redirect_uris.includes(redirectUri)) {
     throw routeError(400, "invalid_request", "OAuth redirect_uri is not registered by the client metadata document");
   }
+}
+
+export async function inspectOAuthClient(clientId: string, redirectUri?: string): Promise<InspectedOAuthClient> {
+  const metadata = await fetchClientMetadataDocument(clientId);
+  if (metadata) {
+    validateClientMetadataBasics(metadata, clientId);
+    if (redirectUri && !metadata.redirect_uris.includes(redirectUri)) {
+      throw routeError(400, "invalid_request", "OAuth redirect_uri is not registered by the client metadata document");
+    }
+  }
+  return {
+    identity: detectOAuthClientIdentity(clientId, metadata),
+    metadata,
+  };
 }
 
 async function fetchClientJwksDocument(jwksUri: string) {
