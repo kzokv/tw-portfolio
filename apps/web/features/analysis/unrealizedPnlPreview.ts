@@ -186,7 +186,10 @@ export function buildPreviewUnrealizedPnlAnalysis(
 
   const ranking = filtered
     .map((series) => buildRankingRow(series))
-    .sort((left, right) => Math.abs(right.periodChange) - Math.abs(left.periodChange) || right.endUnrealizedPnl - left.endUnrealizedPnl);
+    .sort((left, right) =>
+      Math.abs(right.periodChange ?? 0) - Math.abs(left.periodChange ?? 0)
+      || (right.endUnrealizedPnl ?? 0) - (left.endUnrealizedPnl ?? 0),
+    );
 
   const selectedSeriesIds = resolveSelectedSeriesIds(ranking, state);
   const selectedSet = new Set(selectedSeriesIds);
@@ -200,7 +203,7 @@ export function buildPreviewUnrealizedPnlAnalysis(
     unrealizedPnl: filtered.reduce((sum, series) => sum + series.series[index]!, 0),
   }));
   const summaryBest = ranking[0] ?? null;
-  const summaryWorst = [...ranking].sort((left, right) => left.periodChange - right.periodChange)[0] ?? null;
+  const summaryWorst = [...ranking].sort((left, right) => (left.periodChange ?? 0) - (right.periodChange ?? 0))[0] ?? null;
 
   const currentUnrealized = portfolioSeries[portfolioSeries.length - 1]?.unrealizedPnl ?? null;
   const startUnrealized = portfolioSeries[0]?.unrealizedPnl ?? null;
@@ -265,13 +268,13 @@ export function buildPreviewUnrealizedPnlAnalysis(
         label: summaryBest.displayName,
         marketCode: summaryBest.marketCode,
         ticker: summaryBest.ticker,
-        periodChange: summaryBest.periodChange,
+        periodChange: summaryBest.periodChange ?? 0,
       } : null,
       worstDriver: summaryWorst ? {
         label: summaryWorst.displayName,
         marketCode: summaryWorst.marketCode,
         ticker: summaryWorst.ticker,
-        periodChange: summaryWorst.periodChange,
+        periodChange: summaryWorst.periodChange ?? 0,
       } : null,
     },
     dataHealth: {

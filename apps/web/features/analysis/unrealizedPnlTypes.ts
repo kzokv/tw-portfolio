@@ -114,7 +114,7 @@ export interface UnrealizedPnlPointMarker {
 
 export interface UnrealizedPnlSeriesPoint {
   date: string;
-  unrealizedPnl: number;
+  unrealizedPnl: number | null;
   marketValue: number;
   costBasis: number;
   quantity: number;
@@ -132,8 +132,8 @@ export interface UnrealizedPnlSeries {
   stateLabel: string;
   state: "current" | "sold-out";
   colorToken: string;
-  endUnrealizedPnl: number;
-  periodChange: number;
+  endUnrealizedPnl: number | null;
+  periodChange: number | null;
   accountIds: string[];
   points: UnrealizedPnlSeriesPoint[];
   markers: UnrealizedPnlPointMarker[];
@@ -146,8 +146,8 @@ export interface UnrealizedPnlRankingRow {
   displayName: string;
   stateLabel: string;
   state: "current" | "sold-out";
-  endUnrealizedPnl: number;
-  periodChange: number;
+  endUnrealizedPnl: number | null;
+  periodChange: number | null;
   isSelected: boolean;
 }
 
@@ -167,7 +167,7 @@ export interface UnrealizedPnlAnalysisDto {
   dataHealth: UnrealizedPnlDataHealth;
   portfolioSeries: Array<{
     date: string;
-    unrealizedPnl: number;
+    unrealizedPnl: number | null;
   }>;
   tickerSeries: UnrealizedPnlSeries[];
   ranking: UnrealizedPnlRankingRow[];

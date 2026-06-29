@@ -353,8 +353,11 @@ export function UnrealizedPnlAnalysisClient({
                       <div className="font-medium">{row.displayName}</div>
                       <div className="text-xs text-muted-foreground">{row.stateLabel}</div>
                     </td>
-                    <td className={cn("py-2 text-right font-medium", row.periodChange >= 0 ? "text-emerald-600" : "text-red-600")}>
-                      {formatCurrencyAmount(row.periodChange, state.reportingCurrency, resolvedLocale)}
+                    <td className={cn(
+                      "py-2 text-right font-medium",
+                      row.periodChange === null ? "text-muted-foreground" : row.periodChange >= 0 ? "text-emerald-600" : "text-red-600",
+                    )}>
+                      {formatNullableCurrency(row.periodChange, state.reportingCurrency, resolvedLocale)}
                     </td>
                     <td className="py-2 pl-2 text-right">
                       <button
@@ -396,7 +399,7 @@ export function UnrealizedPnlAnalysisClient({
                   <span className="h-3 w-3 rounded-full" style={{ background: series.colorToken }} />
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <DetailTerm label={dict.detailEndPnl} value={formatCurrencyAmount(point?.unrealizedPnl ?? series.endUnrealizedPnl, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, state.reportingCurrency, resolvedLocale)} />
                   <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
                   <DetailTerm label={dict.detailMarketValue} value={formatCurrencyAmount(point?.marketValue ?? 0, state.reportingCurrency, resolvedLocale)} />
                   <DetailTerm label={dict.detailCostBasis} value={formatCurrencyAmount(point?.costBasis ?? 0, state.reportingCurrency, resolvedLocale)} />
@@ -443,7 +446,8 @@ function AnalysisSvgChart({
   selectedSet: ReadonlySet<string>;
   series: UnrealizedPnlSeries[];
 }) {
-  const values = series.flatMap((item) => item.points.map((point) => point.unrealizedPnl));
+  const values = series.flatMap((item) => item.points.map((point) => point.unrealizedPnl))
+    .filter((value): value is number => value !== null);
   const min = Math.min(0, ...values);
   const max = Math.max(1, ...values);
   const span = Math.max(1, max - min);
@@ -460,7 +464,9 @@ function AnalysisSvgChart({
           <polyline
             key={item.seriesId}
             fill="none"
-            points={item.points.map((point) => `${xForDate(point.date)},${yForValue(point.unrealizedPnl)}`).join(" ")}
+            points={item.points
+              .flatMap((point) => point.unrealizedPnl === null ? [] : [`${xForDate(point.date)},${yForValue(point.unrealizedPnl)}`])
+              .join(" ")}
             stroke={item.colorToken}
             strokeDasharray={item.state === "sold-out" ? "7 7" : undefined}
             strokeLinecap="round"
@@ -469,7 +475,7 @@ function AnalysisSvgChart({
             strokeWidth={selectedSet.has(item.seriesId) ? 4 : 2}
             style={reducedMotion ? undefined : { transition: "stroke-opacity 160ms ease, stroke-width 160ms ease" }}
           >
-            <title>{`${item.displayName} ${formatCurrencyAmount(item.endUnrealizedPnl, item.currency, locale)}`}</title>
+            <title>{`${item.displayName} ${formatNullableCurrency(item.endUnrealizedPnl, item.currency, locale)}`}</title>
           </polyline>
         ))}
         {focusDate ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={xForDate(focusDate)} x2={xForDate(focusDate)} y1={pad} y2={height - pad} /> : null}
@@ -526,7 +532,6 @@ function OptionChecklist({
   selected: string[];
 }) {
   const selectedSet = new Set(selected);
-  const visibleOptions = options.slice(0, 8);
 
   function toggle(value: string): void {
     const next = new Set(selectedSet);
@@ -542,7 +547,7 @@ function OptionChecklist({
     <fieldset className="min-w-0 rounded-md border border-border bg-background/70 p-2">
       <legend className="px-1 text-xs font-medium text-muted-foreground">{label}</legend>
       <div className="mt-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
-        {visibleOptions.length > 0 ? visibleOptions.map((option) => (
+        {options.length > 0 ? options.map((option) => (
           <label
             key={option.value}
             className={cn(
@@ -563,6 +568,10 @@ function OptionChecklist({
       </div>
     </fieldset>
   );
+}
+
+function formatNullableCurrency(value: number | null, currency: string, locale: LocaleCode): string {
+  return value === null ? "-" : formatCurrencyAmount(value, currency as never, locale);
 }
 
 function SummaryCard({ currency, label, locale, value }: { currency: string; label: string; locale: LocaleCode; value: number | null }) {

@@ -44,7 +44,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         currentOpenTickerCount: 1,
         includedTickerCount: 1,
       },
-      portfolioSeries: [{ date: "2026-06-26", unrealizedPnlAmount: 25 }],
+      portfolioSeries: [{ date: "2026-06-26", unrealizedPnlAmount: null }],
       tickerSeries: [
         {
           date: "2026-06-26",
@@ -80,6 +80,23 @@ describe("fetchUnrealizedPnlAnalysis", () => {
           isSelected: true,
           isSoldOut: false,
         },
+        {
+          date: "2026-06-26",
+          unrealizedPnlAmount: null,
+          marketValueAmount: null,
+          costBasisAmount: 975,
+          quantity: 2,
+          fxAvailable: false,
+          isProvisional: false,
+          ticker: "MSFT",
+          marketCode: "US",
+          instrumentName: "Microsoft",
+          instrumentType: "STOCK",
+          accountIds: ["acc-us-growth"],
+          accountNames: ["US Growth"],
+          isSelected: false,
+          isSoldOut: false,
+        },
       ],
       rankings: [{
         ticker: "AAPL",
@@ -110,6 +127,22 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         endUnrealizedPnlAmount: 25,
         periodChangeAmount: 15,
         latestMarketValueAmount: 1000,
+        latestCostBasisAmount: 975,
+        latestQuantity: 2,
+        tradeMarkerCount: 0,
+      }, {
+        ticker: "MSFT",
+        marketCode: "US",
+        instrumentName: "Microsoft",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-growth"],
+        accountNames: ["US Growth"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        startUnrealizedPnlAmount: null,
+        endUnrealizedPnlAmount: null,
+        periodChangeAmount: null,
+        latestMarketValueAmount: null,
         latestCostBasisAmount: 975,
         latestQuantity: 2,
         tradeMarkerCount: 0,
@@ -151,9 +184,16 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     expect(model.availableFilters.accounts).toEqual([{ value: "acc-us-growth", label: "US Growth" }]);
     expect(model.availableFilters.tickers).toEqual([
       { value: "AAPL", label: "AAPL US" },
+      { value: "MSFT", label: "MSFT US" },
       { value: "NVDA", label: "NVDA US" },
     ]);
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
     expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
+    expect(model.portfolioSeries).toEqual([{ date: "2026-06-26", unrealizedPnl: null }]);
+    expect(model.tickerSeries.find((series) => series.ticker === "MSFT")).toEqual(expect.objectContaining({
+      endUnrealizedPnl: null,
+      periodChange: null,
+      points: [expect.objectContaining({ unrealizedPnl: null })],
+    }));
   });
 });

@@ -65,17 +65,17 @@ function mapApiAnalysis(
       displayName: row.instrumentName ?? `${row.ticker} ${row.marketCode}`,
       stateLabel: row.currentlyHeld ? "Current" : "Sold out",
       state: row.currentlyHeld ? "current" as const : "sold-out" as const,
-      endUnrealizedPnl: row.endUnrealizedPnlAmount ?? 0,
-      periodChange: row.periodChangeAmount ?? 0,
+      endUnrealizedPnl: row.endUnrealizedPnlAmount,
+      periodChange: row.periodChangeAmount,
       isSelected: selectedSet.has(seriesId),
     };
   });
   const bestDriver = [...ranking]
-    .filter((row) => row.periodChange > 0)
-    .sort((left, right) => right.periodChange - left.periodChange)[0] ?? null;
+    .filter((row) => row.periodChange !== null && row.periodChange > 0)
+    .sort((left, right) => (right.periodChange ?? 0) - (left.periodChange ?? 0))[0] ?? null;
   const worstDriver = [...ranking]
-    .filter((row) => row.periodChange < 0)
-    .sort((left, right) => left.periodChange - right.periodChange)[0] ?? null;
+    .filter((row) => row.periodChange !== null && row.periodChange < 0)
+    .sort((left, right) => (left.periodChange ?? 0) - (right.periodChange ?? 0))[0] ?? null;
   const missingRows = response.dataHealth.missingFxRowCount + response.dataHealth.nullUnrealizedRowCount;
   const healthStatus = missingRows > 0 || response.dataHealth.provisionalRowCount > 0 ? "partial" : "complete";
 
@@ -116,13 +116,13 @@ function mapApiAnalysis(
         label: bestDriver.displayName,
         marketCode: bestDriver.marketCode,
         ticker: bestDriver.ticker,
-        periodChange: bestDriver.periodChange,
+        periodChange: bestDriver.periodChange ?? 0,
       } : null,
       worstDriver: worstDriver ? {
         label: worstDriver.displayName,
         marketCode: worstDriver.marketCode,
         ticker: worstDriver.ticker,
-        periodChange: worstDriver.periodChange,
+        periodChange: worstDriver.periodChange ?? 0,
       } : null,
     },
     dataHealth: {
@@ -136,7 +136,7 @@ function mapApiAnalysis(
     },
     portfolioSeries: response.portfolioSeries.map((point) => ({
       date: point.date,
-      unrealizedPnl: point.unrealizedPnlAmount ?? 0,
+      unrealizedPnl: point.unrealizedPnlAmount,
     })),
     tickerSeries,
     ranking,
@@ -221,8 +221,8 @@ function groupSeries(
   return [...groups.entries()].map(([seriesId, seriesPoints], index) => {
     const first = seriesPoints[0]!;
     const last = seriesPoints[seriesPoints.length - 1]!;
-    const firstValue = first.unrealizedPnlAmount ?? 0;
-    const lastValue = last.unrealizedPnlAmount ?? 0;
+    const firstValue = first.unrealizedPnlAmount;
+    const lastValue = last.unrealizedPnlAmount;
     return {
       seriesId,
       ticker: first.ticker,
@@ -234,11 +234,11 @@ function groupSeries(
       state: first.isSoldOut ? "sold-out" : "current",
       colorToken: SERIES_COLORS[index % SERIES_COLORS.length]!,
       endUnrealizedPnl: lastValue,
-      periodChange: lastValue - firstValue,
+      periodChange: firstValue !== null && lastValue !== null ? lastValue - firstValue : null,
       accountIds: first.accountIds,
       points: seriesPoints.map((point) => ({
         date: point.date,
-        unrealizedPnl: point.unrealizedPnlAmount ?? 0,
+        unrealizedPnl: point.unrealizedPnlAmount,
         marketValue: point.marketValueAmount ?? 0,
         costBasis: point.costBasisAmount ?? 0,
         quantity: point.quantity,
