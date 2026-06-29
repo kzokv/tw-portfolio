@@ -26,6 +26,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     navigation: {
       dashboardLabel: "Dashboard",
       dashboardDescription: "Daily review of portfolio shape, dividend flow, and system health.",
+      analysisLabel: "Analysis",
+      analysisDescription: "Purpose-built routes for decomposition, ranking, and deeper unrealized P&L review.",
       reportsLabel: "Reports",
       reportsDescription: "Structured daily, portfolio, and market reports with scope and currency controls.",
       portfolioLabel: "Portfolio",
@@ -409,6 +411,7 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       severityInfo: "Info",
       viewTransactionRecords: "View {count} records",
       openRealizedPnlTransactions: "Open realized P&L transactions",
+      openUnrealizedPnlAnalysis: "Open unrealized P&L analysis",
       strictTotalsNoticeTitle: "Strict totals",
       strictTotalsNoticeDescription: "Market value, unrealized P&L, and daily change stay unavailable instead of showing partial totals while one or more holdings are still waiting for current reportable valuations.",
     },
@@ -572,6 +575,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     navigation: {
       dashboardLabel: "儀表板",
       dashboardDescription: "先看投資組合輪廓、股利節奏與系統健康，再決定下一步。",
+      analysisLabel: "分析",
+      analysisDescription: "用專屬路由承接拆解、排行與更深入的未實現損益檢視。",
       reportsLabel: "報表",
       reportsDescription: "依市場範圍與幣別檢視每日、投資組合與市場報表。",
       portfolioLabel: "持倉",
@@ -955,6 +960,7 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       severityInfo: "資訊",
       viewTransactionRecords: "查看 {count} 筆紀錄",
       openRealizedPnlTransactions: "開啟已實現損益交易",
+      openUnrealizedPnlAnalysis: "開啟未實現損益分析",
       strictTotalsNoticeTitle: "嚴格總計",
       strictTotalsNoticeDescription: "在一檔或多檔持倉尚未取得可計入報表的最新估值前，市值、未實現損益與今日變動會維持無法顯示，不會改用部分總計。",
     },

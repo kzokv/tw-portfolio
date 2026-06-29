@@ -42,6 +42,7 @@ export const layoutI18n: Record<
       groupTickers: "Tickers",
       groupActions: "Actions",
       routeDashboard: "Dashboard",
+      routeAnalysis: "Analysis",
       routeReports: "Reports",
       routePortfolio: "Portfolio",
       routeTransactions: "Transactions",
@@ -110,6 +111,7 @@ export const layoutI18n: Record<
       groupTickers: "代號",
       groupActions: "操作",
       routeDashboard: "儀表板",
+      routeAnalysis: "分析",
       routeReports: "報表",
       routePortfolio: "投資組合",
       routeTransactions: "交易紀錄",
@@ -250,6 +252,7 @@ export interface RouteLoadingCopy {
 
 export interface RouteLoadingLabels {
   dashboard: RouteLoadingCopy;
+  analysis: RouteLoadingCopy;
   reports: RouteLoadingCopy;
   portfolio: RouteLoadingCopy;
   transactions: RouteLoadingCopy;
@@ -266,6 +269,12 @@ const routeLoadingLabels: Record<"en" | "zh-TW", RouteLoadingLabels> = {
       eyebrow: "Dashboard",
       title: "Loading dashboard",
       body: "Preparing valuation, market context, and portfolio command surfaces.",
+    },
+    analysis: {
+      ariaLabel: "Loading analysis",
+      eyebrow: "Analysis",
+      title: "Loading analysis",
+      body: "Preparing filter state, decomposition lines, and selected ticker detail.",
     },
     reports: {
       ariaLabel: "Loading reports",
@@ -316,6 +325,12 @@ const routeLoadingLabels: Record<"en" | "zh-TW", RouteLoadingLabels> = {
       eyebrow: "儀表板",
       title: "載入儀表板中",
       body: "正在準備估值、市場情境，以及投資組合操作區。",
+    },
+    analysis: {
+      ariaLabel: "載入分析中",
+      eyebrow: "分析",
+      title: "載入分析中",
+      body: "正在準備篩選狀態、拆解線圖與已選標的細節。",
     },
     reports: {
       ariaLabel: "載入報表中",

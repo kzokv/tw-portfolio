@@ -10,6 +10,7 @@ export const PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "dashboard-performance"),
   buildRouteDtoCacheTag("route", "portfolio-primary"),
   buildRouteDtoCacheTag("route", "reports"),
+  buildRouteDtoCacheTag("route", "analysis-unrealized-pnl"),
   buildRouteDtoCacheTag("route", "transactions-primary"),
 ] as const;
 
@@ -44,6 +45,7 @@ export type RouteDtoCachePolicySlot =
   | "dashboard-enrichment"
   | "dashboard-performance"
   | "portfolio-primary"
+  | "analysis-unrealized-pnl"
   | "reports"
   | "transactions-primary";
 
@@ -267,6 +269,7 @@ function defaultTtlForSlot(slot: RouteDtoCachePolicySlot): number {
     case "transactions-primary":
       return 120_000;
     case "dashboard-performance":
+    case "analysis-unrealized-pnl":
     case "reports":
       return 300_000;
   }
@@ -284,6 +287,7 @@ function ttlForPolicySlot(policy: RouteCachePolicyDto, slot: RouteDtoCachePolicy
     case "transactions-primary":
       return policy.portfolioTtlMs;
     case "reports":
+    case "analysis-unrealized-pnl":
       return policy.reportsTtlMs;
   }
 }

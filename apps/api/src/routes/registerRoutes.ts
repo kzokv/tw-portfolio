@@ -67,6 +67,7 @@ import {
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
+  unrealizedPnlAnalysisPresentationPreferenceSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
@@ -143,6 +144,10 @@ import { buildFxConversionRateRows } from "../services/fxConversionRates.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
 import { REPORT_HOLDINGS_MAX_LIMIT, buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
+import {
+  buildUnrealizedPnlAnalysis,
+  unrealizedPnlAnalysisRouteQuerySchema,
+} from "../services/unrealizedPnlAnalysis.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -3919,6 +3924,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
         .optional(),
+      analysisUnrealizedPnlDefaults: z
+        .union([unrealizedPnlAnalysisPresentationPreferenceSchema, z.null()])
+        .optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
@@ -6197,6 +6205,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
       const query = reportQuerySchema.parse(req.query);
       return timing.measure("build_market_report", "app", () => buildMarketReport(app, userId, query));
+    });
+  });
+
+  app.get("/analysis/unrealized-pnl", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/analysis/unrealized-pnl", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const query = unrealizedPnlAnalysisRouteQuerySchema.parse(req.query);
+      return timing.measure("build_unrealized_pnl_analysis", "app", () => buildUnrealizedPnlAnalysis(app, userId, query));
     });
   });
 

@@ -239,6 +239,52 @@ test.describe("user preferences API (KZO-159)", () => {
     await adminApi.assert.mxAssertDeepEqual(clearBody.preferences, {});
   });
 
+  test("[user-prefs]: PATCH /user-preferences { analysisUnrealizedPnlDefaults } → 200 echoes, GET returns same, null clears", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-analysis-unrealized-pnl-defaults-sub",
+      email: "user-prefs-analysis-unrealized-pnl-defaults@example.com",
+      name: "Prefs Analysis Unrealized Pnl Defaults",
+      role: "member",
+    });
+    const analysisUnrealizedPnlDefaults = {
+      granularity: "monthly",
+      lineCount: 8,
+      holdingsState: "include-sold",
+      reportingCurrency: "AUD",
+      includeProvisional: true,
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { analysisUnrealizedPnlDefaults },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      analysisUnrealizedPnlDefaults,
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      analysisUnrealizedPnlDefaults,
+    });
+
+    const clearResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { analysisUnrealizedPnlDefaults: null },
+    });
+    await adminApi.assert.statusIs(clearResponse, 200);
+    const clearBody = await clearResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(clearBody.preferences, {});
+  });
+
   test("[user-prefs]: PATCH invalid dashboardHoldingFocus → 400 invalid_preference", async ({
     request,
     adminApi,

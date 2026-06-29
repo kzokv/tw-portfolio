@@ -89,6 +89,11 @@ import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
 import { useReportData } from "../../features/reports/hooks/useReportData";
 import {
+  buildSelectedSeriesId,
+  buildUnrealizedPnlRoutePath,
+  mapPerformanceRangeToAnalysisRange,
+} from "../../features/analysis/unrealizedPnlRouteState";
+import {
   buildRealizedPnlTransactionsHref,
   hasRealizedPnlTransactionDrilldown,
 } from "../../features/reports/realizedPnlDrilldown";
@@ -285,6 +290,11 @@ export function ReportsClient({
     }).format(new Date(report.restoredAt))
     : null;
   const resolvedReportingCurrency = report.data?.query.reportingCurrency ?? initialReport?.query.reportingCurrency ?? reportingCurrency;
+  const unrealizedPnlHref = buildUnrealizedPnlRoutePath({
+    range: mapPerformanceRangeToAnalysisRange(state.range),
+    markets: state.scope === "all" ? [] : [state.scope],
+    reportingCurrency: resolvedReportingCurrency,
+  });
 
   return (
     <div className="stagger flex min-w-0 flex-col gap-6" data-testid="reports-page">
@@ -347,6 +357,7 @@ export function ReportsClient({
               },
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
+            unrealizedPnlHref={unrealizedPnlHref}
             showAdminActions={sessionUserRole === "admin"}
             tab="daily-review"
             timelineMode={timelineMode}
@@ -370,6 +381,7 @@ export function ReportsClient({
               },
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
+            unrealizedPnlHref={unrealizedPnlHref}
             showAdminActions={sessionUserRole === "admin"}
             tab="portfolio"
             timelineMode={timelineMode}
@@ -393,6 +405,7 @@ export function ReportsClient({
               },
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
+            unrealizedPnlHref={unrealizedPnlHref}
             showAdminActions={sessionUserRole === "admin"}
             tab="market"
             timelineMode={timelineMode}
@@ -540,6 +553,7 @@ function ReportBody({
   locale,
   onRefresh,
   realizedPnlHref,
+  unrealizedPnlHref,
   showAdminActions,
   tab,
   timelineMode,
@@ -553,6 +567,7 @@ function ReportBody({
   locale: LocaleCode;
   onRefresh: () => void;
   realizedPnlHref: string;
+  unrealizedPnlHref: string;
   showAdminActions: boolean;
   tab: ReportTab;
   timelineMode: TimelineMode;
@@ -624,6 +639,7 @@ function ReportBody({
         dict={uiDict}
         locale={locale}
         realizedPnlHref={realizedPnlHref}
+        unrealizedPnlHref={unrealizedPnlHref}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
@@ -697,6 +713,8 @@ type SummaryMetricItem = {
   toneValue?: number | null;
   detail?: string;
   href?: string | null;
+  linkAriaLabel?: string;
+  linkTestId?: string;
 };
 
 function SummaryGrid({
@@ -706,6 +724,7 @@ function SummaryGrid({
   locale,
   realizedPnlHref,
   summary,
+  unrealizedPnlHref,
 }: {
   dataHealth: ReportDataHealthDto;
   currency: AccountDefaultCurrency;
@@ -713,6 +732,7 @@ function SummaryGrid({
   locale: LocaleCode;
   realizedPnlHref: string;
   summary: ReportSummaryTotalsDto;
+  unrealizedPnlHref: string;
 }) {
   const strictTotalsUnavailable = hasIncompleteReportValuation(dataHealth);
   const items: SummaryMetricItem[] = [
@@ -722,12 +742,17 @@ function SummaryGrid({
       label: dict.reports.unrealizedPnl,
       toneValue: strictTotalsUnavailable ? null : summary.unrealizedPnlAmount,
       value: strictTotalsUnavailable ? null : summary.unrealizedPnlAmount,
+      href: unrealizedPnlHref,
+      linkAriaLabel: dict.reports.openUnrealizedPnlAnalysis,
+      linkTestId: "reports-summary-unrealized-pnl-analysis-link",
     },
     {
       label: dict.reports.realizedPnl,
       toneValue: summary.realizedPnlAmount,
       value: summary.realizedPnlAmount,
       href: hasRealizedPnlTransactionDrilldown(summary) ? realizedPnlHref : null,
+      linkAriaLabel: dict.reports.openRealizedPnlTransactions,
+      linkTestId: "reports-summary-realized-pnl-link",
       detail: hasRealizedPnlTransactionDrilldown(summary)
         ? formatReportMessage(dict.reports.viewTransactionRecords, { count: formatNumber(summary.realizedPnlTransactionCount, locale) })
         : undefined,
@@ -758,8 +783,8 @@ function SummaryGrid({
               <Link
                 href={item.href}
                 className="block"
-                aria-label={dict.reports.openRealizedPnlTransactions}
-                data-testid="reports-summary-realized-pnl-link"
+                aria-label={item.linkAriaLabel ?? item.label}
+                data-testid={item.linkTestId}
               >
                 <CardTitle
                   className={cn("break-words font-mono text-xl tabular-nums underline decoration-primary/30 underline-offset-4 sm:text-2xl", holdingsFinanceToneClass(item.toneValue ?? null, "text-foreground"))}
@@ -2132,6 +2157,14 @@ function ReportHoldingTableCell({
       <td className={className} style={style}>
         <div className="flex min-w-0 flex-col gap-1">
           <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
+          <Link
+            href={reportHoldingAnalysisHref(row)}
+            className="w-fit text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+            aria-label={dict.reports.openUnrealizedPnlAnalysis}
+            data-testid={`reports-holding-analysis-link-${row.ticker}-${row.marketCode}`}
+          >
+            {dict.navigation.analysisLabel}
+          </Link>
           {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
           <span className="text-xs text-muted-foreground">
             {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
@@ -2671,6 +2704,14 @@ function HoldingsMobileList({
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
             <Link
+              href={reportHoldingAnalysisHref(row)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary transition hover:bg-muted hover:text-primary"
+              aria-label={dict.reports.openUnrealizedPnlAnalysis}
+              data-testid={`reports-mobile-analysis-link-${row.ticker}-${row.marketCode}`}
+            >
+              {dict.navigation.analysisLabel}
+            </Link>
+            <Link
               href={tickerHref(row.ticker, row.marketCode)}
               className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary transition hover:bg-muted hover:text-primary"
               aria-label={formatReportMessage(dict.reports.openTickerAria, { ticker: row.ticker })}
@@ -2887,6 +2928,18 @@ function TickerLink({
 
 function tickerHref(ticker: string, marketCode: string): string {
   return `/tickers/${encodeURIComponent(ticker)}?marketCode=${encodeURIComponent(marketCode)}`;
+}
+
+function reportHoldingAnalysisHref(row: ReportHoldingRowDto): string {
+  return buildUnrealizedPnlRoutePath({
+    range: "3M",
+    markets: [row.marketCode],
+    tickers: [row.ticker],
+    selectionMode: "manual",
+    selected: [buildSelectedSeriesId(row.marketCode, row.ticker)],
+    reportingCurrency: row.reportingCurrency,
+    view: "ticker-detail",
+  });
 }
 
 function CompactFinanceStat({

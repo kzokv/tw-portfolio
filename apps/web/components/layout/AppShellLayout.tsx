@@ -133,6 +133,7 @@ export function AppShellLayout({
           resizeRail: shellLabels.sidebarResizeRail,
           nav: {
             dashboard: uiDict.navigation.dashboardLabel,
+            analysis: uiDict.navigation.analysisLabel,
             reports: uiDict.navigation.reportsLabel,
             portfolio: uiDict.navigation.portfolioLabel,
             transactions: uiDict.navigation.transactionsLabel,
