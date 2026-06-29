@@ -154,6 +154,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         provisionalRowCount: 0,
         missingFxRowCount: 0,
         nullUnrealizedRowCount: 0,
+        unavailableRowCount: 0,
         excludedSoldOutTickerCount: 0,
       },
       diagnostics: {

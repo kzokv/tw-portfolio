@@ -794,10 +794,11 @@ export async function buildUnrealizedPnlAnalysis(
     selectedTickers,
     tradeMarkers,
     dataHealth: {
-      snapshotRowCount: filteredSnapshotRows.length,
-      provisionalRowCount: filteredSnapshotRows.filter((row) => row.isProvisional).length,
-      missingFxRowCount: filteredSnapshotRows.filter((row) => !row.fxAvailable).length,
-      nullUnrealizedRowCount: filteredSnapshotRows.filter((row) => row.unrealizedPnlAmount === null).length,
+      snapshotRowCount: portfolioSnapshotRows.length,
+      provisionalRowCount: portfolioSnapshotRows.filter((row) => row.isProvisional).length,
+      missingFxRowCount: portfolioSnapshotRows.filter((row) => !row.fxAvailable).length,
+      nullUnrealizedRowCount: portfolioSnapshotRows.filter((row) => row.unrealizedPnlAmount === null).length,
+      unavailableRowCount: portfolioSnapshotRows.filter((row) => !row.fxAvailable || row.unrealizedPnlAmount === null).length,
       excludedSoldOutTickerCount: tickerSeriesAll.length - includedTickerSeries.length,
     },
     diagnostics: {

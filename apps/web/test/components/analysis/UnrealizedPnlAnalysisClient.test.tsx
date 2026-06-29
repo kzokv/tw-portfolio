@@ -125,6 +125,40 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("view=compare");
   });
 
+  it("builds ticker toggles from pending manual selection while data refetches", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selectionMode: "manual" as const,
+      selected: ["US:NVDA"],
+      lineCount: 5,
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const rowCheckbox = (label: string): HTMLButtonElement | null => {
+      const row = Array.from(container.querySelectorAll("tr")).find((candidate) => candidate.textContent?.includes(label));
+      return row?.querySelector("button[role='checkbox']") ?? null;
+    };
+
+    act(() => {
+      rowCheckbox("AAPL US")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      rowCheckbox("2330 TW")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const lastUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
+    expect(lastUrl).toContain("selectionMode=manual");
+    expect(lastUrl).toContain("selectedTickers=TW%3A2330%2CUS%3AAAPL%2CUS%3ANVDA");
+  });
+
   it("hydrates presentation defaults from preferences when the URL does not override them", async () => {
     getJsonMock.mockResolvedValue({
       preferences: {

@@ -160,7 +160,7 @@ export function UnrealizedPnlAnalysisClient({
   }
 
   function toggleSeries(seriesId: string): void {
-    const current = new Set(data?.selectedSeriesIds ?? state.selected);
+    const current = new Set(state.selectionMode === "manual" ? state.selected : data?.selectedSeriesIds ?? state.selected);
     if (current.has(seriesId)) {
       current.delete(seriesId);
     } else if (current.size < state.lineCount) {

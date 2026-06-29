@@ -79,8 +79,8 @@ function mapApiAnalysis(
   const worstDriver = [...ranking]
     .filter((row) => row.periodChange !== null && row.periodChange < 0)
     .sort((left, right) => (left.periodChange ?? 0) - (right.periodChange ?? 0))[0] ?? null;
-  const missingRows = response.dataHealth.missingFxRowCount + response.dataHealth.nullUnrealizedRowCount;
-  const healthStatus = missingRows > 0 || response.dataHealth.provisionalRowCount > 0 ? "partial" : "complete";
+  const unavailableRows = response.dataHealth.unavailableRowCount;
+  const healthStatus = unavailableRows > 0 || response.dataHealth.provisionalRowCount > 0 ? "partial" : "complete";
 
   return {
     query: {
@@ -131,7 +131,7 @@ function mapApiAnalysis(
     dataHealth: {
       status: healthStatus,
       title: healthStatus === "complete" ? "Complete" : "Partial",
-      detail: `${response.dataHealth.snapshotRowCount} snapshot rows, ${missingRows} unavailable rows`,
+      detail: `${response.dataHealth.snapshotRowCount} snapshot rows, ${unavailableRows} unavailable rows`,
       provisionalIncluded: response.query.includeProvisional,
       stalePriceCount: response.dataHealth.provisionalRowCount,
       missingPriceCount: response.dataHealth.nullUnrealizedRowCount,

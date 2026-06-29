@@ -201,6 +201,10 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(openOnly.rankings).toHaveLength(0);
     expect(openOnly.portfolioSeries).toEqual([]);
     expect(openOnly.summary.endUnrealizedPnlAmount).toBeNull();
+    expect(openOnly.dataHealth.snapshotRowCount).toBe(0);
+    expect(openOnly.dataHealth.missingFxRowCount).toBe(0);
+    expect(openOnly.dataHealth.nullUnrealizedRowCount).toBe(0);
+    expect(openOnly.dataHealth.unavailableRowCount).toBe(0);
     expect(openOnly.dataHealth.excludedSoldOutTickerCount).toBe(1);
 
     const includeSoldOut = await buildUnrealizedPnlAnalysis(app, "user-1", {
@@ -578,6 +582,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
     expect(withoutProvisional.dataHealth.provisionalRowCount).toBe(0);
     expect(withoutProvisional.dataHealth.missingFxRowCount).toBe(1);
+    expect(withoutProvisional.dataHealth.nullUnrealizedRowCount).toBe(1);
+    expect(withoutProvisional.dataHealth.unavailableRowCount).toBe(1);
     expect(withoutProvisional.portfolioSeries[0]?.unrealizedPnlAmount).toBeNull();
 
     const withProvisional = await buildUnrealizedPnlAnalysis(app, "user-1", {

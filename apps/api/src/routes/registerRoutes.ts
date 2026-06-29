@@ -67,6 +67,7 @@ import {
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
+  unrealizedPnlAnalysisPresentationPreferenceSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
@@ -3922,6 +3923,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
+        .optional(),
+      analysisUnrealizedPnlDefaults: z
+        .union([unrealizedPnlAnalysisPresentationPreferenceSchema, z.null()])
         .optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])

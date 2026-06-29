@@ -862,6 +862,14 @@ export interface DashboardHoldingFocusPreferenceDto {
   selectedPreset: DashboardHoldingFocusPreset;
 }
 
+export interface UnrealizedPnlAnalysisPresentationPreferenceDto {
+  granularity?: "daily" | "weekly" | "monthly" | "yearly";
+  lineCount?: number;
+  holdingsState?: "current-only" | "include-sold";
+  reportingCurrency?: AccountDefaultCurrency;
+  includeProvisional?: boolean;
+}
+
 export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
 
 export interface HoldingsTableContextPreferenceDto {
@@ -939,6 +947,16 @@ export const dashboardHoldingFocusPreferenceSchema: z.ZodType<DashboardHoldingFo
       }
     }
   });
+
+export const unrealizedPnlAnalysisPresentationPreferenceSchema: z.ZodType<UnrealizedPnlAnalysisPresentationPreferenceDto> = z
+  .object({
+    granularity: z.enum(["daily", "weekly", "monthly", "yearly"]).optional(),
+    lineCount: z.number().int().min(1).max(20).optional(),
+    holdingsState: z.enum(["current-only", "include-sold"]).optional(),
+    reportingCurrency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
+    includeProvisional: z.boolean().optional(),
+  })
+  .strict();
 
 const holdingsTableColumnIdSchema = z.string().min(1).max(64);
 const holdingsTableContextKeySchema = z.string().min(1).max(96);
@@ -1509,6 +1527,7 @@ export interface UnrealizedPnlAnalysisDataHealthDto {
   provisionalRowCount: number;
   missingFxRowCount: number;
   nullUnrealizedRowCount: number;
+  unavailableRowCount: number;
   excludedSoldOutTickerCount: number;
 }
 
