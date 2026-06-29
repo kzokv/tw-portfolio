@@ -316,7 +316,9 @@ function aggregateBucketRows(
       const fxAvailable = bucketRows.every((row) => row.fxAvailable);
       const isProvisional = bucketRows.some((row) => row.isProvisional);
       const hasNullAmounts = bucketRows.some((row) =>
-        row.costBasisAmount === null || row.marketValueAmount === null || row.unrealizedPnlAmount === null,
+        row.quantity !== 0 && (
+          row.costBasisAmount === null || row.marketValueAmount === null || row.unrealizedPnlAmount === null
+        ),
       );
       const accountIds = [...new Set(bucketRows.map((row) => row.accountId))].sort();
       const quantity = roundToDecimal(bucketRows.reduce((sum, row) => sum + row.quantity, 0), 6);

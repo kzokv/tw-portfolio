@@ -173,7 +173,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     await seedSnapshots([
       makeSnapshot({ snapshotDate: "2026-01-02", quantity: 10, unrealizedPnl: 0, unrealizedPnlNative: 0 }),
       makeSnapshot({ snapshotDate: "2026-01-03", quantity: 5, costBasis: 500, costBasisNative: 500, marketValue: 600, valueNative: 600, unrealizedPnl: 100, unrealizedPnlNative: 100 }),
-      makeSnapshot({ snapshotDate: "2026-01-04", quantity: 0, costBasis: 0, costBasisNative: 0, marketValue: 0, valueNative: 0, unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ snapshotDate: "2026-01-04", quantity: 0, costBasis: 0, costBasisNative: 0, marketValue: null, valueNative: null, unrealizedPnl: null, unrealizedPnlNative: null }),
     ]);
 
     const openOnly = await buildUnrealizedPnlAnalysis(app, "user-1", {
@@ -193,8 +193,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
       holdingsState: "include_sold_out",
     });
     expect(includeSoldOut.rankings).toEqual([
-      expect.objectContaining({ ticker: "2330", marketCode: "TW", isSoldOut: true, latestQuantity: 0 }),
+      expect.objectContaining({ ticker: "2330", marketCode: "TW", isSoldOut: true, latestQuantity: 0, endUnrealizedPnlAmount: 0 }),
     ]);
+    expect(includeSoldOut.tickerSeries.at(-1)).toEqual(expect.objectContaining({ quantity: 0, unrealizedPnlAmount: 0 }));
     expect(includeSoldOut.tradeMarkers.map((marker) => marker.kind)).toEqual(["buy", "partial_sell", "full_exit"]);
   });
 

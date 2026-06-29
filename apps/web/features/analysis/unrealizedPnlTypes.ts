@@ -115,10 +115,10 @@ export interface UnrealizedPnlPointMarker {
 export interface UnrealizedPnlSeriesPoint {
   date: string;
   unrealizedPnl: number | null;
-  marketValue: number;
-  costBasis: number;
+  marketValue: number | null;
+  costBasis: number | null;
   quantity: number;
-  closePrice: number | null;
+  closePrice?: number | null;
   transactionContext: string;
 }
 

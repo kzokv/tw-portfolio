@@ -193,7 +193,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     expect(model.tickerSeries.find((series) => series.ticker === "MSFT")).toEqual(expect.objectContaining({
       endUnrealizedPnl: null,
       periodChange: null,
-      points: [expect.objectContaining({ unrealizedPnl: null })],
+      points: [expect.objectContaining({ unrealizedPnl: null, marketValue: null, costBasis: 975 })],
     }));
   });
 });

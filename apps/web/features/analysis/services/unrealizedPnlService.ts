@@ -239,10 +239,9 @@ function groupSeries(
       points: seriesPoints.map((point) => ({
         date: point.date,
         unrealizedPnl: point.unrealizedPnlAmount,
-        marketValue: point.marketValueAmount ?? 0,
-        costBasis: point.costBasisAmount ?? 0,
+        marketValue: point.marketValueAmount,
+        costBasis: point.costBasisAmount,
         quantity: point.quantity,
-        closePrice: null,
         transactionContext: point.isSoldOut ? "Sold-out position carried as zero after exit." : "Open-position snapshot.",
       })),
       markers: markersBySeriesId.get(seriesId) ?? [],

@@ -388,7 +388,9 @@ export function UnrealizedPnlAnalysisClient({
           {selectedSeries.map((series) => {
             const point = series.points.find((candidate) => candidate.date === focusDate) ?? series.points.at(-1);
             const focusedMarkers = series.markers.filter((marker) => marker.date === point?.date);
-            const healthLabel = point?.closePrice === null ? dict.healthPartial : dict.healthComplete;
+            const healthLabel = point && (point.unrealizedPnl === null || point.marketValue === null || point.costBasis === null)
+              ? dict.healthPartial
+              : dict.healthComplete;
             return (
               <div key={series.seriesId} className="rounded-md border border-border p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -401,8 +403,8 @@ export function UnrealizedPnlAnalysisClient({
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <DetailTerm label={dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, state.reportingCurrency, resolvedLocale)} />
                   <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
-                  <DetailTerm label={dict.detailMarketValue} value={formatCurrencyAmount(point?.marketValue ?? 0, state.reportingCurrency, resolvedLocale)} />
-                  <DetailTerm label={dict.detailCostBasis} value={formatCurrencyAmount(point?.costBasis ?? 0, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, state.reportingCurrency, resolvedLocale)} />
                   <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
                   <DetailTerm label={dict.detailState} value={healthLabel} />
                 </dl>
