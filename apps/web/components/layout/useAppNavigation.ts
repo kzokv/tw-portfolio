@@ -14,6 +14,7 @@ export function useAppNavigation(dict: AppDictionary, instruments: InstrumentOpt
   const navigationItems = useMemo(
     () => [
       { id: "dashboard", href: "/dashboard", label: dict.navigation.dashboardLabel, description: dict.navigation.dashboardDescription },
+      { id: "analysis", href: "/analysis", label: dict.navigation.analysisLabel, description: dict.navigation.analysisDescription },
       { id: "reports", href: "/reports", label: dict.navigation.reportsLabel, description: dict.navigation.reportsDescription },
       { id: "portfolio", href: "/portfolio", label: dict.navigation.portfolioLabel, description: dict.navigation.portfolioDescription },
       { id: "transactions", href: "/transactions", label: dict.navigation.transactionsLabel, description: dict.navigation.transactionsDescription },

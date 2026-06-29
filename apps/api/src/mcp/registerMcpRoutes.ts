@@ -95,6 +95,7 @@ import {
   getRecentTransactions,
   searchInstruments,
 } from "../services/mcpPortfolioRead.js";
+import { buildUnrealizedPnlAnalysis } from "../services/unrealizedPnlAnalysis.js";
 import {
   backfillTickers,
   getDailySnapshots,
@@ -416,6 +417,21 @@ export async function registerMcpRoutes(
             requestContext.resolvedContext.portfolioContextUserId,
             toReportInput(args),
           );
+          break;
+        case "get_unrealized_pnl_report":
+          result = await (async () => {
+            const report = await buildUnrealizedPnlAnalysis(
+              app,
+              requestContext.resolvedContext.portfolioContextUserId,
+              args as Parameters<typeof buildUnrealizedPnlAnalysis>[2],
+            );
+            const deepLinkUrl = `${app.appBaseUrl.replace(/\/$/, "")}${report.deepLink}`;
+            return {
+              ...report,
+              deepLinkUrl,
+              _meta: { deepLinkUrl },
+            };
+          })();
           break;
         case "get_quote_freshness":
           result = await getQuoteFreshness(

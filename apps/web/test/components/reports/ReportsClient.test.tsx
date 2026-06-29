@@ -640,6 +640,48 @@ describe("ReportsClient", () => {
     expect(drilldownLinks).toHaveLength(0);
   });
 
+  it("renders unrealized P&L analysis deep links for summary and holding rows", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=US&range=1M";
+    const scopedFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        scope: "US",
+        reportingCurrency: "USD",
+        range: "1M",
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        rows: portfolioFixture.holdings.rows.map((row) => ({
+          ...row,
+          ticker: "NVDA",
+          marketCode: "US",
+          reportingCurrency: "USD",
+        })),
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={scopedFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "US",
+        range: "1M",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const summaryHref = document.querySelector("[data-testid='reports-summary-unrealized-pnl-analysis-link']")?.getAttribute("href");
+    expect(summaryHref).toBe("/analysis/unrealized-pnl?range=1M&markets=US&reportingCurrency=USD");
+
+    const rowHref = document.querySelector("[data-testid='reports-holding-analysis-link-NVDA-US']")?.getAttribute("href");
+    expect(rowHref).toContain("/analysis/unrealized-pnl?");
+    expect(rowHref).toContain("selectedTickers=US%3ANVDA");
+    expect(rowHref).toContain("selectionMode=manual");
+    expect(rowHref).toContain("view=ticker-detail");
+    expect(rowHref).toContain("reportingCurrency=USD");
+  });
+
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
     userPreferencesMock.value = {

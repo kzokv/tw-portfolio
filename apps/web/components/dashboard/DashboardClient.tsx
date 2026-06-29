@@ -32,6 +32,7 @@ import { Badge } from "../ui/shadcn/badge";
 import { getRouteLoadingLabels } from "../layout/i18n";
 import type { TimelineMode } from "../../lib/timelineAxis";
 import { hydrateDashboardMarketStates, shouldPollForOpenMarket, type DashboardMarketStateLike } from "../../features/price-state/priceState";
+import { buildUnrealizedPnlRoutePath } from "../../features/analysis/unrealizedPnlRouteState";
 import {
   Card as ShadcnCard,
   CardContent,
@@ -601,6 +602,10 @@ export function DashboardCommandModules({
     .sort((left, right) => Math.abs(right.change ?? 0) - Math.abs(left.change ?? 0))[0] ?? null;
   const marketCount = new Set(groups.map((group) => group.marketCode)).size;
   const reportRangeParams = "range=1Y";
+  const unrealizedAnalysisHref = buildUnrealizedPnlRoutePath({
+    range: "3M",
+    reportingCurrency: summary.reportingCurrency,
+  });
 
   return (
     <section className="grid gap-3 md:grid-cols-3" data-testid="dashboard-command-modules">
@@ -649,7 +654,15 @@ export function DashboardCommandModules({
           : "-"}
       >
         <p className="text-sm text-muted-foreground">
-          {dict.dashboardHome.commandUnrealizedLabel} {summary.unrealizedPnlAmount === null ? "-" : formatCompactCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)}
+          <Link
+            href={unrealizedAnalysisHref}
+            className="inline-flex items-center gap-1 rounded-sm underline decoration-primary/30 underline-offset-4 hover:text-foreground"
+            aria-label={dict.reports.openUnrealizedPnlAnalysis}
+            data-testid="dashboard-unrealized-pnl-analysis-link"
+          >
+            <span>{dict.dashboardHome.commandUnrealizedLabel}</span>
+            <span>{summary.unrealizedPnlAmount === null ? "-" : formatCompactCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)}</span>
+          </Link>
         </p>
       </DashboardCommandCard>
     </section>

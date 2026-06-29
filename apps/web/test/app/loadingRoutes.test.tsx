@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { LOCALE_OVERRIDE_COOKIE } from "../../lib/i18n/localeOverrideCookie";
 import PortfolioLoading from "../../app/portfolio/loading";
+import AnalysisLoading from "../../app/analysis/loading";
 import ReportsLoading from "../../app/reports/loading";
 import SettingsLoading from "../../app/settings/loading";
 import TransactionsLoading from "../../app/transactions/loading";
@@ -57,9 +58,10 @@ describe("route loading i18n", () => {
     expect(html).toContain("Preparing price history, fundamentals, and your current position context.");
   });
 
-  it("keeps settings, transactions, and reports loading routes locale-aware", async () => {
+  it("keeps analysis, settings, transactions, and reports loading routes locale-aware", async () => {
     mockLocaleCookie("zh-TW");
 
+    await expect(renderLoading(AnalysisLoading)).resolves.toContain("載入分析中");
     await expect(renderLoading(SettingsLoading)).resolves.toContain("載入設定中");
     await expect(renderLoading(TransactionsLoading)).resolves.toContain("載入交易工作區中");
     await expect(renderLoading(ReportsLoading)).resolves.toContain("載入報表中");

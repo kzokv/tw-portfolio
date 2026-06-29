@@ -4035,6 +4035,61 @@ export class MemoryPersistence implements Persistence {
     };
   }
 
+  async listUnrealizedPnlAnalysisSnapshots(
+    userId: string,
+    options: import("./types.js").UnrealizedPnlAnalysisSnapshotOptions,
+  ): Promise<import("./types.js").UnrealizedPnlAnalysisSnapshotRow[]> {
+    const accountIdFilter = options.accountIds && options.accountIds.length > 0 ? new Set(options.accountIds) : null;
+    const marketFilter = options.markets && options.markets.length > 0 ? new Set(options.markets) : null;
+    const tickerFilter = options.tickers && options.tickers.length > 0
+      ? new Set(options.tickers.map((ticker) => ticker.trim().toUpperCase()))
+      : null;
+    const rows = this.holdingSnapshots
+      .filter((snapshot) => {
+        if (snapshot.userId !== userId) return false;
+        if (snapshot.snapshotDate < options.startDate || snapshot.snapshotDate > options.endDate) return false;
+        if (!options.includeProvisional && snapshot.isProvisional) return false;
+        if (accountIdFilter && !accountIdFilter.has(snapshot.accountId)) return false;
+        if (marketFilter && !marketFilter.has(snapshot.marketCode)) return false;
+        if (tickerFilter && !tickerFilter.has(snapshot.ticker.toUpperCase())) return false;
+        return true;
+      })
+      .sort((left, right) =>
+        left.snapshotDate.localeCompare(right.snapshotDate)
+        || left.marketCode.localeCompare(right.marketCode)
+        || left.ticker.localeCompare(right.ticker)
+        || left.accountId.localeCompare(right.accountId),
+      );
+
+    const result: import("./types.js").UnrealizedPnlAnalysisSnapshotRow[] = [];
+    for (const row of rows) {
+      const fxRate = row.currency === options.reportingCurrency
+        ? 1
+        : await this.getFxRate(row.currency, options.reportingCurrency, row.snapshotDate);
+      const fxAvailable = fxRate !== null;
+      result.push({
+        accountId: row.accountId,
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+        snapshotDate: row.snapshotDate,
+        quantity: row.quantity,
+        closePrice: row.closePrice,
+        nativeCurrency: row.currency,
+        reportingCurrency: options.reportingCurrency,
+        costBasisAmount: fxAvailable ? roundToDecimal((row.costBasisNative ?? row.costBasis) * fxRate, 2) : null,
+        marketValueAmount: fxAvailable && row.valueNative !== null
+          ? roundToDecimal(row.valueNative * fxRate, 2)
+          : null,
+        unrealizedPnlAmount: fxAvailable && row.unrealizedPnlNative !== null
+          ? roundToDecimal(row.unrealizedPnlNative * fxRate, 2)
+          : null,
+        isProvisional: row.isProvisional,
+        fxAvailable,
+      });
+    }
+    return result;
+  }
+
   async saveMcpReplayPreview(record: import("./types.js").McpReplayPreviewRecord): Promise<void> {
     this.mcpReplayPreviews.set(record.id, structuredClone(record));
   }

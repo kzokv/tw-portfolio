@@ -143,6 +143,8 @@ function resolveSegmentLabel(
  */
 function resolveLocalizedLabel(pathname: string, dict: AppDictionary): string | null {
   if (pathname === "/dashboard") return dict.commandPalette.routeDashboard;
+  if (pathname === "/analysis") return dict.commandPalette.routeAnalysis;
+  if (pathname === "/analysis/unrealized-pnl") return dict.analysis.breadcrumbDetail;
   if (pathname === "/reports") return dict.commandPalette.routeReports;
   if (pathname === "/portfolio") return dict.commandPalette.routePortfolio;
   if (pathname === "/transactions") return dict.commandPalette.routeTransactions;

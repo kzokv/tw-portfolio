@@ -77,9 +77,10 @@ export interface UseTransactionMutationsResult {
 }
 
 const SAFETY_NET_MS = 10_000;
-const MUTATION_ROUTE_CACHE_TAGS = [
+export const MUTATION_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "dashboard-primary"),
   buildRouteDtoCacheTag("route", "dashboard-performance"),
+  buildRouteDtoCacheTag("route", "analysis-unrealized-pnl"),
   buildRouteDtoCacheTag("route", "portfolio-primary"),
   buildRouteDtoCacheTag("route", "reports"),
   buildRouteDtoCacheTag("route", "transactions-primary"),

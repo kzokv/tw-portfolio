@@ -1,6 +1,7 @@
 import type { LocaleCode } from "@vakwen/shared-types";
 import { layoutI18n } from "../components/layout/i18n";
 import { cashLedgerI18n } from "../features/cash-ledger/i18n";
+import { analysisI18n } from "../features/analysis/i18n";
 import { dashboardI18n } from "../features/dashboard/i18n";
 import { dividendsI18n } from "../features/dividends/i18n";
 import { notificationsI18n } from "../features/notifications/i18n";
@@ -19,6 +20,7 @@ export function getDictionary(locale: LocaleCode): AppDictionary {
   const settingsBlock = settingsI18n[localeKey];
   return {
     ...commonI18n[localeKey],
+    ...analysisI18n[localeKey],
     ...cashLedgerI18n[localeKey],
     ...dashboardI18n[localeKey],
     ...dividendsI18n[localeKey],

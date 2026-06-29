@@ -42,7 +42,7 @@ import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
 import { useSnapshotGeneration } from "./useSnapshotGeneration";
 import { deriveSharedContextPermissions } from "../../features/sharing/capabilities";
 
-type AppSection = "dashboard" | "reports" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
+type AppSection = "dashboard" | "analysis" | "reports" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
 interface AppShellProps {
   section?: AppSection;
@@ -80,6 +80,7 @@ const DEFAULT_TRANSACTION: TransactionInput = {
 function isEditableQuickActionsPath(pathname: string): boolean {
   return [
     "/dashboard",
+    "/analysis",
     "/reports",
     "/portfolio",
     "/transactions",

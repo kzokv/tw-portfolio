@@ -7,7 +7,7 @@ interface BreadcrumbFallbackEntry {
 }
 
 interface BreadcrumbResolverOptions {
-  dict?: Pick<AppDictionary, "commandPalette" | "navigation" | "settings" | "sharing">;
+  dict?: Pick<AppDictionary, "analysis" | "commandPalette" | "navigation" | "settings" | "sharing">;
   locale?: LocaleCode | null;
 }
 
@@ -28,6 +28,8 @@ const STATIC_FALLBACKS: Record<"en" | "zh-TW", ReadonlyArray<BreadcrumbFallbackE
     { pathname: "/settings/privacy", label: "Privacy" },
     { pathname: "/settings", label: "Settings" },
     { pathname: "/dashboard", label: "Dashboard" },
+    { pathname: "/analysis/unrealized-pnl", label: "Unrealized P&L" },
+    { pathname: "/analysis", label: "Analysis" },
     { pathname: "/reports", label: "Reports" },
     { pathname: "/portfolio", label: "Portfolio" },
     { pathname: "/transactions", label: "Transactions" },
@@ -52,6 +54,8 @@ const STATIC_FALLBACKS: Record<"en" | "zh-TW", ReadonlyArray<BreadcrumbFallbackE
     { pathname: "/settings/privacy", label: "隱私" },
     { pathname: "/settings", label: "設定" },
     { pathname: "/dashboard", label: "儀表板" },
+    { pathname: "/analysis/unrealized-pnl", label: "未實現損益" },
+    { pathname: "/analysis", label: "分析" },
     { pathname: "/reports", label: "報表" },
     { pathname: "/portfolio", label: "持倉" },
     { pathname: "/transactions", label: "交易" },
@@ -72,6 +76,8 @@ function dictionaryLabel(
 ): string | null {
   if (!dict) return null;
   if (pathname === "/dashboard") return dict.commandPalette.routeDashboard;
+  if (pathname === "/analysis") return dict.commandPalette.routeAnalysis;
+  if (pathname === "/analysis/unrealized-pnl") return dict.analysis.breadcrumbDetail;
   if (pathname === "/reports") return dict.commandPalette.routeReports;
   if (pathname === "/portfolio") return dict.commandPalette.routePortfolio;
   if (pathname === "/transactions") return dict.commandPalette.routeTransactions;

@@ -7823,6 +7823,179 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
+  async listUnrealizedPnlAnalysisSnapshots(
+    userId: string,
+    options: import("./types.js").UnrealizedPnlAnalysisSnapshotOptions,
+  ): Promise<import("./types.js").UnrealizedPnlAnalysisSnapshotRow[]> {
+    const where = ["s.user_id = $1", "s.snapshot_date >= $2::date", "s.snapshot_date <= $3::date"];
+    const params: unknown[] = [userId, options.startDate, options.endDate];
+    let i = 4;
+    if (!options.includeProvisional) {
+      where.push("s.is_provisional = FALSE");
+    }
+    if (options.accountIds && options.accountIds.length > 0) {
+      where.push(`s.account_id = ANY($${i++}::text[])`);
+      params.push(options.accountIds);
+    }
+    if (options.markets && options.markets.length > 0) {
+      where.push(`s.market_code = ANY($${i++}::text[])`);
+      params.push(options.markets);
+    }
+    if (options.tickers && options.tickers.length > 0) {
+      where.push(`UPPER(s.ticker) = ANY($${i++}::text[])`);
+      params.push(options.tickers.map((ticker) => ticker.trim().toUpperCase()));
+    }
+
+    const result = await this.pool.query<{
+      account_id: string;
+      ticker: string;
+      market_code: MarketCode;
+      snapshot_date: string;
+      quantity: string;
+      close_price: string | null;
+      currency: string;
+      cost_basis: string;
+      cost_basis_native: string | null;
+      market_value: string | null;
+      value_native: string | null;
+      unrealized_pnl: string | null;
+      unrealized_pnl_native: string | null;
+      is_provisional: boolean;
+    }>(
+      `SELECT s.account_id,
+              s.ticker,
+              s.market_code,
+              s.snapshot_date::text,
+              s.quantity::text,
+              s.close_price::text,
+              s.currency,
+              s.cost_basis::text,
+              s.cost_basis_native::text,
+              s.market_value::text,
+              s.value_native::text,
+              s.unrealized_pnl::text,
+              s.unrealized_pnl_native::text,
+              s.is_provisional
+         FROM daily_holding_snapshots s
+        WHERE ${where.join(" AND ")}
+        ORDER BY s.snapshot_date ASC, s.market_code ASC, s.ticker ASC, s.account_id ASC`,
+      params,
+    );
+
+    const fxRateByKey = new Map<string, number | null>();
+    const fxPairs = [...new Map(result.rows
+      .map((row) => {
+        const nativeCurrency = row.currency.trim();
+        return [`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`, {
+          base: nativeCurrency,
+          quote: options.reportingCurrency,
+          as_of_date: row.snapshot_date,
+        }];
+      })).values()];
+    const nonSelfPairs = fxPairs.filter((pair) => pair.base !== pair.quote);
+    for (const pair of fxPairs.filter((item) => item.base === item.quote)) {
+      fxRateByKey.set(`${pair.base}\0${pair.quote}\0${pair.as_of_date}`, 1);
+    }
+    if (nonSelfPairs.length > 0) {
+      const pivot = "TWD";
+      const fxResult = await this.pool.query<{
+        base: string;
+        quote: string;
+        as_of_date: string;
+        direct_rate: string | null;
+        inverse_rate: string | null;
+        base_to_pivot_direct_rate: string | null;
+        pivot_to_base_rate: string | null;
+        quote_to_pivot_direct_rate: string | null;
+        pivot_to_quote_rate: string | null;
+      }>(
+        `WITH pairs AS (
+           SELECT base, quote, as_of_date
+             FROM jsonb_to_recordset($1::jsonb) AS pair(base text, quote text, as_of_date date)
+         )
+         SELECT p.base,
+                p.quote,
+                p.as_of_date::text,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS inverse_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS base_to_pivot_direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_base_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS quote_to_pivot_direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_quote_rate
+           FROM pairs p`,
+        [JSON.stringify(nonSelfPairs), pivot],
+      );
+      for (const row of fxResult.rows) {
+        const directRate = row.direct_rate === null ? null : Number(row.direct_rate);
+        const inverseRate = row.inverse_rate === null ? null : Number(row.inverse_rate);
+        const baseToPivot = row.base === pivot
+          ? 1.0
+          : rateOrInverse(row.base_to_pivot_direct_rate, row.pivot_to_base_rate);
+        const quoteToPivot = row.quote === pivot
+          ? 1.0
+          : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
+        const resolvedRate = directRate
+          ?? (inverseRate !== null && inverseRate !== 0 ? 1 / inverseRate : null)
+          ?? (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0 ? baseToPivot / quoteToPivot : null);
+        fxRateByKey.set(`${row.base}\0${row.quote}\0${row.as_of_date}`, resolvedRate);
+      }
+    }
+
+    const translatedRows: import("./types.js").UnrealizedPnlAnalysisSnapshotRow[] = [];
+    for (const row of result.rows) {
+      const nativeCurrency = row.currency.trim();
+      const fxRate = fxRateByKey.get(`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`) ?? null;
+      const fxAvailable = fxRate !== null;
+      translatedRows.push({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        marketCode: row.market_code,
+        snapshotDate: row.snapshot_date,
+        quantity: Number(row.quantity),
+        closePrice: row.close_price !== null ? Number(row.close_price) : null,
+        nativeCurrency,
+        reportingCurrency: options.reportingCurrency,
+        costBasisAmount: fxAvailable
+          ? roundToDecimal(Number(row.cost_basis_native ?? row.cost_basis) * fxRate, 2)
+          : null,
+        marketValueAmount: fxAvailable && row.value_native !== null
+          ? roundToDecimal(Number(row.value_native) * fxRate, 2)
+          : null,
+        unrealizedPnlAmount: fxAvailable && row.unrealized_pnl_native !== null
+          ? roundToDecimal(Number(row.unrealized_pnl_native) * fxRate, 2)
+          : null,
+        isProvisional: row.is_provisional,
+        fxAvailable,
+      });
+    }
+
+    return translatedRows;
+  }
+
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
   // Mirrors the unnest-arrays pattern from `bulkUpsertHoldingSnapshots`. PK is
   // (account_id, currency, date) per D7 — no `user_id` in the conflict target
