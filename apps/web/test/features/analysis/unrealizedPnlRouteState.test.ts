@@ -10,6 +10,7 @@ import {
   getExplicitAnalysisPreferenceKeys,
   mapPerformanceRangeToAnalysisRange,
   parseAnalysisPresentationDefaults,
+  parseAnalysisPresentationDefaultsFromPreferences,
   parseUnrealizedPnlRouteState,
   unrealizedPnlRouteStateToSearchParams,
 } from "../../../features/analysis/unrealizedPnlRouteState";
@@ -195,6 +196,22 @@ describe("unrealizedPnlRouteState", () => {
       holdingsState: "include-sold",
       reportingCurrency: "USD",
       includeProvisional: true,
+    });
+  });
+
+  it("uses the global reporting currency as the analysis default when no analysis-specific currency is saved", () => {
+    expect(parseAnalysisPresentationDefaultsFromPreferences({
+      reportingCurrency: "AUD",
+    })).toEqual({ reportingCurrency: "AUD" });
+    expect(parseAnalysisPresentationDefaultsFromPreferences({
+      analysisUnrealizedPnlDefaults: {
+        granularity: "monthly",
+        reportingCurrency: "USD",
+      },
+      reportingCurrency: "AUD",
+    })).toEqual({
+      granularity: "monthly",
+      reportingCurrency: "USD",
     });
   });
 });

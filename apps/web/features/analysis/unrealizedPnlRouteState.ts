@@ -35,6 +35,7 @@ export const ANALYSIS_DEFAULT_STATE: UnrealizedPnlAnalysisRouteState = {
   view: "overview",
 };
 
+export const ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY = "analysisUnrealizedPnlDefaults";
 export const ANALYSIS_MAX_LINE_COUNT = 20;
 const FIVE_YEAR_RANGES = new Set<AnalysisRangeOption>(["1M", "3M", "YTD", "1Y", "3Y", "5Y", "CUSTOM"]);
 
@@ -100,6 +101,20 @@ export function parseAnalysisPresentationDefaults(value: unknown): UnrealizedPnl
     parsed.includeProvisional = source.includeProvisional;
   }
 
+  return Object.keys(parsed).length > 0 ? parsed : null;
+}
+
+export function parseAnalysisPresentationDefaultsFromPreferences(
+  preferences: Record<string, unknown> | undefined,
+): UnrealizedPnlAnalysisPresentationDefaults | null {
+  const parsed = parseAnalysisPresentationDefaults(preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]) ?? {};
+  if (
+    parsed.reportingCurrency === undefined
+    && typeof preferences?.reportingCurrency === "string"
+    && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(preferences.reportingCurrency)
+  ) {
+    parsed.reportingCurrency = preferences.reportingCurrency as AccountDefaultCurrency;
+  }
   return Object.keys(parsed).length > 0 ? parsed : null;
 }
 

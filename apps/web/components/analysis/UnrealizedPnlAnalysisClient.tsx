@@ -15,10 +15,11 @@ import { useAppShellData } from "../layout/AppShellDataContext";
 import { useUnrealizedPnlData } from "../../features/analysis/hooks/useUnrealizedPnlData";
 import {
   ANALYSIS_DEFAULT_STATE,
+  ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
   EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
   applyAnalysisPresentationDefaults,
   extractAnalysisPresentationDefaults,
-  parseAnalysisPresentationDefaults,
+  parseAnalysisPresentationDefaultsFromPreferences,
   unrealizedPnlRouteStateToSearchParams,
   updateAnalysisSelection,
 } from "../../features/analysis/unrealizedPnlRouteState";
@@ -46,8 +47,6 @@ interface UnrealizedPnlAnalysisClientProps {
 interface UserPreferencesResponse {
   preferences?: Record<string, unknown>;
 }
-
-const ANALYSIS_PREFERENCE_KEY = "analysisUnrealizedPnlDefaults";
 
 const RANGE_OPTIONS: AnalysisRangeOption[] = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"];
 const EXTENDED_RANGE_OPTIONS: AnalysisRangeOption[] = [...RANGE_OPTIONS, "CUSTOM"];
@@ -87,7 +86,7 @@ export function UnrealizedPnlAnalysisClient({
     void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
-        const defaults = parseAnalysisPresentationDefaults(response.preferences?.[ANALYSIS_PREFERENCE_KEY]);
+        const defaults = parseAnalysisPresentationDefaultsFromPreferences(response.preferences);
         didHydratePreferencesRef.current = true;
         if (!defaults) return;
         setState((current) => {
@@ -152,7 +151,7 @@ export function UnrealizedPnlAnalysisClient({
     lastPersistedPreferencesRef.current = serialized;
     void patchJson(
       "/user-preferences",
-      { [ANALYSIS_PREFERENCE_KEY]: payload },
+      { [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: payload },
       { contextScope: "session" },
     ).catch(() => {
       lastPersistedPreferencesRef.current = null;

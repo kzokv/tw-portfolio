@@ -5,7 +5,9 @@ import { AppShell } from "../../../components/layout/AppShell";
 import { getRouteLoadingLabels } from "../../../components/layout/i18n";
 import { UnrealizedPnlAnalysisClient } from "../../../components/analysis/UnrealizedPnlAnalysisClient";
 import {
+  applyAnalysisPresentationDefaults,
   getExplicitAnalysisPreferenceKeys,
+  parseAnalysisPresentationDefaultsFromPreferences,
   parseUnrealizedPnlRouteState,
 } from "../../../features/analysis/unrealizedPnlRouteState";
 import { requireSession } from "../../../lib/auth";
@@ -17,16 +19,25 @@ interface UnrealizedPnlPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+interface UserPreferencesResponse {
+  preferences?: Record<string, unknown>;
+}
+
 export default async function UnrealizedPnlPage({ searchParams }: UnrealizedPnlPageProps) {
   const rawSearchParams = await searchParams;
-  const initialState = parseUnrealizedPnlRouteState(rawSearchParams);
+  const parsedState = parseUnrealizedPnlRouteState(rawSearchParams);
   const explicitPreferenceKeys = getExplicitAnalysisPreferenceKeys(rawSearchParams);
-  const [session, profile, sidebarOpen, settings] = await Promise.all([
+  const [session, profile, sidebarOpen, settings, preferences] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
+    getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" }).catch(() => null),
   ]);
+  const initialDefaults = parseAnalysisPresentationDefaultsFromPreferences(preferences?.preferences);
+  const initialState = initialDefaults
+    ? applyAnalysisPresentationDefaults(parsedState, initialDefaults, explicitPreferenceKeys)
+    : parsedState;
   const locale = settings?.locale ?? "en";
   const loadingCopy = getRouteLoadingLabels(locale).analysis;
 
