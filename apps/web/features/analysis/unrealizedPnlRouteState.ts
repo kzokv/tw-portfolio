@@ -211,9 +211,8 @@ function unrealizedPnlStateToSearchParams(
   options: { includePresentationState: boolean },
 ): URLSearchParams {
   const params = new URLSearchParams();
-  const hasCustomDate = state.from !== null || state.to !== null;
   const shouldIncludeRange = state.range !== ANALYSIS_DEFAULT_STATE.range
-    && (options.includePresentationState || state.range !== "CUSTOM" || hasCustomDate);
+    && (options.includePresentationState || state.range !== "CUSTOM");
 
   if (shouldIncludeRange) params.set("range", state.range);
   if (state.range === "CUSTOM") {

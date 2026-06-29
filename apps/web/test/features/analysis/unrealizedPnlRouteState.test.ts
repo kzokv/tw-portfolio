@@ -68,6 +68,9 @@ describe("unrealizedPnlRouteState", () => {
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toBe(
       "range=CUSTOM&fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7&reportingCurrency=TWD",
     );
+    expect(buildUnrealizedPnlApiPath(state)).toBe(
+      "/analysis/unrealized-pnl?fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7&reportingCurrency=TWD",
+    );
   });
 
   it("maps report/dashboard ranges and route overrides through the shared analysis serializer", () => {
