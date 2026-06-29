@@ -252,6 +252,24 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("focus=2026-04-24");
   });
 
+  it("restores the focus scrub position from deep-link state", () => {
+    const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={focusedState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const slider = container.querySelector("[data-testid='analysis-focus-scrub']") as HTMLInputElement | null;
+    expect(slider).not.toBeNull();
+    expect(slider?.value).toBe("2");
+    expect(container.textContent).toContain("Apr 24, 2026");
+  });
+
   it("formats ranking and detail amounts with the response currency", () => {
     const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE, "AUD");
 

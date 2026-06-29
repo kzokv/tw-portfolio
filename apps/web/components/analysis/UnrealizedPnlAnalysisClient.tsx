@@ -112,7 +112,9 @@ export function UnrealizedPnlAnalysisClient({
   const selectedSet = useMemo(() => new Set(data?.selectedSeriesIds ?? state.selected), [data?.selectedSeriesIds, state.selected]);
   const chartDates = useMemo(() => collectChartDates(data?.tickerSeries ?? []), [data?.tickerSeries]);
   const maxFocusIndex = Math.max(0, chartDates.length - 1);
-  const focusDate = chartDates[Math.min(focusIndex, maxFocusIndex)] ?? null;
+  const stateFocusIndex = state.focusDate ? chartDates.indexOf(state.focusDate) : -1;
+  const activeFocusIndex = stateFocusIndex >= 0 ? stateFocusIndex : Math.min(focusIndex, maxFocusIndex);
+  const focusDate = chartDates[activeFocusIndex] ?? null;
   const responseCurrency = data?.query.reportingCurrency ?? state.reportingCurrency;
   const selectedSeries = useMemo(
     () => (data?.tickerSeries ?? []).filter((series) => selectedSet.has(series.seriesId)),
@@ -331,7 +333,7 @@ export function UnrealizedPnlAnalysisClient({
               max={maxFocusIndex}
               min={0}
               type="range"
-              value={Math.min(focusIndex, maxFocusIndex)}
+              value={activeFocusIndex}
               onChange={(event) => updateFocus(Number(event.currentTarget.value))}
             />
             <div className="mt-2 text-sm text-muted-foreground">
