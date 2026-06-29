@@ -177,7 +177,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     }, { signal: controller.signal });
 
     expect(getJsonMock).toHaveBeenCalledWith(
-      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
+      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=TWD",
       { contextScope: "portfolio", signal: controller.signal },
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);

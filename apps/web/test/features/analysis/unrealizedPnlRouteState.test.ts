@@ -52,7 +52,7 @@ describe("unrealizedPnlRouteState", () => {
     });
   });
 
-  it("preserves custom date ranges and omits defaults from URLs", () => {
+  it("preserves custom date ranges and omits non-currency defaults from URLs", () => {
     const state = parseUnrealizedPnlRouteState({
       range: "CUSTOM",
       from: "2026-01-01",
@@ -65,7 +65,7 @@ describe("unrealizedPnlRouteState", () => {
     expect(state.from).toBe("2026-01-01");
     expect(state.to).toBe("2026-06-01");
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toBe(
-      "range=CUSTOM&fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7",
+      "range=CUSTOM&fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7&reportingCurrency=TWD",
     );
   });
 
@@ -83,7 +83,22 @@ describe("unrealizedPnlRouteState", () => {
       reportingCurrency: "USD",
     })).toBe("/analysis/unrealized-pnl?range=1M&markets=US&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=USD");
     expect(buildUnrealizedPnlRoutePath({ range: "ALL" })).toBe(
-      "/analysis/unrealized-pnl?range=ALL&granularity=yearly",
+      "/analysis/unrealized-pnl?range=ALL&granularity=yearly&reportingCurrency=TWD",
+    );
+  });
+
+  it("serializes explicit TWD reporting currency for deterministic analysis requests and deep links", () => {
+    const state = {
+      ...ANALYSIS_DEFAULT_STATE,
+      range: "1M" as const,
+      reportingCurrency: "TWD" as const,
+    };
+
+    expect(buildUnrealizedPnlRoutePath(state)).toBe(
+      "/analysis/unrealized-pnl?range=1M&reportingCurrency=TWD",
+    );
+    expect(buildUnrealizedPnlApiPath(state)).toBe(
+      "/analysis/unrealized-pnl?range=1M&reportingCurrency=TWD",
     );
   });
 
@@ -100,7 +115,7 @@ describe("unrealizedPnlRouteState", () => {
     expect(buildUnrealizedPnlRoutePath(state)).toContain("focus=2026-06-26");
     expect(buildUnrealizedPnlRoutePath(state)).toContain("view=compare");
     expect(buildUnrealizedPnlApiPath(state)).toBe(
-      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
+      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=TWD",
     );
   });
 
@@ -111,8 +126,8 @@ describe("unrealizedPnlRouteState", () => {
     };
 
     expect(canFetchUnrealizedPnlAnalysis(incompleteCustomState)).toBe(false);
-    expect(buildUnrealizedPnlRoutePath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?range=CUSTOM");
-    expect(buildUnrealizedPnlApiPath(incompleteCustomState)).toBe("/analysis/unrealized-pnl");
+    expect(buildUnrealizedPnlRoutePath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?range=CUSTOM&reportingCurrency=TWD");
+    expect(buildUnrealizedPnlApiPath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?reportingCurrency=TWD");
     expect(canFetchUnrealizedPnlAnalysis({
       ...incompleteCustomState,
       from: "2026-01-01",

@@ -213,7 +213,7 @@ function unrealizedPnlStateToSearchParams(
   if (state.selected.length > 0) params.set("selectedTickers", state.selected.join(","));
   if (state.lineCount !== ANALYSIS_DEFAULT_STATE.lineCount) params.set("comparisonLineCount", String(state.lineCount));
   if (state.holdingsState !== ANALYSIS_DEFAULT_STATE.holdingsState) params.set("holdingsState", toApiHoldingsState(state.holdingsState));
-  if (state.reportingCurrency !== ANALYSIS_DEFAULT_STATE.reportingCurrency) params.set("reportingCurrency", state.reportingCurrency);
+  params.set("reportingCurrency", state.reportingCurrency);
   if (state.includeProvisional) params.set("includeProvisional", "true");
   if (state.instrumentTypes.length > 0) params.set("instrumentTypes", state.instrumentTypes.join(","));
   if (options.includePresentationState) {
