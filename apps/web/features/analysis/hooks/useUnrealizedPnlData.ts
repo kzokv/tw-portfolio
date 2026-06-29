@@ -84,6 +84,8 @@ export function useUnrealizedPnlData({
     requestVersionRef.current += 1;
     const version = requestVersionRef.current;
     if (!canFetchUnrealizedPnlAnalysis(state)) {
+      setData(null);
+      setCacheStatus(null);
       setIsBootstrapping(false);
       setIsRefreshing(false);
       setErrorMessage("");
@@ -123,6 +125,8 @@ export function useUnrealizedPnlData({
 
   useEffect(() => {
     if (!canFetchUnrealizedPnlAnalysis(state)) {
+      setData(null);
+      setCacheStatus(null);
       setIsBootstrapping(false);
       setIsRefreshing(false);
       setErrorMessage("");

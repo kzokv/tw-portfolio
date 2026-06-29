@@ -272,6 +272,93 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.selectedTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);
   });
 
+  it("counts trade markers for ranking rows outside the selected chart lines", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    const store = await persistence.loadStore("user-1");
+    await seedTrades([
+      makeTrade(store, { ticker: "2330", marketCode: "TW", tradeDate: "2026-01-02", type: "BUY", quantity: 10 }),
+      makeTrade(store, { ticker: "0050", marketCode: "TW", tradeDate: "2026-01-02", type: "BUY", quantity: 20 }),
+    ]);
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-02", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-02", quantity: 20, unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 20, unrealizedPnl: 20, unrealizedPnlNative: 20, marketValue: 2020, valueNative: 2020 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-02",
+      toDate: "2026-01-31",
+      comparisonLineCount: 1,
+      holdingsState: "include_sold_out",
+    });
+
+    expect(report.selectedTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
+    expect(report.tradeMarkers).toEqual([
+      expect.objectContaining({ ticker: "2330", marketCode: "TW", kind: "buy" }),
+    ]);
+    expect(report.rankings.map((row) => [row.ticker, row.tradeMarkerCount])).toEqual([
+      ["2330", 1],
+      ["0050", 1],
+    ]);
+  });
+
+  it("treats zero-quantity sold-out FX rows as deterministic zero exposure", async () => {
+    await seedInstrument({ ticker: "AAPL", marketCode: "US", instrumentType: "STOCK", name: "Apple" });
+    await seedSnapshots([
+      makeSnapshot({
+        ticker: "AAPL",
+        marketCode: "US",
+        currency: "USD",
+        snapshotDate: "2026-01-02",
+        quantity: 2,
+        costBasis: 300,
+        costBasisNative: 10,
+        marketValue: 360,
+        valueNative: 12,
+        unrealizedPnl: 60,
+        unrealizedPnlNative: 2,
+      }),
+      makeSnapshot({
+        ticker: "AAPL",
+        marketCode: "US",
+        currency: "USD",
+        snapshotDate: "2026-01-31",
+        quantity: 0,
+        costBasis: 0,
+        costBasisNative: 0,
+        marketValue: null,
+        valueNative: null,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+      }),
+    ]);
+    await seedFxRates([{ date: "2026-01-02", baseCurrency: "USD", quoteCurrency: "TWD", rate: 30, source: "test" }]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-02",
+      toDate: "2026-01-31",
+      holdingsState: "include_sold_out",
+      reportingCurrency: "TWD",
+    });
+
+    expect(report.rankings).toEqual([
+      expect.objectContaining({ ticker: "AAPL", marketCode: "US", endUnrealizedPnlAmount: 0, latestQuantity: 0 }),
+    ]);
+    expect(report.tickerSeries.at(-1)).toEqual(expect.objectContaining({
+      ticker: "AAPL",
+      marketCode: "US",
+      quantity: 0,
+      unrealizedPnlAmount: 0,
+      marketValueAmount: 0,
+      costBasisAmount: 0,
+      fxAvailable: true,
+    }));
+  });
+
   it("uses actual boundary buckets for period change instead of skipping null boundaries", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedSnapshots([

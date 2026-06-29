@@ -313,7 +313,7 @@ function aggregateBucketRows(
     .filter((descriptor) => byBucket.has(descriptor.key))
     .map((descriptor) => {
       const bucketRows = byBucket.get(descriptor.key)!;
-      const fxAvailable = bucketRows.every((row) => row.fxAvailable);
+      const fxAvailable = bucketRows.every((row) => row.quantity === 0 || row.fxAvailable);
       const isProvisional = bucketRows.some((row) => row.isProvisional);
       const hasNullAmounts = bucketRows.some((row) =>
         row.quantity !== 0 && (
@@ -628,22 +628,25 @@ export async function buildUnrealizedPnlAnalysis(
 
   const selectedTickers = pickSelectedTickers(rankings, query.selectionMode, query.selectedTickers, query.comparisonLineCount);
   const selectedTickerKeySet = new Set(selectedTickers.map((item) => tickerKey(item)));
-  const tradeMarkers = buildTradeMarkers({
-    trades: listTradeEvents(store).filter((trade) => requestedAccountIds.includes(trade.accountId)).filter((trade) => {
+  const rankingTickerKeySet = new Set(rankings.map((item) => `${item.marketCode}:${item.ticker}`));
+  const filteredTrades = listTradeEvents(store).filter((trade) => requestedAccountIds.includes(trade.accountId)).filter((trade) => {
       if (query.markets.length > 0 && !query.markets.includes(trade.marketCode as MarketCode)) return false;
       if (query.tickers.length > 0 && !query.tickers.includes(trade.ticker.toUpperCase())) return false;
       const instrument = instrumentByKey.get(`${trade.marketCode}:${trade.ticker}`);
       if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
       return true;
-    }),
+    });
+  const rankingTradeMarkers = buildTradeMarkers({
+    trades: filteredTrades,
     accountNamesById,
-    allowedTickers: selectedTickerKeySet,
+    allowedTickers: rankingTickerKeySet,
     startDate: query.startDate,
     endDate: query.endDate,
   });
+  const tradeMarkers = rankingTradeMarkers.filter((marker) => selectedTickerKeySet.has(`${marker.marketCode}:${marker.ticker}`));
 
   const rankingTradeMarkerCount = new Map<string, number>();
-  for (const marker of tradeMarkers) {
+  for (const marker of rankingTradeMarkers) {
     const key = `${marker.marketCode}:${marker.ticker}`;
     rankingTradeMarkerCount.set(key, (rankingTradeMarkerCount.get(key) ?? 0) + 1);
   }
