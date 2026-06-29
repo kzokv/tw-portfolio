@@ -574,13 +574,14 @@ export async function buildUnrealizedPnlAnalysis(
     );
     const latestQuantity = series[series.length - 1]?.quantity ?? 0;
     const paddedSeries = query.holdingsState === "include_sold_out" ? padSoldOutSeries(series, descriptors) : series;
+    const accountIds = [...new Set(rows.map((row) => row.accountId))].sort();
     return {
       ticker,
       marketCode: marketCode as MarketCode,
       instrumentName: instrumentNameByKey.get(key) ?? null,
       instrumentType: instrument?.type ?? null,
-      accountIds: [...new Set(rows.map((row) => row.accountId))].sort(),
-      accountNames: [...new Set(rows.map((row) => accountNamesById.get(row.accountId) ?? row.accountId))].sort(),
+      accountIds,
+      accountNames: accountIds.map((accountId) => accountNamesById.get(accountId) ?? accountId),
       points: paddedSeries,
       latestQuantity,
       tradeMarkers: [],
@@ -679,8 +680,11 @@ export async function buildUnrealizedPnlAnalysis(
       };
     }));
 
+  const includedTickerKeySet = new Set(includedTickerSeries.map((series) => `${series.marketCode}:${series.ticker}`));
+  const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => includedTickerKeySet.has(`${row.marketCode}:${row.ticker}`));
+
   const portfolioSeries = aggregateBucketRows(
-    filteredSnapshotRows.map((row) => ({
+    portfolioSnapshotRows.map((row) => ({
       ...row,
       marketCode: row.marketCode,
     })),

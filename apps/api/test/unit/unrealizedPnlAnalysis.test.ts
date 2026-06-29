@@ -182,6 +182,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
       toDate: "2026-01-04",
     });
     expect(openOnly.rankings).toHaveLength(0);
+    expect(openOnly.portfolioSeries).toEqual([]);
+    expect(openOnly.summary.endUnrealizedPnlAmount).toBeNull();
     expect(openOnly.dataHealth.excludedSoldOutTickerCount).toBe(1);
 
     const includeSoldOut = await buildUnrealizedPnlAnalysis(app, "user-1", {
@@ -199,7 +201,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
   it("aggregates same-market tickers across accounts and keeps cross-market symbols separate", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "2330", marketCode: "US", instrumentType: "STOCK", name: "Ticker 2330 ADR" });
-    const secondAccount = await addAccount({ id: "acc-2", name: "Second Account", defaultCurrency: "TWD" });
+    const secondAccount = await addAccount({ id: "acc-2", name: "AAA Account", defaultCurrency: "TWD" });
     await seedSnapshots([
       makeSnapshot({ accountId: "acc-1", ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 10, marketValue: 1100, valueNative: 1100, unrealizedPnl: 100, unrealizedPnlNative: 100 }),
       makeSnapshot({ accountId: secondAccount.id, ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 5, costBasis: 400, costBasisNative: 400, marketValue: 550, valueNative: 550, unrealizedPnl: 150, unrealizedPnlNative: 150 }),
@@ -217,6 +219,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
     const twRow = report.rankings.find((row) => row.marketCode === "TW" && row.ticker === "2330");
     const usRow = report.rankings.find((row) => row.marketCode === "US" && row.ticker === "2330");
     expect(twRow).toEqual(expect.objectContaining({ latestQuantity: 15, latestMarketValueAmount: 1650 }));
+    expect(twRow?.accountIds).toEqual(["acc-1", "acc-2"]);
+    expect(twRow?.accountNames).toEqual(["Main", "AAA Account"]);
     expect(usRow).toEqual(expect.objectContaining({ latestQuantity: 2, latestMarketValueAmount: 360 }));
   });
 

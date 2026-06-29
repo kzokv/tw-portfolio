@@ -93,7 +93,7 @@ export function useUnrealizedPnlData({
           setCacheStatus(cached.status);
         }
       }
-      const next = await fetchUnrealizedPnlAnalysis(state);
+      const next = await fetchUnrealizedPnlAnalysis(state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
       setData(next);
       writeRouteDtoCache(cacheKey, next, {

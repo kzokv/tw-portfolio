@@ -98,6 +98,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       deepLink: "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
     } as never);
 
+    const controller = new AbortController();
     const model = await fetchUnrealizedPnlAnalysis({
       ...ANALYSIS_DEFAULT_STATE,
       range: "1M",
@@ -105,11 +106,11 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       selected: [buildSelectedSeriesId("US", "NVDA")],
       focusDate: "2026-06-26",
       view: "compare",
-    });
+    }, { signal: controller.signal });
 
     expect(getJsonMock).toHaveBeenCalledWith(
       "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
-      { contextScope: "portfolio" },
+      { contextScope: "portfolio", signal: controller.signal },
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);
     expect(model.availableFilters.accounts).toEqual([{ value: "acc-us-growth", label: "US Growth" }]);

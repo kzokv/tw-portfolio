@@ -21,9 +21,13 @@ const SERIES_COLORS = ["#215dc6", "#157f5b", "#d28a2e", "#e15555", "#4ca7c7", "#
 
 export async function fetchUnrealizedPnlAnalysis(
   state: UnrealizedPnlAnalysisRouteState,
+  options: { signal?: AbortSignal } = {},
 ): Promise<UnrealizedPnlAnalysisDto> {
   try {
-    const response = await getJson<ApiUnrealizedPnlAnalysisDto>(buildUnrealizedPnlApiPath(state), { contextScope: "portfolio" });
+    const response = await getJson<ApiUnrealizedPnlAnalysisDto>(buildUnrealizedPnlApiPath(state), {
+      contextScope: "portfolio",
+      signal: options.signal,
+    });
     return mapApiAnalysis(response, state);
   } catch (error) {
     if (error instanceof ApiError && (error.status === 404 || error.status === 501)) {
