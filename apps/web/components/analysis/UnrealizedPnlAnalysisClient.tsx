@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { LocaleCode } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { getDictionary } from "../../lib/i18n";
 import { getJson, patchJson } from "../../lib/api";
 import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
@@ -366,12 +366,14 @@ export function UnrealizedPnlAnalysisClient({
                 <p className="text-[11px] font-semibold uppercase text-muted-foreground">{dict.focusValuesLabel}</p>
                 <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:hidden">
                   {focusedSelectedValues.map((item) => (
-                    <div key={item.displayName} className="flex items-center justify-between gap-3 text-xs">
+                    <div key={item.displayName} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1 py-0.5 text-xs">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.colorToken }} />
                         <span className="truncate">{item.displayName}</span>
                       </span>
-                      <span className="font-mono tabular-nums">{formatNullableCurrency(item.value, responseCurrency, resolvedLocale)}</span>
+                      <span className="max-w-[44vw] truncate text-right font-mono tabular-nums sm:max-w-none" title={formatNullableCurrency(item.value, responseCurrency, resolvedLocale)}>
+                        {formatNullableCompactCurrency(item.value, responseCurrency, resolvedLocale)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -651,6 +653,10 @@ function OptionChecklist({
 
 function formatNullableCurrency(value: number | null, currency: string, locale: LocaleCode): string {
   return value === null ? "-" : formatCurrencyAmount(value, currency as never, locale);
+}
+
+function formatNullableCompactCurrency(value: number | null, currency: string, locale: LocaleCode): string {
+  return value === null ? "-" : formatCompactCurrencyAmount(value, currency as never, locale);
 }
 
 function SummaryCard({ currency, label, locale, value }: { currency: string; label: string; locale: LocaleCode; value: number | null }) {

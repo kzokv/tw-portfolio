@@ -304,6 +304,36 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(container.textContent).toContain("Apr 24, 2026");
   });
 
+  it("keeps large focused values compact in the mobile focus strip", () => {
+    const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);
+    const largeFocusedData = {
+      ...initialData,
+      tickerSeries: initialData.tickerSeries.map((series) => {
+        if (series.seriesId !== "US:NVDA") return series;
+        return {
+          ...series,
+          points: series.points.map((point) => point.date === focusedState.focusDate
+            ? { ...point, unrealizedPnl: 987654321 }
+            : point),
+        };
+      }),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={largeFocusedData} initialState={focusedState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const focusValues = container.querySelector("[data-testid='analysis-focus-values']");
+    expect(focusValues?.textContent).toContain("TWD 987.7M");
+    expect(focusValues?.textContent).not.toContain("987,654,321");
+    expect(focusValues?.querySelector("[title='NT$987,654,321']")).not.toBeNull();
+  });
+
   it("does not show stale selected detail values when a focused date is missing for a series", () => {
     const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
     const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);
