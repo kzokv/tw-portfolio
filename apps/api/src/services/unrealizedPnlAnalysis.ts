@@ -19,6 +19,7 @@ import {
 } from "@vakwen/shared-types";
 import { z } from "zod";
 import { listTradeEvents } from "./accountingStore.js";
+import { resolveReportingCurrency } from "./userPreferences.js";
 import { routeError } from "../lib/routeError.js";
 
 const DEFAULT_RANGE = "3M";
@@ -506,9 +507,7 @@ export async function buildUnrealizedPnlAnalysis(
     app.persistence.loadStore(userId),
     app.persistence.getUserPreferences(userId),
   ]);
-  const defaultReportingCurrency = reportingCurrencySchema.parse(
-    (prefs as { reportingCurrency?: unknown }).reportingCurrency ?? "TWD",
-  );
+  const defaultReportingCurrency = resolveReportingCurrency(prefs);
   const activeAccounts = new Map(store.accounts.map((account) => [account.id, account] as const));
   const earliestTradeDate = [...listTradeEvents(store)]
     .sort(tradeSortKey)

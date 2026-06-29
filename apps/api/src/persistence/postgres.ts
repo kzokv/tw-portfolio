@@ -7887,12 +7887,12 @@ export class PostgresPersistence implements Persistence {
         return [`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`, {
           base: nativeCurrency,
           quote: options.reportingCurrency,
-          asOfDate: row.snapshot_date,
+          as_of_date: row.snapshot_date,
         }];
       })).values()];
     const nonSelfPairs = fxPairs.filter((pair) => pair.base !== pair.quote);
     for (const pair of fxPairs.filter((item) => item.base === item.quote)) {
-      fxRateByKey.set(`${pair.base}\0${pair.quote}\0${pair.asOfDate}`, 1);
+      fxRateByKey.set(`${pair.base}\0${pair.quote}\0${pair.as_of_date}`, 1);
     }
     if (nonSelfPairs.length > 0) {
       const pivot = "TWD";

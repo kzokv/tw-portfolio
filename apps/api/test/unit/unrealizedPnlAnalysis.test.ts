@@ -376,6 +376,25 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.dataHealth.snapshotRowCount).toBe(0);
   });
 
+  it("falls back to TWD when the stored reporting currency is invalid", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedSnapshots([
+      makeSnapshot({ snapshotDate: "2026-01-31", unrealizedPnl: 100, unrealizedPnlNative: 100, marketValue: 1100, valueNative: 1100 }),
+    ]);
+    await persistence._setUserPreferences("user-1", { reportingCurrency: "BAD" });
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+    });
+
+    expect(report.summary.reportingCurrency).toBe("TWD");
+    expect(report.portfolioSeries).toEqual([
+      expect.objectContaining({ date: "2026-01-31", unrealizedPnlAmount: 100 }),
+    ]);
+  });
+
   it("emits route-state-compatible deep links for custom dates", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedSnapshots([
