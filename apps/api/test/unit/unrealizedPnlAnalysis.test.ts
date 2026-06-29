@@ -399,6 +399,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
       costBasisAmount: 0,
       fxAvailable: true,
     }));
+    expect(report.dataHealth.missingFxRowCount).toBe(0);
+    expect(report.dataHealth.nullUnrealizedRowCount).toBe(0);
+    expect(report.dataHealth.unavailableRowCount).toBe(0);
   });
 
   it("uses actual boundary buckets for period change instead of skipping null boundaries", async () => {

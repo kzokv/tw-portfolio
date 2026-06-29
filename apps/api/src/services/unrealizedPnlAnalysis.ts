@@ -792,6 +792,7 @@ export async function buildUnrealizedPnlAnalysis(
     && summaryEndPoint?.unrealizedPnlAmount !== null && summaryEndPoint?.unrealizedPnlAmount !== undefined
     ? roundToDecimal((summaryEndPoint.unrealizedPnlAmount ?? 0) - (summaryStartPoint.unrealizedPnlAmount ?? 0), 2)
     : null;
+  const nonZeroQuantitySnapshotRows = portfolioSnapshotRows.filter((row) => row.quantity !== 0);
 
   return {
     query,
@@ -814,9 +815,9 @@ export async function buildUnrealizedPnlAnalysis(
     dataHealth: {
       snapshotRowCount: portfolioSnapshotRows.length,
       provisionalRowCount: portfolioSnapshotRows.filter((row) => row.isProvisional).length,
-      missingFxRowCount: portfolioSnapshotRows.filter((row) => !row.fxAvailable).length,
-      nullUnrealizedRowCount: portfolioSnapshotRows.filter((row) => row.unrealizedPnlAmount === null).length,
-      unavailableRowCount: portfolioSnapshotRows.filter((row) => !row.fxAvailable || row.unrealizedPnlAmount === null).length,
+      missingFxRowCount: nonZeroQuantitySnapshotRows.filter((row) => !row.fxAvailable).length,
+      nullUnrealizedRowCount: nonZeroQuantitySnapshotRows.filter((row) => row.unrealizedPnlAmount === null).length,
+      unavailableRowCount: nonZeroQuantitySnapshotRows.filter((row) => !row.fxAvailable || row.unrealizedPnlAmount === null).length,
       excludedSoldOutTickerCount: tickerSeriesAll.length - includedTickerSeries.length,
     },
     diagnostics: {
