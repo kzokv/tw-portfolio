@@ -134,10 +134,14 @@ const tickerRefSchema = z.object({
   marketCode: marketCodeSchema,
 }).strict();
 
-function parseTickerRef(value: string): UnrealizedPnlTickerRefDto {
-  const [marketCode, ticker] = value.split(":");
+function parseTickerRef(value: string): unknown {
+  const parts = value.split(":");
+  const [marketCode, ticker] = parts;
   if (!marketCode || !ticker || !MARKET_CODES.includes(marketCode as MarketCode)) {
-    throw new Error(`Invalid ticker ref ${value}`);
+    return { marketCode: marketCode ?? "", ticker: ticker ?? "" };
+  }
+  if (parts.length !== 2) {
+    return { marketCode, ticker: parts.slice(1).join(":") };
   }
   return {
     marketCode: marketCode as MarketCode,

@@ -581,6 +581,13 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "ALL" }).success).toBe(true);
   });
 
+  it("returns validation failures for malformed selected ticker refs", () => {
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ selectedTickers: "BAD" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ selectedTickers: "TW" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ selectedTickers: "BAD:2330" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ selectedTickers: "TW:2330" }).success).toBe(true);
+  });
+
   it("tracks missing FX and provisional rows based on the includeProvisional toggle", async () => {
     await seedInstrument({ ticker: "AAPL", marketCode: "US", instrumentType: "STOCK", name: "Apple" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });

@@ -304,6 +304,36 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(container.textContent).toContain("Apr 24, 2026");
   });
 
+  it("does not show stale selected detail values when a focused date is missing for a series", () => {
+    const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);
+    const sparseData = {
+      ...initialData,
+      tickerSeries: initialData.tickerSeries.map((series) => {
+        if (series.seriesId !== "US:NVDA") return series;
+        const lastPoint = series.points.at(-1);
+        return {
+          ...series,
+          points: series.points
+            .filter((point) => point.date !== focusedState.focusDate)
+            .map((point) => point.date === lastPoint?.date ? { ...point, unrealizedPnl: 987654321 } : point),
+        };
+      }),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={sparseData} initialState={focusedState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("NVDA US");
+    expect(container.textContent).toContain("Pending");
+    expect(container.textContent).not.toContain("987,654,321");
+  });
+
   it("formats ranking and detail amounts with the response currency", () => {
     const audState = { ...ANALYSIS_DEFAULT_STATE, reportingCurrency: "AUD" as const };
     const initialData = buildPreviewUnrealizedPnlAnalysis(audState, "AUD");

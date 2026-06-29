@@ -427,9 +427,11 @@ export function UnrealizedPnlAnalysisClient({
         </CardHeader>
         <CardContent className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3", isCurrencyStale && "opacity-45")} aria-busy={isCurrencyStale}>
           {selectedSeries.map((series) => {
-            const point = series.points.find((candidate) => candidate.date === focusDate) ?? series.points.at(-1);
+            const point = focusDate ? series.points.find((candidate) => candidate.date === focusDate) : series.points.at(-1);
             const focusedMarkers = series.markers.filter((marker) => marker.date === point?.date);
-            const healthLabel = point && (point.unrealizedPnl === null || point.marketValue === null || point.costBasis === null)
+            const healthLabel = !point
+              ? dict.healthPending
+              : point.unrealizedPnl === null || point.marketValue === null || point.costBasis === null
               ? dict.healthPartial
               : dict.healthComplete;
             return (
@@ -442,8 +444,8 @@ export function UnrealizedPnlAnalysisClient({
                   <span className="h-3 w-3 rounded-full" style={{ background: series.colorToken }} />
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, series.currency, resolvedLocale)} />
-                  <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
+                  <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? null, series.currency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailQuantity} value={point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"} />
                   <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
