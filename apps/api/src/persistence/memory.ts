@@ -4073,6 +4073,7 @@ export class MemoryPersistence implements Persistence {
         marketCode: row.marketCode,
         snapshotDate: row.snapshotDate,
         quantity: row.quantity,
+        closePrice: row.closePrice,
         nativeCurrency: row.currency,
         reportingCurrency: options.reportingCurrency,
         costBasisAmount: fxAvailable ? roundToDecimal((row.costBasisNative ?? row.costBasis) * fxRate, 2) : null,

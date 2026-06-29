@@ -52,6 +52,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
           marketValueAmount: 900,
           costBasisAmount: 1000,
           quantity: 1,
+          closePrice: 900,
           fxAvailable: true,
           isProvisional: false,
           ticker: "AAPL",
@@ -69,6 +70,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
           marketValueAmount: 1000,
           costBasisAmount: 975,
           quantity: 2,
+          closePrice: 500,
           fxAvailable: true,
           isProvisional: false,
           ticker: "NVDA",
@@ -86,6 +88,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
           marketValueAmount: null,
           costBasisAmount: 975,
           quantity: 2,
+          closePrice: null,
           fxAvailable: false,
           isProvisional: false,
           ticker: "MSFT",
@@ -191,6 +194,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
     expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
     expect(model.portfolioSeries).toEqual([{ date: "2026-06-26", unrealizedPnl: null }]);
+    expect(model.tickerSeries.find((series) => series.ticker === "NVDA")?.points[0]?.closePrice).toBe(500);
     expect(model.tickerSeries.find((series) => series.ticker === "MSFT")).toEqual(expect.objectContaining({
       endUnrealizedPnl: null,
       periodChange: null,

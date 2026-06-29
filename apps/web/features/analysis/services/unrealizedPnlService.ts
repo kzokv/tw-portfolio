@@ -247,6 +247,7 @@ function groupSeries(
         marketValue: point.marketValueAmount,
         costBasis: point.costBasisAmount,
         quantity: point.quantity,
+        closePrice: point.closePrice,
         transactionContext: point.isSoldOut ? "Sold-out position carried as zero after exit." : "Open-position snapshot.",
       })),
       markers: markersBySeriesId.get(seriesId) ?? [],

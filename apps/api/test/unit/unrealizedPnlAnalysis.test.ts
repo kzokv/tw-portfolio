@@ -176,6 +176,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
     expect(report.rankings[0]).toEqual(expect.objectContaining({ positionStatus: "open_position" }));
     expect(report.tickerSeries.every((point) => point.positionStatus === "open_position")).toBe(true);
+    expect(report.tickerSeries.find((point) => point.date === "2026-01-02")?.closePrice).toBe(100);
     expect(report.selectedTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "2330", marketCode: "TW", date: "2026-01-02", kind: "buy" }),

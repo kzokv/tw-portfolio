@@ -7852,6 +7852,7 @@ export class PostgresPersistence implements Persistence {
       market_code: MarketCode;
       snapshot_date: string;
       quantity: string;
+      close_price: string | null;
       currency: string;
       cost_basis: string;
       cost_basis_native: string | null;
@@ -7866,6 +7867,7 @@ export class PostgresPersistence implements Persistence {
               s.market_code,
               s.snapshot_date::text,
               s.quantity::text,
+              s.close_price::text,
               s.currency,
               s.cost_basis::text,
               s.cost_basis_native::text,
@@ -7974,6 +7976,7 @@ export class PostgresPersistence implements Persistence {
         marketCode: row.market_code,
         snapshotDate: row.snapshot_date,
         quantity: Number(row.quantity),
+        closePrice: row.close_price !== null ? Number(row.close_price) : null,
         nativeCurrency,
         reportingCurrency: options.reportingCurrency,
         costBasisAmount: fxAvailable

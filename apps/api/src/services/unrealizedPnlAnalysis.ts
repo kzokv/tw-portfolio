@@ -211,6 +211,7 @@ interface AggregatedPoint {
   marketValueAmount: number | null;
   costBasisAmount: number | null;
   quantity: number;
+  closePrice: number | null;
   fxAvailable: boolean;
   isProvisional: boolean;
   accountIds: string[];
@@ -360,6 +361,7 @@ function aggregateBucketRows(
     marketValueAmount: number | null;
     unrealizedPnlAmount: number | null;
     quantity: number;
+    closePrice: number | null;
     fxAvailable: boolean;
     isProvisional: boolean;
   }>,
@@ -398,6 +400,7 @@ function aggregateBucketRows(
       );
       const accountIds = [...new Set(bucketRows.map((row) => row.accountId))].sort();
       const quantity = roundToDecimal(bucketRows.reduce((sum, row) => sum + row.quantity, 0), 6);
+      const closePrice = bucketRows.find((row) => row.quantity !== 0 && row.closePrice !== null)?.closePrice ?? null;
       return {
         date: descriptor.sortDate,
         unrealizedPnlAmount: !fxAvailable || isProvisional || hasNullAmounts
@@ -410,6 +413,7 @@ function aggregateBucketRows(
           ? null
           : roundToDecimal(bucketRows.reduce((sum, row) => sum + (row.costBasisAmount ?? 0), 0), 2),
         quantity,
+        closePrice,
         fxAvailable,
         isProvisional,
         accountIds,
@@ -434,6 +438,7 @@ function padSoldOutSeries(
       marketValueAmount: 0,
       costBasisAmount: 0,
       quantity: 0,
+      closePrice: null,
       fxAvailable: true,
       isProvisional: false,
       accountIds: [...lastPoint.accountIds],
@@ -751,6 +756,7 @@ export async function buildUnrealizedPnlAnalysis(
         marketValueAmount: point.marketValueAmount,
         costBasisAmount: point.costBasisAmount,
         quantity: point.quantity,
+        closePrice: point.closePrice,
         fxAvailable: point.fxAvailable,
         isProvisional: point.isProvisional,
         ticker: series.ticker,

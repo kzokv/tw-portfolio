@@ -1483,6 +1483,7 @@ export interface UnrealizedPnlTickerSeriesPointDto extends UnrealizedPnlPortfoli
   marketCode: MarketCode;
   instrumentName: string | null;
   instrumentType: InstrumentType | null;
+  closePrice: number | null;
   accountIds: string[];
   accountNames: string[];
   isSelected: boolean;

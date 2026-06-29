@@ -2025,6 +2025,7 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   marketCode: MarketCode;
   snapshotDate: string;
   quantity: number;
+  closePrice: number | null;
   nativeCurrency: CurrencyCode;
   reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
   costBasisAmount: number | null;
