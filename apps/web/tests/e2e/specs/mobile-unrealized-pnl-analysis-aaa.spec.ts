@@ -21,7 +21,7 @@ async function forceAnalysisPreviewFallback(page: Page) {
   });
 }
 
-test("[mobile-analysis-unrealized-pnl-A]: analysis workspace remains usable without page overflow", async ({
+test("[mobile-analysis-unrealized-pnl-A]: open analysis workspace on mobile → page remains usable without overflow", async ({
   appShell,
   page,
 }) => {

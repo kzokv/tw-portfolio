@@ -19,7 +19,7 @@ async function forceAnalysisPreviewFallback(page: Page) {
   });
 }
 
-test("[analysis-unrealized-pnl-A]: user can open analysis, select ticker lines, and scrub focus state", async ({
+test("[analysis-unrealized-pnl-A]: open analysis, select ticker lines, and scrub focus → URL state is preserved", async ({
   appShell,
   page,
 }) => {
@@ -50,7 +50,7 @@ test("[analysis-unrealized-pnl-A]: user can open analysis, select ticker lines, 
   await appShell.assert.mxAssertTruthy(Boolean(new URL(page.url()).searchParams.get("focus")), "focus date URL state");
 });
 
-test("[analysis-unrealized-pnl-B]: reports summary deep-link uses analysis route state", async ({
+test("[analysis-unrealized-pnl-B]: open reports summary deep-link → analysis route state is preserved", async ({
   appShell,
   page,
 }) => {
