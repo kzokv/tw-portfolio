@@ -7,6 +7,7 @@ import {
   type AiConnectorAccessKind,
   type AiConnectorScope,
 } from "@vakwen/shared-types";
+import { unrealizedPnlAnalysisMcpInputSchema } from "../services/unrealizedPnlAnalysis.js";
 
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
@@ -229,6 +230,15 @@ const toolDefinitions = {
       limit: z.number().int().positive().max(100).default(25),
       offset: z.number().int().min(0).default(0),
     }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  get_unrealized_pnl_report: {
+    description: `Return a descriptive unrealized P&L analysis report with filtered point-in-time open-position trends, rankings, trade markers, and a deterministic deepLink. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...unrealizedPnlAnalysisMcpInputSchema.shape,
+    }).strict(),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },

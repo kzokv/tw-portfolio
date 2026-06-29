@@ -1,0 +1,611 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import type { LocaleCode } from "@vakwen/shared-types";
+import { Button } from "../ui/Button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/shadcn/card";
+import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
+import { getDictionary } from "../../lib/i18n";
+import { getJson, patchJson } from "../../lib/api";
+import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
+import { useReducedMotion } from "../../lib/hooks/use-reduced-motion";
+import { useAppShellData } from "../layout/AppShellDataContext";
+import { useUnrealizedPnlData } from "../../features/analysis/hooks/useUnrealizedPnlData";
+import {
+  ANALYSIS_DEFAULT_STATE,
+  EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
+  applyAnalysisPresentationDefaults,
+  extractAnalysisPresentationDefaults,
+  parseAnalysisPresentationDefaults,
+  unrealizedPnlRouteStateToSearchParams,
+  updateAnalysisSelection,
+} from "../../features/analysis/unrealizedPnlRouteState";
+import type { UnrealizedPnlAnalysisExplicitPreferenceKeys } from "../../features/analysis/unrealizedPnlRouteState";
+import type {
+  AnalysisFilterOption,
+  AnalysisGranularity,
+  AnalysisHoldingsState,
+  AnalysisInstrumentType,
+  AnalysisMarketCode,
+  AnalysisRangeOption,
+  AnalysisSelectionMode,
+  UnrealizedPnlAnalysisDto,
+  UnrealizedPnlAnalysisRouteState,
+  UnrealizedPnlSeries,
+} from "../../features/analysis/unrealizedPnlTypes";
+
+interface UnrealizedPnlAnalysisClientProps {
+  explicitPreferenceKeys?: UnrealizedPnlAnalysisExplicitPreferenceKeys;
+  initialData: UnrealizedPnlAnalysisDto | null;
+  initialState: UnrealizedPnlAnalysisRouteState;
+  locale?: LocaleCode;
+}
+
+interface UserPreferencesResponse {
+  preferences?: Record<string, unknown>;
+}
+
+const ANALYSIS_PREFERENCE_KEY = "analysisUnrealizedPnlDefaults";
+
+const RANGE_OPTIONS: AnalysisRangeOption[] = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"];
+const EXTENDED_RANGE_OPTIONS: AnalysisRangeOption[] = [...RANGE_OPTIONS, "CUSTOM"];
+const GRANULARITY_OPTIONS: AnalysisGranularity[] = ["daily", "weekly", "monthly", "yearly"];
+const SELECTION_OPTIONS: AnalysisSelectionMode[] = ["top-drivers", "manual"];
+const HOLDINGS_OPTIONS: AnalysisHoldingsState[] = ["current-only", "include-sold"];
+
+export function UnrealizedPnlAnalysisClient({
+  explicitPreferenceKeys = EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
+  initialData,
+  initialState,
+  locale,
+}: UnrealizedPnlAnalysisClientProps) {
+  const router = useRouter();
+  const shellData = useAppShellData();
+  const resolvedLocale = locale ?? shellData.locale;
+  const dict = useMemo(() => getDictionary(resolvedLocale).analysis, [resolvedLocale]);
+  const [state, setState] = useState(initialState);
+  const [focusIndex, setFocusIndex] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [, startTransition] = useTransition();
+  const didHydratePreferencesRef = useRef(false);
+  const lastPersistedPreferencesRef = useRef<string | null>(null);
+  const cacheScope = useMemo(() => getRouteDtoContextScope(shellData.sessionUserId), [shellData.sessionUserId]);
+  const reducedMotion = useReducedMotion();
+  const { cacheStatus, data, errorMessage, isBootstrapping, isRefreshing, refresh } = useUnrealizedPnlData({
+    cachePolicy: shellData.routeCachePolicy ?? null,
+    cacheScope,
+    contextRefreshSignal: shellData.contextRefreshSignal,
+    initialData,
+    locale: resolvedLocale,
+    state,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
+      .then((response) => {
+        if (cancelled) return;
+        const defaults = parseAnalysisPresentationDefaults(response.preferences?.[ANALYSIS_PREFERENCE_KEY]);
+        didHydratePreferencesRef.current = true;
+        if (!defaults) return;
+        setState((current) => {
+          const next = applyAnalysisPresentationDefaults(current, defaults, explicitPreferenceKeys);
+          lastPersistedPreferencesRef.current = JSON.stringify(extractAnalysisPresentationDefaults(next));
+          if (JSON.stringify(next) === JSON.stringify(current)) return current;
+          const params = unrealizedPnlRouteStateToSearchParams(next);
+          startTransition(() => {
+            router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
+          });
+          return next;
+        });
+      })
+      .catch(() => {
+        didHydratePreferencesRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [explicitPreferenceKeys, router, startTransition]);
+
+  const selectedSet = useMemo(() => new Set(data?.selectedSeriesIds ?? state.selected), [data?.selectedSeriesIds, state.selected]);
+  const chartDates = useMemo(() => collectChartDates(data?.tickerSeries ?? []), [data?.tickerSeries]);
+  const maxFocusIndex = Math.max(0, chartDates.length - 1);
+  const focusDate = chartDates[Math.min(focusIndex, maxFocusIndex)] ?? null;
+  const selectedSeries = useMemo(
+    () => (data?.tickerSeries ?? []).filter((series) => selectedSet.has(series.seriesId)),
+    [data?.tickerSeries, selectedSet],
+  );
+
+  function replaceState(next: UnrealizedPnlAnalysisRouteState): void {
+    setState(next);
+    persistPresentationDefaults(next);
+    const params = unrealizedPnlRouteStateToSearchParams(next);
+    startTransition(() => {
+      router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
+    });
+  }
+
+  function persistPresentationDefaults(next: UnrealizedPnlAnalysisRouteState): void {
+    if (!didHydratePreferencesRef.current) return;
+    const payload = extractAnalysisPresentationDefaults(next);
+    const serialized = JSON.stringify(payload);
+    if (serialized === lastPersistedPreferencesRef.current) return;
+    lastPersistedPreferencesRef.current = serialized;
+    void patchJson(
+      "/user-preferences",
+      { [ANALYSIS_PREFERENCE_KEY]: payload },
+      { contextScope: "session" },
+    ).catch(() => {
+      lastPersistedPreferencesRef.current = null;
+    });
+  }
+
+  function toggleSeries(seriesId: string): void {
+    const current = new Set(data?.selectedSeriesIds ?? state.selected);
+    if (current.has(seriesId)) {
+      current.delete(seriesId);
+    } else if (current.size < state.lineCount) {
+      current.add(seriesId);
+    }
+    replaceState({
+      ...updateAnalysisSelection(state, [...current], "manual"),
+      view: "compare",
+    });
+  }
+
+  function updateFocus(index: number): void {
+    const nextDate = chartDates[Math.min(index, maxFocusIndex)] ?? null;
+    setFocusIndex(index);
+    replaceState({ ...state, focusDate: nextDate });
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-5 md:px-8 md:py-7">
+      <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/75">{dict.navLabel}</p>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground md:text-3xl">{dict.pageTitle}</h1>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{dict.pageDescription}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => replaceState(ANALYSIS_DEFAULT_STATE)}>{dict.resetFilters}</Button>
+          <Button onClick={() => void refresh({ bypassCache: true })} disabled={isRefreshing}>{dict.retry}</Button>
+        </div>
+      </header>
+
+      {data?.dataHealth.source === "preview" ? (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>{dict.previewBanner}</strong> {dict.previewDetail}
+        </div>
+      ) : null}
+      {errorMessage ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage}</div> : null}
+      {isBootstrapping && !data ? <AnalysisSkeleton /> : null}
+
+      <button
+        className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm font-medium md:hidden"
+        type="button"
+        onClick={() => setShowFilters((current) => !current)}
+      >
+        <span>{dict.filtersTitle}</span>
+        <span>{showFilters ? dict.hideFilters : dict.showFilters}</span>
+      </button>
+      <section className={cn(
+        "gap-3 rounded-lg border border-border/70 bg-card/70 p-3 md:grid md:grid-cols-2 xl:grid-cols-4",
+        showFilters ? "grid" : "hidden",
+      )}>
+        <ControlGroup label={dict.rangeLabel}>
+          <Segmented
+            options={EXTENDED_RANGE_OPTIONS}
+            value={state.range}
+            onChange={(range) => replaceState({ ...state, range, granularity: range === "ALL" ? "yearly" : state.granularity })}
+          />
+        </ControlGroup>
+        {state.range === "CUSTOM" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <ControlGroup label={dict.customFrom}>
+              <input
+                aria-label={dict.customFrom}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                type="date"
+                value={state.from ?? ""}
+                onChange={(event) => replaceState({ ...state, from: event.currentTarget.value || null })}
+              />
+            </ControlGroup>
+            <ControlGroup label={dict.customTo}>
+              <input
+                aria-label={dict.customTo}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                type="date"
+                value={state.to ?? ""}
+                onChange={(event) => replaceState({ ...state, to: event.currentTarget.value || null })}
+              />
+            </ControlGroup>
+          </div>
+        ) : null}
+        <ControlGroup label={dict.granularityLabel}>
+          <Segmented
+            options={GRANULARITY_OPTIONS}
+            value={state.granularity}
+            onChange={(granularity) => replaceState({ ...state, granularity, range: state.range === "ALL" && granularity !== "yearly" ? "5Y" : state.range })}
+          />
+        </ControlGroup>
+        <ControlGroup label={dict.linesLabel}>
+          <input
+            aria-label={dict.linesLabel}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            max={20}
+            min={1}
+            type="number"
+            value={state.lineCount}
+            onChange={(event) => replaceState({ ...state, lineCount: Math.max(1, Math.min(20, Number(event.currentTarget.value) || 5)) })}
+          />
+        </ControlGroup>
+        <ControlGroup label={dict.selectionLabel}>
+          <Segmented
+            labelFor={(option) => option === "manual" ? dict.manualSelection : dict.topDrivers}
+            options={SELECTION_OPTIONS}
+            value={state.selectionMode}
+            onChange={(selectionMode) => replaceState({ ...state, selectionMode })}
+          />
+        </ControlGroup>
+        <ControlGroup label={dict.holdingsLabel}>
+          <Segmented
+            labelFor={(option) => option === "include-sold" ? dict.includeSold : dict.currentOnly}
+            options={HOLDINGS_OPTIONS}
+            value={state.holdingsState}
+            onChange={(holdingsState) => replaceState({ ...state, holdingsState })}
+          />
+        </ControlGroup>
+        <OptionChecklist
+          label={dict.marketsLabel}
+          options={data?.availableFilters.markets ?? []}
+          selected={state.markets}
+          onChange={(markets) => replaceState({ ...state, markets: markets as AnalysisMarketCode[] })}
+        />
+        <OptionChecklist
+          label={dict.accountsLabel}
+          options={data?.availableFilters.accounts ?? []}
+          selected={state.accounts}
+          onChange={(accounts) => replaceState({ ...state, accounts })}
+        />
+        <OptionChecklist
+          label={dict.tickersLabel}
+          options={data?.availableFilters.tickers ?? []}
+          selected={state.tickers}
+          onChange={(tickers) => replaceState({ ...state, tickers })}
+        />
+        <OptionChecklist
+          label={dict.instrumentTypeLabel}
+          options={data?.availableFilters.instrumentTypes ?? []}
+          selected={state.instrumentTypes}
+          onChange={(instrumentTypes) => replaceState({ ...state, instrumentTypes: instrumentTypes as AnalysisInstrumentType[] })}
+        />
+        <ControlGroup label={dict.currencyLabel}>
+          <select
+            aria-label={dict.currencyLabel}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.reportingCurrency}
+            onChange={(event) => replaceState({ ...state, reportingCurrency: event.currentTarget.value as UnrealizedPnlAnalysisRouteState["reportingCurrency"] })}
+          >
+            {(data?.availableFilters.reportingCurrencies ?? [{ value: state.reportingCurrency, label: state.reportingCurrency }]).map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </ControlGroup>
+        <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm md:self-end">
+          <input
+            type="checkbox"
+            checked={state.includeProvisional}
+            onChange={(event) => replaceState({ ...state, includeProvisional: event.currentTarget.checked })}
+          />
+          {dict.provisionalLabel}
+        </label>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-4">
+        <SummaryCard label={dict.summaryTotal} value={data?.summary.totalUnrealized.value ?? null} currency={data?.summary.totalUnrealized.currency ?? state.reportingCurrency} locale={resolvedLocale} />
+        <SummaryCard label={dict.summaryChange} value={data?.summary.periodChange.value ?? null} currency={data?.summary.periodChange.currency ?? state.reportingCurrency} locale={resolvedLocale} />
+        <DriverCard label={dict.summaryBest} text={data?.summary.bestDriver?.label ?? "-"} />
+        <DriverCard label={dict.summaryHealth} text={data?.dataHealth.detail ?? (isBootstrapping ? dict.loadingBody : "-")} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>{dict.decompositionTitle}</CardTitle>
+            <CardDescription>
+              {dict.decompositionDescription}
+              {cacheStatus ? <span className="ml-2 text-xs uppercase text-muted-foreground">cache {cacheStatus}</span> : null}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AnalysisSvgChart ariaLabel={dict.chartAriaLabel} dates={chartDates} focusDate={focusDate} locale={resolvedLocale} reducedMotion={reducedMotion} selectedSet={selectedSet} series={data?.tickerSeries ?? []} />
+            <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="analysis-focus">{dict.focusLabel}</label>
+            <input
+              data-testid="analysis-focus-scrub"
+              id="analysis-focus"
+              className="mt-2 w-full"
+              max={maxFocusIndex}
+              min={0}
+              type="range"
+              value={Math.min(focusIndex, maxFocusIndex)}
+              onChange={(event) => updateFocus(Number(event.currentTarget.value))}
+            />
+            <div className="mt-2 text-sm text-muted-foreground">
+              {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>{dict.rankingTitle}</CardTitle>
+            <CardDescription>{dict.rankingDescription}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-sm">
+              <tbody>
+                {(data?.ranking ?? []).slice(0, 12).map((row) => (
+                  <tr key={row.seriesId} className="border-b border-border/60 last:border-b-0">
+                    <td className="py-2">
+                      <div className="font-medium">{row.displayName}</div>
+                      <div className="text-xs text-muted-foreground">{row.stateLabel}</div>
+                    </td>
+                    <td className={cn("py-2 text-right font-medium", row.periodChange >= 0 ? "text-emerald-600" : "text-red-600")}>
+                      {formatCurrencyAmount(row.periodChange, state.reportingCurrency, resolvedLocale)}
+                    </td>
+                    <td className="py-2 pl-2 text-right">
+                      <button
+                        aria-checked={selectedSet.has(row.seriesId)}
+                        className={cn("h-7 w-7 rounded border", selectedSet.has(row.seriesId) ? "border-primary bg-primary text-primary-foreground" : "border-border")}
+                        role="checkbox"
+                        title={selectedSet.has(row.seriesId) ? dict.selectedLineLabel : dict.mutedLineLabel}
+                        type="button"
+                        onClick={() => toggleSeries(row.seriesId)}
+                      >
+                        {selectedSet.has(row.seriesId) ? "✓" : ""}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{dict.selectedDetailTitle}</CardTitle>
+          <CardDescription>{dict.focusDetailLabel}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {selectedSeries.map((series) => {
+            const point = series.points.find((candidate) => candidate.date === focusDate) ?? series.points.at(-1);
+            const focusedMarkers = series.markers.filter((marker) => marker.date === point?.date);
+            const healthLabel = point?.closePrice === null ? dict.healthPartial : dict.healthComplete;
+            return (
+              <div key={series.seriesId} className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{series.displayName}</p>
+                    <p className="text-xs text-muted-foreground">{series.stateLabel}</p>
+                  </div>
+                  <span className="h-3 w-3 rounded-full" style={{ background: series.colorToken }} />
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <DetailTerm label={dict.detailEndPnl} value={formatCurrencyAmount(point?.unrealizedPnl ?? series.endUnrealizedPnl, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
+                  <DetailTerm label={dict.detailMarketValue} value={formatCurrencyAmount(point?.marketValue ?? 0, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailCostBasis} value={formatCurrencyAmount(point?.costBasis ?? 0, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
+                  <DetailTerm label={dict.detailState} value={healthLabel} />
+                </dl>
+                <p className="mt-3 text-xs text-muted-foreground">{point?.transactionContext ?? "-"}</p>
+                {focusedMarkers.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {focusedMarkers.map((marker) => (
+                      <span key={`${marker.date}-${marker.type}-${marker.label}`} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                        {marker.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+function collectChartDates(series: UnrealizedPnlSeries[]): string[] {
+  return [...new Set(series.flatMap((item) => item.points.map((point) => point.date)))].sort();
+}
+
+function AnalysisSvgChart({
+  ariaLabel,
+  dates,
+  focusDate,
+  locale,
+  reducedMotion,
+  selectedSet,
+  series,
+}: {
+  ariaLabel: string;
+  dates: string[];
+  focusDate: string | null;
+  locale: LocaleCode;
+  reducedMotion: boolean;
+  selectedSet: ReadonlySet<string>;
+  series: UnrealizedPnlSeries[];
+}) {
+  const values = series.flatMap((item) => item.points.map((point) => point.unrealizedPnl));
+  const min = Math.min(0, ...values);
+  const max = Math.max(1, ...values);
+  const span = Math.max(1, max - min);
+  const width = 920;
+  const height = 280;
+  const pad = 28;
+  const xForDate = (date: string) => pad + (Math.max(0, dates.indexOf(date)) / Math.max(1, dates.length - 1)) * (width - pad * 2);
+  const yForValue = (value: number) => height - pad - ((value - min) / span) * (height - pad * 2);
+  return (
+    <div className="h-[300px] w-full overflow-hidden rounded-md border border-border bg-background">
+      <svg aria-label={ariaLabel} className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+        <line stroke="hsl(var(--border))" x1={pad} x2={width - pad} y1={yForValue(0)} y2={yForValue(0)} />
+        {series.map((item) => (
+          <polyline
+            key={item.seriesId}
+            fill="none"
+            points={item.points.map((point) => `${xForDate(point.date)},${yForValue(point.unrealizedPnl)}`).join(" ")}
+            stroke={item.colorToken}
+            strokeDasharray={item.state === "sold-out" ? "7 7" : undefined}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeOpacity={selectedSet.has(item.seriesId) ? 1 : 0.22}
+            strokeWidth={selectedSet.has(item.seriesId) ? 4 : 2}
+            style={reducedMotion ? undefined : { transition: "stroke-opacity 160ms ease, stroke-width 160ms ease" }}
+          >
+            <title>{`${item.displayName} ${formatCurrencyAmount(item.endUnrealizedPnl, item.currency, locale)}`}</title>
+          </polyline>
+        ))}
+        {focusDate ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={xForDate(focusDate)} x2={xForDate(focusDate)} y1={pad} y2={height - pad} /> : null}
+      </svg>
+    </div>
+  );
+}
+
+function ControlGroup({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Segmented<T extends string>({
+  labelFor = (option) => option,
+  onChange,
+  options,
+  value,
+}: {
+  labelFor?: (option: T) => string;
+  onChange: (value: T) => void;
+  options: readonly T[];
+  value: T;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {options.map((option) => (
+        <button
+          key={option}
+          className={cn("h-8 rounded-md border px-2 text-xs font-medium", option === value ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted")}
+          type="button"
+          onClick={() => onChange(option)}
+        >
+          {labelFor(option)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OptionChecklist({
+  label,
+  onChange,
+  options,
+  selected,
+}: {
+  label: string;
+  onChange: (selected: string[]) => void;
+  options: AnalysisFilterOption[];
+  selected: string[];
+}) {
+  const selectedSet = new Set(selected);
+  const visibleOptions = options.slice(0, 8);
+
+  function toggle(value: string): void {
+    const next = new Set(selectedSet);
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+    onChange([...next].sort((left, right) => left.localeCompare(right)));
+  }
+
+  return (
+    <fieldset className="min-w-0 rounded-md border border-border bg-background/70 p-2">
+      <legend className="px-1 text-xs font-medium text-muted-foreground">{label}</legend>
+      <div className="mt-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
+        {visibleOptions.length > 0 ? visibleOptions.map((option) => (
+          <label
+            key={option.value}
+            className={cn(
+              "flex h-7 max-w-full items-center gap-1 rounded border px-2 text-xs",
+              selectedSet.has(option.value) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card",
+            )}
+          >
+            <input
+              checked={selectedSet.has(option.value)}
+              className="sr-only"
+              type="checkbox"
+              onChange={() => toggle(option.value)}
+            />
+            <span className="truncate">{option.label}</span>
+            {typeof option.count === "number" ? <span className="opacity-70">{option.count}</span> : null}
+          </label>
+        )) : <span className="text-xs text-muted-foreground">-</span>}
+      </div>
+    </fieldset>
+  );
+}
+
+function SummaryCard({ currency, label, locale, value }: { currency: string; label: string; locale: LocaleCode; value: number | null }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+        <p className={cn("mt-2 text-xl font-semibold", value !== null && value < 0 ? "text-red-600" : "text-foreground")}>
+          {value === null ? "-" : formatCurrencyAmount(value, currency as never, locale)}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DriverCard({ label, text }: { label: string; text: string }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+        <p className="mt-2 text-sm font-medium text-foreground">{text}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailTerm({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-medium text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+function AnalysisSkeleton() {
+  return (
+    <div aria-hidden="true" className="grid gap-3 md:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="h-24 animate-pulse rounded-md border border-border bg-muted/50" />
+      ))}
+      <div className="h-80 animate-pulse rounded-md border border-border bg-muted/50 md:col-span-3" />
+      <div className="h-80 animate-pulse rounded-md border border-border bg-muted/50" />
+    </div>
+  );
+}

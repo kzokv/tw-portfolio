@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { DashboardOverviewHoldingGroupDto } from "../../features/portfolio/holdingGroups";
+import { buildSelectedSeriesId, buildUnrealizedPnlRoutePath } from "../../features/analysis/unrealizedPnlRouteState";
 import { cn, formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
 import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
@@ -59,6 +60,14 @@ export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardPro
                   {h.ticker} <span className="text-xs text-muted-foreground">· {h.marketCode}</span>
                 </Link>
                 <div className="flex items-center gap-3 text-right">
+                  <Link
+                    href={buildMoverAnalysisHref(h)}
+                    className="text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+                    aria-label={dict.reports.openUnrealizedPnlAnalysis}
+                    data-testid={`dashboard-mover-analysis-link-${h.ticker}-${h.marketCode}`}
+                  >
+                    {dict.navigation.analysisLabel}
+                  </Link>
                   <span className={cn("font-mono text-sm font-medium tabular-nums", tone)}>
                     {formatPercent(h.changePercent ?? 0, locale)}
                   </span>
@@ -75,4 +84,16 @@ export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardPro
       )}
     </Card>
   );
+}
+
+function buildMoverAnalysisHref(group: DashboardOverviewHoldingGroupDto): string {
+  return buildUnrealizedPnlRoutePath({
+    range: "3M",
+    markets: [group.marketCode],
+    tickers: [group.ticker],
+    selectionMode: "manual",
+    selected: [buildSelectedSeriesId(group.marketCode, group.ticker)],
+    reportingCurrency: group.reportingCurrency,
+    view: "ticker-detail",
+  });
 }

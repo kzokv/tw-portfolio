@@ -2009,6 +2009,31 @@ export interface ListHoldingSnapshotsResult {
   provisionalCount: number;
 }
 
+export interface UnrealizedPnlAnalysisSnapshotOptions {
+  accountIds?: readonly string[];
+  markets?: readonly MarketCode[];
+  tickers?: readonly string[];
+  startDate: string;
+  endDate: string;
+  includeProvisional: boolean;
+  reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
+}
+
+export interface UnrealizedPnlAnalysisSnapshotRow {
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+  snapshotDate: string;
+  quantity: number;
+  nativeCurrency: CurrencyCode;
+  reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
+  costBasisAmount: number | null;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  isProvisional: boolean;
+  fxAvailable: boolean;
+}
+
 export interface McpReplayScopeRecord {
   accountId: string;
   accountName: string;
@@ -3097,6 +3122,10 @@ export interface Persistence {
   ): Promise<Map<string, string | null>>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
   listHoldingSnapshots(userId: string, options: ListHoldingSnapshotsOptions): Promise<ListHoldingSnapshotsResult>;
+  listUnrealizedPnlAnalysisSnapshots(
+    userId: string,
+    options: UnrealizedPnlAnalysisSnapshotOptions,
+  ): Promise<UnrealizedPnlAnalysisSnapshotRow[]>;
   saveMcpReplayPreview(record: McpReplayPreviewRecord): Promise<void>;
   getMcpReplayPreview(id: string): Promise<McpReplayPreviewRecord | null>;
   createMcpReplayRun(record: McpReplayRunRecord): Promise<void>;

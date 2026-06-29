@@ -7823,6 +7823,95 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
+  async listUnrealizedPnlAnalysisSnapshots(
+    userId: string,
+    options: import("./types.js").UnrealizedPnlAnalysisSnapshotOptions,
+  ): Promise<import("./types.js").UnrealizedPnlAnalysisSnapshotRow[]> {
+    const where = ["s.user_id = $1", "s.snapshot_date >= $2::date", "s.snapshot_date <= $3::date"];
+    const params: unknown[] = [userId, options.startDate, options.endDate];
+    let i = 4;
+    if (!options.includeProvisional) {
+      where.push("s.is_provisional = FALSE");
+    }
+    if (options.accountIds && options.accountIds.length > 0) {
+      where.push(`s.account_id = ANY($${i++}::text[])`);
+      params.push(options.accountIds);
+    }
+    if (options.markets && options.markets.length > 0) {
+      where.push(`s.market_code = ANY($${i++}::text[])`);
+      params.push(options.markets);
+    }
+    if (options.tickers && options.tickers.length > 0) {
+      where.push(`UPPER(s.ticker) = ANY($${i++}::text[])`);
+      params.push(options.tickers.map((ticker) => ticker.trim().toUpperCase()));
+    }
+
+    const result = await this.pool.query<{
+      account_id: string;
+      ticker: string;
+      market_code: MarketCode;
+      snapshot_date: string;
+      quantity: string;
+      currency: string;
+      cost_basis: string;
+      cost_basis_native: string | null;
+      market_value: string | null;
+      value_native: string | null;
+      unrealized_pnl: string | null;
+      unrealized_pnl_native: string | null;
+      is_provisional: boolean;
+    }>(
+      `SELECT s.account_id,
+              s.ticker,
+              s.market_code,
+              s.snapshot_date::text,
+              s.quantity::text,
+              s.currency,
+              s.cost_basis::text,
+              s.cost_basis_native::text,
+              s.market_value::text,
+              s.value_native::text,
+              s.unrealized_pnl::text,
+              s.unrealized_pnl_native::text,
+              s.is_provisional
+         FROM daily_holding_snapshots s
+        WHERE ${where.join(" AND ")}
+        ORDER BY s.snapshot_date ASC, s.market_code ASC, s.ticker ASC, s.account_id ASC`,
+      params,
+    );
+
+    const translatedRows: import("./types.js").UnrealizedPnlAnalysisSnapshotRow[] = [];
+    for (const row of result.rows) {
+      const nativeCurrency = row.currency.trim();
+      const fxRate = nativeCurrency === options.reportingCurrency
+        ? 1
+        : await this.getFxRate(nativeCurrency, options.reportingCurrency, row.snapshot_date);
+      const fxAvailable = fxRate !== null;
+      translatedRows.push({
+        accountId: row.account_id,
+        ticker: row.ticker,
+        marketCode: row.market_code,
+        snapshotDate: row.snapshot_date,
+        quantity: Number(row.quantity),
+        nativeCurrency,
+        reportingCurrency: options.reportingCurrency,
+        costBasisAmount: fxAvailable
+          ? roundToDecimal(Number(row.cost_basis_native ?? row.cost_basis) * fxRate, 2)
+          : null,
+        marketValueAmount: fxAvailable && row.value_native !== null
+          ? roundToDecimal(Number(row.value_native) * fxRate, 2)
+          : null,
+        unrealizedPnlAmount: fxAvailable && row.unrealized_pnl_native !== null
+          ? roundToDecimal(Number(row.unrealized_pnl_native) * fxRate, 2)
+          : null,
+        isProvisional: row.is_provisional,
+        fxAvailable,
+      });
+    }
+
+    return translatedRows;
+  }
+
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
   // Mirrors the unnest-arrays pattern from `bulkUpsertHoldingSnapshots`. PK is
   // (account_id, currency, date) per D7 — no `user_id` in the conflict target

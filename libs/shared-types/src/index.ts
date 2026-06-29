@@ -1368,6 +1368,136 @@ export interface MarketReportDto {
   detail: ReportHoldingRowsPageDto;
 }
 
+export const UNREALIZED_PNL_GRANULARITIES = ["daily", "weekly", "monthly", "yearly"] as const;
+export type UnrealizedPnlGranularity = typeof UNREALIZED_PNL_GRANULARITIES[number];
+
+export const UNREALIZED_PNL_HOLDINGS_STATES = ["open_only", "include_sold_out"] as const;
+export type UnrealizedPnlHoldingsState = typeof UNREALIZED_PNL_HOLDINGS_STATES[number];
+
+export const UNREALIZED_PNL_SELECTION_MODES = ["auto", "manual"] as const;
+export type UnrealizedPnlSelectionMode = typeof UNREALIZED_PNL_SELECTION_MODES[number];
+
+export const UNREALIZED_PNL_TRADE_MARKER_KINDS = ["buy", "partial_sell", "full_exit", "aggregate"] as const;
+export type UnrealizedPnlTradeMarkerKind = typeof UNREALIZED_PNL_TRADE_MARKER_KINDS[number];
+
+export interface UnrealizedPnlTickerRefDto {
+  ticker: string;
+  marketCode: MarketCode;
+}
+
+export interface UnrealizedPnlAnalysisQueryStateDto {
+  granularity: UnrealizedPnlGranularity;
+  range: DashboardPerformanceRange | "ALL" | null;
+  fromDate: string | null;
+  toDate: string | null;
+  startDate: string;
+  endDate: string;
+  markets: MarketCode[];
+  accountIds: string[];
+  tickers: string[];
+  instrumentTypes: InstrumentType[];
+  selectionMode: UnrealizedPnlSelectionMode;
+  selectedTickers: UnrealizedPnlTickerRefDto[];
+  comparisonLineCount: number;
+  rankingLimit: number;
+  holdingsState: UnrealizedPnlHoldingsState;
+  reportingCurrency: AccountDefaultCurrency;
+  includeProvisional: boolean;
+  asOf: string;
+}
+
+export interface UnrealizedPnlAnalysisSummaryDto {
+  reportingCurrency: AccountDefaultCurrency;
+  startDate: string | null;
+  endDate: string | null;
+  startUnrealizedPnlAmount: number | null;
+  endUnrealizedPnlAmount: number | null;
+  periodChangeAmount: number | null;
+  currentOpenTickerCount: number;
+  includedTickerCount: number;
+}
+
+export interface UnrealizedPnlPortfolioSeriesPointDto {
+  date: string;
+  unrealizedPnlAmount: number | null;
+  marketValueAmount: number | null;
+  costBasisAmount: number | null;
+  quantity: number;
+  fxAvailable: boolean;
+  isProvisional: boolean;
+}
+
+export interface UnrealizedPnlTickerSeriesPointDto extends UnrealizedPnlPortfolioSeriesPointDto {
+  ticker: string;
+  marketCode: MarketCode;
+  instrumentName: string | null;
+  instrumentType: InstrumentType | null;
+  accountIds: string[];
+  accountNames: string[];
+  isSelected: boolean;
+  isSoldOut: boolean;
+}
+
+export interface UnrealizedPnlTradeMarkerDto {
+  ticker: string;
+  marketCode: MarketCode;
+  date: string;
+  kind: UnrealizedPnlTradeMarkerKind;
+  eventCount: number;
+  accountIds: string[];
+  accountNames: string[];
+  netQuantityDelta: number;
+  quantityAfter: number;
+  componentKinds?: Array<Exclude<UnrealizedPnlTradeMarkerKind, "aggregate">>;
+}
+
+export interface UnrealizedPnlRankingRowDto {
+  ticker: string;
+  marketCode: MarketCode;
+  instrumentName: string | null;
+  instrumentType: InstrumentType | null;
+  accountIds: string[];
+  accountNames: string[];
+  currentlyHeld: boolean;
+  isSoldOut: boolean;
+  startUnrealizedPnlAmount: number | null;
+  endUnrealizedPnlAmount: number | null;
+  periodChangeAmount: number | null;
+  latestMarketValueAmount: number | null;
+  latestCostBasisAmount: number | null;
+  latestQuantity: number;
+  tradeMarkerCount: number;
+}
+
+export interface UnrealizedPnlAnalysisDataHealthDto {
+  snapshotRowCount: number;
+  provisionalRowCount: number;
+  missingFxRowCount: number;
+  nullUnrealizedRowCount: number;
+  excludedSoldOutTickerCount: number;
+}
+
+export interface UnrealizedPnlAnalysisDiagnosticsDto {
+  latestSnapshotDate: string | null;
+  firstSnapshotDate: string | null;
+  bucketCount: number;
+  returnedTickerSeriesCount: number;
+  availableTickerSeriesCount: number;
+}
+
+export interface UnrealizedPnlAnalysisDto {
+  query: UnrealizedPnlAnalysisQueryStateDto;
+  summary: UnrealizedPnlAnalysisSummaryDto;
+  portfolioSeries: UnrealizedPnlPortfolioSeriesPointDto[];
+  tickerSeries: UnrealizedPnlTickerSeriesPointDto[];
+  rankings: UnrealizedPnlRankingRowDto[];
+  selectedTickers: UnrealizedPnlTickerRefDto[];
+  tradeMarkers: UnrealizedPnlTradeMarkerDto[];
+  dataHealth: UnrealizedPnlAnalysisDataHealthDto;
+  diagnostics: UnrealizedPnlAnalysisDiagnosticsDto;
+  deepLink: string;
+}
+
 export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;

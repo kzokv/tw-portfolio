@@ -21,10 +21,15 @@ describe("MCP report tools", () => {
         scope: "portfolio:mcp_read",
         accessKind: "read",
       }),
+      expect.objectContaining({
+        name: "get_unrealized_pnl_report",
+        scope: "portfolio:mcp_read",
+        accessKind: "read",
+      }),
     ]));
 
     const descriptions = tools
-      .filter((tool) => tool.name === "get_daily_review_report" || tool.name === "get_portfolio_report" || tool.name === "get_market_report")
+      .filter((tool) => tool.name === "get_daily_review_report" || tool.name === "get_portfolio_report" || tool.name === "get_market_report" || tool.name === "get_unrealized_pnl_report")
       .map((tool) => tool.description);
     for (const description of descriptions) {
       expect(description).toContain("Descriptive");
@@ -32,7 +37,7 @@ describe("MCP report tools", () => {
       expect(description).toContain("rebalancing advice");
     }
 
-    for (const tool of tools.filter((item) => item.name.startsWith("get_") && item.name.endsWith("_report"))) {
+    for (const tool of tools.filter((item) => item.name === "get_daily_review_report" || item.name === "get_portfolio_report" || item.name === "get_market_report")) {
       const parsed = tool.inputSchema.safeParse({
         currencyMode: "specified",
         currency: "AUD",
@@ -40,6 +45,9 @@ describe("MCP report tools", () => {
       });
       expect(parsed.success).toBe(true);
     }
+
+    const unrealized = tools.find((tool) => tool.name === "get_unrealized_pnl_report");
+    expect(unrealized?.inputSchema.safeParse({ reportingCurrency: "AUD", granularity: "monthly" }).success).toBe(true);
   });
 
   it("treats reportingCurrency as a specified report currency alias", () => {

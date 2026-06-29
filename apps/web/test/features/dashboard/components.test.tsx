@@ -1664,6 +1664,8 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-command-market-pulse"');
     expect(html).toContain('data-testid="dashboard-command-portfolio-health"');
     expect(html).toContain('href="/reports?tab=daily-review&amp;scope=all&amp;range=1Y"');
+    expect(html).toContain('data-testid="dashboard-unrealized-pnl-analysis-link"');
+    expect(html).toContain('href="/analysis/unrealized-pnl?reportingCurrency=AUD"');
     expect(html).not.toContain('data-testid="dashboard-intro"');
   });
 
@@ -1807,6 +1809,9 @@ describe("dashboard components", () => {
 
     expect(html).toContain("$2.50");
     expect(html).not.toContain("NT$2.50");
+    expect(html).toContain('data-testid="dashboard-mover-analysis-link-AAPL-TW"');
+    expect(html).toContain("selectedTickers=TW%3AAAPL");
+    expect(html).toContain("view=ticker-detail");
   });
 
   it("aggregates account counts in compact holdings rows", () => {
