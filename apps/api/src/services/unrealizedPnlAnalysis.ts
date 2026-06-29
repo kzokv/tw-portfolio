@@ -108,6 +108,20 @@ const granularitySchema = z.enum(UNREALIZED_PNL_GRANULARITIES);
 const holdingsStateSchema = z.enum(UNREALIZED_PNL_HOLDINGS_STATES);
 const selectionModeSchema = z.enum(UNREALIZED_PNL_SELECTION_MODES);
 const reportingCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
+const PERFORMANCE_RANGE_ELEMENT = /^YTD$|^ALL$|^([1-9]\d*)(M|Y)$/;
+const performanceRangeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(20)
+  .refine((value) => {
+    const match = PERFORMANCE_RANGE_ELEMENT.exec(value);
+    if (!match) return false;
+    if (value === "YTD" || value === "ALL") return true;
+    const amount = Number(match[1]);
+    if (!Number.isInteger(amount) || amount <= 0) return false;
+    return match[2] === "M" ? amount <= 240 : amount <= 50;
+  }, { message: "invalid_analysis_range" });
 const booleanQuerySchema = z.preprocess((value) => {
   if (value === undefined || value === null || value === "") return undefined;
   if (value === true || value === "true" || value === "1") return true;
@@ -144,7 +158,7 @@ const routeTickerRefsSchema = z.preprocess((value) => normalizeCsvList(value)?.m
 
 export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
   granularity: granularitySchema.optional(),
-  range: z.string().trim().min(1).max(20).optional(),
+  range: performanceRangeSchema.optional(),
   fromDate: isoDateSchema.optional(),
   toDate: isoDateSchema.optional(),
   markets: z.preprocess(normalizeCsvList, z.array(marketCodeSchema).max(MARKET_CODES.length).optional()),
@@ -162,7 +176,7 @@ export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
 
 export const unrealizedPnlAnalysisMcpInputSchema = z.object({
   granularity: granularitySchema.optional(),
-  range: z.string().trim().min(1).max(20).optional(),
+  range: performanceRangeSchema.optional(),
   fromDate: isoDateSchema.optional(),
   toDate: isoDateSchema.optional(),
   markets: z.array(marketCodeSchema).max(MARKET_CODES.length).optional(),
@@ -444,7 +458,7 @@ function periodChangeSortScore(value: number | null): number {
 
 function buildDeepLink(query: ResolvedInput): string {
   const params = new URLSearchParams();
-  if (query.granularity !== DEFAULT_GRANULARITY) params.set("granularity", query.granularity);
+  params.set("granularity", query.granularity);
   if (query.range) {
     if (query.range !== DEFAULT_RANGE) params.set("range", query.range);
   } else {
@@ -460,10 +474,10 @@ function buildDeepLink(query: ResolvedInput): string {
   if (query.selectedTickers.length > 0) {
     params.set("selectedTickers", query.selectedTickers.map((item) => `${item.marketCode}:${item.ticker}`).join(","));
   }
-  if (query.comparisonLineCount !== DEFAULT_COMPARISON_LINE_COUNT) params.set("comparisonLineCount", String(query.comparisonLineCount));
-  if (query.holdingsState !== "open_only") params.set("holdingsState", query.holdingsState);
-  if (query.reportingCurrency !== "TWD") params.set("reportingCurrency", query.reportingCurrency);
-  if (query.includeProvisional) params.set("includeProvisional", "true");
+  params.set("comparisonLineCount", String(query.comparisonLineCount));
+  params.set("holdingsState", query.holdingsState);
+  params.set("reportingCurrency", query.reportingCurrency);
+  params.set("includeProvisional", query.includeProvisional ? "true" : "false");
   const queryString = params.toString();
   return `/analysis/unrealized-pnl${queryString ? `?${queryString}` : ""}`;
 }

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
-import { buildUnrealizedPnlAnalysis } from "../../src/services/unrealizedPnlAnalysis.js";
+import {
+  buildUnrealizedPnlAnalysis,
+  unrealizedPnlAnalysisRouteQuerySchema,
+} from "../../src/services/unrealizedPnlAnalysis.js";
 import type { HoldingSnapshot } from "../../src/persistence/types.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { BookedTradeEvent, Store } from "../../src/types/store.js";
@@ -539,8 +542,43 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.deepLink).toContain("range=CUSTOM");
     expect(report.deepLink).toContain("fromDate=2026-01-01");
     expect(report.deepLink).toContain("toDate=2026-01-31");
+    expect(report.deepLink).toContain("granularity=monthly");
     expect(report.deepLink).toContain("comparisonLineCount=7");
+    expect(report.deepLink).toContain("holdingsState=open_only");
+    expect(report.deepLink).toContain("reportingCurrency=USD");
+    expect(report.deepLink).toContain("includeProvisional=false");
     expect(report.deepLink).not.toContain("rankingLimit=");
+  });
+
+  it("emits preference-stable deep links for default-valued presentation fields", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedSnapshots([
+      makeSnapshot({ snapshotDate: "2026-01-31", unrealizedPnl: 100, unrealizedPnlNative: 100, marketValue: 1100, valueNative: 1100 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "weekly",
+      range: "3M",
+      comparisonLineCount: 5,
+      holdingsState: "open_only",
+      reportingCurrency: "TWD",
+      includeProvisional: false,
+    });
+
+    expect(report.deepLink).toContain("granularity=weekly");
+    expect(report.deepLink).toContain("comparisonLineCount=5");
+    expect(report.deepLink).toContain("holdingsState=open_only");
+    expect(report.deepLink).toContain("reportingCurrency=TWD");
+    expect(report.deepLink).toContain("includeProvisional=false");
+  });
+
+  it("rejects invalid analysis ranges before range-bound resolution", () => {
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "BAD" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "0M" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "241M" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "51Y" }).success).toBe(false);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "3M" }).success).toBe(true);
+    expect(unrealizedPnlAnalysisRouteQuerySchema.safeParse({ range: "ALL" }).success).toBe(true);
   });
 
   it("tracks missing FX and provisional rows based on the includeProvisional toggle", async () => {
