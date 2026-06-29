@@ -9,6 +9,8 @@ import type {
 } from "@vakwen/shared-types";
 import type {
   AnalysisMarkerType,
+  AnalysisFilterOption,
+  AnalysisMarketCode,
   UnrealizedPnlAnalysisDto,
   UnrealizedPnlAnalysisRouteState,
   UnrealizedPnlPointMarker,
@@ -86,13 +88,7 @@ function mapApiAnalysis(
       includeProvisional: response.query.includeProvisional,
       instrumentTypes: response.query.instrumentTypes,
     },
-    availableFilters: {
-      markets: response.query.markets.map((marketCode) => ({ value: marketCode, label: marketCode })),
-      accounts: response.query.accountIds.map((accountId) => ({ value: accountId, label: accountId })),
-      tickers: response.rankings.map((row) => ({ value: row.ticker, label: `${row.ticker} ${row.marketCode}` })),
-      reportingCurrencies: ["TWD", "USD", "AUD", "KRW", "JPY"].map((currency) => ({ value: currency, label: currency })),
-      instrumentTypes: ["STOCK", "ETF", "BOND_ETF"].map((instrumentType) => ({ value: instrumentType, label: instrumentType })),
-    },
+    availableFilters: buildAvailableFilters(response),
     summary: {
       totalUnrealized: {
         label: "Total unrealized",
@@ -148,6 +144,58 @@ function mapApiAnalysis(
     deepLink: response.deepLink,
     generatedAt: response.query.asOf,
   };
+}
+
+function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): UnrealizedPnlAnalysisDto["availableFilters"] {
+  const marketValues = new Set<string>(response.query.markets);
+  const tickerLabels = new Map<string, Set<string>>();
+  const accountLabels = new Map<string, string>();
+
+  for (const row of response.rankings) {
+    marketValues.add(row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    row.accountIds.forEach((accountId, index) => {
+      accountLabels.set(accountId, row.accountNames[index] ?? accountId);
+    });
+  }
+
+  for (const point of response.tickerSeries) {
+    marketValues.add(point.marketCode);
+    addTickerLabel(tickerLabels, point.ticker, point.marketCode);
+    point.accountIds.forEach((accountId, index) => {
+      accountLabels.set(accountId, point.accountNames[index] ?? accountId);
+    });
+  }
+
+  for (const accountId of response.query.accountIds) {
+    accountLabels.set(accountId, accountLabels.get(accountId) ?? accountId);
+  }
+  for (const ticker of response.query.tickers) {
+    if (!tickerLabels.has(ticker)) tickerLabels.set(ticker, new Set());
+  }
+
+  return {
+    markets: [...marketValues]
+      .sort()
+      .map((marketCode) => ({ value: marketCode, label: marketCode })) as Array<AnalysisFilterOption & { value: AnalysisMarketCode }>,
+    accounts: [...accountLabels.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([value, label]) => ({ value, label })),
+    tickers: [...tickerLabels.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([value, labels]) => ({
+        value,
+        label: labels.size > 0 ? `${value} ${[...labels].sort().join("/")}` : value,
+      })),
+    reportingCurrencies: ["TWD", "USD", "AUD", "KRW", "JPY"].map((currency) => ({ value: currency, label: currency })),
+    instrumentTypes: ["STOCK", "ETF", "BOND_ETF"].map((instrumentType) => ({ value: instrumentType, label: instrumentType })),
+  };
+}
+
+function addTickerLabel(target: Map<string, Set<string>>, ticker: string, marketCode: string): void {
+  const labels = target.get(ticker) ?? new Set<string>();
+  labels.add(marketCode);
+  target.set(ticker, labels);
 }
 
 function groupSeries(

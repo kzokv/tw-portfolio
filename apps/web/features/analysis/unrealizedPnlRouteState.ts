@@ -182,6 +182,19 @@ export function parseUnrealizedPnlRouteState(
 export function unrealizedPnlRouteStateToSearchParams(
   state: UnrealizedPnlAnalysisRouteState,
 ): URLSearchParams {
+  return unrealizedPnlStateToSearchParams(state, { includePresentationState: true });
+}
+
+export function unrealizedPnlApiStateToSearchParams(
+  state: UnrealizedPnlAnalysisRouteState,
+): URLSearchParams {
+  return unrealizedPnlStateToSearchParams(state, { includePresentationState: false });
+}
+
+function unrealizedPnlStateToSearchParams(
+  state: UnrealizedPnlAnalysisRouteState,
+  options: { includePresentationState: boolean },
+): URLSearchParams {
   const params = new URLSearchParams();
 
   if (state.range !== ANALYSIS_DEFAULT_STATE.range) params.set("range", state.range);
@@ -200,21 +213,23 @@ export function unrealizedPnlRouteStateToSearchParams(
   if (state.reportingCurrency !== ANALYSIS_DEFAULT_STATE.reportingCurrency) params.set("reportingCurrency", state.reportingCurrency);
   if (state.includeProvisional) params.set("includeProvisional", "true");
   if (state.instrumentTypes.length > 0) params.set("instrumentTypes", state.instrumentTypes.join(","));
-  if (state.focusDate) params.set("focus", state.focusDate);
-  if (state.view !== ANALYSIS_DEFAULT_STATE.view) params.set("view", state.view);
+  if (options.includePresentationState) {
+    if (state.focusDate) params.set("focus", state.focusDate);
+    if (state.view !== ANALYSIS_DEFAULT_STATE.view) params.set("view", state.view);
+  }
 
   return params;
 }
 
 export function buildUnrealizedPnlApiPath(state: UnrealizedPnlAnalysisRouteState): string {
-  const params = unrealizedPnlRouteStateToSearchParams(state);
+  const params = unrealizedPnlApiStateToSearchParams(state);
   return `/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`;
 }
 
 export function buildUnrealizedPnlRoutePath(
   overrides: Partial<UnrealizedPnlAnalysisRouteState> = {},
 ): string {
-  return buildUnrealizedPnlApiPath({
+  const params = unrealizedPnlRouteStateToSearchParams({
     ...ANALYSIS_DEFAULT_STATE,
     ...overrides,
     markets: overrides.markets ?? ANALYSIS_DEFAULT_STATE.markets,
@@ -223,6 +238,7 @@ export function buildUnrealizedPnlRoutePath(
     selected: overrides.selected ?? ANALYSIS_DEFAULT_STATE.selected,
     instrumentTypes: overrides.instrumentTypes ?? ANALYSIS_DEFAULT_STATE.instrumentTypes,
   });
+  return `/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`;
 }
 
 export function mapPerformanceRangeToAnalysisRange(range: string): AnalysisRangeOption {

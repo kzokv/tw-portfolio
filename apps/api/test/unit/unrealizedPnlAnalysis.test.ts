@@ -297,6 +297,60 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.rankings[0]?.periodChangeAmount).toBeNull();
   });
 
+  it("sorts unavailable period changes after real movers", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-01-01",
+        closePrice: null,
+        marketValue: null,
+        valueNative: null,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+        providerSource: null,
+      }),
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 200, unrealizedPnlNative: 200, marketValue: 1200, valueNative: 1200 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 20, unrealizedPnlNative: 20, marketValue: 1020, valueNative: 1020 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+      holdingsState: "include_sold_out",
+    });
+
+    expect(report.rankings.map((row) => [row.ticker, row.periodChangeAmount])).toEqual([
+      ["0050", 10],
+      ["2330", null],
+    ]);
+    expect(report.selectedTickers[0]).toEqual({ ticker: "0050", marketCode: "TW" });
+  });
+
+  it("does not widen an explicit unknown account scope to all accounts", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedSnapshots([
+      makeSnapshot({ snapshotDate: "2026-01-31", unrealizedPnl: 100, unrealizedPnlNative: 100, marketValue: 1100, valueNative: 1100 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+      accountIds: ["missing-account"],
+    });
+
+    expect(report.query.accountIds).toEqual(["missing-account"]);
+    expect(report.portfolioSeries).toEqual([]);
+    expect(report.tickerSeries).toEqual([]);
+    expect(report.rankings).toEqual([]);
+    expect(report.dataHealth.snapshotRowCount).toBe(0);
+  });
+
   it("emits route-state-compatible deep links for custom dates", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedSnapshots([

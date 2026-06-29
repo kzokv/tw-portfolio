@@ -3,6 +3,7 @@ import {
   ANALYSIS_DEFAULT_STATE,
   applyAnalysisPresentationDefaults,
   buildSelectedSeriesId,
+  buildUnrealizedPnlApiPath,
   buildUnrealizedPnlRoutePath,
   extractAnalysisPresentationDefaults,
   getExplicitAnalysisPreferenceKeys,
@@ -80,6 +81,23 @@ describe("unrealizedPnlRouteState", () => {
       selectionMode: "manual",
       reportingCurrency: "USD",
     })).toBe("/analysis/unrealized-pnl?range=1M&markets=US&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=USD");
+  });
+
+  it("keeps presentation-only focus and view out of strict API query strings", () => {
+    const state = {
+      ...ANALYSIS_DEFAULT_STATE,
+      range: "1M" as const,
+      selected: [buildSelectedSeriesId("US", "NVDA")],
+      selectionMode: "manual" as const,
+      focusDate: "2026-06-26",
+      view: "compare" as const,
+    };
+
+    expect(buildUnrealizedPnlRoutePath(state)).toContain("focus=2026-06-26");
+    expect(buildUnrealizedPnlRoutePath(state)).toContain("view=compare");
+    expect(buildUnrealizedPnlApiPath(state)).toBe(
+      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
+    );
   });
 
   it("applies saved presentation defaults only when URL keys are absent", () => {

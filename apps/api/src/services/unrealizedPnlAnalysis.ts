@@ -377,6 +377,10 @@ function pickSelectedTickers(
     .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
 }
 
+function periodChangeSortScore(value: number | null): number {
+  return value === null ? -1 : Math.abs(value);
+}
+
 function buildDeepLink(query: ResolvedInput): string {
   const params = new URLSearchParams();
   if (query.granularity !== DEFAULT_GRANULARITY) params.set("granularity", query.granularity);
@@ -511,7 +515,10 @@ export async function buildUnrealizedPnlAnalysis(
     .map((trade) => trade.tradeDate)[0];
   const query = resolveInput(rawInput, defaultReportingCurrency, earliestTradeDate);
 
-  const requestedAccountIds = query.accountIds.length > 0 ? query.accountIds.filter((accountId) => activeAccounts.has(accountId)) : [...activeAccounts.keys()];
+  const hasExplicitAccountFilter = query.accountIds.length > 0;
+  const requestedAccountIds = hasExplicitAccountFilter
+    ? query.accountIds.filter((accountId) => activeAccounts.has(accountId))
+    : [...activeAccounts.keys()];
   const instrumentByKey = new Map<string, typeof store.instruments[number]>(
     store.instruments.map((instrument) => [`${instrument.marketCode}:${instrument.ticker}`, instrument] as const),
   );
@@ -522,15 +529,17 @@ export async function buildUnrealizedPnlAnalysis(
     }
   }
 
-  const snapshotRows = await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
-    accountIds: requestedAccountIds,
-    markets: query.markets.length > 0 ? query.markets : undefined,
-    tickers: query.tickers.length > 0 ? query.tickers : undefined,
-    startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
-    endDate: query.endDate,
-    includeProvisional: query.includeProvisional,
-    reportingCurrency: query.reportingCurrency,
-  });
+  const snapshotRows = hasExplicitAccountFilter && requestedAccountIds.length === 0
+    ? []
+    : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
+      accountIds: requestedAccountIds,
+      markets: query.markets.length > 0 ? query.markets : undefined,
+      tickers: query.tickers.length > 0 ? query.tickers : undefined,
+      startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
+      endDate: query.endDate,
+      includeProvisional: query.includeProvisional,
+      reportingCurrency: query.reportingCurrency,
+    });
 
   const filteredSnapshotRows = snapshotRows.filter((row) => {
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
@@ -609,7 +618,7 @@ export async function buildUnrealizedPnlAnalysis(
       };
     })
     .sort((left, right) =>
-      Math.abs(right.periodChangeAmount ?? Number.NEGATIVE_INFINITY) - Math.abs(left.periodChangeAmount ?? Number.NEGATIVE_INFINITY)
+      periodChangeSortScore(right.periodChangeAmount) - periodChangeSortScore(left.periodChangeAmount)
       || left.marketCode.localeCompare(right.marketCode)
       || left.ticker.localeCompare(right.ticker),
     )
