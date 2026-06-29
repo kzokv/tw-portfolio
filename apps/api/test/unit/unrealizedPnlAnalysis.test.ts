@@ -355,6 +355,27 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.dataHealth.snapshotRowCount).toBe(0);
   });
 
+  it("does not show deleted-account snapshots when no active account scope remains", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedSnapshots([
+      makeSnapshot({ accountId: "acc-1", snapshotDate: "2026-01-31", unrealizedPnl: 100, unrealizedPnlNative: 100, marketValue: 1100, valueNative: 1100 }),
+    ]);
+    const store = await persistence.loadStore("user-1");
+    store.accounts = [];
+    await persistence.saveStore(store);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+    });
+
+    expect(report.query.accountIds).toEqual([]);
+    expect(report.portfolioSeries).toEqual([]);
+    expect(report.rankings).toEqual([]);
+    expect(report.dataHealth.snapshotRowCount).toBe(0);
+  });
+
   it("emits route-state-compatible deep links for custom dates", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedSnapshots([

@@ -7880,12 +7880,93 @@ export class PostgresPersistence implements Persistence {
       params,
     );
 
+    const fxRateByKey = new Map<string, number | null>();
+    const fxPairs = [...new Map(result.rows
+      .map((row) => {
+        const nativeCurrency = row.currency.trim();
+        return [`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`, {
+          base: nativeCurrency,
+          quote: options.reportingCurrency,
+          asOfDate: row.snapshot_date,
+        }];
+      })).values()];
+    const nonSelfPairs = fxPairs.filter((pair) => pair.base !== pair.quote);
+    for (const pair of fxPairs.filter((item) => item.base === item.quote)) {
+      fxRateByKey.set(`${pair.base}\0${pair.quote}\0${pair.asOfDate}`, 1);
+    }
+    if (nonSelfPairs.length > 0) {
+      const pivot = "TWD";
+      const fxResult = await this.pool.query<{
+        base: string;
+        quote: string;
+        as_of_date: string;
+        direct_rate: string | null;
+        inverse_rate: string | null;
+        base_to_pivot_direct_rate: string | null;
+        pivot_to_base_rate: string | null;
+        quote_to_pivot_direct_rate: string | null;
+        pivot_to_quote_rate: string | null;
+      }>(
+        `WITH pairs AS (
+           SELECT base, quote, as_of_date
+             FROM jsonb_to_recordset($1::jsonb) AS pair(base text, quote text, as_of_date date)
+         )
+         SELECT p.base,
+                p.quote,
+                p.as_of_date::text,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS inverse_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS base_to_pivot_direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_base_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS quote_to_pivot_direct_rate,
+                (
+                  SELECT rate::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_quote_rate
+           FROM pairs p`,
+        [JSON.stringify(nonSelfPairs), pivot],
+      );
+      for (const row of fxResult.rows) {
+        const directRate = row.direct_rate === null ? null : Number(row.direct_rate);
+        const inverseRate = row.inverse_rate === null ? null : Number(row.inverse_rate);
+        const baseToPivot = row.base === pivot
+          ? 1.0
+          : rateOrInverse(row.base_to_pivot_direct_rate, row.pivot_to_base_rate);
+        const quoteToPivot = row.quote === pivot
+          ? 1.0
+          : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
+        const resolvedRate = directRate
+          ?? (inverseRate !== null && inverseRate !== 0 ? 1 / inverseRate : null)
+          ?? (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0 ? baseToPivot / quoteToPivot : null);
+        fxRateByKey.set(`${row.base}\0${row.quote}\0${row.as_of_date}`, resolvedRate);
+      }
+    }
+
     const translatedRows: import("./types.js").UnrealizedPnlAnalysisSnapshotRow[] = [];
     for (const row of result.rows) {
       const nativeCurrency = row.currency.trim();
-      const fxRate = nativeCurrency === options.reportingCurrency
-        ? 1
-        : await this.getFxRate(nativeCurrency, options.reportingCurrency, row.snapshot_date);
+      const fxRate = fxRateByKey.get(`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`) ?? null;
       const fxAvailable = fxRate !== null;
       translatedRows.push({
         accountId: row.account_id,

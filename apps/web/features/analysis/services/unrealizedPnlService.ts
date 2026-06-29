@@ -70,8 +70,12 @@ function mapApiAnalysis(
       isSelected: selectedSet.has(seriesId),
     };
   });
-  const bestDriver = ranking[0] ?? null;
-  const worstDriver = [...ranking].sort((left, right) => left.periodChange - right.periodChange)[0] ?? null;
+  const bestDriver = [...ranking]
+    .filter((row) => row.periodChange > 0)
+    .sort((left, right) => right.periodChange - left.periodChange)[0] ?? null;
+  const worstDriver = [...ranking]
+    .filter((row) => row.periodChange < 0)
+    .sort((left, right) => left.periodChange - right.periodChange)[0] ?? null;
   const missingRows = response.dataHealth.missingFxRowCount + response.dataHealth.nullUnrealizedRowCount;
   const healthStatus = missingRows > 0 || response.dataHealth.provisionalRowCount > 0 ? "partial" : "complete";
 

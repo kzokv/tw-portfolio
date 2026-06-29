@@ -45,24 +45,59 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         includedTickerCount: 1,
       },
       portfolioSeries: [{ date: "2026-06-26", unrealizedPnlAmount: 25 }],
-      tickerSeries: [{
-        date: "2026-06-26",
-        unrealizedPnlAmount: 25,
-        marketValueAmount: 1000,
-        costBasisAmount: 975,
-        quantity: 2,
-        fxAvailable: true,
-        isProvisional: false,
-        ticker: "NVDA",
+      tickerSeries: [
+        {
+          date: "2026-06-26",
+          unrealizedPnlAmount: -100,
+          marketValueAmount: 900,
+          costBasisAmount: 1000,
+          quantity: 1,
+          fxAvailable: true,
+          isProvisional: false,
+          ticker: "AAPL",
+          marketCode: "US",
+          instrumentName: "Apple",
+          instrumentType: "STOCK",
+          accountIds: ["acc-us-growth"],
+          accountNames: ["US Growth"],
+          isSelected: false,
+          isSoldOut: false,
+        },
+        {
+          date: "2026-06-26",
+          unrealizedPnlAmount: 25,
+          marketValueAmount: 1000,
+          costBasisAmount: 975,
+          quantity: 2,
+          fxAvailable: true,
+          isProvisional: false,
+          ticker: "NVDA",
+          marketCode: "US",
+          instrumentName: "NVIDIA",
+          instrumentType: "STOCK",
+          accountIds: ["acc-us-growth"],
+          accountNames: ["US Growth"],
+          isSelected: true,
+          isSoldOut: false,
+        },
+      ],
+      rankings: [{
+        ticker: "AAPL",
         marketCode: "US",
-        instrumentName: "NVIDIA",
+        instrumentName: "Apple",
         instrumentType: "STOCK",
         accountIds: ["acc-us-growth"],
         accountNames: ["US Growth"],
-        isSelected: true,
+        currentlyHeld: true,
         isSoldOut: false,
-      }],
-      rankings: [{
+        startUnrealizedPnlAmount: 0,
+        endUnrealizedPnlAmount: -100,
+        periodChangeAmount: -100,
+        latestMarketValueAmount: 900,
+        latestCostBasisAmount: 1000,
+        latestQuantity: 1,
+        tradeMarkerCount: 0,
+      }, {
         ticker: "NVDA",
         marketCode: "US",
         instrumentName: "NVIDIA",
@@ -114,6 +149,11 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);
     expect(model.availableFilters.accounts).toEqual([{ value: "acc-us-growth", label: "US Growth" }]);
-    expect(model.availableFilters.tickers).toEqual([{ value: "NVDA", label: "NVDA US" }]);
+    expect(model.availableFilters.tickers).toEqual([
+      { value: "AAPL", label: "AAPL US" },
+      { value: "NVDA", label: "NVDA US" },
+    ]);
+    expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
+    expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
   });
 });

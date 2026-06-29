@@ -529,7 +529,7 @@ export async function buildUnrealizedPnlAnalysis(
     }
   }
 
-  const snapshotRows = hasExplicitAccountFilter && requestedAccountIds.length === 0
+  const snapshotRows = requestedAccountIds.length === 0
     ? []
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
