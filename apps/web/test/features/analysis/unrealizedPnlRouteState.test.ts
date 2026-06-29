@@ -5,6 +5,7 @@ import {
   buildSelectedSeriesId,
   buildUnrealizedPnlApiPath,
   buildUnrealizedPnlRoutePath,
+  canFetchUnrealizedPnlAnalysis,
   extractAnalysisPresentationDefaults,
   getExplicitAnalysisPreferenceKeys,
   mapPerformanceRangeToAnalysisRange,
@@ -81,6 +82,9 @@ describe("unrealizedPnlRouteState", () => {
       selectionMode: "manual",
       reportingCurrency: "USD",
     })).toBe("/analysis/unrealized-pnl?range=1M&markets=US&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=USD");
+    expect(buildUnrealizedPnlRoutePath({ range: "ALL" })).toBe(
+      "/analysis/unrealized-pnl?range=ALL&granularity=yearly",
+    );
   });
 
   it("keeps presentation-only focus and view out of strict API query strings", () => {
@@ -98,6 +102,21 @@ describe("unrealizedPnlRouteState", () => {
     expect(buildUnrealizedPnlApiPath(state)).toBe(
       "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
     );
+  });
+
+  it("keeps incomplete custom ranges out of API fetches", () => {
+    const incompleteCustomState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      range: "CUSTOM" as const,
+    };
+
+    expect(canFetchUnrealizedPnlAnalysis(incompleteCustomState)).toBe(false);
+    expect(buildUnrealizedPnlRoutePath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?range=CUSTOM");
+    expect(buildUnrealizedPnlApiPath(incompleteCustomState)).toBe("/analysis/unrealized-pnl");
+    expect(canFetchUnrealizedPnlAnalysis({
+      ...incompleteCustomState,
+      from: "2026-01-01",
+    })).toBe(true);
   });
 
   it("applies saved presentation defaults only when URL keys are absent", () => {

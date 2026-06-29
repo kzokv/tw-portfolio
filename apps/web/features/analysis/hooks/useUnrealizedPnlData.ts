@@ -13,6 +13,7 @@ import {
 import { getDictionary } from "../../../lib/i18n";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchUnrealizedPnlAnalysis } from "../services/unrealizedPnlService";
+import { canFetchUnrealizedPnlAnalysis } from "../unrealizedPnlRouteState";
 import type { UnrealizedPnlAnalysisDto, UnrealizedPnlAnalysisRouteState } from "../unrealizedPnlTypes";
 
 const ANALYSIS_REFRESH_TIMEOUT_MS = 90_000;
@@ -82,6 +83,12 @@ export function useUnrealizedPnlData({
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
     requestVersionRef.current += 1;
     const version = requestVersionRef.current;
+    if (!canFetchUnrealizedPnlAnalysis(state)) {
+      setIsBootstrapping(false);
+      setIsRefreshing(false);
+      setErrorMessage("");
+      return;
+    }
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), ANALYSIS_REFRESH_TIMEOUT_MS);
     setIsRefreshing(true);
@@ -115,6 +122,12 @@ export function useUnrealizedPnlData({
   }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, state, timeoutMessage]);
 
   useEffect(() => {
+    if (!canFetchUnrealizedPnlAnalysis(state)) {
+      setIsBootstrapping(false);
+      setIsRefreshing(false);
+      setErrorMessage("");
+      return;
+    }
     const cached = readRouteDtoCache<UnrealizedPnlAnalysisDto>(cacheKey);
     if (initialData) {
       setData(initialData);

@@ -196,8 +196,11 @@ function unrealizedPnlStateToSearchParams(
   options: { includePresentationState: boolean },
 ): URLSearchParams {
   const params = new URLSearchParams();
+  const hasCustomDate = state.from !== null || state.to !== null;
+  const shouldIncludeRange = state.range !== ANALYSIS_DEFAULT_STATE.range
+    && (options.includePresentationState || state.range !== "CUSTOM" || hasCustomDate);
 
-  if (state.range !== ANALYSIS_DEFAULT_STATE.range) params.set("range", state.range);
+  if (shouldIncludeRange) params.set("range", state.range);
   if (state.range === "CUSTOM") {
     if (state.from) params.set("fromDate", state.from);
     if (state.to) params.set("toDate", state.to);
@@ -229,7 +232,7 @@ export function buildUnrealizedPnlApiPath(state: UnrealizedPnlAnalysisRouteState
 export function buildUnrealizedPnlRoutePath(
   overrides: Partial<UnrealizedPnlAnalysisRouteState> = {},
 ): string {
-  const params = unrealizedPnlRouteStateToSearchParams({
+  const state: UnrealizedPnlAnalysisRouteState = {
     ...ANALYSIS_DEFAULT_STATE,
     ...overrides,
     markets: overrides.markets ?? ANALYSIS_DEFAULT_STATE.markets,
@@ -237,8 +240,16 @@ export function buildUnrealizedPnlRoutePath(
     tickers: overrides.tickers ?? ANALYSIS_DEFAULT_STATE.tickers,
     selected: overrides.selected ?? ANALYSIS_DEFAULT_STATE.selected,
     instrumentTypes: overrides.instrumentTypes ?? ANALYSIS_DEFAULT_STATE.instrumentTypes,
-  });
+  };
+  if (state.range === "ALL" && state.granularity !== "yearly") {
+    state.granularity = "yearly";
+  }
+  const params = unrealizedPnlRouteStateToSearchParams(state);
   return `/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`;
+}
+
+export function canFetchUnrealizedPnlAnalysis(state: UnrealizedPnlAnalysisRouteState): boolean {
+  return state.range !== "CUSTOM" || state.from !== null || state.to !== null;
 }
 
 export function mapPerformanceRangeToAnalysisRange(range: string): AnalysisRangeOption {
