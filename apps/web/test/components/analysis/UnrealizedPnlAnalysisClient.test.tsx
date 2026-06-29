@@ -271,17 +271,35 @@ describe("UnrealizedPnlAnalysisClient", () => {
   });
 
   it("formats ranking and detail amounts with the response currency", () => {
-    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE, "AUD");
+    const audState = { ...ANALYSIS_DEFAULT_STATE, reportingCurrency: "AUD" as const };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(audState, "AUD");
 
     act(() => {
       root!.render(
         <AppShellDataProvider value={buildShellData()}>
-          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={audState} />
         </AppShellDataProvider>,
       );
     });
 
     expect(container.textContent).toContain("A$");
     expect(container.textContent).not.toContain("NT$");
+  });
+
+  it("keeps stale response values in their original currency while refreshing the selected reporting currency", async () => {
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE, "AUD");
+
+    await act(async () => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='analysis-stale-currency-banner']")).not.toBeNull();
+    expect(container.textContent).toContain("Refreshing values in TWD");
+    expect(container.textContent).toContain("A$");
   });
 });

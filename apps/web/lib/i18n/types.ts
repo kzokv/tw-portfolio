@@ -66,12 +66,15 @@ export interface AppDictionary {
     instrumentTypeLabel: string;
     currentOnly: string;
     includeSold: string;
+    openPosition: string;
+    closedPosition: string;
     topDrivers: string;
     manualSelection: string;
     showFilters: string;
     hideFilters: string;
     summaryTotal: string;
     summaryChange: string;
+    periodPnlChange: string;
     summaryBest: string;
     summaryWorst: string;
     summaryHealth: string;
@@ -100,6 +103,7 @@ export interface AppDictionary {
     tableState: string;
     detailStartPnl: string;
     detailEndPnl: string;
+    detailFocusedPnl: string;
     detailCostBasis: string;
     detailMarketValue: string;
     detailQuantity: string;
@@ -112,6 +116,9 @@ export interface AppDictionary {
     markerAggregate: string;
     selectedLineLabel: string;
     mutedLineLabel: string;
+    focusValuesLabel: string;
+    staleCurrencyTitle: string;
+    staleCurrencyDetail: string;
     chartAriaLabel: string;
     healthComplete: string;
     healthPartial: string;

@@ -156,6 +156,23 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.portfolioSeries.map((point) => point.date)).toEqual(["2026-01-02", "2026-01-03", "2026-01-06"]);
     expect(report.summary.periodChangeAmount).toBe(200);
     expect(report.rankings).toHaveLength(1);
+    expect(report.metadata.reportingCurrencySemantics).toEqual({
+      reportingCurrency: "TWD",
+      appliesToFields: [
+        "startUnrealizedPnlAmount",
+        "endUnrealizedPnlAmount",
+        "periodChangeAmount",
+      ],
+    });
+    expect(report.metadata.metricDefinitions.periodChangeAmount).toEqual({
+      field: "periodChangeAmount",
+      amountSemantics: "unrealized_pnl_period_change",
+      boundary: "period_change",
+      unit: "reporting_currency",
+      reportingCurrency: "TWD",
+    });
+    expect(report.rankings[0]).toEqual(expect.objectContaining({ positionStatus: "open_position" }));
+    expect(report.tickerSeries.every((point) => point.positionStatus === "open_position")).toBe(true);
     expect(report.selectedTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "2330", marketCode: "TW", date: "2026-01-02", kind: "buy" }),
@@ -193,9 +210,20 @@ describe("buildUnrealizedPnlAnalysis", () => {
       holdingsState: "include_sold_out",
     });
     expect(includeSoldOut.rankings).toEqual([
-      expect.objectContaining({ ticker: "2330", marketCode: "TW", isSoldOut: true, latestQuantity: 0, endUnrealizedPnlAmount: 0 }),
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        isSoldOut: true,
+        latestQuantity: 0,
+        endUnrealizedPnlAmount: 0,
+        positionStatus: "closed_position",
+      }),
     ]);
-    expect(includeSoldOut.tickerSeries.at(-1)).toEqual(expect.objectContaining({ quantity: 0, unrealizedPnlAmount: 0 }));
+    expect(includeSoldOut.tickerSeries.at(-1)).toEqual(expect.objectContaining({
+      quantity: 0,
+      unrealizedPnlAmount: 0,
+      positionStatus: "closed_position",
+    }));
     expect(includeSoldOut.tradeMarkers.map((marker) => marker.kind)).toEqual(["buy", "partial_sell", "full_exit"]);
   });
 

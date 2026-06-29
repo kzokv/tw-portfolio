@@ -6,6 +6,7 @@ import type { HoldingSnapshot } from "../../src/persistence/types.js";
 
 let app: AppInstance;
 let persistence: MemoryPersistence;
+const appBaseUrl = "https://vakwen.example";
 
 const testOAuthConfig = {
   clientId: "test-client",
@@ -122,7 +123,7 @@ function makeSnapshot(overrides: Partial<HoldingSnapshot> = {}): HoldingSnapshot
 }
 
 beforeEach(async () => {
-  app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
+  app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig, appBaseUrl });
   persistence = app.persistence as MemoryPersistence;
   const memory = persistence as MemoryPersistence & {
     _seedInstrument: (instrument: {
@@ -187,10 +188,18 @@ describe("unrealized P&L analysis API/MCP parity", () => {
       result: {
         structuredContent?: unknown;
         content?: Array<{ text?: string }>;
+        _meta?: {
+          deepLinkUrl?: string;
+        };
       };
     }>(mcpCall.body);
-    const structuredContent = extractAnalysisPayload(mcpBody);
+    const structuredContent = extractAnalysisPayload(mcpBody) as Record<string, unknown> | undefined;
+    expect(structuredContent).toBeDefined();
 
-    expect(structuredContent).toEqual(apiBody);
+    expect(structuredContent).toEqual({
+      ...apiBody,
+      deepLinkUrl: `${appBaseUrl}${apiBody.deepLink}`,
+    });
+    expect(mcpBody.result._meta?.deepLinkUrl).toBe(`${appBaseUrl}${apiBody.deepLink}`);
   });
 });

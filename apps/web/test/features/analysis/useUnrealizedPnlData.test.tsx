@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANALYSIS_DEFAULT_STATE } from "../../../features/analysis/unrealizedPnlRouteState";
 import { useUnrealizedPnlData } from "../../../features/analysis/hooks/useUnrealizedPnlData";
+import { fetchUnrealizedPnlAnalysis } from "../../../features/analysis/services/unrealizedPnlService";
 import type { UnrealizedPnlAnalysisDto, UnrealizedPnlAnalysisRouteState } from "../../../features/analysis/unrealizedPnlTypes";
 
 vi.mock("../../../features/analysis/services/unrealizedPnlService", () => ({
@@ -94,6 +95,7 @@ describe("useUnrealizedPnlData", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.mocked(fetchUnrealizedPnlAnalysis).mockReset();
     window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -132,5 +134,33 @@ describe("useUnrealizedPnlData", () => {
     expect(result.isBootstrapping).toBe(false);
     expect(result.isRefreshing).toBe(false);
     expect(result.errorMessage).toBe("");
+  });
+
+  it("keeps mismatched initial reporting-currency data visible without caching it under the selected currency", async () => {
+    const audAnalysis = {
+      ...loadedAnalysis,
+      query: {
+        ...loadedAnalysis.query,
+        reportingCurrency: "AUD" as const,
+      },
+      summary: {
+        ...loadedAnalysis.summary,
+        totalUnrealized: { ...loadedAnalysis.summary.totalUnrealized, currency: "AUD" as const },
+        periodChange: { ...loadedAnalysis.summary.periodChange, currency: "AUD" as const },
+      },
+    } satisfies UnrealizedPnlAnalysisDto;
+    vi.mocked(fetchUnrealizedPnlAnalysis).mockResolvedValue(audAnalysis);
+
+    await act(async () => {
+      root.render(createElement(Harness, { initialData: audAnalysis, state: ANALYSIS_DEFAULT_STATE }));
+      await Promise.resolve();
+    });
+
+    expect(result.data).toBe(audAnalysis);
+    expect(result.cacheStatus).toBeNull();
+    expect(fetchUnrealizedPnlAnalysis).toHaveBeenCalledWith(ANALYSIS_DEFAULT_STATE, expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    }));
+    expect(window.sessionStorage.length).toBe(0);
   });
 });

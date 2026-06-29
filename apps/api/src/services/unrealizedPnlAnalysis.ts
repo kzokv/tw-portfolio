@@ -12,6 +12,10 @@ import {
   type UnrealizedPnlAnalysisDto,
   type UnrealizedPnlAnalysisQueryStateDto,
   type UnrealizedPnlGranularity,
+  type UnrealizedPnlMetricBoundary,
+  type UnrealizedPnlAmountSemantics,
+  type UnrealizedPnlAnalysisMetadataDto,
+  type UnrealizedPnlPositionStatus,
   type UnrealizedPnlRankingRowDto,
   type UnrealizedPnlTickerRefDto,
   type UnrealizedPnlTradeMarkerDto,
@@ -30,6 +34,60 @@ const DEFAULT_RANKING_LIMIT = 100;
 const MAX_RANKING_LIMIT = 500;
 const MAX_FILTER_ITEMS = 200;
 const MIN_ANALYSIS_DATE = "1900-01-01";
+
+const UNREALIZED_PNL_METRICS = {
+  start: {
+    field: "startUnrealizedPnlAmount",
+    amountSemantics: "unrealized_pnl_level" as const satisfies UnrealizedPnlAmountSemantics,
+    boundary: "period_start" as const satisfies UnrealizedPnlMetricBoundary,
+  },
+  end: {
+    field: "endUnrealizedPnlAmount",
+    amountSemantics: "unrealized_pnl_level" as const satisfies UnrealizedPnlAmountSemantics,
+    boundary: "period_end" as const satisfies UnrealizedPnlMetricBoundary,
+  },
+  periodChange: {
+    field: "periodChangeAmount",
+    amountSemantics: "unrealized_pnl_period_change" as const,
+    boundary: "period_change" as const satisfies UnrealizedPnlMetricBoundary,
+  },
+} as const;
+
+function toPositionStatus(latestQuantity: number): UnrealizedPnlPositionStatus {
+  return latestQuantity > 0 ? "open_position" : "closed_position";
+}
+
+function buildUnrealizedPnlMetadata(reportingCurrency: AccountDefaultCurrency): UnrealizedPnlAnalysisMetadataDto {
+  return {
+    reportingCurrencySemantics: {
+      reportingCurrency,
+      appliesToFields: ["startUnrealizedPnlAmount", "endUnrealizedPnlAmount", "periodChangeAmount"],
+    },
+    metricDefinitions: {
+      startUnrealizedPnlAmount: {
+        field: UNREALIZED_PNL_METRICS.start.field,
+        amountSemantics: UNREALIZED_PNL_METRICS.start.amountSemantics,
+        boundary: UNREALIZED_PNL_METRICS.start.boundary,
+        unit: "reporting_currency",
+        reportingCurrency,
+      },
+      endUnrealizedPnlAmount: {
+        field: UNREALIZED_PNL_METRICS.end.field,
+        amountSemantics: UNREALIZED_PNL_METRICS.end.amountSemantics,
+        boundary: UNREALIZED_PNL_METRICS.end.boundary,
+        unit: "reporting_currency",
+        reportingCurrency,
+      },
+      periodChangeAmount: {
+        field: UNREALIZED_PNL_METRICS.periodChange.field,
+        amountSemantics: UNREALIZED_PNL_METRICS.periodChange.amountSemantics,
+        boundary: UNREALIZED_PNL_METRICS.periodChange.boundary,
+        unit: "reporting_currency",
+        reportingCurrency,
+      },
+    },
+  };
+}
 
 function isIsoCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -515,6 +573,7 @@ export async function buildUnrealizedPnlAnalysis(
     .sort(tradeSortKey)
     .map((trade) => trade.tradeDate)[0];
   const query = resolveInput(rawInput, defaultReportingCurrency, earliestTradeDate);
+  const metadata = buildUnrealizedPnlMetadata(query.reportingCurrency);
 
   const hasExplicitAccountFilter = query.accountIds.length > 0;
   const requestedAccountIds = hasExplicitAccountFilter
@@ -601,6 +660,7 @@ export async function buildUnrealizedPnlAnalysis(
         && endPoint?.unrealizedPnlAmount !== null && endPoint?.unrealizedPnlAmount !== undefined
         ? roundToDecimal((endPoint.unrealizedPnlAmount ?? 0) - (startPoint.unrealizedPnlAmount ?? 0), 2)
         : null;
+      const positionStatus = toPositionStatus(series.latestQuantity);
       return {
         ticker: series.ticker,
         marketCode: series.marketCode,
@@ -610,6 +670,7 @@ export async function buildUnrealizedPnlAnalysis(
         accountNames: series.accountNames,
         currentlyHeld: series.latestQuantity > 0,
         isSoldOut: series.latestQuantity <= 0,
+        positionStatus,
         startUnrealizedPnlAmount: startPoint?.unrealizedPnlAmount ?? null,
         endUnrealizedPnlAmount: endPoint?.unrealizedPnlAmount ?? null,
         periodChangeAmount,
@@ -682,6 +743,7 @@ export async function buildUnrealizedPnlAnalysis(
         accountNames: series.accountNames,
         isSelected: selectedTickerKeySet.has(`${series.marketCode}:${series.ticker}`),
         isSoldOut: series.latestQuantity <= 0,
+        positionStatus: toPositionStatus(series.latestQuantity),
       };
     }));
 
@@ -715,6 +777,7 @@ export async function buildUnrealizedPnlAnalysis(
 
   return {
     query,
+    metadata,
     summary: {
       reportingCurrency: query.reportingCurrency,
       startDate: summaryStartPoint?.date ?? null,

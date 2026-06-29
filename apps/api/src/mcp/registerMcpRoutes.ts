@@ -419,11 +419,19 @@ export async function registerMcpRoutes(
           );
           break;
         case "get_unrealized_pnl_report":
-          result = await buildUnrealizedPnlAnalysis(
-            app,
-            requestContext.resolvedContext.portfolioContextUserId,
-            args as Parameters<typeof buildUnrealizedPnlAnalysis>[2],
-          );
+          result = await (async () => {
+            const report = await buildUnrealizedPnlAnalysis(
+              app,
+              requestContext.resolvedContext.portfolioContextUserId,
+              args as Parameters<typeof buildUnrealizedPnlAnalysis>[2],
+            );
+            const deepLinkUrl = `${app.appBaseUrl.replace(/\/$/, "")}${report.deepLink}`;
+            return {
+              ...report,
+              deepLinkUrl,
+              _meta: { deepLinkUrl },
+            };
+          })();
           break;
         case "get_quote_freshness":
           result = await getQuoteFreshness(

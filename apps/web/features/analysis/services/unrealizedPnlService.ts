@@ -18,6 +18,7 @@ import type {
 } from "../unrealizedPnlTypes";
 
 const SERIES_COLORS = ["#215dc6", "#157f5b", "#d28a2e", "#e15555", "#4ca7c7", "#7d5cc6", "#6f7d32", "#9a5b3e"];
+type PositionStatus = "open_position" | "closed_position";
 
 export async function fetchUnrealizedPnlAnalysis(
   state: UnrealizedPnlAnalysisRouteState,
@@ -58,13 +59,15 @@ function mapApiAnalysis(
   const tickerSeries = groupSeries(response.tickerSeries, response.summary.reportingCurrency, markersBySeriesId);
   const ranking = response.rankings.map((row) => {
     const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
+    const positionStatus = resolvePositionStatus(row);
     return {
       seriesId,
       ticker: row.ticker,
       marketCode: row.marketCode,
       displayName: row.instrumentName ?? `${row.ticker} ${row.marketCode}`,
-      stateLabel: row.currentlyHeld ? "Current" : "Sold out",
-      state: row.currentlyHeld ? "current" as const : "sold-out" as const,
+      stateLabel: positionStatusLabel(positionStatus),
+      state: positionStatus === "open_position" ? "current" as const : "sold-out" as const,
+      positionStatus,
       endUnrealizedPnl: row.endUnrealizedPnlAmount,
       periodChange: row.periodChangeAmount,
       isSelected: selectedSet.has(seriesId),
@@ -223,6 +226,7 @@ function groupSeries(
     const last = seriesPoints[seriesPoints.length - 1]!;
     const firstValue = first.unrealizedPnlAmount;
     const lastValue = last.unrealizedPnlAmount;
+    const positionStatus = resolvePositionStatus(first);
     return {
       seriesId,
       ticker: first.ticker,
@@ -230,8 +234,9 @@ function groupSeries(
       displayName: first.instrumentName ?? `${first.ticker} ${first.marketCode}`,
       currency,
       instrumentType: first.instrumentType ?? "STOCK",
-      stateLabel: first.isSoldOut ? "Sold out" : "Current",
-      state: first.isSoldOut ? "sold-out" : "current",
+      stateLabel: positionStatusLabel(positionStatus),
+      state: positionStatus === "closed_position" ? "sold-out" : "current",
+      positionStatus,
       colorToken: SERIES_COLORS[index % SERIES_COLORS.length]!,
       endUnrealizedPnl: lastValue,
       periodChange: firstValue !== null && lastValue !== null ? lastValue - firstValue : null,
@@ -247,6 +252,15 @@ function groupSeries(
       markers: markersBySeriesId.get(seriesId) ?? [],
     };
   });
+}
+
+function resolvePositionStatus(row: { currentlyHeld?: boolean; isSoldOut?: boolean; positionStatus?: PositionStatus }): PositionStatus {
+  if (row.positionStatus === "open_position" || row.positionStatus === "closed_position") return row.positionStatus;
+  return row.isSoldOut === true || row.currentlyHeld === false ? "closed_position" : "open_position";
+}
+
+function positionStatusLabel(status: PositionStatus): string {
+  return status === "open_position" ? "Open position" : "Closed position";
 }
 
 function mapMarkerKind(kind: ApiUnrealizedPnlAnalysisDto["tradeMarkers"][number]["kind"]): AnalysisMarkerType {

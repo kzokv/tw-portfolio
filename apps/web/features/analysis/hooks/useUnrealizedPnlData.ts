@@ -79,6 +79,11 @@ export function useUnrealizedPnlData({
   const [errorMessage, setErrorMessage] = useState("");
   const [cacheStatus, setCacheStatus] = useState<RouteDtoCacheStatus | null>(null);
   const requestVersionRef = useRef(0);
+  const matchesStateCurrency = useCallback(
+    (candidate: UnrealizedPnlAnalysisDto | null): candidate is UnrealizedPnlAnalysisDto =>
+      candidate !== null && candidate.query.reportingCurrency === state.reportingCurrency,
+    [state.reportingCurrency],
+  );
 
   const refresh = useCallback(async ({ bypassCache = false }: { bypassCache?: boolean } = {}) => {
     requestVersionRef.current += 1;
@@ -97,13 +102,17 @@ export function useUnrealizedPnlData({
     try {
       if (!bypassCache) {
         const cached = readRouteDtoCache<UnrealizedPnlAnalysisDto>(cacheKey);
-        if (cached) {
+        if (cached && matchesStateCurrency(cached.payload)) {
           setData(cached.payload);
           setCacheStatus(cached.status);
         }
       }
       const next = await fetchUnrealizedPnlAnalysis(state, { signal: controller.signal });
       if (version !== requestVersionRef.current) return;
+      if (!matchesStateCurrency(next)) {
+        setCacheStatus(null);
+        return;
+      }
       setData(next);
       writeRouteDtoCache(cacheKey, next, {
         ttlMs: cacheDurations.ttlMs,
@@ -121,7 +130,7 @@ export function useUnrealizedPnlData({
       clearTimeout(timeoutId);
       if (version === requestVersionRef.current) setIsRefreshing(false);
     }
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, state, timeoutMessage]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, matchesStateCurrency, state, timeoutMessage]);
 
   useEffect(() => {
     if (!canFetchUnrealizedPnlAnalysis(state)) {
@@ -135,16 +144,21 @@ export function useUnrealizedPnlData({
     const cached = readRouteDtoCache<UnrealizedPnlAnalysisDto>(cacheKey);
     if (initialData) {
       setData(initialData);
-      writeRouteDtoCache(cacheKey, initialData, {
-        ttlMs: cacheDurations.ttlMs,
-        staleTtlMs: cacheDurations.staleTtlMs,
-        tags: [buildRouteDtoCacheTag("route", "analysis-unrealized-pnl")],
-      });
-      setCacheStatus("fresh");
+      if (matchesStateCurrency(initialData)) {
+        writeRouteDtoCache(cacheKey, initialData, {
+          ttlMs: cacheDurations.ttlMs,
+          staleTtlMs: cacheDurations.staleTtlMs,
+          tags: [buildRouteDtoCacheTag("route", "analysis-unrealized-pnl")],
+        });
+        setCacheStatus("fresh");
+      } else {
+        setCacheStatus(null);
+        void refresh({ bypassCache: true });
+      }
       setIsBootstrapping(false);
       return;
     }
-    if (cached) {
+    if (cached && matchesStateCurrency(cached.payload)) {
       setData(cached.payload);
       setCacheStatus(cached.status);
       setIsBootstrapping(false);
@@ -153,10 +167,10 @@ export function useUnrealizedPnlData({
       }
       return;
     }
-    setData(null);
+    setCacheStatus(null);
     setIsBootstrapping(true);
     void refresh({ bypassCache: true }).finally(() => setIsBootstrapping(false));
-  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, contextRefreshSignal, initialData, refresh]);
+  }, [cacheDurations.staleTtlMs, cacheDurations.ttlMs, cacheKey, contextRefreshSignal, initialData, matchesStateCurrency, refresh]);
 
   return {
     data,

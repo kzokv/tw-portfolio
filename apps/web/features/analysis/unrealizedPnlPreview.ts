@@ -17,6 +17,7 @@ interface PreviewSeriesSeed {
   displayName: string;
   instrumentType: AnalysisInstrumentType;
   state: "current" | "sold-out";
+  positionStatus: "open_position" | "closed_position";
   stateLabel: string;
   colorToken: string;
   endUnrealizedPnl: number;
@@ -59,7 +60,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "NVDA US",
     instrumentType: "STOCK",
     state: "current",
-    stateLabel: "Current",
+    positionStatus: "open_position",
+    stateLabel: "Open position",
     colorToken: "#157f5b",
     endUnrealizedPnl: 350000,
     periodChange: 92000,
@@ -78,7 +80,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "2330 TW",
     instrumentType: "STOCK",
     state: "current",
-    stateLabel: "Current",
+    positionStatus: "open_position",
+    stateLabel: "Open position",
     colorToken: "#215dc6",
     endUnrealizedPnl: 240000,
     periodChange: 61000,
@@ -98,7 +101,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "BHP AU",
     instrumentType: "STOCK",
     state: "current",
-    stateLabel: "Current",
+    positionStatus: "open_position",
+    stateLabel: "Open position",
     colorToken: "#d28a2e",
     endUnrealizedPnl: 90000,
     periodChange: 24000,
@@ -117,7 +121,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "0050 TW",
     instrumentType: "ETF",
     state: "current",
-    stateLabel: "Current",
+    positionStatus: "open_position",
+    stateLabel: "Open position",
     colorToken: "#4ca7c7",
     endUnrealizedPnl: 150000,
     periodChange: 19000,
@@ -136,7 +141,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "AAPL US",
     instrumentType: "STOCK",
     state: "current",
-    stateLabel: "Current",
+    positionStatus: "open_position",
+    stateLabel: "Open position",
     colorToken: "#e15555",
     endUnrealizedPnl: 190000,
     periodChange: -18000,
@@ -155,7 +161,8 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
     displayName: "TSLA US",
     instrumentType: "STOCK",
     state: "sold-out",
-    stateLabel: "Sold out",
+    positionStatus: "closed_position",
+    stateLabel: "Closed position",
     colorToken: "#7a7a7a",
     endUnrealizedPnl: 0,
     periodChange: -12000,
@@ -315,6 +322,7 @@ export function buildPreviewUnrealizedPnlAnalysis(
       instrumentType: seed.instrumentType,
       stateLabel: seed.stateLabel,
       state: seed.state,
+      positionStatus: seed.positionStatus,
       colorToken: seed.colorToken,
       endUnrealizedPnl: seed.endUnrealizedPnl,
       periodChange: seed.periodChange,
@@ -344,6 +352,7 @@ export function buildPreviewUnrealizedPnlAnalysis(
       displayName: seed.displayName,
       stateLabel: seed.stateLabel,
       state: seed.state,
+      positionStatus: seed.positionStatus,
       endUnrealizedPnl: seed.endUnrealizedPnl,
       periodChange: seed.periodChange,
       isSelected: false,

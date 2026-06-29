@@ -131,6 +131,7 @@ export interface UnrealizedPnlSeries {
   instrumentType: AnalysisInstrumentType;
   stateLabel: string;
   state: "current" | "sold-out";
+  positionStatus: "open_position" | "closed_position";
   colorToken: string;
   endUnrealizedPnl: number | null;
   periodChange: number | null;
@@ -146,6 +147,7 @@ export interface UnrealizedPnlRankingRow {
   displayName: string;
   stateLabel: string;
   state: "current" | "sold-out";
+  positionStatus: "open_position" | "closed_position";
   endUnrealizedPnl: number | null;
   periodChange: number | null;
   isSelected: boolean;

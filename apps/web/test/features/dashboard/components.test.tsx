@@ -1798,7 +1798,7 @@ describe("dashboard components", () => {
     if (!group) throw new Error("Expected holding group");
     const reportingGroup = {
       ...group,
-      reportingCurrency: "TWD" as const,
+      reportingCurrency: "AUD" as const,
       reportingMarketValueAmount: 3_840,
       reportingUnrealizedPnlAmount: 640,
     };
@@ -1812,6 +1812,7 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-mover-analysis-link-AAPL-TW"');
     expect(html).toContain("selectedTickers=TW%3AAAPL");
     expect(html).toContain("view=ticker-detail");
+    expect(html).toContain("reportingCurrency=AUD");
   });
 
   it("aggregates account counts in compact holdings rows", () => {

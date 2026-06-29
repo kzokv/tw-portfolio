@@ -116,9 +116,23 @@ export function UnrealizedPnlAnalysisClient({
   const activeFocusIndex = stateFocusIndex >= 0 ? stateFocusIndex : Math.min(focusIndex, maxFocusIndex);
   const focusDate = chartDates[activeFocusIndex] ?? null;
   const responseCurrency = data?.query.reportingCurrency ?? state.reportingCurrency;
+  const isCurrencyStale = data !== null && data.query.reportingCurrency !== state.reportingCurrency;
+  const staleCurrencyTitle = dict.staleCurrencyTitle.replace("{currency}", state.reportingCurrency);
+  const staleCurrencyDetail = dict.staleCurrencyDetail.replace("{currency}", responseCurrency);
   const selectedSeries = useMemo(
     () => (data?.tickerSeries ?? []).filter((series) => selectedSet.has(series.seriesId)),
     [data?.tickerSeries, selectedSet],
+  );
+  const focusedSelectedValues = useMemo(
+    () => selectedSeries.map((series) => {
+      const point = focusDate ? series.points.find((candidate) => candidate.date === focusDate) : undefined;
+      return {
+        colorToken: series.colorToken,
+        displayName: series.displayName,
+        value: point?.unrealizedPnl ?? null,
+      };
+    }),
+    [focusDate, selectedSeries],
   );
 
   function replaceState(next: UnrealizedPnlAnalysisRouteState): void {
@@ -164,6 +178,10 @@ export function UnrealizedPnlAnalysisClient({
     replaceState({ ...state, focusDate: nextDate });
   }
 
+  function positionLabel(positionStatus: "open_position" | "closed_position"): string {
+    return positionStatus === "open_position" ? dict.openPosition : dict.closedPosition;
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-5 md:px-8 md:py-7">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -181,6 +199,11 @@ export function UnrealizedPnlAnalysisClient({
       {data?.dataHealth.source === "preview" ? (
         <div className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>{dict.previewBanner}</strong> {dict.previewDetail}
+        </div>
+      ) : null}
+      {isCurrencyStale ? (
+        <div className="rounded-md border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary" data-testid="analysis-stale-currency-banner">
+          <strong>{staleCurrencyTitle}</strong> {staleCurrencyDetail}
         </div>
       ) : null}
       {errorMessage ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage}</div> : null}
@@ -307,14 +330,14 @@ export function UnrealizedPnlAnalysisClient({
         </label>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className={cn("grid gap-3 md:grid-cols-4", isCurrencyStale && "opacity-45")} aria-busy={isCurrencyStale}>
         <SummaryCard label={dict.summaryTotal} value={data?.summary.totalUnrealized.value ?? null} currency={data?.summary.totalUnrealized.currency ?? state.reportingCurrency} locale={resolvedLocale} />
         <SummaryCard label={dict.summaryChange} value={data?.summary.periodChange.value ?? null} currency={data?.summary.periodChange.currency ?? state.reportingCurrency} locale={resolvedLocale} />
         <DriverCard label={dict.summaryBest} text={data?.summary.bestDriver?.label ?? "-"} />
         <DriverCard label={dict.summaryHealth} text={data?.dataHealth.detail ?? (isBootstrapping ? dict.loadingBody : "-")} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
+      <section className={cn("grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]", isCurrencyStale && "opacity-45")} aria-busy={isCurrencyStale}>
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>{dict.decompositionTitle}</CardTitle>
@@ -339,6 +362,22 @@ export function UnrealizedPnlAnalysisClient({
             <div className="mt-2 text-sm text-muted-foreground">
               {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
             </div>
+            {focusedSelectedValues.length > 0 ? (
+              <div className="mt-3 rounded-md border border-border/70 bg-muted/30 p-2" data-testid="analysis-focus-values">
+                <p className="text-[11px] font-semibold uppercase text-muted-foreground">{dict.focusValuesLabel}</p>
+                <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:hidden">
+                  {focusedSelectedValues.map((item) => (
+                    <div key={item.displayName} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.colorToken }} />
+                        <span className="truncate">{item.displayName}</span>
+                      </span>
+                      <span className="font-mono tabular-nums">{formatNullableCurrency(item.value, responseCurrency, resolvedLocale)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -354,7 +393,7 @@ export function UnrealizedPnlAnalysisClient({
                   <tr key={row.seriesId} className="border-b border-border/60 last:border-b-0">
                     <td className="py-2">
                       <div className="font-medium">{row.displayName}</div>
-                      <div className="text-xs text-muted-foreground">{row.stateLabel}</div>
+                      <div className="text-xs text-muted-foreground">{positionLabel(row.positionStatus)}</div>
                     </td>
                     <td className={cn(
                       "py-2 text-right font-medium",
@@ -387,7 +426,7 @@ export function UnrealizedPnlAnalysisClient({
           <CardTitle>{dict.selectedDetailTitle}</CardTitle>
           <CardDescription>{dict.focusDetailLabel}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <CardContent className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3", isCurrencyStale && "opacity-45")} aria-busy={isCurrencyStale}>
           {selectedSeries.map((series) => {
             const point = series.points.find((candidate) => candidate.date === focusDate) ?? series.points.at(-1);
             const focusedMarkers = series.markers.filter((marker) => marker.date === point?.date);
@@ -399,12 +438,12 @@ export function UnrealizedPnlAnalysisClient({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-medium">{series.displayName}</p>
-                    <p className="text-xs text-muted-foreground">{series.stateLabel}</p>
+                    <p className="text-xs text-muted-foreground">{positionLabel(series.positionStatus)}</p>
                   </div>
                   <span className="h-3 w-3 rounded-full" style={{ background: series.colorToken }} />
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <DetailTerm label={dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, series.currency, resolvedLocale)} />
+                  <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
                   <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series.currency, resolvedLocale)} />
@@ -461,6 +500,23 @@ function AnalysisSvgChart({
   const pad = 28;
   const xForDate = (date: string) => pad + (Math.max(0, dates.indexOf(date)) / Math.max(1, dates.length - 1)) * (width - pad * 2);
   const yForValue = (value: number) => height - pad - ((value - min) / span) * (height - pad * 2);
+  const focusX = focusDate ? xForDate(focusDate) : null;
+  const focusPoints = focusDate
+    ? series
+      .filter((item) => selectedSet.has(item.seriesId))
+      .map((item) => {
+        const point = item.points.find((candidate) => candidate.date === focusDate);
+        return point
+          ? {
+              colorToken: item.colorToken,
+              displayName: item.displayName,
+              value: point.unrealizedPnl,
+              y: point.unrealizedPnl === null ? null : yForValue(point.unrealizedPnl),
+            }
+          : null;
+      })
+      .filter((item): item is { colorToken: string; displayName: string; value: number | null; y: number | null } => item !== null)
+    : [];
   return (
     <div className="h-[300px] w-full overflow-hidden rounded-md border border-border bg-background">
       <svg aria-label={ariaLabel} className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
@@ -483,7 +539,24 @@ function AnalysisSvgChart({
             <title>{`${item.displayName} ${formatNullableCurrency(item.endUnrealizedPnl, item.currency, locale)}`}</title>
           </polyline>
         ))}
-        {focusDate ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={xForDate(focusDate)} x2={xForDate(focusDate)} y1={pad} y2={height - pad} /> : null}
+        {focusDate && focusX !== null ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={focusX} x2={focusX} y1={pad} y2={height - pad} /> : null}
+        {focusX !== null ? focusPoints.map((point, index) => {
+          const label = formatNullableCurrency(point.value, series[0]?.currency ?? "TWD", locale);
+          const labelWidth = Math.min(150, Math.max(68, label.length * 7.2 + 16));
+          const labelX = focusX > width - 190 ? focusX - labelWidth - 12 : focusX + 12;
+          const labelY = point.y === null
+            ? pad + 18 + index * 24
+            : Math.max(pad + 12, Math.min(height - pad - 10, point.y - 8 + index * 4));
+          return (
+            <g key={`${point.displayName}-${index}`} className="hidden lg:block">
+              {point.y !== null ? <circle cx={focusX} cy={point.y} fill={point.colorToken} r={5} stroke="white" strokeWidth={2} /> : null}
+              <rect fill="hsl(var(--background))" height={20} opacity={0.92} rx={4} stroke={point.colorToken} strokeOpacity={0.45} width={labelWidth} x={labelX} y={labelY - 15} />
+              <text fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} x={labelX + 8} y={labelY}>
+                {label}
+              </text>
+            </g>
+          );
+        }) : null}
       </svg>
     </div>
   );

@@ -1380,6 +1380,39 @@ export type UnrealizedPnlSelectionMode = typeof UNREALIZED_PNL_SELECTION_MODES[n
 export const UNREALIZED_PNL_TRADE_MARKER_KINDS = ["buy", "partial_sell", "full_exit", "aggregate"] as const;
 export type UnrealizedPnlTradeMarkerKind = typeof UNREALIZED_PNL_TRADE_MARKER_KINDS[number];
 
+export type UnrealizedPnlPositionStatus = "open_position" | "closed_position";
+
+export type UnrealizedPnlAmountSemantics =
+  | "unrealized_pnl_level"
+  | "unrealized_pnl_period_change"
+  | "unrealized_pnl_period_start"
+  | "unrealized_pnl_period_end";
+export type UnrealizedPnlMetricBoundary = "period_start" | "period_end" | "period_change";
+
+export interface UnrealizedPnlMetricDefinitionDto {
+  field: string;
+  amountSemantics: UnrealizedPnlAmountSemantics;
+  boundary: UnrealizedPnlMetricBoundary;
+  unit: "reporting_currency" | "units";
+  reportingCurrency: AccountDefaultCurrency;
+}
+
+export interface UnrealizedPnlReportingCurrencySemanticsDto {
+  reportingCurrency: AccountDefaultCurrency;
+  appliesToFields: Array<"startUnrealizedPnlAmount" | "endUnrealizedPnlAmount" | "periodChangeAmount">;
+}
+
+export interface UnrealizedPnlMetricDefinitionsDto {
+  startUnrealizedPnlAmount: UnrealizedPnlMetricDefinitionDto;
+  endUnrealizedPnlAmount: UnrealizedPnlMetricDefinitionDto;
+  periodChangeAmount: UnrealizedPnlMetricDefinitionDto;
+}
+
+export interface UnrealizedPnlAnalysisMetadataDto {
+  reportingCurrencySemantics: UnrealizedPnlReportingCurrencySemanticsDto;
+  metricDefinitions: UnrealizedPnlMetricDefinitionsDto;
+}
+
 export interface UnrealizedPnlTickerRefDto {
   ticker: string;
   marketCode: MarketCode;
@@ -1436,6 +1469,7 @@ export interface UnrealizedPnlTickerSeriesPointDto extends UnrealizedPnlPortfoli
   accountNames: string[];
   isSelected: boolean;
   isSoldOut: boolean;
+  positionStatus: UnrealizedPnlPositionStatus;
 }
 
 export interface UnrealizedPnlTradeMarkerDto {
@@ -1460,6 +1494,7 @@ export interface UnrealizedPnlRankingRowDto {
   accountNames: string[];
   currentlyHeld: boolean;
   isSoldOut: boolean;
+  positionStatus: UnrealizedPnlPositionStatus;
   startUnrealizedPnlAmount: number | null;
   endUnrealizedPnlAmount: number | null;
   periodChangeAmount: number | null;
@@ -1487,6 +1522,7 @@ export interface UnrealizedPnlAnalysisDiagnosticsDto {
 
 export interface UnrealizedPnlAnalysisDto {
   query: UnrealizedPnlAnalysisQueryStateDto;
+  metadata: UnrealizedPnlAnalysisMetadataDto;
   summary: UnrealizedPnlAnalysisSummaryDto;
   portfolioSeries: UnrealizedPnlPortfolioSeriesPointDto[];
   tickerSeries: UnrealizedPnlTickerSeriesPointDto[];
