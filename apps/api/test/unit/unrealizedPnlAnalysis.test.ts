@@ -250,6 +250,10 @@ describe("buildUnrealizedPnlAnalysis", () => {
   it("returns manually selected ticker series even when outside the ranking limit", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    const store = await persistence.loadStore("user-1");
+    await seedTrades([
+      makeTrade(store, { ticker: "0050", marketCode: "TW", tradeDate: "2026-01-02", type: "BUY", quantity: 20 }),
+    ]);
     await seedSnapshots([
       makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
       makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
@@ -270,6 +274,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.rankings.map((row) => row.ticker)).toEqual(["2330"]);
     expect(new Set(report.tickerSeries.map((point) => point.ticker))).toEqual(new Set(["2330", "0050"]));
     expect(report.selectedTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);
+    expect(report.tradeMarkers).toEqual([
+      expect.objectContaining({ ticker: "0050", marketCode: "TW", kind: "buy" }),
+    ]);
   });
 
   it("counts trade markers for ranking rows outside the selected chart lines", async () => {

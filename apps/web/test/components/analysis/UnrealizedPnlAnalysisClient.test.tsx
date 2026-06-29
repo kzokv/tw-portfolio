@@ -251,4 +251,19 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("focus=2026-04-24");
   });
+
+  it("formats ranking and detail amounts with the response currency", () => {
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE, "AUD");
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("A$");
+    expect(container.textContent).not.toContain("NT$");
+  });
 });

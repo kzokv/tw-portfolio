@@ -113,6 +113,7 @@ export function UnrealizedPnlAnalysisClient({
   const chartDates = useMemo(() => collectChartDates(data?.tickerSeries ?? []), [data?.tickerSeries]);
   const maxFocusIndex = Math.max(0, chartDates.length - 1);
   const focusDate = chartDates[Math.min(focusIndex, maxFocusIndex)] ?? null;
+  const responseCurrency = data?.query.reportingCurrency ?? state.reportingCurrency;
   const selectedSeries = useMemo(
     () => (data?.tickerSeries ?? []).filter((series) => selectedSet.has(series.seriesId)),
     [data?.tickerSeries, selectedSet],
@@ -357,7 +358,7 @@ export function UnrealizedPnlAnalysisClient({
                       "py-2 text-right font-medium",
                       row.periodChange === null ? "text-muted-foreground" : row.periodChange >= 0 ? "text-emerald-600" : "text-red-600",
                     )}>
-                      {formatNullableCurrency(row.periodChange, state.reportingCurrency, resolvedLocale)}
+                      {formatNullableCurrency(row.periodChange, responseCurrency, resolvedLocale)}
                     </td>
                     <td className="py-2 pl-2 text-right">
                       <button
@@ -401,10 +402,10 @@ export function UnrealizedPnlAnalysisClient({
                   <span className="h-3 w-3 rounded-full" style={{ background: series.colorToken }} />
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <DetailTerm label={dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? series.endUnrealizedPnl, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailQuantity} value={formatNumber(point?.quantity ?? 0, resolvedLocale, 4)} />
-                  <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, state.reportingCurrency, resolvedLocale)} />
-                  <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, state.reportingCurrency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series.currency, resolvedLocale)} />
+                  <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series.currency, resolvedLocale)} />
                   <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
                   <DetailTerm label={dict.detailState} value={healthLabel} />
                 </dl>

@@ -629,6 +629,7 @@ export async function buildUnrealizedPnlAnalysis(
   const selectedTickers = pickSelectedTickers(rankings, query.selectionMode, query.selectedTickers, query.comparisonLineCount);
   const selectedTickerKeySet = new Set(selectedTickers.map((item) => tickerKey(item)));
   const rankingTickerKeySet = new Set(rankings.map((item) => `${item.marketCode}:${item.ticker}`));
+  const markerTickerKeySet = new Set([...rankingTickerKeySet, ...selectedTickerKeySet]);
   const filteredTrades = listTradeEvents(store).filter((trade) => requestedAccountIds.includes(trade.accountId)).filter((trade) => {
       if (query.markets.length > 0 && !query.markets.includes(trade.marketCode as MarketCode)) return false;
       if (query.tickers.length > 0 && !query.tickers.includes(trade.ticker.toUpperCase())) return false;
@@ -639,7 +640,7 @@ export async function buildUnrealizedPnlAnalysis(
   const rankingTradeMarkers = buildTradeMarkers({
     trades: filteredTrades,
     accountNamesById,
-    allowedTickers: rankingTickerKeySet,
+    allowedTickers: markerTickerKeySet,
     startDate: query.startDate,
     endDate: query.endDate,
   });
