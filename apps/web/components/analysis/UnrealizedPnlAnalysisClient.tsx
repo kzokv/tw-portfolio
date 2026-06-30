@@ -688,16 +688,16 @@ function AnalysisSvgChart({
       .filter((item): item is { colorToken: string; displayName: string; value: number | null; y: number | null } => item !== null)
     : [];
   return (
-    <div className="relative h-[300px] w-full overflow-hidden rounded-md border border-border bg-background">
-      <div className="absolute left-2 top-2 z-10 grid max-h-[8.5rem] w-[calc(100%-1rem)] max-w-[24rem] grid-cols-1 gap-1 overflow-auto rounded-md border border-border/80 bg-background/95 p-2 text-[11px] shadow-sm sm:left-auto sm:right-2 sm:top-auto sm:bottom-2 sm:w-auto sm:max-w-[18rem]" data-testid="analysis-chart-legend">
+    <div className="w-full overflow-hidden rounded-md border border-border bg-background">
+      <div className="grid max-h-[5.75rem] grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto border-b border-border/70 bg-muted/20 px-3 py-2 text-[11px] lg:grid-cols-3 xl:grid-cols-2" data-testid="analysis-chart-legend">
         {series.map((item) => (
-          <div key={item.seriesId} className={cn("flex min-w-0 items-start gap-1.5", !selectedSet.has(item.seriesId) && "opacity-50")}>
+          <div key={item.seriesId} className={cn("flex min-w-0 items-center gap-1.5", !selectedSet.has(item.seriesId) && "opacity-50")}>
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.colorToken }} />
-            <span className="min-w-0 break-words leading-tight">{item.displayName}</span>
+            <span className="min-w-0 truncate leading-tight" title={item.displayName}>{item.displayName}</span>
           </div>
         ))}
       </div>
-      <svg aria-label={ariaLabel} className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+      <svg aria-label={ariaLabel} className="h-[280px] w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
         <line stroke="hsl(var(--border))" x1={pad} x2={width - pad} y1={yForValue(0)} y2={yForValue(0)} />
         {series.map((item) => (
           <polyline
