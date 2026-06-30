@@ -374,6 +374,28 @@ describe("buildUnrealizedPnlAnalysis", () => {
     ]);
   });
 
+  it("computes ticker composition share when the total unrealized P&L is negative", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 10, marketValue: 940, valueNative: 940, unrealizedPnl: -60, unrealizedPnlNative: -60 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 20, marketValue: 1960, valueNative: 1960, unrealizedPnl: -40, unrealizedPnlNative: -40 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-31",
+      toDate: "2026-01-31",
+      holdingsState: "include_sold_out",
+    });
+
+    expect(report.summary.endUnrealizedPnlAmount).toBe(-100);
+    expect(report.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnlAmount, row.contributionSharePercent])).toEqual([
+      ["0050", -40, 40],
+      ["2330", -60, 60],
+    ]);
+  });
+
   it("returns manually selected ticker series even when outside the ranking limit", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });

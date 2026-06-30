@@ -812,7 +812,7 @@ export async function buildUnrealizedPnlAnalysis(
         : null;
       const endUnrealizedPnlAmount = endPoint?.unrealizedPnlAmount ?? null;
       const contributionSharePercent = totalEndUnrealizedPnlAmount !== null
-        && totalEndUnrealizedPnlAmount > 0
+        && totalEndUnrealizedPnlAmount !== 0
         && endUnrealizedPnlAmount !== null
         ? roundToDecimal((endUnrealizedPnlAmount / totalEndUnrealizedPnlAmount) * 100, 2)
         : null;
