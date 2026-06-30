@@ -285,6 +285,8 @@ export function buildPreviewUnrealizedPnlAnalysis(
         ticker: summaryWorst.ticker,
         periodChange: summaryWorst.periodChange ?? 0,
       } : null,
+      startDate: portfolioSeries[0]?.date ?? null,
+      endDate: portfolioSeries.at(-1)?.date ?? null,
     },
     dataHealth: {
       status: state.includeProvisional ? "partial" : "complete",

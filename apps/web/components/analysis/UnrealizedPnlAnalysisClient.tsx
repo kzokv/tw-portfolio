@@ -211,7 +211,7 @@ export function UnrealizedPnlAnalysisClient({
   }
 
   function positionLabel(positionStatus: "open_position" | "closed_position"): string {
-    return positionStatus === "open_position" ? dict.openPosition : dict.closedPosition;
+    return formatPositionLabel(positionStatus, dict);
   }
 
   const totalCompositionContent = (
@@ -219,7 +219,7 @@ export function UnrealizedPnlAnalysisClient({
       composition={data?.tickerComposition ?? []}
       currency={data?.summary.totalUnrealized.currency ?? state.reportingCurrency}
       dict={dict}
-      endDate={data?.query.to ?? data?.generatedAt.slice(0, 10) ?? null}
+      endDate={data?.summary.endDate ?? null}
       locale={resolvedLocale}
       totalValue={data?.summary.totalUnrealized.value ?? null}
     />
@@ -620,7 +620,7 @@ function TotalCompositionContent({
           <div key={row.seriesId} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border/70 px-2 py-2.5 last:border-b-0">
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{row.displayName}</div>
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.ticker} {row.marketCode} · {row.stateLabel}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.ticker} {row.marketCode} · {formatPositionLabel(row.positionStatus, dict)}</div>
             </div>
             <div className="text-right">
               <div className={cn("font-mono text-sm font-semibold tabular-nums", row.endUnrealizedPnl === null ? "text-muted-foreground" : row.endUnrealizedPnl < 0 ? "text-red-600" : "text-emerald-700")}>
@@ -637,6 +637,10 @@ function TotalCompositionContent({
       </div>
     </div>
   );
+}
+
+function formatPositionLabel(positionStatus: "open_position" | "closed_position", dict: AnalysisDict): string {
+  return positionStatus === "open_position" ? dict.openPosition : dict.closedPosition;
 }
 
 function AnalysisSvgChart({

@@ -148,6 +148,8 @@ function mapApiAnalysis(
         ticker: worstDriver.ticker,
         periodChange: worstDriver.periodChange ?? 0,
       } : null,
+      startDate: response.summary.startDate,
+      endDate: response.summary.endDate,
     },
     dataHealth: {
       status: healthStatus,

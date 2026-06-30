@@ -351,6 +351,29 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.dataHealth.unavailableRowCount).toBe(1);
   });
 
+  it("marks ticker composition unavailable when a ticker is missing the summary end bucket", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 10, marketValue: 1100, valueNative: 1100, unrealizedPnl: 100, unrealizedPnlNative: 100 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-02-03", quantity: 20, marketValue: 2400, valueNative: 2400, unrealizedPnl: 400, unrealizedPnlNative: 400 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-31",
+      toDate: "2026-02-03",
+      holdingsState: "include_sold_out",
+    });
+
+    expect(report.summary.endDate).toBe("2026-02-03");
+    expect(report.summary.endUnrealizedPnlAmount).toBe(400);
+    expect(report.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnlAmount, row.contributionSharePercent])).toEqual([
+      ["0050", 400, 100],
+      ["2330", null, null],
+    ]);
+  });
+
   it("returns manually selected ticker series even when outside the ranking limit", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });

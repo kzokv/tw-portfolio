@@ -94,6 +94,8 @@ export interface UnrealizedPnlSummarySection {
   periodChange: UnrealizedPnlSummaryCard;
   bestDriver: UnrealizedPnlSummaryDriver | null;
   worstDriver: UnrealizedPnlSummaryDriver | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
 export interface UnrealizedPnlDataHealth {

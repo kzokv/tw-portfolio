@@ -804,9 +804,12 @@ export async function buildUnrealizedPnlAnalysis(
     ? roundToDecimal((summaryEndPoint.unrealizedPnlAmount ?? 0) - (summaryStartPoint.unrealizedPnlAmount ?? 0), 2)
     : null;
   const totalEndUnrealizedPnlAmount = summaryEndPoint?.unrealizedPnlAmount ?? null;
+  const summaryEndDate = summaryEndPoint?.date ?? null;
   const tickerComposition = includedTickerSeries
     .map((series): UnrealizedPnlTickerCompositionRowDto => {
-      const endPoint = series.points[series.points.length - 1] ?? null;
+      const endPoint = summaryEndDate
+        ? series.points.find((point) => point.date === summaryEndDate) ?? null
+        : null;
       const endUnrealizedPnlAmount = endPoint?.unrealizedPnlAmount ?? null;
       const contributionSharePercent = totalEndUnrealizedPnlAmount !== null
         && totalEndUnrealizedPnlAmount > 0

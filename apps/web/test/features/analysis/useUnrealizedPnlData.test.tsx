@@ -42,6 +42,8 @@ const loadedAnalysis = {
     periodChange: { label: "Change", value: 10, currency: "TWD", detail: "Loaded" },
     bestDriver: null,
     worstDriver: null,
+    startDate: "2026-01-31",
+    endDate: "2026-01-31",
   },
   dataHealth: {
     status: "complete",
