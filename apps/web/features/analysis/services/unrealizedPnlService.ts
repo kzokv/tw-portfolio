@@ -252,6 +252,14 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
     });
   }
 
+  for (const row of response.tickerComposition) {
+    marketValues.add(row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    row.accountIds.forEach((accountId, index) => {
+      accountLabels.set(accountId, row.accountNames[index] ?? accountId);
+    });
+  }
+
   for (const accountId of response.query.accountIds) {
     accountLabels.set(accountId, accountLabels.get(accountId) ?? accountId);
   }

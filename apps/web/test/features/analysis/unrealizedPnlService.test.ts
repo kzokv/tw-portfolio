@@ -195,6 +195,21 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         latestCostBasisAmount: 975,
         latestQuantity: 2,
         contributionSharePercent: null,
+      }, {
+        ticker: "TSLA",
+        marketCode: "US",
+        instrumentName: "Tesla",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-spec"],
+        accountNames: ["US Speculative"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        positionStatus: "open_position",
+        endUnrealizedPnlAmount: 5,
+        latestMarketValueAmount: 400,
+        latestCostBasisAmount: 395,
+        latestQuantity: 1,
+        contributionSharePercent: 20,
       }],
       selectedTickers: [{ ticker: "NVDA", marketCode: "US" }],
       tradeMarkers: [],
@@ -231,11 +246,15 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       { contextScope: "portfolio", signal: controller.signal },
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);
-    expect(model.availableFilters.accounts).toEqual([{ value: "acc-us-growth", label: "US Growth" }]);
+    expect(model.availableFilters.accounts).toEqual([
+      { value: "acc-us-growth", label: "US Growth" },
+      { value: "acc-us-spec", label: "US Speculative" },
+    ]);
     expect(model.availableFilters.tickers).toEqual([
       { value: "AAPL", label: "AAPL US" },
       { value: "MSFT", label: "MSFT US" },
       { value: "NVDA", label: "NVDA US" },
+      { value: "TSLA", label: "TSLA US" },
     ]);
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
     expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
@@ -249,6 +268,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     }));
     expect(model.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnl, row.contributionSharePercent])).toEqual([
       ["NVDA", 25, 100],
+      ["TSLA", 5, 20],
       ["AAPL", -100, -400],
       ["MSFT", null, null],
     ]);
