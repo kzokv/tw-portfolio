@@ -1,11 +1,14 @@
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
+import { signSessionCookie } from "../../src/auth/googleOAuth.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { HoldingSnapshot } from "../../src/persistence/types.js";
 
 let app: AppInstance;
 let persistence: MemoryPersistence;
+let userId: string;
+let cookieHeader: string;
 const appBaseUrl = "https://vakwen.example";
 
 const testOAuthConfig = {
@@ -98,7 +101,7 @@ async function callMcpTool(headers: Record<string, string>, sessionId: string, a
 function makeSnapshot(overrides: Partial<HoldingSnapshot> = {}): HoldingSnapshot {
   return {
     id: `snap-${Math.random()}`,
-    userId: "user-1",
+    userId,
     accountId: "acc-1",
     ticker: "2330",
     marketCode: "TW",
@@ -125,6 +128,14 @@ function makeSnapshot(overrides: Partial<HoldingSnapshot> = {}): HoldingSnapshot
 beforeEach(async () => {
   app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig, appBaseUrl });
   persistence = app.persistence as MemoryPersistence;
+  const authUser = await app.persistence.resolveOrCreateUser("google", "unrealized-pnl-analysis-test-user", {
+    email: "unrealized-pnl-analysis-test-user@example.com",
+    name: "Unrealized Pnl Analysis Test User",
+  });
+  userId = authUser.userId;
+  const authRecord = await app.persistence.getAuthUserById(userId);
+  if (!authRecord) throw new Error("expected seeded auth user");
+  cookieHeader = `g_auth_session=${signSessionCookie(userId, testOAuthConfig.sessionSecret, authRecord.sessionVersion)}`;
   const memory = persistence as MemoryPersistence & {
     _seedInstrument: (instrument: {
       ticker: string;
@@ -140,7 +151,27 @@ beforeEach(async () => {
     instrumentType: "STOCK",
     name: "TSMC",
     barsBackfillStatus: "ready",
-  }, "user-1");
+  }, userId);
+  const store = await persistence.loadStore(userId);
+  store.marketData.instruments = store.marketData.instruments
+    .filter((instrument) => instrument.ticker !== "2330" || instrument.marketCode !== "TW")
+    .concat({
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      name: "TSMC",
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
+  store.instruments = store.instruments
+    .filter((instrument) => instrument.ticker !== "2330" || instrument.marketCode !== "TW")
+    .concat({
+      ticker: "2330",
+      marketCode: "TW",
+      type: "STOCK",
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
   persistence._seedHoldingSnapshots([
     makeSnapshot({ snapshotDate: "2026-03-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
     makeSnapshot({ snapshotDate: "2026-03-31", unrealizedPnl: 120, unrealizedPnlNative: 120, marketValue: 1120, valueNative: 1120 }),
@@ -157,7 +188,7 @@ describe("unrealized P&L analysis API/MCP parity", () => {
       method: "GET",
       url: "/analysis/unrealized-pnl?granularity=monthly&fromDate=2026-03-01&toDate=2026-03-31&holdingsState=include_sold_out",
       headers: {
-        "x-user-id": "user-1",
+        cookie: cookieHeader,
       },
     });
     expect(apiResponse.statusCode).toBe(200);
@@ -171,8 +202,8 @@ describe("unrealized P&L analysis API/MCP parity", () => {
     const toolHeaders = {
       ...initializeHeaders,
       authorization: `Bearer ${devToken({
-        userId: "user-1",
-        sessionUserId: "user-1",
+        userId,
+        sessionUserId: userId,
         clientId: "vakwen-dev-client",
         scopes: ["portfolio:mcp_read"],
       })}`,
@@ -195,6 +226,16 @@ describe("unrealized P&L analysis API/MCP parity", () => {
     }>(mcpCall.body);
     const structuredContent = extractAnalysisPayload(mcpBody) as Record<string, unknown> | undefined;
     expect(structuredContent).toBeDefined();
+    expect(apiBody.tickerComposition).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentName: "TSMC",
+        endUnrealizedPnlAmount: 120,
+        contributionSharePercent: 100,
+      }),
+    ]);
+    expect(structuredContent?.tickerComposition).toEqual(apiBody.tickerComposition);
 
     expect(structuredContent).toEqual({
       ...apiBody,

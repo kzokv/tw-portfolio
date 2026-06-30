@@ -32,6 +32,13 @@ test("[analysis-unrealized-pnl-A]: open analysis, select ticker lines, and scrub
   await page.getByRole("heading", { name: "Unrealized P&L Analysis" }).waitFor({ state: "visible" });
   await page.getByText("Preview contract fallback").waitFor({ state: "visible" });
   await page.getByLabel("Unrealized P&L comparison chart").waitFor({ state: "visible" });
+  await page.getByTestId("analysis-chart-legend").getByText("NVIDIA Corporation").waitFor({ state: "visible" });
+  await page.getByTestId("analysis-ticker-selection").getByText("Ticker selection").waitFor({ state: "visible" });
+  await page.getByTestId("analysis-selected-detail").getByText("Selected ticker detail").waitFor({ state: "visible" });
+
+  await page.getByTestId("analysis-total-detail-trigger").click();
+  await page.getByRole("heading", { name: "Total composition" }).waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
 
   await page.getByLabel("Lines").fill("8");
   await page.waitForURL(/comparisonLineCount=8/);

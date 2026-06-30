@@ -79,6 +79,13 @@ describe("UnrealizedPnlAnalysisClient", () => {
   let root: Root | null = null;
   let container: HTMLDivElement;
 
+  const selectionCheckbox = (label: string): HTMLButtonElement | null => {
+    const selectionPanel = container.querySelector("[data-testid='analysis-ticker-selection']");
+    const row = Array.from(selectionPanel?.querySelectorAll("button[role='checkbox']") ?? [])
+      .find((candidate) => candidate.textContent?.includes(label));
+    return row as HTMLButtonElement | null;
+  };
+
   beforeEach(() => {
     replaceMock.mockReset();
     getJsonMock.mockReset();
@@ -109,10 +116,12 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(container.textContent).toContain("Unrealized P&L Analysis");
     expect(container.textContent).toContain("Preview contract fallback");
-    expect(container.textContent).toContain("Ticker ranking");
+    expect(container.textContent).toContain("Ticker selection");
+    expect(container.querySelector("[data-testid='analysis-chart-legend']")?.textContent).toContain("Apple Inc.");
+    expect(container.querySelector("[data-testid='analysis-ticker-selection']")?.textContent).toContain("Apple Inc.");
+    expect(container.querySelector("[data-testid='analysis-selected-detail']")?.textContent).toContain("Apple Inc.");
 
-    const aaplRow = Array.from(container.querySelectorAll("tr")).find((row) => row.textContent?.includes("AAPL US"));
-    const checkbox = aaplRow?.querySelector("button[role='checkbox']");
+    const checkbox = selectionCheckbox("Apple Inc.");
     expect(checkbox).not.toBeNull();
 
     act(() => {
@@ -142,21 +151,47 @@ describe("UnrealizedPnlAnalysisClient", () => {
       );
     });
 
-    const rowCheckbox = (label: string): HTMLButtonElement | null => {
-      const row = Array.from(container.querySelectorAll("tr")).find((candidate) => candidate.textContent?.includes(label));
-      return row?.querySelector("button[role='checkbox']") ?? null;
-    };
-
     act(() => {
-      rowCheckbox("AAPL US")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      selectionCheckbox("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      rowCheckbox("2330 TW")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      selectionCheckbox("Taiwan Semiconductor Manufacturing")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const lastUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
     expect(lastUrl).toContain("selectionMode=manual");
     expect(lastUrl).toContain("selectedTickers=TW%3A2330%2CUS%3AAAPL%2CUS%3ANVDA");
+  });
+
+  it("keeps manual detail rows pinned after ranked rows when sorting by name", () => {
+    const previewData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+    const initialData = {
+      ...previewData,
+      tickerSelection: previewData.tickerSelection.map((row) => row.ticker === "AAPL"
+        ? { ...row, isManual: true, rankLabel: "Manual", rankSort: Number.MAX_SAFE_INTEGER }
+        : row),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const nameSort = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Name");
+    expect(nameSort).toBeDefined();
+
+    act(() => {
+      nameSort?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const detailPanel = container.querySelector("[data-testid='analysis-selected-detail']");
+    const detailRows = Array.from(detailPanel?.querySelectorAll("[data-testid='analysis-detail-expanded'], [data-testid='analysis-detail-collapsed']") ?? []);
+    expect(detailRows.length).toBeGreaterThan(1);
+    expect(detailRows.at(-1)?.textContent).toContain("Apple Inc.");
+    expect(detailRows.at(-1)?.textContent).toContain("Manual");
   });
 
   it("hydrates presentation defaults from preferences when the URL does not override them", async () => {

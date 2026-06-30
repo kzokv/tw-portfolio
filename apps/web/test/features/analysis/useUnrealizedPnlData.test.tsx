@@ -55,6 +55,8 @@ const loadedAnalysis = {
   portfolioSeries: [{ date: "2026-01-31", unrealizedPnl: 100 }],
   tickerSeries: [],
   ranking: [],
+  tickerSelection: [],
+  tickerComposition: [],
   selectedSeriesIds: [],
   reportsPreview: {
     currentUnrealized: 100,

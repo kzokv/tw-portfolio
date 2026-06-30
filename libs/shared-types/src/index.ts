@@ -1523,6 +1523,23 @@ export interface UnrealizedPnlRankingRowDto {
   tradeMarkerCount: number;
 }
 
+export interface UnrealizedPnlTickerCompositionRowDto {
+  ticker: string;
+  marketCode: MarketCode;
+  instrumentName: string | null;
+  instrumentType: InstrumentType | null;
+  accountIds: string[];
+  accountNames: string[];
+  currentlyHeld: boolean;
+  isSoldOut: boolean;
+  positionStatus: UnrealizedPnlPositionStatus;
+  endUnrealizedPnlAmount: number | null;
+  latestMarketValueAmount: number | null;
+  latestCostBasisAmount: number | null;
+  latestQuantity: number;
+  contributionSharePercent: number | null;
+}
+
 export interface UnrealizedPnlAnalysisDataHealthDto {
   snapshotRowCount: number;
   provisionalRowCount: number;
@@ -1547,6 +1564,7 @@ export interface UnrealizedPnlAnalysisDto {
   portfolioSeries: UnrealizedPnlPortfolioSeriesPointDto[];
   tickerSeries: UnrealizedPnlTickerSeriesPointDto[];
   rankings: UnrealizedPnlRankingRowDto[];
+  tickerComposition: UnrealizedPnlTickerCompositionRowDto[];
   selectedTickers: UnrealizedPnlTickerRefDto[];
   tradeMarkers: UnrealizedPnlTradeMarkerDto[];
   dataHealth: UnrealizedPnlAnalysisDataHealthDto;

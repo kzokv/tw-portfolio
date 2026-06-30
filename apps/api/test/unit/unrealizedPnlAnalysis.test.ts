@@ -86,6 +86,26 @@ async function seedInstrument(input: {
     ...input,
     barsBackfillStatus: "ready",
   }, "user-1");
+  const store = await persistence.loadStore("user-1");
+  store.marketData.instruments = store.marketData.instruments
+    .filter((instrument) => instrument.ticker !== input.ticker || instrument.marketCode !== input.marketCode)
+    .concat({
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      instrumentType: input.instrumentType,
+      name: input.name,
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
+  store.instruments = store.instruments
+    .filter((instrument) => instrument.ticker !== input.ticker || instrument.marketCode !== input.marketCode)
+    .concat({
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      type: input.instrumentType,
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
 }
 
 async function addAccount(overrides: Partial<Store["accounts"][number]> = {}): Promise<Store["accounts"][number]> {
@@ -175,6 +195,19 @@ describe("buildUnrealizedPnlAnalysis", () => {
       reportingCurrency: "TWD",
     });
     expect(report.rankings[0]).toEqual(expect.objectContaining({ positionStatus: "open_position" }));
+    expect(report.tickerComposition).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentName: "TSMC",
+        endUnrealizedPnlAmount: 200,
+        latestMarketValueAmount: 1200,
+        latestCostBasisAmount: 1000,
+        latestQuantity: 10,
+        contributionSharePercent: 100,
+        positionStatus: "open_position",
+      }),
+    ]);
     expect(report.tickerSeries.every((point) => point.positionStatus === "open_position")).toBe(true);
     expect(report.tickerSeries.find((point) => point.date === "2026-01-02")?.closePrice).toBe(100);
     expect(report.selectedTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
@@ -281,6 +314,41 @@ describe("buildUnrealizedPnlAnalysis", () => {
       unrealizedPnlAmount: 500,
     }));
     expect(report.summary.endUnrealizedPnlAmount).toBe(500);
+    expect(report.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnlAmount, row.contributionSharePercent])).toEqual([
+      ["0050", 400, 80],
+      ["2330", 100, 20],
+    ]);
+  });
+
+  it("sorts ticker composition by end unrealized P&L with unavailable rows last", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedInstrument({ ticker: "AAPL", marketCode: "US", instrumentType: "STOCK", name: "Apple" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 10, marketValue: 1100, valueNative: 1100, unrealizedPnl: 100, unrealizedPnlNative: 100 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", quantity: 20, marketValue: 2400, valueNative: 2400, unrealizedPnl: 400, unrealizedPnlNative: 400 }),
+      makeSnapshot({ ticker: "AAPL", marketCode: "US", snapshotDate: "2026-01-31", quantity: 2, marketValue: null, valueNative: null, unrealizedPnl: null, unrealizedPnlNative: null }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-31",
+      toDate: "2026-01-31",
+      holdingsState: "include_sold_out",
+    });
+
+    expect(report.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnlAmount])).toEqual([
+      ["0050", 400],
+      ["2330", 100],
+      ["AAPL", null],
+    ]);
+    expect(report.tickerComposition.at(-1)).toEqual(expect.objectContaining({
+      ticker: "AAPL",
+      instrumentName: "Apple",
+      contributionSharePercent: null,
+    }));
+    expect(report.dataHealth.nullUnrealizedRowCount).toBe(1);
+    expect(report.dataHealth.unavailableRowCount).toBe(1);
   });
 
   it("returns manually selected ticker series even when outside the ranking limit", async () => {
@@ -309,6 +377,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
 
     expect(report.rankings.map((row) => row.ticker)).toEqual(["2330"]);
     expect(new Set(report.tickerSeries.map((point) => point.ticker))).toEqual(new Set(["2330", "0050"]));
+    expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["2330", "0050"]);
     expect(report.selectedTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "0050", marketCode: "TW", kind: "buy" }),

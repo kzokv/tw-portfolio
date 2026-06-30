@@ -36,7 +36,9 @@ test("[mobile-analysis-unrealized-pnl-A]: open analysis workspace on mobile → 
   await appShell.actions.navigateToRouteForResponsiveTest("/analysis/unrealized-pnl");
   await page.getByRole("heading", { name: "Unrealized P&L Analysis" }).waitFor({ state: "visible" });
   await page.getByLabel("Unrealized P&L comparison chart").waitFor({ state: "visible" });
-  await page.getByText("Ticker ranking", { exact: true }).waitFor({ state: "visible" });
+  await page.getByTestId("analysis-chart-legend").getByText("NVIDIA Corporation").waitFor({ state: "visible" });
+  await page.getByText("Ticker selection", { exact: true }).waitFor({ state: "visible" });
+  await page.getByTestId("analysis-selected-detail").getByText("Selected ticker detail").waitFor({ state: "visible" });
   await page.getByTestId("analysis-focus-scrub").waitFor({ state: "visible" });
 
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
