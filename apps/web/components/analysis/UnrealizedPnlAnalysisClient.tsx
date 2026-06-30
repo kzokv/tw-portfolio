@@ -93,6 +93,20 @@ export function UnrealizedPnlAnalysisClient({
   });
 
   useEffect(() => {
+    if (!mobileTotalDetailOpen || typeof window.matchMedia !== "function") return undefined;
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const closeIfDesktop = (matches: boolean) => {
+      if (matches) setMobileTotalDetailOpen(false);
+    };
+    const handleChange = (event: MediaQueryListEvent) => closeIfDesktop(event.matches);
+    closeIfDesktop(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, [mobileTotalDetailOpen]);
+
+  useEffect(() => {
     let cancelled = false;
     void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {

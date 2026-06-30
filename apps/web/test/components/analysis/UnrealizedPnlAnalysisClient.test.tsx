@@ -11,6 +11,7 @@ const replaceMock = vi.hoisted(() => vi.fn());
 const searchParamsState = vi.hoisted(() => ({ value: "" }));
 const getJsonMock = vi.hoisted(() => vi.fn(async () => ({ preferences: {} })));
 const patchJsonMock = vi.hoisted(() => vi.fn(async () => ({ preferences: {} })));
+const originalMatchMedia = window.matchMedia;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
@@ -100,6 +101,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
   afterEach(() => {
     if (root) act(() => root?.unmount());
+    window.matchMedia = originalMatchMedia;
     container.remove();
   });
 
@@ -367,6 +369,51 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(focusValues?.textContent).toContain("TWD 987.7M");
     expect(focusValues?.textContent).not.toContain("987,654,321");
     expect(focusValues?.querySelector("[title='NT$987,654,321']")).not.toBeNull();
+  });
+
+  it("closes the mobile total composition sheet when the viewport becomes desktop", () => {
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    const mediaQuery = {
+      matches: false,
+      media: "(min-width: 768px)",
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(listener);
+      },
+      addListener: (listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add(listener);
+      },
+      removeListener: (listener: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(listener);
+      },
+      dispatchEvent: () => true,
+    } as MediaQueryList;
+    window.matchMedia = vi.fn(() => mediaQuery);
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-total-detail-trigger-mobile']")?.click();
+    });
+
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+
+    act(() => {
+      Object.defineProperty(mediaQuery, "matches", { configurable: true, value: true });
+      listeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
+    });
+
+    expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
   });
 
   it("does not show stale selected detail values when a focused date is missing for a series", () => {
