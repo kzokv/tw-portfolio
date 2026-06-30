@@ -15,6 +15,7 @@ import type {
   UnrealizedPnlAnalysisRouteState,
   UnrealizedPnlPointMarker,
   UnrealizedPnlSeries,
+  UnrealizedPnlTickerSelectionRow,
 } from "../unrealizedPnlTypes";
 
 const SERIES_COLORS = ["#215dc6", "#157f5b", "#d28a2e", "#e15555", "#4ca7c7", "#7d5cc6", "#6f7d32", "#9a5b3e"];
@@ -57,6 +58,7 @@ function mapApiAnalysis(
   }
 
   const tickerSeries = groupSeries(response.tickerSeries, response.summary.reportingCurrency, markersBySeriesId);
+  const seriesById = new Map(tickerSeries.map((series) => [series.seriesId, series] as const));
   const ranking = response.rankings.map((row) => {
     const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
     const positionStatus = resolvePositionStatus(row);
@@ -73,6 +75,25 @@ function mapApiAnalysis(
       isSelected: selectedSet.has(seriesId),
     };
   });
+  const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById);
+  const tickerComposition = response.tickerComposition.map((row) => {
+    const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
+    const positionStatus = resolvePositionStatus(row);
+    return {
+      seriesId,
+      ticker: row.ticker,
+      marketCode: row.marketCode,
+      displayName: row.instrumentName ?? `${row.ticker} ${row.marketCode}`,
+      stateLabel: positionStatusLabel(positionStatus),
+      state: positionStatus === "open_position" ? "current" as const : "sold-out" as const,
+      positionStatus,
+      endUnrealizedPnl: row.endUnrealizedPnlAmount,
+      marketValue: row.latestMarketValueAmount,
+      costBasis: row.latestCostBasisAmount,
+      quantity: row.latestQuantity,
+      contributionSharePercent: row.contributionSharePercent,
+    };
+  }).sort(compareCompositionRows);
   const bestDriver = [...ranking]
     .filter((row) => row.periodChange !== null && row.periodChange > 0)
     .sort((left, right) => (right.periodChange ?? 0) - (left.periodChange ?? 0))[0] ?? null;
@@ -127,6 +148,8 @@ function mapApiAnalysis(
         ticker: worstDriver.ticker,
         periodChange: worstDriver.periodChange ?? 0,
       } : null,
+      startDate: response.summary.startDate,
+      endDate: response.summary.endDate,
     },
     dataHealth: {
       status: healthStatus,
@@ -143,6 +166,8 @@ function mapApiAnalysis(
     })),
     tickerSeries,
     ranking,
+    tickerSelection,
+    tickerComposition,
     selectedSeriesIds: selectedIds,
     reportsPreview: {
       currentUnrealized: response.summary.endUnrealizedPnlAmount,
@@ -155,6 +180,55 @@ function mapApiAnalysis(
     deepLink: response.deepLink,
     generatedAt: response.query.asOf,
   };
+}
+
+function buildTickerSelection(
+  ranking: UnrealizedPnlAnalysisDto["ranking"],
+  selectedIds: string[],
+  seriesById: ReadonlyMap<string, UnrealizedPnlSeries>,
+): UnrealizedPnlTickerSelectionRow[] {
+  const rows: UnrealizedPnlTickerSelectionRow[] = ranking.map((row, index) => ({
+    ...row,
+    rankLabel: `#${index + 1}`,
+    rankSort: index + 1,
+    colorToken: seriesById.get(row.seriesId)?.colorToken ?? "#64748b",
+    isManual: false,
+  }));
+  const existing = new Set(rows.map((row) => row.seriesId));
+  for (const selectedId of selectedIds) {
+    if (existing.has(selectedId)) continue;
+    const series = seriesById.get(selectedId);
+    if (!series) continue;
+    rows.push({
+      seriesId: series.seriesId,
+      ticker: series.ticker,
+      marketCode: series.marketCode,
+      displayName: series.displayName,
+      stateLabel: series.stateLabel,
+      state: series.state,
+      positionStatus: series.positionStatus,
+      endUnrealizedPnl: series.endUnrealizedPnl,
+      periodChange: series.periodChange,
+      isSelected: true,
+      rankLabel: "Manual",
+      rankSort: Number.MAX_SAFE_INTEGER,
+      colorToken: series.colorToken,
+      isManual: true,
+    });
+  }
+  return rows;
+}
+
+function compareCompositionRows(
+  left: Pick<UnrealizedPnlAnalysisDto["tickerComposition"][number], "displayName" | "endUnrealizedPnl" | "marketCode" | "ticker">,
+  right: Pick<UnrealizedPnlAnalysisDto["tickerComposition"][number], "displayName" | "endUnrealizedPnl" | "marketCode" | "ticker">,
+): number {
+  const leftScore = left.endUnrealizedPnl ?? Number.NEGATIVE_INFINITY;
+  const rightScore = right.endUnrealizedPnl ?? Number.NEGATIVE_INFINITY;
+  if (leftScore !== rightScore) return rightScore - leftScore;
+  return left.displayName.localeCompare(right.displayName)
+    || left.marketCode.localeCompare(right.marketCode)
+    || left.ticker.localeCompare(right.ticker);
 }
 
 function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): UnrealizedPnlAnalysisDto["availableFilters"] {
@@ -175,6 +249,14 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
     addTickerLabel(tickerLabels, point.ticker, point.marketCode);
     point.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, point.accountNames[index] ?? accountId);
+    });
+  }
+
+  for (const row of response.tickerComposition) {
+    marketValues.add(row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    row.accountIds.forEach((accountId, index) => {
+      accountLabels.set(accountId, row.accountNames[index] ?? accountId);
     });
   }
 

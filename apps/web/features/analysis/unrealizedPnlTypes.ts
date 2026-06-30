@@ -94,6 +94,8 @@ export interface UnrealizedPnlSummarySection {
   periodChange: UnrealizedPnlSummaryCard;
   bestDriver: UnrealizedPnlSummaryDriver | null;
   worstDriver: UnrealizedPnlSummaryDriver | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
 export interface UnrealizedPnlDataHealth {
@@ -153,6 +155,28 @@ export interface UnrealizedPnlRankingRow {
   isSelected: boolean;
 }
 
+export interface UnrealizedPnlTickerCompositionRow {
+  seriesId: string;
+  ticker: string;
+  marketCode: AnalysisMarketCode;
+  displayName: string;
+  stateLabel: string;
+  state: "current" | "sold-out";
+  positionStatus: "open_position" | "closed_position";
+  endUnrealizedPnl: number | null;
+  marketValue: number | null;
+  costBasis: number | null;
+  quantity: number;
+  contributionSharePercent: number | null;
+}
+
+export interface UnrealizedPnlTickerSelectionRow extends UnrealizedPnlRankingRow {
+  rankLabel: string;
+  rankSort: number;
+  colorToken: string;
+  isManual: boolean;
+}
+
 export interface UnrealizedPnlReportsPreview {
   currentUnrealized: number | null;
   topGainLabel: string | null;
@@ -173,6 +197,8 @@ export interface UnrealizedPnlAnalysisDto {
   }>;
   tickerSeries: UnrealizedPnlSeries[];
   ranking: UnrealizedPnlRankingRow[];
+  tickerSelection: UnrealizedPnlTickerSelectionRow[];
+  tickerComposition: UnrealizedPnlTickerCompositionRow[];
   selectedSeriesIds: string[];
   reportsPreview: UnrealizedPnlReportsPreview;
   deepLink: string;

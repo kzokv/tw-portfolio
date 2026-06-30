@@ -150,6 +150,67 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         latestQuantity: 2,
         tradeMarkerCount: 0,
       }],
+      tickerComposition: [{
+        ticker: "AAPL",
+        marketCode: "US",
+        instrumentName: "Apple",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-growth"],
+        accountNames: ["US Growth"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        positionStatus: "open_position",
+        endUnrealizedPnlAmount: -100,
+        latestMarketValueAmount: 900,
+        latestCostBasisAmount: 1000,
+        latestQuantity: 1,
+        contributionSharePercent: -400,
+      }, {
+        ticker: "NVDA",
+        marketCode: "US",
+        instrumentName: "NVIDIA",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-growth"],
+        accountNames: ["US Growth"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        positionStatus: "open_position",
+        endUnrealizedPnlAmount: 25,
+        latestMarketValueAmount: 1000,
+        latestCostBasisAmount: 975,
+        latestQuantity: 2,
+        contributionSharePercent: 100,
+      }, {
+        ticker: "MSFT",
+        marketCode: "US",
+        instrumentName: "Microsoft",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-growth"],
+        accountNames: ["US Growth"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        positionStatus: "open_position",
+        endUnrealizedPnlAmount: null,
+        latestMarketValueAmount: null,
+        latestCostBasisAmount: 975,
+        latestQuantity: 2,
+        contributionSharePercent: null,
+      }, {
+        ticker: "TSLA",
+        marketCode: "US",
+        instrumentName: "Tesla",
+        instrumentType: "STOCK",
+        accountIds: ["acc-us-spec"],
+        accountNames: ["US Speculative"],
+        currentlyHeld: true,
+        isSoldOut: false,
+        positionStatus: "open_position",
+        endUnrealizedPnlAmount: 5,
+        latestMarketValueAmount: 400,
+        latestCostBasisAmount: 395,
+        latestQuantity: 1,
+        contributionSharePercent: 20,
+      }],
       selectedTickers: [{ ticker: "NVDA", marketCode: "US" }],
       tradeMarkers: [],
       dataHealth: {
@@ -185,14 +246,19 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       { contextScope: "portfolio", signal: controller.signal },
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);
-    expect(model.availableFilters.accounts).toEqual([{ value: "acc-us-growth", label: "US Growth" }]);
+    expect(model.availableFilters.accounts).toEqual([
+      { value: "acc-us-growth", label: "US Growth" },
+      { value: "acc-us-spec", label: "US Speculative" },
+    ]);
     expect(model.availableFilters.tickers).toEqual([
       { value: "AAPL", label: "AAPL US" },
       { value: "MSFT", label: "MSFT US" },
       { value: "NVDA", label: "NVDA US" },
+      { value: "TSLA", label: "TSLA US" },
     ]);
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
     expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
+    expect(model.summary.endDate).toBe("2026-06-26");
     expect(model.portfolioSeries).toEqual([{ date: "2026-06-26", unrealizedPnl: null }]);
     expect(model.tickerSeries.find((series) => series.ticker === "NVDA")?.points[0]?.closePrice).toBe(500);
     expect(model.tickerSeries.find((series) => series.ticker === "MSFT")).toEqual(expect.objectContaining({
@@ -200,5 +266,16 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       periodChange: null,
       points: [expect.objectContaining({ unrealizedPnl: null, marketValue: null, costBasis: 975 })],
     }));
+    expect(model.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnl, row.contributionSharePercent])).toEqual([
+      ["NVDA", 25, 100],
+      ["TSLA", 5, 20],
+      ["AAPL", -100, -400],
+      ["MSFT", null, null],
+    ]);
+    expect(model.tickerSelection.map((row) => [row.ticker, row.rankLabel, row.colorToken, row.isManual])).toEqual([
+      ["AAPL", "#1", expect.any(String), false],
+      ["NVDA", "#2", expect.any(String), false],
+      ["MSFT", "#3", expect.any(String), false],
+    ]);
   });
 });

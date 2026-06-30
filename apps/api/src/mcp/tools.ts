@@ -234,7 +234,7 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   get_unrealized_pnl_report: {
-    description: `Return a descriptive unrealized P&L analysis report with filtered point-in-time trends, rankings, and trade markers. ` +
+    description: `Return a descriptive unrealized P&L analysis report with filtered point-in-time trends, rankings, full tickerComposition rows for the Total unrealized card, and trade markers. ` +
       `The periodChangeAmount is the selected-period end minus start unrealized P&L. endUnrealizedPnlAmount is the period-end snapshot amount and startUnrealizedPnlAmount is the period-start snapshot amount. positionStatus uses open_position for open holdings and closed_position for sold-out holdings. ` +
       `The deepLink is route-relative and deepLinkUrl is the absolute app URL. ${adviceBoundary}`,
     inputSchema: z.object({

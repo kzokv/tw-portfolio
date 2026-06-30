@@ -49,6 +49,7 @@ describe("MCP report tools", () => {
     const unrealized = tools.find((tool) => tool.name === "get_unrealized_pnl_report");
     expect(unrealized?.description).toContain("periodChangeAmount is the selected-period end minus start unrealized P&L");
     expect(unrealized?.description).toContain("endUnrealizedPnlAmount is the period-end snapshot amount");
+    expect(unrealized?.description).toContain("tickerComposition rows for the Total unrealized card");
     expect(unrealized?.description).toContain("positionStatus uses open_position for open holdings and closed_position for sold-out holdings");
     expect(unrealized?.inputSchema.safeParse({ reportingCurrency: "AUD", granularity: "monthly" }).success).toBe(true);
   });
