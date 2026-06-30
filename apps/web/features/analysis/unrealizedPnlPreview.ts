@@ -9,6 +9,7 @@ import type {
   UnrealizedPnlRankingRow,
   UnrealizedPnlSeries,
   UnrealizedPnlSeriesPoint,
+  UnrealizedPnlTickerSelectionRow,
 } from "./unrealizedPnlTypes";
 
 interface PreviewSeriesSeed {
@@ -57,7 +58,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "NVDA",
     marketCode: "US",
-    displayName: "NVDA US",
+    displayName: "NVIDIA Corporation",
     instrumentType: "STOCK",
     state: "current",
     positionStatus: "open_position",
@@ -77,7 +78,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "2330",
     marketCode: "TW",
-    displayName: "2330 TW",
+    displayName: "Taiwan Semiconductor Manufacturing",
     instrumentType: "STOCK",
     state: "current",
     positionStatus: "open_position",
@@ -98,7 +99,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "BHP",
     marketCode: "AU",
-    displayName: "BHP AU",
+    displayName: "BHP Group Limited",
     instrumentType: "STOCK",
     state: "current",
     positionStatus: "open_position",
@@ -118,7 +119,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "0050",
     marketCode: "TW",
-    displayName: "0050 TW",
+    displayName: "Yuanta Taiwan 50 ETF",
     instrumentType: "ETF",
     state: "current",
     positionStatus: "open_position",
@@ -138,7 +139,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "AAPL",
     marketCode: "US",
-    displayName: "AAPL US",
+    displayName: "Apple Inc.",
     instrumentType: "STOCK",
     state: "current",
     positionStatus: "open_position",
@@ -158,7 +159,7 @@ const PREVIEW_SERIES: PreviewSeriesSeed[] = [
   {
     ticker: "TSLA",
     marketCode: "US",
-    displayName: "TSLA US",
+    displayName: "Tesla Inc.",
     instrumentType: "STOCK",
     state: "sold-out",
     positionStatus: "closed_position",
@@ -205,6 +206,7 @@ export function buildPreviewUnrealizedPnlAnalysis(
     ...buildSeries(series, reportingCurrency),
     markers: series.markers,
   }));
+  const seriesById = new Map(tickerSeries.map((series) => [series.seriesId, series] as const));
   const portfolioSeries = PREVIEW_DATES.map((date, index) => ({
     date,
     unrealizedPnl: filtered.reduce((sum, series) => sum + series.series[index]!, 0),
@@ -283,6 +285,8 @@ export function buildPreviewUnrealizedPnlAnalysis(
         ticker: summaryWorst.ticker,
         periodChange: summaryWorst.periodChange ?? 0,
       } : null,
+      startDate: portfolioSeries[0]?.date ?? null,
+      endDate: portfolioSeries.at(-1)?.date ?? null,
     },
     dataHealth: {
       status: state.includeProvisional ? "partial" : "complete",
@@ -298,6 +302,29 @@ export function buildPreviewUnrealizedPnlAnalysis(
     portfolioSeries,
     tickerSeries,
     ranking: ranking.map((row) => ({ ...row, isSelected: selectedSet.has(row.seriesId) })),
+    tickerSelection: buildTickerSelection(
+      ranking.map((row) => ({ ...row, isSelected: selectedSet.has(row.seriesId) })),
+      selectedSeriesIds,
+      seriesById,
+    ),
+    tickerComposition: filtered
+      .map((series) => ({
+        seriesId: buildSelectedSeriesId(series.marketCode, series.ticker),
+        ticker: series.ticker,
+        marketCode: series.marketCode,
+        displayName: series.displayName,
+        stateLabel: series.stateLabel,
+        state: series.state,
+        positionStatus: series.positionStatus,
+        endUnrealizedPnl: series.endUnrealizedPnl,
+        marketValue: series.marketValueSeries.at(-1) ?? null,
+        costBasis: series.costBasisSeries.at(-1) ?? null,
+        quantity: series.quantitySeries.at(-1) ?? 0,
+        contributionSharePercent: currentUnrealized !== null && currentUnrealized > 0
+          ? Math.round((series.endUnrealizedPnl / currentUnrealized) * 10000) / 100
+          : null,
+      }))
+      .sort(compareCompositionRows),
     selectedSeriesIds,
     reportsPreview: {
       currentUnrealized,
@@ -358,6 +385,55 @@ export function buildPreviewUnrealizedPnlAnalysis(
       isSelected: false,
     };
   }
+}
+
+function buildTickerSelection(
+  ranking: UnrealizedPnlRankingRow[],
+  selectedIds: string[],
+  seriesById: ReadonlyMap<string, UnrealizedPnlSeries>,
+): UnrealizedPnlTickerSelectionRow[] {
+  const rows: UnrealizedPnlTickerSelectionRow[] = ranking.map((row, index) => ({
+    ...row,
+    rankLabel: `#${index + 1}`,
+    rankSort: index + 1,
+    colorToken: seriesById.get(row.seriesId)?.colorToken ?? "#64748b",
+    isManual: false,
+  }));
+  const existing = new Set(rows.map((row) => row.seriesId));
+  for (const selectedId of selectedIds) {
+    if (existing.has(selectedId)) continue;
+    const series = seriesById.get(selectedId);
+    if (!series) continue;
+    rows.push({
+      seriesId: series.seriesId,
+      ticker: series.ticker,
+      marketCode: series.marketCode,
+      displayName: series.displayName,
+      stateLabel: series.stateLabel,
+      state: series.state,
+      positionStatus: series.positionStatus,
+      endUnrealizedPnl: series.endUnrealizedPnl,
+      periodChange: series.periodChange,
+      isSelected: true,
+      rankLabel: "Manual",
+      rankSort: Number.MAX_SAFE_INTEGER,
+      colorToken: series.colorToken,
+      isManual: true,
+    });
+  }
+  return rows;
+}
+
+function compareCompositionRows(
+  left: Pick<ReturnType<typeof buildPreviewUnrealizedPnlAnalysis>["tickerComposition"][number], "displayName" | "endUnrealizedPnl" | "marketCode" | "ticker">,
+  right: Pick<ReturnType<typeof buildPreviewUnrealizedPnlAnalysis>["tickerComposition"][number], "displayName" | "endUnrealizedPnl" | "marketCode" | "ticker">,
+): number {
+  const leftScore = left.endUnrealizedPnl ?? Number.NEGATIVE_INFINITY;
+  const rightScore = right.endUnrealizedPnl ?? Number.NEGATIVE_INFINITY;
+  if (leftScore !== rightScore) return rightScore - leftScore;
+  return left.displayName.localeCompare(right.displayName)
+    || left.marketCode.localeCompare(right.marketCode)
+    || left.ticker.localeCompare(right.ticker);
 }
 
 function resolveSelectedSeriesIds(

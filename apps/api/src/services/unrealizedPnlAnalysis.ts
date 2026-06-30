@@ -17,6 +17,7 @@ import {
   type UnrealizedPnlAnalysisMetadataDto,
   type UnrealizedPnlPositionStatus,
   type UnrealizedPnlRankingRowDto,
+  type UnrealizedPnlTickerCompositionRowDto,
   type UnrealizedPnlTickerRefDto,
   type UnrealizedPnlTradeMarkerDto,
   type UnrealizedPnlTradeMarkerKind,
@@ -465,6 +466,10 @@ function periodChangeSortScore(value: number | null): number {
   return value === null ? -1 : Math.abs(value);
 }
 
+function endUnrealizedSortScore(value: number | null): number {
+  return value === null ? Number.NEGATIVE_INFINITY : value;
+}
+
 function buildDeepLink(query: ResolvedInput): string {
   const params = new URLSearchParams();
   params.set("granularity", query.granularity);
@@ -798,6 +803,44 @@ export async function buildUnrealizedPnlAnalysis(
     && summaryEndPoint?.unrealizedPnlAmount !== null && summaryEndPoint?.unrealizedPnlAmount !== undefined
     ? roundToDecimal((summaryEndPoint.unrealizedPnlAmount ?? 0) - (summaryStartPoint.unrealizedPnlAmount ?? 0), 2)
     : null;
+  const totalEndUnrealizedPnlAmount = summaryEndPoint?.unrealizedPnlAmount ?? null;
+  const summaryEndDate = summaryEndPoint?.date ?? null;
+  const tickerComposition = includedTickerSeries
+    .map((series): UnrealizedPnlTickerCompositionRowDto => {
+      const endPoint = summaryEndDate
+        ? series.points.find((point) => point.date === summaryEndDate) ?? null
+        : null;
+      const endUnrealizedPnlAmount = endPoint?.unrealizedPnlAmount ?? null;
+      const contributionSharePercent = totalEndUnrealizedPnlAmount !== null
+        && totalEndUnrealizedPnlAmount !== 0
+        && endUnrealizedPnlAmount !== null
+        ? roundToDecimal((endUnrealizedPnlAmount / totalEndUnrealizedPnlAmount) * 100, 2)
+        : null;
+      const positionStatus = toPositionStatus(series.latestQuantity);
+      return {
+        ticker: series.ticker,
+        marketCode: series.marketCode,
+        instrumentName: series.instrumentName,
+        instrumentType: series.instrumentType,
+        accountIds: series.accountIds,
+        accountNames: series.accountNames,
+        currentlyHeld: series.latestQuantity > 0,
+        isSoldOut: series.latestQuantity <= 0,
+        positionStatus,
+        endUnrealizedPnlAmount,
+        latestMarketValueAmount: endPoint?.marketValueAmount ?? null,
+        latestCostBasisAmount: endPoint?.costBasisAmount ?? null,
+        latestQuantity: series.latestQuantity,
+        contributionSharePercent,
+      };
+    })
+    .sort((left, right) => {
+      const leftScore = endUnrealizedSortScore(left.endUnrealizedPnlAmount);
+      const rightScore = endUnrealizedSortScore(right.endUnrealizedPnlAmount);
+      if (leftScore !== rightScore) return rightScore - leftScore;
+      return left.marketCode.localeCompare(right.marketCode)
+        || left.ticker.localeCompare(right.ticker);
+    });
   const nonZeroQuantitySnapshotRows = portfolioSnapshotRows.filter((row) => row.quantity !== 0);
 
   return {
@@ -816,6 +859,7 @@ export async function buildUnrealizedPnlAnalysis(
     portfolioSeries,
     tickerSeries: returnedTickerSeries,
     rankings,
+    tickerComposition,
     selectedTickers,
     tradeMarkers,
     dataHealth: {
