@@ -278,16 +278,22 @@ const queryBooleanSchema = z.preprocess((rawValue) => {
   return value;
 }, z.boolean());
 
+function normalizeAccountIdsQueryValue(value: unknown): string[] | undefined {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const accountIds = rawValues
+    .flatMap((item) => typeof item === "string" ? item.split(",") : [])
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return accountIds.length > 0 ? accountIds : undefined;
+}
+
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
 // transactions must commit to a specific market).
 const marketCodeSchema = z.enum(MARKET_CODES);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const tickerChartQuerySchema = z.object({
   accountId: userScopedIdSchema.optional(),
-  accountIds: z.preprocess((value) => {
-    if (typeof value !== "string") return undefined;
-    return value.split(",").map((item) => item.trim()).filter(Boolean);
-  }, z.array(userScopedIdSchema).max(50).optional()),
+  accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
   marketCode: marketCodeSchema.optional(),
   range: tickerChartRangeSchema.optional(),
   startDate: isoDateSchema.optional(),
@@ -5438,10 +5444,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
-      accountIds: z.preprocess((value) => {
-        if (typeof value !== "string") return undefined;
-        return value.split(",").map((item) => item.trim()).filter(Boolean);
-      }, z.array(userScopedIdSchema).max(50).optional()),
+      accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
@@ -5773,10 +5776,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = z.object({
       accountId: userScopedIdSchema.optional(),
-      accountIds: z.preprocess((value) => {
-        if (typeof value !== "string") return undefined;
-        return value.split(",").map((item) => item.trim()).filter(Boolean);
-      }, z.array(userScopedIdSchema).max(50).optional()),
+      accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
     }).parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
