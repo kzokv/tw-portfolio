@@ -791,6 +791,9 @@ export async function buildUnrealizedPnlAnalysis(
   for (const ranking of rankings) {
     ranking.tradeMarkerCount = rankingTradeMarkerCount.get(`${ranking.marketCode}:${ranking.ticker}`) ?? 0;
   }
+  const responseRankings = query.tickerMode === "custom"
+    ? rankings.filter((ranking) => candidateTickerKeySet.has(`${ranking.marketCode}:${ranking.ticker}`))
+    : rankings;
 
   const seriesByKey = new Map<string, TickerSeriesAggregate>(
     includedTickerSeries.map((series) => [`${series.marketCode}:${series.ticker}`, series] as const),
@@ -918,7 +921,7 @@ export async function buildUnrealizedPnlAnalysis(
     },
     portfolioSeries,
     tickerSeries: returnedTickerSeries,
-    rankings,
+    rankings: responseRankings,
     tickerComposition,
     candidateTickers,
     requestedTickerAvailability,
