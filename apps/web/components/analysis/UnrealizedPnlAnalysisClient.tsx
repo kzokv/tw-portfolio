@@ -720,7 +720,8 @@ function buildMigratedAnalysisSettings(
       && Object.prototype.hasOwnProperty.call(legacySettings, "reportingCurrency"),
   );
   if (legacyHasReportingCurrency) return settings;
-  const { reportingCurrency: _reportingCurrency, ...settingsWithoutCurrency } = settings;
+  const settingsWithoutCurrency: Partial<UnrealizedPnlAnalysisSettings> = { ...settings };
+  delete settingsWithoutCurrency.reportingCurrency;
   return settingsWithoutCurrency;
 }
 
