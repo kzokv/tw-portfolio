@@ -466,6 +466,33 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(tickerHref).toContain("toDate=2026-07-01");
   });
 
+  it("filters multi-account ticker drilldown links to the clicked ticker account scope", () => {
+    const mixedAccountState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      accounts: ["acc-us-growth", "acc-tw-main"],
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(mixedAccountState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={mixedAccountState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const nvdaHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href") ?? "")
+      .find((href) => href.startsWith("/tickers/NVDA?"));
+    expect(nvdaHref).toBeDefined();
+
+    const params = new URL(nvdaHref!, "http://localhost").searchParams;
+    expect(params.get("marketCode")).toBe("US");
+    expect(params.get("accountId")).toBe("acc-us-growth");
+    expect(params.get("accountIds")).toBeNull();
+    expect(nvdaHref).not.toContain("acc-tw-main");
+  });
+
   it("closes the mobile total composition sheet when the viewport becomes desktop", () => {
     const listeners = new Set<(event: MediaQueryListEvent) => void>();
     const mediaQuery = {

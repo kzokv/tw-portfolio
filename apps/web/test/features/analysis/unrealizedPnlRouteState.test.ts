@@ -157,6 +157,41 @@ describe("unrealizedPnlRouteState", () => {
     expect(next.detailLayout).toBe("cards");
   });
 
+  it("preserves an explicit analysis TWD currency setting when global currency differs", () => {
+    const settings = parseAnalysisSettingsFromPreferences({
+      reportingCurrency: "USD",
+      analysisUnrealizedPnlSettings: {
+        version: 1,
+        selection: "topDrivers",
+        granularity: "weekly",
+        reportingCurrency: "TWD",
+        includeProvisional: false,
+        detailLayout: "responsive",
+        topDrivers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [], drivers: 5 },
+        manualTickers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [] },
+      },
+    });
+
+    expect(settings.reportingCurrency).toBe("TWD");
+  });
+
+  it("uses global currency only when analysis settings omit reporting currency", () => {
+    const settings = parseAnalysisSettingsFromPreferences({
+      reportingCurrency: "USD",
+      analysisUnrealizedPnlSettings: {
+        version: 1,
+        selection: "topDrivers",
+        granularity: "weekly",
+        includeProvisional: false,
+        detailLayout: "responsive",
+        topDrivers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [], drivers: 5 },
+        manualTickers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [] },
+      },
+    });
+
+    expect(settings.reportingCurrency).toBe("USD");
+  });
+
   it("maps report/dashboard ranges through the shared serializer", () => {
     expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
     expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");

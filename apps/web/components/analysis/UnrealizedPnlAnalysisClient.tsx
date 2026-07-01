@@ -1160,7 +1160,7 @@ function groupTickerRows(rows: TickerPickerRow[]): Array<{ marketCode: string; r
 }
 
 function buildTickerDetailHref(
-  row: Pick<UnrealizedPnlTickerSelectionRow, "ticker" | "marketCode">,
+  row: Pick<UnrealizedPnlTickerSelectionRow, "seriesId" | "ticker" | "marketCode">,
   state: UnrealizedPnlAnalysisRouteState,
   data: UnrealizedPnlAnalysisDto | null,
 ): string {
@@ -1172,10 +1172,16 @@ function buildTickerDetailHref(
   const toDate = data?.summary.endDate ?? (state.range === "CUSTOM" ? state.to : null);
   if (fromDate) params.set("fromDate", fromDate);
   if (toDate) params.set("toDate", toDate);
-  if (state.accounts.length === 1) {
-    params.set("accountId", state.accounts[0]!);
-  } else if (state.accounts.length > 1) {
-    params.set("accountIds", state.accounts.join(","));
+  const matchingSeries = data?.tickerSeries.find((series) => series.seriesId === row.seriesId);
+  const scopedAccountIds = matchingSeries
+    ? matchingSeries.accountIds.filter((accountId) => state.accounts.includes(accountId))
+    : state.accounts.length === 1
+      ? state.accounts
+      : [];
+  if (scopedAccountIds.length === 1) {
+    params.set("accountId", scopedAccountIds[0]!);
+  } else if (scopedAccountIds.length > 1) {
+    params.set("accountIds", scopedAccountIds.join(","));
   }
   return `/tickers/${encodeURIComponent(row.ticker)}?${params.toString()}`;
 }

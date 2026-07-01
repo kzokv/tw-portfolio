@@ -289,6 +289,41 @@ describe("TickerHistoryPage", () => {
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW");
   });
 
+  it("normalizes repeated accountIds query params into initial ticker transactions", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [
+        { id: "acc-1", name: "Brokerage 1" },
+        { id: "acc-2", name: "Brokerage 2" },
+      ],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountIds: ["acc-1", "acc-2"],
+        marketCode: "tw",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-transaction-account-ids-filter="acc-1,acc-2"');
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({
+      ticker: "2330",
+      accountId: undefined,
+      accountIds: ["acc-1", "acc-2"],
+      marketCode: "TW",
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW");
+  });
+
   it("passes effective ticker intraday settings into the ticker client", async () => {
     fetchDashboardPrimaryDataMock.mockResolvedValue({
       settings: {

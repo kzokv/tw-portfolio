@@ -19,7 +19,7 @@ interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
   searchParams: Promise<{
     accountId?: string;
-    accountIds?: string;
+    accountIds?: string | string[];
     chartEnd?: string;
     chartRange?: string;
     chartStart?: string;
@@ -36,6 +36,15 @@ function normalizeMarketCode(value?: string): MarketCode | undefined {
   return (MARKET_CODES as readonly string[]).includes(normalized) ? (normalized as MarketCode) : undefined;
 }
 
+function normalizeAccountIdsQueryValue(value?: string | string[]): string[] | undefined {
+  if (value === undefined) return undefined;
+  const accountIds = (Array.isArray(value) ? value : [value])
+    .flatMap((item) => item.split(","))
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return accountIds.length > 0 ? accountIds : undefined;
+}
+
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
   const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
@@ -47,9 +56,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
-  const scopedAccountIds = !scopedAccountId && accountIds?.trim()
-    ? accountIds.split(",").map((item) => item.trim()).filter(Boolean)
-    : undefined;
+  const scopedAccountIds = !scopedAccountId ? normalizeAccountIdsQueryValue(accountIds) : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
   const openedFromUnrealizedPnlAnalysis = source === "unrealized-pnl-analysis";
   const initialChartRange = openedFromUnrealizedPnlAnalysis && fromDate && toDate ? "CUSTOM" : chartRange;

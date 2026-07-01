@@ -130,9 +130,15 @@ export function parseAnalysisSettings(value: unknown): UnrealizedPnlAnalysisSett
 export function parseAnalysisSettingsFromPreferences(
   preferences: Record<string, unknown> | undefined,
 ): UnrealizedPnlAnalysisSettings {
-  const parsed = parseAnalysisSettings(preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]);
+  const rawSettings = preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY];
+  const parsed = parseAnalysisSettings(rawSettings);
+  const reportingCurrencyOmitted = !rawSettings
+    || typeof rawSettings !== "object"
+    || Array.isArray(rawSettings)
+    || !Object.prototype.hasOwnProperty.call(rawSettings, "reportingCurrency");
   if (
-    parsed.reportingCurrency === ANALYSIS_DEFAULT_STATE.reportingCurrency
+    reportingCurrencyOmitted
+    && parsed.reportingCurrency === ANALYSIS_DEFAULT_STATE.reportingCurrency
     && typeof preferences?.reportingCurrency === "string"
     && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(preferences.reportingCurrency)
   ) {
