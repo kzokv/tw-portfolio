@@ -132,6 +132,8 @@ export function UnrealizedPnlAnalysisClient({
         const defaults = parseAnalysisSettingsFromPreferences(response.preferences);
         const shouldMigrateLegacySettings = response.preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] === undefined
           && response.preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] !== undefined;
+        const legacySettings = response.preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY];
+        const migratedSettings = buildMigratedAnalysisSettings(defaults, legacySettings);
         didHydratePreferencesRef.current = true;
         setState((current) => {
           if (hasLocalStateEditRef.current) {
@@ -153,7 +155,7 @@ export function UnrealizedPnlAnalysisClient({
         if (shouldMigrateLegacySettings && !hasLocalStateEditRef.current) {
           void patchJson(
             "/user-preferences",
-            { [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: defaults },
+            { [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: migratedSettings },
             { contextScope: "session" },
           ).catch(() => undefined);
         }
@@ -705,6 +707,21 @@ export function UnrealizedPnlAnalysisClient({
       </section>
     </main>
   );
+}
+
+function buildMigratedAnalysisSettings(
+  settings: UnrealizedPnlAnalysisSettings,
+  legacySettings: unknown,
+): Partial<UnrealizedPnlAnalysisSettings> {
+  const legacyHasReportingCurrency = Boolean(
+    legacySettings
+      && typeof legacySettings === "object"
+      && !Array.isArray(legacySettings)
+      && Object.prototype.hasOwnProperty.call(legacySettings, "reportingCurrency"),
+  );
+  if (legacyHasReportingCurrency) return settings;
+  const { reportingCurrency: _reportingCurrency, ...settingsWithoutCurrency } = settings;
+  return settingsWithoutCurrency;
 }
 
 function collectChartDates(series: UnrealizedPnlSeries[]): string[] {

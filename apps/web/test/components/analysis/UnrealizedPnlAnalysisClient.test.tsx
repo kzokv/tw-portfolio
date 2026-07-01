@@ -409,6 +409,43 @@ describe("UnrealizedPnlAnalysisClient", () => {
     );
   });
 
+  it("does not freeze inherited reporting currency when migrating legacy defaults", async () => {
+    getJsonMock.mockResolvedValue({
+      preferences: {
+        reportingCurrency: "USD",
+        analysisUnrealizedPnlDefaults: {
+          granularity: "monthly",
+          lineCount: 10,
+          holdingsState: "include-sold",
+          includeProvisional: true,
+        },
+      },
+    });
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+
+    await act(async () => {
+      root!.render(
+        <AppShellDataProvider value={{ ...buildShellData(), reportingCurrency: "USD" }}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("reportingCurrency=USD");
+    const patchCall = (patchJsonMock.mock.calls as unknown[][]).at(-1);
+    const patchPayload = patchCall?.[1] as
+      | { analysisUnrealizedPnlSettings?: Record<string, unknown> }
+      | undefined;
+    const migratedSettings = patchPayload?.analysisUnrealizedPnlSettings;
+    expect(migratedSettings).toMatchObject({
+      granularity: "monthly",
+      includeProvisional: true,
+      topDrivers: expect.objectContaining({ drivers: 10, positionStatus: "includeClosed" }),
+      manualTickers: expect.objectContaining({ positionStatus: "includeClosed" }),
+    });
+    expect(migratedSettings).not.toHaveProperty("reportingCurrency");
+  });
+
   it("keeps explicit URL presentation values ahead of saved defaults", async () => {
     getJsonMock.mockResolvedValue({
       preferences: {
