@@ -87,6 +87,7 @@ interface TickerHistoryClientProps {
   details: TickerDetailsModel;
   isDemo: boolean;
   transactionAccountFilter?: string;
+  transactionAccountIdsFilter?: string[];
   transactionMarketFilter?: MarketCode;
   initialChartQuery?: {
     chartEnd?: string;
@@ -106,6 +107,7 @@ const MAX_TICKER_CHART_POINTS = 900;
 const TICKER_CHART_EMPTY_FALLBACK_DATE = "1970-01-01";
 
 type TickerRangeControl = TickerChartRange | "CUSTOM";
+type TickerChartMetric = "price" | "unrealizedPnl";
 
 interface TickerChartRequest {
   range?: TickerChartRange;
@@ -374,6 +376,7 @@ export function TickerHistoryClient({
   details,
   isDemo,
   transactionAccountFilter,
+  transactionAccountIdsFilter,
   transactionMarketFilter,
   initialChartQuery,
   initialTradeDate,
@@ -385,6 +388,7 @@ export function TickerHistoryClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
+  const openedFromAnalysis = searchParams.get("source") === "unrealized-pnl-analysis";
   const tickerOpenMarketPollMs = resolveTickerPricePollMs(
     quotePollIntervalSeconds,
     tickerPriceIntradayRefreshIntervalMinutes,
@@ -422,6 +426,7 @@ export function TickerHistoryClient({
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
+  const [tickerChartMetric, setTickerChartMetric] = useState<TickerChartMetric>(() => openedFromAnalysis ? "unrealizedPnl" : "price");
   const [tickerTimelineMode, setTickerTimelineMode] = useState<TimelineMode>("auto");
   const [tickerChartRequest, setTickerChartRequest] = useState<TickerChartRequest>(() => initialTickerChartState.request);
   const [customStartDate, setCustomStartDate] = useState(initialTickerChartState.customStartDate);
@@ -449,12 +454,13 @@ export function TickerHistoryClient({
       ticker,
       transactionMarketFilter ?? details.identity.marketCode,
       transactionAccountFilter ?? "all",
+      transactionAccountIdsFilter?.join(",") ?? "",
       tickerChartRequest.range ?? "CUSTOM",
       tickerChartRequest.startDate ?? "",
       tickerChartRequest.endDate ?? "",
       reportingCurrency,
     ),
-    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
+    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
@@ -535,6 +541,7 @@ export function TickerHistoryClient({
       const next = await refreshTickerDetails({
         ticker,
         accountId: transactionAccountFilter,
+        accountIds: transactionAccountIdsFilter,
         marketCode: transactionMarketFilter,
         range: tickerChartRequest.range,
         startDate: tickerChartRequest.startDate,
@@ -549,7 +556,7 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
@@ -587,7 +594,7 @@ export function TickerHistoryClient({
     setDetailsState(nextDetails);
     writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
-  }, [instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter]);
+  }, [instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
@@ -786,11 +793,19 @@ export function TickerHistoryClient({
     startDate: chartStartDate,
   });
   const downsampledChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
+  const pnlPointByDate = new Map(detailsState.unrealizedPnlHistory.map((point) => [point.date, point]));
   const chartData = downsampledChart.points.map((point) => ({
     ...point,
+    unrealizedPnl: pnlPointByDate.get(point.date)?.unrealizedPnl ?? null,
     dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
     axisLabel: point.label === "Now" ? dict.tickerHistory.nowLabel : formatDateLabel(point.date, locale),
   }));
+  const pnlChartData = detailsState.unrealizedPnlHistory.map((point) => ({
+    ...point,
+    dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
+    axisLabel: formatDateLabel(point.date, locale),
+  }));
+  const activeChartData = tickerChartMetric === "unrealizedPnl" ? pnlChartData : chartData;
   const accountContributionData = useMemo(
     () => accountBreakdownRows.map((child) => {
       const reportingCurrency = child.reportingCurrency ?? null;
@@ -1252,6 +1267,36 @@ export function TickerHistoryClient({
                     ))}
                   </ToggleGroup>
                 </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                  <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartMetricLabel}</span>
+                  <ToggleGroup
+                    type="single"
+                    aria-label={dict.tickerHistory.chartMetricLabel}
+                    value={tickerChartMetric}
+                    onValueChange={(value) => {
+                      if (value === "price" || value === "unrealizedPnl") setTickerChartMetric(value);
+                    }}
+                    className="flex flex-wrap justify-start"
+                    data-testid="ticker-chart-metric-controls"
+                  >
+                    <ToggleGroupItem value="price">{dict.tickerHistory.currentPriceLabel}</ToggleGroupItem>
+                    <ToggleGroupItem value="unrealizedPnl">{dict.tickerHistory.unrealizedPnlLabel}</ToggleGroupItem>
+                  </ToggleGroup>
+                  {openedFromAnalysis ? (
+                    <div className="flex flex-wrap gap-1 text-xs text-slate-600">
+                      <Badge variant="secondary">{dict.tickerHistory.analysisSourceLabel}</Badge>
+                      {currentChartMetadata.resolved.startDate && currentChartMetadata.resolved.endDate ? (
+                        <Badge variant="secondary">{currentChartMetadata.resolved.startDate} - {currentChartMetadata.resolved.endDate}</Badge>
+                      ) : null}
+                      {transactionAccountFilter ? <Badge variant="secondary">{dict.tickerHistory.analysisAccountCountLabel}</Badge> : null}
+                      {!transactionAccountFilter && transactionAccountIdsFilter?.length ? (
+                        <Badge variant="secondary">
+                          {formatTickerChartMessage(dict.tickerHistory.analysisAccountsCountLabel, { count: String(transactionAccountIdsFilter.length) })}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 {tickerChartSelection === "CUSTOM" ? (
                   <div className="flex flex-wrap items-end gap-2" data-testid="ticker-chart-custom-range">
                     <label className="grid gap-1 text-xs text-slate-500">
@@ -1332,8 +1377,13 @@ export function TickerHistoryClient({
                 ) : null}
               </div>
               <div className="mt-6 h-[320px]">
+                {tickerChartMetric === "unrealizedPnl" && pnlChartData.length === 0 ? (
+                  <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                    {dict.tickerHistory.unrealizedPnlEmptyState}
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                  <LineChart data={activeChartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
                     <XAxis
                       dataKey="dateMs"
                       type="number"
@@ -1355,13 +1405,20 @@ export function TickerHistoryClient({
                       formatter={(value, name) => {
                         if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
                         if (name === "quantity") return formatNumber(value, locale);
-                        return formatCurrencyAmount(value, currency, locale);
+                        return formatCurrencyAmount(value, tickerChartMetric === "unrealizedPnl" ? (detailsState.unrealizedPnlHistory[0]?.currency ?? currency) : currency, locale);
                       }}
                     />
-                    <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
-                    <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
+                    {tickerChartMetric === "price" ? (
+                      <>
+                        <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
+                        <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
+                      </>
+                    ) : (
+                      <Line type="monotone" dataKey="unrealizedPnl" stroke="#215dc6" strokeWidth={2.5} dot={false} connectNulls={false} name={dict.tickerHistory.unrealizedPnlLabel} />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </Card>
 

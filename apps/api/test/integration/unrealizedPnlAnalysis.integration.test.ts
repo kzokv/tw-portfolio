@@ -186,7 +186,7 @@ describe("unrealized P&L analysis API/MCP parity", () => {
   it("returns the same report shape through HTTP and MCP", async () => {
     const apiResponse = await app.inject({
       method: "GET",
-      url: "/analysis/unrealized-pnl?granularity=monthly&fromDate=2026-03-01&toDate=2026-03-31&holdingsState=include_sold_out",
+      url: "/analysis/unrealized-pnl?granularity=monthly&fromDate=2026-03-01&toDate=2026-03-31&positionStatus=includeClosed",
       headers: {
         cookie: cookieHeader,
       },
@@ -212,7 +212,7 @@ describe("unrealized P&L analysis API/MCP parity", () => {
       granularity: "monthly",
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      holdingsState: "include_sold_out",
+      positionStatus: "includeClosed",
     });
     expect(mcpCall.statusCode).toBe(200);
     const mcpBody = parseMcpJson<{

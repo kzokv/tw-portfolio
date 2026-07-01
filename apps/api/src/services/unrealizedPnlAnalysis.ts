@@ -4,8 +4,9 @@ import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
   UNREALIZED_PNL_GRANULARITIES,
-  UNREALIZED_PNL_HOLDINGS_STATES,
-  UNREALIZED_PNL_SELECTION_MODES,
+  UNREALIZED_PNL_POSITION_STATUS_FILTERS,
+  UNREALIZED_PNL_SELECTIONS,
+  UNREALIZED_PNL_TICKER_MODES,
   type AccountDefaultCurrency,
   type InstrumentType,
   type MarketCode,
@@ -16,6 +17,7 @@ import {
   type UnrealizedPnlAmountSemantics,
   type UnrealizedPnlAnalysisMetadataDto,
   type UnrealizedPnlPositionStatus,
+  type UnrealizedPnlRequestedTickerAvailabilityDto,
   type UnrealizedPnlRankingRowDto,
   type UnrealizedPnlTickerCompositionRowDto,
   type UnrealizedPnlTickerRefDto,
@@ -29,10 +31,9 @@ import { routeError } from "../lib/routeError.js";
 
 const DEFAULT_RANGE = "3M";
 const DEFAULT_GRANULARITY: UnrealizedPnlGranularity = "weekly";
-const DEFAULT_COMPARISON_LINE_COUNT = 5;
-const MAX_COMPARISON_LINE_COUNT = 20;
-const DEFAULT_RANKING_LIMIT = 100;
-const MAX_RANKING_LIMIT = 500;
+const DEFAULT_DRIVER_COUNT = 5;
+const MAX_RENDERED_CANDIDATE_COUNT = 200;
+const NOISY_CHART_LINE_THRESHOLD = 20;
 const MAX_FILTER_ITEMS = 200;
 const MIN_ANALYSIS_DATE = "1900-01-01";
 
@@ -106,8 +107,10 @@ const marketCodeSchema = z.enum(MARKET_CODES);
 const INSTRUMENT_TYPES = ["STOCK", "ETF", "BOND_ETF"] as const satisfies readonly InstrumentType[];
 const instrumentTypeSchema = z.enum(INSTRUMENT_TYPES);
 const granularitySchema = z.enum(UNREALIZED_PNL_GRANULARITIES);
-const holdingsStateSchema = z.enum(UNREALIZED_PNL_HOLDINGS_STATES);
-const selectionModeSchema = z.enum(UNREALIZED_PNL_SELECTION_MODES);
+const positionStatusFilterSchema = z.enum(UNREALIZED_PNL_POSITION_STATUS_FILTERS);
+const selectionSchema = z.enum(UNREALIZED_PNL_SELECTIONS);
+const tickerModeSchema = z.enum(UNREALIZED_PNL_TICKER_MODES);
+const driverCountSchema = z.union([z.literal(5), z.literal(10), z.literal(20)]);
 const reportingCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const PERFORMANCE_RANGE_ELEMENT = /^YTD$|^ALL$|^([1-9]\d*)(M|Y)$/;
 const performanceRangeSchema = z
@@ -159,7 +162,7 @@ function normalizeCsvList(value: unknown): string[] | undefined {
     .filter((item) => item.length > 0);
 }
 
-const routeTickerRefsSchema = z.preprocess((value) => normalizeCsvList(value)?.map((item) => parseTickerRef(item)), z.array(tickerRefSchema).max(MAX_COMPARISON_LINE_COUNT).optional());
+const routeTickerRefsSchema = z.preprocess((value) => normalizeCsvList(value)?.map((item) => parseTickerRef(item)), z.array(tickerRefSchema).max(MAX_FILTER_ITEMS).optional());
 
 export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
   granularity: granularitySchema.optional(),
@@ -168,16 +171,15 @@ export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
   toDate: isoDateSchema.optional(),
   markets: z.preprocess(normalizeCsvList, z.array(marketCodeSchema).max(MARKET_CODES.length).optional()),
   accountIds: z.preprocess(normalizeCsvList, z.array(accountIdSchema).max(MAX_FILTER_ITEMS).optional()),
-  tickers: z.preprocess(normalizeCsvList, z.array(tickerSchema).max(MAX_FILTER_ITEMS).optional()),
+  tickerIds: routeTickerRefsSchema,
   instrumentTypes: z.preprocess(normalizeCsvList, z.array(instrumentTypeSchema).max(3).optional()),
-  selectionMode: selectionModeSchema.optional(),
-  selectedTickers: routeTickerRefsSchema,
-  comparisonLineCount: z.coerce.number().int().min(1).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  rankingLimit: z.coerce.number().int().min(1).max(MAX_RANKING_LIMIT).optional(),
-  holdingsState: holdingsStateSchema.optional(),
+  selection: selectionSchema.optional(),
+  tickerMode: tickerModeSchema.optional(),
+  drivers: z.coerce.number().pipe(driverCountSchema).optional(),
+  positionStatus: positionStatusFilterSchema.optional(),
   reportingCurrency: reportingCurrencySchema.optional(),
   includeProvisional: booleanQuerySchema,
-}).strict();
+}).strip();
 
 export const unrealizedPnlAnalysisMcpInputSchema = z.object({
   granularity: granularitySchema.optional(),
@@ -186,16 +188,15 @@ export const unrealizedPnlAnalysisMcpInputSchema = z.object({
   toDate: isoDateSchema.optional(),
   markets: z.array(marketCodeSchema).max(MARKET_CODES.length).optional(),
   accountIds: z.array(accountIdSchema).max(MAX_FILTER_ITEMS).optional(),
-  tickers: z.array(tickerSchema).max(MAX_FILTER_ITEMS).optional(),
+  tickerIds: z.array(tickerRefSchema).max(MAX_FILTER_ITEMS).optional(),
   instrumentTypes: z.array(instrumentTypeSchema).max(3).optional(),
-  selectionMode: selectionModeSchema.optional(),
-  selectedTickers: z.array(tickerRefSchema).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  comparisonLineCount: z.number().int().min(1).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  rankingLimit: z.number().int().min(1).max(MAX_RANKING_LIMIT).optional(),
-  holdingsState: holdingsStateSchema.optional(),
+  selection: selectionSchema.optional(),
+  tickerMode: tickerModeSchema.optional(),
+  drivers: driverCountSchema.optional(),
+  positionStatus: positionStatusFilterSchema.optional(),
   reportingCurrency: reportingCurrencySchema.optional(),
   includeProvisional: z.boolean().optional(),
-}).strict();
+}).strip();
 
 export type UnrealizedPnlAnalysisInput = z.infer<typeof unrealizedPnlAnalysisMcpInputSchema>;
 
@@ -312,7 +313,7 @@ function resolveInput(
 
   assertAnalysisDateBounds(startDate, endDate, granularity);
 
-  const selectedTickers = [...(input.selectedTickers ?? [])].sort(compareTickerRefs);
+  const requestedTickers = [...(input.tickerIds ?? [])].sort(compareTickerRefs);
   return {
     granularity,
     range,
@@ -322,13 +323,13 @@ function resolveInput(
     endDate,
     markets: [...(input.markets ?? [])].sort(),
     accountIds: [...(input.accountIds ?? [])].sort(),
-    tickers: [...(input.tickers ?? [])].sort(),
+    tickerIds: requestedTickers.map(tickerKey),
     instrumentTypes: [...(input.instrumentTypes ?? [])].sort() as InstrumentType[],
-    selectionMode: input.selectionMode ?? "auto",
-    selectedTickers,
-    comparisonLineCount: input.comparisonLineCount ?? DEFAULT_COMPARISON_LINE_COUNT,
-    rankingLimit: input.rankingLimit ?? DEFAULT_RANKING_LIMIT,
-    holdingsState: input.holdingsState ?? "open_only",
+    selection: input.selection ?? "topDrivers",
+    tickerMode: input.tickerMode ?? "allEligible",
+    requestedTickers,
+    drivers: input.drivers ?? DEFAULT_DRIVER_COUNT,
+    positionStatus: input.positionStatus ?? "openOnly",
     reportingCurrency: input.reportingCurrency ?? defaultReportingCurrency,
     includeProvisional: input.includeProvisional ?? false,
     asOf,
@@ -448,26 +449,76 @@ function padSoldOutSeries(
   return padded.sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function pickSelectedTickers(
+function pickCandidateTickers(
   rankings: readonly UnrealizedPnlRankingRowDto[],
-  selectionMode: typeof UNREALIZED_PNL_SELECTION_MODES[number],
-  selectedTickers: readonly UnrealizedPnlTickerRefDto[],
-  comparisonLineCount: number,
+  query: ResolvedInput,
 ): UnrealizedPnlTickerRefDto[] {
-  if (selectionMode === "manual" && selectedTickers.length > 0) {
-    return [...selectedTickers].slice(0, comparisonLineCount);
+  if (query.selection === "manualTickers") {
+    if (query.tickerMode === "custom") return [...query.requestedTickers];
+    return rankings
+      .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
   }
-  return rankings
-    .slice(0, comparisonLineCount)
+  const universe = query.tickerMode === "custom" && query.requestedTickers.length > 0
+    ? rankings.filter((row) => query.requestedTickers.some((ticker) => tickerKey(ticker) === `${row.marketCode}:${row.ticker}`))
+    : rankings;
+  return universe
+    .slice(0, query.drivers)
     .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
 }
 
-function periodChangeSortScore(value: number | null): number {
-  return value === null ? -1 : Math.abs(value);
+function manualDisplaySort(left: UnrealizedPnlTickerRefDto, right: UnrealizedPnlTickerRefDto): number {
+  return left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker);
 }
 
-function endUnrealizedSortScore(value: number | null): number {
-  return value === null ? Number.NEGATIVE_INFINITY : value;
+function buildRequestedTickerAvailability(input: {
+  requestedTickers: readonly UnrealizedPnlTickerRefDto[];
+  eligibleSeriesByKey: ReadonlyMap<string, TickerSeriesAggregate>;
+  scopedSeriesByKey: ReadonlyMap<string, TickerSeriesAggregate>;
+  instrumentNameByKey: ReadonlyMap<string, string>;
+  instrumentByKey: ReadonlyMap<string, unknown>;
+}): UnrealizedPnlRequestedTickerAvailabilityDto[] {
+  return input.requestedTickers.map((ticker) => {
+    const key = tickerKey(ticker);
+    const eligibleSeries = input.eligibleSeriesByKey.get(key);
+    const scopedSeries = input.scopedSeriesByKey.get(key);
+    const series = eligibleSeries ?? scopedSeries;
+    const instrumentExists = input.instrumentByKey.has(key) || input.instrumentNameByKey.has(key);
+    const hasAnyEligiblePnlPoint = eligibleSeries?.points.some((point) => point.unrealizedPnlAmount !== null) ?? false;
+    const hasAnyScopedPnlPoint = scopedSeries?.points.some((point) => point.unrealizedPnlAmount !== null) ?? false;
+    return {
+      ...ticker,
+      tickerId: key,
+      instrumentName: series?.instrumentName ?? input.instrumentNameByKey.get(key) ?? null,
+      eligible: Boolean(eligibleSeries && hasAnyEligiblePnlPoint),
+      reason: eligibleSeries && hasAnyEligiblePnlPoint
+        ? null
+        : instrumentExists
+          ? scopedSeries
+            ? hasAnyScopedPnlPoint
+              ? "notInScope"
+              : "valuationUnavailable"
+            : "noChartableSnapshots"
+          : "invalidTicker",
+    };
+  });
+}
+
+function filterChartableSeries(series: readonly TickerSeriesAggregate[]): TickerSeriesAggregate[] {
+  return series.filter((item) => item.points.some((point) => point.unrealizedPnlAmount !== null));
+}
+
+function isOpenAtAnalysisEnd(series: TickerSeriesAggregate): boolean {
+  return (series.points[series.points.length - 1]?.quantity ?? 0) > 0;
+}
+
+function rankingSort(left: Pick<UnrealizedPnlRankingRowDto, "periodChangeAmount" | "marketCode" | "ticker">, right: Pick<UnrealizedPnlRankingRowDto, "periodChangeAmount" | "marketCode" | "ticker">): number {
+  const leftHasChange = left.periodChangeAmount !== null;
+  const rightHasChange = right.periodChangeAmount !== null;
+  if (leftHasChange !== rightHasChange) return leftHasChange ? -1 : 1;
+  const leftScore = left.periodChangeAmount === null ? 0 : Math.abs(left.periodChangeAmount);
+  const rightScore = right.periodChangeAmount === null ? 0 : Math.abs(right.periodChangeAmount);
+  if (leftScore !== rightScore) return rightScore - leftScore;
+  return left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker);
 }
 
 function buildDeepLink(query: ResolvedInput): string {
@@ -475,21 +526,17 @@ function buildDeepLink(query: ResolvedInput): string {
   params.set("granularity", query.granularity);
   if (query.range) {
     if (query.range !== DEFAULT_RANGE) params.set("range", query.range);
-  } else {
-    params.set("range", "CUSTOM");
   }
   if (query.fromDate) params.set("fromDate", query.fromDate);
   if (query.toDate) params.set("toDate", query.toDate);
   if (query.markets.length > 0) params.set("markets", query.markets.join(","));
   if (query.accountIds.length > 0) params.set("accountIds", query.accountIds.join(","));
-  if (query.tickers.length > 0) params.set("tickers", query.tickers.join(","));
+  if (query.tickerIds.length > 0) params.set("tickerIds", query.tickerIds.join(","));
   if (query.instrumentTypes.length > 0) params.set("instrumentTypes", query.instrumentTypes.join(","));
-  if (query.selectionMode !== "auto") params.set("selectionMode", query.selectionMode);
-  if (query.selectedTickers.length > 0) {
-    params.set("selectedTickers", query.selectedTickers.map((item) => `${item.marketCode}:${item.ticker}`).join(","));
-  }
-  params.set("comparisonLineCount", String(query.comparisonLineCount));
-  params.set("holdingsState", query.holdingsState);
+  if (query.selection !== "topDrivers") params.set("selection", query.selection);
+  if (query.tickerMode !== "allEligible") params.set("tickerMode", query.tickerMode);
+  if (query.drivers !== DEFAULT_DRIVER_COUNT) params.set("drivers", String(query.drivers));
+  params.set("positionStatus", query.positionStatus);
   params.set("reportingCurrency", query.reportingCurrency);
   params.set("includeProvisional", query.includeProvisional ? "true" : "false");
   const queryString = params.toString();
@@ -622,7 +669,7 @@ export async function buildUnrealizedPnlAnalysis(
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
       markets: query.markets.length > 0 ? query.markets : undefined,
-      tickers: query.tickers.length > 0 ? query.tickers : undefined,
+      tickers: query.tickerIds.length > 0 ? query.tickerIds.map((item) => item.split(":")[1]!).filter(Boolean) : undefined,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
       includeProvisional: query.includeProvisional,
@@ -631,6 +678,7 @@ export async function buildUnrealizedPnlAnalysis(
 
   const filteredSnapshotRows = snapshotRows.filter((row) => {
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
+    if (query.tickerIds.length > 0 && !query.tickerIds.includes(`${row.marketCode}:${row.ticker}`)) return false;
     if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
     if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
     return true;
@@ -661,7 +709,7 @@ export async function buildUnrealizedPnlAnalysis(
       query.granularity,
     );
     const latestQuantity = series[series.length - 1]?.quantity ?? 0;
-    const paddedSeries = query.holdingsState === "include_sold_out" ? padSoldOutSeries(series, descriptors) : series;
+    const paddedSeries = query.positionStatus === "includeClosed" ? padSoldOutSeries(series, descriptors) : series;
     const accountIds = [...new Set(rows.map((row) => row.accountId))].sort();
     return {
       ticker,
@@ -676,8 +724,8 @@ export async function buildUnrealizedPnlAnalysis(
     };
   });
 
-  const includedTickerSeries = tickerSeriesAll.filter((series) =>
-    query.holdingsState === "include_sold_out" || series.latestQuantity > 0,
+  const includedTickerSeries = filterChartableSeries(tickerSeriesAll).filter((series) =>
+    query.positionStatus === "includeClosed" || isOpenAtAnalysisEnd(series),
   );
 
   const rankings = includedTickerSeries
@@ -708,20 +756,19 @@ export async function buildUnrealizedPnlAnalysis(
         tradeMarkerCount: 0,
       };
     })
-    .sort((left, right) =>
-      periodChangeSortScore(right.periodChangeAmount) - periodChangeSortScore(left.periodChangeAmount)
-      || left.marketCode.localeCompare(right.marketCode)
-      || left.ticker.localeCompare(right.ticker),
-    )
-    .slice(0, query.rankingLimit);
+    .sort(rankingSort);
 
-  const selectedTickers = pickSelectedTickers(rankings, query.selectionMode, query.selectedTickers, query.comparisonLineCount);
-  const selectedTickerKeySet = new Set(selectedTickers.map((item) => tickerKey(item)));
+  const uncappedCandidateTickers = pickCandidateTickers(rankings, query);
+  const candidateLimitApplied = uncappedCandidateTickers.length > MAX_RENDERED_CANDIDATE_COUNT;
+  const candidateTickers = [...uncappedCandidateTickers]
+    .slice(0, MAX_RENDERED_CANDIDATE_COUNT)
+    .sort(query.selection === "manualTickers" ? manualDisplaySort : () => 0);
+  const candidateTickerKeySet = new Set(candidateTickers.map((item) => tickerKey(item)));
   const rankingTickerKeySet = new Set(rankings.map((item) => `${item.marketCode}:${item.ticker}`));
-  const markerTickerKeySet = new Set([...rankingTickerKeySet, ...selectedTickerKeySet]);
+  const markerTickerKeySet = new Set([...rankingTickerKeySet, ...candidateTickerKeySet]);
   const filteredTrades = listTradeEvents(store).filter((trade) => requestedAccountIds.includes(trade.accountId)).filter((trade) => {
       if (query.markets.length > 0 && !query.markets.includes(trade.marketCode as MarketCode)) return false;
-      if (query.tickers.length > 0 && !query.tickers.includes(trade.ticker.toUpperCase())) return false;
+      if (query.tickerIds.length > 0 && !query.tickerIds.includes(`${trade.marketCode}:${trade.ticker.toUpperCase()}`)) return false;
       const instrument = instrumentByKey.get(`${trade.marketCode}:${trade.ticker}`);
       if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
       return true;
@@ -733,7 +780,7 @@ export async function buildUnrealizedPnlAnalysis(
     startDate: query.startDate,
     endDate: query.endDate,
   });
-  const tradeMarkers = rankingTradeMarkers.filter((marker) => selectedTickerKeySet.has(`${marker.marketCode}:${marker.ticker}`));
+  const tradeMarkers = rankingTradeMarkers.filter((marker) => candidateTickerKeySet.has(`${marker.marketCode}:${marker.ticker}`));
 
   const rankingTradeMarkerCount = new Map<string, number>();
   for (const marker of rankingTradeMarkers) {
@@ -747,11 +794,17 @@ export async function buildUnrealizedPnlAnalysis(
   const seriesByKey = new Map<string, TickerSeriesAggregate>(
     includedTickerSeries.map((series) => [`${series.marketCode}:${series.ticker}`, series] as const),
   );
-  const returnedSeriesKeys = [
-    ...rankings.map((item) => `${item.marketCode}:${item.ticker}`),
-    ...selectedTickers.map((item) => `${item.marketCode}:${item.ticker}`),
-  ];
-  const returnedTickerSeries = [...new Set(returnedSeriesKeys)]
+  const scopedSeriesByKey = new Map<string, TickerSeriesAggregate>(
+    tickerSeriesAll.map((series) => [`${series.marketCode}:${series.ticker}`, series] as const),
+  );
+  const requestedTickerAvailability = buildRequestedTickerAvailability({
+    requestedTickers: query.requestedTickers,
+    eligibleSeriesByKey: seriesByKey,
+    scopedSeriesByKey,
+    instrumentNameByKey,
+    instrumentByKey,
+  });
+  const returnedTickerSeries = [...candidateTickerKeySet]
     .map((key) => seriesByKey.get(key))
     .filter((series): series is TickerSeriesAggregate => series !== undefined)
     .flatMap((series) => series.points.map((point) => {
@@ -770,7 +823,7 @@ export async function buildUnrealizedPnlAnalysis(
         instrumentType: series.instrumentType,
         accountIds: series.accountIds,
         accountNames: series.accountNames,
-        isSelected: selectedTickerKeySet.has(`${series.marketCode}:${series.ticker}`),
+        isSelected: candidateTickerKeySet.has(`${series.marketCode}:${series.ticker}`),
         isSoldOut: series.latestQuantity <= 0,
         positionStatus: toPositionStatus(series.latestQuantity),
       };
@@ -805,7 +858,9 @@ export async function buildUnrealizedPnlAnalysis(
     : null;
   const totalEndUnrealizedPnlAmount = summaryEndPoint?.unrealizedPnlAmount ?? null;
   const summaryEndDate = summaryEndPoint?.date ?? null;
-  const tickerComposition = includedTickerSeries
+  const tickerComposition = candidateTickers
+    .map((ticker) => seriesByKey.get(tickerKey(ticker)))
+    .filter((series): series is TickerSeriesAggregate => series !== undefined)
     .map((series): UnrealizedPnlTickerCompositionRowDto => {
       const endPoint = summaryEndDate
         ? series.points.find((point) => point.date === summaryEndDate) ?? null
@@ -835,11 +890,9 @@ export async function buildUnrealizedPnlAnalysis(
       };
     })
     .sort((left, right) => {
-      const leftScore = endUnrealizedSortScore(left.endUnrealizedPnlAmount);
-      const rightScore = endUnrealizedSortScore(right.endUnrealizedPnlAmount);
-      if (leftScore !== rightScore) return rightScore - leftScore;
-      return left.marketCode.localeCompare(right.marketCode)
-        || left.ticker.localeCompare(right.ticker);
+      const leftIndex = candidateTickers.findIndex((ticker) => tickerKey(ticker) === `${left.marketCode}:${left.ticker}`);
+      const rightIndex = candidateTickers.findIndex((ticker) => tickerKey(ticker) === `${right.marketCode}:${right.ticker}`);
+      return leftIndex - rightIndex;
     });
   const nonZeroQuantitySnapshotRows = portfolioSnapshotRows.filter((row) => row.quantity !== 0);
 
@@ -860,7 +913,15 @@ export async function buildUnrealizedPnlAnalysis(
     tickerSeries: returnedTickerSeries,
     rankings,
     tickerComposition,
-    selectedTickers,
+    candidateTickers,
+    requestedTickerAvailability,
+    warningFacts: {
+      noisyChartLineCount: candidateTickers.length,
+      noisyChartThreshold: NOISY_CHART_LINE_THRESHOLD,
+      candidateLimitApplied,
+      candidateLimit: MAX_RENDERED_CANDIDATE_COUNT,
+      omittedEligibleCount: Math.max(0, uncappedCandidateTickers.length - candidateTickers.length),
+    },
     tradeMarkers,
     dataHealth: {
       snapshotRowCount: portfolioSnapshotRows.length,

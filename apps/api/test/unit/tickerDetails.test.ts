@@ -1,5 +1,6 @@
 import type { IntradayPriceOverlay } from "@vakwen/domain";
 import { describe, expect, it } from "vitest";
+import type { HoldingSnapshot } from "../../src/persistence/types.js";
 import { createEmptyTickerFundamentals } from "../../src/services/fundamentals/types.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../../src/services/store.js";
 import { buildTickerDetails } from "../../src/services/tickerDetails.js";
@@ -23,6 +24,7 @@ describe("buildTickerDetails", () => {
       latestReads?: Array<{ pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>; limit: number }>;
     } = {},
     overlays = new Map<string, IntradayPriceOverlay>(),
+    holdingSnapshots: HoldingSnapshot[] = [],
   ) {
     return {
       async getDailyBarsForTickerMarket(ticker: string, marketCode: string, startDate: string, endDate: string) {
@@ -123,6 +125,35 @@ describe("buildTickerDetails", () => {
       async getFxRate() {
         return null;
       },
+      async listHoldingSnapshots(
+        _userId: string,
+        options: {
+          accountIds?: readonly string[];
+          pairs?: ReadonlyArray<{ accountId: string; ticker: string; marketCode: string }>;
+          startDate?: string;
+          endDate?: string;
+          includeProvisional?: boolean;
+          limit: number;
+          offset: number;
+        },
+      ) {
+        const accountIds = new Set(options.accountIds ?? []);
+        const pairs = new Set((options.pairs ?? []).map((pair) => `${pair.accountId}:${pair.marketCode}:${pair.ticker}`));
+        const rows = holdingSnapshots
+          .filter((snapshot) => accountIds.size === 0 || accountIds.has(snapshot.accountId))
+          .filter((snapshot) => pairs.size === 0 || pairs.has(`${snapshot.accountId}:${snapshot.marketCode}:${snapshot.ticker}`))
+          .filter((snapshot) => !options.startDate || snapshot.snapshotDate >= options.startDate)
+          .filter((snapshot) => !options.endDate || snapshot.snapshotDate <= options.endDate)
+          .filter((snapshot) => options.includeProvisional || !snapshot.isProvisional)
+          .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate))
+          .slice(options.offset, options.offset + options.limit)
+          .map((snapshot) => ({ ...snapshot, accountName: null }));
+        return {
+          rows,
+          total: rows.length,
+          provisionalCount: rows.filter((row) => row.isProvisional).length,
+        };
+      },
     };
   }
 
@@ -209,6 +240,33 @@ describe("buildTickerDetails", () => {
     );
 
     return store;
+  }
+
+  function makeHoldingSnapshot(overrides: Partial<HoldingSnapshot>): HoldingSnapshot {
+    return {
+      id: overrides.id ?? "snapshot-1",
+      userId: "user-1",
+      accountId: "acc-au",
+      ticker: "BHP",
+      marketCode: "AU",
+      snapshotDate: "2026-02-01",
+      quantity: 3,
+      closePrice: 45,
+      marketValue: 135,
+      costBasis: 120,
+      unrealizedPnl: 15,
+      cumulativeRealizedPnl: 0,
+      cumulativeDividends: 0,
+      isProvisional: false,
+      currency: "AUD",
+      valueNative: 135,
+      costBasisNative: 120,
+      unrealizedPnlNative: 15,
+      providerSource: "test",
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      generationRunId: "run-1",
+      ...overrides,
+    };
   }
 
   it("requires an explicit market for same ticker across multiple held markets", async () => {
@@ -366,6 +424,77 @@ describe("buildTickerDetails", () => {
         accountId: "acc-au",
         currency: "USD",
         grossAmount: 6,
+      }),
+    ]);
+  });
+
+  it("builds native-currency unrealized P&L history from actual holding snapshots", async () => {
+    const store = buildCrossMarketStore();
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-02",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = [
+      makeHoldingSnapshot({ id: "bhp-au-2026-02-01", snapshotDate: "2026-02-01", unrealizedPnlNative: 15, quantity: 3 }),
+      makeHoldingSnapshot({ id: "bhp-au-2026-02-02", snapshotDate: "2026-02-02", unrealizedPnlNative: 24, quantity: 3 }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-01",
+      endDate: "2026-02-02",
+      fundamentalsRecord: {
+        ticker: "BHP",
+        marketCode: "AU",
+        providerId: "test-provider",
+        fundamentals: createEmptyTickerFundamentals(),
+        refreshedAt: "2026-06-01T00:00:00.000Z",
+        nextRefreshAt: "2026-06-15T00:00:00.000Z",
+        lastAttemptedAt: null,
+        lastError: null,
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-01",
+        unrealizedPnlAmount: 15,
+        currency: "AUD",
+        quantity: 3,
+        accountIds: ["acc-au"],
+      }),
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 24,
+        currency: "AUD",
+        quantity: 3,
+        accountIds: ["acc-au"],
       }),
     ]);
   });

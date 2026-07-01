@@ -186,9 +186,9 @@ export function buildPreviewUnrealizedPnlAnalysis(
   const filtered = PREVIEW_SERIES.filter((series) => {
     if (state.markets.length > 0 && !state.markets.includes(series.marketCode)) return false;
     if (state.accounts.length > 0 && !series.accountIds.some((accountId) => state.accounts.includes(accountId))) return false;
-    if (state.tickers.length > 0 && !state.tickers.includes(series.ticker)) return false;
+    if (state.tickerMode === "custom" && state.tickerIds.length > 0 && !state.tickerIds.includes(buildSelectedSeriesId(series.marketCode, series.ticker))) return false;
     if (state.instrumentTypes.length > 0 && !state.instrumentTypes.includes(series.instrumentType)) return false;
-    if (state.holdingsState === "current-only" && series.state === "sold-out") return false;
+    if (state.positionStatus === "openOnly" && series.state === "sold-out") return false;
     return true;
   });
 
@@ -227,11 +227,11 @@ export function buildPreviewUnrealizedPnlAnalysis(
       granularity: state.granularity,
       markets: state.markets,
       accounts: state.accounts,
-      tickers: state.tickers,
-      selectionMode: state.selectionMode,
-      selected: selectedSeriesIds,
-      lineCount: state.lineCount,
-      holdingsState: state.holdingsState,
+      tickerIds: state.tickerIds,
+      selection: state.selection,
+      tickerMode: state.tickerMode,
+      drivers: state.drivers,
+      positionStatus: state.positionStatus,
       reportingCurrency,
       includeProvisional: state.includeProvisional,
       instrumentTypes: state.instrumentTypes,
@@ -248,8 +248,8 @@ export function buildPreviewUnrealizedPnlAnalysis(
         count: PREVIEW_SERIES.filter((series) => series.accountIds.includes(account.value)).length,
       })),
       tickers: PREVIEW_SERIES.map((series) => ({
-        value: series.ticker,
-        label: `${series.ticker} ${series.marketCode}`,
+        value: buildSelectedSeriesId(series.marketCode, series.ticker),
+        label: `${series.marketCode}:${series.ticker}:${series.displayName}`,
       })),
       reportingCurrencies: ["TWD", "USD", "AUD"].map((currency) => ({ value: currency, label: currency })),
       instrumentTypes: [
@@ -257,6 +257,26 @@ export function buildPreviewUnrealizedPnlAnalysis(
         { value: "ETF", label: "ETF" },
         { value: "BOND_ETF", label: "Bond ETF" },
       ],
+    },
+    requestedTickerAvailability: state.tickerIds.map((tickerId) => {
+      const row = PREVIEW_SERIES.find((series) => buildSelectedSeriesId(series.marketCode, series.ticker) === tickerId);
+      const [marketCode = "", ticker = ""] = tickerId.split(":");
+      return {
+        tickerId,
+        marketCode,
+        ticker,
+        displayName: row?.displayName ?? null,
+        available: Boolean(row),
+        reason: row ? null : "invalidTicker",
+      };
+    }),
+    warningFacts: {
+      candidateLimitApplied: false,
+      candidateLimit: 200,
+      omittedEligibleCount: 0,
+      noisyChart: selectedSeriesIds.length > 20,
+      renderedCandidateCount: selectedSeriesIds.length,
+      noisyChartLineThreshold: 20,
     },
     summary: {
       totalUnrealized: {
@@ -441,12 +461,12 @@ function resolveSelectedSeriesIds(
   state: UnrealizedPnlAnalysisRouteState,
 ): string[] {
   if (ranking.length === 0) return [];
-  if (state.selectionMode === "manual" && state.selected.length > 0) {
+  if (state.selection === "manualTickers" && state.tickerIds.length > 0) {
     const allowed = new Set(ranking.map((row) => row.seriesId));
-    const manual = state.selected.filter((seriesId) => allowed.has(seriesId));
-    if (manual.length > 0) return manual.slice(0, state.lineCount);
+    const manual = state.tickerIds.filter((seriesId) => allowed.has(seriesId));
+    if (manual.length > 0) return manual.slice(0, 200);
   }
-  return ranking.slice(0, state.lineCount).map((row) => row.seriesId);
+  return ranking.slice(0, state.drivers).map((row) => row.seriesId);
 }
 
 function toneForValue(value: number | null): "positive" | "negative" | "neutral" {

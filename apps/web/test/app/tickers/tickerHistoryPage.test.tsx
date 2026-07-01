@@ -155,6 +155,7 @@ describe("TickerHistoryPage", () => {
             accountIds: ["acc-2"],
             lastTradeDate: "2026-01-02",
           },
+          unrealizedPnlHistory: [],
           transactions: [],
           dividends: { upcoming: [], recent: [] },
           holdingGroup: null,
@@ -209,6 +210,39 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-start="2024-01-01"');
     expect(html).toContain('data-chart-end="2024-06-30"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW");
+  });
+
+  it("maps unrealized P&L analysis date scope into the ticker chart custom range", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="ticker-history-client"');
+    expect(html).toContain('data-chart-range="CUSTOM"');
+    expect(html).toContain('data-chart-start="2026-04-10"');
+    expect(html).toContain('data-chart-end="2026-06-26"');
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW");
   });

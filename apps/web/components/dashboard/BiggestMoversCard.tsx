@@ -90,9 +90,9 @@ function buildMoverAnalysisHref(group: DashboardOverviewHoldingGroupDto): string
   return buildUnrealizedPnlRoutePath({
     range: "3M",
     markets: [group.marketCode],
-    tickers: [group.ticker],
-    selectionMode: "manual",
-    selected: [buildSelectedSeriesId(group.marketCode, group.ticker)],
+    selection: "manualTickers",
+    tickerMode: "custom",
+    tickerIds: [buildSelectedSeriesId(group.marketCode, group.ticker)],
     reportingCurrency: group.reportingCurrency,
     view: "ticker-detail",
   });

@@ -1,34 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
   ANALYSIS_DEFAULT_STATE,
-  applyAnalysisPresentationDefaults,
+  applyAnalysisSettings,
   buildSelectedSeriesId,
   buildUnrealizedPnlApiPath,
   buildUnrealizedPnlRoutePath,
   canFetchUnrealizedPnlAnalysis,
-  extractAnalysisPresentationDefaults,
   getExplicitAnalysisPreferenceKeys,
   mapPerformanceRangeToAnalysisRange,
-  parseAnalysisPresentationDefaults,
-  parseAnalysisPresentationDefaultsFromPreferences,
+  parseAnalysisSettings,
+  parseAnalysisSettingsFromPreferences,
   parseUnrealizedPnlRouteState,
   unrealizedPnlRouteStateToSearchParams,
 } from "../../../features/analysis/unrealizedPnlRouteState";
 
 describe("unrealizedPnlRouteState", () => {
-  it("parses deterministic query state with sorted multi-select values", () => {
+  it("parses and serializes the hard-cut query model", () => {
     const state = parseUnrealizedPnlRouteState({
       range: "ALL",
       granularity: "weekly",
       markets: "US,TW,US",
-      accounts: "acc-2,acc-1",
-      tickers: "nvda,2330",
-      selection: "manual",
-      selected: `${buildSelectedSeriesId("US", "NVDA")},${buildSelectedSeriesId("TW", "2330")}`,
-      lines: "26",
-      holdings: "include-sold",
-      currency: "USD",
-      provisional: "1",
+      accountIds: "acc-2,acc-1",
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: `${buildSelectedSeriesId("US", "NVDA")},${buildSelectedSeriesId("TW", "2330")}`,
+      drivers: "20",
+      positionStatus: "includeClosed",
+      reportingCurrency: "USD",
+      includeProvisional: "true",
       instrumentTypes: "ETF,STOCK",
       focus: "2026-06-19",
       view: "compare",
@@ -40,78 +39,43 @@ describe("unrealizedPnlRouteState", () => {
       granularity: "weekly",
       markets: ["TW", "US"],
       accounts: ["acc-1", "acc-2"],
-      tickers: ["2330", "NVDA"],
-      selectionMode: "manual",
-      selected: [buildSelectedSeriesId("TW", "2330"), buildSelectedSeriesId("US", "NVDA")],
-      lineCount: 20,
-      holdingsState: "include-sold",
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: [buildSelectedSeriesId("TW", "2330"), buildSelectedSeriesId("US", "NVDA")],
+      drivers: 20,
+      positionStatus: "includeClosed",
       reportingCurrency: "USD",
       includeProvisional: true,
       instrumentTypes: ["ETF", "STOCK"],
       focusDate: "2026-06-19",
       view: "compare",
     });
+    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("selection=manualTickers");
+    expect(buildUnrealizedPnlApiPath(state)).toContain("tickerIds=TW%3A2330%2CUS%3ANVDA");
   });
 
-  it("preserves custom date ranges and omits non-currency defaults from URLs", () => {
+  it("ignores legacy query params and falls back to defaults", () => {
     const state = parseUnrealizedPnlRouteState({
-      range: "CUSTOM",
-      from: "2026-01-01",
-      to: "2026-06-01",
-      granularity: "monthly",
-      lines: "7",
+      selectionMode: "manual",
+      selectedTickers: "US:NVDA",
+      comparisonLineCount: "10",
+      holdingsState: "include_sold_out",
     });
 
-    expect(state.range).toBe("CUSTOM");
-    expect(state.from).toBe("2026-01-01");
-    expect(state.to).toBe("2026-06-01");
-    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toBe(
-      "range=CUSTOM&fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7&reportingCurrency=TWD",
-    );
-    expect(buildUnrealizedPnlApiPath(state)).toBe(
-      "/analysis/unrealized-pnl?fromDate=2026-01-01&toDate=2026-06-01&granularity=monthly&comparisonLineCount=7&reportingCurrency=TWD",
-    );
+    expect(state.selection).toBe("topDrivers");
+    expect(state.tickerMode).toBe("allEligible");
+    expect(state.tickerIds).toEqual([]);
+    expect(state.drivers).toBe(5);
+    expect(state.positionStatus).toBe("openOnly");
   });
 
-  it("maps report/dashboard ranges and route overrides through the shared analysis serializer", () => {
-    expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
-    expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");
-    expect(mapPerformanceRangeToAnalysisRange("10Y")).toBe("5Y");
-    expect(mapPerformanceRangeToAnalysisRange("ALL")).toBe("ALL");
-
-    expect(buildUnrealizedPnlRoutePath({
-      range: "1M",
-      markets: ["US"],
-      selected: [buildSelectedSeriesId("US", "NVDA")],
-      selectionMode: "manual",
-      reportingCurrency: "USD",
-    })).toBe("/analysis/unrealized-pnl?range=1M&markets=US&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=USD");
-    expect(buildUnrealizedPnlRoutePath({ range: "ALL" })).toBe(
-      "/analysis/unrealized-pnl?range=ALL&granularity=yearly&reportingCurrency=TWD",
-    );
-  });
-
-  it("serializes explicit TWD reporting currency for deterministic analysis requests and deep links", () => {
+  it("keeps presentation-only focus and view out of API query strings", () => {
     const state = {
       ...ANALYSIS_DEFAULT_STATE,
       range: "1M" as const,
-      reportingCurrency: "TWD" as const,
-    };
-
-    expect(buildUnrealizedPnlRoutePath(state)).toBe(
-      "/analysis/unrealized-pnl?range=1M&reportingCurrency=TWD",
-    );
-    expect(buildUnrealizedPnlApiPath(state)).toBe(
-      "/analysis/unrealized-pnl?range=1M&reportingCurrency=TWD",
-    );
-  });
-
-  it("keeps presentation-only focus and view out of strict API query strings", () => {
-    const state = {
-      ...ANALYSIS_DEFAULT_STATE,
-      range: "1M" as const,
-      selected: [buildSelectedSeriesId("US", "NVDA")],
-      selectionMode: "manual" as const,
+      selection: "manualTickers" as const,
+      tickerMode: "custom" as const,
+      tickerIds: [buildSelectedSeriesId("US", "NVDA")],
       focusDate: "2026-06-26",
       view: "compare" as const,
     };
@@ -119,7 +83,7 @@ describe("unrealizedPnlRouteState", () => {
     expect(buildUnrealizedPnlRoutePath(state)).toContain("focus=2026-06-26");
     expect(buildUnrealizedPnlRoutePath(state)).toContain("view=compare");
     expect(buildUnrealizedPnlApiPath(state)).toBe(
-      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=TWD",
+      "/analysis/unrealized-pnl?range=1M&selection=manualTickers&tickerMode=custom&tickerIds=US%3ANVDA&reportingCurrency=TWD",
     );
   });
 
@@ -130,91 +94,73 @@ describe("unrealizedPnlRouteState", () => {
     };
 
     expect(canFetchUnrealizedPnlAnalysis(incompleteCustomState)).toBe(false);
-    expect(buildUnrealizedPnlRoutePath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?range=CUSTOM&reportingCurrency=TWD");
     expect(buildUnrealizedPnlApiPath(incompleteCustomState)).toBe("/analysis/unrealized-pnl?reportingCurrency=TWD");
-    expect(canFetchUnrealizedPnlAnalysis({
-      ...incompleteCustomState,
-      from: "2026-01-01",
-    })).toBe(true);
+    expect(canFetchUnrealizedPnlAnalysis({ ...incompleteCustomState, from: "2026-01-01" })).toBe(true);
   });
 
-  it("applies saved presentation defaults only when URL keys are absent", () => {
+  it("repairs invalid settings fields without discarding the full object", () => {
+    const parsed = parseAnalysisSettings({
+      version: 99,
+      selection: "manualTickers",
+      granularity: "bad",
+      reportingCurrency: "USD",
+      includeProvisional: true,
+      detailLayout: "table",
+      topDrivers: { positionStatus: "includeClosed", tickerMode: "allEligible", tickerIds: ["BAD"], drivers: 10 },
+      manualTickers: { positionStatus: "bad", tickerMode: "custom", tickerIds: ["US:NVDA", "broken"] },
+    });
+
+    expect(parsed).toMatchObject({
+      version: 1,
+      selection: "manualTickers",
+      granularity: ANALYSIS_DEFAULT_STATE.granularity,
+      reportingCurrency: "USD",
+      includeProvisional: true,
+      detailLayout: "table",
+      topDrivers: { positionStatus: "includeClosed", tickerMode: "allEligible", tickerIds: [], drivers: 10 },
+      manualTickers: { positionStatus: "openOnly", tickerMode: "custom", tickerIds: ["US:NVDA"] },
+    });
+  });
+
+  it("applies query-explicit fields ahead of repaired settings", () => {
     const explicitKeys = getExplicitAnalysisPreferenceKeys({
       granularity: "daily",
-      comparisonLineCount: "3",
+      drivers: "20",
       reportingCurrency: "USD",
     });
-    const next = applyAnalysisPresentationDefaults(
-      {
-        ...ANALYSIS_DEFAULT_STATE,
-        granularity: "daily",
-        lineCount: 3,
-        reportingCurrency: "USD",
-      },
-      {
+    const settings = parseAnalysisSettingsFromPreferences({
+      reportingCurrency: "AUD",
+      analysisUnrealizedPnlSettings: {
+        version: 1,
+        selection: "topDrivers",
         granularity: "monthly",
-        lineCount: 8,
-        holdingsState: "include-sold",
         reportingCurrency: "TWD",
         includeProvisional: true,
+        detailLayout: "cards",
+        topDrivers: { positionStatus: "includeClosed", tickerMode: "allEligible", tickerIds: [], drivers: 10 },
+        manualTickers: { positionStatus: "openOnly", tickerMode: "custom", tickerIds: ["US:NVDA"] },
       },
-      explicitKeys,
-    );
+    });
+
+    const next = applyAnalysisSettings({
+      ...ANALYSIS_DEFAULT_STATE,
+      granularity: "daily",
+      drivers: 20,
+      reportingCurrency: "USD",
+    }, settings, explicitKeys);
 
     expect(next.granularity).toBe("daily");
-    expect(next.lineCount).toBe(3);
+    expect(next.drivers).toBe(20);
     expect(next.reportingCurrency).toBe("USD");
-    expect(next.holdingsState).toBe("include-sold");
+    expect(next.positionStatus).toBe("includeClosed");
     expect(next.includeProvisional).toBe(true);
+    expect(next.detailLayout).toBe("cards");
   });
 
-  it("parses and extracts bounded presentation preference payloads", () => {
-    const parsed = parseAnalysisPresentationDefaults({
-      granularity: "yearly",
-      lineCount: 999,
-      holdingsState: "include-sold",
-      reportingCurrency: "AUD",
-      includeProvisional: true,
-      view: "ticker-detail",
-    });
-
-    expect(parsed).toEqual({
-      granularity: "yearly",
-      lineCount: 20,
-      holdingsState: "include-sold",
-      reportingCurrency: "AUD",
-      includeProvisional: true,
-    });
-    expect(extractAnalysisPresentationDefaults({
-      ...ANALYSIS_DEFAULT_STATE,
-      granularity: "monthly",
-      lineCount: 6,
-      holdingsState: "include-sold",
-      reportingCurrency: "USD",
-      includeProvisional: true,
-      focusDate: "2026-06-26",
-    })).toEqual({
-      granularity: "monthly",
-      lineCount: 6,
-      holdingsState: "include-sold",
-      reportingCurrency: "USD",
-      includeProvisional: true,
-    });
-  });
-
-  it("uses the global reporting currency as the analysis default when no analysis-specific currency is saved", () => {
-    expect(parseAnalysisPresentationDefaultsFromPreferences({
-      reportingCurrency: "AUD",
-    })).toEqual({ reportingCurrency: "AUD" });
-    expect(parseAnalysisPresentationDefaultsFromPreferences({
-      analysisUnrealizedPnlDefaults: {
-        granularity: "monthly",
-        reportingCurrency: "USD",
-      },
-      reportingCurrency: "AUD",
-    })).toEqual({
-      granularity: "monthly",
-      reportingCurrency: "USD",
-    });
+  it("maps report/dashboard ranges through the shared serializer", () => {
+    expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
+    expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");
+    expect(mapPerformanceRangeToAnalysisRange("10Y")).toBe("5Y");
+    expect(mapPerformanceRangeToAnalysisRange("ALL")).toBe("ALL");
   });
 });

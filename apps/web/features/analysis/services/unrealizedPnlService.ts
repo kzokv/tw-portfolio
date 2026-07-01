@@ -43,7 +43,7 @@ function mapApiAnalysis(
   response: ApiUnrealizedPnlAnalysisDto,
   state: UnrealizedPnlAnalysisRouteState,
 ): UnrealizedPnlAnalysisDto {
-  const selectedIds = response.selectedTickers.map((item) => buildSelectedSeriesId(item.marketCode, item.ticker));
+  const selectedIds = response.candidateTickers.map((item) => buildSelectedSeriesId(item.marketCode, item.ticker));
   const selectedSet = new Set(selectedIds);
   const markersBySeriesId = new Map<string, UnrealizedPnlPointMarker[]>();
   for (const marker of response.tradeMarkers) {
@@ -111,16 +111,32 @@ function mapApiAnalysis(
       granularity: response.query.granularity,
       markets: response.query.markets,
       accounts: response.query.accountIds,
-      tickers: response.query.tickers,
-      selectionMode: response.query.selectionMode === "manual" ? "manual" : "top-drivers",
-      selected: selectedIds,
-      lineCount: response.query.comparisonLineCount,
-      holdingsState: response.query.holdingsState === "include_sold_out" ? "include-sold" : "current-only",
+      tickerIds: response.query.tickerIds,
+      selection: response.query.selection === "manualTickers" ? "manualTickers" : "topDrivers",
+      tickerMode: response.query.tickerMode,
+      drivers: response.query.drivers,
+      positionStatus: response.query.positionStatus === "includeClosed" ? "includeClosed" : "openOnly",
       reportingCurrency: response.query.reportingCurrency,
       includeProvisional: response.query.includeProvisional,
       instrumentTypes: response.query.instrumentTypes,
     },
     availableFilters: buildAvailableFilters(response),
+    requestedTickerAvailability: response.requestedTickerAvailability.map((row) => ({
+      tickerId: row.tickerId,
+      marketCode: row.marketCode,
+      ticker: row.ticker,
+      displayName: row.instrumentName,
+      available: row.eligible,
+      reason: row.reason,
+    })),
+    warningFacts: {
+      candidateLimitApplied: response.warningFacts.candidateLimitApplied,
+      candidateLimit: response.warningFacts.candidateLimit,
+      omittedEligibleCount: response.warningFacts.omittedEligibleCount,
+      noisyChart: response.warningFacts.noisyChartLineCount > response.warningFacts.noisyChartThreshold,
+      renderedCandidateCount: response.warningFacts.noisyChartLineCount,
+      noisyChartLineThreshold: response.warningFacts.noisyChartThreshold,
+    },
     summary: {
       totalUnrealized: {
         label: "Total unrealized",
@@ -233,12 +249,12 @@ function compareCompositionRows(
 
 function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): UnrealizedPnlAnalysisDto["availableFilters"] {
   const marketValues = new Set<string>(response.query.markets);
-  const tickerLabels = new Map<string, Set<string>>();
+  const tickerLabels = new Map<string, string>();
   const accountLabels = new Map<string, string>();
 
   for (const row of response.rankings) {
     marketValues.add(row.marketCode);
-    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode, row.instrumentName);
     row.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, row.accountNames[index] ?? accountId);
     });
@@ -246,7 +262,7 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
 
   for (const point of response.tickerSeries) {
     marketValues.add(point.marketCode);
-    addTickerLabel(tickerLabels, point.ticker, point.marketCode);
+    addTickerLabel(tickerLabels, point.ticker, point.marketCode, point.instrumentName);
     point.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, point.accountNames[index] ?? accountId);
     });
@@ -254,7 +270,7 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
 
   for (const row of response.tickerComposition) {
     marketValues.add(row.marketCode);
-    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode, row.instrumentName);
     row.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, row.accountNames[index] ?? accountId);
     });
@@ -263,8 +279,9 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
   for (const accountId of response.query.accountIds) {
     accountLabels.set(accountId, accountLabels.get(accountId) ?? accountId);
   }
-  for (const ticker of response.query.tickers) {
-    if (!tickerLabels.has(ticker)) tickerLabels.set(ticker, new Set());
+  for (const tickerId of response.query.tickerIds) {
+    const [marketCode, ticker] = tickerId.split(":");
+    if (ticker && marketCode) addTickerLabel(tickerLabels, ticker, marketCode, null);
   }
 
   return {
@@ -276,19 +293,19 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
       .map(([value, label]) => ({ value, label })),
     tickers: [...tickerLabels.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([value, labels]) => ({
+      .map(([value, label]) => ({
         value,
-        label: labels.size > 0 ? `${value} ${[...labels].sort().join("/")}` : value,
+        label,
       })),
     reportingCurrencies: ["TWD", "USD", "AUD", "KRW", "JPY"].map((currency) => ({ value: currency, label: currency })),
     instrumentTypes: ["STOCK", "ETF", "BOND_ETF"].map((instrumentType) => ({ value: instrumentType, label: instrumentType })),
   };
 }
 
-function addTickerLabel(target: Map<string, Set<string>>, ticker: string, marketCode: string): void {
-  const labels = target.get(ticker) ?? new Set<string>();
-  labels.add(marketCode);
-  target.set(ticker, labels);
+function addTickerLabel(target: Map<string, string>, ticker: string, marketCode: string, instrumentName: string | null | undefined): void {
+  const key = `${marketCode}:${ticker.toUpperCase()}`;
+  if (target.has(key) && !instrumentName) return;
+  target.set(key, instrumentName ? `${key}:${instrumentName}` : key);
 }
 
 function groupSeries(

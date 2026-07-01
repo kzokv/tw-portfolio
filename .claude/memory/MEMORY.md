@@ -126,3 +126,6 @@
 
 ## Promoted to .claude/rules/ (viewer-scoped owner portfolio settings, 2026-06-22)
 - `playwright-dnd-kit-drag-readiness.md` — dnd-kit Playwright drag commands need a DOM-order or PATCH readiness signal before persisted-state assertions; use bounded retries for real pointer drags. Promoted after the transactions and portfolio card reorder specs hit the same missed-drop class.
+
+## Promoted to .claude/rules/ (unrealized-pnl-ux, 2026-07-01)
+- `additive-dto-mappers.md` — Client/service mappers for additive DTO fields must tolerate omitted fields unless the API contract makes them required, so one new optional payload field cannot throw a whole route into a stale fallback path.

@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import React, { Suspense } from "react";
 import Link from "next/link";
 import { MARKET_CODES, type InstrumentCatalogItemDto, type MarketCode, type UserSettings } from "@vakwen/shared-types";
 import { getDictionary } from "../../../lib/i18n";
@@ -19,10 +19,14 @@ interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
   searchParams: Promise<{
     accountId?: string;
+    accountIds?: string;
     chartEnd?: string;
     chartRange?: string;
     chartStart?: string;
+    fromDate?: string;
     marketCode?: string;
+    source?: string;
+    toDate?: string;
   }>;
 }
 
@@ -33,7 +37,7 @@ function normalizeMarketCode(value?: string): MarketCode | undefined {
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId, chartEnd, chartRange, chartStart, marketCode }, session, profile, sidebarOpen, settings] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
     searchParams,
     requireSession(),
@@ -43,7 +47,14 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
+  const scopedAccountIds = !scopedAccountId && accountIds?.trim()
+    ? accountIds.split(",").map((item) => item.trim()).filter(Boolean)
+    : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
+  const openedFromUnrealizedPnlAnalysis = source === "unrealized-pnl-analysis";
+  const initialChartRange = openedFromUnrealizedPnlAnalysis && fromDate && toDate ? "CUSTOM" : chartRange;
+  const initialChartStart = openedFromUnrealizedPnlAnalysis && fromDate ? fromDate : chartStart;
+  const initialChartEnd = openedFromUnrealizedPnlAnalysis && toDate ? toDate : chartEnd;
   const locale = settings?.locale ?? "en";
   const dict = getDictionary(locale);
   const loadingCopy = getRouteLoadingLabels(locale).tickerDetail;
@@ -85,6 +96,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const primaryDetails = buildPrimaryTickerDetails({
     ticker,
     accountId: scopedAccountId,
+    accountIds: scopedAccountIds,
     marketCode: scopedMarketCode,
     dashboard,
     transactions,
@@ -93,6 +105,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const details = await fetchTickerPrimaryDetails({
     ticker,
     accountId: scopedAccountId,
+    accountIds: scopedAccountIds,
     marketCode: scopedMarketCode,
     instrument,
     transactions,
@@ -123,11 +136,12 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           instrument={instrument}
           isDemo={session.isDemo}
           transactionAccountFilter={scopedAccountId}
+          transactionAccountIdsFilter={scopedAccountIds}
           transactionMarketFilter={scopedMarketCode}
           initialChartQuery={{
-            chartEnd,
-            chartRange,
-            chartStart,
+            chartEnd: initialChartEnd,
+            chartRange: initialChartRange,
+            chartStart: initialChartStart,
           }}
           initialTradeDate={initialTradeDate}
           quotePollIntervalSeconds={settings?.quotePollIntervalSeconds ?? dashboard.settings?.quotePollIntervalSeconds}

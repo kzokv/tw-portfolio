@@ -16,6 +16,12 @@ import { testPriceState } from "../../fixtures/priceState";
 const appShellDataMocks = vi.hoisted(() => ({
   openQuickActions: vi.fn(),
 }));
+const navigationMocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  refresh: vi.fn(),
+  replace: vi.fn(),
+  searchParams: "",
+}));
 
 vi.mock("../../../features/portfolio/services/tickerDetailsService", async () => {
   const actual = await vi.importActual<typeof import("../../../features/portfolio/services/tickerDetailsService")>(
@@ -41,6 +47,16 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
     sessionUserId: "user-1",
     uiDict: {},
   }),
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/tickers/2330",
+  useRouter: () => ({
+    push: navigationMocks.push,
+    refresh: navigationMocks.refresh,
+    replace: navigationMocks.replace,
+  }),
+  useSearchParams: () => new URLSearchParams(navigationMocks.searchParams),
 }));
 
 import {
@@ -108,6 +124,7 @@ function mount(element: React.ReactElement) {
 
 beforeEach(() => {
   installStorageMocks();
+  navigationMocks.searchParams = "";
   vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(details);
 });
 
@@ -123,6 +140,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   vi.clearAllMocks();
   appShellDataMocks.openQuickActions.mockReset();
+  navigationMocks.searchParams = "";
 });
 
 const dict = getDictionary("en");
@@ -228,6 +246,7 @@ const details: TickerDetailsModel = {
     },
     points: [],
   },
+  unrealizedPnlHistory: [],
   holdingGroup: {
     ticker: "2330",
     marketCode: "TW",
@@ -362,6 +381,30 @@ function findButtonByText(element: HTMLElement, text: string): HTMLButtonElement
     .find((candidate) => candidate.textContent?.trim() === text);
   if (!button) throw new Error(`Button not found: ${text}`);
   return button as HTMLButtonElement;
+}
+
+function makeAnalysisChartDetails(overrides: Partial<TickerDetailsModel> = {}): TickerDetailsModel {
+  return {
+    ...details,
+    chart: {
+      range: "1Y",
+      metadata: {
+        requested: { range: null, startDate: "2026-04-10", endDate: "2026-06-26" },
+        resolved: { range: "1Y", startDate: "2026-04-10", endDate: "2026-06-26" },
+        available: { startDate: "2026-04-10", endDate: "2026-06-26" },
+        truncated: { startDate: false, endDate: false },
+      },
+      points: [
+        { date: "2026-04-10", label: "2026-04-10", price: 100, averageCost: 95, quantity: 10 },
+        { date: "2026-06-26", label: "2026-06-26", price: 120, averageCost: 95, quantity: 10 },
+      ],
+    },
+    unrealizedPnlHistory: [
+      { date: "2026-04-10", label: "2026-04-10", unrealizedPnl: 50, currency: "TWD", quantity: 10 },
+      { date: "2026-06-26", label: "2026-06-26", unrealizedPnl: 250, currency: "TWD", quantity: 10 },
+    ],
+    ...overrides,
+  };
 }
 
 async function changeInput(input: HTMLInputElement, value: string) {
@@ -721,6 +764,63 @@ describe("TickerHistoryClient", () => {
       startDate: "2024-01-01",
       endDate: "2024-06-30",
     }));
+  });
+
+  it("defaults analysis-origin ticker charts to Unrealized P&L and renders scope chips", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(
+      makeAnalysisChartDetails(),
+      tickerInstrument,
+      undefined,
+      {
+        transactionAccountFilter: undefined,
+        transactionAccountIdsFilter: ["acc-1", "acc-2"],
+      },
+    );
+    await flushEffects();
+
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("false");
+    expect(element.textContent).toContain(dict.tickerHistory.analysisSourceLabel);
+    expect(element.textContent).toContain("2026-04-10 - 2026-06-26");
+    expect(element.textContent).toContain("2 accounts");
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.currentPriceLabel).click();
+    });
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps direct ticker visits on Current Price by default", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(makeAnalysisChartDetails());
+    await flushEffects();
+
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
+    expect(element.textContent).not.toContain(dict.tickerHistory.analysisSourceLabel);
+  });
+
+  it("shows an Unrealized P&L empty state while keeping Current Price available", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(makeAnalysisChartDetails({ unrealizedPnlHistory: [] }));
+    await flushEffects();
+
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(element.textContent).toContain(dict.tickerHistory.unrealizedPnlEmptyState);
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.currentPriceLabel).click();
+    });
+
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(element.textContent).not.toContain(dict.tickerHistory.unrealizedPnlEmptyState);
   });
 
   it("renders refreshed account breakdown from ticker details state", async () => {

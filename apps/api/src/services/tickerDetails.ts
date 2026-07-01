@@ -37,11 +37,12 @@ type TickerChartRange = "1M" | "3M" | "YTD" | "1Y" | "3Y" | "5Y" | "ALL";
 type TickerChartSelection = TickerChartRange | "CUSTOM";
 
 interface BuildTickerDetailsInput {
-  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getLatestBars" | "getLatestIntradayOverlays" | "getInstrument" | "getFxRate">;
+  persistence: Pick<Persistence, "getDailyBarsForTickerMarket" | "getLatestBarDatesByTickerMarket" | "getLatestBarsByTickerMarket" | "getLatestBars" | "getLatestIntradayOverlays" | "getInstrument" | "getFxRate" | "listHoldingSnapshots">;
   store: Store;
   userId: string;
   ticker: string;
   accountId?: string;
+  accountIds?: readonly string[];
   marketCode?: MarketCode;
   reportingCurrency?: AccountDefaultCurrency;
   range?: TickerChartRange;
@@ -95,9 +96,18 @@ export async function buildTickerDetails(
     }
   }
 
+  const requestedAccountIds = input.accountIds?.length ? [...new Set(input.accountIds)] : [];
+  for (const requestedAccountId of requestedAccountIds) {
+    if (!accountById.has(requestedAccountId)) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+  }
+
   const scopedAccountIds = new Set(
     input.accountId
       ? [input.accountId]
+      : requestedAccountIds.length > 0
+        ? requestedAccountIds
       : input.store.accounts
         .filter((account) => marketCodeFor(account.defaultCurrency) === resolvedMarketCode)
         .map((account) => account.id),
@@ -133,6 +143,16 @@ export async function buildTickerDetails(
     range: input.range,
     startDate: input.startDate,
     endDate: input.endDate,
+  });
+  const unrealizedPnlHistory = await buildUnrealizedPnlHistory({
+    persistence: input.persistence,
+    userId: input.userId,
+    ticker: normalizedTicker,
+    marketCode: resolvedMarketCode,
+    accountIds: [...scopedAccountIds],
+    startDate: chart.metadata.resolved.startDate,
+    endDate: chart.metadata.resolved.endDate,
+    currency: currencyFor(resolvedMarketCode),
   });
 
   const quantity = filteredHoldings.reduce((sum, holding) => sum + holding.quantity, 0);
@@ -215,6 +235,7 @@ export async function buildTickerDetails(
       metadata: chart.metadata,
       points: chart.points,
     },
+    unrealizedPnlHistory,
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
       upcoming: upcomingDividends,
@@ -290,6 +311,61 @@ async function buildTickerMarketAllocationTotal(input: {
     total += roundToDecimal(holding.costBasisAmount * fxRate, 2);
   }
   return roundToDecimal(total, 2);
+}
+
+async function buildUnrealizedPnlHistory(input: {
+  persistence: Pick<Persistence, "listHoldingSnapshots">;
+  userId: string;
+  ticker: string;
+  marketCode: MarketCode;
+  accountIds: readonly string[];
+  startDate: string | null;
+  endDate: string | null;
+  currency: AccountDefaultCurrency;
+}): Promise<TickerDetailsDto["unrealizedPnlHistory"]> {
+  if (!input.startDate || !input.endDate) return [];
+  const result = await input.persistence.listHoldingSnapshots(input.userId, {
+    accountIds: input.accountIds,
+    pairs: input.accountIds.map((accountId) => ({ accountId, ticker: input.ticker, marketCode: input.marketCode })),
+    startDate: input.startDate,
+    endDate: input.endDate,
+    includeProvisional: true,
+    limit: 10_000,
+    offset: 0,
+  });
+  const byDate = new Map<string, {
+    accountIds: Set<string>;
+    currency: string;
+    isProvisional: boolean;
+    quantity: number;
+    unrealizedPnlAmount: number | null;
+  }>();
+  for (const row of result.rows) {
+    const current = byDate.get(row.snapshotDate) ?? {
+      accountIds: new Set<string>(),
+      currency: row.currency || input.currency,
+      isProvisional: false,
+      quantity: 0,
+      unrealizedPnlAmount: 0,
+    };
+    current.accountIds.add(row.accountId);
+    current.isProvisional = current.isProvisional || row.isProvisional;
+    current.quantity = roundToDecimal(current.quantity + row.quantity, 4);
+    current.unrealizedPnlAmount = current.unrealizedPnlAmount === null || row.unrealizedPnlNative === null
+      ? null
+      : roundToDecimal(current.unrealizedPnlAmount + row.unrealizedPnlNative, 2);
+    byDate.set(row.snapshotDate, current);
+  }
+  return [...byDate.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, row]) => ({
+      date,
+      unrealizedPnlAmount: row.unrealizedPnlAmount,
+      currency: row.currency as TickerDetailsDto["unrealizedPnlHistory"][number]["currency"],
+      quantity: row.quantity,
+      accountIds: [...row.accountIds].sort(),
+      isProvisional: row.isProvisional,
+    }));
 }
 
 function applyMarketAllocation<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(

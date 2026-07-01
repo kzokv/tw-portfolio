@@ -67,7 +67,7 @@ import {
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
-  unrealizedPnlAnalysisPresentationPreferenceSchema,
+  unrealizedPnlAnalysisSettingsPreferenceSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
@@ -284,6 +284,10 @@ const marketCodeSchema = z.enum(MARKET_CODES);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const tickerChartQuerySchema = z.object({
   accountId: userScopedIdSchema.optional(),
+  accountIds: z.preprocess((value) => {
+    if (typeof value !== "string") return undefined;
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }, z.array(userScopedIdSchema).max(50).optional()),
   marketCode: marketCodeSchema.optional(),
   range: tickerChartRangeSchema.optional(),
   startDate: isoDateSchema.optional(),
@@ -3924,8 +3928,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
         .optional(),
-      analysisUnrealizedPnlDefaults: z
-        .union([unrealizedPnlAnalysisPresentationPreferenceSchema, z.null()])
+      analysisUnrealizedPnlSettings: z
+        .union([unrealizedPnlAnalysisSettingsPreferenceSchema, z.null()])
         .optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
@@ -5763,6 +5767,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = z.object({
       accountId: userScopedIdSchema.optional(),
+      accountIds: z.preprocess((value) => {
+        if (typeof value !== "string") return undefined;
+        return value.split(",").map((item) => item.trim()).filter(Boolean);
+      }, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
     }).parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
@@ -5774,6 +5782,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
       loadChart: false,
@@ -5786,6 +5795,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       identity: details.identity,
       quote: details.quote,
       position: details.position,
+      unrealizedPnlHistory: details.unrealizedPnlHistory,
       transactions: details.transactions,
       dividends: details.dividends,
       holdingGroup: details.holdingGroup,
@@ -5815,6 +5825,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
       range: query.range,
@@ -5831,6 +5842,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const response = {
       identity: details.identity,
       chart: details.chart,
+      unrealizedPnlHistory: details.unrealizedPnlHistory,
       fundamentals: latestFundamentals?.fundamentals ?? details.fundamentals,
       fundamentalsRefresh: latestFundamentals
         ? {
@@ -5888,6 +5900,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
       range: query.range,

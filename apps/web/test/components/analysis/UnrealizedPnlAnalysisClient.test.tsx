@@ -80,9 +80,9 @@ describe("UnrealizedPnlAnalysisClient", () => {
   let root: Root | null = null;
   let container: HTMLDivElement;
 
-  const selectionCheckbox = (label: string): HTMLButtonElement | null => {
-    const selectionPanel = container.querySelector("[data-testid='analysis-ticker-selection']");
-    const row = Array.from(selectionPanel?.querySelectorAll("button[role='checkbox']") ?? [])
+  const legendButton = (label: string): HTMLButtonElement | null => {
+    const legend = container.querySelector("[data-testid='analysis-chart-legend']");
+    const row = Array.from(legend?.querySelectorAll("button") ?? [])
       .find((candidate) => candidate.textContent?.includes(label));
     return row as HTMLButtonElement | null;
   };
@@ -118,30 +118,26 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(container.textContent).toContain("Unrealized P&L Analysis");
     expect(container.textContent).toContain("Preview contract fallback");
-    expect(container.textContent).toContain("Ticker selection");
     expect(container.querySelector("[data-testid='analysis-chart-legend']")?.textContent).toContain("Apple Inc.");
-    expect(container.querySelector("[data-testid='analysis-ticker-selection']")?.textContent).toContain("Apple Inc.");
     expect(container.querySelector("[data-testid='analysis-selected-detail']")?.textContent).toContain("Apple Inc.");
 
-    const checkbox = selectionCheckbox("Apple Inc.");
-    expect(checkbox).not.toBeNull();
+    const nvda = legendButton("NVIDIA Corporation");
+    expect(nvda).not.toBeNull();
 
     act(() => {
-      checkbox?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      nvda?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(replaceMock).toHaveBeenCalled();
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("selectionMode=manual");
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("selectedTickers=");
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("view=compare");
+    expect(nvda?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("builds ticker toggles from pending manual selection while data refetches", () => {
     const initialState = {
       ...ANALYSIS_DEFAULT_STATE,
-      selectionMode: "manual" as const,
-      selected: ["US:NVDA"],
-      lineCount: 5,
+      selection: "manualTickers" as const,
+      tickerMode: "allEligible" as const,
+      tickerIds: [],
+      drivers: 5 as const,
     };
     const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
 
@@ -154,15 +150,15 @@ describe("UnrealizedPnlAnalysisClient", () => {
     });
 
     act(() => {
-      selectionCheckbox("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    act(() => {
-      selectionCheckbox("Taiwan Semiconductor Manufacturing")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      legendButton("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const lastUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
-    expect(lastUrl).toContain("selectionMode=manual");
-    expect(lastUrl).toContain("selectedTickers=TW%3A2330%2CUS%3AAAPL%2CUS%3ANVDA");
+    expect(lastUrl).toContain("selection=manualTickers");
+    expect(lastUrl).toContain("tickerMode=custom");
+    expect(lastUrl).toContain("tickerIds=");
+    expect(lastUrl).toContain("US%3ANVDA");
+    expect(lastUrl).not.toContain("US%3AAAPL");
   });
 
   it("keeps manual detail rows pinned after ranked rows when sorting by name", () => {
@@ -199,12 +195,15 @@ describe("UnrealizedPnlAnalysisClient", () => {
   it("hydrates presentation defaults from preferences when the URL does not override them", async () => {
     getJsonMock.mockResolvedValue({
       preferences: {
-        analysisUnrealizedPnlDefaults: {
+        analysisUnrealizedPnlSettings: {
+          version: 1,
+          selection: "topDrivers",
           granularity: "monthly",
-          lineCount: 8,
-          holdingsState: "include-sold",
           reportingCurrency: "USD",
           includeProvisional: true,
+          detailLayout: "responsive",
+          topDrivers: { positionStatus: "includeClosed", tickerMode: "allEligible", tickerIds: [], drivers: 10 },
+          manualTickers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [] },
         },
       },
     });
@@ -220,8 +219,8 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(getJsonMock).toHaveBeenCalledWith("/user-preferences", { contextScope: "session" });
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("granularity=monthly");
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("comparisonLineCount=8");
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("holdingsState=include_sold_out");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("drivers=10");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("positionStatus=includeClosed");
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("reportingCurrency=USD");
     expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("includeProvisional=true");
     expect(patchJsonMock).not.toHaveBeenCalled();
@@ -230,12 +229,15 @@ describe("UnrealizedPnlAnalysisClient", () => {
   it("keeps explicit URL presentation values ahead of saved defaults", async () => {
     getJsonMock.mockResolvedValue({
       preferences: {
-        analysisUnrealizedPnlDefaults: {
+        analysisUnrealizedPnlSettings: {
+          version: 1,
+          selection: "topDrivers",
           granularity: "monthly",
-          lineCount: 8,
-          holdingsState: "include-sold",
           reportingCurrency: "USD",
           includeProvisional: true,
+          detailLayout: "responsive",
+          topDrivers: { positionStatus: "includeClosed", tickerMode: "allEligible", tickerIds: [], drivers: 10 },
+          manualTickers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [] },
         },
       },
     });
@@ -246,9 +248,12 @@ describe("UnrealizedPnlAnalysisClient", () => {
         <AppShellDataProvider value={buildShellData()}>
           <UnrealizedPnlAnalysisClient
             explicitPreferenceKeys={{
+              selection: false,
               granularity: true,
-              lineCount: true,
-              holdingsState: true,
+              drivers: true,
+              positionStatus: true,
+              tickerMode: false,
+              tickerIds: false,
               reportingCurrency: true,
               includeProvisional: true,
             }}
@@ -263,7 +268,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(patchJsonMock).not.toHaveBeenCalled();
   });
 
-  it("persists presentation defaults when the line-count control changes", async () => {
+  it("persists layout settings immediately when the detail layout control changes", async () => {
     const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
 
     await act(async () => {
@@ -274,25 +279,34 @@ describe("UnrealizedPnlAnalysisClient", () => {
       );
     });
 
-    const lineInput = Array.from(container.querySelectorAll("input")).find((input) => input.getAttribute("aria-label") === "Lines") as HTMLInputElement | undefined;
-    expect(lineInput).toBeDefined();
+    const tableButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Table");
+    expect(tableButton).toBeDefined();
 
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-      setter?.call(lineInput, "7");
-      lineInput!.dispatchEvent(new Event("input", { bubbles: true }));
-      lineInput!.dispatchEvent(new Event("change", { bubbles: true }));
+      tableButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(patchJsonMock).toHaveBeenLastCalledWith(
       "/user-preferences",
       {
-        analysisUnrealizedPnlDefaults: {
+        analysisUnrealizedPnlSettings: {
+          version: 1,
+          selection: "topDrivers",
           granularity: "weekly",
-          lineCount: 7,
-          holdingsState: "current-only",
           reportingCurrency: "TWD",
           includeProvisional: false,
+          detailLayout: "table",
+          topDrivers: {
+            positionStatus: "openOnly",
+            tickerMode: "allEligible",
+            tickerIds: [],
+            drivers: 5,
+          },
+          manualTickers: {
+            positionStatus: "openOnly",
+            tickerMode: "allEligible",
+            tickerIds: [],
+          },
         },
       },
       { contextScope: "session" },
@@ -441,7 +455,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
       );
     });
 
-    expect(container.textContent).toContain("NVDA US");
+    expect(container.textContent).toContain("US:NVDA");
     expect(container.textContent).toContain("Pending");
     expect(container.textContent).not.toContain("987,654,321");
   });
