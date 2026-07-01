@@ -432,6 +432,7 @@ export function TickerHistoryClient({
   const [activeTab, setActiveTab] = useState("overview");
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
   const [tickerChartMetric, setTickerChartMetric] = useState<TickerChartMetric>(() => openedFromAnalysis ? "unrealizedPnl" : "price");
+  const previousOpenedFromAnalysisRef = useRef(openedFromAnalysis);
   const [tickerTimelineMode, setTickerTimelineMode] = useState<TimelineMode>("auto");
   const [tickerChartRequest, setTickerChartRequest] = useState<TickerChartRequest>(() => initialTickerChartState.request);
   const [customStartDate, setCustomStartDate] = useState(initialTickerChartState.customStartDate);
@@ -509,6 +510,12 @@ export function TickerHistoryClient({
     setCustomStartDate((current) => current === next.customStartDate ? current : next.customStartDate);
     setCustomEndDate((current) => current === next.customEndDate ? current : next.customEndDate);
   }, [details.chart.range, initialChartMetadata.resolved.endDate, initialChartMetadata.resolved.startDate, searchParamKey]);
+
+  useEffect(() => {
+    if (previousOpenedFromAnalysisRef.current === openedFromAnalysis) return;
+    previousOpenedFromAnalysisRef.current = openedFromAnalysis;
+    setTickerChartMetric(openedFromAnalysis ? "unrealizedPnl" : "price");
+  }, [openedFromAnalysis]);
 
   useEffect(() => {
     setInstrumentState(instrument);

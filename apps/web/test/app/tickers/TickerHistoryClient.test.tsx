@@ -332,7 +332,7 @@ const tickerInstrument: InstrumentCatalogItemDto = {
   gicsIndustryGroup: null,
 };
 
-function renderTickerHistoryClient(
+function tickerHistoryClientElement(
   initialDetails: TickerDetailsModel = details,
   instrument: InstrumentCatalogItemDto | null = tickerInstrument,
   initialChartQuery?: {
@@ -341,8 +341,8 @@ function renderTickerHistoryClient(
     chartStart?: string;
   },
   clientProps: Partial<React.ComponentProps<typeof TickerHistoryClient>> = {},
-) {
-  return mount(
+): React.ReactElement {
+  return (
     <TickerHistoryClient
       transactions={transactions}
       dict={dict}
@@ -360,8 +360,21 @@ function renderTickerHistoryClient(
       initialChartQuery={initialChartQuery}
       initialTradeDate="2026-06-12"
       {...clientProps}
-    />,
+    />
   );
+}
+
+function renderTickerHistoryClient(
+  initialDetails: TickerDetailsModel = details,
+  instrument: InstrumentCatalogItemDto | null = tickerInstrument,
+  initialChartQuery?: {
+    chartEnd?: string;
+    chartRange?: string;
+    chartStart?: string;
+  },
+  clientProps: Partial<React.ComponentProps<typeof TickerHistoryClient>> = {},
+) {
+  return mount(tickerHistoryClientElement(initialDetails, instrument, initialChartQuery, clientProps));
 }
 
 async function flushEffects() {
@@ -818,6 +831,23 @@ describe("TickerHistoryClient", () => {
     expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
     expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
     expect(element.textContent).not.toContain(dict.tickerHistory.analysisSourceLabel);
+  });
+
+  it("switches to Unrealized P&L when same-ticker client navigation gains the analysis source", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient(makeAnalysisChartDetails());
+    await flushEffects();
+
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
+
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis&fromDate=2026-04-10&toDate=2026-06-26";
+    await act(async () => {
+      root!.render(tickerHistoryClientElement(makeAnalysisChartDetails()));
+    });
+    await flushEffects();
+
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("shows an Unrealized P&L empty state while keeping Current Price available", async () => {
