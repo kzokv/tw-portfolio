@@ -259,6 +259,49 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(customTickerIds).toContain("US:T198");
   });
 
+  it("does not append a ticker when custom selection is already at the supported limit", () => {
+    const selectedTickerIds = Array.from({ length: 200 }, (_, index) => `US:T${String(index).padStart(3, "0")}`);
+    const extraTickerId = "US:T200";
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "custom" as const,
+      tickerIds: selectedTickerIds,
+      drivers: 5 as const,
+    };
+    const previewData = buildPreviewUnrealizedPnlAnalysis(initialState);
+    const initialData = {
+      ...previewData,
+      availableFilters: {
+        ...previewData.availableFilters,
+        tickers: [...selectedTickerIds, extraTickerId].map((tickerId) => ({ value: tickerId, label: tickerId })),
+      },
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+    replaceMock.mockClear();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-ticker-picker-trigger']")?.click();
+    });
+    const extraTickerCheckbox = Array.from(document.body.querySelectorAll<HTMLInputElement>("[data-testid='analysis-ticker-picker'] input[type='checkbox']"))
+      .find((input) => input.closest("label")?.textContent?.includes(extraTickerId));
+    expect(extraTickerCheckbox).toBeDefined();
+    expect(extraTickerCheckbox?.disabled).toBe(true);
+
+    act(() => {
+      extraTickerCheckbox!.click();
+    });
+
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
   it("keeps manual detail rows pinned after ranked rows when sorting by name", () => {
     const previewData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
     const initialData = {

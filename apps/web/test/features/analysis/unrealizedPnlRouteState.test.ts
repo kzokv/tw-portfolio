@@ -56,19 +56,38 @@ describe("unrealizedPnlRouteState", () => {
 
   it("preserves legacy query aliases as read-only compatibility", () => {
     const state = parseUnrealizedPnlRouteState({
+      markets: "US",
       selectionMode: "manual",
-      selectedTickers: "US:NVDA,TW:2330",
+      tickers: "AAPL",
+      selectedTickers: "US:NVDA",
       comparisonLineCount: "10",
       holdingsState: "include_sold_out",
     });
 
     expect(state.selection).toBe("manualTickers");
     expect(state.tickerMode).toBe("custom");
-    expect(state.tickerIds).toEqual(["TW:2330", "US:NVDA"]);
+    expect(state.tickerIds).toEqual(["US:AAPL", "US:NVDA"]);
     expect(state.drivers).toBe(10);
     expect(state.positionStatus).toBe("includeClosed");
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("selection=manualTickers");
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).not.toContain("selectionMode=");
+  });
+
+  it("keeps legacy symbol-only ticker filters scoped by market", () => {
+    const scopedState = parseUnrealizedPnlRouteState({
+      markets: "US,TW",
+      tickers: "ABC",
+    });
+    const unscopedState = parseUnrealizedPnlRouteState({
+      tickers: "ABC",
+    });
+
+    expect(scopedState.tickerMode).toBe("custom");
+    expect(scopedState.tickerIds).toEqual(["TW:ABC", "US:ABC"]);
+    expect(unscopedState.tickerMode).toBe("custom");
+    expect(unscopedState.tickerIds.length).toBeGreaterThan(scopedState.tickerIds.length);
+    expect(unscopedState.tickerIds).toContain("US:ABC");
+    expect(unscopedState.tickerIds).toContain("TW:ABC");
   });
 
   it("keeps presentation-only focus and view out of API query strings", () => {

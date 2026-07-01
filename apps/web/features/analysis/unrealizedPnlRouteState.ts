@@ -273,14 +273,18 @@ export function parseUnrealizedPnlRouteState(
   if (range === "ALL" && granularity !== "yearly") range = "5Y";
   if (granularity !== "yearly" && !FIVE_YEAR_RANGES.has(range)) range = ANALYSIS_DEFAULT_STATE.range;
 
-  const tickerIds = normalizeTickerIds(read("tickerIds") ?? read("selectedTickers") ?? read("selected"));
+  const markets = normalizeCsv(read("markets")).filter(isMarketCode);
+  const tickerIds = normalizeTickerIds([
+    ...normalizeTickerIds(read("tickerIds") ?? read("selectedTickers") ?? read("selected")),
+    ...normalizeLegacyTickerIds(read("tickers"), markets),
+  ].join(","));
   const tickerMode = normalizeEnum(read("tickerMode"), ANALYSIS_TICKER_MODES, tickerIds.length > 0 ? "custom" : ANALYSIS_DEFAULT_STATE.tickerMode);
   const state: UnrealizedPnlAnalysisRouteState = {
     range,
     from: range === "CUSTOM" ? normalizeDate(read("fromDate") ?? read("from")) : null,
     to: range === "CUSTOM" ? normalizeDate(read("toDate") ?? read("to")) : null,
     granularity,
-    markets: normalizeCsv(read("markets")).filter(isMarketCode),
+    markets,
     accounts: normalizeCsv(read("accountIds") ?? read("accounts")),
     selection: normalizeAnalysisSelection(read("selection") ?? read("selectionMode")),
     tickerMode,
@@ -497,6 +501,13 @@ function normalizeTickerIds(value: string | undefined): string[] {
     if (!marketCode || !ticker || !isMarketCode(marketCode)) return [];
     return [`${marketCode}:${ticker.toUpperCase()}`];
   });
+}
+
+function normalizeLegacyTickerIds(value: string | undefined, markets: AnalysisMarketCode[]): string[] {
+  const tickers = normalizeCsv(value).filter((ticker) => !ticker.includes(":"));
+  if (tickers.length === 0) return [];
+  const scopedMarkets = markets.length > 0 ? markets : [...ANALYSIS_MARKET_CODES];
+  return normalizeTickerIds(scopedMarkets.flatMap((marketCode) => tickers.map((ticker) => `${marketCode}:${ticker}`)).join(","));
 }
 
 function normalizeDriverCount(value: string | undefined, fallback: AnalysisDriverCount = ANALYSIS_DEFAULT_STATE.drivers): AnalysisDriverCount {

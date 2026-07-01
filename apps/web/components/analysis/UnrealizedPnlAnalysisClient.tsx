@@ -982,6 +982,7 @@ function TickerPicker({
       if (next.size <= 1) return;
       next.delete(row.tickerId);
     } else {
+      if (next.size >= CUSTOM_TICKER_ID_LIMIT) return;
       next.add(row.tickerId);
     }
     onChange("custom", [...next].sort((left, right) => left.localeCompare(right)));
@@ -1039,7 +1040,11 @@ function TickerPicker({
                 <div className="grid gap-1">
                   {group.rows.map((row) => {
                     const checked = tickerMode === "allEligible" || selectedSet.has(row.tickerId);
-                    const disabled = !row.available;
+                    const unavailable = !row.available;
+                    const wouldExceedCustomLimit = tickerMode === "custom"
+                      && !selectedSet.has(row.tickerId)
+                      && selectedSet.size >= CUSTOM_TICKER_ID_LIMIT;
+                    const disabled = unavailable || wouldExceedCustomLimit;
                     return (
                       <label
                         key={row.tickerId}
@@ -1056,9 +1061,9 @@ function TickerPicker({
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate">{row.label}</span>
-                          {disabled ? <span className="block text-xs text-amber-700">{dict.tickerPickerUnavailable}</span> : null}
+                          {unavailable ? <span className="block text-xs text-amber-700">{dict.tickerPickerUnavailable}</span> : null}
                         </span>
-                        {disabled && selectedSet.has(row.tickerId) ? (
+                        {unavailable && selectedSet.has(row.tickerId) ? (
                           <button
                             type="button"
                             className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
