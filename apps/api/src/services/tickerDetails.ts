@@ -98,8 +98,12 @@ export async function buildTickerDetails(
 
   const requestedAccountIds = input.accountIds?.length ? [...new Set(input.accountIds)] : [];
   for (const requestedAccountId of requestedAccountIds) {
-    if (!accountById.has(requestedAccountId)) {
+    const account = accountById.get(requestedAccountId);
+    if (!account) {
       throw routeError(404, "account_not_found", "Account not found");
+    }
+    if (marketCodeFor(account.defaultCurrency) !== resolvedMarketCode) {
+      throw routeError(400, "account_market_mismatch", "Account does not match the requested market");
     }
   }
 
@@ -325,6 +329,7 @@ async function buildUnrealizedPnlHistory(input: {
   currency: AccountDefaultCurrency;
 }): Promise<TickerDetailsDto["unrealizedPnlHistory"]> {
   if (!input.startDate || !input.endDate) return [];
+  if (input.accountIds.length === 0) return [];
   const result = await input.persistence.listHoldingSnapshots(input.userId, {
     accountIds: input.accountIds,
     pairs: input.accountIds.map((accountId) => ({ accountId, ticker: input.ticker, marketCode: input.marketCode })),
