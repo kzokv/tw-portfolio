@@ -320,7 +320,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     ]);
   });
 
-  it("sorts ticker composition by end unrealized P&L and excludes all-null ineligible rows", async () => {
+  it("sorts ticker composition by end unrealized P&L and keeps all-null holdings in health totals", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
     await seedInstrument({ ticker: "AAPL", marketCode: "US", instrumentType: "STOCK", name: "Apple" });
@@ -342,8 +342,10 @@ describe("buildUnrealizedPnlAnalysis", () => {
       ["2330", 100],
     ]);
     expect(report.tickerComposition.some((row) => row.ticker === "AAPL")).toBe(false);
-    expect(report.dataHealth.nullUnrealizedRowCount).toBe(0);
-    expect(report.dataHealth.unavailableRowCount).toBe(0);
+    expect(report.dataHealth.snapshotRowCount).toBe(3);
+    expect(report.dataHealth.nullUnrealizedRowCount).toBe(1);
+    expect(report.dataHealth.unavailableRowCount).toBe(1);
+    expect(report.summary.endUnrealizedPnlAmount).toBeNull();
   });
 
   it("marks ticker composition unavailable when a ticker is missing the summary end bucket", async () => {
@@ -952,10 +954,17 @@ describe("buildUnrealizedPnlAnalysis", () => {
       reportingCurrency: "TWD",
     });
     expect(withoutProvisional.dataHealth.provisionalRowCount).toBe(0);
-    expect(withoutProvisional.dataHealth.missingFxRowCount).toBe(0);
-    expect(withoutProvisional.dataHealth.nullUnrealizedRowCount).toBe(0);
-    expect(withoutProvisional.dataHealth.unavailableRowCount).toBe(0);
-    expect(withoutProvisional.portfolioSeries).toEqual([]);
+    expect(withoutProvisional.dataHealth.snapshotRowCount).toBe(1);
+    expect(withoutProvisional.dataHealth.missingFxRowCount).toBe(1);
+    expect(withoutProvisional.dataHealth.nullUnrealizedRowCount).toBe(1);
+    expect(withoutProvisional.dataHealth.unavailableRowCount).toBe(1);
+    expect(withoutProvisional.portfolioSeries).toEqual([
+      expect.objectContaining({
+        date: "2026-02-03",
+        unrealizedPnlAmount: null,
+        marketValueAmount: null,
+      }),
+    ]);
 
     const withProvisional = await buildUnrealizedPnlAnalysis(app, "user-1", {
       granularity: "daily",
@@ -965,9 +974,18 @@ describe("buildUnrealizedPnlAnalysis", () => {
       reportingCurrency: "TWD",
       includeProvisional: true,
     });
-    expect(withProvisional.dataHealth.provisionalRowCount).toBe(0);
-    expect(withProvisional.dataHealth.snapshotRowCount).toBe(0);
-    expect(withProvisional.portfolioSeries).toEqual([]);
+    expect(withProvisional.dataHealth.provisionalRowCount).toBe(1);
+    expect(withProvisional.dataHealth.snapshotRowCount).toBe(2);
+    expect(withProvisional.dataHealth.missingFxRowCount).toBe(1);
+    expect(withProvisional.dataHealth.nullUnrealizedRowCount).toBe(2);
+    expect(withProvisional.dataHealth.unavailableRowCount).toBe(2);
+    expect(withProvisional.portfolioSeries).toEqual([
+      expect.objectContaining({
+        date: "2026-02-03",
+        unrealizedPnlAmount: null,
+        marketValueAmount: null,
+      }),
+    ]);
   });
 
   it("uses period-end bucket dates for daily, weekly, monthly, and yearly granularity", async () => {
