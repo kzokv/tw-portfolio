@@ -1198,8 +1198,12 @@ function buildTickerDetailHref(
   });
   const fromDate = data?.summary.startDate ?? (state.range === "CUSTOM" ? state.from : null);
   const toDate = data?.summary.endDate ?? (state.range === "CUSTOM" ? state.to : null);
-  if (fromDate) params.set("fromDate", fromDate);
-  if (toDate) params.set("toDate", toDate);
+  if (state.range === "ALL" || customTickerChartRangeExceedsLimit(fromDate, toDate)) {
+    params.set("chartRange", "ALL");
+  } else {
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+  }
   const matchingSeries = data?.tickerSeries.find((series) => series.seriesId === row.seriesId);
   const scopedAccountIds = matchingSeries
     ? matchingSeries.accountIds.filter((accountId) => state.accounts.includes(accountId))
@@ -1212,6 +1216,13 @@ function buildTickerDetailHref(
     params.set("accountIds", scopedAccountIds.join(","));
   }
   return `/tickers/${encodeURIComponent(row.ticker)}?${params.toString()}`;
+}
+
+function customTickerChartRangeExceedsLimit(fromDate: string | null, toDate: string | null): boolean {
+  if (!fromDate || !toDate) return false;
+  const maxEnd = new Date(`${fromDate}T00:00:00.000Z`);
+  maxEnd.setUTCFullYear(maxEnd.getUTCFullYear() + 10);
+  return new Date(`${toDate}T00:00:00.000Z`).getTime() > maxEnd.getTime();
 }
 
 function analysisDataMatchesState(data: UnrealizedPnlAnalysisDto, state: UnrealizedPnlAnalysisRouteState): boolean {

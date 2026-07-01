@@ -606,6 +606,39 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(tickerHref).toContain("toDate=2026-07-01");
   });
 
+  it("uses ALL ticker chart links for long-range analysis drilldowns", () => {
+    const allState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      range: "ALL" as const,
+      granularity: "yearly" as const,
+    };
+    const previewData = buildPreviewUnrealizedPnlAnalysis(allState);
+    const initialData = {
+      ...previewData,
+      summary: {
+        ...previewData.summary,
+        startDate: "2010-01-01",
+        endDate: "2026-07-01",
+      },
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={allState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const tickerHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href") ?? "")
+      .find((href) => href.startsWith("/tickers/"));
+    expect(tickerHref).toContain("source=unrealized-pnl-analysis");
+    expect(tickerHref).toContain("chartRange=ALL");
+    expect(tickerHref).not.toContain("fromDate=");
+    expect(tickerHref).not.toContain("toDate=");
+  });
+
   it("filters multi-account ticker drilldown links to the clicked ticker account scope", () => {
     const mixedAccountState = {
       ...ANALYSIS_DEFAULT_STATE,
