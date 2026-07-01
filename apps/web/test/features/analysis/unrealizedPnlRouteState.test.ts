@@ -192,6 +192,31 @@ describe("unrealizedPnlRouteState", () => {
     expect(settings.reportingCurrency).toBe("USD");
   });
 
+  it("migrates legacy presentation defaults when canonical settings are absent", () => {
+    const settings = parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlDefaults: {
+        granularity: "monthly",
+        lineCount: 10,
+        holdingsState: "include-sold-out",
+        reportingCurrency: "USD",
+        includeProvisional: true,
+      },
+    });
+
+    expect(settings).toMatchObject({
+      granularity: "monthly",
+      reportingCurrency: "USD",
+      includeProvisional: true,
+      topDrivers: {
+        drivers: 10,
+        positionStatus: "includeClosed",
+      },
+      manualTickers: {
+        positionStatus: "includeClosed",
+      },
+    });
+  });
+
   it("maps report/dashboard ranges through the shared serializer", () => {
     expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
     expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");

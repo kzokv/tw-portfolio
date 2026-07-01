@@ -324,6 +324,48 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(patchJsonMock).not.toHaveBeenCalled();
   });
 
+  it("hydrates and migrates legacy presentation defaults when canonical settings are absent", async () => {
+    getJsonMock.mockResolvedValue({
+      preferences: {
+        analysisUnrealizedPnlDefaults: {
+          granularity: "monthly",
+          lineCount: 10,
+          holdingsState: "include-sold-out",
+          reportingCurrency: "USD",
+          includeProvisional: true,
+        },
+      },
+    });
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+
+    await act(async () => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("granularity=monthly");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("drivers=10");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("positionStatus=includeClosed");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("reportingCurrency=USD");
+    expect(replaceMock.mock.calls.at(-1)?.[0]).toContain("includeProvisional=true");
+    expect(patchJsonMock).toHaveBeenCalledWith(
+      "/user-preferences",
+      {
+        analysisUnrealizedPnlSettings: expect.objectContaining({
+          granularity: "monthly",
+          reportingCurrency: "USD",
+          includeProvisional: true,
+          topDrivers: expect.objectContaining({ drivers: 10, positionStatus: "includeClosed" }),
+          manualTickers: expect.objectContaining({ positionStatus: "includeClosed" }),
+        }),
+      },
+      { contextScope: "session" },
+    );
+  });
+
   it("keeps explicit URL presentation values ahead of saved defaults", async () => {
     getJsonMock.mockResolvedValue({
       preferences: {

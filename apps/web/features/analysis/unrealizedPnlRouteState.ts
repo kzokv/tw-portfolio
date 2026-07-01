@@ -44,6 +44,7 @@ export const ANALYSIS_DEFAULT_STATE: UnrealizedPnlAnalysisRouteState = {
 };
 
 export const ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY = "analysisUnrealizedPnlSettings";
+export const LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY = "analysisUnrealizedPnlDefaults";
 export const ANALYSIS_CANDIDATE_SAFETY_CAP = 200;
 const FIVE_YEAR_RANGES = new Set<AnalysisRangeOption>(["1M", "3M", "YTD", "1Y", "3Y", "5Y", "CUSTOM"]);
 
@@ -130,7 +131,8 @@ export function parseAnalysisSettings(value: unknown): UnrealizedPnlAnalysisSett
 export function parseAnalysisSettingsFromPreferences(
   preferences: Record<string, unknown> | undefined,
 ): UnrealizedPnlAnalysisSettings {
-  const rawSettings = preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY];
+  const rawSettings = preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]
+    ?? parseLegacyAnalysisSettings(preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]);
   const parsed = parseAnalysisSettings(rawSettings);
   const reportingCurrencyOmitted = !rawSettings
     || typeof rawSettings !== "object"
@@ -145,6 +147,34 @@ export function parseAnalysisSettingsFromPreferences(
     return { ...parsed, reportingCurrency: preferences.reportingCurrency as AccountDefaultCurrency };
   }
   return parsed;
+}
+
+function parseLegacyAnalysisSettings(value: unknown): Partial<UnrealizedPnlAnalysisSettings> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const defaults = settingsFromState(ANALYSIS_DEFAULT_STATE);
+  const drivers = typeof source.lineCount === "number" && Number.isFinite(source.lineCount)
+    ? normalizeDriverCount(String(Math.trunc(source.lineCount)), defaults.topDrivers.drivers)
+    : defaults.topDrivers.drivers;
+  const positionStatus = source.holdingsState === "include-sold-out" ? "includeClosed" : defaults.topDrivers.positionStatus;
+
+  return {
+    version: 1,
+    selection: defaults.selection,
+    granularity: normalizeEnum(asString(source.granularity), ANALYSIS_GRANULARITIES, defaults.granularity),
+    reportingCurrency: normalizeCurrency(asString(source.reportingCurrency), defaults.reportingCurrency),
+    includeProvisional: typeof source.includeProvisional === "boolean" ? source.includeProvisional : defaults.includeProvisional,
+    detailLayout: defaults.detailLayout,
+    topDrivers: {
+      ...defaults.topDrivers,
+      drivers,
+      positionStatus,
+    },
+    manualTickers: {
+      ...defaults.manualTickers,
+      positionStatus,
+    },
+  };
 }
 
 export function settingsFromState(state: UnrealizedPnlAnalysisRouteState): UnrealizedPnlAnalysisSettings {

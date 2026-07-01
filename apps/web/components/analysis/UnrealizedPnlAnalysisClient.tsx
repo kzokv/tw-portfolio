@@ -20,6 +20,7 @@ import {
   ANALYSIS_DEFAULT_STATE,
   ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
   EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
+  LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
   applyAnalysisSettings,
   applySelectionModeSettings,
   mergeSettingsWithState,
@@ -129,6 +130,8 @@ export function UnrealizedPnlAnalysisClient({
       .then((response) => {
         if (cancelled) return;
         const defaults = parseAnalysisSettingsFromPreferences(response.preferences);
+        const shouldMigrateLegacySettings = response.preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] === undefined
+          && response.preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] !== undefined;
         didHydratePreferencesRef.current = true;
         setState((current) => {
           if (hasLocalStateEditRef.current) {
@@ -147,6 +150,13 @@ export function UnrealizedPnlAnalysisClient({
           });
           return next;
         });
+        if (shouldMigrateLegacySettings && !hasLocalStateEditRef.current) {
+          void patchJson(
+            "/user-preferences",
+            { [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: defaults },
+            { contextScope: "session" },
+          ).catch(() => undefined);
+        }
       })
       .catch(() => {
         didHydratePreferencesRef.current = true;
