@@ -75,7 +75,8 @@ function mapApiAnalysis(
       isSelected: selectedSet.has(seriesId),
     };
   });
-  const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById, response.query.selection);
+  const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById);
+  const selectedRanking = ranking.filter((row) => selectedSet.has(row.seriesId));
   const tickerComposition = response.tickerComposition.map((row) => {
     const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
     const positionStatus = resolvePositionStatus(row);
@@ -94,10 +95,10 @@ function mapApiAnalysis(
       contributionSharePercent: row.contributionSharePercent,
     };
   }).sort(compareCompositionRows);
-  const bestDriver = [...ranking]
+  const bestDriver = [...selectedRanking]
     .filter((row) => row.periodChange !== null && row.periodChange > 0)
     .sort((left, right) => (right.periodChange ?? 0) - (left.periodChange ?? 0))[0] ?? null;
-  const worstDriver = [...ranking]
+  const worstDriver = [...selectedRanking]
     .filter((row) => row.periodChange !== null && row.periodChange < 0)
     .sort((left, right) => (left.periodChange ?? 0) - (right.periodChange ?? 0))[0] ?? null;
   const unavailableRows = response.dataHealth.unavailableRowCount;
@@ -202,13 +203,10 @@ function buildTickerSelection(
   ranking: UnrealizedPnlAnalysisDto["ranking"],
   selectedIds: string[],
   seriesById: ReadonlyMap<string, UnrealizedPnlSeries>,
-  selection: UnrealizedPnlAnalysisDto["query"]["selection"],
 ): UnrealizedPnlTickerSelectionRow[] {
   const selectedIdSet = new Set(selectedIds);
   const rankBySeriesId = new Map(ranking.map((row, index) => [row.seriesId, index + 1] as const));
-  const selectionRows = selection === "manualTickers"
-    ? ranking.filter((row) => selectedIdSet.has(row.seriesId))
-    : ranking;
+  const selectionRows = ranking.filter((row) => selectedIdSet.has(row.seriesId));
   const rows: UnrealizedPnlTickerSelectionRow[] = selectionRows.map((row) => ({
     ...row,
     rankLabel: `#${rankBySeriesId.get(row.seriesId) ?? 0}`,

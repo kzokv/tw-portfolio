@@ -273,7 +273,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       { value: "US:TSLA", label: "US:TSLA:Tesla" },
     ]);
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
-    expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
+    expect(model.summary.worstDriver).toBeNull();
     expect(model.summary.endDate).toBe("2026-06-26");
     expect(model.portfolioSeries).toEqual([{ date: "2026-06-26", unrealizedPnl: null }]);
     expect(model.tickerSeries.find((series) => series.ticker === "NVDA")?.points[0]?.closePrice).toBe(500);
