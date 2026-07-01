@@ -839,7 +839,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
       reportingCurrency: "USD",
     });
 
-    expect(report.deepLink).not.toContain("range=CUSTOM");
+    expect(report.deepLink).toContain("range=CUSTOM");
     expect(report.deepLink).toContain("fromDate=2026-01-01");
     expect(report.deepLink).toContain("toDate=2026-01-31");
     expect(report.deepLink).toContain("granularity=monthly");

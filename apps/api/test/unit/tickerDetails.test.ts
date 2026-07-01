@@ -428,6 +428,63 @@ describe("buildTickerDetails", () => {
     ]);
   });
 
+  it("scopes ticker transactions and realized P&L to requested account ids", async () => {
+    const store = buildCrossMarketStore();
+    const secondAuFeeProfile = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2",
+      userId: "user-1",
+      name: "Second AU Broker",
+      feeProfileId: secondAuFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(secondAuFeeProfile);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-au-2",
+      ticker: "BHP",
+      quantity: 9,
+      costBasisAmount: 360,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "bhp-au-2-sell",
+      userId: "user-1",
+      accountId: "acc-au-2",
+      ticker: "BHP",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 55,
+      priceCurrency: "AUD",
+      tradeDate: "2026-02-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      realizedPnlAmount: 999,
+      isDayTrade: false,
+      feeSnapshot: secondAuFeeProfile,
+    });
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      accountIds: ["acc-au"],
+      fundamentalsRecord: null,
+    });
+
+    expect(details.position.accountIds).toEqual(["acc-au"]);
+    expect(details.position.quantity).toBe(3);
+    expect(details.position.realizedPnlAmount).toBe(0);
+    expect(details.transactions).toHaveLength(1);
+    expect(details.transactions).toEqual([
+      expect.objectContaining({ id: "bhp-au-buy", accountId: "acc-au" }),
+    ]);
+  });
+
   it("builds native-currency unrealized P&L history from actual holding snapshots", async () => {
     const store = buildCrossMarketStore();
     const bars = [

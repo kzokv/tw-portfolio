@@ -115,6 +115,7 @@ export async function buildTickerDetails(
 
   const filteredTransactions = matchingTrades
     .filter((trade) => trade.marketCode === resolvedMarketCode)
+    .filter((trade) => scopedAccountIds.has(trade.accountId))
     .sort(compareTransactionsForHistory);
   const filteredHoldings = matchingHoldings.filter((holding) => scopedAccountIds.has(holding.accountId));
 

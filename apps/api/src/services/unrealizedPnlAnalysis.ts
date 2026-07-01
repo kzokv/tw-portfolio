@@ -526,6 +526,8 @@ function buildDeepLink(query: ResolvedInput): string {
   params.set("granularity", query.granularity);
   if (query.range) {
     if (query.range !== DEFAULT_RANGE) params.set("range", query.range);
+  } else if (query.fromDate && query.toDate) {
+    params.set("range", "CUSTOM");
   }
   if (query.fromDate) params.set("fromDate", query.fromDate);
   if (query.toDate) params.set("toDate", query.toDate);
