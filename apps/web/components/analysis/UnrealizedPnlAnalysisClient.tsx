@@ -156,6 +156,7 @@ export function UnrealizedPnlAnalysisClient({
   }, [explicitPreferenceKeys, router, startTransition]);
 
   const candidateSeriesIds = useMemo(() => data?.selectedSeriesIds ?? state.tickerIds, [data?.selectedSeriesIds, state.tickerIds]);
+  const availableTickerIds = useMemo(() => data?.availableFilters.tickers.map((option) => option.value) ?? candidateSeriesIds, [candidateSeriesIds, data?.availableFilters.tickers]);
   const selectedSet = useMemo(() => {
     if (state.selection !== "topDrivers") return new Set(candidateSeriesIds);
     return new Set(candidateSeriesIds.filter((seriesId) => !mutedSeriesIds.has(seriesId)));
@@ -276,7 +277,7 @@ export function UnrealizedPnlAnalysisClient({
     const current = new Set(
       state.selection === "manualTickers" && state.tickerMode === "custom"
         ? state.tickerIds
-        : candidateSeriesIds,
+        : availableTickerIds,
     );
     if (current.has(seriesId)) {
       if (current.size <= 1) return;
@@ -429,7 +430,6 @@ export function UnrealizedPnlAnalysisClient({
           options={data?.availableFilters.tickers ?? []}
           requestedTickerAvailability={data?.requestedTickerAvailability ?? []}
           selection={state.selection}
-          candidateTickerIds={candidateSeriesIds}
           tickerIds={state.tickerIds}
           tickerMode={state.tickerMode}
           onChange={(tickerMode, tickerIds) => replaceState({ ...state, tickerMode, tickerIds })}
@@ -917,7 +917,6 @@ function TickerPicker({
   options,
   requestedTickerAvailability,
   selection,
-  candidateTickerIds,
   tickerIds,
   tickerMode,
 }: {
@@ -927,7 +926,6 @@ function TickerPicker({
   options: AnalysisFilterOption[];
   requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailability[];
   selection: AnalysisSelection;
-  candidateTickerIds: string[];
   tickerIds: string[];
   tickerMode: AnalysisTickerMode;
 }) {
@@ -964,7 +962,7 @@ function TickerPicker({
   function toggle(row: TickerPickerRow): void {
     if (!row.available && selectedSet.has(row.tickerId)) return;
     const next = tickerMode === "allEligible"
-      ? new Set(candidateTickerIds.length > 0 ? candidateTickerIds : availableRows.map((candidate) => candidate.tickerId))
+      ? new Set(availableRows.map((candidate) => candidate.tickerId))
       : new Set(selectedSet);
     if (tickerMode === "allEligible") {
       if (next.size <= 1 && next.has(row.tickerId)) return;
