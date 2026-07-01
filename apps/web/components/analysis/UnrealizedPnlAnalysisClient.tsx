@@ -21,6 +21,7 @@ import {
   ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
   EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
   applyAnalysisSettings,
+  applySelectionModeSettings,
   mergeSettingsWithState,
   parseAnalysisSettingsFromPreferences,
   settingsFromState,
@@ -384,7 +385,7 @@ export function UnrealizedPnlAnalysisClient({
             labelFor={(option) => option === "manualTickers" ? dict.manualSelection : dict.topDrivers}
             options={SELECTION_OPTIONS}
             value={state.selection}
-            onChange={(selection) => replaceState({ ...state, selection })}
+            onChange={(selection) => replaceState(applySelectionModeSettings(state, settingsRef.current, selection))}
           />
         </ControlGroup>
         <ControlGroup label={dict.holdingsLabel}>

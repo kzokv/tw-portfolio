@@ -357,9 +357,10 @@ async function buildUnrealizedPnlHistory(input: {
     current.accountIds.add(row.accountId);
     current.isProvisional = current.isProvisional || row.isProvisional;
     current.quantity = roundToDecimal(current.quantity + row.quantity, 4);
-    current.unrealizedPnlAmount = current.unrealizedPnlAmount === null || row.unrealizedPnlNative === null
+    const unrealizedPnlAmount = row.unrealizedPnlNative ?? (row.quantity === 0 ? 0 : null);
+    current.unrealizedPnlAmount = current.unrealizedPnlAmount === null || unrealizedPnlAmount === null
       ? null
-      : roundToDecimal(current.unrealizedPnlAmount + row.unrealizedPnlNative, 2);
+      : roundToDecimal(current.unrealizedPnlAmount + unrealizedPnlAmount, 2);
     byDate.set(row.snapshotDate, current);
   }
   return [...byDate.entries()]

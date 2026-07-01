@@ -525,10 +525,30 @@ describe("buildTickerDetails", () => {
         volume: 1000,
         source: "test",
       },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-03",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
     ];
     const holdingSnapshots = [
       makeHoldingSnapshot({ id: "bhp-au-2026-02-01", snapshotDate: "2026-02-01", unrealizedPnlNative: 15, quantity: 3 }),
       makeHoldingSnapshot({ id: "bhp-au-2026-02-02", snapshotDate: "2026-02-02", unrealizedPnlNative: 24, quantity: 3 }),
+      makeHoldingSnapshot({
+        id: "bhp-au-2026-02-03",
+        snapshotDate: "2026-02-03",
+        quantity: 0,
+        marketValue: 0,
+        valueNative: 0,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+      }),
     ];
 
     const { details } = await buildTickerDetails({
@@ -538,7 +558,7 @@ describe("buildTickerDetails", () => {
       ticker: "BHP",
       marketCode: "AU",
       startDate: "2026-02-01",
-      endDate: "2026-02-02",
+      endDate: "2026-02-03",
       fundamentalsRecord: {
         ticker: "BHP",
         marketCode: "AU",
@@ -566,6 +586,13 @@ describe("buildTickerDetails", () => {
         unrealizedPnlAmount: 24,
         currency: "AUD",
         quantity: 3,
+        accountIds: ["acc-au"],
+      }),
+      expect.objectContaining({
+        date: "2026-02-03",
+        unrealizedPnlAmount: 0,
+        currency: "AUD",
+        quantity: 0,
         accountIds: ["acc-au"],
       }),
     ]);

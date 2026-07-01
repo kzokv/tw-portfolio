@@ -268,6 +268,54 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(patchJsonMock).not.toHaveBeenCalled();
   });
 
+  it("restores saved mode settings when switching selection modes", async () => {
+    getJsonMock.mockResolvedValue({
+      preferences: {
+        analysisUnrealizedPnlSettings: {
+          version: 1,
+          selection: "topDrivers",
+          granularity: "weekly",
+          reportingCurrency: "TWD",
+          includeProvisional: false,
+          detailLayout: "responsive",
+          topDrivers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [], drivers: 5 },
+          manualTickers: {
+            positionStatus: "includeClosed",
+            tickerMode: "custom",
+            tickerIds: ["US:NVDA", "US:MSFT"],
+          },
+        },
+      },
+    });
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+
+    await act(async () => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+    replaceMock.mockClear();
+
+    const manualButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Manual tickers");
+    expect(manualButton).toBeDefined();
+
+    await act(async () => {
+      manualButton!.click();
+      await Promise.resolve();
+    });
+
+    const href = replaceMock.mock.calls
+      .map((call) => String(call[0] ?? ""))
+      .find((candidate) => candidate.includes("selection=manualTickers")) ?? "";
+    const params = new URL(href, "http://localhost").searchParams;
+    expect(params.get("selection")).toBe("manualTickers");
+    expect(params.get("tickerMode")).toBe("custom");
+    expect(params.get("positionStatus")).toBe("includeClosed");
+    expect(params.get("tickerIds")?.split(",").sort()).toEqual(["US:MSFT", "US:NVDA"]);
+  });
+
   it("persists layout settings immediately when the detail layout control changes", async () => {
     const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
 

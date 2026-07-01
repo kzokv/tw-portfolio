@@ -179,6 +179,22 @@ export function mergeSettingsWithState(
   };
 }
 
+export function applySelectionModeSettings(
+  state: UnrealizedPnlAnalysisRouteState,
+  settings: UnrealizedPnlAnalysisSettings,
+  selection: AnalysisSelection,
+): UnrealizedPnlAnalysisRouteState {
+  const mode = selection === "manualTickers" ? settings.manualTickers : settings.topDrivers;
+  return normalizeStateTickerMode({
+    ...state,
+    selection,
+    positionStatus: mode.positionStatus,
+    tickerMode: mode.tickerMode,
+    tickerIds: mode.tickerIds,
+    drivers: selection === "topDrivers" ? settings.topDrivers.drivers : state.drivers,
+  });
+}
+
 export function applyAnalysisSettings(
   state: UnrealizedPnlAnalysisRouteState,
   settings: UnrealizedPnlAnalysisSettings,
