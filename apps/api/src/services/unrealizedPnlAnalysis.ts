@@ -671,7 +671,6 @@ export async function buildUnrealizedPnlAnalysis(
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
       markets: query.markets.length > 0 ? query.markets : undefined,
-      tickers: query.tickerIds.length > 0 ? query.tickerIds.map((item) => item.split(":")[1]!).filter(Boolean) : undefined,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
       includeProvisional: query.includeProvisional,
@@ -680,7 +679,6 @@ export async function buildUnrealizedPnlAnalysis(
 
   const filteredSnapshotRows = snapshotRows.filter((row) => {
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
-    if (query.tickerIds.length > 0 && !query.tickerIds.includes(`${row.marketCode}:${row.ticker}`)) return false;
     if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
     if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
     return true;
@@ -832,7 +830,13 @@ export async function buildUnrealizedPnlAnalysis(
     }));
 
   const includedTickerKeySet = new Set(includedTickerSeries.map((series) => `${series.marketCode}:${series.ticker}`));
-  const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => includedTickerKeySet.has(`${row.marketCode}:${row.ticker}`));
+  const customTickerScope = query.tickerMode === "custom" && query.tickerIds.length > 0
+    ? new Set(query.tickerIds)
+    : null;
+  const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => {
+    const key = `${row.marketCode}:${row.ticker}`;
+    return includedTickerKeySet.has(key) && (!customTickerScope || customTickerScope.has(key));
+  });
 
   const portfolioSeries = aggregateBucketRows(
     portfolioSnapshotRows.map((row) => ({
