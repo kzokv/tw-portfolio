@@ -396,6 +396,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
   it("returns manually selected ticker series as the rendered candidate set", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedInstrument({ ticker: "0050", marketCode: "US", instrumentType: "ETF", name: "Cross Market 50" });
     const store = await persistence.loadStore("user-1");
     await seedTrades([
       makeTrade(store, { ticker: "0050", marketCode: "TW", tradeDate: "2026-01-02", type: "BUY", quantity: 20 }),
@@ -405,6 +406,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
       makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
       makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
       makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+      makeSnapshot({ ticker: "0050", marketCode: "US", currency: "USD", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "US", currency: "USD", snapshotDate: "2026-01-31", unrealizedPnl: 800, unrealizedPnlNative: 800, marketValue: 1800, valueNative: 1800 }),
     ]);
 
     const snapshotSpy = vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots");
@@ -420,7 +423,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
 
     expect(report.rankings.map((row) => row.ticker)).toEqual(["0050"]);
-    expect(snapshotSpy).toHaveBeenCalledWith("user-1", expect.objectContaining({ tickers: ["0050"] }));
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", expect.objectContaining({ markets: ["TW"], tickers: ["0050"] }));
+    expect(report.summary.includedTickerCount).toBe(1);
     expect(new Set(report.tickerSeries.map((point) => point.ticker))).toEqual(new Set(["0050"]));
     expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["0050"]);
     expect(report.candidateTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);

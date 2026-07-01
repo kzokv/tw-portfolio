@@ -429,6 +429,7 @@ export function UnrealizedPnlAnalysisClient({
           options={data?.availableFilters.tickers ?? []}
           requestedTickerAvailability={data?.requestedTickerAvailability ?? []}
           selection={state.selection}
+          candidateTickerIds={candidateSeriesIds}
           tickerIds={state.tickerIds}
           tickerMode={state.tickerMode}
           onChange={(tickerMode, tickerIds) => replaceState({ ...state, tickerMode, tickerIds })}
@@ -916,6 +917,7 @@ function TickerPicker({
   options,
   requestedTickerAvailability,
   selection,
+  candidateTickerIds,
   tickerIds,
   tickerMode,
 }: {
@@ -925,6 +927,7 @@ function TickerPicker({
   options: AnalysisFilterOption[];
   requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailability[];
   selection: AnalysisSelection;
+  candidateTickerIds: string[];
   tickerIds: string[];
   tickerMode: AnalysisTickerMode;
 }) {
@@ -961,9 +964,12 @@ function TickerPicker({
   function toggle(row: TickerPickerRow): void {
     if (!row.available && selectedSet.has(row.tickerId)) return;
     const next = tickerMode === "allEligible"
-      ? new Set(availableRows.map((candidate) => candidate.tickerId))
+      ? new Set(candidateTickerIds.length > 0 ? candidateTickerIds : availableRows.map((candidate) => candidate.tickerId))
       : new Set(selectedSet);
-    if (next.has(row.tickerId)) {
+    if (tickerMode === "allEligible") {
+      if (next.size <= 1 && next.has(row.tickerId)) return;
+      next.delete(row.tickerId);
+    } else if (next.has(row.tickerId)) {
       if (next.size <= 1) return;
       next.delete(row.tickerId);
     } else {

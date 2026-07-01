@@ -161,6 +161,54 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(lastUrl).not.toContain("US%3AAAPL");
   });
 
+  it("caps all-eligible picker conversion to rendered candidate tickers", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "allEligible" as const,
+      tickerIds: [],
+      drivers: 5 as const,
+    };
+    const tickerIds = Array.from({ length: 205 }, (_, index) => `US:T${String(index).padStart(3, "0")}`);
+    const selectedSeriesIds = tickerIds.slice(0, 200);
+    const previewData = buildPreviewUnrealizedPnlAnalysis(initialState);
+    const initialData = {
+      ...previewData,
+      selectedSeriesIds,
+      availableFilters: {
+        ...previewData.availableFilters,
+        tickers: tickerIds.map((tickerId) => ({ value: tickerId, label: tickerId })),
+      },
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+    replaceMock.mockClear();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-ticker-picker-trigger']")?.click();
+    });
+    const firstTickerCheckbox = Array.from(document.body.querySelectorAll<HTMLInputElement>("[data-testid='analysis-ticker-picker'] input[type='checkbox']"))
+      .find((input) => input.closest("label")?.textContent?.includes("US:T000"));
+    expect(firstTickerCheckbox).toBeDefined();
+
+    act(() => {
+      firstTickerCheckbox!.click();
+    });
+
+    const lastUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
+    const params = new URL(lastUrl, "http://localhost").searchParams;
+    const customTickerIds = params.get("tickerIds")?.split(",") ?? [];
+    expect(params.get("tickerMode")).toBe("custom");
+    expect(customTickerIds).toHaveLength(199);
+    expect(customTickerIds).not.toContain("US:T000");
+  });
+
   it("keeps manual detail rows pinned after ranked rows when sorting by name", () => {
     const previewData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
     const initialData = {

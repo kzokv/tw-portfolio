@@ -665,12 +665,14 @@ export async function buildUnrealizedPnlAnalysis(
       instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, instrument.name);
     }
   }
+  const customTickerScope = query.tickerIds.length > 0 ? new Set(query.tickerIds) : null;
+  const requestedTickerMarkets = [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort();
 
   const snapshotRows = requestedAccountIds.length === 0
     ? []
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
-      markets: query.markets.length > 0 ? query.markets : undefined,
+      markets: query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined),
       tickers: query.tickerIds.length > 0 ? query.requestedTickers.map((item) => item.ticker) : undefined,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
@@ -679,6 +681,7 @@ export async function buildUnrealizedPnlAnalysis(
     });
 
   const filteredSnapshotRows = snapshotRows.filter((row) => {
+    if (customTickerScope && !customTickerScope.has(`${row.marketCode}:${row.ticker}`)) return false;
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
     if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
     if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
@@ -835,9 +838,6 @@ export async function buildUnrealizedPnlAnalysis(
     }));
 
   const portfolioTickerKeySet = new Set(positionScopedTickerSeries.map((series) => `${series.marketCode}:${series.ticker}`));
-  const customTickerScope = query.tickerMode === "custom" && query.tickerIds.length > 0
-    ? new Set(query.tickerIds)
-    : null;
   const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => {
     const key = `${row.marketCode}:${row.ticker}`;
     return portfolioTickerKeySet.has(key) && (!customTickerScope || customTickerScope.has(key));
