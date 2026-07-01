@@ -385,6 +385,39 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(focusValues?.querySelector("[title='NT$987,654,321']")).not.toBeNull();
   });
 
+  it("uses resolved date bounds for half-open custom ticker drilldown links", () => {
+    const halfOpenState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      range: "CUSTOM" as const,
+      from: "2026-04-10",
+      to: null,
+    };
+    const previewData = buildPreviewUnrealizedPnlAnalysis(halfOpenState);
+    const initialData = {
+      ...previewData,
+      summary: {
+        ...previewData.summary,
+        startDate: "2026-04-10",
+        endDate: "2026-07-01",
+      },
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={halfOpenState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const tickerHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href") ?? "")
+      .find((href) => href.startsWith("/tickers/"));
+    expect(tickerHref).toContain("source=unrealized-pnl-analysis");
+    expect(tickerHref).toContain("fromDate=2026-04-10");
+    expect(tickerHref).toContain("toDate=2026-07-01");
+  });
+
   it("closes the mobile total composition sheet when the viewport becomes desktop", () => {
     const listeners = new Set<(event: MediaQueryListEvent) => void>();
     const mediaQuery = {

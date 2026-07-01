@@ -848,6 +848,13 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.deepLink).toContain("reportingCurrency=USD");
     expect(report.deepLink).toContain("includeProvisional=false");
     expect(report.deepLink).not.toContain("rankingLimit=");
+
+    const halfOpenReport = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "monthly",
+      toDate: "2026-01-31",
+    });
+    expect(halfOpenReport.deepLink).toContain("range=CUSTOM");
+    expect(halfOpenReport.deepLink).toContain("toDate=2026-01-31");
   });
 
   it("strips unknown route query fields while keeping the new state model", () => {

@@ -1151,8 +1151,8 @@ function buildTickerDetailHref(
     marketCode: row.marketCode,
     source: "unrealized-pnl-analysis",
   });
-  const fromDate = state.range === "CUSTOM" ? state.from : data?.summary.startDate ?? null;
-  const toDate = state.range === "CUSTOM" ? state.to : data?.summary.endDate ?? null;
+  const fromDate = data?.summary.startDate ?? (state.range === "CUSTOM" ? state.from : null);
+  const toDate = data?.summary.endDate ?? (state.range === "CUSTOM" ? state.to : null);
   if (fromDate) params.set("fromDate", fromDate);
   if (toDate) params.set("toDate", toDate);
   if (state.accounts.length === 1) {
