@@ -340,8 +340,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnlAmount])).toEqual([
       ["0050", 400],
       ["2330", 100],
+      ["AAPL", null],
     ]);
-    expect(report.tickerComposition.some((row) => row.ticker === "AAPL")).toBe(false);
     expect(report.dataHealth.snapshotRowCount).toBe(3);
     expect(report.dataHealth.nullUnrealizedRowCount).toBe(1);
     expect(report.dataHealth.unavailableRowCount).toBe(1);
@@ -483,7 +483,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
 
     expect(report.candidateTickers).toHaveLength(200);
-    expect(report.tickerComposition).toHaveLength(200);
+    expect(report.tickerComposition).toHaveLength(205);
     expect(new Set(report.tickerSeries.map((point) => `${point.marketCode}:${point.ticker}`)).size).toBe(200);
     expect(report.warningFacts).toEqual({
       noisyChartLineCount: 200,
@@ -531,7 +531,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
       { marketCode: "US", ticker: "MISSING" },
     ]);
     expect(report.tickerSeries).toEqual([]);
-    expect(report.tickerComposition).toEqual([]);
+    expect(report.tickerComposition).toEqual([
+      expect.objectContaining({ ticker: "AAPL", endUnrealizedPnlAmount: null, contributionSharePercent: null }),
+    ]);
     expect(report.requestedTickerAvailability).toEqual([
       expect.objectContaining({
         tickerId: "US:AAPL",
@@ -647,6 +649,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
 
     expect(report.candidateTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
+    expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["2330", "0050"]);
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "2330", marketCode: "TW", kind: "buy" }),
     ]);

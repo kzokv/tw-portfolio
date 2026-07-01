@@ -881,9 +881,7 @@ export async function buildUnrealizedPnlAnalysis(
     : null;
   const totalEndUnrealizedPnlAmount = summaryEndPoint?.unrealizedPnlAmount ?? null;
   const summaryEndDate = summaryEndPoint?.date ?? null;
-  const tickerComposition = candidateTickers
-    .map((ticker) => seriesByKey.get(tickerKey(ticker)))
-    .filter((series): series is TickerSeriesAggregate => series !== undefined)
+  const tickerComposition = analysisPositionScopedTickerSeries
     .map((series): UnrealizedPnlTickerCompositionRowDto => {
       const endPoint = summaryEndDate
         ? series.points.find((point) => point.date === summaryEndDate) ?? null
@@ -913,9 +911,12 @@ export async function buildUnrealizedPnlAnalysis(
       };
     })
     .sort((left, right) => {
-      const leftIndex = candidateTickers.findIndex((ticker) => tickerKey(ticker) === `${left.marketCode}:${left.ticker}`);
-      const rightIndex = candidateTickers.findIndex((ticker) => tickerKey(ticker) === `${right.marketCode}:${right.ticker}`);
-      return leftIndex - rightIndex;
+      const leftScore = left.endUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY;
+      const rightScore = right.endUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY;
+      if (leftScore !== rightScore) return rightScore - leftScore;
+      return (left.instrumentName ?? left.ticker).localeCompare(right.instrumentName ?? right.ticker)
+        || left.marketCode.localeCompare(right.marketCode)
+        || left.ticker.localeCompare(right.ticker);
     });
   const nonZeroQuantitySnapshotRows = portfolioSnapshotRows.filter((row) => row.quantity !== 0);
 
