@@ -101,8 +101,8 @@ export function getExplicitAnalysisPreferenceKeys(
     granularity: has("granularity"),
     drivers: has("drivers") || has("comparisonLineCount") || has("lines"),
     positionStatus: has("positionStatus") || has("holdingsState") || has("holdings"),
-    tickerMode: has("tickerMode"),
-    tickerIds: has("tickerIds") || has("selectedTickers") || has("selected"),
+    tickerMode: has("tickerMode") || has("tickerIds") || has("selectedTickers") || has("selected") || has("tickers"),
+    tickerIds: has("tickerIds") || has("selectedTickers") || has("selected") || has("tickers"),
     reportingCurrency: has("reportingCurrency") || has("currency"),
     includeProvisional: has("includeProvisional") || has("provisional"),
   };

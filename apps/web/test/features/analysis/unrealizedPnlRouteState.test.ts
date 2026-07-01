@@ -178,6 +178,35 @@ describe("unrealizedPnlRouteState", () => {
     expect(next.detailLayout).toBe("cards");
   });
 
+  it("treats URL ticker IDs as an explicit custom ticker mode", () => {
+    const state = parseUnrealizedPnlRouteState({
+      tickerIds: "US:AAPL",
+    });
+    const explicitKeys = getExplicitAnalysisPreferenceKeys({
+      tickerIds: "US:AAPL",
+    });
+    const settings = parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlSettings: {
+        version: 1,
+        selection: "topDrivers",
+        granularity: "weekly",
+        reportingCurrency: "TWD",
+        includeProvisional: false,
+        detailLayout: "responsive",
+        topDrivers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [], drivers: 5 },
+        manualTickers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [] },
+      },
+    });
+
+    const next = applyAnalysisSettings(state, settings, explicitKeys);
+
+    expect(state.tickerMode).toBe("custom");
+    expect(explicitKeys.tickerMode).toBe(true);
+    expect(explicitKeys.tickerIds).toBe(true);
+    expect(next.tickerMode).toBe("custom");
+    expect(next.tickerIds).toEqual(["US:AAPL"]);
+  });
+
   it("preserves an explicit analysis TWD currency setting when global currency differs", () => {
     const settings = parseAnalysisSettingsFromPreferences({
       reportingCurrency: "USD",
