@@ -467,9 +467,18 @@ export function TickerHistoryClient({
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = detailsState.identity.currency;
   const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
-  const accountScopeDisplayName = transactionAccountFilter
-    ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
-    : dict.tickerHistory.allAccountsLabel;
+  const accountScopeDisplayName = useMemo(() => {
+    if (transactionAccountFilter) return accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter;
+    if (transactionAccountIdsFilter?.length) {
+      if (transactionAccountIdsFilter.length <= 2) {
+        return transactionAccountIdsFilter.map((accountId) => accountNameById.get(accountId) ?? accountId).join(", ");
+      }
+      return formatTickerChartMessage(dict.tickerHistory.analysisAccountsCountLabel, {
+        count: String(transactionAccountIdsFilter.length),
+      });
+    }
+    return dict.tickerHistory.allAccountsLabel;
+  }, [accountNameById, dict.tickerHistory.allAccountsLabel, dict.tickerHistory.analysisAccountsCountLabel, transactionAccountFilter, transactionAccountIdsFilter]);
   const effectiveHoldingGroup = detailsState.holdingGroup;
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children

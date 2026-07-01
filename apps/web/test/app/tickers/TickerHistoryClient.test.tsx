@@ -786,6 +786,7 @@ describe("TickerHistoryClient", () => {
     expect(element.textContent).toContain(dict.tickerHistory.analysisSourceLabel);
     expect(element.textContent).toContain("2026-04-10 - 2026-06-26");
     expect(element.textContent).toContain("2 accounts");
+    expect(element.textContent).toContain("Main Brokerage, Scope Brokerage");
 
     await act(async () => {
       findButtonByText(element, dict.tickerHistory.currentPriceLabel).click();

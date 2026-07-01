@@ -671,6 +671,7 @@ export async function buildUnrealizedPnlAnalysis(
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
       markets: query.markets.length > 0 ? query.markets : undefined,
+      tickers: query.tickerIds.length > 0 ? query.requestedTickers.map((item) => item.ticker) : undefined,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
       includeProvisional: query.includeProvisional,

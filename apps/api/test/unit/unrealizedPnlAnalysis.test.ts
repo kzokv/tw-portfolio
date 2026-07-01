@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import {
   buildUnrealizedPnlAnalysis,
@@ -407,6 +407,8 @@ describe("buildUnrealizedPnlAnalysis", () => {
       makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
     ]);
 
+    const snapshotSpy = vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots");
+
     const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
       granularity: "daily",
       fromDate: "2026-01-01",
@@ -418,6 +420,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     });
 
     expect(report.rankings.map((row) => row.ticker)).toEqual(["0050"]);
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", expect.objectContaining({ tickers: ["0050"] }));
     expect(new Set(report.tickerSeries.map((point) => point.ticker))).toEqual(new Set(["0050"]));
     expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["0050"]);
     expect(report.candidateTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);
