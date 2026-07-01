@@ -97,12 +97,12 @@ export function getExplicitAnalysisPreferenceKeys(
   };
 
   return {
-    selection: has("selection"),
+    selection: has("selection") || has("selectionMode"),
     granularity: has("granularity"),
-    drivers: has("drivers"),
-    positionStatus: has("positionStatus"),
+    drivers: has("drivers") || has("comparisonLineCount") || has("lines"),
+    positionStatus: has("positionStatus") || has("holdingsState") || has("holdings"),
     tickerMode: has("tickerMode"),
-    tickerIds: has("tickerIds"),
+    tickerIds: has("tickerIds") || has("selectedTickers") || has("selected"),
     reportingCurrency: has("reportingCurrency") || has("currency"),
     includeProvisional: has("includeProvisional") || has("provisional"),
   };
@@ -273,6 +273,8 @@ export function parseUnrealizedPnlRouteState(
   if (range === "ALL" && granularity !== "yearly") range = "5Y";
   if (granularity !== "yearly" && !FIVE_YEAR_RANGES.has(range)) range = ANALYSIS_DEFAULT_STATE.range;
 
+  const tickerIds = normalizeTickerIds(read("tickerIds") ?? read("selectedTickers") ?? read("selected"));
+  const tickerMode = normalizeEnum(read("tickerMode"), ANALYSIS_TICKER_MODES, tickerIds.length > 0 ? "custom" : ANALYSIS_DEFAULT_STATE.tickerMode);
   const state: UnrealizedPnlAnalysisRouteState = {
     range,
     from: range === "CUSTOM" ? normalizeDate(read("fromDate") ?? read("from")) : null,
@@ -280,11 +282,11 @@ export function parseUnrealizedPnlRouteState(
     granularity,
     markets: normalizeCsv(read("markets")).filter(isMarketCode),
     accounts: normalizeCsv(read("accountIds") ?? read("accounts")),
-    selection: normalizeEnum(read("selection"), ANALYSIS_SELECTIONS, ANALYSIS_DEFAULT_STATE.selection),
-    tickerMode: normalizeEnum(read("tickerMode"), ANALYSIS_TICKER_MODES, ANALYSIS_DEFAULT_STATE.tickerMode),
-    tickerIds: normalizeTickerIds(read("tickerIds")),
-    drivers: normalizeDriverCount(read("drivers")),
-    positionStatus: normalizeEnum(read("positionStatus"), ANALYSIS_POSITION_STATUSES, ANALYSIS_DEFAULT_STATE.positionStatus),
+    selection: normalizeAnalysisSelection(read("selection") ?? read("selectionMode")),
+    tickerMode,
+    tickerIds,
+    drivers: normalizeDriverCount(read("drivers") ?? read("comparisonLineCount") ?? read("lines")),
+    positionStatus: normalizeAnalysisPositionStatus(read("positionStatus") ?? read("holdingsState") ?? read("holdings")),
     reportingCurrency: normalizeCurrency(read("reportingCurrency") ?? read("currency"), ANALYSIS_DEFAULT_STATE.reportingCurrency),
     includeProvisional: read("includeProvisional") === "true" || read("provisional") === "1",
     instrumentTypes: normalizeCsv(read("instrumentTypes")).filter(isInstrumentType),
@@ -500,6 +502,18 @@ function normalizeTickerIds(value: string | undefined): string[] {
 function normalizeDriverCount(value: string | undefined, fallback: AnalysisDriverCount = ANALYSIS_DEFAULT_STATE.drivers): AnalysisDriverCount {
   const parsed = Number.parseInt(value ?? "", 10);
   return (ANALYSIS_DRIVER_COUNTS as readonly number[]).includes(parsed) ? parsed as AnalysisDriverCount : fallback;
+}
+
+function normalizeAnalysisSelection(value: string | undefined): AnalysisSelection {
+  if (value === "manual") return "manualTickers";
+  if (value === "auto" || value === "top-drivers") return "topDrivers";
+  return normalizeEnum(value, ANALYSIS_SELECTIONS, ANALYSIS_DEFAULT_STATE.selection);
+}
+
+function normalizeAnalysisPositionStatus(value: string | undefined): AnalysisPositionStatus {
+  if (value === "include_sold_out" || value === "include-sold" || value === "include-sold-out") return "includeClosed";
+  if (value === "open_only" || value === "current-only") return "openOnly";
+  return normalizeEnum(value, ANALYSIS_POSITION_STATUSES, ANALYSIS_DEFAULT_STATE.positionStatus);
 }
 
 function normalizeCurrency(value: string | undefined, fallback: AccountDefaultCurrency): AccountDefaultCurrency {

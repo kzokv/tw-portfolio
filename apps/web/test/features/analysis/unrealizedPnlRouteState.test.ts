@@ -54,19 +54,21 @@ describe("unrealizedPnlRouteState", () => {
     expect(buildUnrealizedPnlApiPath(state)).toContain("tickerIds=TW%3A2330%2CUS%3ANVDA");
   });
 
-  it("ignores legacy query params and falls back to defaults", () => {
+  it("preserves legacy query aliases as read-only compatibility", () => {
     const state = parseUnrealizedPnlRouteState({
       selectionMode: "manual",
-      selectedTickers: "US:NVDA",
+      selectedTickers: "US:NVDA,TW:2330",
       comparisonLineCount: "10",
       holdingsState: "include_sold_out",
     });
 
-    expect(state.selection).toBe("topDrivers");
-    expect(state.tickerMode).toBe("allEligible");
-    expect(state.tickerIds).toEqual([]);
-    expect(state.drivers).toBe(5);
-    expect(state.positionStatus).toBe("openOnly");
+    expect(state.selection).toBe("manualTickers");
+    expect(state.tickerMode).toBe("custom");
+    expect(state.tickerIds).toEqual(["TW:2330", "US:NVDA"]);
+    expect(state.drivers).toBe(10);
+    expect(state.positionStatus).toBe("includeClosed");
+    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("selection=manualTickers");
+    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).not.toContain("selectionMode=");
   });
 
   it("keeps presentation-only focus and view out of API query strings", () => {
