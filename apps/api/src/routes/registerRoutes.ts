@@ -2065,15 +2065,17 @@ function buildTransactionHistoryItems(
   query: {
     ticker?: string;
     accountId?: string;
+    accountIds?: string[];
     marketCode?: string;
     limit?: number;
   } = {},
 ): TransactionHistoryItemDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(store.accounting);
+  const accountIds = query.accountId ? new Set([query.accountId]) : new Set(query.accountIds ?? []);
   const sortedTrades = listTradeEvents(store)
     .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
-    .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+    .filter((trade) => (accountIds.size > 0 ? accountIds.has(trade.accountId) : true))
     .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
     .sort(compareTransactionsForHistory);
   const visibleTrades = query.limit ? sortedTrades.slice(0, query.limit) : sortedTrades;
@@ -5436,6 +5438,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
+      accountIds: z.preprocess((value) => {
+        if (typeof value !== "string") return undefined;
+        return value.split(",").map((item) => item.trim()).filter(Boolean);
+      }, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);

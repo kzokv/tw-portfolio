@@ -66,7 +66,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   try {
     [dashboard, transactions, instrument] = await Promise.all([
       fetchDashboardPrimaryData(),
-      fetchTransactionHistory({ ticker, accountId: scopedAccountId, marketCode: scopedMarketCode }),
+      fetchTransactionHistory({ ticker, accountId: scopedAccountId, accountIds: scopedAccountIds, marketCode: scopedMarketCode }),
       fetchRepairInstrument(ticker),
     ]);
   } catch {

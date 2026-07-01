@@ -576,12 +576,14 @@ export function TickerHistoryClient({
     const nextTransactions = await fetchTransactionHistory({
       ticker,
       accountId: transactionAccountFilter,
+      accountIds: transactionAccountIdsFilter,
       marketCode: transactionMarketFilter,
     });
     setDisplayTransactions(nextTransactions);
     const nextDetails = await fetchTickerDetailsFullRefresh({
       ticker,
       accountId: transactionAccountFilter,
+      accountIds: transactionAccountIdsFilter,
       marketCode: transactionMarketFilter,
       range: tickerChartRequest.range,
       startDate: tickerChartRequest.startDate,
