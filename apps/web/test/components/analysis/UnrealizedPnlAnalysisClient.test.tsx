@@ -583,6 +583,11 @@ describe("UnrealizedPnlAnalysisClient", () => {
     const previewData = buildPreviewUnrealizedPnlAnalysis(halfOpenState);
     const initialData = {
       ...previewData,
+      query: {
+        ...previewData.query,
+        startDate: "2026-04-10",
+        endDate: "2026-07-01",
+      },
       summary: {
         ...previewData.summary,
         startDate: "2026-04-10",
@@ -615,6 +620,11 @@ describe("UnrealizedPnlAnalysisClient", () => {
     const previewData = buildPreviewUnrealizedPnlAnalysis(allState);
     const initialData = {
       ...previewData,
+      query: {
+        ...previewData.query,
+        startDate: "2010-01-01",
+        endDate: "2026-07-01",
+      },
       summary: {
         ...previewData.summary,
         startDate: "2010-01-01",

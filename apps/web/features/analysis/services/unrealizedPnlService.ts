@@ -109,6 +109,8 @@ function mapApiAnalysis(
       range: state.range,
       from: response.query.fromDate,
       to: response.query.toDate,
+      startDate: response.query.startDate,
+      endDate: response.query.endDate,
       granularity: response.query.granularity,
       markets: response.query.markets,
       accounts: response.query.accountIds,

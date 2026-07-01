@@ -1196,8 +1196,8 @@ function buildTickerDetailHref(
     marketCode: row.marketCode,
     source: "unrealized-pnl-analysis",
   });
-  const fromDate = data?.summary.startDate ?? (state.range === "CUSTOM" ? state.from : null);
-  const toDate = data?.summary.endDate ?? (state.range === "CUSTOM" ? state.to : null);
+  const fromDate = data?.query.startDate ?? (state.range === "CUSTOM" ? state.from : null);
+  const toDate = data?.query.endDate ?? (state.range === "CUSTOM" ? state.to : null);
   if (state.range === "ALL" || customTickerChartRangeExceedsLimit(fromDate, toDate)) {
     params.set("chartRange", "ALL");
   } else {

@@ -63,6 +63,8 @@ export interface UnrealizedPnlAnalysisResolvedFilters {
   range: AnalysisRangeOption;
   from: string | null;
   to: string | null;
+  startDate: string;
+  endDate: string;
   granularity: AnalysisGranularity;
   markets: AnalysisMarketCode[];
   accounts: string[];

@@ -18,6 +18,8 @@ const loadedAnalysis = {
     range: "3M",
     from: null,
     to: null,
+    startDate: "2026-01-01",
+    endDate: "2026-01-31",
     granularity: "weekly",
     markets: [],
     accounts: [],

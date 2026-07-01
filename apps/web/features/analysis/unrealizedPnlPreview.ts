@@ -224,6 +224,8 @@ export function buildPreviewUnrealizedPnlAnalysis(
       range: state.range,
       from: state.range === "CUSTOM" ? state.from : null,
       to: state.range === "CUSTOM" ? state.to : null,
+      startDate: state.range === "CUSTOM" ? state.from ?? PREVIEW_DATES[0]! : PREVIEW_DATES[0]!,
+      endDate: state.range === "CUSTOM" ? state.to ?? PREVIEW_DATES.at(-1)! : PREVIEW_DATES.at(-1)!,
       granularity: state.granularity,
       markets: state.markets,
       accounts: state.accounts,
