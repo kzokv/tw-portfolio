@@ -690,7 +690,7 @@ export async function buildUnrealizedPnlAnalysis(
         accountIds: requestedAccountIds,
         markets: snapshotQueryMarkets,
         tickers: undefined,
-        startDate: query.endDate,
+        startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
         endDate: query.endDate,
         includeProvisional: query.includeProvisional,
         reportingCurrency: query.reportingCurrency,

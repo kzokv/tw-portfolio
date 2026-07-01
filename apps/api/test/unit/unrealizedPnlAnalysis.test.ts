@@ -422,7 +422,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
       tickerIds: [{ ticker: "0050", marketCode: "TW" }],
     });
 
-    expect(report.rankings.map((row) => row.ticker)).toEqual(["0050", "2330"]);
+    expect(report.rankings.map((row) => row.ticker)).toEqual(["2330", "0050"]);
     expect(snapshotSpy).toHaveBeenNthCalledWith(1, "user-1", expect.objectContaining({
       markets: ["TW"],
       tickers: ["0050"],
@@ -432,7 +432,7 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(snapshotSpy).toHaveBeenNthCalledWith(2, "user-1", expect.objectContaining({
       markets: ["TW"],
       tickers: undefined,
-      startDate: "2026-01-31",
+      startDate: "2026-01-01",
       endDate: "2026-01-31",
     }));
     expect(report.summary.includedTickerCount).toBe(1);
@@ -450,6 +450,30 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "0050", marketCode: "TW", kind: "buy" }),
     ]);
+  });
+
+  it("keeps manual custom tickers eligible when the range ends after the latest snapshot", async () => {
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-02-01",
+      positionStatus: "includeClosed",
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: [{ ticker: "0050", marketCode: "TW" }],
+    });
+
+    expect(report.candidateTickers).toEqual([{ ticker: "0050", marketCode: "TW" }]);
+    expect(report.requestedTickerAvailability).toEqual([
+      expect.objectContaining({ tickerId: "TW:0050", eligible: true, reason: null }),
+    ]);
+    expect(report.tickerSeries.map((point) => point.date)).toEqual(["2026-01-01", "2026-01-31"]);
   });
 
   it("caps manual all-eligible candidates at the safety limit with structured warnings", async () => {
