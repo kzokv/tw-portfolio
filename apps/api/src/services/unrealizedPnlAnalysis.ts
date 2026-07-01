@@ -667,28 +667,49 @@ export async function buildUnrealizedPnlAnalysis(
   }
   const customTickerScope = query.tickerIds.length > 0 ? new Set(query.tickerIds) : null;
   const requestedTickerMarkets = [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort();
+  const snapshotQueryMarkets = query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined);
+  const requestedTickerSymbols = query.tickerIds.length > 0
+    ? [...new Set(query.requestedTickers.map((item) => item.ticker))]
+    : undefined;
 
-  const snapshotRows = requestedAccountIds.length === 0
+  const analysisSnapshotRows = requestedAccountIds.length === 0
     ? []
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
-      markets: query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined),
-      tickers: undefined,
+      markets: snapshotQueryMarkets,
+      tickers: requestedTickerSymbols,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
       includeProvisional: query.includeProvisional,
       reportingCurrency: query.reportingCurrency,
     });
+  const eligibleSnapshotRows = requestedAccountIds.length === 0
+    ? []
+    : customTickerScope
+      ? await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
+        accountIds: requestedAccountIds,
+        markets: snapshotQueryMarkets,
+        tickers: undefined,
+        startDate: query.endDate,
+        endDate: query.endDate,
+        includeProvisional: query.includeProvisional,
+        reportingCurrency: query.reportingCurrency,
+      })
+      : analysisSnapshotRows;
 
-  const scopedSnapshotRows = snapshotRows.filter((row) => {
+  const scopedSnapshotRows = eligibleSnapshotRows.filter((row) => {
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
     if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
     if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
     return true;
   });
-  const filteredSnapshotRows = customTickerScope
-    ? scopedSnapshotRows.filter((row) => customTickerScope.has(`${row.marketCode}:${row.ticker}`))
-    : scopedSnapshotRows;
+  const filteredSnapshotRows = (customTickerScope ? analysisSnapshotRows : scopedSnapshotRows).filter((row) => {
+    const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
+    if (customTickerScope && !customTickerScope.has(`${row.marketCode}:${row.ticker}`)) return false;
+    if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
+    if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
+    return true;
+  });
 
   const descriptors = buildBucketDescriptors(filteredSnapshotRows, query.granularity);
   const eligibleDescriptors = buildBucketDescriptors(scopedSnapshotRows, query.granularity);

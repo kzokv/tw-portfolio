@@ -422,8 +422,19 @@ describe("buildUnrealizedPnlAnalysis", () => {
       tickerIds: [{ ticker: "0050", marketCode: "TW" }],
     });
 
-    expect(report.rankings.map((row) => row.ticker)).toEqual(["2330", "0050"]);
-    expect(snapshotSpy).toHaveBeenCalledWith("user-1", expect.objectContaining({ markets: ["TW"], tickers: undefined }));
+    expect(report.rankings.map((row) => row.ticker)).toEqual(["0050", "2330"]);
+    expect(snapshotSpy).toHaveBeenNthCalledWith(1, "user-1", expect.objectContaining({
+      markets: ["TW"],
+      tickers: ["0050"],
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+    }));
+    expect(snapshotSpy).toHaveBeenNthCalledWith(2, "user-1", expect.objectContaining({
+      markets: ["TW"],
+      tickers: undefined,
+      startDate: "2026-01-31",
+      endDate: "2026-01-31",
+    }));
     expect(report.summary.includedTickerCount).toBe(1);
     expect(new Set(report.tickerSeries.map((point) => point.ticker))).toEqual(new Set(["0050"]));
     expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["0050"]);
