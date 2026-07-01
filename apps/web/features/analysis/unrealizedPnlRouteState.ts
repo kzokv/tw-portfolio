@@ -160,11 +160,10 @@ function parseLegacyAnalysisSettings(value: unknown): Partial<UnrealizedPnlAnaly
     ? "includeClosed"
     : defaults.topDrivers.positionStatus;
 
-  return {
+  const settings: Partial<UnrealizedPnlAnalysisSettings> = {
     version: 1,
     selection: defaults.selection,
     granularity: normalizeEnum(asString(source.granularity), ANALYSIS_GRANULARITIES, defaults.granularity),
-    reportingCurrency: normalizeCurrency(asString(source.reportingCurrency), defaults.reportingCurrency),
     includeProvisional: typeof source.includeProvisional === "boolean" ? source.includeProvisional : defaults.includeProvisional,
     detailLayout: defaults.detailLayout,
     topDrivers: {
@@ -177,6 +176,10 @@ function parseLegacyAnalysisSettings(value: unknown): Partial<UnrealizedPnlAnaly
       positionStatus,
     },
   };
+  if (typeof source.reportingCurrency === "string") {
+    settings.reportingCurrency = normalizeCurrency(source.reportingCurrency, defaults.reportingCurrency);
+  }
+  return settings;
 }
 
 export function settingsFromState(state: UnrealizedPnlAnalysisRouteState): UnrealizedPnlAnalysisSettings {

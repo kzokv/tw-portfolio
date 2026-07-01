@@ -217,6 +217,20 @@ describe("unrealizedPnlRouteState", () => {
     });
   });
 
+  it("preserves root reporting currency when legacy defaults omit currency", () => {
+    const settings = parseAnalysisSettingsFromPreferences({
+      reportingCurrency: "USD",
+      analysisUnrealizedPnlDefaults: {
+        granularity: "monthly",
+        lineCount: 10,
+        holdingsState: "include-sold",
+        includeProvisional: true,
+      },
+    });
+
+    expect(settings.reportingCurrency).toBe("USD");
+  });
+
   it("maps report/dashboard ranges through the shared serializer", () => {
     expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
     expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");
