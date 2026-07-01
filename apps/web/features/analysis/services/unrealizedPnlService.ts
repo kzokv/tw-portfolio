@@ -75,7 +75,7 @@ function mapApiAnalysis(
       isSelected: selectedSet.has(seriesId),
     };
   });
-  const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById);
+  const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById, response.query.selection);
   const tickerComposition = response.tickerComposition.map((row) => {
     const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
     const positionStatus = resolvePositionStatus(row);
@@ -202,11 +202,17 @@ function buildTickerSelection(
   ranking: UnrealizedPnlAnalysisDto["ranking"],
   selectedIds: string[],
   seriesById: ReadonlyMap<string, UnrealizedPnlSeries>,
+  selection: UnrealizedPnlAnalysisDto["query"]["selection"],
 ): UnrealizedPnlTickerSelectionRow[] {
-  const rows: UnrealizedPnlTickerSelectionRow[] = ranking.map((row, index) => ({
+  const selectedIdSet = new Set(selectedIds);
+  const rankBySeriesId = new Map(ranking.map((row, index) => [row.seriesId, index + 1] as const));
+  const selectionRows = selection === "manualTickers"
+    ? ranking.filter((row) => selectedIdSet.has(row.seriesId))
+    : ranking;
+  const rows: UnrealizedPnlTickerSelectionRow[] = selectionRows.map((row) => ({
     ...row,
-    rankLabel: `#${index + 1}`,
-    rankSort: index + 1,
+    rankLabel: `#${rankBySeriesId.get(row.seriesId) ?? 0}`,
+    rankSort: rankBySeriesId.get(row.seriesId) ?? Number.MAX_SAFE_INTEGER,
     colorToken: seriesById.get(row.seriesId)?.colorToken ?? "#64748b",
     isManual: false,
   }));

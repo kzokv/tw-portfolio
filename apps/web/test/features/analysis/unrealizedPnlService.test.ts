@@ -289,9 +289,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       ["MSFT", null, null],
     ]);
     expect(model.tickerSelection.map((row) => [row.ticker, row.rankLabel, row.colorToken, row.isManual])).toEqual([
-      ["AAPL", "#1", expect.any(String), false],
       ["NVDA", "#2", expect.any(String), false],
-      ["MSFT", "#3", expect.any(String), false],
     ]);
     expect(model.selectedSeriesIds).toEqual(["US:NVDA"]);
   });
