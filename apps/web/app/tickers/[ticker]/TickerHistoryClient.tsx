@@ -220,9 +220,11 @@ function resolveInitialTickerChartState(
   request: TickerChartRequest;
   selection: TickerRangeControl;
 } {
-  const queryRange = searchParams.get("chartRange")?.trim().toUpperCase();
-  const queryStart = searchParams.get("chartStart")?.trim() ?? "";
-  const queryEnd = searchParams.get("chartEnd")?.trim() ?? "";
+  const analysisDateAlias = searchParams.get("source") === "unrealized-pnl-analysis";
+  const queryStart = searchParams.get("chartStart")?.trim() || (analysisDateAlias ? searchParams.get("fromDate")?.trim() : undefined) || "";
+  const queryEnd = searchParams.get("chartEnd")?.trim() || (analysisDateAlias ? searchParams.get("toDate")?.trim() : undefined) || "";
+  const queryRange = searchParams.get("chartRange")?.trim().toUpperCase()
+    ?? (analysisDateAlias && queryStart && queryEnd ? "CUSTOM" : undefined);
 
   if (queryRange === "CUSTOM" && isValidCustomTickerChartRange(queryStart, queryEnd)) {
     return {
@@ -263,6 +265,9 @@ function buildInitialTickerChartSearchParams(
       if (key === "chartRange") return query?.chartRange ?? null;
       if (key === "chartStart") return query?.chartStart ?? null;
       if (key === "chartEnd") return query?.chartEnd ?? null;
+      if (key === "source") return null;
+      if (key === "fromDate") return null;
+      if (key === "toDate") return null;
       return null;
     },
   };

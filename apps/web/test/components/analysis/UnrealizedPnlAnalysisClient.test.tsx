@@ -330,7 +330,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
         analysisUnrealizedPnlDefaults: {
           granularity: "monthly",
           lineCount: 10,
-          holdingsState: "include-sold-out",
+          holdingsState: "include-sold",
           reportingCurrency: "USD",
           includeProvisional: true,
         },

@@ -156,7 +156,9 @@ function parseLegacyAnalysisSettings(value: unknown): Partial<UnrealizedPnlAnaly
   const drivers = typeof source.lineCount === "number" && Number.isFinite(source.lineCount)
     ? normalizeDriverCount(String(Math.trunc(source.lineCount)), defaults.topDrivers.drivers)
     : defaults.topDrivers.drivers;
-  const positionStatus = source.holdingsState === "include-sold-out" ? "includeClosed" : defaults.topDrivers.positionStatus;
+  const positionStatus = source.holdingsState === "include-sold" || source.holdingsState === "include-sold-out"
+    ? "includeClosed"
+    : defaults.topDrivers.positionStatus;
 
   return {
     version: 1,

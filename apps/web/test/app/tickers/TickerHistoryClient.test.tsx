@@ -766,6 +766,20 @@ describe("TickerHistoryClient", () => {
     }));
   });
 
+  it("keeps analysis date aliases as the ticker chart custom range after mount", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis&fromDate=2026-04-10&toDate=2026-06-26";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    renderTickerHistoryClient(details, tickerInstrument);
+    await flushEffects();
+
+    expect(fetchTickerDetailsHydration).toHaveBeenCalledWith(expect.objectContaining({
+      range: undefined,
+      startDate: "2026-04-10",
+      endDate: "2026-06-26",
+    }));
+  });
+
   it("defaults analysis-origin ticker charts to Unrealized P&L and renders scope chips", async () => {
     navigationMocks.searchParams = "source=unrealized-pnl-analysis";
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
