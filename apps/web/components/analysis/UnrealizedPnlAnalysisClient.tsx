@@ -88,7 +88,9 @@ export function UnrealizedPnlAnalysisClient({
   const [detailSort, setDetailSort] = useState<DetailSortOption>("ranking");
   const [mutedSeriesIds, setMutedSeriesIds] = useState<Set<string>>(() => new Set());
   const [, startTransition] = useTransition();
+  const stateRef = useRef(initialState);
   const didHydratePreferencesRef = useRef(false);
+  const hasLocalStateEditRef = useRef(false);
   const settingsRef = useRef<UnrealizedPnlAnalysisSettings>(settingsFromState(initialState));
   const lastPersistedPreferencesRef = useRef<string | null>(null);
   const cacheScope = useMemo(() => getRouteDtoContextScope(shellData.sessionUserId), [shellData.sessionUserId]);
@@ -101,6 +103,10 @@ export function UnrealizedPnlAnalysisClient({
     locale: resolvedLocale,
     state,
   });
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (!mobileTotalDetailOpen || typeof window.matchMedia !== "function") return undefined;
@@ -122,12 +128,18 @@ export function UnrealizedPnlAnalysisClient({
       .then((response) => {
         if (cancelled) return;
         const defaults = parseAnalysisSettingsFromPreferences(response.preferences);
-        settingsRef.current = defaults;
         didHydratePreferencesRef.current = true;
         setState((current) => {
+          if (hasLocalStateEditRef.current) {
+            settingsRef.current = mergeSettingsWithState(defaults, current);
+            lastPersistedPreferencesRef.current = JSON.stringify(defaults);
+            return current;
+          }
+          settingsRef.current = defaults;
           const next = applyAnalysisSettings(current, defaults, explicitPreferenceKeys);
           lastPersistedPreferencesRef.current = JSON.stringify(defaults);
           if (JSON.stringify(next) === JSON.stringify(current)) return current;
+          stateRef.current = next;
           const params = unrealizedPnlRouteStateToSearchParams(next);
           startTransition(() => {
             router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
@@ -215,8 +227,12 @@ export function UnrealizedPnlAnalysisClient({
   ]);
 
   function replaceState(next: UnrealizedPnlAnalysisRouteState): void {
+    const previousState = stateRef.current;
+    hasLocalStateEditRef.current = true;
+    stateRef.current = next;
     setState(next);
-    if (next.detailLayout !== state.detailLayout) persistSettings(next);
+    settingsRef.current = mergeSettingsWithState(settingsRef.current, next);
+    if (next.detailLayout !== previousState.detailLayout) persistSettings(next);
     const params = unrealizedPnlRouteStateToSearchParams(next);
     startTransition(() => {
       router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
@@ -385,7 +401,7 @@ export function UnrealizedPnlAnalysisClient({
             labelFor={(option) => option === "manualTickers" ? dict.manualSelection : dict.topDrivers}
             options={SELECTION_OPTIONS}
             value={state.selection}
-            onChange={(selection) => replaceState(applySelectionModeSettings(state, settingsRef.current, selection))}
+            onChange={(selection) => replaceState(applySelectionModeSettings(stateRef.current, settingsRef.current, selection))}
           />
         </ControlGroup>
         <ControlGroup label={dict.holdingsLabel}>

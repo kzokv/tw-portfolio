@@ -139,19 +139,20 @@ describe("buildTickerDetails", () => {
       ) {
         const accountIds = new Set(options.accountIds ?? []);
         const pairs = new Set((options.pairs ?? []).map((pair) => `${pair.accountId}:${pair.marketCode}:${pair.ticker}`));
-        const rows = holdingSnapshots
+        const filteredRows = holdingSnapshots
           .filter((snapshot) => accountIds.size === 0 || accountIds.has(snapshot.accountId))
           .filter((snapshot) => pairs.size === 0 || pairs.has(`${snapshot.accountId}:${snapshot.marketCode}:${snapshot.ticker}`))
           .filter((snapshot) => !options.startDate || snapshot.snapshotDate >= options.startDate)
           .filter((snapshot) => !options.endDate || snapshot.snapshotDate <= options.endDate)
           .filter((snapshot) => options.includeProvisional || !snapshot.isProvisional)
-          .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate))
+          .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate));
+        const rows = filteredRows
           .slice(options.offset, options.offset + options.limit)
           .map((snapshot) => ({ ...snapshot, accountName: null }));
         return {
           rows,
-          total: rows.length,
-          provisionalCount: rows.filter((row) => row.isProvisional).length,
+          total: filteredRows.length,
+          provisionalCount: filteredRows.filter((row) => row.isProvisional).length,
         };
       },
     };
@@ -280,6 +281,25 @@ describe("buildTickerDetails", () => {
       code: "ticker_market_required",
       statusCode: 400,
     });
+  });
+
+  it("uses requested account ids to infer the market for cross-listed tickers", async () => {
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      accountIds: ["acc-au"],
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(marketCode).toBe("AU");
+    expect(details.position.accountIds).toEqual(["acc-au"]);
+    expect(details.position.quantity).toBe(3);
+    expect(details.transactions).toEqual([
+      expect.objectContaining({ id: "bhp-au-buy", accountId: "acc-au", marketCode: "AU" }),
+    ]);
   });
 
   it("uses the requested marketCode for same ticker across multiple markets", async () => {
@@ -594,6 +614,66 @@ describe("buildTickerDetails", () => {
         currency: "AUD",
         quantity: 0,
         accountIds: ["acc-au"],
+      }),
+    ]);
+  });
+
+  it("pages through all scoped unrealized P&L history snapshots", async () => {
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-02",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = Array.from({ length: 10_001 }, (_, index) => makeHoldingSnapshot({
+      id: `bhp-au-page-${index}`,
+      snapshotDate: index === 10_000 ? "2026-02-02" : "2026-02-01",
+      unrealizedPnlNative: index === 10_000 ? 7 : 1,
+      unrealizedPnl: index === 10_000 ? 7 : 1,
+      quantity: 1,
+      marketValue: index === 10_000 ? 47 : 41,
+      valueNative: index === 10_000 ? 47 : 41,
+    }));
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-01",
+      endDate: "2026-02-02",
+      fundamentalsRecord: null,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-01",
+        unrealizedPnlAmount: 10_000,
+        quantity: 10_000,
+      }),
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 7,
+        quantity: 1,
       }),
     ]);
   });

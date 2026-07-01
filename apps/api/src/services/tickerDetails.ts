@@ -65,14 +65,28 @@ export async function buildTickerDetails(
   if (input.accountId && !accountById.has(input.accountId)) {
     throw routeError(404, "account_not_found", "Account not found");
   }
+  const requestedAccountIds = input.accountIds?.length ? [...new Set(input.accountIds)] : [];
+  for (const requestedAccountId of requestedAccountIds) {
+    if (!accountById.has(requestedAccountId)) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+  }
+  const requestedAccountIdSet = new Set(requestedAccountIds);
+  const matchesRequestedAccountScope = (accountId: string) => (
+    input.accountId
+      ? accountId === input.accountId
+      : requestedAccountIdSet.size > 0
+        ? requestedAccountIdSet.has(accountId)
+        : true
+  );
 
   const matchingTrades = listTradeEvents(input.store)
     .filter((trade) => trade.ticker === normalizedTicker)
-    .filter((trade) => (input.accountId ? trade.accountId === input.accountId : true));
+    .filter((trade) => matchesRequestedAccountScope(trade.accountId));
 
   const matchingHoldings = listHoldings(input.store, input.userId)
     .filter((holding) => holding.ticker === normalizedTicker)
-    .filter((holding) => (input.accountId ? holding.accountId === input.accountId : true));
+    .filter((holding) => matchesRequestedAccountScope(holding.accountId));
 
   const resolvedMarketCode = await resolveMarketCode({
     requestedMarketCode: input.marketCode,
@@ -96,12 +110,8 @@ export async function buildTickerDetails(
     }
   }
 
-  const requestedAccountIds = input.accountIds?.length ? [...new Set(input.accountIds)] : [];
   for (const requestedAccountId of requestedAccountIds) {
-    const account = accountById.get(requestedAccountId);
-    if (!account) {
-      throw routeError(404, "account_not_found", "Account not found");
-    }
+    const account = accountById.get(requestedAccountId)!;
     if (marketCodeFor(account.defaultCurrency) !== resolvedMarketCode) {
       throw routeError(400, "account_market_mismatch", "Account does not match the requested market");
     }
@@ -330,15 +340,22 @@ async function buildUnrealizedPnlHistory(input: {
 }): Promise<TickerDetailsDto["unrealizedPnlHistory"]> {
   if (!input.startDate || !input.endDate) return [];
   if (input.accountIds.length === 0) return [];
-  const result = await input.persistence.listHoldingSnapshots(input.userId, {
-    accountIds: input.accountIds,
-    pairs: input.accountIds.map((accountId) => ({ accountId, ticker: input.ticker, marketCode: input.marketCode })),
-    startDate: input.startDate,
-    endDate: input.endDate,
-    includeProvisional: true,
-    limit: 10_000,
-    offset: 0,
-  });
+  const pageSize = 10_000;
+  type HoldingSnapshotRow = Awaited<ReturnType<Persistence["listHoldingSnapshots"]>>["rows"][number];
+  const rows: HoldingSnapshotRow[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const result = await input.persistence.listHoldingSnapshots(input.userId, {
+      accountIds: input.accountIds,
+      pairs: input.accountIds.map((accountId) => ({ accountId, ticker: input.ticker, marketCode: input.marketCode })),
+      startDate: input.startDate,
+      endDate: input.endDate,
+      includeProvisional: true,
+      limit: pageSize,
+      offset,
+    });
+    rows.push(...result.rows);
+    if (result.rows.length < pageSize || rows.length >= result.total) break;
+  }
   const byDate = new Map<string, {
     accountIds: Set<string>;
     currency: string;
@@ -346,7 +363,7 @@ async function buildUnrealizedPnlHistory(input: {
     quantity: number;
     unrealizedPnlAmount: number | null;
   }>();
-  for (const row of result.rows) {
+  for (const row of rows) {
     const current = byDate.get(row.snapshotDate) ?? {
       accountIds: new Set<string>(),
       currency: row.currency || input.currency,
