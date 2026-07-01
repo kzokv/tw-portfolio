@@ -70,6 +70,7 @@ const DRIVER_OPTIONS: AnalysisDriverCount[] = [5, 10, 20];
 const DETAIL_SORT_OPTIONS = ["ranking", "name", "end-pnl"] as const;
 type DetailSortOption = typeof DETAIL_SORT_OPTIONS[number];
 const DETAIL_LAYOUT_OPTIONS: AnalysisDetailLayout[] = ["responsive", "cards", "table"];
+const CUSTOM_TICKER_ID_LIMIT = 200;
 
 export function UnrealizedPnlAnalysisClient({
   explicitPreferenceKeys = EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
@@ -277,7 +278,7 @@ export function UnrealizedPnlAnalysisClient({
     const current = new Set(
       state.selection === "manualTickers" && state.tickerMode === "custom"
         ? state.tickerIds
-        : availableTickerIds,
+        : seedCustomTickerIdsFromAllEligible(availableTickerIds, seriesId),
     );
     if (current.has(seriesId)) {
       if (current.size <= 1) return;
@@ -962,7 +963,7 @@ function TickerPicker({
   function toggle(row: TickerPickerRow): void {
     if (!row.available && selectedSet.has(row.tickerId)) return;
     const next = tickerMode === "allEligible"
-      ? new Set(availableRows.map((candidate) => candidate.tickerId))
+      ? new Set(seedCustomTickerIdsFromAllEligible(availableRows.map((candidate) => candidate.tickerId), row.tickerId))
       : new Set(selectedSet);
     if (tickerMode === "allEligible") {
       if (next.size <= 1 && next.has(row.tickerId)) return;
@@ -1073,6 +1074,19 @@ function TickerPicker({
       </Popover>
     </div>
   );
+}
+
+function seedCustomTickerIdsFromAllEligible(tickerIds: string[], toggledTickerId: string): string[] {
+  const uniqueTickerIds = [...new Set(tickerIds)];
+  if (uniqueTickerIds.length <= CUSTOM_TICKER_ID_LIMIT) return uniqueTickerIds;
+  const cappedTickerIds = uniqueTickerIds.slice(0, CUSTOM_TICKER_ID_LIMIT);
+  if (cappedTickerIds.includes(toggledTickerId)) return cappedTickerIds;
+  return [
+    toggledTickerId,
+    ...uniqueTickerIds
+      .filter((tickerId) => tickerId !== toggledTickerId)
+      .slice(0, CUSTOM_TICKER_ID_LIMIT - 1),
+  ];
 }
 
 function OptionChecklist({
