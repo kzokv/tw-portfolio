@@ -72,6 +72,7 @@ const DETAIL_SORT_OPTIONS = ["ranking", "name", "end-pnl"] as const;
 type DetailSortOption = typeof DETAIL_SORT_OPTIONS[number];
 const DETAIL_LAYOUT_OPTIONS: AnalysisDetailLayout[] = ["responsive", "cards", "table"];
 const CUSTOM_TICKER_ID_LIMIT = 200;
+const TICKER_DETAIL_ACCOUNT_IDS_QUERY_LIMIT = 50;
 
 export function UnrealizedPnlAnalysisClient({
   explicitPreferenceKeys = EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
@@ -1236,7 +1237,7 @@ function buildTickerDetailHref(
       : [];
   if (scopedAccountIds.length === 1) {
     params.set("accountId", scopedAccountIds[0]!);
-  } else if (scopedAccountIds.length > 1) {
+  } else if (scopedAccountIds.length > 1 && scopedAccountIds.length <= TICKER_DETAIL_ACCOUNT_IDS_QUERY_LIMIT) {
     params.set("accountIds", scopedAccountIds.join(","));
   }
   return `/tickers/${encodeURIComponent(row.ticker)}?${params.toString()}`;

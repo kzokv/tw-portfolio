@@ -257,6 +257,9 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
   const marketValues = new Set<string>(response.query.markets);
   const tickerLabels = new Map<string, string>();
   const accountLabels = new Map<string, string>();
+  const requestedAvailabilityByTickerId = new Map(
+    response.requestedTickerAvailability.map((row) => [row.tickerId, row] as const),
+  );
 
   for (const row of response.rankings) {
     marketValues.add(row.marketCode);
@@ -287,7 +290,9 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
   }
   for (const tickerId of response.query.tickerIds) {
     const [marketCode, ticker] = tickerId.split(":");
-    if (ticker && marketCode) addTickerLabel(tickerLabels, ticker, marketCode, null);
+    const requestedAvailability = requestedAvailabilityByTickerId.get(tickerId);
+    if (requestedAvailability?.eligible === false) continue;
+    if (ticker && marketCode) addTickerLabel(tickerLabels, ticker, marketCode, requestedAvailability?.instrumentName ?? null);
   }
 
   return {

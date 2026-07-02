@@ -24,7 +24,7 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         granularity: "daily",
         markets: [],
         accountIds: [],
-        tickerIds: ["US:NVDA"],
+        tickerIds: ["US:NVDA", "US:BOGUS"],
         selection: "manualTickers",
         tickerMode: "custom",
         drivers: 5,
@@ -219,6 +219,13 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         instrumentName: "NVIDIA",
         eligible: true,
         reason: null,
+      }, {
+        tickerId: "US:BOGUS",
+        ticker: "BOGUS",
+        marketCode: "US",
+        instrumentName: null,
+        eligible: false,
+        reason: "not_held",
       }],
       warningFacts: {
         noisyChartLineCount: 1,
@@ -272,6 +279,14 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       { value: "US:NVDA", label: "US:NVDA:NVIDIA" },
       { value: "US:TSLA", label: "US:TSLA:Tesla" },
     ]);
+    expect(model.requestedTickerAvailability).toContainEqual({
+      tickerId: "US:BOGUS",
+      ticker: "BOGUS",
+      marketCode: "US",
+      displayName: null,
+      available: false,
+      reason: "not_held",
+    });
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
     expect(model.summary.worstDriver).toBeNull();
     expect(model.summary.endDate).toBe("2026-06-26");

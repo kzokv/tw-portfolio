@@ -756,6 +756,41 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(nvdaHref).not.toContain("acc-tw-main");
   });
 
+  it("omits oversized multi-account ticker drilldown params that exceed ticker route limits", () => {
+    const scopedAccounts = ["acc-us-growth", ...Array.from({ length: 51 }, (_unused, index) => `acc-us-extra-${index + 1}`)];
+    const oversizedAccountState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      accounts: scopedAccounts,
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(oversizedAccountState);
+    const oversizedData = {
+      ...initialData,
+      tickerSeries: initialData.tickerSeries.map((series) => (
+        series.seriesId === "US:NVDA"
+          ? { ...series, accountIds: scopedAccounts, accountNames: scopedAccounts }
+          : series
+      )),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={oversizedData} initialState={oversizedAccountState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const nvdaHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href") ?? "")
+      .find((href) => href.startsWith("/tickers/NVDA?"));
+    expect(nvdaHref).toBeDefined();
+
+    const params = new URL(nvdaHref!, "http://localhost").searchParams;
+    expect(params.get("marketCode")).toBe("US");
+    expect(params.get("accountId")).toBeNull();
+    expect(params.get("accountIds")).toBeNull();
+  });
+
   it("closes the mobile total composition sheet when the viewport becomes desktop", () => {
     const listeners = new Set<(event: MediaQueryListEvent) => void>();
     const mediaQuery = {
