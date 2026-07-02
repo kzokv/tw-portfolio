@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardSnapshot } from "../../../features/dashboard/types";
-import { buildPrimaryTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import type { InstrumentCatalogItemDto, TransactionHistoryItemDto } from "@vakwen/shared-types";
+
+vi.mock("../../../lib/api", () => ({
+  getJson: vi.fn(),
+}));
+
+import { getJson } from "../../../lib/api";
+import { buildPrimaryTickerDetails, fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
+
+const getJsonMock = vi.mocked(getJson);
 
 const duplicateTickerInstrument: InstrumentCatalogItemDto = {
   ticker: "2330",
@@ -79,6 +87,11 @@ const scopedTransactions: TransactionHistoryItemDto[] = [{
 }];
 
 describe("buildPrimaryTickerDetails", () => {
+  beforeEach(() => {
+    getJsonMock.mockReset();
+    getJsonMock.mockResolvedValue({});
+  });
+
   it("prefers the market-scoped dashboard instrument over a broad duplicate ticker match", () => {
     const details = buildPrimaryTickerDetails({
       ticker: "2330",
@@ -92,5 +105,18 @@ describe("buildPrimaryTickerDetails", () => {
     expect(details.identity.name).toBe("台積電");
     expect(details.identity.marketCode).toBe("TW");
     expect(details.fundamentals.panels[0]?.items.find((item) => item.key === "market")?.value).toBeNull();
+  });
+
+  it("forwards multi-account scope when fetching full ticker details", async () => {
+    await fetchTickerDetails({
+      ticker: "2330",
+      accountIds: ["acc-1", "acc-2"],
+      marketCode: "TW",
+      dashboard: scopedDashboard,
+      transactions: scopedTransactions,
+      instrument: null,
+    });
+
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountIds=acc-1%2Cacc-2&marketCode=TW");
   });
 });

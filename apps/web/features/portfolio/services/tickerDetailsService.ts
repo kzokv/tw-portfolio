@@ -606,6 +606,7 @@ export async function fetchTickerDetails(
   return fetchTickerDetailsFromEndpoint({
     ticker: options.ticker,
     accountId: options.accountId,
+    accountIds: options.accountIds,
     marketCode: options.marketCode,
     instrument: options.instrument,
     transactions: options.transactions,
