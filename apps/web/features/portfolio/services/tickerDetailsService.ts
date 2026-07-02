@@ -118,6 +118,7 @@ interface TickerDetailsRequest {
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
+  includeProvisional?: boolean;
   instrument?: InstrumentCatalogItemDto | null;
   transactions?: TransactionHistoryItemDto[];
 }
@@ -606,6 +607,9 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: TickerD
   } else if (request.range) {
     params.set("range", request.range);
   }
+  if (request.includeProvisional !== undefined) {
+    params.set("includeProvisional", request.includeProvisional ? "true" : "false");
+  }
 
   return `/tickers/${encodeURIComponent(request.ticker)}/${endpoint}${params.toString() ? `?${params.toString()}` : ""}`;
 }
@@ -689,6 +693,7 @@ export async function fetchTickerDetailsHydration({
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -704,6 +709,7 @@ export async function fetchTickerDetailsHydration({
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -718,6 +724,7 @@ export async function fetchTickerDetailsFullRefresh({
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -732,6 +739,7 @@ export async function fetchTickerDetailsFullRefresh({
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -746,6 +754,7 @@ export async function fetchTickerPrimaryDetails({
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -760,6 +769,7 @@ export async function fetchTickerPrimaryDetails({
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -774,6 +784,7 @@ export async function fetchTickerDetailsEnrichment({
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -788,6 +799,7 @@ export async function fetchTickerDetailsEnrichment({
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -806,13 +818,14 @@ async function fetchTickerDetailsFromEndpoint({
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }, endpoint: TickerDetailsEndpoint): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, accountIds, marketCode, range, startDate, endDate, instrument, transactions }, endpoint);
+  const path = buildTickerDetailsPath({ ticker, accountId, accountIds, marketCode, range, startDate, endDate, includeProvisional, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);

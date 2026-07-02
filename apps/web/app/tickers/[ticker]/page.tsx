@@ -24,6 +24,7 @@ interface TickerHistoryPageProps {
     chartRange?: string;
     chartStart?: string;
     fromDate?: string;
+    includeProvisional?: string;
     marketCode?: string;
     source?: string;
     toDate?: string;
@@ -45,8 +46,13 @@ function normalizeAccountIdsQueryValue(value?: string | string[]): string[] | un
   return accountIds.length > 0 ? accountIds : undefined;
 }
 
+function normalizeAnalysisIncludeProvisional(source?: string, value?: string): boolean | undefined {
+  if (source !== "unrealized-pnl-analysis") return undefined;
+  return value?.trim().toLowerCase() === "true";
+}
+
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, includeProvisional, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
     searchParams,
     requireSession(),
@@ -62,6 +68,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const initialChartRange = openedFromUnrealizedPnlAnalysis && fromDate && toDate ? "CUSTOM" : chartRange;
   const initialChartStart = openedFromUnrealizedPnlAnalysis && fromDate ? fromDate : chartStart;
   const initialChartEnd = openedFromUnrealizedPnlAnalysis && toDate ? toDate : chartEnd;
+  const analysisIncludeProvisional = normalizeAnalysisIncludeProvisional(source, includeProvisional);
   const locale = settings?.locale ?? "en";
   const dict = getDictionary(locale);
   const loadingCopy = getRouteLoadingLabels(locale).tickerDetail;
@@ -114,6 +121,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     accountId: scopedAccountId,
     accountIds: scopedAccountIds,
     marketCode: scopedMarketCode,
+    includeProvisional: analysisIncludeProvisional,
     instrument,
     transactions,
     primaryDetails,

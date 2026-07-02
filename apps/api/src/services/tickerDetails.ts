@@ -45,6 +45,7 @@ interface BuildTickerDetailsInput {
   accountIds?: readonly string[];
   marketCode?: MarketCode;
   reportingCurrency?: AccountDefaultCurrency;
+  includeProvisional?: boolean;
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
@@ -168,6 +169,7 @@ export async function buildTickerDetails(
     startDate: chart.metadata.resolved.startDate,
     endDate: chart.metadata.resolved.endDate,
     currency: currencyFor(resolvedMarketCode),
+    includeProvisional: input.includeProvisional ?? true,
   });
 
   const quantity = filteredHoldings.reduce((sum, holding) => sum + holding.quantity, 0);
@@ -337,6 +339,7 @@ async function buildUnrealizedPnlHistory(input: {
   startDate: string | null;
   endDate: string | null;
   currency: AccountDefaultCurrency;
+  includeProvisional: boolean;
 }): Promise<TickerDetailsDto["unrealizedPnlHistory"]> {
   if (!input.startDate || !input.endDate) return [];
   if (input.accountIds.length === 0) return [];
@@ -349,7 +352,7 @@ async function buildUnrealizedPnlHistory(input: {
       pairs: input.accountIds.map((accountId) => ({ accountId, ticker: input.ticker, marketCode: input.marketCode })),
       startDate: input.startDate,
       endDate: input.endDate,
-      includeProvisional: true,
+      includeProvisional: input.includeProvisional,
       limit: pageSize,
       offset,
     });

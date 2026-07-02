@@ -790,6 +790,7 @@ describe("TickerHistoryClient", () => {
       range: undefined,
       startDate: "2026-04-10",
       endDate: "2026-06-26",
+      includeProvisional: false,
     }));
   });
 

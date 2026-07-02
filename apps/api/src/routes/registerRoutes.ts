@@ -298,6 +298,7 @@ const tickerChartQuerySchema = z.object({
   range: tickerChartRangeSchema.optional(),
   startDate: isoDateSchema.optional(),
   endDate: isoDateSchema.optional(),
+  includeProvisional: queryBooleanSchema.optional(),
 }).superRefine((value, ctx) => {
   const hasCustomStart = Boolean(value.startDate);
   const hasCustomEnd = Boolean(value.endDate);
@@ -5778,6 +5779,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountId: userScopedIdSchema.optional(),
       accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
+      includeProvisional: queryBooleanSchema.optional(),
     }).parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
     const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
@@ -5791,6 +5793,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
@@ -5834,6 +5837,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,
@@ -5909,6 +5913,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,

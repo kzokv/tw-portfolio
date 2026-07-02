@@ -273,6 +273,11 @@ function buildInitialTickerChartSearchParams(
   };
 }
 
+function resolveAnalysisIncludeProvisional(searchParams: Pick<URLSearchParams, "get">): boolean | undefined {
+  if (searchParams.get("source") !== "unrealized-pnl-analysis") return undefined;
+  return searchParams.get("includeProvisional")?.trim().toLowerCase() === "true";
+}
+
 function isValidCustomTickerChartRange(startDate: string, endDate: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return false;
   if (startDate > endDate) return false;
@@ -394,6 +399,7 @@ export function TickerHistoryClient({
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
   const openedFromAnalysis = searchParams.get("source") === "unrealized-pnl-analysis";
+  const analysisIncludeProvisional = resolveAnalysisIncludeProvisional(searchParams);
   const tickerOpenMarketPollMs = resolveTickerPricePollMs(
     quotePollIntervalSeconds,
     tickerPriceIntradayRefreshIntervalMinutes,
@@ -576,6 +582,7 @@ export function TickerHistoryClient({
         range: tickerChartRequest.range,
         startDate: tickerChartRequest.startDate,
         endDate: tickerChartRequest.endDate,
+        includeProvisional: analysisIncludeProvisional,
         instrument,
         transactions,
         primaryDetails,
@@ -586,7 +593,7 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter, transactions]);
+  }, [analysisIncludeProvisional, instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
@@ -618,6 +625,7 @@ export function TickerHistoryClient({
       range: tickerChartRequest.range,
       startDate: tickerChartRequest.startDate,
       endDate: tickerChartRequest.endDate,
+      includeProvisional: analysisIncludeProvisional,
       instrument,
       transactions: nextTransactions,
       primaryDetails: detailsStateRef.current,
@@ -626,7 +634,7 @@ export function TickerHistoryClient({
     setDetailsState(nextDetails);
     writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
-  }, [instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter]);
+  }, [analysisIncludeProvisional, instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));

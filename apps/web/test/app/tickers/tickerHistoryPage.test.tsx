@@ -250,7 +250,7 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-start="2026-04-10"');
     expect(html).toContain('data-chart-end="2026-06-26"');
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&includeProvisional=false");
   });
 
   it("passes multi-account analysis scope into initial ticker transactions", async () => {
@@ -291,7 +291,7 @@ describe("TickerHistoryPage", () => {
       accountIds: ["acc-1", "acc-2"],
       marketCode: "TW",
     });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW&includeProvisional=false");
   });
 
   it("normalizes repeated accountIds query params into initial ticker transactions", async () => {

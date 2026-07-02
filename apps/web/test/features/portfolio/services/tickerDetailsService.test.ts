@@ -1353,13 +1353,14 @@ describe("fetchTickerDetails", () => {
       ticker: "NVDA",
       accountId: "acc-1",
       marketCode: "US",
+      includeProvisional: false,
       transactions: [],
       instrument,
       primaryDetails,
     });
 
     expect(details).toBe(primaryDetails);
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false");
   });
 
   it("refreshes ticker details from the full details endpoint after mutations", async () => {
