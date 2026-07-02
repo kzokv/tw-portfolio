@@ -422,6 +422,79 @@ describe("transaction form polish routes", () => {
     );
   });
 
+  it("POST /portfolio/transactions/estimate returns currency_mismatch instead of 500 for market/account mismatch", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/estimate",
+      headers: authHeaders,
+      payload: {
+        ticker: "BHP",
+        marketCode: "US",
+        quantity: 1,
+        unitPrice: 50,
+        type: "BUY",
+        isDayTrade: false,
+        accountId: "acc-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        error: "currency_mismatch",
+      }),
+    );
+  });
+
+  it("POST /portfolio/transactions/estimate returns currency_mismatch instead of 500 for stale fee profile currency", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const staleProfile: FeeProfile = {
+      id: "fp-stale-usd",
+      accountId: "acc-1",
+      name: "Stale USD Profile",
+      boardCommissionRate: 0.001425,
+      commissionDiscountPercent: 0,
+      minimumCommissionAmount: 1,
+      commissionCurrency: "USD",
+      commissionRoundingMode: "FLOOR",
+      taxRoundingMode: "FLOOR",
+      stockSellTaxRateBps: 30,
+      stockDayTradeTaxRateBps: 15,
+      etfSellTaxRateBps: 1,
+      bondEtfSellTaxRateBps: 0,
+      commissionChargeMode: "CHARGED_UPFRONT",
+    };
+    store.feeProfiles.push(staleProfile);
+    const account = store.accounts.find((item) => item.id === "acc-1");
+    if (!account) {
+      throw new Error("expected default account acc-1");
+    }
+    account.feeProfileId = staleProfile.id;
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/estimate",
+      headers: authHeaders,
+      payload: {
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 1000,
+        unitPrice: 2465,
+        type: "BUY",
+        isDayTrade: false,
+        accountId: "acc-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        error: "currency_mismatch",
+      }),
+    );
+  });
+
   // KZO-169: trade currency derives from `currencyFor(marketCode)` per D3, not
   // from `profile.commissionCurrency`. After KZO-167 + KZO-169 the invariant
   // chain is account.defaultCurrency = currencyFor(marketCode) =

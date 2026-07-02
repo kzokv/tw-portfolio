@@ -379,6 +379,10 @@ function resolveTickerChartPrice(point: TickerDetailsModel["chart"]["points"][nu
   return typeof rawClose === "number" ? rawClose : null;
 }
 
+function hasUsableTickerChartPrice(points: TickerDetailsModel["chart"]["points"]): boolean {
+  return points.some((point) => resolveTickerChartPrice(point) !== null);
+}
+
 function resolveTickerChartAverageCost(
   point: TickerDetailsModel["chart"]["points"][number],
   fallbackAverageCost: number | null,
@@ -856,7 +860,7 @@ export function TickerHistoryClient({
       averageCost: point.averageCost ?? detailsState.position.averageCost,
       quantity: point.quantity,
     }));
-  const priceChartSourcePoints = detailsState.chart.points.length > 0
+  const priceChartSourcePoints = hasUsableTickerChartPrice(detailsState.chart.points)
     ? detailsState.chart.points
     : snapshotPriceChartPoints;
   const chartStartDate = currentChartMetadata.resolved.startDate
@@ -898,7 +902,8 @@ export function TickerHistoryClient({
     : currency;
   const chartTitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartTitle : dict.tickerHistory.chartTitle;
   const chartSubtitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartSubtitle : dict.tickerHistory.chartSubtitle;
-  const isPriceChartEmpty = tickerChartMetric === "price" && chartData.length === 0;
+  const hasPriceChartValues = chartData.some((point) => point.price !== null || point.averageCost !== null);
+  const isPriceChartEmpty = tickerChartMetric === "price" && !hasPriceChartValues;
   const isPriceChartLoading = isPriceChartEmpty && isDetailsLoading;
   const accountContributionData = useMemo(
     () => accountBreakdownRows.map((child) => {

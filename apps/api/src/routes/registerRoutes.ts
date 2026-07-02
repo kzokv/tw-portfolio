@@ -5173,6 +5173,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // `currencyFor()`. The previous `profile.commissionCurrency ?? "TWD"`
     // was a provider-stamping audit (G1) target.
     const tradeCurrency = currencyFor(marketCode);
+    if (account.defaultCurrency !== tradeCurrency) {
+      throw routeError(
+        400,
+        "currency_mismatch",
+        `Trade currency ${tradeCurrency} does not match account currency ${account.defaultCurrency}`,
+      );
+    }
+    const commissionCurrency = profile.commissionCurrency ?? "TWD";
+    if (commissionCurrency !== tradeCurrency) {
+      throw routeError(
+        400,
+        "currency_mismatch",
+        `Trade currency ${tradeCurrency} does not match fee profile commission currency ${commissionCurrency}`,
+      );
+    }
     const tradeValueAmount = roundToDecimal(body.quantity * body.unitPrice, 2);
 
     const fees = body.type === "BUY"

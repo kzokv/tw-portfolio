@@ -46,6 +46,7 @@ describe("fetchTickerDetails", () => {
 
   it("returns fallback unavailable states when the ticker details API fails", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const details = await fetchTickerDetails({
       ticker: "2330",
@@ -87,6 +88,15 @@ describe("fetchTickerDetails", () => {
       asOf: null,
     });
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountId=acc-2");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "details",
+        path: "/tickers/2330/details?accountId=acc-2",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
@@ -1300,6 +1310,7 @@ describe("fetchTickerDetails", () => {
 
   it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const dashboard = buildDashboard({
       holdings: [{
         ticker: "NVDA",
@@ -1402,10 +1413,20 @@ describe("fetchTickerDetails", () => {
 
     expect(details).toBe(primaryDetails);
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "enrichment",
+        path: "/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("refreshes ticker details from the full details endpoint after mutations", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const dashboard = buildDashboard({
       holdings: [{
         ticker: "NVDA",
@@ -1446,5 +1467,14 @@ describe("fetchTickerDetails", () => {
 
     expect(details).toBe(primaryDetails);
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?accountId=acc-1&marketCode=US");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "details",
+        path: "/tickers/NVDA/details?accountId=acc-1&marketCode=US",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });

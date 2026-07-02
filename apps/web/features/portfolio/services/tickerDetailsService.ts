@@ -868,7 +868,12 @@ async function fetchTickerDetailsFromEndpoint({
       return mapApiEnrichmentToModel(payload, primaryDetails);
     }
     return mergeWithFallback(payload, primaryDetails);
-  } catch {
+  } catch (error) {
+    console.warn("[ticker-details] falling back to primary details after request failure", {
+      endpoint,
+      path,
+      error,
+    });
     return primaryDetails;
   }
 }
