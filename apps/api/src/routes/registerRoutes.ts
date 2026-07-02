@@ -5775,12 +5775,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/primary", async (req): Promise<TickerPrimaryDto> => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
-      marketCode: marketCodeSchema.optional(),
-      includeProvisional: queryBooleanSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
     const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
     const resolvedTicker = params.ticker.trim().toUpperCase();
@@ -5794,6 +5789,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       marketCode: query.marketCode,
       reportingCurrency,
       includeProvisional: query.includeProvisional,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),

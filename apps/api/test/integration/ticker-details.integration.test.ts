@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MarketCode } from "@vakwen/domain";
 import { signSessionCookie } from "../../src/auth/googleOAuth.js";
 import { buildApp } from "../../src/app.js";
+import type { HoldingSnapshot } from "../../src/persistence/types.js";
 import { createEmptyTickerFundamentals, type FundamentalsProvider } from "../../src/services/fundamentals/types.js";
 import { transactionPayload } from "../helpers/fixtures.js";
 
@@ -18,6 +19,33 @@ const testOAuthConfig = {
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { cookie: cookieHeader, ...extra };
+}
+
+function makeHoldingSnapshot(overrides: Partial<HoldingSnapshot>): HoldingSnapshot {
+  return {
+    id: overrides.id ?? "ticker-primary-snapshot",
+    userId,
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    snapshotDate: "2026-02-01",
+    quantity: 5,
+    closePrice: 110,
+    marketValue: 550,
+    costBasis: 500,
+    unrealizedPnl: 50,
+    cumulativeRealizedPnl: 0,
+    cumulativeDividends: 0,
+    isProvisional: false,
+    currency: "TWD",
+    valueNative: 550,
+    costBasisNative: 500,
+    unrealizedPnlNative: 50,
+    providerSource: "test",
+    generatedAt: "2026-02-01T00:00:00.000Z",
+    generationRunId: "ticker-primary-range",
+    ...overrides,
+  };
 }
 
 describe("GET /tickers/:ticker/details", () => {
@@ -706,7 +734,14 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
-  it("[ticker details]: validates range query shape on details and enrichment endpoints", async () => {
+  it("[ticker details]: validates range query shape on primary, details and enrichment endpoints", async () => {
+    const primaryResponse = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/primary?range=1Y&startDate=2026-01-01&endDate=2026-06-01",
+      headers: authHeaders(),
+    });
+    expect(primaryResponse.statusCode).toBe(400);
+
     const detailsResponse = await app.inject({
       method: "GET",
       url: "/tickers/2330/details?range=1Y&startDate=2026-01-01&endDate=2026-06-01",
@@ -720,6 +755,63 @@ describe("GET /tickers/:ticker/details", () => {
       headers: authHeaders(),
     });
     expect(enrichmentResponse.statusCode).toBe(400);
+  });
+
+  it("[ticker details]: forwards custom range to primary unrealized P&L history", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-primary-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 5,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedHoldingSnapshots?: (snapshots: HoldingSnapshot[]) => void;
+    };
+    memoryPersistence._seedHoldingSnapshots?.([
+      makeHoldingSnapshot({
+        id: "ticker-primary-range-outside",
+        snapshotDate: "2026-01-15",
+        closePrice: 105,
+        marketValue: 525,
+        valueNative: 525,
+        unrealizedPnl: 25,
+        unrealizedPnlNative: 25,
+      }),
+      makeHoldingSnapshot({
+        id: "ticker-primary-range-inside",
+        snapshotDate: "2026-02-15",
+        closePrice: 120,
+        marketValue: 600,
+        valueNative: 600,
+        unrealizedPnl: 100,
+        unrealizedPnlNative: 100,
+      }),
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/primary?marketCode=TW&startDate=2026-02-01&endDate=2026-02-28",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      unrealizedPnlHistory: [
+        expect.objectContaining({
+          date: "2026-02-15",
+          unrealizedPnlAmount: 100,
+          closePrice: 120,
+          averageCostPerShare: 100,
+        }),
+      ],
+    }));
   });
 
   it("[ticker details]: returns requested and available chart metadata without backfilling provider data", async () => {
