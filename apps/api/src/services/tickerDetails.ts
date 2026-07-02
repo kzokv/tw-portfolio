@@ -362,6 +362,8 @@ async function buildUnrealizedPnlHistory(input: {
   }
   const byDate = new Map<string, {
     accountIds: Set<string>;
+    closePriceNumerator: number | null;
+    costBasisAmount: number;
     currency: string;
     isProvisional: boolean;
     quantity: number;
@@ -370,6 +372,8 @@ async function buildUnrealizedPnlHistory(input: {
   for (const row of rows) {
     const current = byDate.get(row.snapshotDate) ?? {
       accountIds: new Set<string>(),
+      closePriceNumerator: 0,
+      costBasisAmount: 0,
       currency: row.currency || input.currency,
       isProvisional: false,
       quantity: 0,
@@ -377,6 +381,10 @@ async function buildUnrealizedPnlHistory(input: {
     };
     current.accountIds.add(row.accountId);
     current.isProvisional = current.isProvisional || row.isProvisional;
+    current.closePriceNumerator = current.closePriceNumerator === null || row.closePrice === null
+      ? null
+      : roundToDecimal(current.closePriceNumerator + (row.closePrice * row.quantity), 4);
+    current.costBasisAmount = roundToDecimal(current.costBasisAmount + row.costBasisNative, 2);
     current.quantity = roundToDecimal(current.quantity + row.quantity, 4);
     const unrealizedPnlAmount = row.unrealizedPnlNative ?? (row.quantity === 0 ? 0 : null);
     current.unrealizedPnlAmount = current.unrealizedPnlAmount === null || unrealizedPnlAmount === null
@@ -391,6 +399,12 @@ async function buildUnrealizedPnlHistory(input: {
       unrealizedPnlAmount: row.unrealizedPnlAmount,
       currency: row.currency as TickerDetailsDto["unrealizedPnlHistory"][number]["currency"],
       quantity: row.quantity,
+      closePrice: row.closePriceNumerator !== null && row.quantity > 0
+        ? roundToDecimal(row.closePriceNumerator / row.quantity, 4)
+        : null,
+      averageCostPerShare: row.quantity > 0
+        ? roundToDecimal(row.costBasisAmount / row.quantity, 4)
+        : null,
       accountIds: [...row.accountIds].sort(),
       isProvisional: row.isProvisional,
     }));

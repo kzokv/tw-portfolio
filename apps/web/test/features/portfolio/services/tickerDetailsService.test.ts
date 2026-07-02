@@ -692,6 +692,18 @@ describe("fetchTickerDetails", () => {
           },
         ],
       },
+      unrealizedPnlHistory: [
+        {
+          date: "2026-05-20",
+          unrealizedPnlAmount: 4120,
+          currency: "USD",
+          quantity: 10,
+          closePrice: 912,
+          averageCostPerShare: 500,
+          accountIds: ["acc-1"],
+          isProvisional: false,
+        },
+      ],
       fundamentals: {
         marketCap: { value: 2_000_000_000_000, source: "provider", asOf: "2026-05-20" },
         enterpriseValue: { value: null, source: null, asOf: null },
@@ -757,6 +769,13 @@ describe("fetchTickerDetails", () => {
     expect(details.chart.points[0]).toMatchObject({
       date: "2026-05-20",
       label: "2026-05-20",
+      price: 912,
+      averageCost: 500,
+      quantity: 10,
+    });
+    expect(details.unrealizedPnlHistory[0]).toMatchObject({
+      date: "2026-05-20",
+      unrealizedPnl: 4120,
       price: 912,
       averageCost: 500,
       quantity: 10,

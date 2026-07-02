@@ -37,6 +37,8 @@ export interface TickerDetailUnrealizedPnlPoint {
   unrealizedPnl: number | null;
   currency: string;
   quantity: number;
+  price?: number | null;
+  averageCost?: number | null;
 }
 
 export interface TickerFundamentalField {
@@ -461,6 +463,8 @@ function mapApiUnrealizedPnlHistory(
     unrealizedPnl: point.unrealizedPnlAmount,
     currency: point.currency,
     quantity: point.quantity,
+    price: point.closePrice ?? null,
+    averageCost: point.averageCostPerShare ?? null,
   }));
 }
 

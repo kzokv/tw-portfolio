@@ -1107,6 +1107,56 @@ describe("TickerHistoryClient", () => {
     ]);
   });
 
+  it("renders snapshot-derived price history when enrichment falls back without chart points", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [],
+      },
+      unrealizedPnlHistory: [
+        {
+          date: "2026-06-11",
+          label: "2026-06-11",
+          unrealizedPnl: 80,
+          currency: "TWD",
+          quantity: 10,
+          price: 108,
+          averageCost: 100,
+        },
+        {
+          date: "2026-06-12",
+          label: "2026-06-12",
+          unrealizedPnl: 100,
+          currency: "TWD",
+          quantity: 10,
+          price: 110,
+          averageCost: 100,
+        },
+      ],
+    });
+    await flushEffects();
+    await flushEffects();
+
+    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
+    const latestChartData = rechartsMocks.lineChartData.at(-1);
+    expect(latestChartData).toEqual([
+      expect.objectContaining({
+        date: "2026-06-11",
+        price: 108,
+        averageCost: 100,
+        quantity: 10,
+      }),
+      expect.objectContaining({
+        date: "2026-06-12",
+        price: 110,
+        averageCost: 100,
+        quantity: 10,
+      }),
+    ]);
+  });
+
   it("renders refreshed account breakdown from ticker details state", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
       ...details,

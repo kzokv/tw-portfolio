@@ -1806,6 +1806,8 @@ export interface TickerDetailsUnrealizedPnlPointDto {
   unrealizedPnlAmount: number | null;
   currency: CurrencyCode;
   quantity: number;
+  closePrice?: number | null;
+  averageCostPerShare?: number | null;
   accountIds: string[];
   isProvisional: boolean;
 }

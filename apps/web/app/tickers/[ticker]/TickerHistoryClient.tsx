@@ -847,13 +847,25 @@ export function TickerHistoryClient({
     },
   ];
   const currentChartMetadata = getTickerChartMetadata(detailsState.chart);
+  const snapshotPriceChartPoints = detailsState.unrealizedPnlHistory
+    .filter((point) => typeof point.price === "number")
+    .map((point) => ({
+      date: point.date,
+      label: point.label,
+      price: point.price ?? null,
+      averageCost: point.averageCost ?? detailsState.position.averageCost,
+      quantity: point.quantity,
+    }));
+  const priceChartSourcePoints = detailsState.chart.points.length > 0
+    ? detailsState.chart.points
+    : snapshotPriceChartPoints;
   const chartStartDate = currentChartMetadata.resolved.startDate
-    ?? detailsState.chart.points[0]?.date
+    ?? priceChartSourcePoints[0]?.date
     ?? currentChartMetadata.requested.startDate
     ?? currentChartMetadata.requested.endDate
     ?? TICKER_CHART_EMPTY_FALLBACK_DATE;
   const chartEndDate = currentChartMetadata.resolved.endDate
-    ?? detailsState.chart.points.at(-1)?.date
+    ?? priceChartSourcePoints.at(-1)?.date
     ?? currentChartMetadata.requested.endDate
     ?? currentChartMetadata.requested.startDate
     ?? chartStartDate;
@@ -861,10 +873,10 @@ export function TickerHistoryClient({
     endDate: chartEndDate,
     locale,
     mode: tickerTimelineMode,
-    pointDates: detailsState.chart.points.map((point) => point.date),
+    pointDates: priceChartSourcePoints.map((point) => point.date),
     startDate: chartStartDate,
   });
-  const downsampledChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
+  const downsampledChart = downsampleTickerChartPoints(priceChartSourcePoints, MAX_TICKER_CHART_POINTS);
   const pnlPointByDate = new Map(detailsState.unrealizedPnlHistory.map((point) => [point.date, point]));
   const chartData = downsampledChart.points.map((point) => ({
     ...point,

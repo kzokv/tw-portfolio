@@ -632,6 +632,8 @@ describe("buildTickerDetails", () => {
         unrealizedPnlAmount: 15,
         currency: "AUD",
         quantity: 3,
+        closePrice: 45,
+        averageCostPerShare: 40,
         accountIds: ["acc-au"],
       }),
       expect.objectContaining({
